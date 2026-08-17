@@ -107,6 +107,10 @@ public enum AgentTranscriptRenderer {
         /// record that starts before it, so only a lower bound on the size is
         /// known.
         public var oversizeFragmentNotice: @Sendable (_ formattedSize: String) -> String
+        /// Sentence shown when Pi branch filtering could not run and every
+        /// entry in the window is rendered, so abandoned branches are not
+        /// silently presented as the live conversation.
+        public var branchUnavailableNotice: String
         public init(
             title: String,
             sessionLabel: String,
@@ -114,7 +118,8 @@ public enum AgentTranscriptRenderer {
             emptyWindowNotice: String,
             oversizeRecordTitle: String,
             oversizeRecordNotice: @escaping @Sendable (String) -> String,
-            oversizeFragmentNotice: @escaping @Sendable (String) -> String
+            oversizeFragmentNotice: @escaping @Sendable (String) -> String,
+            branchUnavailableNotice: String
         ) {
             self.title = title
             self.sessionLabel = sessionLabel
@@ -123,6 +128,7 @@ public enum AgentTranscriptRenderer {
             self.oversizeRecordTitle = oversizeRecordTitle
             self.oversizeRecordNotice = oversizeRecordNotice
             self.oversizeFragmentNotice = oversizeFragmentNotice
+            self.branchUnavailableNotice = branchUnavailableNotice
         }
 
         /// English copy for this module's own tests, and nothing that ships.
@@ -142,7 +148,9 @@ public enum AgentTranscriptRenderer {
                     "No conversation turns could be rendered from the most recent history.",
                 oversizeRecordTitle: "omitted",
                 oversizeRecordNotice: { "One record of \($0) was too large to display." },
-                oversizeFragmentNotice: { "One record larger than \($0) could not be displayed." }
+                oversizeFragmentNotice: { "One record larger than \($0) could not be displayed." },
+                branchUnavailableNotice:
+                    "Branch filtering is unavailable for this window — every Pi entry is shown, including any from abandoned turns."
             )
         }
     }
@@ -323,24 +331,43 @@ public enum AgentTranscriptRenderer {
 
         var chunks: [String] = []
         var isTruncated = hasEarlierBytes
-        let piBranchEntryIDs = provider == .pi ? activePiBranchEntryIDs(in: lines) : nil
-        for line in lines.reversed() {
+        let piBranch = provider == .pi ? piBranchIndex(in: lines) : nil
+        // Fail open, but say so: a window that yields no Pi entry ids — a tail
+        // that begins before the newest record with an id, or renamed fields
+        // after schema drift — cannot prove branch membership, so every entry
+        // is rendered rather than nothing, with one notice instead of the
+        // silence that would present abandoned branches as the live
+        // conversation. Charged up front like the other notices, so the
+        // budget holds whether or not it appears.
+        var branchUnavailableNotice: String?
+        if provider == .pi, piBranch == nil {
+            let notice = italicNotice(chrome.branchUnavailableNotice)
+            remaining -= notice.utf8.count
+            branchUnavailableNotice = notice
+        }
+        for index in lines.indices.reversed() {
+            let line = lines[index]
             guard !line.isEmpty else { continue }
-            if let piBranchEntryIDs,
-                !piRecord(Data(line), belongsTo: piBranchEntryIDs)
-            {
-                continue
-            }
 
             let chunk: String
             if line.count > maximumRecordBytes {
                 // Measured, not parsed. This branch is the whole reason the
-                // budget survives a 57 MB record.
+                // budget survives a 57 MB record — and it runs BEFORE the Pi
+                // branch filter, because deciding whether an oversized record
+                // belongs to the active branch would require decoding it. A Pi
+                // record past the cap reports its size like any other
+                // provider's, without proof it was on the branch; the marker
+                // names a size, not a turn, so the worst case is a reported
+                // omission for a record the reader was never going to see.
                 chunk = elisionMarker(byteCount: line.count, chrome: chrome)
-            } else if let rendered = renderRecord(Data(line), provider: provider) {
-                chunk = rendered
             } else {
-                continue
+                if let piBranch, !piBranch.isActiveBranchLine(at: index) {
+                    continue
+                }
+                guard let rendered = renderRecord(Data(line), provider: provider) else {
+                    continue
+                }
+                chunk = rendered
             }
 
             let cost = chunk.utf8.count
@@ -370,6 +397,9 @@ public enum AgentTranscriptRenderer {
         var text = header
         if isTruncated {
             text += truncationNotice
+        }
+        if let branchUnavailableNotice {
+            text += branchUnavailableNotice
         }
         if chunks.isEmpty {
             text += emptyWindowNotice
@@ -619,18 +649,41 @@ public enum AgentTranscriptRenderer {
     /// parent ids prevents abandoned branches from appearing as if they were
     /// part of the current conversation. A bounded tail may begin mid-branch,
     /// in which case the walk naturally stops at the oldest entry available.
-    private static func activePiBranchEntryIDs(
-        in lines: [Data.SubSequence]
-    ) -> Set<String>? {
+    ///
+    /// The index is parsed ONCE and shared with the render loop, so a line is
+    /// decoded at most twice (here and in `renderRecord`) instead of three
+    /// times, and the loop's membership test is an index lookup rather than a
+    /// second parse. Lines past `maximumRecordBytes` never enter the index by
+    /// design: they answer by measured length, not by content — see the loop.
+    struct PiBranchIndex {
+        /// Ids of every parseable, measurable record, in window order.
+        var lineIDs: [String?]
+        /// The active branch's entry ids.
+        var active: Set<String>
+
+        func isActiveBranchLine(at index: Int) -> Bool {
+            guard index < lineIDs.count, let id = lineIDs[index] else { return false }
+            return active.contains(id)
+        }
+    }
+
+    private static func piBranchIndex(in lines: [Data.SubSequence]) -> PiBranchIndex? {
         var parents: [String: String?] = [:]
         var leafID: String?
-        for line in lines where line.count <= maximumRecordBytes {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line)),
+        var lineIDs: [String?] = []
+        lineIDs.reserveCapacity(lines.count)
+        for line in lines {
+            guard line.count <= maximumRecordBytes,
+                let object = try? JSONSerialization.jsonObject(with: Data(line)),
                 let record = object as? [String: Any],
                 let id = record["id"] as? String
-            else { continue }
+            else {
+                lineIDs.append(nil)
+                continue
+            }
             parents[id] = record["parentId"] as? String
             leafID = id
+            lineIDs.append(id)
         }
         guard var current = leafID else { return nil }
         var branch: Set<String> = []
@@ -639,15 +692,7 @@ public enum AgentTranscriptRenderer {
         {
             current = parent
         }
-        return branch
-    }
-
-    private static func piRecord(_ data: Data, belongsTo branch: Set<String>) -> Bool {
-        guard let object = try? JSONSerialization.jsonObject(with: data),
-            let record = object as? [String: Any],
-            let id = record["id"] as? String
-        else { return false }
-        return branch.contains(id)
+        return PiBranchIndex(lineIDs: lineIDs, active: branch)
     }
 
     private static func renderOpenCodeMessage(_ message: [String: Any]) -> String? {

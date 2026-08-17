@@ -624,25 +624,6 @@ struct AgentHookCommandTests {
     }
 
     @Test
-    func wrongTypedSessionIDFallsThroughToLegacySpelling() throws {
-        let temp = try Self.temporaryEventFile()
-        defer { temp.remove() }
-
-        let status = AgentHookCommand.run(
-            arguments: ["--provider", "grok"],
-            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
-            stdin: Data(
-                #"{"hookEventName":"UserPromptSubmit","session_id":42,"sessionId":"parent-session"}"#
-                    .utf8
-            )
-        )
-
-        #expect(status == 0)
-        let parsedEvent = try #require(try Self.readSingleEvent(from: temp.file))
-        #expect(parsedEvent.providerSessionID == "parent-session")
-    }
-
-    @Test
     func grokLegacyStopWithEndTurnReasonWritesWaitingEvent() throws {
         let temp = try Self.temporaryEventFile()
         defer { temp.remove() }

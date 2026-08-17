@@ -189,13 +189,12 @@ enum AgentTranscriptOpener {
     ) async -> Bool {
         guard case .local = executionPlan else { return false }
         if identity.agentKind == .openCode {
-            guard
-                case .success = await OpenCodeTranscriptExporter.export(
-                    sessionID: identity.sessionID,
-                    setup: setup
-                )
-            else { return false }
-            return true
+            // Existence, not content: `session list` metadata answers Resume's
+            // question without paying a full export per click.
+            return await OpenCodeTranscriptExporter.sessionExists(
+                sessionID: identity.sessionID,
+                setup: setup
+            )
         }
         return sessionLogExists(
             identity: identity,
@@ -248,7 +247,13 @@ enum AgentTranscriptOpener {
                     comment:
                         "Notice for an agent transcript record so large that only its tail fell inside the window, so its size is a lower bound"
                 )
-            }
+            },
+            branchUnavailableNotice: String(
+                localized:
+                    "Branch filtering is unavailable for this window — every Pi entry is shown, including any from abandoned turns.",
+                comment:
+                    "Notice in a Pi agent transcript when no entry ids could be found to filter to the active branch, so all entries render"
+            )
         )
     }
 

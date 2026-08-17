@@ -46,4 +46,23 @@ struct AgentTranscriptCommandSurfaceTests {
         let source = try SourceContract.source(at: Self.path)
         #expect(source.contains("resumeAgentSession: resumeSelectedTranscriptSession"))
     }
+
+    /// A denied Resume keeps its typed reason past the two-second nudge flash:
+    /// the reason names world state the user can act on, and both the caption
+    /// and the button's accessibility label derive from it, so clearing on the
+    /// flash timer would leave a VoiceOver user who missed the one-shot
+    /// announcement with no way to read why.
+    @Test("a denied Resume keeps its typed reason until the verdict changes")
+    func resumeFailurePersistsUntilVerdictChange() throws {
+        let source = try SourceContract.source(at: "Sources/awesoMux/Views/DocumentPaneView.swift")
+
+        #expect(
+            source.contains(".onChange(of: resumeVerdict)"),
+            "the typed denial must clear on verdict change or the next attempt, never on the flash timer"
+        )
+        #expect(
+            source.contains("guard resumeFailure == nil else { return }"),
+            "the nudge flash must not wipe a typed denial's reason — or its accessibility label"
+        )
+    }
 }

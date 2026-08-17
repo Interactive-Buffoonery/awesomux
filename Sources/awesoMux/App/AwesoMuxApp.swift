@@ -3447,7 +3447,19 @@ struct AwesoMuxApp: App {
                     priority: .high
                 )
             case .alreadyStaging:
-                break
+                // Not a denial — nothing is wrong — but silence here would be
+                // this route's version of a dead command: the button's
+                // disabled state and busy label never reach someone driving
+                // the menu, and the probe can take seconds on OpenCode. Mirror
+                // the button's busy sentence instead. Not `.high`: no terminal
+                // contents changed, so nothing competes for a screen reader.
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Already checking this session's log.",
+                        comment:
+                            "VoiceOver announcement when Resume is invoked while a session-log probe is already in flight"
+                    )
+                )
             case .unavailable(let reason):
                 // An alert rather than the button's inline caption: this route
                 // can run while the send bar is scrolled out of view, and a

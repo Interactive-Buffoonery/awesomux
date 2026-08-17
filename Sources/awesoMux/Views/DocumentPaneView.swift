@@ -34,7 +34,10 @@ struct DocumentPaneSendBar: View {
     /// Why the last Resume click failed, kept typed rather than collapsed into
     /// `nudgeFailed`. Six reasons share one Boolean otherwise, and the button's
     /// generic "this document's terminal isn't running" is the wrong sentence
-    /// for five of them (review finding).
+    /// for five of them (review finding). Unlike the nudge flash, a typed
+    /// denial PERSISTS: it names world state the user can act on, and the
+    /// caption and accessibility label both read it until the verdict changes
+    /// or the next attempt starts.
     @State private var resumeFailure: AgentTranscriptResumeUnavailableReason?
     /// A Resume attempt is awaiting its session-log probe. Drives the button's
     /// disabled state; the send itself is guarded in
@@ -330,8 +333,23 @@ struct DocumentPaneSendBar: View {
         .task(id: nudgeFailed) {
             guard nudgeFailed else { return }
             try? await Task.sleep(for: .seconds(2))
+            // A typed Resume denial must NOT share this flash: its reason is
+            // world state (the log is gone, an agent took the terminal), and
+            // both the caption and the button's accessibility label derive
+            // from it. Persist it until the verdict changes or the next
+            // attempt, so a VoiceOver user who missed the one-shot
+            // announcement can still read why from the button itself.
+            guard resumeFailure == nil else { return }
             nudgeFailed = false
+        }
+        // The typed Resume denial's lifetime: the reason it names is state of
+        // the world, so it clears when that state changes (the verdict flips)
+        // or when the next attempt starts, never on a timer. On a plain
+        // document there is no Resume control and nothing to clear.
+        .onChange(of: resumeVerdict) {
+            guard pane.agentTranscriptIdentity != nil else { return }
             resumeFailure = nil
+            nudgeFailed = false
         }
     }
 

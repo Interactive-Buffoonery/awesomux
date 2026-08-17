@@ -171,8 +171,8 @@ extension SessionStore {
     /// The provider-native session id of the agent running in a pane right now,
     /// latched from its hook stream. Nil until a lifecycle event has arrived —
     /// including after a relaunch that reattached the pane to a still-live
-    /// agent, which is why transcript resolution has a working-directory
-    /// fallback rather than treating nil as "no session".
+    /// agent, so transcript resolution reports that no exact identity is
+    /// available yet rather than guessing (ADR 0033).
     public func agentProviderSessionID(for paneID: TerminalPane.ID) -> String? {
         runtimeEventReducer.providerSessionID(for: paneID)
     }

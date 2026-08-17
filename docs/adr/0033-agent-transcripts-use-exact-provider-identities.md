@@ -40,7 +40,9 @@ from the terminal's current agent.
 Resume stages, but does not submit, the provider's exact command:
 `claude --resume`, `codex resume`, `opencode --session`, or `pi --session`.
 It is allowed only beside a verified local shell prompt and rechecks after the
-session-log/export probe before writing to the terminal.
+session-log probe before writing to the terminal. OpenCode's probe asks
+`opencode session list --format json` for existence from the lightweight
+session metadata rather than paying a full `export` per Resume click.
 
 ## Consequences
 

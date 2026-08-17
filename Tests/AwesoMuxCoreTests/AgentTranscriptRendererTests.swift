@@ -62,6 +62,12 @@ import Testing
 
         #expect(rendered.text.contains("hello from pi"))
         #expect(rendered.text.contains("pi answer"))
+        // No entry ids in the window → fail open WITH the notice. Silence here
+        // presents abandoned branches as the live conversation.
+        #expect(
+            rendered.text.contains(
+                AgentTranscriptRenderer.Chrome.unlocalizedFallback(agentKind: .pi)
+                    .branchUnavailableNotice))
     }
 
     @Test("Pi renders only the active branch of its session tree")
@@ -79,6 +85,12 @@ import Testing
         #expect(rendered.text.contains("root turn"))
         #expect(rendered.text.contains("active answer"))
         #expect(!rendered.text.contains("abandoned answer"))
+        // With entry ids present the filter runs, so the fail-open notice
+        // stays out of the document.
+        #expect(
+            !rendered.text.contains(
+                AgentTranscriptRenderer.Chrome.unlocalizedFallback(agentKind: .pi)
+                    .branchUnavailableNotice))
     }
 
     @Test("OpenCode export messages render without reading provider storage")
