@@ -263,13 +263,11 @@ struct AgentTranscriptResumeCopyTests {
         #expect(Set(descriptions).count == reasons.count)
     }
 
-    /// The denial has to name the exit, not just refuse: staging a shell command
-    /// at a live agent's prompt pastes it as chat.
     @MainActor
-    @Test("a live agent denial names the agent to exit")
-    func liveAgentDenialNamesTheAgent() {
+    @Test("a live agent denial says the session is still running")
+    func liveAgentDenialSaysTheSessionIsStillRunning() {
         let copy = DocumentPaneSendBar.resumeUnavailableDescription(for: .agentRunning(.codex))
-        #expect(copy.contains(AgentKind.codex.displayName))
+        #expect(copy == "This session is still running and can’t be resumed")
     }
 
     @MainActor

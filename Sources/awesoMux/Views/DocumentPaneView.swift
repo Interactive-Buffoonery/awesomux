@@ -419,9 +419,9 @@ struct DocumentPaneSendBar: View {
                 localized: "Couldn't verify what's running in this transcript's terminal",
                 comment: "Unavailable reason for resuming a session when foreground process evidence is unavailable"
             )
-        case .agentRunning(let kind):
+        case .agentRunning:
             return String(
-                localized: "Exit \(kind.displayName) first — a resume command typed there would be sent as a message",
+                localized: "This session is still running and can’t be resumed",
                 comment: "Unavailable reason for resuming a session while an agent still holds the terminal"
             )
         case .foregroundBusy:
