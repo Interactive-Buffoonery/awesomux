@@ -171,6 +171,23 @@ test("successful label JSON stays separate from gh warnings", () => {
   assert.doesNotMatch(result.recordedCalls, /--method (?:POST|PATCH)/);
 });
 
+test("changed repository label metadata is updated", () => {
+  for (const lookupResponse of [
+    { color: "ffffff", description: "10-29 effective changed lines." },
+    { color: "5ebd3e", description: "stale description" },
+  ]) {
+    const result = runEnsureRepositoryLabel({
+      lookupResponse: JSON.stringify(lookupResponse),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.recordedCalls,
+      /api --method PATCH repos\/Interactive-Buffoonery\/awesomux\/labels\/size%3AS/,
+    );
+    assert.doesNotMatch(result.recordedCalls, /--method POST/);
+  }
+});
+
 test("hosted native CI stays advisory and maintainer-triggered", () => {
   assert.match(workflows.native, /issue_comment:\n\s+types: \[created\]/);
   assert.match(workflows.native, /workflow_dispatch:/);
