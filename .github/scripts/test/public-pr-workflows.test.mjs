@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -17,6 +26,101 @@ const workflows = {
   swiftCodeql: read(".github/workflows/swift-codeql.yml"),
   template: read(".github/workflows/pr-template.yml"),
 };
+const ensureRepositoryLabel = join(repoRoot, ".github/scripts/ensure-repository-label.sh");
+
+function runEnsureRepositoryLabel({
+  lookupError = "",
+  lookupResponse,
+  lookupSequence,
+  lookupStatus = 200,
+  lookupWarning = "",
+  postError = "",
+  postResponse = "",
+  postStatus = 201,
+}) {
+  const fixture = mkdtempSync(join(tmpdir(), "awesomux-label-test-"));
+  const calls = join(fixture, "calls");
+  const lookupState = join(fixture, "lookup-state");
+  const mockGh = join(fixture, "gh");
+  const lookupSequenceJson = JSON.stringify(
+    lookupSequence ?? [
+      {
+        error: lookupError,
+        response: lookupResponse ?? "",
+        status: lookupStatus,
+        warning: lookupWarning,
+      },
+    ],
+  );
+  const script = `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$GH_CALLS"
+if [[ "$1" == "api" && "\${2:-}" == "--include" && "\${3:-}" == "--method" && "\${4:-}" == "POST" ]]; then
+    printf 'HTTP/2.0 %s Synthetic\\r\\n' "$GH_POST_STATUS"
+    printf 'Content-Type: application/json\\r\\n\\r\\n'
+    printf '%s\\n' "$GH_POST_RESPONSE"
+    if [[ -n "\${GH_POST_ERROR:-}" ]]; then
+        printf '%s\\n' "$GH_POST_ERROR" >&2
+    fi
+    if [[ "$GH_POST_STATUS" -ge 400 ]]; then
+        exit 1
+    fi
+    exit 0
+fi
+if [[ "$1" == "api" && "\${2:-}" == "--include" ]]; then
+    lookup_index="$(cat "$GH_LOOKUP_STATE")"
+    lookup_count="$(jq 'length' <<<"$GH_LOOKUP_SEQUENCE")"
+    if (( lookup_index >= lookup_count )); then
+        echo "unexpected label lookup call" >&2
+        exit 1
+    fi
+    lookup_status="$(jq -r --argjson index "$lookup_index" '.[$index].status' <<<"$GH_LOOKUP_SEQUENCE")"
+    lookup_response="$(jq -r --argjson index "$lookup_index" '.[$index].response' <<<"$GH_LOOKUP_SEQUENCE")"
+    lookup_error="$(jq -r --argjson index "$lookup_index" '.[$index].error // ""' <<<"$GH_LOOKUP_SEQUENCE")"
+    lookup_warning="$(jq -r --argjson index "$lookup_index" '.[$index].warning // ""' <<<"$GH_LOOKUP_SEQUENCE")"
+    echo "$((lookup_index + 1))" >"$GH_LOOKUP_STATE"
+    printf 'HTTP/2.0 %s Synthetic\\r\\n' "$lookup_status"
+    printf 'Content-Type: application/json\\r\\n\\r\\n'
+    printf '%s\\n' "$lookup_response"
+    if [[ -n "$lookup_warning" ]]; then
+        printf '%s\\n' "$lookup_warning" >&2
+    fi
+    if [[ "$lookup_status" -ge 400 ]]; then
+        printf '%s\\n' "$lookup_error" >&2
+        exit 1
+    fi
+    exit 0
+fi
+if [[ "$1" == "api" && "\${2:-}" == "--method" && "\${3:-}" == "PATCH" ]]; then
+    exit 0
+fi
+`;
+
+  writeFileSync(mockGh, script);
+  chmodSync(mockGh, 0o755);
+  writeFileSync(lookupState, "0");
+
+  const result = spawnSync(
+    "bash",
+    [ensureRepositoryLabel, "Interactive-Buffoonery/awesomux", "size:S", "5ebd3e", "10-29 effective changed lines."],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GH_CALLS: calls,
+        GH_LOOKUP_SEQUENCE: lookupSequenceJson,
+        GH_LOOKUP_STATE: lookupState,
+        GH_POST_ERROR: postError,
+        GH_POST_RESPONSE: postResponse,
+        GH_POST_STATUS: String(postStatus),
+        PATH: `${fixture}:${process.env.PATH}`,
+      },
+    },
+  );
+  const recordedCalls = existsSync(calls) ? readFileSync(calls, "utf8") : "";
+  rmSync(fixture, { recursive: true, force: true });
+  return { ...result, recordedCalls };
+}
 
 function assertMetadataOnly(name, workflow) {
   assert.match(workflow, /pull_request_target:/, `${name} must run trusted base workflow code`);
@@ -78,6 +182,139 @@ test("PR sizing uses a verified passive ref and effective line rules", () => {
   assert.match(workflow, /if \[\[ "\$non_test_changed" -eq 0 \]\]/);
   assert.match(workflow, /<!-- awesomux-pr-size-xxl -->/);
   assert.match(workflow, /issues\/comments\/\$\{comment_id\}/);
+});
+
+test("PR sizing delegates label reconciliation to the tested helper", () => {
+  const workflow = workflows.size;
+  assert.match(workflow, /\.\/\.github\/scripts\/ensure-repository-label\.sh/);
+  assert.doesNotMatch(workflow, /label_response|HTTP 404/);
+});
+
+test("a missing repository label is created from its HTTP status", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupError: "error wording is intentionally unstructured",
+    lookupResponse: JSON.stringify({ status: "404" }),
+    lookupStatus: 404,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.recordedCalls, /api --include --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
+});
+
+test("a concurrent duplicate label creation retries lookup and reconciles metadata", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupSequence: [
+      {
+        error: "label not found",
+        response: JSON.stringify({ status: "404" }),
+        status: 404,
+      },
+      {
+        response: JSON.stringify({
+          color: "ffffff",
+          description: "10-29 effective changed lines.",
+        }),
+        status: 200,
+      },
+    ],
+    postError: "gh: Validation Failed (HTTP 422)",
+    postResponse: JSON.stringify({
+      message: "Validation Failed",
+      errors: [{ resource: "Label", code: "already_exists", field: "name" }],
+    }),
+    postStatus: 422,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.recordedCalls, /api --include --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
+  assert.match(
+    result.recordedCalls,
+    /api --include repos\/Interactive-Buffoonery\/awesomux\/labels\/size%3AS[\s\S]*api --method PATCH repos\/Interactive-Buffoonery\/awesomux\/labels\/size%3AS/,
+  );
+});
+
+test("a concurrent duplicate with current metadata needs no patch", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupSequence: [
+      {
+        error: "label not found",
+        response: JSON.stringify({ status: "404" }),
+        status: 404,
+      },
+      {
+        response: JSON.stringify({
+          color: "5ebd3e",
+          description: "10-29 effective changed lines.",
+        }),
+        status: 200,
+      },
+    ],
+    postError: "gh: Validation Failed (HTTP 422)",
+    postResponse: JSON.stringify({
+      message: "Validation Failed",
+      errors: [{ resource: "Label", code: "already_exists", field: "name" }],
+    }),
+    postStatus: 422,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.recordedCalls, /api --include --method POST/);
+  assert.doesNotMatch(result.recordedCalls, /--method PATCH/);
+});
+
+test("a label creation failure other than already_exists is surfaced", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupError: "label not found",
+    lookupResponse: JSON.stringify({ status: "404" }),
+    lookupStatus: 404,
+    postError: "gh: Validation Failed (HTTP 422)",
+    postResponse: JSON.stringify({
+      message: "Validation Failed",
+      errors: [{ resource: "Label", code: "invalid", field: "color" }],
+    }),
+    postStatus: 422,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /label creation failed with HTTP 422/);
+  assert.doesNotMatch(result.recordedCalls, /--method PATCH/);
+});
+
+test("a temporary label lookup failure is surfaced without a write", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupError: "temporary upstream failure",
+    lookupResponse: JSON.stringify({ status: "503" }),
+    lookupStatus: 503,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /label lookup failed with HTTP 503/);
+  assert.doesNotMatch(result.recordedCalls, /--method (?:POST|PATCH)/);
+});
+
+test("successful label JSON stays separate from gh warnings", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupResponse: JSON.stringify({
+      color: "5ebd3e",
+      description: "10-29 effective changed lines.",
+    }),
+    lookupWarning: "gh: warning: synthetic notice",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /synthetic notice/);
+  assert.doesNotMatch(result.recordedCalls, /--method (?:POST|PATCH)/);
+});
+
+test("changed repository label metadata is updated", () => {
+  for (const lookupResponse of [
+    { color: "ffffff", description: "10-29 effective changed lines." },
+    { color: "5ebd3e", description: "stale description" },
+  ]) {
+    const result = runEnsureRepositoryLabel({
+      lookupResponse: JSON.stringify(lookupResponse),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.recordedCalls,
+      /api --method PATCH repos\/Interactive-Buffoonery\/awesomux\/labels\/size%3AS/,
+    );
+    assert.doesNotMatch(result.recordedCalls, /--method POST/);
+  }
 });
 
 test("hosted native CI stays advisory and maintainer-triggered", () => {

@@ -113,24 +113,8 @@ jobs:
             name="$(jq -r '.name' <<< "$label")"
             color="$(jq -r '.color' <<< "$label")"
             description="$(jq -r '.description' <<< "$label")"
-            encoded_name="$(jq -rn --arg value "$name" '$value | @uri')"
-
-            if gh api "repos/${GITHUB_REPOSITORY}/labels/${encoded_name}" >/dev/null 2>&1; then
-              gh api \
-                --method PATCH \
-                "repos/${GITHUB_REPOSITORY}/labels/${encoded_name}" \
-                -f color="$color" \
-                -f description="$description" \
-                >/dev/null
-            else
-              gh api \
-                --method POST \
-                "repos/${GITHUB_REPOSITORY}/labels" \
-                -f name="$name" \
-                -f color="$color" \
-                -f description="$description" \
-                >/dev/null
-            fi
+            ./.github/scripts/ensure-repository-label.sh \
+              "$GITHUB_REPOSITORY" "$name" "$color" "$description"
           done < <(jq -c '.[]' <<< "$labels_json")
 
           current_labels="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" --jq '.[].name')"
