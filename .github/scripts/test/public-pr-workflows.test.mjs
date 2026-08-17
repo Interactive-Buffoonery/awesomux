@@ -31,31 +31,74 @@ const ensureRepositoryLabel = join(repoRoot, ".github/scripts/ensure-repository-
 function runEnsureRepositoryLabel({
   lookupError = "",
   lookupResponse,
+  lookupSequence,
   lookupStatus = 200,
   lookupWarning = "",
+  postError = "",
+  postResponse = "",
+  postStatus = 201,
 }) {
   const fixture = mkdtempSync(join(tmpdir(), "awesomux-label-test-"));
   const calls = join(fixture, "calls");
+  const lookupState = join(fixture, "lookup-state");
   const mockGh = join(fixture, "gh");
+  const lookupSequenceJson = JSON.stringify(
+    lookupSequence ?? [
+      {
+        error: lookupError,
+        response: lookupResponse ?? "",
+        status: lookupStatus,
+        warning: lookupWarning,
+      },
+    ],
+  );
   const script = `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$GH_CALLS"
-if [[ "$1" == "api" && "\${2:-}" == "--include" ]]; then
-    printf 'HTTP/2.0 %s Synthetic\\r\\n' "$GH_LOOKUP_STATUS"
+if [[ "$1" == "api" && "\${2:-}" == "--include" && "\${3:-}" == "--method" && "\${4:-}" == "POST" ]]; then
+    printf 'HTTP/2.0 %s Synthetic\\r\\n' "$GH_POST_STATUS"
     printf 'Content-Type: application/json\\r\\n\\r\\n'
-    printf '%s\\n' "$GH_LOOKUP_RESPONSE"
-    if [[ -n "\${GH_LOOKUP_WARNING:-}" ]]; then
-        printf '%s\\n' "$GH_LOOKUP_WARNING" >&2
+    printf '%s\\n' "$GH_POST_RESPONSE"
+    if [[ -n "\${GH_POST_ERROR:-}" ]]; then
+        printf '%s\\n' "$GH_POST_ERROR" >&2
     fi
-    if [[ "$GH_LOOKUP_STATUS" -ge 400 ]]; then
-        printf '%s\\n' "$GH_LOOKUP_ERROR" >&2
+    if [[ "$GH_POST_STATUS" -ge 400 ]]; then
         exit 1
     fi
+    exit 0
+fi
+if [[ "$1" == "api" && "\${2:-}" == "--include" ]]; then
+    lookup_index="$(cat "$GH_LOOKUP_STATE")"
+    lookup_count="$(jq 'length' <<<"$GH_LOOKUP_SEQUENCE")"
+    if (( lookup_index >= lookup_count )); then
+        echo "unexpected label lookup call" >&2
+        exit 1
+    fi
+    lookup_status="$(jq -r --argjson index "$lookup_index" '.[$index].status' <<<"$GH_LOOKUP_SEQUENCE")"
+    lookup_response="$(jq -r --argjson index "$lookup_index" '.[$index].response' <<<"$GH_LOOKUP_SEQUENCE")"
+    lookup_error="$(jq -r --argjson index "$lookup_index" '.[$index].error // ""' <<<"$GH_LOOKUP_SEQUENCE")"
+    lookup_warning="$(jq -r --argjson index "$lookup_index" '.[$index].warning // ""' <<<"$GH_LOOKUP_SEQUENCE")"
+    echo "$((lookup_index + 1))" >"$GH_LOOKUP_STATE"
+    printf 'HTTP/2.0 %s Synthetic\\r\\n' "$lookup_status"
+    printf 'Content-Type: application/json\\r\\n\\r\\n'
+    printf '%s\\n' "$lookup_response"
+    if [[ -n "$lookup_warning" ]]; then
+        printf '%s\\n' "$lookup_warning" >&2
+    fi
+    if [[ "$lookup_status" -ge 400 ]]; then
+        printf '%s\\n' "$lookup_error" >&2
+        exit 1
+    fi
+    exit 0
+fi
+if [[ "$1" == "api" && "\${2:-}" == "--method" && "\${3:-}" == "PATCH" ]]; then
+    exit 0
 fi
 `;
 
   writeFileSync(mockGh, script);
   chmodSync(mockGh, 0o755);
+  writeFileSync(lookupState, "0");
 
   const result = spawnSync(
     "bash",
@@ -65,10 +108,11 @@ fi
       env: {
         ...process.env,
         GH_CALLS: calls,
-        GH_LOOKUP_ERROR: lookupError ?? "",
-        GH_LOOKUP_RESPONSE: lookupResponse ?? "",
-        GH_LOOKUP_STATUS: String(lookupStatus),
-        GH_LOOKUP_WARNING: lookupWarning,
+        GH_LOOKUP_SEQUENCE: lookupSequenceJson,
+        GH_LOOKUP_STATE: lookupState,
+        GH_POST_ERROR: postError,
+        GH_POST_RESPONSE: postResponse,
+        GH_POST_STATUS: String(postStatus),
         PATH: `${fixture}:${process.env.PATH}`,
       },
     },
@@ -153,7 +197,83 @@ test("a missing repository label is created from its HTTP status", () => {
     lookupStatus: 404,
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.recordedCalls, /api --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
+  assert.match(result.recordedCalls, /api --include --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
+});
+
+test("a concurrent duplicate label creation retries lookup and reconciles metadata", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupSequence: [
+      {
+        error: "label not found",
+        response: JSON.stringify({ status: "404" }),
+        status: 404,
+      },
+      {
+        response: JSON.stringify({
+          color: "ffffff",
+          description: "10-29 effective changed lines.",
+        }),
+        status: 200,
+      },
+    ],
+    postError: "gh: Validation Failed (HTTP 422)",
+    postResponse: JSON.stringify({
+      message: "Validation Failed",
+      errors: [{ resource: "Label", code: "already_exists", field: "name" }],
+    }),
+    postStatus: 422,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.recordedCalls, /api --include --method POST repos\/Interactive-Buffoonery\/awesomux\/labels/);
+  assert.match(
+    result.recordedCalls,
+    /api --include repos\/Interactive-Buffoonery\/awesomux\/labels\/size%3AS[\s\S]*api --method PATCH repos\/Interactive-Buffoonery\/awesomux\/labels\/size%3AS/,
+  );
+});
+
+test("a concurrent duplicate with current metadata needs no patch", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupSequence: [
+      {
+        error: "label not found",
+        response: JSON.stringify({ status: "404" }),
+        status: 404,
+      },
+      {
+        response: JSON.stringify({
+          color: "5ebd3e",
+          description: "10-29 effective changed lines.",
+        }),
+        status: 200,
+      },
+    ],
+    postError: "gh: Validation Failed (HTTP 422)",
+    postResponse: JSON.stringify({
+      message: "Validation Failed",
+      errors: [{ resource: "Label", code: "already_exists", field: "name" }],
+    }),
+    postStatus: 422,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.recordedCalls, /api --include --method POST/);
+  assert.doesNotMatch(result.recordedCalls, /--method PATCH/);
+});
+
+test("a label creation failure other than already_exists is surfaced", () => {
+  const result = runEnsureRepositoryLabel({
+    lookupError: "label not found",
+    lookupResponse: JSON.stringify({ status: "404" }),
+    lookupStatus: 404,
+    postError: "gh: Validation Failed (HTTP 422)",
+    postResponse: JSON.stringify({
+      message: "Validation Failed",
+      errors: [{ resource: "Label", code: "invalid", field: "color" }],
+    }),
+    postStatus: 422,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /label creation failed with HTTP 422/);
+  assert.doesNotMatch(result.recordedCalls, /--method PATCH/);
 });
 
 test("a temporary label lookup failure is surfaced without a write", () => {
