@@ -80,6 +80,16 @@ test("PR sizing uses a verified passive ref and effective line rules", () => {
   assert.match(workflow, /issues\/comments\/\$\{comment_id\}/);
 });
 
+test("PR sizing creates labels only after a confirmed missing response", () => {
+  const workflow = workflows.size;
+  assert.match(workflow, /if label_response="\$\([\s\S]*?gh api/);
+  assert.match(workflow, /elif grep -Fq "\(HTTP 404\)"/);
+  assert.match(workflow, /current_color="\$\(jq/);
+  assert.match(workflow, /current_description="\$\(jq/);
+  assert.match(workflow, /printf '%s\\n' "\$label_response" >&2/);
+  assert.doesNotMatch(workflow, /if gh api[^\n]+>\/dev\/null 2>&1/);
+});
+
 test("hosted native CI stays advisory and maintainer-triggered", () => {
   assert.match(workflows.native, /issue_comment:\n\s+types: \[created\]/);
   assert.match(workflows.native, /workflow_dispatch:/);

@@ -115,14 +115,21 @@ jobs:
             description="$(jq -r '.description' <<< "$label")"
             encoded_name="$(jq -rn --arg value "$name" '$value | @uri')"
 
-            if gh api "repos/${GITHUB_REPOSITORY}/labels/${encoded_name}" >/dev/null 2>&1; then
-              gh api \
-                --method PATCH \
-                "repos/${GITHUB_REPOSITORY}/labels/${encoded_name}" \
-                -f color="$color" \
-                -f description="$description" \
-                >/dev/null
-            else
+            if label_response="$(
+              gh api "repos/${GITHUB_REPOSITORY}/labels/${encoded_name}" 2>&1
+            )"; then
+              current_color="$(jq -r '.color' <<< "$label_response")"
+              current_description="$(jq -r '.description // ""' <<< "$label_response")"
+
+              if [[ "$current_color" != "$color" || "$current_description" != "$description" ]]; then
+                gh api \
+                  --method PATCH \
+                  "repos/${GITHUB_REPOSITORY}/labels/${encoded_name}" \
+                  -f color="$color" \
+                  -f description="$description" \
+                  >/dev/null
+              fi
+            elif grep -Fq "(HTTP 404)" <<< "$label_response"; then
               gh api \
                 --method POST \
                 "repos/${GITHUB_REPOSITORY}/labels" \
@@ -130,6 +137,9 @@ jobs:
                 -f color="$color" \
                 -f description="$description" \
                 >/dev/null
+            else
+              printf '%s\n' "$label_response" >&2
+              exit 1
             fi
           done < <(jq -c '.[]' <<< "$labels_json")
 
