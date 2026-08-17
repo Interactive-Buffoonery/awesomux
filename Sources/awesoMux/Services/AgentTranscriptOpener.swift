@@ -1,8 +1,6 @@
 import AwesoMuxBridgeProtocol
-import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
-import SecureFileIO
 
 // MARK: - Result types
 
@@ -24,9 +22,6 @@ struct OpenedAgentTranscript: Equatable, Sendable {
 enum AgentTranscriptOpenFailure: Error, Equatable, Sendable {
     case unavailable(AgentTranscriptUnavailable)
     case cacheWriteFailed
-    case providerExecutableNotFound
-    case providerExportFailed
-    case invalidProviderExport
 }
 
 // MARK: - Opener
@@ -37,71 +32,6 @@ enum AgentTranscriptOpenFailure: Error, Equatable, Sendable {
 /// (measured at 0.34 s for a 27 MB Claude session), so callers run this on a
 /// detached task and only touch the store with the result.
 enum AgentTranscriptOpener {
-
-    static func openProviderTranscript(
-        agentKind: AgentKind,
-        executionPlan: PaneExecutionPlan,
-        configHome: URL,
-        setup: AgentIntegrationSetup,
-        reportedSessionID: String?,
-        store: AgentTranscriptStore = AgentTranscriptStore(),
-        exportOpenCode:
-            @Sendable (String, AgentIntegrationSetup) async -> Result<
-                Data, OpenCodeTranscriptExporter.ExportError
-            > = { sessionID, setup in
-                await OpenCodeTranscriptExporter.export(sessionID: sessionID, setup: setup)
-            }
-    ) async -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
-        guard agentKind == .openCode else {
-            return open(
-                agentKind: agentKind,
-                executionPlan: executionPlan,
-                configHome: configHome,
-                reportedSessionID: reportedSessionID,
-                store: store
-            )
-        }
-        guard case .local = executionPlan else {
-            return .failure(.unavailable(.remoteExecution))
-        }
-        guard let reportedSessionID else {
-            return .failure(.unavailable(.noSessionIdentity))
-        }
-        guard
-            let identity = AgentTranscriptIdentity(
-                agentKind: .openCode,
-                sessionID: reportedSessionID
-            )
-        else {
-            return .failure(.unavailable(.invalidSessionID))
-        }
-        let exported = await exportOpenCode(identity.sessionID, setup)
-        let data: Data
-        switch exported {
-        case .success(let value): data = value
-        case .failure(.executableNotFound): return .failure(.providerExecutableNotFound)
-        case .failure(.commandFailed): return .failure(.providerExportFailed)
-        }
-        guard
-            let markdown = AgentTranscriptRenderer.renderOpenCodeExport(
-                data,
-                sessionID: identity.sessionID,
-                chrome: localizedChrome(agentKind: .openCode)
-            )
-        else {
-            return .failure(.invalidProviderExport)
-        }
-        guard
-            let fileURL = store.write(
-                markdown,
-                agentKind: .openCode,
-                sessionID: identity.sessionID
-            )
-        else {
-            return .failure(.cacheWriteFailed)
-        }
-        return .success(OpenedAgentTranscript(fileURL: fileURL, identity: identity))
-    }
 
     static func open(
         agentKind: AgentKind,
@@ -159,8 +89,8 @@ enum AgentTranscriptOpener {
     /// Whether the provider's own log for `identity` is still on disk.
     ///
     /// The liveness probe Resume needs, and deliberately not a process check:
-    /// `claude --resume` and `codex resume` both work against a session that has
-    /// long since exited, and fail only once its log is gone.
+    /// `claude --resume`, `codex resume`, and `pi --session` all work against a
+    /// session that has long since exited, and fail only once its log is gone.
     ///
     /// Resolves by the STORED session id with no working-directory fallback. A
     /// fallback here would match some *other* session in the same directory and
@@ -179,28 +109,6 @@ enum AgentTranscriptOpener {
         case .success: return true
         case .failure: return false
         }
-    }
-
-    static func sessionLogExists(
-        identity: AgentTranscriptIdentity,
-        executionPlan: PaneExecutionPlan,
-        configHome: URL,
-        setup: AgentIntegrationSetup
-    ) async -> Bool {
-        guard case .local = executionPlan else { return false }
-        if identity.agentKind == .openCode {
-            // Existence, not content: `session list` metadata answers Resume's
-            // question without paying a full export per click.
-            return await OpenCodeTranscriptExporter.sessionExists(
-                sessionID: identity.sessionID,
-                setup: setup
-            )
-        }
-        return sessionLogExists(
-            identity: identity,
-            executionPlan: executionPlan,
-            configHome: configHome
-        )
     }
 
     // MARK: Localized document chrome
@@ -259,30 +167,15 @@ enum AgentTranscriptOpener {
 
     // MARK: Failure copy
 
-    /// A distinct sentence per failure. "No transcript available" for all seven
-    /// outcomes is a support ticket: three of them are things the user can fix
-    /// right now, and each names a different fix.
+    /// A distinct sentence per failure. "No transcript available" for all of
+    /// them is a support ticket: several are things the user can fix right now,
+    /// and each names a different fix.
     static func unavailableDescription(for failure: AgentTranscriptOpenFailure) -> String {
         switch failure {
         case .cacheWriteFailed:
             return String(
                 localized: "awesoMux couldn't save the rendered transcript to its cache.",
                 comment: "Transcript failure when writing the rendered Markdown to the app cache fails"
-            )
-        case .providerExecutableNotFound:
-            return String(
-                localized: "awesoMux couldn't find the OpenCode executable. Check its binary path in Settings.",
-                comment: "Transcript failure when the OpenCode executable cannot be resolved"
-            )
-        case .providerExportFailed:
-            return String(
-                localized: "OpenCode couldn't export this session.",
-                comment: "Transcript failure when the OpenCode export command fails"
-            )
-        case .invalidProviderExport:
-            return String(
-                localized: "OpenCode exported a session format awesoMux couldn't read.",
-                comment: "Transcript failure when the OpenCode export JSON is invalid or unsupported"
             )
         case .unavailable(let reason):
             return unavailableDescription(for: reason)
@@ -294,7 +187,7 @@ enum AgentTranscriptOpener {
         case .unsupportedAgent(let kind):
             return String(
                 localized:
-                    "\(kind.displayName) doesn't write a session log awesoMux can read. Transcripts are available for Claude Code, Codex, OpenCode, and Pi.",
+                    "\(kind.displayName) doesn't write a session log awesoMux can read. Transcripts are available for Claude Code, Codex, and Pi.",
                 comment: "Transcript failure when the pane's agent has no readable session log"
             )
         case .remoteExecution:
@@ -312,7 +205,7 @@ enum AgentTranscriptOpener {
         case .noSessionIdentity:
             return String(
                 localized:
-                    "awesoMux doesn't know which session this pane is running yet. Send the agent a prompt, then try again.",
+                    "awesoMux doesn't know which session this pane belongs to. If an agent is running, send it a prompt, then try again.",
                 comment: "Transcript failure when no provider session id has been reported"
             )
         case .notFound:

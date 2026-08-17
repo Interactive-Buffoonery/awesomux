@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
+import AwesoMuxCore
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ struct AgentTranscriptPaneInputsTests {
     private func attempts(
         for kind: AgentKind,
         integrations: AgentIntegrationsConfig = AgentIntegrationsConfig()
-    ) -> [(kind: AgentKind, configHome: URL, setup: AgentIntegrationSetup)] {
+    ) -> [(kind: AgentKind, configHome: URL)] {
         AgentTranscriptPaneInputs.resolutionAttempts(
             for: kind,
             integrations: integrations,
@@ -31,10 +32,82 @@ struct AgentTranscriptPaneInputsTests {
         #expect(attempts(for: .shell).isEmpty)
     }
 
-    @Test("Pi and OpenCode resolve only their own provider roots")
+    @Test("a live pane identity wins over a last-ended one")
+    func liveIdentityWinsOverLastEnded() throws {
+        let lastEnded = try #require(
+            AgentTranscriptIdentity(agentKind: .codex, sessionID: "9a8b7c6d-5e4f-4321-9876-543210fedcba")
+        )
+        let live = try #require(
+            AgentTranscriptIdentity(
+                agentKind: .claudeCode,
+                sessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+            )
+        )
+
+        #expect(
+            AgentTranscriptPaneInputs.lookupIdentity(
+                paneKind: .claudeCode,
+                liveSessionID: live.sessionID,
+                lastEnded: lastEnded
+            ) == live
+        )
+    }
+
+    @Test("a shell pane uses the last-ended identity instead of sweeping")
+    func shellPaneUsesLastEndedIdentity() throws {
+        let lastEnded = try #require(
+            AgentTranscriptIdentity(
+                agentKind: .claudeCode,
+                sessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+            )
+        )
+
+        #expect(
+            AgentTranscriptPaneInputs.lookupIdentity(
+                paneKind: .shell,
+                liveSessionID: nil,
+                lastEnded: lastEnded
+            ) == lastEnded
+        )
+        #expect(
+            attempts(for: lastEnded.agentKind).map(\.kind) == [.claudeCode],
+            "lookup names the ended provider; resolution still does not sweep"
+        )
+    }
+
+    @Test("a shell pane with no last-ended identity has nothing to open")
+    func shellPaneWithoutLastEndedHasNoIdentity() {
+        #expect(
+            AgentTranscriptPaneInputs.lookupIdentity(
+                paneKind: .shell,
+                liveSessionID: nil,
+                lastEnded: nil
+            ) == nil
+        )
+    }
+
+    @Test("a live pane without a session id does not fall back to the previous session")
+    func livePaneDoesNotInheritLastEndedIdentity() throws {
+        let lastEnded = try #require(
+            AgentTranscriptIdentity(
+                agentKind: .claudeCode,
+                sessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+            )
+        )
+
+        #expect(
+            AgentTranscriptPaneInputs.lookupIdentity(
+                paneKind: .claudeCode,
+                liveSessionID: nil,
+                lastEnded: lastEnded
+            ) == nil
+        )
+    }
+
+    @Test("Pi resolves only its own provider root")
     func additionalProvidersResolveTheirOwnRoots() {
-        #expect(attempts(for: .openCode).first?.configHome.path == "/Users/tester/.config/opencode")
         #expect(attempts(for: .pi).first?.configHome.path == "/Users/tester/.pi/agent")
+        #expect(attempts(for: .openCode).isEmpty)
         #expect(attempts(for: .grok).isEmpty)
     }
 
@@ -47,6 +120,48 @@ struct AgentTranscriptPaneInputsTests {
         #expect(
             attempts(for: .claudeCode, integrations: integrations).first?.configHome.path
                 == "/opt/claude-home"
+        )
+    }
+
+    @Test("a live OpenCode pane names itself rather than claiming an unknown session")
+    func liveUnsupportedPaneNamesTheAgent() {
+        #expect(
+            AgentTranscriptPaneInputs.emptyLookupReason(paneKind: .openCode, lastEndedKind: nil)
+                == .unsupportedAgent(.openCode)
+        )
+        #expect(
+            AgentTranscriptPaneInputs.emptyLookupReason(paneKind: .grok, lastEndedKind: nil)
+                == .unsupportedAgent(.grok)
+        )
+    }
+
+    @Test("an ended OpenCode pane still names itself after becoming a shell")
+    func endedUnsupportedPaneKeepsItsName() {
+        #expect(
+            AgentTranscriptPaneInputs.emptyLookupReason(
+                paneKind: .shell,
+                lastEndedKind: .openCode
+            ) == .unsupportedAgent(.openCode)
+        )
+        #expect(
+            AgentTranscriptPaneInputs.emptyLookupReason(
+                paneKind: .shell,
+                lastEndedKind: .grok
+            ) == .unsupportedAgent(.grok)
+        )
+    }
+
+    @Test("an ended Claude pane without identity reports a missing session, not an unsupported agent")
+    func endedSupportedPaneWithoutIdentityIsUnknownSession() {
+        #expect(
+            AgentTranscriptPaneInputs.emptyLookupReason(
+                paneKind: .shell,
+                lastEndedKind: .claudeCode
+            ) == .noSessionIdentity
+        )
+        #expect(
+            AgentTranscriptPaneInputs.emptyLookupReason(paneKind: .shell, lastEndedKind: nil)
+                == .noSessionIdentity
         )
     }
 }

@@ -3327,16 +3327,25 @@ struct AwesoMuxApp: App {
         else {
             return
         }
+        let identity = AgentTranscriptPaneInputs.lookupIdentity(
+            paneKind: pane.agentKind,
+            liveSessionID: sessionStore.agentProviderSessionID(for: pane.id),
+            lastEnded: sessionStore.lastEndedAgentTranscriptIdentity(for: pane.id)
+        )
         let attempts = AgentTranscriptPaneInputs.resolutionAttempts(
-            for: pane.agentKind,
+            for: identity?.agentKind ?? pane.agentKind,
             integrations: appSettingsStore.agentIntegrations.value
         )
         guard !attempts.isEmpty else {
-            showAgentTranscriptFailureAlert(.unavailable(.unsupportedAgent(pane.agentKind)))
+            let reason = AgentTranscriptPaneInputs.emptyLookupReason(
+                paneKind: pane.agentKind,
+                lastEndedKind: sessionStore.lastEndedAgentKind(for: pane.id)
+            )
+            showAgentTranscriptFailureAlert(.unavailable(reason))
             return
         }
         let executionPlan = pane.executionPlan
-        let reportedSessionID = sessionStore.agentProviderSessionID(for: pane.id)
+        let reportedSessionID = identity?.sessionID
         let sessionID = session.id
         let paneID = pane.id
 
@@ -3353,11 +3362,10 @@ struct AwesoMuxApp: App {
                 () -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> in
                 var firstFailure: AgentTranscriptOpenFailure?
                 for attempt in attempts {
-                    let outcome = await AgentTranscriptOpener.openProviderTranscript(
+                    let outcome = AgentTranscriptOpener.open(
                         agentKind: attempt.kind,
                         executionPlan: executionPlan,
                         configHome: attempt.configHome,
-                        setup: attempt.setup,
                         reportedSessionID: reportedSessionID
                     )
                     if case .failure(let failure) = outcome {
@@ -3450,8 +3458,8 @@ struct AwesoMuxApp: App {
                 // Not a denial — nothing is wrong — but silence here would be
                 // this route's version of a dead command: the button's
                 // disabled state and busy label never reach someone driving
-                // the menu, and the probe can take seconds on OpenCode. Mirror
-                // the button's busy sentence instead. Not `.high`: no terminal
+                // the menu, and the probe can take seconds on a cold directory
+                // walk. Mirror the button's busy sentence instead. Not `.high`: no terminal
                 // contents changed, so nothing competes for a screen reader.
                 TerminalAccessibilityAnnouncer.announce(
                     String(

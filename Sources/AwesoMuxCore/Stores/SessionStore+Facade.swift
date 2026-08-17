@@ -177,6 +177,18 @@ extension SessionStore {
         runtimeEventReducer.providerSessionID(for: paneID)
     }
 
+    /// The exact session that ended in this pane, if this process still knows.
+    /// Cleared on the next SessionStart and rebuilt empty on relaunch.
+    public func lastEndedAgentTranscriptIdentity(for paneID: TerminalPane.ID) -> AgentTranscriptIdentity? {
+        runtimeEventReducer.lastEndedTranscriptIdentity(for: paneID)
+    }
+
+    /// The kind of the session that ended in this pane, if this process still
+    /// knows. Used for copy when that kind has no transcript adapter.
+    public func lastEndedAgentKind(for paneID: TerminalPane.ID) -> AgentKind? {
+        runtimeEventReducer.lastEndedAgentKind(for: paneID)
+    }
+
     /// Applies visible-text detector state to a pane. Public unread deltas only
     /// add badges. `paneID` defaults to the session's active pane.
     @discardableResult

@@ -37,14 +37,10 @@ private func localTerminal() -> TerminalPane {
         )
     }
 
-    @Test func composesPiAndOpenCodeResumeCommands() {
+    @Test func composesPiResumeCommand() {
         #expect(
             AgentTranscriptResumePolicy.command(for: identity("pi-session-1", .pi))
                 == "pi --session 'pi-session-1'"
-        )
-        #expect(
-            AgentTranscriptResumePolicy.command(for: identity("ses_01JABC", .openCode))
-                == "opencode --session 'ses_01JABC'"
         )
     }
 

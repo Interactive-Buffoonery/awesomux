@@ -1,8 +1,6 @@
 import AwesoMuxBridgeProtocol
-import AwesoMuxConfig
 import AwesoMuxTestSupport
 import Foundation
-import SecureFileIO
 import Testing
 
 @testable import AwesoMuxCore
@@ -100,38 +98,6 @@ struct AgentTranscriptOpenerTests {
         )
         #expect(
             AgentTranscriptOpener.localizedChrome(agentKind: .codex).title.contains("Codex")
-        )
-    }
-
-    @Test("OpenCode export is rendered and stored with exact provenance")
-    func openCodeExportIsRenderedAndStored() async throws {
-        let root = try TemporaryDirectory(prefix: "awesomux-opencode-transcript")
-        defer { withExtendedLifetime(root) {} }
-        let store = AgentTranscriptStore(
-            cacheDirectoryURL: root.url.appending(path: "cache", directoryHint: .isDirectory)
-        )
-        let result = await AgentTranscriptOpener.openProviderTranscript(
-            agentKind: .openCode,
-            executionPlan: .local,
-            configHome: root.url,
-            setup: .defaultValue,
-            reportedSessionID: "ses_01JABC",
-            store: store,
-            exportOpenCode: { _, _ in
-                .success(
-                    Data(
-                        #"{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"hello from opencode"}]}]}"#
-                            .utf8
-                    )
-                )
-            }
-        )
-
-        let opened = try result.get()
-        #expect(opened.identity.agentKind == .openCode)
-        #expect(opened.identity.sessionID == "ses_01JABC")
-        #expect(
-            try String(contentsOf: opened.fileURL, encoding: .utf8).contains("hello from opencode")
         )
     }
 
@@ -260,10 +226,8 @@ struct AgentTranscriptOpenerTests {
     func everyFailureHasDistinctCopy() {
         let failures: [AgentTranscriptOpenFailure] = [
             .cacheWriteFailed,
-            .providerExecutableNotFound,
-            .providerExportFailed,
-            .invalidProviderExport,
             .unavailable(.unsupportedAgent(.grok)),
+            .unavailable(.unsupportedAgent(.openCode)),
             .unavailable(.remoteExecution),
             .unavailable(.invalidSessionID),
             .unavailable(.noSessionIdentity),

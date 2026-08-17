@@ -61,11 +61,19 @@ public enum AgentTranscriptImporter {
         func matches(sessionID: String, fileName: String) -> Bool {
             switch self {
             case .claudeCode:
-                fileName == "\(sessionID).jsonl"
+                return fileName == "\(sessionID).jsonl"
             case .codex:
-                fileName.hasPrefix("rollout-") && fileName.hasSuffix("-\(sessionID).jsonl")
+                return fileName.hasPrefix("rollout-") && fileName.hasSuffix("-\(sessionID).jsonl")
             case .pi:
-                fileName == "\(sessionID).jsonl" || fileName.hasSuffix("_\(sessionID).jsonl")
+                // Pi names files `{timestamp}_{sessionID}.jsonl`. A suffix-only
+                // match would treat `…_my_foo.jsonl` as session `foo`. The
+                // timestamp prefix uses hyphens, so rejecting any `_` in the
+                // prefix keeps the session id exact.
+                if fileName == "\(sessionID).jsonl" { return true }
+                let suffix = "_\(sessionID).jsonl"
+                guard fileName.hasSuffix(suffix) else { return false }
+                let prefix = fileName.dropLast(suffix.count)
+                return !prefix.isEmpty && !prefix.contains("_")
             }
         }
 
@@ -211,7 +219,6 @@ public enum AgentTranscriptImporter {
             let modified = try? url.resourceValues(forKeys: keys).contentModificationDate
             candidates.append((url, modified ?? .distantPast))
         }
-        candidates.sort { $0.modified > $1.modified }
         return CandidateSearch(
             candidates: candidates,
             reachedLimit: false,

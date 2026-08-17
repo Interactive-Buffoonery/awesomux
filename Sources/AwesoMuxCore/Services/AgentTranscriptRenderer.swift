@@ -228,42 +228,6 @@ public enum AgentTranscriptRenderer {
         }
     }
 
-    /// Renders the bounded JSON emitted by `opencode export <session-id>`.
-    /// OpenCode owns its storage schema; using its export contract keeps
-    /// awesoMux out of the provider's SQLite implementation details.
-    public static func renderOpenCodeExport(
-        _ data: Data,
-        sessionID: String,
-        chrome: Chrome,
-        budgetBytes: Int = budgetBytes
-    ) -> String? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let messages = root["messages"] as? [[String: Any]]
-        else { return nil }
-
-        let documentHeader = header(chrome: chrome, sessionID: sessionID)
-        let truncated = truncationNotice(chrome)
-        let empty = emptyWindowNotice(chrome)
-        var remaining = budgetBytes - documentHeader.utf8.count - truncated.utf8.count - empty.utf8.count
-        var chunks: [String] = []
-        var omitted = false
-        for message in messages.reversed() {
-            guard let chunk = renderOpenCodeMessage(message) else { continue }
-            guard chunk.utf8.count <= remaining else {
-                omitted = true
-                break
-            }
-            remaining -= chunk.utf8.count
-            chunks.append(chunk)
-        }
-
-        var text = documentHeader
-        if omitted { text += truncated }
-        if chunks.isEmpty { text += empty }
-        text += chunks.reversed().joined()
-        return text
-    }
-
     /// The window bounds the read loop actually uses.
     ///
     /// Both arguments are public and defaulted, so a caller can pass zero — and
@@ -693,48 +657,6 @@ public enum AgentTranscriptRenderer {
             current = parent
         }
         return PiBranchIndex(lineIDs: lineIDs, active: branch)
-    }
-
-    private static func renderOpenCodeMessage(_ message: [String: Any]) -> String? {
-        let info = message["info"] as? [String: Any]
-        let role = info?["role"] as? String ?? message["role"] as? String ?? "message"
-        guard let parts = message["parts"] as? [[String: Any]] else { return nil }
-        var chunks: [String] = []
-        for part in parts {
-            guard let type = part["type"] as? String else { continue }
-            let rendered: String?
-            switch type {
-            case "text":
-                rendered = turn(
-                    role: role,
-                    detail: nil,
-                    isSidechain: false,
-                    body: part["text"] as? String
-                )
-            case "reasoning":
-                rendered = turn(
-                    role: role,
-                    detail: "thinking",
-                    isSidechain: false,
-                    body: part["text"] as? String
-                )
-            case "tool":
-                let state = part["state"] as? [String: Any]
-                let body =
-                    jsonBody(state?["output"] ?? state?["input"])
-                    ?? plainText(from: state?["output"])
-                rendered = turn(
-                    role: role,
-                    detail: toolDetail(part["tool"]),
-                    isSidechain: false,
-                    body: body
-                )
-            default:
-                rendered = nil
-            }
-            if let rendered { chunks.append(rendered) }
-        }
-        return chunks.isEmpty ? nil : chunks.joined()
     }
 
     // MARK: Turn formatting

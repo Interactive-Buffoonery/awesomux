@@ -32,7 +32,7 @@ public enum AgentTranscriptResumeUnavailableReason: Hashable, Sendable {
     /// walk, and the send bar re-renders on every foreground-state change.
     case transcriptMissing
     /// `command(for:)` has no resume syntax for this provider. Unreachable
-    /// through `AgentTranscriptIdentity`, which accepts only the two providers
+    /// through `AgentTranscriptIdentity`, which accepts only the providers
     /// that have one — but distinct from `.terminalUnavailable`, which is what
     /// the branch used to report and which names the wrong thing entirely.
     case noResumeSyntax(AgentKind)
@@ -66,12 +66,12 @@ public enum AgentTranscriptResumePolicy {
 
     /// The shell command that resumes `identity`'s session.
     ///
-    /// Built from exactly two things: the provider kind, and the session id
+    /// Built from exactly two inputs: the provider kind, and the session id
     /// stored on the *document*. Never from transcript content, and never from
     /// whatever session the adjacent pane is running now — document A must
     /// resume session A even after the pane has moved on to session B.
     ///
-    /// The id is a validated UUID by construction (`AgentTranscriptIdentity`),
+    /// The id is a validated provider session id by construction (`AgentTranscriptIdentity`),
     /// so quoting cannot be load-bearing today. It is applied anyway: the value
     /// originates on a same-UID-writable event file and, on the bridge path, on
     /// a remote host, and a single gate deleted three refactors from now should
@@ -79,7 +79,7 @@ public enum AgentTranscriptResumePolicy {
     ///
     /// - Returns: `nil` for a kind that can have no resume syntax.
     ///   Unreachable through `AgentTranscriptIdentity`, whose initialisers and
-    ///   decoder both reject every kind but these two.
+    ///   decoder both reject every kind without a resume command.
     public static func command(for identity: AgentTranscriptIdentity) -> String? {
         let sessionID = NudgeComposer.shellSingleQuoted(identity.sessionID)
         switch identity.agentKind {
@@ -92,11 +92,9 @@ public enum AgentTranscriptResumePolicy {
             return "claude --resume \(sessionID)"
         case .codex:
             return "codex resume \(sessionID)"
-        case .openCode:
-            return "opencode --session \(sessionID)"
         case .pi:
             return "pi --session \(sessionID)"
-        case .grok, .shell:
+        case .openCode, .grok, .shell:
             return nil
         }
     }

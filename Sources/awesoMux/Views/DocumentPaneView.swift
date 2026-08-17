@@ -333,6 +333,7 @@ struct DocumentPaneSendBar: View {
         .task(id: nudgeFailed) {
             guard nudgeFailed else { return }
             try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
             // A typed Resume denial must NOT share this flash: its reason is
             // world state (the log is gone, an agent took the terminal), and
             // both the caption and the button's accessibility label derive
@@ -466,8 +467,8 @@ struct DocumentPaneSendBar: View {
         }
     }
 
-    /// Stages `claude --resume <id>` / `codex resume <id>` into the adjacent
-    /// terminal as an editable draft.
+    /// Stages `claude --resume`, `codex resume`, or `pi --session` into the
+    /// adjacent terminal as an editable draft.
     ///
     /// Never auto-submitted, matching the shipped Send to Agent posture: the
     /// user presses Return.
@@ -481,6 +482,13 @@ struct DocumentPaneSendBar: View {
         guard !resumeInFlight else { return }
         resumeInFlight = true
         resumeFailure = nil
+        nudgeFailed = false
+        TerminalAccessibilityAnnouncer.announce(
+            String(
+                localized: "Checking this session's log",
+                comment: "VoiceOver announcement when Resume starts probing whether the session log still exists"
+            )
+        )
         Task { @MainActor in
             let outcome = await AgentTranscriptResumeStaging.stage(
                 identity: identity,
@@ -493,6 +501,7 @@ struct DocumentPaneSendBar: View {
             resumeInFlight = false
             switch outcome {
             case .staged:
+                nudgeFailed = false
                 TerminalAccessibilityAnnouncer.announce(
                     String(
                         localized: "Pasted into this transcript's terminal — press Return there to resume",

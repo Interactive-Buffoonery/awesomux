@@ -631,7 +631,7 @@ enum KeyboardShortcutCatalog {
                     KeyboardShortcutEntry(
                         resumeAgentSession,
                         detail: "Stage the selected transcript's resume command in its terminal",
-                        keywords: ["agent", "transcript", "resume", "session", "claude", "codex"]),
+                        keywords: ["agent", "transcript", "resume", "session", "claude", "codex", "pi"]),
                     KeyboardShortcutEntry(renameWorkspace, detail: "Rename the selected workspace"),
                     KeyboardShortcutEntry(closeWorkspace, detail: "Close the selected workspace"),
                     KeyboardShortcutEntry(
@@ -669,7 +669,7 @@ enum KeyboardShortcutCatalog {
                     KeyboardShortcutEntry(
                         openAgentTranscript,
                         detail: "Open this pane's agent session as a Markdown document",
-                        keywords: ["agent", "transcript", "session", "history", "log", "resume"]),
+                        keywords: ["agent", "transcript", "session", "history", "log", "resume", "claude", "codex", "pi"]),
                     KeyboardShortcutEntry(previousPane, detail: "Move focus within the pane tree"),
                     KeyboardShortcutEntry(nextPane, detail: "Move focus within the pane tree"),
                     KeyboardShortcutEntry(growActivePane, detail: "Resize the active split larger"),

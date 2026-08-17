@@ -479,7 +479,7 @@ enum PaletteCommandRegistry {
                 id: KeyboardShortcutCatalog.openAgentTranscript.id,
                 title: "Open Agent Transcript",
                 subtitle: selected?.activePane?.title,
-                keywords: ["agent", "transcript", "session", "history", "log", "resume", "claude", "codex"],
+                keywords: ["agent", "transcript", "session", "history", "log", "resume", "claude", "codex", "pi"],
                 shortcut: KeyboardShortcutCatalog.openAgentTranscript,
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
@@ -569,7 +569,7 @@ enum PaletteCommandRegistry {
                 id: KeyboardShortcutCatalog.resumeAgentSession.id,
                 title: "Resume Agent Session",
                 subtitle: selectedTranscriptTab?.title,
-                keywords: ["agent", "transcript", "resume", "session", "claude", "codex"],
+                keywords: ["agent", "transcript", "resume", "session", "claude", "codex", "pi"],
                 shortcut: KeyboardShortcutCatalog.resumeAgentSession,
                 // Enabled whenever a workspace is, matching the menu item. When
                 // it was gated on the selected tab the palette still listed it

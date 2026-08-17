@@ -93,25 +93,6 @@ import Testing
                     .branchUnavailableNotice))
     }
 
-    @Test("OpenCode export messages render without reading provider storage")
-    func openCodeExportRenders() throws {
-        let data = Data(
-            #"{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"hello from opencode"}]},{"info":{"role":"assistant"},"parts":[{"type":"reasoning","text":"thinking"},{"type":"text","text":"opencode answer"}]}]}"#
-                .utf8
-        )
-
-        let rendered = try #require(
-            AgentTranscriptRenderer.renderOpenCodeExport(
-                data,
-                sessionID: "ses_01JABC",
-                chrome: .unlocalizedFallback(agentKind: .openCode)
-            )
-        )
-        #expect(rendered.contains("hello from opencode"))
-        #expect(rendered.contains("opencode answer"))
-        #expect(rendered.contains("## assistant · thinking"))
-    }
-
     // MARK: - Claude Code
 
     @Test("Claude message.content renders as a plain String and as a block array")

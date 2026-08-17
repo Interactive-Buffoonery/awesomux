@@ -47,6 +47,15 @@ struct AgentTranscriptCommandSurfaceTests {
         #expect(source.contains("resumeAgentSession: resumeSelectedTranscriptSession"))
     }
 
+    @Test("Open Agent Transcript uses the last-ended identity after sessionEnd")
+    func openAgentTranscriptUsesLastEndedIdentity() throws {
+        let source = try SourceContract.source(at: Self.path)
+        #expect(source.contains("lastEndedAgentTranscriptIdentity(for:"))
+        #expect(source.contains("lastEndedAgentKind(for:"))
+        #expect(source.contains("AgentTranscriptPaneInputs.lookupIdentity("))
+        #expect(source.contains("AgentTranscriptPaneInputs.emptyLookupReason("))
+    }
+
     /// A denied Resume keeps its typed reason past the two-second nudge flash:
     /// the reason names world state the user can act on, and both the caption
     /// and the button's accessibility label derive from it, so clearing on the
@@ -63,6 +72,10 @@ struct AgentTranscriptCommandSurfaceTests {
         #expect(
             source.contains("guard resumeFailure == nil else { return }"),
             "the nudge flash must not wipe a typed denial's reason — or its accessibility label"
+        )
+        #expect(
+            source.contains("nudgeFailed = false"),
+            "a retry must clear the failed glyph immediately rather than waiting out the flash"
         )
     }
 }

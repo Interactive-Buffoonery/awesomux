@@ -201,6 +201,175 @@ struct AgentRuntimeEventProviderSessionIDTests {
         #expect(decision == nil)
         #expect(context.reducer.stateByPaneID[context.paneID]?.lifecycle.isEnded == false)
         #expect(context.reducer.stateByPaneID[context.paneID]?.providerSessionID == Self.sessionA)
+        #expect(context.reducer.lastEndedTranscriptIdentity(for: context.paneID) == nil)
+    }
+
+    // MARK: - Last-ended transcript identity
+
+    /// The live latch must still clear on sessionEnd so a new lifecycle cannot
+    /// inherit the old id. The ended session's exact identity is kept separately
+    /// so Open Agent Transcript can look up that file after the pane is a shell.
+    @Test("sessionEnd keeps the ended identity after clearing the live latch")
+    func sessionEndKeepsLastEndedIdentity() {
+        var context = Context(agentKind: .claudeCode)
+        #expect(
+            context.apply(
+                AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .idle,
+                    phase: .sessionStart,
+                    eventID: "start",
+                    providerSessionID: Self.sessionA
+                )
+            ) != nil)
+
+        let decision = context.apply(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .idle,
+                phase: .sessionEnd,
+                eventID: "end",
+                providerSessionID: Self.sessionA
+            )
+        )
+
+        #expect(decision?.update.agentKind == .shell)
+        #expect(context.reducer.providerSessionID(for: context.paneID) == nil)
+        #expect(context.reducer.lastEndedAgentKind(for: context.paneID) == .claudeCode)
+        #expect(
+            context.reducer.lastEndedTranscriptIdentity(for: context.paneID)
+                == AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: Self.sessionA)
+        )
+    }
+
+    @Test("OpenCode sessionEnd keeps the kind for copy without forming a transcript identity")
+    func openCodeSessionEndKeepsKindWithoutIdentity() {
+        var context = Context(agentKind: .openCode)
+        #expect(
+            context.apply(
+                AgentRuntimeEvent(
+                    source: .openCode,
+                    executionState: .idle,
+                    phase: .sessionStart,
+                    eventID: "start",
+                    providerSessionID: "ses_01JABC"
+                )
+            ) != nil)
+
+        let decision = context.apply(
+            AgentRuntimeEvent(
+                source: .openCode,
+                executionState: .idle,
+                phase: .sessionEnd,
+                eventID: "end",
+                providerSessionID: "ses_01JABC"
+            )
+        )
+
+        #expect(decision?.update.agentKind == .shell)
+        #expect(context.reducer.providerSessionID(for: context.paneID) == nil)
+        #expect(context.reducer.lastEndedAgentKind(for: context.paneID) == .openCode)
+        #expect(context.reducer.lastEndedTranscriptIdentity(for: context.paneID) == nil)
+    }
+
+    @Test("a dropped sessionEnd does not record a last-ended identity")
+    func droppedSessionEndDoesNotRecordLastEndedIdentity() {
+        var context = Self.supersededLifecycle()
+
+        #expect(
+            context.apply(
+                AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .idle,
+                    phase: .sessionEnd,
+                    eventID: "end-old",
+                    providerSessionID: Self.sessionA
+                )
+            ) == nil)
+        #expect(context.reducer.providerSessionID(for: context.paneID) == Self.sessionB)
+        #expect(context.reducer.lastEndedTranscriptIdentity(for: context.paneID) == nil)
+        #expect(context.reducer.lastEndedAgentKind(for: context.paneID) == nil)
+    }
+
+    @Test("a new SessionStart after end forgets the previous identity")
+    func sessionStartAfterEndClearsLastEndedIdentity() {
+        var context = Context(agentKind: .claudeCode)
+        for event in [
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .idle,
+                phase: .sessionStart,
+                eventID: "start-a",
+                providerSessionID: Self.sessionA,
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .idle,
+                phase: .sessionEnd,
+                eventID: "end-a",
+                providerSessionID: Self.sessionA,
+                timestamp: Date(timeIntervalSince1970: 11)
+            ),
+        ] {
+            #expect(context.apply(event) != nil)
+        }
+        #expect(
+            context.reducer.lastEndedTranscriptIdentity(for: context.paneID)
+                == AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: Self.sessionA)
+        )
+
+        #expect(
+            context.apply(
+                AgentRuntimeEvent(
+                    source: .claudeCode,
+                    executionState: .idle,
+                    phase: .sessionStart,
+                    eventID: "start-b",
+                    timestamp: Date(timeIntervalSince1970: 12)
+                )
+            ) != nil)
+
+        #expect(context.reducer.providerSessionID(for: context.paneID) == nil)
+        #expect(context.reducer.lastEndedTranscriptIdentity(for: context.paneID) == nil)
+        #expect(context.reducer.lastEndedAgentKind(for: context.paneID) == nil)
+    }
+
+    @Test("a promptSubmit that latches a new id forgets the ended identity")
+    func promptSubmitAfterEndClearsLastEndedIdentity() {
+        var context = Context(agentKind: .claudeCode)
+        for event in [
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .idle,
+                phase: .sessionStart,
+                eventID: "start-a",
+                providerSessionID: Self.sessionA,
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .idle,
+                phase: .sessionEnd,
+                eventID: "end-a",
+                providerSessionID: Self.sessionA,
+                timestamp: Date(timeIntervalSince1970: 11)
+            ),
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .promptSubmit,
+                eventID: "prompt-b",
+                providerSessionID: Self.sessionB,
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+        ] {
+            #expect(context.apply(event) != nil)
+        }
+
+        #expect(context.reducer.providerSessionID(for: context.paneID) == Self.sessionB)
+        #expect(context.reducer.lastEndedTranscriptIdentity(for: context.paneID) == nil)
+        #expect(context.reducer.lastEndedAgentKind(for: context.paneID) == nil)
     }
 
     // MARK: - Latch
@@ -320,6 +489,10 @@ struct AgentRuntimeEventProviderSessionIDTests {
         #expect(decision?.update.agentKind == .shell)
         #expect(context.reducer.stateByPaneID[context.paneID]?.providerSessionID == nil)
         #expect(context.reducer.stateByPaneID[context.paneID]?.lifecycle.isEnded == true)
+        #expect(
+            context.reducer.lastEndedTranscriptIdentity(for: context.paneID)
+                == AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: Self.sessionA)
+        )
     }
 
     @Test(

@@ -50,6 +50,19 @@ struct AgentTranscriptImporterTests {
     }
 
     @Test
+    func piSuffixMatchDoesNotTreatALongerIdAsAShorterOne() throws {
+        let fixture = try Fixture(provider: .pi)
+        defer { fixture.remove() }
+        let expected = try fixture.write(
+            "sessions/2026-08-16T12-00-00_my_foo.jsonl",
+            #"{"type":"message","message":{"role":"user","content":"hello"}}"#
+        )
+
+        #expect(fixture.failure(fixture.open(sessionID: "foo")) == .notFound)
+        #expect(try fixture.open(sessionID: "my_foo").get().resolvedURL == expected)
+    }
+
+    @Test
     func canonicalizesUUIDBeforeFilenameLookup() throws {
         let fixture = try Fixture(provider: .claudeCode)
         defer { fixture.remove() }

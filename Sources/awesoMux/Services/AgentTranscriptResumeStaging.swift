@@ -138,12 +138,11 @@ enum AgentTranscriptResumeStaging {
     private static let detachedSessionLogExists:
         @Sendable (
             AgentTranscriptIdentity, PaneExecutionPlan, URL, AgentIntegrationSetup
-        ) async -> Bool = { identity, executionPlan, configHome, setup in
-            await AgentTranscriptOpener.sessionLogExists(
+        ) async -> Bool = { identity, executionPlan, configHome, _ in
+            AgentTranscriptOpener.sessionLogExists(
                 identity: identity,
                 executionPlan: executionPlan,
-                configHome: configHome,
-                setup: setup
+                configHome: configHome
             )
         }
 }

@@ -35,9 +35,8 @@ public struct AgentTranscriptIdentity: Hashable, Sendable {
         switch agentKind {
         case .claudeCode: source = .claudeCode
         case .codex: source = .codex
-        case .openCode: source = .openCode
         case .pi: source = .pi
-        case .grok, .shell: return nil
+        case .openCode, .grok, .shell: return nil
         }
         guard let validated = source.validatedProviderSessionID(sessionID) else {
             return nil
