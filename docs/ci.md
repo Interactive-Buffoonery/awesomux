@@ -93,10 +93,11 @@ suites. `nontiming` contains the remaining tests (`all` minus `timing` and
 `sidebar`). Local `./script/test.sh all` and `./script/preflight.sh` run the same
 three shards sequentially, reusing the first shard's build for the other two.
 
-Passing additional `swift test` arguments to `./script/test.sh all` preserves
-the direct single-process behavior so output options such as `--xunit-output`
-still produce one complete report. Use `timing`, `sidebar`, and `nontiming`
-explicitly when combining custom arguments with process isolation.
+`./script/test.sh all` intentionally rejects additional `swift test` arguments:
+the old fallback ran every test in one process and could exhaust AppKit's
+dispatch-thread limit. Use `timing`, `sidebar`, and `nontiming` explicitly when
+you need custom arguments. Give each shard a distinct path when collecting
+`--xunit-output`.
 
 Manual `unit`/`adapter`/`system` dispatches stay single jobs, unaffected by the
 split.

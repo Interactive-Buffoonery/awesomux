@@ -210,14 +210,32 @@ struct BuildAndRunScriptTests {
     @Test("local all-tests and preflight isolate blocking and AppKit-heavy suites")
     func localFullTestsUseProcessIsolation() throws {
         let testScript = try Self.contents(of: "script/test.sh")
+        let swiftTestScript = try Self.contents(of: "script/swift-test.sh")
         let preflight = try Self.contents(of: "script/preflight.sh")
 
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" timing"))
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" sidebar --skip-build"))
         #expect(testScript.contains("nontiming --skip-build"))
+        #expect(testScript.contains("The all group does not accept swift test arguments"))
+        #expect(swiftTestScript.contains("exec \"$ROOT_DIR/script/test.sh\" all"))
         #expect(testScript.contains("RemoteHandoffTests"))
         #expect(preflight.contains("\"$ROOT_DIR/script/test.sh\" all"))
         #expect(!preflight.contains("\"$ROOT_DIR/script/swift-test.sh\""))
+    }
+
+    @Test("all rejects arguments instead of collapsing into one process")
+    func allRejectsArguments() throws {
+        let root = try Self.packageRootURL()
+        let process = Process()
+        process.executableURL = root.appendingPathComponent("script/test.sh")
+        process.arguments = ["all", "--filter", "BuildAndRunScriptTests"]
+        process.currentDirectoryURL = root
+
+        let captured = try captureOutput(of: process)
+
+        #expect(process.terminationStatus == 2)
+        #expect(captured.stderr.contains("The all group does not accept swift test arguments"))
+        #expect(captured.stderr.contains("Run timing, sidebar, and nontiming explicitly"))
     }
 
     @Test("compiles the English string catalog into the app bundle")

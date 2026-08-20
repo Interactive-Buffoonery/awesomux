@@ -53,12 +53,14 @@ case "$group" in
         skip="^($timing_pattern|$sidebar_pattern)/"
         ;;
     all)
-        if [[ "$#" -eq 0 ]]; then
-            "$ROOT_DIR/script/test.sh" timing
-            "$ROOT_DIR/script/test.sh" sidebar --skip-build
-            exec "$ROOT_DIR/script/test.sh" nontiming --skip-build
+        if [[ "$#" -ne 0 ]]; then
+            echo "The all group does not accept swift test arguments because that would collapse the isolated shards into one unsafe process." >&2
+            echo "Run timing, sidebar, and nontiming explicitly when you need per-shard arguments or xUnit output." >&2
+            exit 2
         fi
-        exec "$ROOT_DIR/script/swift-test.sh" "$@"
+        "$ROOT_DIR/script/test.sh" timing
+        "$ROOT_DIR/script/test.sh" sidebar --skip-build
+        exec "$ROOT_DIR/script/test.sh" nontiming --skip-build
         ;;
     -h|--help|help)
         usage

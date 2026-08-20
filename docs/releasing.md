@@ -114,7 +114,7 @@ bundle-version handling are changed to support them first.
   - [ ] swift-markdown (Apache-2.0 — include its NOTICE)
   - [ ] swift-cmark (transitive via swift-markdown)
 - [ ] Run local verification:
-  - [ ] `./script/swift-test.sh`
+  - [ ] `./script/test.sh all`
   - [ ] `./script/preflight.sh`
   - [ ] `./script/build_and_run.sh --verify`
 - [ ] Run manual smoke in the app:
@@ -664,7 +664,7 @@ distribution concern at once.
 - [ ] Start with least-privilege permissions, for example `contents: read`.
 - [ ] Check out submodules.
 - [ ] Run release-adjacent validation first:
-  - [ ] `./script/swift-test.sh`
+  - [ ] `./script/test.sh all`
   - [ ] `./script/build_and_run.sh --verify`
 - [ ] Produce an unsigned or ad-hoc-signed dry-run artifact initially.
 - [ ] Upload the artifact and checksum as workflow artifacts.
