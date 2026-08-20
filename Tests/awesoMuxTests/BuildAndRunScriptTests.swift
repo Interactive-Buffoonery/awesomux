@@ -223,6 +223,21 @@ struct BuildAndRunScriptTests {
         #expect(!preflight.contains("\"$ROOT_DIR/script/swift-test.sh\""))
     }
 
+    @Test("all rejects arguments instead of collapsing into one process")
+    func allRejectsArguments() throws {
+        let root = try Self.packageRootURL()
+        let process = Process()
+        process.executableURL = root.appendingPathComponent("script/test.sh")
+        process.arguments = ["all", "--filter", "BuildAndRunScriptTests"]
+        process.currentDirectoryURL = root
+
+        let captured = try captureOutput(of: process)
+
+        #expect(process.terminationStatus == 2)
+        #expect(captured.stderr.contains("The all group does not accept swift test arguments"))
+        #expect(captured.stderr.contains("Run timing, sidebar, and nontiming explicitly"))
+    }
+
     @Test("compiles the English string catalog into the app bundle")
     func compilesEnglishStringCatalog() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")
