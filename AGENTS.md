@@ -88,7 +88,8 @@ Unresolved choices until they land in code or an ADR.
 ## Build and verification
 
 - Run the app with `./script/build_and_run.sh`.
-- Run tests with `./script/swift-test.sh`.
+- Run the complete test suite with `./script/test.sh all`. Use
+  `./script/swift-test.sh --filter ...` only for focused selections.
 - Before opening a non-docs PR, run `./script/preflight.sh`.
 - First Ghostty builds need the `vendor/ghostty` submodule and a compatible Zig
   toolchain. Let the Ghostty scripts own how that build is staged.

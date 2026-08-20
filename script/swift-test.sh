@@ -9,6 +9,15 @@
 
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# A full Swift Testing run is not safe in one process. AppKit-heavy tests can
+# exhaust libdispatch's thread soft limit while blocking suites occupy the
+# cooperative executor. Keep this low-level wrapper for focused selections,
+# but route the common no-argument full run through the isolated groups.
+if [[ "$#" -eq 0 ]]; then
+    exec "$ROOT_DIR/script/test.sh" all
+fi
+
 "$ROOT_DIR/script/ensure_ghostty_artifacts.sh"
 cd "$ROOT_DIR"
 exec swift test "$@"
