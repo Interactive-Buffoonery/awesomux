@@ -183,3 +183,122 @@ without `attentionReason: .userInputRequired`. Core still increments unread and
 allows the notification bridge to fire for unfocused turn completions. Permission
 prompts and provider notification fallbacks continue to use `attentionReason` and
 project to `needsAttention`.
+
+## Amendment (2026-08-17): an unanswered turn lifts the row without claiming attention
+
+INT-650 correctly removed the peach `!` from turn-end. In practice that left the
+sidebar's Needs Input section near-silent for an auto-approving user: with broad
+tool allowlists a provider almost never raises a permission prompt, so the
+section's only trigger effectively never fires. A full day of real events
+contained 684 lines and exactly two `attentionReason` values, both from a single
+interactive question. The section looked broken while working exactly as
+designed.
+
+Claude Code's `Notification(notification_type=idle_prompt)` is a different claim
+from `Stop`. Measured across a real trace, every `idle_prompt` landed 60.0-60.1s
+after a turn-end `Stop`, fired at most once per turn, and never fired for a turn
+the user answered inside that window. It reports "a finished turn has gone
+unanswered for 60 seconds" — evidence about the USER, not a restatement of
+turn-end.
+
+The obvious implementation — give `idle_prompt` an `attentionReason` — was
+rejected after review. `AttentionReason` is not a private channel into the
+sidebar; four other consumers key on it, and every one of them would have been
+wrong here:
+
+- `AgentDisplayState` projects any reason to peach `.needsAttention`, and
+  `WorkspaceNotificationPolicy` opens the macOS notification channel on
+  `attentionReason != nil`. Neither consults
+  `appearance.promote_workspaces_needing_input`, so an opt-in sidebar feature
+  would have started repainting tiles and posting banners for every user.
+- `AgentPromptGate` treats `.needsAttention` as not receptive, which would have
+  disabled the document pane's send bar 60s after every unanswered turn — the
+  exact moment its "agent is waiting" copy claims it should work.
+- No hook event can retract a reason (`clearsAttention` requires the legacy
+  `state` field, which the mapper never sets), and `awaitsExplicitAnswer` blocks
+  inferred clears. A row could only be freed by a keystroke in that pane, so an
+  answer delivered by `amx send` would have stranded it.
+- Equal priority lets a reason overwrite a pending `.permissionPrompt`, whose
+  bridge-side clear is scoped to `== .permissionPrompt` and would then no-op.
+
+Therefore the mapping is unchanged — `idle_prompt` stays `executionState:
+.waiting` with no reason — and Core recognises the shape instead. `.waiting`
+asserted on a `.notification` phase is unique to this event across every
+provider mapping, and `SessionStore.unansweredTurnPaneIDs` records the pane.
+`SidebarAttentionProjection.isLifted` reads that set as a second membership
+source beside `needsUserInput`.
+
+Consequences:
+
+- Lifting is the only effect. The tile keeps the blue pause, no banner fires, no
+  unread lands, and the document nudge stays receptive. A user who has not
+  enabled the section sees no change whatsoever.
+- Retraction is event-driven, which a reason could never be. `.promptSubmit`
+  proves the turn was answered — by a keystroke or by `amx send` alike — and
+  `.sessionEnd` covers a departed agent. Acknowledging the workspace clears it
+  too, so ⌘⇧K reaches these rows.
+- Tool phases deliberately do NOT retract. Subagent tool calls inherit the pane's
+  event file, and a background `.toolStart` after turn-end was measured at 11 of
+  32 turn-ends; clearing on those would drop a genuinely waiting row a third of
+  the time.
+- The signal is runtime-only. A relaunch has no live agent to re-report idleness,
+  so a restored workspace waits for its next real turn rather than restoring a
+  lift whose premise can no longer be checked.
+
+## Amendment (2026-08-21): reading a turn does not retract it, and a dead agent does
+
+Live verification against a built app found the amendment above incomplete in
+one direction and wrong in another.
+
+The retraction list named `.promptSubmit`, `.sessionEnd`, and acknowledgement.
+It did not account for a fourth path that was live from the start: the ack-on-read
+selection dwell (ADR-0003) calls `acknowledgeSession(releasesAttentionSticky:
+false)`, which cleared the mark unconditionally. The dwell's own body already
+refuses to passively clear a blocking prompt — "reading a blocking prompt is not
+answering it" — but that guard reads `attentionReason`, and an idle prompt sets
+none by design. So the guard never covered this signal.
+
+The consequence inverted the feature for the workspace that mattered most.
+`idle_prompt` fires at most once per turn, so a passive clear retired the signal
+permanently: the selected workspace was the ONE workspace that could not stay
+lifted. The follow-up note recorded against the amendment above claimed the
+opposite — that the selected workspace lifts too, and that this was a product
+question worth a separate decision. It was a defect, not a decision.
+
+`clearUnansweredTurn` is therefore gated on whether the gesture actually
+answered the turn. The consequences below record where that lands, including the
+jump surfaces that made `releasesAttentionSticky` the wrong axis to gate on.
+
+The rule generalises: the mark is resolved by whatever ends the turn's ability to
+be answered, and by nothing else.
+
+- An authoritative agent death clears the mark. `resetPaneAgentChromeToShell`
+  and `recordPaneProcessError` both declare the agent gone while KEEPING the
+  pane's identity, so the live-pane prune cannot reach the mark and no later
+  event can retract it. Without an explicit clear the workspace sits in Needs
+  Input as a plain shell or an errored pane, over the recovery hint it should be
+  showing.
+- Ack-on-read does not reach this mark on ANY surface, not just the dwell.
+  Landing on a waiting pane from the peek card or the activity roster is arrival,
+  not an answer, and the roster's workflow is cycling through waiting panes to
+  survey them — which would otherwise wipe every mark it visited. Those jumps
+  still ack the unread badge, which is ack-on-read's proper subject: seeing a
+  bell is the whole response to a bell. `acknowledgeSession` therefore takes
+  `answersUnansweredTurn` separately from `releasesAttentionSticky`; the dwell
+  passes false to both, a jump releases the sticky without answering, and only a
+  deliberate acknowledge is both.
+- The mark is keyed by pane and VALUED by the provider session that went
+  unanswered, because a pane is not one conversation. A nested same-kind agent
+  inherits the pane's event file, and the reducer accepts its events (the
+  cross-provider guard only rejects a different `AgentKind`), so a pane-only mark
+  let a child's first prompt answer its parent's turn on the parent's behalf.
+  Only a PROVEN mismatch — both sides carrying an id, and disagreeing — refuses
+  to retract. An absent id on either side retracts as before, because providers
+  that report no id would otherwise strand every row they ever lift.
+- A row lifted by this signal alone announces itself to VoiceOver.
+  `WorkspaceAttentionAnnouncementTracker` cannot reach it — the tracker speaks a
+  crossing into `.needsAttention`/`.done`/`.error` and this signal deliberately
+  produces none of them — so the sidebar speaks the arrival directly, under the
+  same single-net-change gate as the departure announcement. Sighted users get
+  the row moving to the top of the sidebar; without this there is no non-visual
+  channel at all.

@@ -114,6 +114,13 @@ public enum AgentHookEventMapper {
         case "permission_prompt":
             EventMapping(attentionReason: .permissionPrompt, phase: .notification)
         case "idle_prompt":
+            // Deliberately carries no attention reason: a reason projects to the
+            // peach `.needsAttention` everywhere, including for users who never
+            // opted into the sidebar's Needs Input section, and it would also
+            // open the macOS notification channel. Core instead recognises this
+            // exact shape — `.waiting` asserted on a `.notification` phase, which
+            // no other provider mapping produces — as the unanswered-turn
+            // escalation that lifts the row. See ADR-0007's 2026-08-17 amendment.
             EventMapping(executionState: .waiting, phase: .notification)
         default:
             EventMapping(attentionReason: .userInputRequired, phase: .notification)
