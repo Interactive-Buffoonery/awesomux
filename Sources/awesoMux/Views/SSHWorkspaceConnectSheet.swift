@@ -225,7 +225,7 @@ struct SSHWorkspaceConnectSheet: View {
             showPreferenceSaveError()
             return
         }
-        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: ""))
+        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: sessionName))
     }
 
     private func alwaysManageAnyDestination() {
@@ -235,7 +235,7 @@ struct SSHWorkspaceConnectSheet: View {
             showPreferenceSaveError()
             return
         }
-        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: ""))
+        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: sessionName))
     }
 
     private func neverAskForThisDestination() {
