@@ -276,6 +276,34 @@ public struct PermissionResolved: Sendable, Equatable {
 
 // MARK: - Wire representation
 
+/// A JSON string field whose wrong-typed value strips the field instead of
+/// throwing out of the enclosing frame's decode.
+///
+/// `providerSessionID` rides on agent-status frames whose execution/attention
+/// transition is load-bearing, so a numeric or array value must cost the field
+/// and nothing else — the same rule `AgentRuntimeEvent.Payload` applies to the
+/// local event-file path. Deliberately a local copy of that (private) type
+/// rather than a lifted shared one: `AwesoMuxCore` sits ABOVE this module so
+/// the dependency only runs one way, its copy is `Decodable`-only while the
+/// wire struct must re-encode too, and the shim is smaller than the public API
+/// surface sharing it would add here.
+private struct LenientString: Codable {
+    var value: String?
+
+    init(_ value: String?) {
+        self.value = value
+    }
+
+    init(from decoder: Decoder) throws {
+        value = try? decoder.singleValueContainer().decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
+}
+
 extension BridgeEnvelope {
     /// Flat Codable wire shape for every message type, mirroring
     /// `AmxStatusEvent.Wire`: one struct, shape-specific fields optional,
@@ -295,7 +323,7 @@ extension BridgeEnvelope {
         var execution: AgentExecutionState?
         var attentionReason: AttentionReason?
         var phase: AgentRuntimePhase?
-        var providerSessionID: String?
+        var providerSessionID: LenientString?
         var eventID: String?
 
         // pane-rename
@@ -334,7 +362,7 @@ extension BridgeEnvelope {
                 execution = payload.execution
                 attentionReason = payload.attentionReason
                 phase = payload.phase
-                providerSessionID = payload.providerSessionID
+                providerSessionID = payload.providerSessionID.map(LenientString.init)
                 eventID = payload.eventID
             case .paneRename(let value):
                 title = value
@@ -379,7 +407,13 @@ extension BridgeEnvelope.Wire {
                     execution: execution,
                     attentionReason: attentionReason,
                     phase: phase,
-                    providerSessionID: providerSessionID,
+                    // Unlike the free-text fields below, a hostile session id
+                    // strips just the field instead of dropping the frame: the
+                    // frame's execution/attention transition is load-bearing
+                    // and a remote host must not be able to suppress it by
+                    // attaching a bad id. A wrong-TYPED id is stripped a step
+                    // earlier, by `LenientString`, for the same reason.
+                    providerSessionID: source.validatedProviderSessionID(providerSessionID?.value),
                     eventID: eventID
                 )
             )

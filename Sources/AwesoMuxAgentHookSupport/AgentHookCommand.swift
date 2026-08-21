@@ -72,7 +72,12 @@ public enum AgentHookCommand {
                     provider: provider,
                     hookEventName: hookEventName,
                     notificationType: payload.notificationType,
-                    providerSessionID: provider == .grok ? payload.providerSessionID : nil,
+                    // Validated here, at the write end, not only where it is
+                    // read: an unbounded id would push the whole line past the
+                    // JSONL cap below and drop the lifecycle transition with it.
+                    providerSessionID: provider.source.validatedProviderSessionID(
+                        payload.providerSessionID
+                    ),
                     reason: payload.reason,
                     toolName: payload.toolName,
                     toolFilePath: payload.toolFilePath

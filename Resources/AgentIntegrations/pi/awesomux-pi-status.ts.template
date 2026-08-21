@@ -16,13 +16,19 @@ function canEmitAwesoMuxHook(): boolean {
         && !!process.env.AWESOMUX_AGENT_EVENT_FILE
 }
 
-async function emitAwesoMuxHook(hookEventName: HookEventName): Promise<void> {
+async function emitAwesoMuxHook(
+    hookEventName: HookEventName,
+    sessionID?: string,
+): Promise<void> {
     if (!canEmitAwesoMuxHook()) {
         return
     }
 
     const hook = process.env.AWESOMUX_AGENT_HOOK || "awesoMuxAgentHook"
-    const payload = JSON.stringify({ hook_event_name: hookEventName })
+    const payload = JSON.stringify({
+        hook_event_name: hookEventName,
+        ...(sessionID ? { session_id: sessionID } : {}),
+    })
 
     await new Promise<void>((resolve) => {
         const child = spawn(hook, ["--provider", "pi"], {
@@ -42,30 +48,30 @@ async function emitAwesoMuxHook(hookEventName: HookEventName): Promise<void> {
 }
 
 export default function awesoMuxPiStatus(pi: ExtensionAPI): void {
-    pi.on("session_start", async () => {
-        await emitAwesoMuxHook("SessionStart")
+    pi.on("session_start", async (_event, ctx) => {
+        await emitAwesoMuxHook("SessionStart", ctx.sessionManager.getSessionId())
     })
 
-    pi.on("before_agent_start", async () => {
-        await emitAwesoMuxHook("UserPromptSubmit")
+    pi.on("before_agent_start", async (_event, ctx) => {
+        await emitAwesoMuxHook("UserPromptSubmit", ctx.sessionManager.getSessionId())
     })
 
-    pi.on("tool_execution_start", async () => {
-        await emitAwesoMuxHook("PreToolUse")
+    pi.on("tool_execution_start", async (_event, ctx) => {
+        await emitAwesoMuxHook("PreToolUse", ctx.sessionManager.getSessionId())
     })
 
-    pi.on("tool_execution_end", async () => {
-        await emitAwesoMuxHook("PostToolUse")
+    pi.on("tool_execution_end", async (_event, ctx) => {
+        await emitAwesoMuxHook("PostToolUse", ctx.sessionManager.getSessionId())
     })
 
-    pi.on("agent_end", async () => {
-        await emitAwesoMuxHook("Stop")
+    pi.on("agent_end", async (_event, ctx) => {
+        await emitAwesoMuxHook("Stop", ctx.sessionManager.getSessionId())
     })
 
     // Shutdown is the agent exiting, not a turn finishing: emit SessionEnd so
     // awesoMux resets the tile to the quiet shell state instead of leaving a
     // stuck "needs input" peach badge (which Stop now produces) on a gone agent.
-    pi.on("session_shutdown", async () => {
-        await emitAwesoMuxHook("SessionEnd")
+    pi.on("session_shutdown", async (_event, ctx) => {
+        await emitAwesoMuxHook("SessionEnd", ctx.sessionManager.getSessionId())
     })
 }

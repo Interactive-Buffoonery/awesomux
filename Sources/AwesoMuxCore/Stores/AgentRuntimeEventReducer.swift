@@ -56,8 +56,12 @@ struct AgentRuntimeEventReducer: Sendable {
         // turns", not "session over".
         var isBetweenTurns = false
         var suppressesHeuristicState = false
-        // Grok emits hooks for child agents too. Latch the parent session id so
-        // child lifecycle events do not flip the parent tile.
+        // The provider-native session id of the agent currently running in this
+        // pane, latched at SessionStart (or the first prompt submit, for a
+        // missed SessionStart) and cleared when that session ends. Grok uses it
+        // to keep child-agent lifecycle events from flipping the parent tile;
+        // every provider uses it to prove that a buffered SessionEnd belongs to
+        // the session it would reset.
         var providerSessionID: String?
     }
 
@@ -105,6 +109,15 @@ struct AgentRuntimeEventReducer: Sendable {
 
     func suppressesHeuristicState(for paneID: TerminalPane.ID) -> Bool {
         stateByPaneID[paneID]?.suppressesHeuristicState == true
+    }
+
+    /// The provider-native session id currently latched for a pane, if any.
+    ///
+    /// Runtime-only and deliberately so: it names the session running in that
+    /// pane *now*. A durable "which session is this document" answer is
+    /// `DocumentPane.agentTranscriptIdentity`, not this.
+    func providerSessionID(for paneID: TerminalPane.ID) -> String? {
+        stateByPaneID[paneID]?.providerSessionID
     }
 
     mutating func decision(
@@ -172,20 +185,51 @@ struct AgentRuntimeEventReducer: Sendable {
         // so a later buffered Stop can't reapply waiting, re-peach it, or
         // resurrect the agent glyph.
         if event.phase == .sessionEnd {
-            if state.lifecycle.hasSupersededLifecycle,
-                !state.lifecycle.currentIsStopped,
-                (normalizedProviderSessionID(state.providerSessionID) == nil
-                    || normalizedProviderSessionID(event.providerSessionID) == nil)
-            {
+            // Identity, not lifecycle shape, decides whether an end belongs to
+            // the session it would reset. Two rules, because they fail in
+            // opposite directions:
+            //
+            // - Two ids that DISAGREE prove the end came from some other
+            //   session — a buffered end from the pane's previous agent, or a
+            //   nested same-kind child (`claude -p` inside a Bash tool call)
+            //   exiting mid-turn. Drop it whatever the lifecycle says. Gating
+            //   the whole check on superseded-but-not-stopped left
+            //   `.supersededStopped` open: once the superseding session emitted
+            //   its own turn-end Stop the check switched itself off, and the
+            //   next stale end reset a live agent to `.shell` — mid-turn, if
+            //   that session had since submitted another prompt (cross-model
+            //   review).
+            // - An UNPROVEN end (either side missing an id) stays gated on
+            //   superseded-but-not-stopped, i.e. a new session is latched AND
+            //   working. Widening it to `.supersededStopped` too would break
+            //   every provider that reports no id at all: for them the ordinary
+            //   "second session in this pane quits" is unproven by
+            //   construction, and refusing it strands the agent glyph forever.
+            //   The `.supersededStopped` hole is closed by the rule above
+            //   instead, which needs no lifecycle shape — and once both sides
+            //   carry ids, which is the whole point of latching them, that is
+            //   the rule that fires.
+            let latchedSessionID = normalizedProviderSessionID(state.providerSessionID)
+            let eventSessionID = normalizedProviderSessionID(event.providerSessionID)
+            let isProvablyThisSession =
+                latchedSessionID != nil && latchedSessionID == eventSessionID
+            let isProvablyAnotherSession =
+                latchedSessionID != nil && eventSessionID != nil && !isProvablyThisSession
+            let isUnprovenEndOverALiveSession =
+                state.lifecycle.hasSupersededLifecycle
+                && !state.lifecycle.currentIsStopped
+                && !isProvablyThisSession
+            if isProvablyAnotherSession || isUnprovenEndOverALiveSession {
                 return nil
             }
             state.lifecycle = .ended
             state.suppressesHeuristicState =
                 state.suppressesHeuristicState
                 || event.source.hasTrustworthySessionRestartBoundary
-            if event.source == .grok {
-                state.providerSessionID = nil
-            }
+            // The session this id identified is over. Holding it would let the
+            // next lifecycle — whose first event may carry no id at all —
+            // report the previous session as its own.
+            state.providerSessionID = nil
             advanceTimestampWatermark(event.timestamp, now: now, into: &state)
             stateByPaneID[paneID] = state
             return Decision(
@@ -275,16 +319,47 @@ struct AgentRuntimeEventReducer: Sendable {
             let wasLifecycleStopped = state.lifecycle.currentIsStopped
             state.lifecycle.start()
             state.suppressesHeuristicState = false
-            if event.source == .grok,
-                (state.providerSessionID == nil || wasSessionEnded || wasLifecycleStopped),
+            // Drop the old id BEFORE latching: a proven new lifecycle whose
+            // SessionStart carries no id must report "unknown session", never
+            // the previous session's id.
+            //
+            // A same-kind SessionStart carrying a DIFFERENT id while the
+            // lifecycle still reads active is modelled here rather than left to
+            // fall through the latch guard below, because the two things it can
+            // be pull in opposite directions:
+            //
+            // - a nested `claude -p` inside a Bash tool call, which must NOT
+            //   move the latch (see the top of this function);
+            // - a genuine handoff — a `/clear`-style restart, or a fresh agent
+            //   launched after the previous one died without writing Stop or
+            //   SessionEnd (kill -9, crash, sleep) — which must.
+            //
+            // `isBetweenTurns` separates them: a nested child can only be
+            // spawned FROM a tool call, so its SessionStart always lands
+            // mid-turn, while a user typing at a returned prompt never does.
+            // It is a superset of "not in a tool call", so it errs toward
+            // keeping the parent's id, the safe direction. Getting this wrong
+            // is no longer just a stale equality check: the latched id is now a
+            // filesystem lookup and a staged resume command.
+            //
+            // Note: `AgentLivenessPolicy` covers the common unclean death
+            // by synthesizing an id-less `sessionEnd`, which clears the latch
+            // outright. The residual gap is a pane that has already superseded
+            // once and is killed MID-turn: that synthetic end is dropped as
+            // unproven, and neither signal here fires, so the dead id survives
+            // until the next clean lifecycle. Revisit if the app ever hands the
+            // reducer a liveness signal it can trust on its own.
+            if wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns {
+                state.providerSessionID = nil
+            }
+            if state.providerSessionID == nil,
                 let providerSessionID = normalizedProviderSessionID(event.providerSessionID)
             {
                 state.providerSessionID = providerSessionID
             }
         } else if event.phase == .stop {
             state.lifecycle.stop()
-        } else if event.source == .grok,
-            event.phase == .promptSubmit,
+        } else if event.phase == .promptSubmit,
             state.providerSessionID == nil,
             let providerSessionID = normalizedProviderSessionID(event.providerSessionID)
         {
