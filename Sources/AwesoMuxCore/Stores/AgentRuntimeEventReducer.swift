@@ -187,7 +187,7 @@ struct AgentRuntimeEventReducer: Sendable {
 
         // A subprocess CLI invocation (e.g. `codex exec` run as a Bash tool call
         // inside a Claude Code pane) inherits the pane's AWESOMUX_AGENT_EVENT_FILE
-        // and, if it has its own awesoMux status hooks installed, writes its own
+        // and, if it has its own awesomux status hooks installed, writes its own
         // lifecycle events into this pane's stream (confirmed live — see Task 2
         // background). A bare SessionStart is not enough to prove a genuine
         // foreground handoff: a nested child process fires its own SessionStart
@@ -197,10 +197,22 @@ struct AgentRuntimeEventReducer: Sendable {
         // it's between turns or gone, not mid-turn. Everything else from a
         // different provider is rejected outright, before it can touch dedupe,
         // staleness, or lifecycle state for the pane's real agent.
+        //
+        // That rejection applies ONLY when the incumbent kind was proven by
+        // this pane's own runtime stream. A kind guessed from scraped viewport
+        // text (e.g. a "claude code" string sitting in scrollback of a fresh
+        // OpenCode pane) carries no such proof — rejecting the real agent's
+        // events forever made one stray substring permanently mislabel the
+        // pane, surviving relaunch through persistence. A text-guessed kind
+        // therefore yields to a genuine identity boundary (session start or
+        // user prompt) from another provider; foreign tool-lifecycle chatter
+        // still cannot steal the pane.
         if let eventKind = event.kind,
             currentPane.agentKind != .shell,
             currentPane.agentKind != eventKind,
-            !(event.phase == .sessionStart && (state.lifecycle.isEnded || state.lifecycle.currentIsStopped))
+            !(event.phase == .sessionStart && (state.lifecycle.isEnded || state.lifecycle.currentIsStopped)),
+            currentPane.agentKindIsRuntimeEstablished
+                || !(event.phase == .sessionStart || event.phase == .promptSubmit)
         {
             return nil
         }
@@ -280,6 +292,7 @@ struct AgentRuntimeEventReducer: Sendable {
             return Decision(
                 update: WorkspaceAttentionReducer.SessionUpdate(
                     agentKind: .shell,
+                    agentKindIsRuntimeEstablished: false,
                     agentExecutionState: event.executionState ?? .idle,
                     clearsAttention: true,
                     // The agent that raised the prompt is gone, so nothing can
@@ -601,6 +614,10 @@ struct AgentRuntimeEventReducer: Sendable {
         return Decision(
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentKind: resolvedKind,
+                // Any kind this stream emits is runtime-proven by definition,
+                // whether it just claimed a shell pane or reclaimed one a
+                // viewport scrape had mislabeled.
+                agentKindIsRuntimeEstablished: resolvedKind != nil ? true : nil,
                 agentExecutionState: eventExecutionState,
                 attentionReason: eventAttentionReason,
                 clearsAttention: clearsAttention || answersPendingNotifications,
