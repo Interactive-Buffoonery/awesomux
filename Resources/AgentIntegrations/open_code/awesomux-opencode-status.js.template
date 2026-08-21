@@ -36,36 +36,54 @@ async function emitAwesoMuxHook($, hookEventName, sessionID) {
 
 export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
     const rootSessionIDs = new Set()
-    // Cap-then-track: this set identifies ACTIVE root sessions, and an
-    // unbounded map of dead ids would leak a few bytes per stale entry over a
-    // long plugin-process lifetime. Clearing at the cap drops late events for
-    // sessions that started before it (fail silent, never misattributing),
+    const childSessionIDs = new Set()
+    // Cap-then-track: these sets identify ACTIVE root vs child sessions, and
+    // an unbounded map of dead ids would leak a few bytes per stale entry over
+    // a long plugin-process lifetime. Clearing at the cap drops late events
+    // for sessions that started before it (fail silent, never misattributing),
     // and 512 concurrent root sessions is far past any real process lifetime.
-    const trackRootSession = (sessionID) => {
-        if (rootSessionIDs.size >= 512) {
-            rootSessionIDs.clear()
+    // A cleared child set can re-promote an old child via chat.message until
+    // its next session.created replays — the same fail-silent posture.
+    const trackInto = (set, sessionID) => {
+        if (set.size >= 512) {
+            set.clear()
         }
-        rootSessionIDs.add(sessionID)
+        set.add(sessionID)
     }
 
     return {
         event: async ({ event }) => {
             const info = event?.properties?.info
             if (event?.type === "session.created") {
-                if (info?.parentID || typeof info?.id !== "string") {
+                if (typeof info?.id !== "string") {
                     return
                 }
-                trackRootSession(info.id)
+                if (info.parentID) {
+                    trackInto(childSessionIDs, info.id)
+                    return
+                }
+                trackInto(rootSessionIDs, info.id)
             }
             const sessionID = info?.id || event?.properties?.sessionID
-            if (typeof sessionID === "string" && !rootSessionIDs.has(sessionID)) {
+            // Fail closed: lifecycle events (Stop → awesoMux "waiting",
+            // StopFailure → "error") must only fire for the ROOT session this
+            // pane hosts. OpenCode also idles/errors CHILD sessions (task
+            // subagents) mid-parent-turn; emitting those painted a false
+            // waiting prompt while the agent was still running. An unknown or
+            // missing id drops the event rather than leaking it.
+            if (!rootSessionIDs.has(sessionID)) {
                 return
             }
             await emitAwesoMuxHook($, sessionHookNames[event?.type], sessionID)
         },
         "chat.message": async ({ sessionID }) => {
-            if (typeof sessionID === "string") {
-                trackRootSession(sessionID)
+            // Subagent turns flow through this hook with their own session id;
+            // promoting them would let their later session.idle pass the root
+            // filter above as a false parent turn-end. Only sessions never
+            // announced as children may seed the root set (covers sessions
+            // created before this plugin attached).
+            if (!childSessionIDs.has(sessionID)) {
+                trackInto(rootSessionIDs, sessionID)
             }
             await emitAwesoMuxHook($, "UserPromptSubmit", sessionID)
         },
