@@ -3459,15 +3459,10 @@ struct AwesoMuxApp: App {
                 // this route's version of a dead command: the button's
                 // disabled state and busy label never reach someone driving
                 // the menu, and the probe can take seconds on a cold directory
-                // walk. Mirror the button's busy sentence instead. Not `.high`: no terminal
-                // contents changed, so nothing competes for a screen reader.
-                TerminalAccessibilityAnnouncer.announce(
-                    String(
-                        localized: "Already checking this session's log.",
-                        comment:
-                            "VoiceOver announcement when Resume is invoked while a session-log probe is already in flight"
-                    )
-                )
+                // walk. Mirror the button's busy sentence instead. The button
+                // route speaks the identical sentence for the mirror-image
+                // race (a click while the menu owns the probe).
+                TerminalAccessibilityAnnouncer.announceResumeAlreadyChecking()
             case .unavailable(let reason):
                 // An alert rather than the button's inline caption: this route
                 // can run while the send bar is scrolled out of view, and a

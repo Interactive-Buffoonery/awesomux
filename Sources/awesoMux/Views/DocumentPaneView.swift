@@ -514,9 +514,14 @@ struct DocumentPaneSendBar: View {
                     priority: .high
                 )
             case .alreadyStaging:
-                // The menu command owns this document's send. Reporting a
-                // failure the user did not cause would be a lie.
-                break
+                // The menu/palette command owns this document's send.
+                // Reporting a failure the user did not cause would be a lie —
+                // but staying silent would be this click's version of a dead
+                // command: this route's local busy state never saw the other
+                // route's probe, so without speech nothing here distinguishes
+                // "already checking" from an ignored click. Same sentence and
+                // priority as the app-level route.
+                TerminalAccessibilityAnnouncer.announceResumeAlreadyChecking()
             case .unavailable(let reason):
                 reportResumeUnavailable(reason)
             }

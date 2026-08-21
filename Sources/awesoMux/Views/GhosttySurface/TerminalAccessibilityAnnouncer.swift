@@ -617,6 +617,32 @@ enum TerminalAccessibilityAnnouncer {
         post("Session error cleared. New shell started.", priority: .high)
     }
 
+    // MARK: - Agent transcript resume
+
+    /// Spoken when Resume is invoked while a session-log probe for the same
+    /// document is already in flight. Not a denial — nothing is wrong — but
+    /// silence would be a dead command on either route: the menu driver never
+    /// sees the button's busy state, and the button's local busy state never
+    /// sees the menu route's probe (the shared in-flight set lives in
+    /// `AgentTranscriptResumeStaging`, which no view observes). The probe can
+    /// take seconds on a cold directory walk, so both routes say so instead.
+    /// Not `.high`: no terminal contents changed, so nothing competes for a
+    /// screen reader.
+    static func resumeAlreadyCheckingAnnouncement() -> String {
+        String(
+            localized: "Already checking this session's log.",
+            comment:
+                "VoiceOver announcement when Resume is invoked while a session-log probe is already in flight"
+        )
+    }
+
+    static func announceResumeAlreadyChecking() {
+        // Through `announce(...)`, not `post`: Resume can be driven from a
+        // menu item or palette row, and the next-runloop-tick hop keeps the
+        // announcement from being swallowed while that menu dismisses.
+        announce(resumeAlreadyCheckingAnnouncement())
+    }
+
     /// Post a VoiceOver announcement, deferred to the next main-runloop tick.
     ///
     /// The async hop is load-bearing for menu- and drop-driven announcements:

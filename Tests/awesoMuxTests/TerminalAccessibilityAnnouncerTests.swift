@@ -58,6 +58,19 @@ struct TerminalAccessibilityAnnouncerTests {
         )
     }
 
+    @Test("resume-while-probing announcement is not a denial")
+    func resumeAlreadyCheckingAnnouncement() {
+        // Both Resume routes (send-bar button and app command) speak this when
+        // the other route owns an in-flight probe. It must read as "already
+        // happening", never as failure — and it must exist at all, because
+        // neither route's busy state can see the other's probe.
+        let message = TerminalAccessibilityAnnouncer.resumeAlreadyCheckingAnnouncement()
+        #expect(message.contains("Already checking"))
+        #expect(!message.lowercased().contains("unavailable"))
+        #expect(!message.lowercased().contains("can't"))
+        #expect(!message.lowercased().contains("couldn't"))
+    }
+
     @Test("workspace close announcement for process error exit")
     func workspaceCloseAnnouncementForErrorExit() {
         #expect(
