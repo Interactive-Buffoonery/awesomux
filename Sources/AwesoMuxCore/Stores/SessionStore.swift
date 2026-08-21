@@ -436,9 +436,25 @@ public final class SessionStore {
     /// Runtime-only, like `liftedSessionIDs` arrival order: a relaunch has no
     /// live agent to re-report idleness, so a restored workspace waits for its
     /// next real turn.
-    /// ponytail: a plain set because membership is the whole model; if a future
-    /// escalation needs "how long has it been waiting", store the timestamp here.
-    public internal(set) var unansweredTurnPaneIDs: Set<TerminalPane.ID> = []
+    ///
+    /// Keyed by pane, VALUED by the provider session that went unanswered,
+    /// because a pane is not one conversation. A nested same-kind agent — a
+    /// `claude` invoked as a tool call inside a Claude Code pane — inherits the
+    /// pane's event file and submits its own prompts through it. The reducer
+    /// accepts those (its cross-provider guard only rejects a different
+    /// `AgentKind`), so a pane-only mark would let the child's first prompt
+    /// retract the parent's still-unanswered turn, permanently: `idle_prompt`
+    /// fires at most once per turn.
+    ///
+    /// The value is optional because not every provider reports a session id.
+    /// ponytail: a dictionary because identity is the whole model now; if a
+    /// future escalation needs "how long has it been waiting", widen the value
+    /// to a struct carrying the timestamp too.
+    var unansweredTurns: [TerminalPane.ID: String?] = [:]
+
+    /// Membership only — what the lift predicate needs. Hoist it into a local
+    /// before any loop: this allocates a fresh `Set` per read.
+    public var unansweredTurnPaneIDs: Set<TerminalPane.ID> { Set(unansweredTurns.keys) }
 
     /// Mirrored from `appearance.promote_workspaces_needing_input` by
     /// `SidebarView` — the section's only renderer — so the sidebar, the ⌘-jump
@@ -564,20 +580,39 @@ public final class SessionStore {
     /// Clearing on those would drop the row out of Needs Input a third of the
     /// time while the agent is still genuinely waiting.
     func updateUnansweredTurn(paneID: TerminalPane.ID, event: AgentRuntimeEvent) {
-        let before = unansweredTurnPaneIDs
+        let before = unansweredTurns
         switch event.phase {
         case .notification where event.assertsWaitingExecutionState:
             // The only mapping that asserts `.waiting` on a notification is
             // Claude Code's `idle_prompt`. Every other provider's notification
             // carries an attention reason and no execution claim.
-            unansweredTurnPaneIDs.insert(paneID)
+            unansweredTurns[paneID] = event.providerSessionID
         case .promptSubmit, .sessionEnd:
-            unansweredTurnPaneIDs.remove(paneID)
+            guard retracts(event, markedFor: paneID) else { return }
+            unansweredTurns.removeValue(forKey: paneID)
         default:
             return
         }
-        guard unansweredTurnPaneIDs != before else { return }
+        guard unansweredTurns.keys != before.keys else { return }
         reconcileLiftedSessionIDs()
+    }
+
+    /// Whether an end-of-conversation event belongs to the session that actually
+    /// went unanswered.
+    ///
+    /// Conservative in the direction that matters. Only a PROVEN mismatch — both
+    /// sides carrying an id, and disagreeing — refuses to retract, because that
+    /// is the one shape a nested child produces. An absent id on either side
+    /// retracts as before: providers that report no id at all would otherwise
+    /// strand every row they ever lift, which is a worse failure than the
+    /// narrow one this guards.
+    private func retracts(_ event: AgentRuntimeEvent, markedFor paneID: TerminalPane.ID) -> Bool {
+        guard let marked = unansweredTurns[paneID] ?? nil,
+            let reported = event.providerSessionID
+        else {
+            return true
+        }
+        return marked.caseInsensitiveCompare(reported) == .orderedSame
     }
 
     /// Drops a pane's unanswered mark and reconciles. Used by the acknowledge
@@ -585,9 +620,11 @@ public final class SessionStore {
     /// reason — otherwise the one escape hatch the section documents would not
     /// reach rows lifted by this signal.
     func clearUnansweredTurn(paneIDs: some Sequence<TerminalPane.ID>) {
-        let before = unansweredTurnPaneIDs
-        unansweredTurnPaneIDs.subtract(paneIDs)
-        guard unansweredTurnPaneIDs != before else { return }
+        let before = unansweredTurns.count
+        for paneID in paneIDs {
+            unansweredTurns.removeValue(forKey: paneID)
+        }
+        guard unansweredTurns.count != before else { return }
         reconcileLiftedSessionIDs()
     }
 
@@ -614,6 +651,9 @@ public final class SessionStore {
         }
         let pinned = Set(pinnedSessionIDs)
         let sticky = attentionStickySessionID
+        // Hoisted: the property builds a fresh `Set` on every read, and this
+        // loop runs once per session on a path that fires on every commit.
+        let unanswered = unansweredTurnPaneIDs
         var arrivals: [TerminalSession.ID] = []
         var arrivalSet: Set<TerminalSession.ID> = []
         for group in _groups {
@@ -622,7 +662,7 @@ public final class SessionStore {
                 && SidebarAttentionProjection.isLifted(
                     session,
                     stickySessionID: sticky,
-                    unansweredTurnPaneIDs: unansweredTurnPaneIDs
+                    unansweredTurnPaneIDs: unanswered
                 )
             {
                 arrivals.append(session.id)
@@ -742,7 +782,7 @@ public final class SessionStore {
         // Same ID-reuse hazard as the sticky above: a surviving unanswered mark
         // could lift a restored workspace whose pane never went unanswered. The
         // live agent, if any, re-reports on its next idle prompt.
-        unansweredTurnPaneIDs = []
+        unansweredTurns = [:]
         pinnedSessionIDs = components.pinnedSessionIDs
         lastClosedTransient = nil
         shellActivityReducer = ShellActivityReducer()
@@ -1225,9 +1265,15 @@ public final class SessionStore {
     ///   selection dwell, which must NOT evict the row the user is reading. Every
     ///   deliberate gesture (context menu, ⌘⇧K, Clear All Notifications) leaves
     ///   the default so the row leaves the section immediately.
+    /// - Parameter answersUnansweredTurn: whether this gesture proves the user
+    ///   answered the turn, as opposed to merely reaching or reading the pane.
+    ///   Independent of `releasesAttentionSticky`: the ack-on-read dwell passes
+    ///   false to both, the peek-card and roster pane jumps release the sticky
+    ///   but do NOT answer anything, and only a deliberate acknowledge is both.
     public func acknowledgeSession(
         id: TerminalSession.ID,
-        releasesAttentionSticky: Bool = true
+        releasesAttentionSticky: Bool = true,
+        answersUnansweredTurn: Bool = true
     ) {
         guard let position = position(for: id) else { return }
         if id == selectedSessionID {
@@ -1242,7 +1288,25 @@ public final class SessionStore {
             &_groups[position.groupIndex].sessions[position.sessionIndex],
             paneID: activePaneID
         )
-        clearUnansweredTurn(paneIDs: [activePaneID])
+        // Ack-on-read must not reach this mark, on any surface. The dwell's own
+        // body already refuses to passively clear a BLOCKING `awaitsExplicitAnswer`
+        // prompt, but that guard reads `attentionReason`, and an idle prompt
+        // deliberately sets none — so it never covered this signal, which is why
+        // the bug existed. The rule is the same either way: reading a finished
+        // turn is not answering it. It bites harder here, because `idle_prompt`
+        // fires at most once per turn, so a passive clear retires the signal for
+        // good. Verified against a live build: the selected workspace was the
+        // one workspace this signal could not reach.
+        //
+        // The jump surfaces are the same rule seen from the other side. Landing
+        // on a waiting pane from the peek card or the activity roster is arrival,
+        // not an answer — and the roster's whole workflow is cycling through
+        // waiting panes to survey them, which would otherwise wipe every mark it
+        // visited. They still ack the unread badge, which IS ack-on-read's proper
+        // subject: seeing a bell is the whole response to a bell.
+        if answersUnansweredTurn {
+            clearUnansweredTurn(paneIDs: [activePaneID])
+        }
         commit(WorkspaceMutationEffect(unreadChange: change))
     }
 
@@ -1273,7 +1337,7 @@ public final class SessionStore {
         // full rebuild below only prunes marks whose pane is GONE, so without
         // this every live marked pane stays lifted after "acknowledge
         // everything" — the one action that promises an empty section.
-        unansweredTurnPaneIDs.removeAll()
+        unansweredTurns.removeAll()
         WorkspaceAttentionReducer.acknowledgeAllSessions(in: &_groups)
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
     }

@@ -1,4 +1,5 @@
 import AwesoMuxBridgeProtocol
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -46,20 +47,30 @@ import Testing
     private func claudeEvent(
         executionState: AgentExecutionState?,
         phase: AgentRuntimePhase,
-        at timestamp: Date = Date()
+        at timestamp: Date = Date(),
+        providerSessionID: String? = nil
     ) -> AgentRuntimeEvent {
         AgentRuntimeEvent(
             source: .claudeCode,
             executionState: executionState,
             phase: phase,
             eventID: UUID().uuidString,
+            providerSessionID: providerSessionID,
             timestamp: timestamp
         )
     }
 
     /// `idle_prompt`: the only mapping asserting `.waiting` on a notification.
-    private func idlePrompt(at timestamp: Date = Date()) -> AgentRuntimeEvent {
-        claudeEvent(executionState: .waiting, phase: .notification, at: timestamp)
+    private func idlePrompt(
+        at timestamp: Date = Date(),
+        providerSessionID: String? = nil
+    ) -> AgentRuntimeEvent {
+        claudeEvent(
+            executionState: .waiting,
+            phase: .notification,
+            at: timestamp,
+            providerSessionID: providerSessionID
+        )
     }
 
     /// The whole point of the signal: a turn the user has ignored for 60s lifts
@@ -181,6 +192,215 @@ import Testing
 
         store.acknowledgeAllPanes(in: alpha.id)
 
+        #expect(store.liftedSessionIDs.isEmpty)
+    }
+
+    /// A nested same-kind agent — `claude` run as a tool call inside a Claude
+    /// Code pane — inherits the pane's event file and submits its own prompts
+    /// through it. The reducer accepts them, so a pane-only mark would let the
+    /// child's first prompt answer the parent's turn on the parent's behalf.
+    /// Permanently: `idle_prompt` fires at most once per turn.
+    @Test func aNestedSessionsPromptDoesNotAnswerTheParentsTurn() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+        let parent = UUID().uuidString
+        let child = UUID().uuidString
+        let base = Date()
+
+        #expect(
+            store.applyAgentRuntimeEvent(
+                idlePrompt(at: base, providerSessionID: parent),
+                to: alpha.id,
+                paneID: paneID
+            ))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        _ = store.applyAgentRuntimeEvent(
+            claudeEvent(
+                executionState: .thinking,
+                phase: .promptSubmit,
+                at: base.addingTimeInterval(1),
+                providerSessionID: child
+            ),
+            to: alpha.id,
+            paneID: paneID
+        )
+
+        #expect(store.liftedSessionIDs == [alpha.id])
+    }
+
+    /// The other half: the session that actually went unanswered still answers
+    /// it. Without this the identity check would just be a way to never retract.
+    @Test func theMarkedSessionsOwnPromptAnswersItsTurn() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+        let parent = UUID().uuidString
+        let base = Date()
+
+        #expect(
+            store.applyAgentRuntimeEvent(
+                idlePrompt(at: base, providerSessionID: parent),
+                to: alpha.id,
+                paneID: paneID
+            ))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        #expect(
+            store.applyAgentRuntimeEvent(
+                claudeEvent(
+                    executionState: .thinking,
+                    phase: .promptSubmit,
+                    at: base.addingTimeInterval(1),
+                    providerSessionID: parent.lowercased()
+                ),
+                to: alpha.id,
+                paneID: paneID
+            ))
+
+        #expect(store.liftedSessionIDs.isEmpty)
+    }
+
+    /// Reaching a pane is not answering it. The peek card's pane jump and the
+    /// activity roster's jump both ack on arrival, and the roster's whole
+    /// workflow is cycling through waiting panes to survey them — which would
+    /// otherwise wipe the mark on every pane it visited.
+    @Test func jumpingToAPaneDoesNotAnswerItsUnansweredTurn() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        store.acknowledgeSession(id: alpha.id, answersUnansweredTurn: false)
+
+        #expect(store.unansweredTurnPaneIDs == [paneID])
+        #expect(store.liftedSessionIDs == [alpha.id])
+    }
+
+    /// A departed agent cannot be answered, so its mark goes with it — the
+    /// second retraction phase, and the one no other test covers.
+    @Test func sessionEndRetractsTheLift() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+        let base = Date()
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(at: base), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        #expect(
+            store.applyAgentRuntimeEvent(
+                claudeEvent(
+                    executionState: .idle,
+                    phase: .sessionEnd,
+                    at: base.addingTimeInterval(1)
+                ),
+                to: alpha.id,
+                paneID: paneID
+            ))
+
+        #expect(store.liftedSessionIDs.isEmpty)
+        #expect(store.unansweredTurnPaneIDs.isEmpty)
+    }
+
+    /// The selection dwell is ack-on-READ, and reading a finished turn is not
+    /// answering it — the same rule the dwell already applies to a blocking
+    /// prompt. It matters more here: `idle_prompt` fires at most once per turn,
+    /// so a passive clear retires the signal for good and the selected
+    /// workspace becomes the one workspace this signal can never lift.
+    @Test func theSelectionDwellDoesNotPassivelyClearAnUnansweredTurn() async throws {
+        let calm = TerminalSession(title: "calm", workingDirectory: "~")
+        // A bell rides along as this test's positive control. It is non-blocking,
+        // so the dwell is supposed to clear it — which is the only way to tell
+        // "the dwell ran and spared the mark" from "the dwell never ran at all".
+        // Without it every assertion below already holds before `advanceOneCycle`,
+        // and a cancelled task or a nil `[weak self]` would pass silently.
+        var alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        alpha.layout = alpha.layout.mappingPanes { pane in
+            var pane = pane
+            pane.attentionReason = .bell
+            pane.unreadNotificationCount = 1
+            return pane
+        }
+        let store = SessionStore(
+            groups: [SessionGroup(name: "One", sessions: [calm, alpha])],
+            acknowledgementDwellNanoseconds: 10_000_000
+        )
+        let scheduler = store.controlAcknowledgementDwell()
+        store.needsInputSectionEnabled = true
+        store.selectedSessionID = alpha.id
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        #expect(await waitUntil { scheduler.sleeperCount >= 1 })
+        scheduler.advanceOneCycle()
+        let dwellRan = await waitUntil {
+            store.session(id: alpha.id)?.activePane?.attentionReason == nil
+        }
+
+        #expect(dwellRan, "control: the dwell must actually run and clear the bell")
+        #expect(store.unansweredTurnPaneIDs == [paneID])
+        #expect(store.liftedSessionIDs == [alpha.id])
+    }
+
+    /// The deliberate half of the same rule: ⌘⇧K and the row's own menu still
+    /// clear the mark, so the section keeps its escape hatch.
+    @Test func aDeliberateAcknowledgeStillClearsAnUnansweredTurn() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        store.acknowledgeSession(id: alpha.id)
+
+        #expect(store.unansweredTurnPaneIDs.isEmpty)
+        #expect(store.liftedSessionIDs.isEmpty)
+    }
+
+    /// A respawned shell must not inherit the dead agent's unanswered turn. This
+    /// reset KEEPS the pane id, so the live-pane prune is a no-op here — the row
+    /// would otherwise sit in Needs Input as a plain shell, with no agent left to
+    /// answer it and no event able to retract it.
+    @Test func resettingAPaneToShellClearsItsUnansweredTurn() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        #expect(store.resetPaneAgentChromeToShell(sessionID: alpha.id, paneID: paneID))
+
+        #expect(store.unansweredTurnPaneIDs.isEmpty)
+        #expect(store.liftedSessionIDs.isEmpty)
+    }
+
+    /// Same rule for the other authoritative death: the process that finished the
+    /// turn is gone, so the turn is unanswerable. The pane keeps its id here too,
+    /// so nothing else would ever clear the mark.
+    @Test func aDeadProcessClearsItsPanesUnansweredTurn() throws {
+        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
+        let (store, _) = makeStore(groupOne: [alpha])
+        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
+
+        #expect(store.applyAgentRuntimeEvent(idlePrompt(), to: alpha.id, paneID: paneID))
+        #expect(store.liftedSessionIDs == [alpha.id])
+
+        #expect(
+            store.recordPaneProcessError(
+                in: alpha.id,
+                paneID: paneID,
+                terminalIsFocused: false
+            ))
+
+        #expect(store.unansweredTurnPaneIDs.isEmpty)
         #expect(store.liftedSessionIDs.isEmpty)
     }
 

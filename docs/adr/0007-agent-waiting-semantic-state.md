@@ -244,3 +244,60 @@ Consequences:
 - The signal is runtime-only. A relaunch has no live agent to re-report idleness,
   so a restored workspace waits for its next real turn rather than restoring a
   lift whose premise can no longer be checked.
+
+## Amendment (2026-08-21): reading a turn does not retract it, and a dead agent does
+
+Live verification against a built app found the amendment above incomplete in
+one direction and wrong in another.
+
+The retraction list named `.promptSubmit`, `.sessionEnd`, and acknowledgement.
+It did not account for a fourth path that was live from the start: the ack-on-read
+selection dwell (ADR-0003) calls `acknowledgeSession(releasesAttentionSticky:
+false)`, which cleared the mark unconditionally. The dwell's own body already
+refuses to passively clear a blocking prompt — "reading a blocking prompt is not
+answering it" — but that guard reads `attentionReason`, and an idle prompt sets
+none by design. So the guard never covered this signal.
+
+The consequence inverted the feature for the workspace that mattered most.
+`idle_prompt` fires at most once per turn, so a passive clear retired the signal
+permanently: the selected workspace was the ONE workspace that could not stay
+lifted. The follow-up note recorded against the amendment above claimed the
+opposite — that the selected workspace lifts too, and that this was a product
+question worth a separate decision. It was a defect, not a decision.
+
+`clearUnansweredTurn` is therefore gated on `releasesAttentionSticky`, which the
+dwell alone passes as `false` in production.
+
+Two further consequences follow from the same rule — that the mark must be
+resolved by whatever ends the turn's ability to be answered:
+
+- An authoritative agent death clears the mark. `resetPaneAgentChromeToShell`
+  and `recordPaneProcessError` both declare the agent gone while KEEPING the
+  pane's identity, so the live-pane prune cannot reach the mark and no later
+  event can retract it. Without an explicit clear the workspace sits in Needs
+  Input as a plain shell or an errored pane, over the recovery hint it should be
+  showing.
+- Ack-on-read does not reach this mark on ANY surface, not just the dwell.
+  Landing on a waiting pane from the peek card or the activity roster is arrival,
+  not an answer, and the roster's workflow is cycling through waiting panes to
+  survey them — which would otherwise wipe every mark it visited. Those jumps
+  still ack the unread badge, which is ack-on-read's proper subject: seeing a
+  bell is the whole response to a bell. `acknowledgeSession` therefore takes
+  `answersUnansweredTurn` separately from `releasesAttentionSticky`; the dwell
+  passes false to both, a jump releases the sticky without answering, and only a
+  deliberate acknowledge is both.
+- The mark is keyed by pane and VALUED by the provider session that went
+  unanswered, because a pane is not one conversation. A nested same-kind agent
+  inherits the pane's event file, and the reducer accepts its events (the
+  cross-provider guard only rejects a different `AgentKind`), so a pane-only mark
+  let a child's first prompt answer its parent's turn on the parent's behalf.
+  Only a PROVEN mismatch — both sides carrying an id, and disagreeing — refuses
+  to retract. An absent id on either side retracts as before, because providers
+  that report no id would otherwise strand every row they ever lift.
+- A row lifted by this signal alone announces itself to VoiceOver.
+  `WorkspaceAttentionAnnouncementTracker` cannot reach it — the tracker speaks a
+  crossing into `.needsAttention`/`.done`/`.error` and this signal deliberately
+  produces none of them — so the sidebar speaks the arrival directly, under the
+  same single-net-change gate as the departure announcement. Sighted users get
+  the row moving to the top of the sidebar; without this there is no non-visual
+  channel at all.

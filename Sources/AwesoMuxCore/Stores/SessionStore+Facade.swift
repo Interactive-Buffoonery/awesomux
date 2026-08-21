@@ -405,6 +405,12 @@ extension SessionStore {
         if outcome.didMutate {
             _groups[position.groupIndex].sessions[position.sessionIndex] = session
         }
+        // Same reasoning as `attentionClearIsAuthoritative` above, applied to the
+        // other side-state a dead process leaves behind: the agent that finished
+        // the unanswered turn cannot be answered now, and the pane keeps its
+        // identity so the live-pane prune never clears the mark. Leaving it would
+        // hold an errored pane's workspace in Needs Input over the recovery hint.
+        clearUnansweredTurn(paneIDs: [paneID])
 
         if let target = pane.executionPlan.remoteTarget {
             mutatePane(sessionID: sessionID, paneID: paneID) { errorPane in
@@ -549,6 +555,13 @@ extension SessionStore {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        // The agent whose turn went unanswered is gone, so nothing can answer it
+        // and no `.promptSubmit`/`.sessionEnd` will ever retract the mark. The
+        // prune below cannot reach it either: this reset KEEPS the pane's
+        // identity, so the pane stays in `livePaneIDs` and the intersection is a
+        // no-op. Without this the workspace sits in Needs Input as a plain shell
+        // — the exact dead-agent chrome this reset exists to strip.
+        clearUnansweredTurn(paneIDs: [paneID])
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
         return true
     }
@@ -1007,7 +1020,7 @@ extension SessionStore {
         // this runs inside `commit`, whose own `reconcileLiftedSessionIDs` has
         // not happened yet, and a dead pane's session is already gone from the
         // walk it performs.
-        unansweredTurnPaneIDs.formIntersection(index.livePaneIDs)
+        unansweredTurns = unansweredTurns.filter { index.livePaneIDs.contains($0.key) }
 
         #if DEBUG
             let allIDs = _groups.flatMap { $0.sessions.map(\.id) }
@@ -1131,7 +1144,11 @@ extension SessionStore {
             // needing input keeps the workspace row loud (ADR-0003 amendment).
             // Passive, so it keeps the sticky: the row stays in Needs Input
             // until the user navigates away or evicts it deliberately.
-            self.acknowledgeSession(id: selectedSessionID, releasesAttentionSticky: false)
+            self.acknowledgeSession(
+                id: selectedSessionID,
+                releasesAttentionSticky: false,
+                answersUnansweredTurn: false
+            )
         }
     }
 }
