@@ -14,6 +14,14 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultManagedSSHOffersEnabled> public var managedSSHOffersEnabled: Bool
     @TOMLDefault<DefaultManagedSSHOfferIgnoredDestinations>
     public var managedSSHOfferIgnoredDestinations: [String]
+    /// Destinations whose SSH connections become managed without asking.
+    /// Takes precedence over `managedSSHOfferIgnoredDestinations`.
+    @TOMLDefault<DefaultManagedSSHAlwaysManagedDestinations>
+    public var managedSSHAlwaysManagedDestinations: [String]
+    /// When true, every detected SSH connection becomes managed without
+    /// asking, regardless of the per-destination lists.
+    @TOMLDefault<DefaultManagedSSHAlwaysManageAllDestinations>
+    public var managedSSHAlwaysManageAllDestinations: Bool
     /// Ordered bundle identifiers, top = highest priority. Empty means no
     /// explicit order yet; resolve time falls back to allowlist order. Unknown
     /// or uninstalled ids are tolerated and ignored when resolving.
@@ -32,6 +40,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         confirmDestructivePaneActionWithRunningAgent: true,
         managedSSHOffersEnabled: true,
         managedSSHOfferIgnoredDestinations: [],
+        managedSSHAlwaysManagedDestinations: [],
+        managedSSHAlwaysManageAllDestinations: false,
         defaultIDEPriority: [],
         openInIDEEnabled: true
     )
@@ -43,6 +53,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         confirmDestructivePaneActionWithRunningAgent: Bool = true,
         managedSSHOffersEnabled: Bool = true,
         managedSSHOfferIgnoredDestinations: [String] = [],
+        managedSSHAlwaysManagedDestinations: [String] = [],
+        managedSSHAlwaysManageAllDestinations: Bool = false,
         defaultIDEPriority: [String] = [],
         openInIDEEnabled: Bool = true
     ) {
@@ -52,6 +64,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         self.confirmDestructivePaneActionWithRunningAgent = confirmDestructivePaneActionWithRunningAgent
         self.managedSSHOffersEnabled = managedSSHOffersEnabled
         self.managedSSHOfferIgnoredDestinations = managedSSHOfferIgnoredDestinations
+        self.managedSSHAlwaysManagedDestinations = managedSSHAlwaysManagedDestinations
+        self.managedSSHAlwaysManageAllDestinations = managedSSHAlwaysManageAllDestinations
         self.defaultIDEPriority = defaultIDEPriority
         self.openInIDEEnabled = openInIDEEnabled
     }
@@ -83,6 +97,14 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
                 TOMLDefault<DefaultManagedSSHOfferIgnoredDestinations>.self,
                 forKey: .managedSSHOfferIgnoredDestinations
             ).wrappedValue,
+            managedSSHAlwaysManagedDestinations: try container.decode(
+                TOMLDefault<DefaultManagedSSHAlwaysManagedDestinations>.self,
+                forKey: .managedSSHAlwaysManagedDestinations
+            ).wrappedValue,
+            managedSSHAlwaysManageAllDestinations: try container.decode(
+                TOMLDefault<DefaultManagedSSHAlwaysManageAllDestinations>.self,
+                forKey: .managedSSHAlwaysManageAllDestinations
+            ).wrappedValue,
             defaultIDEPriority: try container.decode(
                 TOMLDefault<DefaultDefaultIDEPriority>.self,
                 forKey: .defaultIDEPriority
@@ -108,6 +130,14 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
             managedSSHOfferIgnoredDestinations,
             forKey: .managedSSHOfferIgnoredDestinations
         )
+        try container.encode(
+            managedSSHAlwaysManagedDestinations,
+            forKey: .managedSSHAlwaysManagedDestinations
+        )
+        try container.encode(
+            managedSSHAlwaysManageAllDestinations,
+            forKey: .managedSSHAlwaysManageAllDestinations
+        )
         try container.encode(defaultIDEPriority, forKey: .defaultIDEPriority)
         try container.encode(openInIDEEnabled, forKey: .openInIDEEnabled)
     }
@@ -119,6 +149,8 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         case confirmDestructivePaneActionWithRunningAgent = "confirm_destructive_pane_action_with_running_agent"
         case managedSSHOffersEnabled = "managed_ssh_offers_enabled"
         case managedSSHOfferIgnoredDestinations = "managed_ssh_offer_ignored_destinations"
+        case managedSSHAlwaysManagedDestinations = "managed_ssh_always_managed_destinations"
+        case managedSSHAlwaysManageAllDestinations = "managed_ssh_always_manage_all_destinations"
         case defaultIDEPriority = "default_ide_priority"
         case openInIDEEnabled = "open_in_ide_enabled"
     }
@@ -146,6 +178,14 @@ public struct DefaultManagedSSHOffersEnabled: DefaultProvider {
 
 public struct DefaultManagedSSHOfferIgnoredDestinations: DefaultProvider {
     public static let defaultValue: [String] = []
+}
+
+public struct DefaultManagedSSHAlwaysManagedDestinations: DefaultProvider {
+    public static let defaultValue: [String] = []
+}
+
+public struct DefaultManagedSSHAlwaysManageAllDestinations: DefaultProvider {
+    public static let defaultValue = false
 }
 
 public struct DefaultDefaultIDEPriority: DefaultProvider {

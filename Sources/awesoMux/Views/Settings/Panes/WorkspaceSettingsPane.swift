@@ -11,7 +11,8 @@ struct WorkspaceSettingsPane: View {
     @FocusState private var defaultGroupFocused: Bool
     @State private var installedIDEs: [InstalledIDE] = []
     @State private var draggingBundleID: String?
-    @State private var isAddingIgnoredSSHOfferDestination = false
+    @State private var isAddingSSHDestination = false
+    @State private var sshDestinationListKind: ManagedSSHOfferDestinationSheet.DestinationListKind = .neverAsk
 
     private var defaultGroup: String {
         appSettingsStore.workspaces.value.defaultGroup
@@ -127,8 +128,8 @@ struct WorkspaceSettingsPane: View {
                 draftDefaultGroup = newValue
             }
         }
-        .sheet(isPresented: $isAddingIgnoredSSHOfferDestination) {
-            ManagedSSHOfferDestinationSheet()
+        .sheet(isPresented: $isAddingSSHDestination) {
+            ManagedSSHOfferDestinationSheet(listKind: sshDestinationListKind)
         }
     }
 
@@ -182,11 +183,33 @@ struct WorkspaceSettingsPane: View {
             index: 3,
             title: "Managed SSH",
             subtitle:
-                "Choose when awesoMux suggests reconnecting an SSH session as a managed workspace. This never changes existing connections."
+                "Choose when awesoMux reconnects an SSH session as a managed workspace — by asking or without asking. This never changes existing connections."
         ) {
             SettingsField(
-                label: "Never ask to make SSH managed",
+                label: "Always make SSH managed without asking",
+                hint:
+                    "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt.",
                 isFirst: true,
+                forwardsAccessibilityToControl: true
+            ) {
+                Toggle(
+                    "Always make SSH managed without asking",
+                    isOn: appSettingsStore.workspaces.binding(\.managedSSHAlwaysManageAllDestinations)
+                )
+                .labelsHidden()
+                .toggleStyle(.switch)
+            }
+
+            SettingsField(
+                label: "Always manage these destinations",
+                hint:
+                    "SSH to a destination below reconnects as managed without asking. Removing one restores the usual prompt for it."
+            ) {
+                alwaysManagedDestinationsControl
+            }
+
+            SettingsField(
+                label: "Never ask to make SSH managed",
                 forwardsAccessibilityToControl: true
             ) {
                 Toggle("Never ask to make SSH managed", isOn: neverAskForManagedSSH)
@@ -231,10 +254,29 @@ struct WorkspaceSettingsPane: View {
     }
 
     private var managedSSHIgnoredDestinationsControl: some View {
+        sshDestinationsControl(
+            destinations: appSettingsStore.workspaces.value.managedSSHOfferIgnoredDestinations,
+            emptyMessage: "No ignored destinations",
+            listKind: .neverAsk
+        )
+    }
+
+    private var alwaysManagedDestinationsControl: some View {
+        sshDestinationsControl(
+            destinations: appSettingsStore.workspaces.value.managedSSHAlwaysManagedDestinations,
+            emptyMessage: "No automatic destinations yet",
+            listKind: .alwaysManage
+        )
+    }
+
+    private func sshDestinationsControl(
+        destinations: [String],
+        emptyMessage: LocalizedStringKey,
+        listKind: ManagedSSHOfferDestinationSheet.DestinationListKind
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            let destinations = appSettingsStore.workspaces.value.managedSSHOfferIgnoredDestinations
             if destinations.isEmpty {
-                Text("No ignored destinations")
+                Text(emptyMessage)
                     .awFont(AwFont.UI.label)
                     .foregroundStyle(Color.aw.text3)
             } else {
@@ -246,7 +288,7 @@ struct WorkspaceSettingsPane: View {
                                     .fill(Color.aw.border)
                                     .frame(height: 0.5)
                             }
-                            ignoredDestinationRow(destination)
+                            sshDestinationRow(destination, listKind: listKind)
                         }
                     }
                 }
@@ -262,7 +304,8 @@ struct WorkspaceSettingsPane: View {
             }
 
             Button {
-                isAddingIgnoredSSHOfferDestination = true
+                sshDestinationListKind = listKind
+                isAddingSSHDestination = true
             } label: {
                 Label("Add Destination…", systemImage: "plus")
             }
@@ -271,7 +314,10 @@ struct WorkspaceSettingsPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func ignoredDestinationRow(_ destination: String) -> some View {
+    private func sshDestinationRow(
+        _ destination: String,
+        listKind: ManagedSSHOfferDestinationSheet.DestinationListKind
+    ) -> some View {
         HStack(spacing: 8) {
             Text(destination)
                 .awFont(AwFont.Mono.body)
@@ -282,7 +328,12 @@ struct WorkspaceSettingsPane: View {
 
             Button {
                 appSettingsStore.workspaces.update {
-                    ManagedSSHOfferPolicy.removeIgnoredDestination(destination, from: &$0)
+                    switch listKind {
+                    case .neverAsk:
+                        ManagedSSHOfferPolicy.removeIgnoredDestination(destination, from: &$0)
+                    case .alwaysManage:
+                        ManagedSSHOfferPolicy.removeAlwaysManagedDestination(destination, from: &$0)
+                    }
                 }
             } label: {
                 Image(systemName: "xmark")

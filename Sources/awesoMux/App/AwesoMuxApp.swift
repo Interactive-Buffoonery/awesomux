@@ -509,14 +509,13 @@ struct AwesoMuxApp: App {
                         switch request.action {
                         case .convertPane(let sessionID, let paneID):
                             guard
-                                let discardedPaneID = sessionStore.convertPaneToManagedSSH(
+                                reconnectPaneAsManagedSSH(
                                     sessionID: sessionID,
                                     paneID: paneID,
                                     target: execution.target,
                                     sessionName: execution.sessionName
                                 )
                             else { return false }
-                            ghosttyRuntime.discardSurface(for: discardedPaneID)
                         case .addToGroup(let groupID, _):
                             guard
                                 sessionStore.addSSHSession(
@@ -2927,12 +2926,83 @@ struct AwesoMuxApp: App {
         paneID: TerminalPane.ID
     ) {
         guard !isAnySheetPresented else { return }
-        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest.automaticOffer(
-            sessionStore: sessionStore,
-            sessionID: sessionID,
-            paneID: paneID,
+        guard
+            let target = sessionStore.consumeManagedSSHWorkspaceOffer(
+                sessionID: sessionID,
+                paneID: paneID
+            )
+        else { return }
+        switch ManagedSSHOfferPolicy.decision(
+            target: target,
             config: appSettingsStore.workspaces.value
-        )
+        ) {
+        case .none:
+            break
+        case .offer:
+            sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest.automaticOffer(
+                sessionID: sessionID,
+                paneID: paneID,
+                target: target
+            )
+        case .connectAutomatically:
+            if reconnectPaneAsManagedSSH(
+                sessionID: sessionID,
+                paneID: paneID,
+                target: target
+            ) {
+                appDelegate.surfacePrimaryWindow()
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Connected to \(target.sshDestination) as a managed workspace.",
+                        comment:
+                            "Announced when an SSH connection is reconnected as managed without asking"
+                    ),
+                    priority: .high
+                )
+            }
+        }
+    }
+
+    /// Converts the pane in place and discards its old surface so the managed
+    /// replacement can attach. Returns false when the pane or its workspace is
+    /// no longer available. Shared by the connect sheet and the ask-free
+    /// auto-connect path so both enforce the same background-sessions gate.
+    @discardableResult
+    private func reconnectPaneAsManagedSSH(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        target: RemoteTarget,
+        sessionName: RemoteSessionName? = nil
+    ) -> Bool {
+        // Local-amx persistence needs the command bridge; the sheet's
+        // "Enable and Connect" turns it on as part of connecting, and the
+        // ask-free path must not be stricter than that prompt. A remote-owned
+        // session runs without a local amx daemon and never touches it.
+        if sessionName == nil, !appSettingsStore.terminal.value.commandBridgeEnabled {
+            appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
+            guard appSettingsStore.terminal.value.commandBridgeEnabled else {
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized:
+                            "Couldn’t turn on background terminal sessions, so the managed SSH connection was canceled.",
+                        comment:
+                            "Error announced when background sessions cannot be enabled for an automatic managed SSH connection"
+                    ),
+                    priority: .high
+                )
+                return false
+            }
+        }
+        guard
+            let discardedPaneID = sessionStore.convertPaneToManagedSSH(
+                sessionID: sessionID,
+                paneID: paneID,
+                target: target,
+                sessionName: sessionName
+            )
+        else { return false }
+        ghosttyRuntime.discardSurface(for: discardedPaneID)
+        return true
     }
 
     private func canMakeWorkspaceManaged(_ session: TerminalSession) -> Bool {
@@ -4840,22 +4910,17 @@ struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
     let origin: SSHWorkspaceConnectOrigin
     let action: SSHWorkspaceConnectAction
 
+    /// Builds the sheet request for a target whose offer was already consumed
+    /// and allowed by `ManagedSSHOfferPolicy`. Consumption and policy live at
+    /// the call site so the ask-free auto-connect path can branch on the same
+    /// decision without re-reading the pane.
     @MainActor
     static func automaticOffer(
-        sessionStore: SessionStore,
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
-        config: WorkspaceConfig
-    ) -> Self? {
-        guard
-            let target = sessionStore.consumeManagedSSHWorkspaceOffer(
-                sessionID: sessionID,
-                paneID: paneID
-            ), ManagedSSHOfferPolicy.shouldOffer(target: target, config: config)
-        else {
-            return nil
-        }
-        return Self(
+        target: RemoteTarget
+    ) -> Self {
+        Self(
             initialDestination: target.sshDestination,
             origin: .automaticOffer,
             action: .convertPane(sessionID: sessionID, paneID: paneID)

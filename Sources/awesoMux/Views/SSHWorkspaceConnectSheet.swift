@@ -189,6 +189,13 @@ struct SSHWorkspaceConnectSheet: View {
 
     private var rememberMenu: some View {
         Menu("Remember…") {
+            Button("Always Manage This Destination") {
+                alwaysManageThisDestination()
+            }
+            Button("Always Manage Any Destination") {
+                alwaysManageAnyDestination()
+            }
+            Divider()
             Button("Never Ask for This Destination") {
                 neverAskForThisDestination()
             }
@@ -200,6 +207,39 @@ struct SSHWorkspaceConnectSheet: View {
         }
     }
 
+    /// Saving the preference and connecting are one intent: "always" answers
+    /// this prompt too. A failed save keeps the sheet open instead, mirroring
+    /// how the never-ask actions behave when persistence fails.
+    private func alwaysManageThisDestination() {
+        guard let initialDestination else { return }
+        preferenceErrorMessage = nil
+        appSettingsStore.workspaces.update {
+            _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination(initialDestination, to: &$0)
+        }
+        guard
+            let target = SSHWorkspaceDestinationValidation.target(from: initialDestination),
+            ManagedSSHOfferPolicy.isAlwaysManaged(
+                target: target,
+                config: appSettingsStore.workspaces.value
+            )
+        else {
+            showPreferenceSaveError()
+            return
+        }
+        connect(SSHWorkspaceConnectFields.execution(destination: initialDestination, sessionName: ""))
+    }
+
+    private func alwaysManageAnyDestination() {
+        preferenceErrorMessage = nil
+        appSettingsStore.workspaces.update { $0.managedSSHAlwaysManageAllDestinations = true }
+        guard appSettingsStore.workspaces.value.managedSSHAlwaysManageAllDestinations else {
+            showPreferenceSaveError()
+            return
+        }
+        guard let initialDestination else { return }
+        connect(SSHWorkspaceConnectFields.execution(destination: initialDestination, sessionName: ""))
+    }
+
     private func neverAskForThisDestination() {
         guard let initialDestination else { return }
         preferenceErrorMessage = nil
@@ -208,7 +248,7 @@ struct SSHWorkspaceConnectSheet: View {
         }
         guard
             let target = SSHWorkspaceDestinationValidation.target(from: initialDestination),
-            !ManagedSSHOfferPolicy.shouldOffer(
+            ManagedSSHOfferPolicy.isIgnored(
                 target: target,
                 config: appSettingsStore.workspaces.value
             )

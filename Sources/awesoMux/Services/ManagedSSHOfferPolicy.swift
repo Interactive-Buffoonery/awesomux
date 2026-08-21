@@ -8,22 +8,62 @@ enum ManagedSSHOfferPolicy {
         case invalid
     }
 
-    static func shouldOffer(target: RemoteTarget, config: WorkspaceConfig) -> Bool {
-        guard config.managedSSHOffersEnabled else { return false }
-        return !normalizedIgnoredDestinations(in: config).contains(target.sshDestination)
+    /// What happens when an SSH connection to a destination is detected.
+    /// Auto-manage choices win over suppression, so an explicit "always"
+    /// survives a later "never ask" on either list.
+    enum OfferDecision: Equatable {
+        case connectAutomatically
+        case offer
+        case none
+    }
+
+    static func decision(target: RemoteTarget, config: WorkspaceConfig) -> OfferDecision {
+        if config.managedSSHAlwaysManageAllDestinations
+            || isAlwaysManaged(target: target, config: config)
+        {
+            return .connectAutomatically
+        }
+        guard config.managedSSHOffersEnabled,
+            !isIgnored(target: target, config: config)
+        else { return .none }
+        return .offer
+    }
+
+    static func isIgnored(target: RemoteTarget, config: WorkspaceConfig) -> Bool {
+        normalizedIgnoredDestinations(in: config).contains(target.sshDestination)
+    }
+
+    static func isAlwaysManaged(target: RemoteTarget, config: WorkspaceConfig) -> Bool {
+        normalizedAlwaysManagedDestinations(in: config).contains(target.sshDestination)
     }
 
     static func addIgnoredDestination(
         _ text: String,
         to config: inout WorkspaceConfig
     ) -> AddResult {
-        guard let destination = SSHWorkspaceDestinationValidation.target(from: text)?.sshDestination else {
+        guard let destination = validDestination(from: text) else {
             return .invalid
         }
         guard !normalizedIgnoredDestinations(in: config).contains(destination) else {
             return .duplicate
         }
+        removeAlwaysManagedDestination(destination, from: &config)
         config.managedSSHOfferIgnoredDestinations.append(destination)
+        return .added(destination)
+    }
+
+    static func addAlwaysManagedDestination(
+        _ text: String,
+        to config: inout WorkspaceConfig
+    ) -> AddResult {
+        guard let destination = validDestination(from: text) else {
+            return .invalid
+        }
+        guard !normalizedAlwaysManagedDestinations(in: config).contains(destination) else {
+            return .duplicate
+        }
+        removeIgnoredDestination(destination, from: &config)
+        config.managedSSHAlwaysManagedDestinations.append(destination)
         return .added(destination)
     }
 
@@ -31,18 +71,42 @@ enum ManagedSSHOfferPolicy {
         _ destination: String,
         from config: inout WorkspaceConfig
     ) {
-        let normalized = SSHWorkspaceDestinationValidation.target(from: destination)?.sshDestination
         config.managedSSHOfferIgnoredDestinations.removeAll { stored in
-            if let normalized {
-                return SSHWorkspaceDestinationValidation.target(from: stored)?.sshDestination == normalized
-            }
-            return stored == destination
+            storedIdentity(stored, matches: destination)
         }
+    }
+
+    static func removeAlwaysManagedDestination(
+        _ destination: String,
+        from config: inout WorkspaceConfig
+    ) {
+        config.managedSSHAlwaysManagedDestinations.removeAll { stored in
+            storedIdentity(stored, matches: destination)
+        }
+    }
+
+    private static func validDestination(from text: String) -> String? {
+        SSHWorkspaceDestinationValidation.target(from: text)?.sshDestination
+    }
+
+    private static func storedIdentity(_ stored: String, matches destination: String) -> Bool {
+        if let normalized = SSHWorkspaceDestinationValidation.target(from: destination)?.sshDestination {
+            return SSHWorkspaceDestinationValidation.target(from: stored)?.sshDestination == normalized
+        }
+        return stored == destination
     }
 
     private static func normalizedIgnoredDestinations(in config: WorkspaceConfig) -> Set<String> {
         Set(
             config.managedSSHOfferIgnoredDestinations.compactMap {
+                SSHWorkspaceDestinationValidation.target(from: $0)?.sshDestination
+            }
+        )
+    }
+
+    private static func normalizedAlwaysManagedDestinations(in config: WorkspaceConfig) -> Set<String> {
+        Set(
+            config.managedSSHAlwaysManagedDestinations.compactMap {
                 SSHWorkspaceDestinationValidation.target(from: $0)?.sshDestination
             }
         )

@@ -3,6 +3,16 @@ import AwesoMuxCore
 import SwiftUI
 
 struct ManagedSSHOfferDestinationSheet: View {
+    /// Which managed-SSH preference list a destination is being added to.
+    enum DestinationListKind {
+        /// Destinations that stop automatic offers.
+        case neverAsk
+        /// Destinations that become managed without asking.
+        case alwaysManage
+    }
+
+    let listKind: DestinationListKind
+
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.dismiss) private var dismiss
 
@@ -47,6 +57,16 @@ struct ManagedSSHOfferDestinationSheet: View {
         .onAppear { destinationFocused = true }
     }
 
+    private var storedDestinations: [String] {
+        let workspaces = appSettingsStore.workspaces.value
+        switch listKind {
+        case .neverAsk:
+            return workspaces.managedSSHOfferIgnoredDestinations
+        case .alwaysManage:
+            return workspaces.managedSSHAlwaysManagedDestinations
+        }
+    }
+
     private var validationMessage: String? {
         if let message = SSHWorkspaceDestinationValidation.message(for: destination) {
             return message
@@ -54,13 +74,12 @@ struct ManagedSSHOfferDestinationSheet: View {
         guard let target = SSHWorkspaceDestinationValidation.target(from: destination) else {
             return nil
         }
-        let ignored = appSettingsStore.workspaces.value.managedSSHOfferIgnoredDestinations
-        if ignored.contains(where: {
+        if storedDestinations.contains(where: {
             SSHWorkspaceDestinationValidation.target(from: $0)?.sshDestination == target.sshDestination
         }) {
             return String(
                 localized: "This destination is already on the list.",
-                comment: "Error shown when an ignored managed SSH destination is added twice"
+                comment: "Error shown when a managed SSH destination is added twice"
             )
         }
         return nil
@@ -75,16 +94,21 @@ struct ManagedSSHOfferDestinationSheet: View {
         submissionError = nil
         var result: ManagedSSHOfferPolicy.AddResult = .invalid
         appSettingsStore.workspaces.update {
-            result = ManagedSSHOfferPolicy.addIgnoredDestination(destination, to: &$0)
+            switch listKind {
+            case .neverAsk:
+                result = ManagedSSHOfferPolicy.addIgnoredDestination(destination, to: &$0)
+            case .alwaysManage:
+                result = ManagedSSHOfferPolicy.addAlwaysManagedDestination(destination, to: &$0)
+            }
         }
         guard case .added(let addedDestination) = result,
-            appSettingsStore.workspaces.value.managedSSHOfferIgnoredDestinations.contains(addedDestination)
+            storedDestinations.contains(addedDestination)
         else {
             submissionError =
                 appSettingsStore.latestError?.displayText
                 ?? String(
                     localized: "Couldn’t save this destination.",
-                    comment: "Error shown when awesoMux cannot save an ignored managed SSH destination"
+                    comment: "Error shown when awesoMux cannot save a managed SSH destination"
                 )
             TerminalAccessibilityAnnouncer.announceSettingsError(submissionError)
             return
