@@ -13,8 +13,16 @@ struct AgentIntegrationTemplateTests {
         #expect(template.contains("\"awesoMuxAgentHook\""))
         #expect(template.contains("${hook} --provider opencode"))
         #expect(template.contains("session_id: sessionID"))
-        #expect(template.contains("if (info?.parentID"))
-        #expect(template.contains("rootSessionIDs.has(sessionID)"))
+        // Child sessions (task subagents) are tracked separately so neither
+        // session.created nor chat.message can promote them into the root set:
+        // a promoted child's session.idle used to emit a false parent turn-end
+        // (Stop → awesoMux "waiting") mid-turn.
+        #expect(template.contains("childSessionIDs"))
+        #expect(template.contains("if (info.parentID)"))
+        // Fail closed: an unknown/missing session id must drop the event, not
+        // emit it — OpenCode payload shapes have varied across versions.
+        #expect(template.contains("if (!rootSessionIDs.has(sessionID))"))
+        #expect(template.contains("!childSessionIDs.has(sessionID)"))
         #expect(template.contains("chat.message\": async ({ sessionID })"))
         #expect(template.contains("session.created"))
         #expect(template.contains("session.idle"))
