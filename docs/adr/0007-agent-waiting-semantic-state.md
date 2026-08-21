@@ -265,11 +265,12 @@ lifted. The follow-up note recorded against the amendment above claimed the
 opposite — that the selected workspace lifts too, and that this was a product
 question worth a separate decision. It was a defect, not a decision.
 
-`clearUnansweredTurn` is therefore gated on `releasesAttentionSticky`, which the
-dwell alone passes as `false` in production.
+`clearUnansweredTurn` is therefore gated on whether the gesture actually
+answered the turn. The consequences below record where that lands, including the
+jump surfaces that made `releasesAttentionSticky` the wrong axis to gate on.
 
-Two further consequences follow from the same rule — that the mark must be
-resolved by whatever ends the turn's ability to be answered:
+The rule generalises: the mark is resolved by whatever ends the turn's ability to
+be answered, and by nothing else.
 
 - An authoritative agent death clears the mark. `resetPaneAgentChromeToShell`
   and `recordPaneProcessError` both declare the agent gone while KEEPING the
