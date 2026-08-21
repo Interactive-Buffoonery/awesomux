@@ -119,6 +119,34 @@ struct ManagedSSHOfferPolicyTests {
         #expect(!config.managedSSHAlwaysManagedDestinations.contains("build-box"))
     }
 
+    @Test("re-adding to the ignored list repairs a stale always overlap")
+    func readdingIgnoredRepairsStaleAlwaysOverlap() {
+        var config = WorkspaceConfig(
+            managedSSHOfferIgnoredDestinations: ["build-box"],
+            managedSSHAlwaysManagedDestinations: ["build-box"]
+        )
+
+        let result = ManagedSSHOfferPolicy.addIgnoredDestination("build-box", to: &config)
+
+        #expect(result == .duplicate)
+        #expect(config.managedSSHOfferIgnoredDestinations == ["build-box"])
+        #expect(config.managedSSHAlwaysManagedDestinations.isEmpty)
+    }
+
+    @Test("re-adding to the always list repairs a stale ignored overlap")
+    func readdingAlwaysRepairsStaleIgnoredOverlap() {
+        var config = WorkspaceConfig(
+            managedSSHOfferIgnoredDestinations: ["build-box"],
+            managedSSHAlwaysManagedDestinations: ["build-box"]
+        )
+
+        let result = ManagedSSHOfferPolicy.addAlwaysManagedDestination("build-box", to: &config)
+
+        #expect(result == .duplicate)
+        #expect(config.managedSSHAlwaysManagedDestinations == ["build-box"])
+        #expect(config.managedSSHOfferIgnoredDestinations.isEmpty)
+    }
+
     @Test("removing an always destination restores its offer eligibility")
     func removingAlwaysDestinationRestoresOfferEligibility() throws {
         let target = try #require(RemoteTarget(parsing: "build-box"))

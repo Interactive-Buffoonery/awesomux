@@ -9,8 +9,8 @@ enum ManagedSSHOfferPolicy {
     }
 
     /// What happens when an SSH connection to a destination is detected.
-    /// Auto-manage choices win over suppression, so an explicit "always"
-    /// survives a later "never ask" on either list.
+    /// The two lists are kept disjoint: adding a destination to one list
+    /// removes it from the other, so the most recent choice takes precedence.
     enum OfferDecision: Equatable {
         case connectAutomatically
         case offer
@@ -44,10 +44,10 @@ enum ManagedSSHOfferPolicy {
         guard let destination = validDestination(from: text) else {
             return .invalid
         }
+        removeAlwaysManagedDestination(destination, from: &config)
         guard !normalizedIgnoredDestinations(in: config).contains(destination) else {
             return .duplicate
         }
-        removeAlwaysManagedDestination(destination, from: &config)
         config.managedSSHOfferIgnoredDestinations.append(destination)
         return .added(destination)
     }
@@ -59,10 +59,10 @@ enum ManagedSSHOfferPolicy {
         guard let destination = validDestination(from: text) else {
             return .invalid
         }
+        removeIgnoredDestination(destination, from: &config)
         guard !normalizedAlwaysManagedDestinations(in: config).contains(destination) else {
             return .duplicate
         }
-        removeIgnoredDestination(destination, from: &config)
         config.managedSSHAlwaysManagedDestinations.append(destination)
         return .added(destination)
     }

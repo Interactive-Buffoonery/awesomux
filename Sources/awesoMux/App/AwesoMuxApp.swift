@@ -2959,6 +2959,14 @@ struct AwesoMuxApp: App {
                     ),
                     priority: .high
                 )
+            } else {
+                // The offer is one-shot per pane, so a failed auto-connect
+                // falls back to the prompt instead of losing the destination.
+                sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest.automaticOffer(
+                    sessionID: sessionID,
+                    paneID: paneID,
+                    target: target
+                )
             }
         }
     }

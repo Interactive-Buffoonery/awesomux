@@ -211,13 +211,12 @@ struct SSHWorkspaceConnectSheet: View {
     /// this prompt too. A failed save keeps the sheet open instead, mirroring
     /// how the never-ask actions behave when persistence fails.
     private func alwaysManageThisDestination() {
-        guard let initialDestination else { return }
         preferenceErrorMessage = nil
         appSettingsStore.workspaces.update {
-            _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination(initialDestination, to: &$0)
+            _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination(destination, to: &$0)
         }
         guard
-            let target = SSHWorkspaceDestinationValidation.target(from: initialDestination),
+            let target = SSHWorkspaceDestinationValidation.target(from: destination),
             ManagedSSHOfferPolicy.isAlwaysManaged(
                 target: target,
                 config: appSettingsStore.workspaces.value
@@ -226,7 +225,7 @@ struct SSHWorkspaceConnectSheet: View {
             showPreferenceSaveError()
             return
         }
-        connect(SSHWorkspaceConnectFields.execution(destination: initialDestination, sessionName: ""))
+        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: ""))
     }
 
     private func alwaysManageAnyDestination() {
@@ -236,18 +235,16 @@ struct SSHWorkspaceConnectSheet: View {
             showPreferenceSaveError()
             return
         }
-        guard let initialDestination else { return }
-        connect(SSHWorkspaceConnectFields.execution(destination: initialDestination, sessionName: ""))
+        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: ""))
     }
 
     private func neverAskForThisDestination() {
-        guard let initialDestination else { return }
         preferenceErrorMessage = nil
         appSettingsStore.workspaces.update {
-            _ = ManagedSSHOfferPolicy.addIgnoredDestination(initialDestination, to: &$0)
+            _ = ManagedSSHOfferPolicy.addIgnoredDestination(destination, to: &$0)
         }
         guard
-            let target = SSHWorkspaceDestinationValidation.target(from: initialDestination),
+            let target = SSHWorkspaceDestinationValidation.target(from: destination),
             ManagedSSHOfferPolicy.isIgnored(
                 target: target,
                 config: appSettingsStore.workspaces.value
