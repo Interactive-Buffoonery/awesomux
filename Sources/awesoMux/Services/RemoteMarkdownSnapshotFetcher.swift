@@ -529,30 +529,10 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     }
 
     private func validatedCacheDirectory(createIfMissing: Bool) -> URL? {
-        if (try? fileManager.destinationOfSymbolicLink(atPath: cacheDirectoryURL.path)) != nil {
-            return nil
-        }
-        if !fileManager.fileExists(atPath: cacheDirectoryURL.path) {
-            guard createIfMissing else { return nil }
-            do {
-                try fileManager.createOwnerOnlyDirectory(at: cacheDirectoryURL)
-            } catch {
-                return nil
-            }
-        }
-        guard (try? fileManager.destinationOfSymbolicLink(atPath: cacheDirectoryURL.path)) == nil,
-            ((try? cacheDirectoryURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory) == true
-        else {
-            return nil
-        }
-        if createIfMissing {
-            do {
-                try fileManager.setOwnerOnlyPermissions(onDirectoryAt: cacheDirectoryURL)
-            } catch {
-                return nil
-            }
-        }
-        return cacheDirectoryURL
+        fileManager.validatedOwnerOnlyDirectory(
+            at: cacheDirectoryURL,
+            createIfMissing: createIfMissing
+        )
     }
 
     private func cacheFileURL(for reference: RemoteMarkdownReference) -> URL {

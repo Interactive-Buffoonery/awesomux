@@ -63,6 +63,17 @@ struct AgentRuntimeEventReducer: Sendable {
         // every provider uses it to prove that a buffered SessionEnd belongs to
         // the session it would reset.
         var providerSessionID: String?
+        // Exact identity of the session that just ended. The live latch above
+        // must still clear on sessionEnd — a new lifecycle's first event may
+        // carry no id, and inheriting the old one would make it look like the
+        // previous session. This copy is what Open Agent Transcript uses once
+        // the pane is a shell, and it is dropped on the next SessionStart.
+        var lastEndedTranscriptIdentity: AgentTranscriptIdentity?
+        // Kind of the session that just ended, even when that kind cannot form
+        // a transcript identity (OpenCode, Grok). Open Agent Transcript uses
+        // this only for copy: it must still name the agent after the pane is a
+        // shell, not claim the session is unknown.
+        var lastEndedAgentKind: AgentKind?
     }
 
     /// A pane-title mutation a `.rename` event resolves to, applied by the store
@@ -118,6 +129,23 @@ struct AgentRuntimeEventReducer: Sendable {
     /// `DocumentPane.agentTranscriptIdentity`, not this.
     func providerSessionID(for paneID: TerminalPane.ID) -> String? {
         stateByPaneID[paneID]?.providerSessionID
+    }
+
+    /// The exact session that ended in this pane, if this process still knows.
+    ///
+    /// Separate from the live latch: keeping that id across sessionEnd would
+    /// let the next lifecycle inherit it. Nil after relaunch, and nil once a
+    /// new SessionStart has begun.
+    func lastEndedTranscriptIdentity(for paneID: TerminalPane.ID) -> AgentTranscriptIdentity? {
+        stateByPaneID[paneID]?.lastEndedTranscriptIdentity
+    }
+
+    /// The kind of the session that ended in this pane, if this process still
+    /// knows. Survives even when that kind has no transcript adapter, so the
+    /// command can name OpenCode or Grok after exit instead of treating the
+    /// pane as an unknown shell session.
+    func lastEndedAgentKind(for paneID: TerminalPane.ID) -> AgentKind? {
+        stateByPaneID[paneID]?.lastEndedAgentKind
     }
 
     mutating func decision(
@@ -226,9 +254,24 @@ struct AgentRuntimeEventReducer: Sendable {
             state.suppressesHeuristicState =
                 state.suppressesHeuristicState
                 || event.source.hasTrustworthySessionRestartBoundary
-            // The session this id identified is over. Holding it would let the
-            // next lifecycle — whose first event may carry no id at all —
-            // report the previous session as its own.
+            // The session this id identified is over. Holding it on the live
+            // latch would let the next lifecycle — whose first event may carry
+            // no id at all — report the previous session as its own. Keep the
+            // exact identity separately so Open Agent Transcript can still
+            // resolve that file after the pane becomes a shell. Keep the kind
+            // even when no identity can be formed, so an OpenCode or Grok pane
+            // still names itself after exit.
+            let kind =
+                currentPane.agentKind == .shell
+                ? (event.source.inferredAgentKind ?? .shell)
+                : currentPane.agentKind
+            state.lastEndedAgentKind = kind == .shell ? nil : kind
+            if let sessionID = state.providerSessionID {
+                state.lastEndedTranscriptIdentity = AgentTranscriptIdentity(
+                    agentKind: kind,
+                    sessionID: sessionID
+                )
+            }
             state.providerSessionID = nil
             advanceTimestampWatermark(event.timestamp, now: now, into: &state)
             stateByPaneID[paneID] = state
@@ -351,6 +394,8 @@ struct AgentRuntimeEventReducer: Sendable {
             // reducer a liveness signal it can trust on its own.
             if wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns {
                 state.providerSessionID = nil
+                state.lastEndedTranscriptIdentity = nil
+                state.lastEndedAgentKind = nil
             }
             if state.providerSessionID == nil,
                 let providerSessionID = normalizedProviderSessionID(event.providerSessionID)
@@ -363,6 +408,8 @@ struct AgentRuntimeEventReducer: Sendable {
             state.providerSessionID == nil,
             let providerSessionID = normalizedProviderSessionID(event.providerSessionID)
         {
+            state.lastEndedTranscriptIdentity = nil
+            state.lastEndedAgentKind = nil
             state.providerSessionID = providerSessionID
         }
 

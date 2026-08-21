@@ -148,7 +148,7 @@ struct SessionPersistenceLoadTests {
                     try FileManager.default.removeItem(at: snapshotURL)
                     try replacementData.write(to: snapshotURL)
                 },
-                remoteMarkdownPrune: { _ in
+                generatedDocumentPrune: { _ in
                     didPruneRemoteMarkdown = true
                 }
             )
@@ -232,7 +232,14 @@ struct SessionPersistenceLoadTests {
     func typedRemoteMarkdownRestoresWhilePaneIsDisconnected() throws {
         try Self.withTemporarySupportDirectory { tempDir in
             let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            // 0o700, because that is the only mode production ever creates this
+            // at: the cache is made through `validatedOwnerOnlyDirectory`, and
+            // the read-only prune path refuses a directory left wider.
+            try FileManager.default.createDirectory(
+                at: cacheDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
             let cachedSnapshot = cacheDir.appending(path: "offline.md")
             try Data("# Offline snapshot".utf8).write(to: cachedSnapshot)
 
@@ -294,7 +301,14 @@ struct SessionPersistenceLoadTests {
     func remoteMarkdownCachePrunesUnreferencedSnapshotsAfterSuccessfulLoad() throws {
         try Self.withTemporarySupportDirectory { tempDir in
             let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            // 0o700, because that is the only mode production ever creates this
+            // at: the cache is made through `validatedOwnerOnlyDirectory`, and
+            // the read-only prune path refuses a directory left wider.
+            try FileManager.default.createDirectory(
+                at: cacheDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
             let kept = cacheDir.appending(path: "kept.md")
             let orphan = cacheDir.appending(path: "orphan.md")
             try Data("kept".utf8).write(to: kept)
@@ -329,7 +343,7 @@ struct SessionPersistenceLoadTests {
             )
 
             let result = SessionPersistence.load()
-            SessionPersistence.pruneRemoteMarkdownSnapshotsForTesting(keeping: result.store)
+            SessionPersistence.pruneGeneratedDocumentsForTesting(keeping: result.store)
 
             #expect(result.recoveryWarning == nil)
             #expect(FileManager.default.fileExists(atPath: kept.path))
@@ -341,7 +355,14 @@ struct SessionPersistenceLoadTests {
     func remoteMarkdownCacheKeepsRecentlyClosedSnapshots() throws {
         try Self.withTemporarySupportDirectory { tempDir in
             let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            // 0o700, because that is the only mode production ever creates this
+            // at: the cache is made through `validatedOwnerOnlyDirectory`, and
+            // the read-only prune path refuses a directory left wider.
+            try FileManager.default.createDirectory(
+                at: cacheDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
             let kept = cacheDir.appending(path: "recent.md")
             let orphan = cacheDir.appending(path: "orphan.md")
             try Data("recent".utf8).write(to: kept)
@@ -382,7 +403,7 @@ struct SessionPersistenceLoadTests {
                     recentlyClosed: [recent]
                 ))
 
-            SessionPersistence.pruneRemoteMarkdownSnapshotsForTesting(keeping: store)
+            SessionPersistence.pruneGeneratedDocumentsForTesting(keeping: store)
 
             #expect(FileManager.default.fileExists(atPath: kept.path))
             #expect(!FileManager.default.fileExists(atPath: orphan.path))
@@ -393,7 +414,14 @@ struct SessionPersistenceLoadTests {
     func corruptedSnapshotRecoveryLeavesRemoteMarkdownCacheUntouched() throws {
         try Self.withTemporarySupportDirectory { tempDir in
             let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            // 0o700, because that is the only mode production ever creates this
+            // at: the cache is made through `validatedOwnerOnlyDirectory`, and
+            // the read-only prune path refuses a directory left wider.
+            try FileManager.default.createDirectory(
+                at: cacheDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
             let cached = cacheDir.appending(path: "kept-for-archive.md")
             try Data("cached".utf8).write(to: cached)
             let snapshotURL = tempDir.appending(path: "session-state.json")
@@ -958,7 +986,14 @@ struct SessionPersistenceLoadTests {
             let snapshotURL = tempDir.appending(path: "session-state.json")
             let replacementURL = tempDir.appending(path: "replacement.json")
             let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            // 0o700, because that is the only mode production ever creates this
+            // at: the cache is made through `validatedOwnerOnlyDirectory`, and
+            // the read-only prune path refuses a directory left wider.
+            try FileManager.default.createDirectory(
+                at: cacheDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
             let openedCacheURL = cacheDir.appending(path: "opened.md")
             let replacementCacheURL = cacheDir.appending(path: "replacement.md")
             try Data("opened cache".utf8).write(to: openedCacheURL)
@@ -978,8 +1013,8 @@ struct SessionPersistenceLoadTests {
                     try FileManager.default.removeItem(at: snapshotURL)
                     try FileManager.default.moveItem(at: replacementURL, to: snapshotURL)
                 },
-                remoteMarkdownPrune: { store in
-                    SessionPersistence.pruneRemoteMarkdownSnapshotsForTesting(keeping: store)
+                generatedDocumentPrune: { store in
+                    SessionPersistence.pruneGeneratedDocumentsForTesting(keeping: store)
                 }
             )
 
@@ -999,8 +1034,8 @@ struct SessionPersistenceLoadTests {
             let replacementResult = await SessionPersistence.replaceSnapshotAfterRecovery(
                 with: result.store,
                 warning: try #require(result.recoveryWarning),
-                remoteMarkdownPrune: { store in
-                    SessionPersistence.pruneRemoteMarkdownSnapshotsForTesting(keeping: store)
+                generatedDocumentPrune: { store in
+                    SessionPersistence.pruneGeneratedDocumentsForTesting(keeping: store)
                 }
             )
             try replacementResult.get()
@@ -1479,7 +1514,7 @@ struct SessionPersistenceLoadTests {
                 afterSnapshotCapture: {
                     replacementStore.addSession(groupName: "newer mutation")
                 },
-                remoteMarkdownPrune: { liveStore in
+                generatedDocumentPrune: { liveStore in
                     prunedGroupNames = liveStore.groups.map(\.name)
                 }
             )
@@ -1868,6 +1903,41 @@ struct SessionPersistenceLoadTests {
             + "\"workingDirectory\":\"~\",\"isTitleUserEdited\":false,"
             + "\"layout\":\(layout),\"activePaneID\":\"\(UUID().uuidString)\"}]}],"
             + "\"selectedSessionID\":\"\(sessionID)\"}"
+    }
+
+    @Test("a transcript tab the store no longer recognizes is still kept by the prune")
+    func declaredTranscriptProvenanceSurvivesAnUnrecognizedPath() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            let store = SessionStore()
+            store.addSession(groupName: "transcripts")
+            let identity = try #require(
+                AgentTranscriptIdentity(
+                    agentKind: .claudeCode,
+                    sessionID: "11111111-2222-3333-4444-555555555555"
+                )
+            )
+            let strandedURL = tempDir.appending(path: "moved-cache/abc.transcript.md")
+            let ordinaryURL = tempDir.appending(path: "notes.md")
+            store.openDocumentPane(fileURL: strandedURL, agentTranscriptIdentity: identity)
+            store.openDocumentPane(fileURL: ordinaryURL)
+
+            // The store points somewhere else entirely — a moved Application
+            // Support, or a cache directory that failed validation — so
+            // directory membership alone would classify a live transcript tab
+            // as unreferenced and delete the file it is showing.
+            let elsewhere = AgentTranscriptStore(
+                cacheDirectoryURL: tempDir.appending(
+                    path: "agent-transcripts", directoryHint: .isDirectory)
+            )
+            #expect(!elsewhere.contains(strandedURL))
+
+            let references = SessionPersistence.generatedDocumentReferences(
+                keeping: store,
+                transcripts: elsewhere
+            )
+            #expect(references.agentTranscripts == [strandedURL])
+            #expect(references.remoteMarkdownSnapshots.isEmpty)
+        }
     }
 
     private static var v6MixedSnapshotFixtureURL: URL {

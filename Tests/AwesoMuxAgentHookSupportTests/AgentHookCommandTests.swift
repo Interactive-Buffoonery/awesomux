@@ -598,14 +598,20 @@ struct AgentHookCommandTests {
         #expect(parsedEvent.providerSessionID == nil)
     }
 
+    /// The fallthrough the `try?` form has to preserve. A wrong-typed
+    /// `session_id` must not consume the lookup — the legacy `sessionId`
+    /// spelling still has to be reached. Neither the wrong-type test above nor
+    /// the legacy-spelling tests cover this combination on their own, and a
+    /// plausible-looking coalescing chain can short-circuit here.
     @Test
-    func wrongTypedSessionIDFallsThroughToLegacySpelling() throws {
+    func aWrongTypedSessionIDStillFallsThroughToTheLegacySpelling() throws {
         let temp = try Self.temporaryEventFile()
         defer { temp.remove() }
+        let eventFile = temp.file
 
         let status = AgentHookCommand.run(
             arguments: ["--provider", "grok"],
-            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
             stdin: Data(
                 #"{"hookEventName":"UserPromptSubmit","session_id":42,"sessionId":"parent-session"}"#
                     .utf8
@@ -613,7 +619,7 @@ struct AgentHookCommandTests {
         )
 
         #expect(status == 0)
-        let parsedEvent = try #require(try Self.readSingleEvent(from: temp.file))
+        let parsedEvent = try #require(try Self.readSingleEvent(from: eventFile))
         #expect(parsedEvent.providerSessionID == "parent-session")
     }
 

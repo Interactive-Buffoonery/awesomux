@@ -42,6 +42,7 @@ Everything scoped to a pane inside the selected workspace: splits, close/rename,
 | ⌥⌘R | Rename Pane… | Requires multiple panes |
 | ⌘F | Find in Pane | |
 | ⇧⌘F | Show Scrollback | Opens the active pane's scrollback dump sheet |
+| ⌥⌘T | Open Agent Transcript | Opens the active pane's exact Claude Code, Codex, or Pi session as a read-only document |
 | ⌥⌘= | Grow Active Pane | Requires multiple panes |
 | ⌥⌘- | Shrink Active Pane | Requires multiple panes |
 | ⌥⌘[ | Previous Pane | Requires multiple panes |
@@ -52,6 +53,7 @@ Everything scoped to a pane inside the selected workspace: splits, close/rename,
 | ⌃⌘[ | Previous Document Tab | Requires multiple document tabs |
 | ⌃⌘] | Next Document Tab | Requires multiple document tabs |
 | ⌃⌘W | Close Document Tab | Requires at least one document tab; the strip's per-tab close control refuses first responder, so this is the keyboard route |
+| ⌃⌘R | Resume Agent Session | Stages the selected transcript's exact provider resume command without submitting it. The row stays enabled when a workspace is selected so its chord cannot leak into the terminal; invoking it without a transcript explains what is missing |
 
 *(**Close Pane** is under Pane; its chord is ⌘W via the File-slot binding described in ADR 0002, so the menu row itself carries no key equivalent.)*
 

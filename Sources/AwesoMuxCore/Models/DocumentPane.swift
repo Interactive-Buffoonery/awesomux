@@ -12,9 +12,33 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
     /// Non-nil when `fileURL` is implementation storage for a remote Markdown
     /// resource. The typed identity, never the cache URL, is its provenance.
     public internal(set) var remoteResourceIdentity: ResourceIdentity?
+    /// Non-nil when `fileURL` is an awesoMux-rendered agent transcript. Like
+    /// `remoteResourceIdentity`, the typed identity is the provenance and the
+    /// cache URL is only implementation storage.
+    public internal(set) var agentTranscriptIdentity: AgentTranscriptIdentity?
 
+    /// Remote provenance, and nothing else.
+    ///
+    /// Three consumers read this as exactly that — `documentNudgeTarget`'s
+    /// `.readOnlyRemoteSnapshot` denial, `WorkspacePaneCapabilities`' fold of
+    /// `remoteProvenance` across a whole group, and copy that names remote
+    /// hosts. A locally generated read-only document must therefore NOT widen
+    /// it: doing so would disable the send bar on the transcript pane itself
+    /// and strip `localFileAccess` from unrelated local tabs sharing the group.
+    /// Non-editability is `isEditable`.
     public var isReadOnlySnapshot: Bool {
         remoteResourceIdentity != nil
+    }
+
+    /// Whether the user may change what this tab shows — write annotations into
+    /// its file, or navigate it to a different file.
+    ///
+    /// False for both kinds of documents awesoMux owns rather than the user: a
+    /// remote snapshot (whose edits could never reach the real file) and a
+    /// rendered agent transcript (whose file is regenerable cache, so an
+    /// annotation written there is silently lost at the next render or prune).
+    public var isEditable: Bool {
+        remoteResourceIdentity == nil && agentTranscriptIdentity == nil
     }
 
     public var remoteSnapshotOrigin: String? {
@@ -26,12 +50,14 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
         fileURL: URL,
         title: String,
         associatedTerminalPaneID: TerminalPane.ID? = nil,
-        remoteResourceIdentity: ResourceIdentity? = nil
+        remoteResourceIdentity: ResourceIdentity? = nil,
+        agentTranscriptIdentity: AgentTranscriptIdentity? = nil
     ) {
         self.id = id
         self.fileURL = fileURL
         self.title = title
         self.associatedTerminalPaneID = associatedTerminalPaneID
+        self.agentTranscriptIdentity = agentTranscriptIdentity
         // Runtime construction is a trusted programming boundary. Persisted
         // identities use the throwing Codable path before reaching this invariant.
         precondition(
@@ -50,6 +76,7 @@ extension DocumentPane: Codable {
         case associatedTerminalPaneID
         case remoteResourceIdentity
         case remoteSnapshotOrigin
+        case agentTranscriptIdentity
     }
 
     public init(from decoder: Decoder) throws {
@@ -114,8 +141,30 @@ extension DocumentPane: Codable {
                 TerminalPane.ID.self,
                 forKey: .associatedTerminalPaneID
             ),
-            remoteResourceIdentity: identity
+            remoteResourceIdentity: identity,
+            agentTranscriptIdentity: Self.decodeTolerantTranscriptIdentity(from: container)
         )
+    }
+
+    /// Decodes transcript provenance leniently: an identity written by a newer
+    /// build (an `AgentKind` this one has no case for) or a corrupted one drops
+    /// the *field* rather than throwing, matching `decodeTolerantColor` on
+    /// `TerminalPane`. The tab itself is still a real document pointing at a
+    /// real file, and `DocumentGroup.init(from:)` would otherwise drop it whole.
+    ///
+    /// Residual, accepted: a tab that loses its identity this way becomes
+    /// editable, so annotations could be written into a regenerable cache file
+    /// and lost at the next prune. It takes a hand-edited or forward-written
+    /// snapshot to reach, and losing the tab outright is the worse trade.
+    private static func decodeTolerantTranscriptIdentity(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> AgentTranscriptIdentity? {
+        // `(try? …) ?? nil` flattens the `AgentTranscriptIdentity??` that
+        // `try?` wraps around an optional-returning decode. Load-bearing.
+        (try? container.decodeIfPresent(
+            AgentTranscriptIdentity.self,
+            forKey: .agentTranscriptIdentity
+        )) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -136,6 +185,10 @@ extension DocumentPane: Codable {
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(associatedTerminalPaneID, forKey: .associatedTerminalPaneID)
         try container.encodeIfPresent(remoteResourceIdentity, forKey: .remoteResourceIdentity)
+        // No validity guard, unlike `remoteResourceIdentity`: an
+        // `AgentTranscriptIdentity` cannot be constructed or decoded invalid,
+        // and it has no mutable members to invalidate afterwards.
+        try container.encodeIfPresent(agentTranscriptIdentity, forKey: .agentTranscriptIdentity)
     }
 
     private static func migrateLegacyRemoteOrigin(

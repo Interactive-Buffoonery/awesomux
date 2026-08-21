@@ -168,6 +168,27 @@ extension SessionStore {
         commit(WorkspaceMutationEffect(unreadChange: change))
     }
 
+    /// The provider-native session id of the agent running in a pane right now,
+    /// latched from its hook stream. Nil until a lifecycle event has arrived —
+    /// including after a relaunch that reattached the pane to a still-live
+    /// agent, so transcript resolution reports that no exact identity is
+    /// available yet rather than guessing (ADR 0033).
+    public func agentProviderSessionID(for paneID: TerminalPane.ID) -> String? {
+        runtimeEventReducer.providerSessionID(for: paneID)
+    }
+
+    /// The exact session that ended in this pane, if this process still knows.
+    /// Cleared on the next SessionStart and rebuilt empty on relaunch.
+    public func lastEndedAgentTranscriptIdentity(for paneID: TerminalPane.ID) -> AgentTranscriptIdentity? {
+        runtimeEventReducer.lastEndedTranscriptIdentity(for: paneID)
+    }
+
+    /// The kind of the session that ended in this pane, if this process still
+    /// knows. Used for copy when that kind has no transcript adapter.
+    public func lastEndedAgentKind(for paneID: TerminalPane.ID) -> AgentKind? {
+        runtimeEventReducer.lastEndedAgentKind(for: paneID)
+    }
+
     /// Applies visible-text detector state to a pane. Public unread deltas only
     /// add badges. `paneID` defaults to the session's active pane.
     @discardableResult

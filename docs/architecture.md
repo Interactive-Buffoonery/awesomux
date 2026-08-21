@@ -363,6 +363,9 @@ are trusted once events reach the pane-scoped sink. Plugin/extension/hook
 installation is a separate user action. See
 [ADR 0010](adr/0010-opencode-pi-opt-in-agent-integrations.md) and
 [ADR 0017](adr/0017-grok-icon-only-agent-and-revived-rings-glyph.md).
+Agent transcript lookup and resume use the exact provider-native identity and
+the explicit adapters recorded in
+[ADR 0033](adr/0033-agent-transcripts-use-exact-provider-identities.md).
 Opt-in Claude Code configuration and richer per-agent adapters remain follow-up
 work under INT-350, INT-351, and INT-352.
 

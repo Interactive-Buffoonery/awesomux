@@ -315,8 +315,8 @@ enum SessionPersistence {
     static func load(
         afterSnapshotOpen: () throws -> Void = {},
         afterCorruptedSnapshotValidation: () throws -> Void = {},
-        remoteMarkdownPrune: (SessionStore) -> Void = {
-            scheduleRemoteMarkdownSnapshotPrune(keeping: $0)
+        generatedDocumentPrune: (SessionStore) -> Void = {
+            scheduleGeneratedDocumentPrune(keeping: $0)
         }
     ) -> LoadResult {
         blockedRecoveryWarningID = nil
@@ -325,7 +325,7 @@ enum SessionPersistence {
         hasValidatedSnapshotOnDisk = true
         guard snapshotPathExists else {
             let store = SessionStore()
-            remoteMarkdownPrune(store)
+            generatedDocumentPrune(store)
             return LoadResult(store: store)
         }
 
@@ -417,7 +417,7 @@ enum SessionPersistence {
                         protectedSnapshotIdentity: openedIdentity
                     )
                 }
-                remoteMarkdownPrune(restored.store)
+                generatedDocumentPrune(restored.store)
                 updateLastWrittenDigest(StableDataDigest(data: data))
                 return LoadResult(store: restored.store, recoveryWarning: nil)
             }
@@ -451,7 +451,7 @@ enum SessionPersistence {
                     || archiveResult.url == nil
                     || archiveResult.error != nil
             else {
-                remoteMarkdownPrune(restored.store)
+                generatedDocumentPrune(restored.store)
                 return LoadResult(store: restored.store, recoveryWarning: nil)
             }
 
@@ -469,7 +469,7 @@ enum SessionPersistence {
             if result.recoveryWarning?.preventsInitialSave == true {
                 blockedRecoveryWarningID = result.recoveryWarning?.id
             } else {
-                remoteMarkdownPrune(restored.store)
+                generatedDocumentPrune(restored.store)
             }
             return result
         } catch {
@@ -486,46 +486,98 @@ enum SessionPersistence {
         }
     }
 
-    static func scheduleRemoteMarkdownSnapshotPrune(keeping store: SessionStore) {
-        let urls = remoteMarkdownSnapshotURLs(keeping: store)
+    /// The app-authored files a restorable layout still points at, split by the
+    /// cache that owns them. One walk, because both caches prune against the
+    /// same layouts at the same moments and a second traversal would only give
+    /// the two collectors somewhere to disagree.
+    struct GeneratedDocumentReferences {
+        var remoteMarkdownSnapshots: Set<URL> = []
+        var agentTranscripts: Set<URL> = []
+    }
+
+    static func scheduleGeneratedDocumentPrune(keeping store: SessionStore) {
+        let transcriptStore = AgentTranscriptStore()
+        let references = generatedDocumentReferences(keeping: store, transcripts: transcriptStore)
         let cacheDirectoryURL =
             supportDirectoryURL
             .appending(path: "remote-markdown", directoryHint: .isDirectory)
         RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL)
-            .schedulePruneUnreferencedSnapshots(keeping: urls)
+            .schedulePruneUnreferencedSnapshots(keeping: references.remoteMarkdownSnapshots)
+        transcriptStore.schedulePruneUnreferenced(keeping: references.agentTranscripts)
     }
 
-    static func pruneRemoteMarkdownSnapshotsForTesting(keeping store: SessionStore) {
+    static func pruneGeneratedDocumentsForTesting(keeping store: SessionStore) {
+        let transcriptStore = AgentTranscriptStore()
+        let references = generatedDocumentReferences(keeping: store, transcripts: transcriptStore)
         RemoteMarkdownSnapshotFetcher()
-            .pruneUnreferencedSnapshotsImmediately(keeping: remoteMarkdownSnapshotURLs(keeping: store))
+            .pruneUnreferencedSnapshotsImmediately(keeping: references.remoteMarkdownSnapshots)
+        transcriptStore.pruneUnreferencedImmediately(keeping: references.agentTranscripts)
     }
 
-    private static func remoteMarkdownSnapshotURLs(keeping store: SessionStore) -> Set<URL> {
-        let urls = store.groups.reduce(into: Set<URL>()) { urls, group in
+    static func generatedDocumentReferences(
+        keeping store: SessionStore,
+        transcripts: AgentTranscriptStore = AgentTranscriptStore()
+    ) -> GeneratedDocumentReferences {
+        var references = GeneratedDocumentReferences()
+        for group in store.groups {
             for session in group.sessions {
-                collectRemoteMarkdownSnapshotURLs(from: session.layout, into: &urls)
+                collectGeneratedDocumentURLs(
+                    from: session.layout,
+                    transcripts: transcripts,
+                    into: &references
+                )
             }
         }
-        return store.recentlyClosed.reduce(into: urls) { urls, entry in
-            collectRemoteMarkdownSnapshotURLs(from: entry.layout, into: &urls)
+        // Recently-closed layouts are restorable, so their tabs are still live
+        // references. Pruning against open groups alone deletes the file a
+        // reopened workspace's tab points at.
+        for entry in store.recentlyClosed {
+            collectGeneratedDocumentURLs(
+                from: entry.layout,
+                transcripts: transcripts,
+                into: &references
+            )
         }
+        return references
     }
 
-    private static func collectRemoteMarkdownSnapshotURLs(
+    private static func collectGeneratedDocumentURLs(
         from layout: TerminalPaneLayout,
-        into urls: inout Set<URL>
+        transcripts: AgentTranscriptStore,
+        into references: inout GeneratedDocumentReferences
     ) {
         switch layout {
         case .pane:
             return
         case let .documentGroup(group):
-            for tab in group.tabs
-            where tab.remoteResourceIdentity?.isSupportedRemoteMarkdownSnapshot == true {
-                urls.insert(tab.fileURL)
+            for tab in group.tabs {
+                if tab.remoteResourceIdentity?.isSupportedRemoteMarkdownSnapshot == true {
+                    references.remoteMarkdownSnapshots.insert(tab.fileURL)
+                }
+                if tab.agentTranscriptIdentity != nil || transcripts.contains(tab.fileURL) {
+                    // The union of the two signals, because each covers the
+                    // other's blind spot and both are on the safe side of the
+                    // prune: directory membership still protects a tab whose
+                    // provenance tolerant decode dropped, and declared
+                    // provenance still protects a tab whose path the store no
+                    // longer recognizes (a moved Application Support, a cache
+                    // directory that failed validation). Over-keeping leaves a
+                    // stale file; under-keeping deletes the file a live tab is
+                    // showing.
+                    references.agentTranscripts.insert(tab.fileURL)
+                }
             }
         case let .split(split):
-            collectRemoteMarkdownSnapshotURLs(from: split.first, into: &urls)
-            collectRemoteMarkdownSnapshotURLs(from: split.second, into: &urls)
+            collectGeneratedDocumentURLs(
+                from: split.first,
+                transcripts: transcripts,
+                into: &references
+            )
+            collectGeneratedDocumentURLs(
+                from: split.second,
+                transcripts: transcripts,
+                into: &references
+            )
         }
     }
 
@@ -809,7 +861,7 @@ enum SessionPersistence {
             pendingWrite = nil
             task.cancel()
         }
-        return load(remoteMarkdownPrune: { _ in }).recoveryWarning
+        return load(generatedDocumentPrune: { _ in }).recoveryWarning
     }
 
     /// The write chokepoint's half of the same protection. Launching with
@@ -840,7 +892,7 @@ enum SessionPersistence {
         // Kept rather than discarded: this runs from `save`, which has no
         // return path to the UI, and the toggle handler would otherwise find
         // the snapshot already validated and have nothing to show.
-        lastRaisedRecoveryWarning = load(remoteMarkdownPrune: { _ in }).recoveryWarning
+        lastRaisedRecoveryWarning = load(generatedDocumentPrune: { _ in }).recoveryWarning
     }
 
     /// Both halves of turning "Restore workspaces" off. `save` hands its
@@ -907,8 +959,8 @@ enum SessionPersistence {
             > = {
                 writeSnapshot($0, forceWrite: true)
             },
-        remoteMarkdownPrune: (SessionStore) -> Void = {
-            scheduleRemoteMarkdownSnapshotPrune(keeping: $0)
+        generatedDocumentPrune: (SessionStore) -> Void = {
+            scheduleGeneratedDocumentPrune(keeping: $0)
         }
     ) async -> Result<Void, RecoverySnapshotReplacementError> {
         guard
@@ -963,7 +1015,7 @@ enum SessionPersistence {
         // that newer state through the ordinary coalescing path now that the
         // protected baseline has been replaced successfully.
         save(store, completion: catchUpSaveCompletion)
-        remoteMarkdownPrune(store)
+        generatedDocumentPrune(store)
         return .success(())
     }
 

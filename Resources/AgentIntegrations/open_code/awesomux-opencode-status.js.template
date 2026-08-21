@@ -36,6 +36,17 @@ async function emitAwesoMuxHook($, hookEventName, sessionID) {
 
 export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
     const rootSessionIDs = new Set()
+    // Cap-then-track: this set identifies ACTIVE root sessions, and an
+    // unbounded map of dead ids would leak a few bytes per stale entry over a
+    // long plugin-process lifetime. Clearing at the cap drops late events for
+    // sessions that started before it (fail silent, never misattributing),
+    // and 512 concurrent root sessions is far past any real process lifetime.
+    const trackRootSession = (sessionID) => {
+        if (rootSessionIDs.size >= 512) {
+            rootSessionIDs.clear()
+        }
+        rootSessionIDs.add(sessionID)
+    }
 
     return {
         event: async ({ event }) => {
@@ -44,7 +55,7 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
                 if (info?.parentID || typeof info?.id !== "string") {
                     return
                 }
-                rootSessionIDs.add(info.id)
+                trackRootSession(info.id)
             }
             const sessionID = info?.id || event?.properties?.sessionID
             if (typeof sessionID === "string" && !rootSessionIDs.has(sessionID)) {
@@ -54,7 +65,7 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
         },
         "chat.message": async ({ sessionID }) => {
             if (typeof sessionID === "string") {
-                rootSessionIDs.add(sessionID)
+                trackRootSession(sessionID)
             }
             await emitAwesoMuxHook($, "UserPromptSubmit", sessionID)
         },
