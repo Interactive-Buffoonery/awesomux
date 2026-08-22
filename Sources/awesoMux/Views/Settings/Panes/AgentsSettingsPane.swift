@@ -18,6 +18,11 @@ struct AgentsSettingsPane: View {
     @State private var pluginTasks: [AgentPluginProvider: Task<Void, Never>] = [:]
     @State private var pluginTaskIDs: [AgentPluginProvider: UUID] = [:]
 
+    @State private var cardModel = AgentIntegrationSettingsCardModel(
+        viewModel: AgentIntegrationSettingsViewModel(),
+        probeService: AgentIntegrationProbeService()
+    )
+
     private let integrationViewModel = AgentIntegrationSettingsViewModel()
 
     var body: some View {
@@ -62,10 +67,14 @@ struct AgentsSettingsPane: View {
                 title: "Local status hooks",
                 subtitle: "Provider-owned files that report identity and coarse runtime state."
             ) {
-                let cardStates = integrationViewModel.cardStates(for: draftSetupsByProvider)
+                // Card states come from the cached model; body evaluation never
+                // reads the manifest, stats a path, or byte-compares templates.
+                // Before the first probe lands this returns layout-stable
+                // placeholder cards with actions disabled.
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(AgentIntegrationDisplayProvider.allCases, id: \.self) { display in
-                        if let provider = display.installable, let state = cardStates[provider] {
+                        if let provider = display.installable {
+                            let state = cardModel.state(for: provider, setup: draftSetup(for: provider))
                             AgentIntegrationSettingsCard(
                                 state: state,
                                 isEnabled: enabledBinding(provider: provider),
@@ -136,6 +145,7 @@ struct AgentsSettingsPane: View {
         .task {
             // Probe enabled CLI providers on appear (read-only; consent boundary).
             probeEnabledPluginProviders()
+            cardModel.refreshAll(setupsByProvider: draftSetupsByProvider)
         }
         .onChange(of: controlActiveState) { _, newState in
             // Re-probe when the settings window regains key/active focus: after a
@@ -145,6 +155,9 @@ struct AgentsSettingsPane: View {
             // alone by the busy-skip in the helper.
             if newState == .key {
                 probeEnabledPluginProviders()
+                // Covers template drift after an app update: the updateAvailable
+                // badge compares installed bytes against the new bundle.
+                cardModel.refreshAll(setupsByProvider: draftSetupsByProvider)
             }
         }
         .onChange(of: appSettingsStore.agentIntegrations.value) { oldIntegrations, integrations in
@@ -152,6 +165,9 @@ struct AgentsSettingsPane: View {
                 syncDraftSetups(from: integrations)
                 syncPluginDraftSetups(from: integrations)
                 reconcilePluginStatus(from: oldIntegrations, to: integrations)
+                // External config edit (another surface or a config file change):
+                // drafts resynced above, so re-observe with them.
+                cardModel.refreshAll(setupsByProvider: draftSetupsByProvider)
             }
         }
         .onChange(of: focusedField) { oldField, newField in
@@ -168,6 +184,7 @@ struct AgentsSettingsPane: View {
                 commitPluginSetup(provider)
             }
             cancelPluginTasks()
+            cardModel.cancelPendingWork()
         }
     }
 
@@ -430,6 +447,9 @@ struct AgentsSettingsPane: View {
                 var draft = draftSetup(for: provider)
                 draft[keyPath: keyPath] = value
                 draftSetups[provider] = draft
+                // Live validation feedback survives, but debounced and off-main:
+                // one settled probe per typing pause instead of stats per keystroke.
+                cardModel.scheduleDraftValidation(provider: provider, setup: draft)
             }
         )
     }
@@ -471,6 +491,7 @@ struct AgentsSettingsPane: View {
         }
         actionResults[provider] = nil
         actionErrors[provider] = nil
+        cardModel.refresh(provider: provider, setup: committedSetup)
     }
 
     private func install(_ provider: AgentIntegrationInstallProvider) {
@@ -486,6 +507,7 @@ struct AgentsSettingsPane: View {
             actionResults[provider] = nil
             actionErrors[provider] = integrationViewModel.errorMessage(for: error)
         }
+        cardModel.refresh(provider: provider, setup: draftSetup(for: provider))
     }
 
     private func uninstall(_ provider: AgentIntegrationInstallProvider) {
@@ -498,6 +520,7 @@ struct AgentsSettingsPane: View {
             actionResults[provider] = nil
             actionErrors[provider] = integrationViewModel.errorMessage(for: error)
         }
+        cardModel.refresh(provider: provider, setup: draftSetup(for: provider))
     }
 }
 

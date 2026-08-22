@@ -1,0 +1,330 @@
+import AwesoMuxConfig
+import Foundation
+import Testing
+@testable import awesoMux
+
+/// Zero-delay seam for tests that care about ordering, not timing.
+struct ImmediateDelayClock: AgentIntegrationSettingsSleeping {
+    func sleep(for duration: Duration) async throws {}
+}
+
+/// One-shot resumption gate that can also be fired by cancellation, so a
+/// parked wait never outlives its timeout.
+final class WaitHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var fired = false
+
+    func register(_ continuation: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        if fired {
+            lock.unlock()
+            continuation.resume()
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func fire() {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        fired = true
+        lock.unlock()
+        pending?.resume()
+    }
+}
+
+/// Scripted probe service: records call counts per provider, optionally holds
+/// calls until released, and serves per-provider snapshots.
+final class SpyAgentIntegrationProbeService: AgentIntegrationProbing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts: [AgentIntegrationInstallProvider: Int] = [:]
+    private var results: [AgentIntegrationInstallProvider: AgentIntegrationProviderProbe] = [:]
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var shouldHold = false
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    var callCounts: [AgentIntegrationInstallProvider: Int] {
+        withLock { counts }
+    }
+
+    func setResult(_ result: AgentIntegrationProviderProbe, for provider: AgentIntegrationInstallProvider) {
+        withLock { results[provider] = result }
+    }
+
+    func holdCalls(_ hold: Bool) {
+        withLock { shouldHold = hold }
+    }
+
+    func releaseHeldCalls() {
+        let waiting = withLock { () -> [CheckedContinuation<Void, Never>] in
+            let copy = held
+            held.removeAll()
+            shouldHold = false
+            return copy
+        }
+        for continuation in waiting {
+            continuation.resume()
+        }
+    }
+
+    func probe(provider: AgentIntegrationInstallProvider, setup: AgentIntegrationSetup) async
+        -> AgentIntegrationProviderProbe
+    {
+        withLock {
+            counts[provider, default: 0] += 1
+            notifyWaiters()
+        }
+
+        while withLock({ shouldHold }) {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                self.withLock { self.held.append(continuation) }
+            }
+        }
+
+        return withLock { results[provider] ?? Self.emptyProbe }
+    }
+
+    /// Suspends until `provider` has been probed at least `count` times, or
+    /// times out. Cancellation-aware: a timed-out wait resumes its parked
+    /// continuation instead of wedging the enclosing task group forever.
+    func waitForCallCount(provider: AgentIntegrationInstallProvider, atLeast count: Int) async {
+        let handle = WaitHandle()
+        let waiter = Task {
+            await self.waitContinuation(provider: provider, count: count, handle: handle)
+        }
+        let watchdog = Task {
+            try? await ContinuousClock().sleep(for: .seconds(5))
+            waiter.cancel()
+        }
+        await waiter.value
+        watchdog.cancel()
+        withLock { waiters.removeAll { $0.handle === handle } }
+    }
+
+    private func waitContinuation(
+        provider: AgentIntegrationInstallProvider,
+        count: Int,
+        handle: WaitHandle
+    ) async {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let resumeNow = self.withLock { () -> Bool in
+                    if (self.counts[provider] ?? 0) >= count {
+                        return true
+                    }
+                    self.waiters.append(
+                        Waiter(provider: provider, count: count, handle: handle))
+                    return false
+                }
+                if resumeNow {
+                    continuation.resume()
+                } else {
+                    handle.register(continuation)
+                }
+            }
+        } onCancel: {
+            handle.fire()
+        }
+    }
+
+    private struct Waiter {
+        let provider: AgentIntegrationInstallProvider
+        let count: Int
+        let handle: WaitHandle
+    }
+
+    private var waiters: [Waiter] = []
+
+    private func notifyWaiters() {
+        var stillWaiting: [Waiter] = []
+        for waiter in waiters {
+            if (counts[waiter.provider] ?? 0) >= waiter.count {
+                waiter.handle.fire()
+            } else {
+                stillWaiting.append(waiter)
+            }
+        }
+        waiters = stillWaiting
+    }
+
+    static let emptyProbe = AgentIntegrationProviderProbe(
+        manifest: .missing,
+        installedExists: false,
+        templatePath: "/tmp/template",
+        renderedPath: "/tmp/rendered",
+        globalInstallPath: "/tmp/destination",
+        binaryValidation: .unset("/usr/bin/example"),
+        configHomeValidation: .unset("/tmp/config"),
+        templateExists: true,
+        renderedExists: false,
+        installedContentDiffersFromTemplate: false
+    )
+}
+
+@Suite("Agent integration settings card model", .serialized)
+@MainActor
+struct AgentIntegrationSettingsCardModelTests {
+    @Test("placeholder precedes first authoritative probe and locks install")
+    func placeholderPrecedesFirstAuthoritativeProbe() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        let model = makeModel(probeService: spy)
+        let setup = AgentIntegrationSetup(enabled: true)
+
+        let placeholder = model.state(for: .openCode, setup: setup)
+        #expect(!placeholder.isAuthoritative)
+        #expect(!placeholder.canInstall)
+
+        var authoritativeProbe = SpyAgentIntegrationProbeService.emptyProbe
+        authoritativeProbe.templateExists = true
+        spy.setResult(authoritativeProbe, for: .openCode)
+        model.refresh(provider: .openCode, setup: setup)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await settle()
+
+        let authoritative = model.state(for: .openCode, setup: setup)
+        #expect(authoritative.isAuthoritative)
+        #expect(authoritative.canInstall)
+    }
+
+    @Test("a keystroke burst collapses into exactly one validation probe")
+    func keystrokeBurstCollapsesIntoOneProbe() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+
+        for index in 0..<10 {
+            model.scheduleDraftValidation(
+                provider: .openCode,
+                setup: AgentIntegrationSetup(enabled: true, binaryPath: "/opt/homebrew/bin/oc-\(index)")
+            )
+        }
+
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await settle()
+
+        #expect(spy.callCounts[.openCode] == 1)
+    }
+
+    @Test("an older superseded probe cannot overwrite a newer publication")
+    func staleGenerationCannotOverwriteNewerResult() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+
+        // First probe (explicit refresh) is held inside the service.
+        spy.holdCalls(true)
+        model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        // Wait until the first call is parked in the gate.
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+
+        // Newer debounced validation with a different scripted outcome.
+        var newer = SpyAgentIntegrationProbeService.emptyProbe
+        newer.binaryValidation = .valid("/opt/homebrew/bin/opencode-new")
+        spy.setResult(newer, for: .openCode)
+        spy.holdCalls(false)
+        model.scheduleDraftValidation(
+            provider: .openCode,
+            setup: AgentIntegrationSetup(enabled: true, binaryPath: "/opt/homebrew/bin/opencode-new")
+        )
+        await spy.waitForCallCount(provider: .openCode, atLeast: 2)
+        await settle()
+
+        // Release the old generation last; it must lose.
+        spy.releaseHeldCalls()
+        await settle()
+
+        let state = model.state(for: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        #expect(state.binaryValidation == .valid("/opt/homebrew/bin/opencode-new"))
+    }
+
+    @Test("status, validations, and action affordances publish coherently")
+    func publicationIsCoherent() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        var blocked = SpyAgentIntegrationProbeService.emptyProbe
+        blocked.templateExists = false
+        spy.setResult(blocked, for: .pi)
+        let model = makeModel(probeService: spy)
+
+        model.refresh(provider: .pi, setup: AgentIntegrationSetup(enabled: true))
+        await spy.waitForCallCount(provider: .pi, atLeast: 1)
+        await settle()
+
+        let state = model.state(for: .pi, setup: AgentIntegrationSetup(enabled: true))
+        // Missing template blocks status; canInstall must agree with it.
+        #expect(state.status == .blocked("Bundled template is missing"))
+        #expect(!state.canInstall)
+        #expect(state.isAuthoritative)
+    }
+
+    @Test("a transient busy observation retries once, then stands down")
+    func transientBusyRetriesOnce() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        var busy = SpyAgentIntegrationProbeService.emptyProbe
+        busy.manifest = .busy
+        spy.setResult(busy, for: .openCode)
+        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+
+        model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        // The zero-delay retry cascades on its own: still busy after the single
+        // retry, so it stands down instead of looping.
+        await spy.waitForCallCount(provider: .openCode, atLeast: 2)
+        await settle()
+        #expect(spy.callCounts[.openCode] == 2)
+
+        // A fresh explicit trigger clears the latch: probe three fires, sees
+        // busy again, schedules one more retry (call four), then stands down.
+        model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        await spy.waitForCallCount(provider: .openCode, atLeast: 4)
+        await settle()
+        #expect(spy.callCounts[.openCode] == 4)
+    }
+
+    @Test("cancelPendingWork drains scheduled validations without probing")
+    func cancelPendingWorkDrainsWithoutProbing() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+
+        model.scheduleDraftValidation(provider: .pi, setup: AgentIntegrationSetup(enabled: true))
+        // Cancels the debounce task before it can run; with the immediate clock
+        // a surviving task would have probed during the settle below.
+        model.cancelPendingWork()
+        await settle()
+        await settle()
+
+        #expect((spy.callCounts[.pi] ?? 0) == 0)
+    }
+
+    // MARK: - Helpers
+
+    /// A small, BOUNDED number of yields: enough for the model's probe task to
+    /// finish applying after the spy's call-count continuation fired, without
+    /// the unbounded spin loops that starve the cooperative pool.
+    /// A small, BOUNDED number of yields: enough for the model's probe task to
+    /// finish applying after the spy's call-count continuation fired, without
+    /// the unbounded spin loops that starve the cooperative pool.
+    private func settle() async {
+        for _ in 0..<5 {
+            await Task.yield()
+        }
+    }
+
+    private func makeModel(
+        probeService: SpyAgentIntegrationProbeService,
+        clock: any AgentIntegrationSettingsSleeping = ImmediateDelayClock(),
+        homeDirectoryURL: URL = FileManager.default.temporaryDirectory
+    ) -> AgentIntegrationSettingsCardModel {
+        AgentIntegrationSettingsCardModel(
+            viewModel: AgentIntegrationSettingsViewModel(homeDirectoryURL: homeDirectoryURL),
+            probeService: probeService,
+            clock: clock,
+            validationDebounce: .milliseconds(50),
+            transientRetryDelay: .milliseconds(100)
+        )
+    }
+}

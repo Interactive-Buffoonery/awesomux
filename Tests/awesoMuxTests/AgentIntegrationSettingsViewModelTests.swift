@@ -6,12 +6,11 @@ import Testing
 @Suite("Agent integration settings view model")
 struct AgentIntegrationSettingsViewModelTests {
     @Test("default card state is disabled and does not allow install")
-    func defaultCardStateIsDisabledAndDoesNotAllowInstall() throws {
-        try Self.withTemporaryDirectory { directory in
-            let viewModel = Self.viewModel(in: directory)
+    func defaultCardStateIsDisabledAndDoesNotAllowInstall() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
             let home = directory.appending(path: "home", directoryHint: .isDirectory)
 
-            let state = try Self.cardState(viewModel, provider: .openCode, setup: .defaultValue)
+            let state = try await Self.cardState(viewModel, provider: .openCode, setup: .defaultValue)
 
             #expect(state.title == "OpenCode")
             #expect(state.status == .disabled)
@@ -31,16 +30,15 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("invalid configured paths block install")
-    func invalidConfiguredPathsBlockInstall() throws {
-        try Self.withTemporaryDirectory { directory in
-            let viewModel = Self.viewModel(in: directory)
+    func invalidConfiguredPathsBlockInstall() async throws {
+        try await Self.withTemporaryDirectory { _, viewModel in
             let setup = AgentIntegrationSetup(
                 enabled: true,
                 binaryPath: "relative/pi",
                 configHome: "relative/config"
             )
 
-            let state = try Self.cardState(viewModel, provider: .pi, setup: setup)
+            let state = try await Self.cardState(viewModel, provider: .pi, setup: setup)
 
             #expect(state.binaryValidation == .invalid("Use an absolute path"))
             #expect(state.configHomeValidation == .invalid("Use an absolute path"))
@@ -50,16 +48,15 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("disabled configured paths do not probe or block")
-    func disabledConfiguredPathsDoNotProbeOrBlock() throws {
-        try Self.withTemporaryDirectory { directory in
-            let viewModel = Self.viewModel(in: directory)
+    func disabledConfiguredPathsDoNotProbeOrBlock() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
             let setup = AgentIntegrationSetup(
                 enabled: false,
                 binaryPath: "relative/pi",
                 configHome: "relative/config"
             )
 
-            let state = try Self.cardState(viewModel, provider: .pi, setup: setup)
+            let state = try await Self.cardState(viewModel, provider: .pi, setup: setup)
 
             #expect(state.status == .disabled)
             #expect(state.binaryValidation == .unset("/opt/homebrew/bin/pi"))
@@ -75,15 +72,13 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("rendered template reports staged status")
-    func renderedTemplateReportsStagedStatus() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = Self.installer(in: directory)
-            let viewModel = Self.viewModel(in: directory, installer: installer)
+    func renderedTemplateReportsStagedStatus() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
             let setup = AgentIntegrationSetup(enabled: true)
 
-            _ = try installer.render(provider: .pi, setup: setup)
+            _ = try viewModel.installer.render(provider: .pi, setup: setup)
 
-            let state = try Self.cardState(viewModel, provider: .pi, setup: setup)
+            let state = try await Self.cardState(viewModel, provider: .pi, setup: setup)
 
             #expect(state.status == .staged)
             #expect(!state.isInstalledGlobally)
@@ -93,10 +88,9 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("an empty future manifest offers explicit repair")
-    func emptyFutureManifestOffersExplicitRepair() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = Self.installer(in: directory)
-            let viewModel = Self.viewModel(in: directory, installer: installer)
+    func emptyFutureManifestOffersExplicitRepair() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
+            let installer = viewModel.installer
             try FileManager.default.createDirectory(
                 at: installer.manifestURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -105,8 +99,7 @@ struct AgentIntegrationSettingsViewModelTests {
             try Data(#"{"records":[],"version":\#(unsupportedVersion)}"#.utf8)
                 .write(to: installer.manifestURL)
 
-            let states = viewModel.cardStates(for: [.pi: .init(enabled: true)])
-            let state = try #require(states[.pi])
+            let state = try await Self.cardState(viewModel, provider: .pi, setup: .init(enabled: true))
 
             #expect(
                 state.status
@@ -115,7 +108,7 @@ struct AgentIntegrationSettingsViewModelTests {
             #expect(state.canInstall)
             #expect(state.actionTitle == "Repair state & install")
 
-            let disabledState = try Self.cardState(
+            let disabledState = try await Self.cardState(
                 viewModel,
                 provider: .pi,
                 setup: .init(enabled: false)
@@ -126,7 +119,7 @@ struct AgentIntegrationSettingsViewModelTests {
                         "Install record format \(unsupportedVersion) is newer than this app, but it is empty and can be safely rebuilt"))
             #expect(!disabledState.canInstall)
 
-            let invalidState = try Self.cardState(
+            let invalidState = try await Self.cardState(
                 viewModel,
                 provider: .pi,
                 setup: .init(enabled: true, binaryPath: "relative/pi")
@@ -137,9 +130,8 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("install writes global file and reports installed status")
-    func installWritesGlobalFileAndReportsInstalledStatus() throws {
-        try Self.withTemporaryDirectory { directory in
-            let viewModel = Self.viewModel(in: directory)
+    func installWritesGlobalFileAndReportsInstalledStatus() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
             let configHome =
                 directory
                 .appending(path: "home", directoryHint: .isDirectory)
@@ -148,7 +140,7 @@ struct AgentIntegrationSettingsViewModelTests {
             let setup = AgentIntegrationSetup(enabled: true, configHome: configHome.path)
 
             let result = try viewModel.install(provider: .openCode, setup: setup)
-            let state = try Self.cardState(viewModel, provider: .openCode, setup: setup)
+            let state = try await Self.cardState(viewModel, provider: .openCode, setup: setup)
 
             #expect(FileManager.default.fileExists(atPath: result.installedPath))
             #expect(result.installedPath.hasSuffix(".config/opencode/plugins/awesomux-opencode-status.js"))
@@ -162,9 +154,8 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("installed file that diverges from the current template reports update available")
-    func installedFileDivergingFromTemplateReportsUpdateAvailable() throws {
-        try Self.withTemporaryDirectory { directory in
-            let viewModel = Self.viewModel(in: directory)
+    func installedFileDivergingFromTemplateReportsUpdateAvailable() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
             let configHome =
                 directory
                 .appending(path: "home", directoryHint: .isDirectory)
@@ -179,7 +170,7 @@ struct AgentIntegrationSettingsViewModelTests {
                 encoding: .utf8
             )
 
-            let state = try Self.cardState(viewModel, provider: .openCode, setup: setup)
+            let state = try await Self.cardState(viewModel, provider: .openCode, setup: setup)
             #expect(state.status == .updateAvailable)
             #expect(state.canInstall)
             #expect(state.actionTitle == "Repair globally")
@@ -188,9 +179,8 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("installed file stays visible and removable after the provider is disabled")
-    func installedFileStaysRemovableAfterDisabling() throws {
-        try Self.withTemporaryDirectory { directory in
-            let viewModel = Self.viewModel(in: directory)
+    func installedFileStaysRemovableAfterDisabling() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
             let configHome =
                 directory
                 .appending(path: "home", directoryHint: .isDirectory)
@@ -204,7 +194,7 @@ struct AgentIntegrationSettingsViewModelTests {
             // file: an explicit-consent integration leaves cleanup reachable
             // without forcing a re-enable.
             let disabledSetup = AgentIntegrationSetup(enabled: false, configHome: configHome.path)
-            let state = try Self.cardState(viewModel, provider: .openCode, setup: disabledSetup)
+            let state = try await Self.cardState(viewModel, provider: .openCode, setup: disabledSetup)
 
             #expect(state.status == .disabled)
             #expect(state.isInstalledGlobally)
@@ -215,17 +205,17 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("missing bundled template blocks install")
-    func missingBundledTemplateBlocksInstall() throws {
-        try Self.withTemporaryDirectory { directory in
+    func missingBundledTemplateBlocksInstall() async throws {
+        try await Self.withTemporaryDirectory { directory, _ in
             let resources = directory.appending(path: "resources", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: resources,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
+            let viewModel = Self.viewModel(
+                resources: resources,
+                support: directory.appending(path: "support", directoryHint: .isDirectory),
+                home: directory.appending(path: "home", directoryHint: .isDirectory)
             )
-            let viewModel = Self.viewModel(in: directory, installer: installer)
 
-            let state = try Self.cardState(
+            let state = try await Self.cardState(
                 viewModel,
                 provider: .openCode,
                 setup: AgentIntegrationSetup(enabled: true)
@@ -237,11 +227,9 @@ struct AgentIntegrationSettingsViewModelTests {
     }
 
     @Test("pre-opt-in card exposes preview paths and locks all install controls")
-    func preOptInCardExposesPreviewPathsAndLocksControls() throws {
-        try Self.withTemporaryDirectory { directory in
-            let viewModel = Self.viewModel(in: directory)
-
-            let state = try Self.cardState(viewModel, provider: .openCode, setup: .defaultValue)
+    func preOptInCardExposesPreviewPathsAndLocksControls() async throws {
+        try await Self.withTemporaryDirectory { _, viewModel in
+            let state = try await Self.cardState(viewModel, provider: .openCode, setup: .defaultValue)
 
             // Before opt-in every path the enabled card would show is already
             // populated as a preview, so the user can see what they are consenting
@@ -278,7 +266,7 @@ struct AgentIntegrationSettingsViewModelTests {
 
     @Test("error message maps installer errors and falls back for others")
     func errorMessageMapsInstallerErrorsAndFallsBackForOthers() throws {
-        try Self.withTemporaryDirectory { directory in
+        try Self.withTemporaryDirectorySync { directory in
             let viewModel = Self.viewModel(in: directory)
 
             let installerError = AgentIntegrationInstallerError.invalidPath("relative/pi")
@@ -303,37 +291,61 @@ struct AgentIntegrationSettingsViewModelTests {
         }
     }
 
-    private static func viewModel(
-        in directory: URL,
-        installer: AgentIntegrationInstaller? = nil
-    ) -> AgentIntegrationSettingsViewModel {
-        AgentIntegrationSettingsViewModel(
-            installer: installer ?? Self.installer(in: directory),
-            homeDirectoryURL: directory.appending(path: "home", directoryHint: .isDirectory)
-        )
-    }
-
-    private static func installer(in directory: URL) -> AgentIntegrationInstaller {
-        AgentIntegrationInstaller(
-            resourcesDirectoryURL: Self.packageResourcesURL,
-            supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-        )
-    }
+    // MARK: - Helpers
 
     private static func cardState(
         _ viewModel: AgentIntegrationSettingsViewModel,
         provider: AgentIntegrationInstallProvider,
         setup: AgentIntegrationSetup
-    ) throws -> AgentIntegrationSettingsCardState {
-        try #require(viewModel.cardStates(for: [provider: setup])[provider])
+    ) async throws -> AgentIntegrationSettingsCardState {
+        let probeService = AgentIntegrationProbeService(
+            homeDirectoryURL: viewModel.homeDirectoryURL,
+            resourcesDirectoryURL: viewModel.installer.resourcesDirectoryURL,
+            supportDirectoryURL: viewModel.installer.supportDirectoryURL
+        )
+        let probe = await probeService.probe(provider: provider, setup: setup)
+        return viewModel.cardState(provider: provider, setup: setup, probe: probe)
     }
 
-    private static func withTemporaryDirectory(_ operation: (URL) throws -> Void) throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-agent-integration-settings-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    private static func viewModel(in directory: URL) -> AgentIntegrationSettingsViewModel {
+        viewModel(
+            resources: Self.packageResourcesURL,
+            support: directory.appending(path: "support", directoryHint: .isDirectory),
+            home: directory.appending(path: "home", directoryHint: .isDirectory)
+        )
+    }
+
+    private static func viewModel(resources: URL, support: URL, home: URL) -> AgentIntegrationSettingsViewModel {
+        AgentIntegrationSettingsViewModel(
+            installer: AgentIntegrationInstaller(
+                resourcesDirectoryURL: resources,
+                supportDirectoryURL: support
+            ),
+            homeDirectoryURL: home
+        )
+    }
+
+    private static func withTemporaryDirectory(
+        _ operation: (URL, AgentIntegrationSettingsViewModel) async throws -> Void
+    ) async throws {
+        let directory = Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await operation(directory, Self.viewModel(in: directory))
+    }
+
+    private static func withTemporaryDirectorySync(
+        _ operation: (URL) throws -> Void
+    ) throws {
+        let directory = Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         try operation(directory)
+    }
+
+    private static func makeTemporaryDirectory() -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-agent-integration-settings-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
     }
 
     private static var packageResourcesURL: URL {

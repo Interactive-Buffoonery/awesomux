@@ -13,137 +13,59 @@ struct AgentIntegrationSettingsViewModel {
         self.homeDirectoryURL = homeDirectoryURL
     }
 
-    func cardStates(
-        for setups: [AgentIntegrationInstallProvider: AgentIntegrationSetup]
-    ) -> [AgentIntegrationInstallProvider: AgentIntegrationSettingsCardState] {
-        // The manifest is always read, even for providers that are off: an
-        // existing awesoMux install must stay visible and removable.
-        let manifestState = installer.loadManifestState()
-        return setups.reduce(into: [:]) { result, entry in
-            result[entry.key] = cardState(
-                provider: entry.key,
-                setup: entry.value,
-                manifestState: manifestState
-            )
-        }
-    }
+    // MARK: - Card state derivation (pure)
 
-    private func cardState(
+    /// Derives a card state purely from an observed probe snapshot. All disk
+    /// access happened earlier, inside `AgentIntegrationProbeService`; this
+    /// function never touches the filesystem so SwiftUI can call it freely
+    /// during body evaluation.
+    func cardState(
         provider: AgentIntegrationInstallProvider,
         setup: AgentIntegrationSetup,
-        manifestState: AgentInstallManifestLoadState<AgentIntegrationInstallManifest>
+        probe: AgentIntegrationProviderProbe
     ) -> AgentIntegrationSettingsCardState {
-        let manifest: AgentIntegrationInstallManifest?
-        let manifestStatus: AgentIntegrationSettingsStatus?
-        switch manifestState {
-        case .missing:
-            manifest = nil
-            manifestStatus = nil
-        case .loaded(let loadedManifest):
-            manifest = loadedManifest
-            manifestStatus = nil
-        case .failed(.recoverableUnsupportedVersion(let version)):
-            manifest = nil
-            manifestStatus = .installStateRepairRequired(
-                String(
-                    localized: "Install record format \(version) is newer than this app, but it is empty and can be safely rebuilt",
-                    comment: "Recoverable empty agent integration install manifest status"
-                )
-            )
-        case .failed(.unsupportedVersion(let version)):
-            manifest = nil
-            manifestStatus = .blocked(
-                String(
-                    localized: "Install record format \(version) is not supported by this version of awesoMux",
-                    comment: "Unsupported agent integration install manifest status"
-                )
-            )
-        case .failed(.corrupt):
-            manifest = nil
-            manifestStatus = .blocked(
-                String(localized: "Install record is corrupt", comment: "Corrupt agent integration install manifest status")
-            )
-        case .failed(.unreadable):
-            manifest = nil
-            manifestStatus = .blocked(
-                String(localized: "Install record could not be read", comment: "Unreadable agent integration install manifest status")
-            )
-        case .failed(.busy):
-            manifest = nil
-            manifestStatus = .blocked(
-                String(
-                    localized: "Another awesoMux instance is changing agent integrations; try again",
-                    comment: "Agent integration install state lock contention status"
-                )
-            )
-        case .failed(.unavailable):
-            manifest = nil
-            manifestStatus = .blocked(
-                String(localized: "Install state is temporarily unavailable", comment: "Unavailable agent integration install state status")
-            )
-        }
-        let templateURL = installer.templateURL(provider: provider)
-        let renderedURL = installer.renderedFileURL(provider: provider, setup: setup)
-        let globalInstallURL = try? installer.destinationFileURL(
-            provider: provider,
-            homeDirectory: homeDirectoryURL,
-            configuredConfigHome: setup.configHome
-        )
+        let manifestStatus = Self.manifestStatus(for: probe.manifest)
 
         if !setup.enabled {
-            // An awesoMux file installed before the provider was turned off must
-            // stay visible and removable. Install stays gated on enablement (the
-            // ADR's separate consent step), but uninstall does not require
-            // re-enabling just to clean up.
-            let installedPath = matchingManifestRecord(provider: provider, manifest: manifest)?.installedPath
-            let installedExists = installedPath.map { installer.fileManager.fileExists(atPath: $0) } ?? false
+            var installedPath: String?
+            if case .loaded(let recordedPath) = probe.manifest, probe.installedExists, let recordedPath {
+                installedPath = recordedPath
+            }
             return AgentIntegrationSettingsCardState(
                 provider: .init(provider),
                 title: provider.displayName,
                 subtitle: provider.subtitle,
                 binaryPlaceholder: provider.defaultBinaryPath,
                 configHomePlaceholder: provider.globalConfigHome(homeDirectory: homeDirectoryURL).path,
-                templatePath: templateURL.path,
-                renderedPath: renderedURL.path,
-                globalInstallPath: globalInstallURL?.path ?? provider.globalInstallPathPlaceholder(homeDirectory: homeDirectoryURL),
-                binaryValidation: .unset(provider.defaultBinaryPath),
-                configHomeValidation: .unset(provider.globalConfigHome(homeDirectory: homeDirectoryURL).path),
+                templatePath: probe.templatePath,
+                renderedPath: probe.renderedPath,
+                globalInstallPath: probe.globalInstallPath,
+                binaryValidation: probe.binaryValidation,
+                configHomeValidation: probe.configHomeValidation,
                 status: manifestStatus ?? .disabled,
-                installedPath: installedExists ? installedPath : nil,
-                isInstalledGlobally: installedExists,
+                installedPath: installedPath,
+                isInstalledGlobally: probe.installedExists,
                 isProviderEnabled: false,
-                canUninstall: installedExists
+                canUninstall: probe.installedExists
             )
         }
 
-        let binaryValidation = validateExecutable(provider: provider, path: setup.binaryPath)
-        let configHomeValidation = validateConfigHome(provider: provider, setup: setup)
-        let matchingRecord = matchingManifestRecord(provider: provider, manifest: manifest)
-        let installedPath = matchingRecord?.installedPath
-        let installedExists = installedPath.map { installer.fileManager.fileExists(atPath: $0) } ?? false
-        let renderedExists = installer.fileManager.fileExists(atPath: renderedURL.path)
-        let templateExists = installer.fileManager.fileExists(atPath: templateURL.path)
-
+        // Status, both path validations, and every derived affordance are
+        // decided together here so a published card is always internally
+        // coherent — no field of a published card is ever patched alone.
         let status: AgentIntegrationSettingsStatus
-        if !templateExists {
+        if !probe.templateExists {
             status = .blocked("Bundled template is missing")
-        } else if let error = binaryValidation.blockingMessage ?? configHomeValidation.blockingMessage {
+        } else if let error = probe.binaryValidation.blockingMessage ?? probe.configHomeValidation.blockingMessage {
             status = .blocked(error)
         } else if let manifestStatus {
             status = manifestStatus
-        } else if installedExists, let installedPath {
+        } else if case .loaded = probe.manifest, probe.installedExists {
             // Byte-compare the live install to the current bundled template so an
             // app update that ships new OpenCode/Pi status code surfaces Repair
             // instead of leaving a silent stale extension in "Installed".
-            if installer.installedContentDiffersFromTemplate(
-                installedPath: installedPath,
-                templateURL: templateURL
-            ) {
-                status = .updateAvailable
-            } else {
-                status = .installed
-            }
-        } else if renderedExists {
+            status = probe.installedContentDiffersFromTemplate ? .updateAvailable : .installed
+        } else if probe.renderedExists {
             status = .staged
         } else {
             status = .notInstalled
@@ -155,18 +77,96 @@ struct AgentIntegrationSettingsViewModel {
             subtitle: provider.subtitle,
             binaryPlaceholder: provider.defaultBinaryPath,
             configHomePlaceholder: provider.globalConfigHome(homeDirectory: homeDirectoryURL).path,
-            templatePath: templateURL.path,
-            renderedPath: renderedURL.path,
-            globalInstallPath: globalInstallURL?.path ?? provider.globalInstallPathPlaceholder(homeDirectory: homeDirectoryURL),
-            binaryValidation: binaryValidation,
-            configHomeValidation: configHomeValidation,
+            templatePath: probe.templatePath,
+            renderedPath: probe.renderedPath,
+            globalInstallPath: probe.globalInstallPath,
+            binaryValidation: probe.binaryValidation,
+            configHomeValidation: probe.configHomeValidation,
             status: status,
-            installedPath: installedExists ? installedPath : nil,
-            isInstalledGlobally: installedExists,
+            installedPath: installedPathIfPresent(probe),
+            isInstalledGlobally: probe.installedExists,
             isProviderEnabled: true,
-            canUninstall: installedExists
+            canUninstall: probe.installedExists
         )
     }
+
+    private func installedPathIfPresent(_ probe: AgentIntegrationProviderProbe) -> String? {
+        guard case .loaded(let installedPath) = probe.manifest, probe.installedExists, let installedPath else {
+            return nil
+        }
+        return installedPath
+    }
+
+    /// The card shown before the first authoritative probe lands. Layout-stable
+    /// and actionless (`isAuthoritative` false disables install), so cards never
+    /// vanish from the pane while probing is in flight.
+    func placeholderCardState(
+        provider: AgentIntegrationInstallProvider,
+        setup: AgentIntegrationSetup
+    ) -> AgentIntegrationSettingsCardState {
+        AgentIntegrationSettingsCardState(
+            provider: .init(provider),
+            title: provider.displayName,
+            subtitle: provider.subtitle,
+            binaryPlaceholder: provider.defaultBinaryPath,
+            configHomePlaceholder: provider.globalConfigHome(homeDirectory: homeDirectoryURL).path,
+            templatePath: installer.templateURL(provider: provider).path,
+            renderedPath: installer.renderedFileURL(provider: provider, setup: setup).path,
+            globalInstallPath: (try? installer.destinationFileURL(
+                provider: provider,
+                homeDirectory: homeDirectoryURL,
+                configuredConfigHome: setup.configHome
+            ))?.path ?? provider.globalInstallPathPlaceholder(homeDirectory: homeDirectoryURL),
+            binaryValidation: .unset(provider.defaultBinaryPath),
+            configHomeValidation: .unset(provider.globalConfigHome(homeDirectory: homeDirectoryURL).path),
+            status: setup.enabled ? .notInstalled : .disabled,
+            installedPath: nil,
+            isInstalledGlobally: false,
+            isProviderEnabled: setup.enabled,
+            canUninstall: false,
+            isAuthoritative: false
+        )
+    }
+
+    private static func manifestStatus(
+        for observation: AgentIntegrationManifestObservation
+    ) -> AgentIntegrationSettingsStatus? {
+        switch observation {
+        case .missing, .loaded:
+            nil
+        case .recoverableUnsupportedVersion(let version):
+            .installStateRepairRequired(
+                String(
+                    localized: "Install record format \(version) is newer than this app, but it is empty and can be safely rebuilt",
+                    comment: "Recoverable empty agent integration install manifest status"
+                )
+            )
+        case .unsupportedVersion(let version):
+            .blocked(
+                String(
+                    localized: "Install record format \(version) is not supported by this version of awesoMux",
+                    comment: "Unsupported agent integration install manifest status"
+                )
+            )
+        case .corrupt:
+            .blocked(String(localized: "Install record is corrupt", comment: "Corrupt agent integration install manifest status"))
+        case .unreadable:
+            .blocked(String(localized: "Install record could not be read", comment: "Unreadable agent integration install manifest status"))
+        case .busy:
+            .blocked(
+                String(
+                    localized: "Another awesoMux instance is changing agent integrations; try again",
+                    comment: "Agent integration install state lock contention status"
+                )
+            )
+        case .unavailable:
+            .blocked(
+                String(localized: "Install state is temporarily unavailable", comment: "Unavailable agent integration install state status")
+            )
+        }
+    }
+
+    // MARK: - Mutations (synchronous by design; see issue #415 scope note)
 
     func install(
         provider: AgentIntegrationInstallProvider,
@@ -199,48 +199,6 @@ struct AgentIntegrationSettingsViewModel {
             configHome: installer.normalizedOptional(setup.configHome)
         )
     }
-
-    private func validateExecutable(
-        provider: AgentIntegrationInstallProvider,
-        path: String?
-    ) -> AgentIntegrationPathValidation {
-        do {
-            if let url = try installer.validateExecutablePath(path) {
-                return .valid(url.path)
-            }
-            return .unset(provider.defaultBinaryPath)
-        } catch {
-            return .invalid(error.agentIntegrationSettingsMessage)
-        }
-    }
-
-    private func validateConfigHome(
-        provider: AgentIntegrationInstallProvider,
-        setup: AgentIntegrationSetup
-    ) -> AgentIntegrationPathValidation {
-        do {
-            if let url = try installer.validateConfigHomePath(setup.configHome) {
-                return .valid(url.path)
-            }
-            return .unset(provider.globalConfigHome(homeDirectory: homeDirectoryURL).path)
-        } catch {
-            return .invalid(error.agentIntegrationSettingsMessage)
-        }
-    }
-
-    private func matchingManifestRecord(
-        provider: AgentIntegrationInstallProvider,
-        manifest: AgentIntegrationInstallManifest?
-    ) -> AgentIntegrationInstallRecord? {
-        guard let manifest else {
-            return nil
-        }
-        // Installs are one-per-provider, so the provider alone identifies the
-        // record. Matching on provider (not the live binary/config-home fields)
-        // keeps the card on "Installed" while the user edits the config home
-        // before reinstalling, instead of transiently flipping to "Not installed".
-        return manifest.records.first { $0.provider == provider }
-    }
 }
 
 struct AgentIntegrationSettingsCardState: Equatable, Sendable {
@@ -262,9 +220,12 @@ struct AgentIntegrationSettingsCardState: Equatable, Sendable {
     var isInstalledGlobally: Bool
     var isProviderEnabled: Bool
     var canUninstall: Bool
+    /// False only for pre-probe placeholders, where no observation backs the
+    /// status yet and install actions must stay disabled.
+    var isAuthoritative: Bool = true
 
     var canInstall: Bool {
-        isProviderEnabled && status.allowsInstall
+        isAuthoritative && isProviderEnabled && status.allowsInstall
     }
 
     /// "Repair" reinstalls an already-installed global file in place; otherwise
@@ -373,7 +334,7 @@ struct AgentIntegrationSettingsActionResult: Equatable, Sendable {
     var installedPath: String
 }
 
-private extension AgentIntegrationInstallProvider {
+extension AgentIntegrationInstallProvider {
     var displayName: String {
         switch self {
         case .openCode:
@@ -408,7 +369,7 @@ private extension AgentIntegrationInstallProvider {
     }
 }
 
-private extension Error {
+extension Error {
     var agentIntegrationSettingsMessage: String {
         guard let error = self as? AgentIntegrationInstallerError else {
             return localizedDescription
