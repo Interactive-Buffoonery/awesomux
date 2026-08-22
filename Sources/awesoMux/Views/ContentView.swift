@@ -514,7 +514,10 @@ struct ContentView: View {
             }
             sessionStore.selectedSessionID = sessionID
             sessionStore.setActivePane(id: paneID, in: sessionID)
-            sessionStore.acknowledgeSession(id: sessionID)
+            // Jumping to a pane to look at it is arrival, not an answer — the
+            // unread badge is ack-on-read's proper subject, an unanswered turn
+            // is not (ADR-0007's 2026-08-21 amendment).
+            sessionStore.acknowledgeSession(id: sessionID, answersUnansweredTurn: false)
             peekModel?.hide(for: sessionID)
             TerminalAccessibilityAnnouncer.announce(
                 String(
@@ -529,7 +532,7 @@ struct ContentView: View {
                 return
             }
             sessionStore.selectedSessionID = sessionID
-            sessionStore.acknowledgeSession(id: sessionID)
+            sessionStore.acknowledgeSession(id: sessionID, answersUnansweredTurn: false)
             peekModel?.hideGroup(for: groupID)
         }
         peekModel.onNewSessionInGroup = { [weak peekModel] groupID in

@@ -675,9 +675,36 @@ struct SidebarView: View {
             // Twin of the pin handler above, for the other synthetic section. A
             // workspace leaving Needs Input while its origin group is collapsed
             // otherwise just vanishes — no expand, nothing spoken.
-            // Additions are deliberately silent: the row appearing at the top of
-            // the sidebar is self-evident, and WorkspaceAttentionAnnouncementTracker
-            // already speaks a workspace entering needs-attention.
+            // An addition driven by an attention reason stays silent, because
+            // WorkspaceAttentionAnnouncementTracker already speaks a workspace
+            // entering needs-attention and two announcements for one event is
+            // worse than none.
+            //
+            // The unanswered-turn source gets its own, because the tracker
+            // structurally cannot reach it: the tracker speaks a crossing into
+            // `.needsAttention`/`.done`/`.error`, and an idle prompt leaves the
+            // pane at `.waiting` with no attention reason by design. Sighted
+            // users get the row moving to the top of the sidebar; without this
+            // there is no non-visual channel at all.
+            if let addedID = SidebarLiftedSectionTransition.singleAddition(
+                from: oldIDs,
+                to: newIDs
+            ),
+                let session = sessionStore.session(id: addedID),
+                SidebarLiftedSectionTransition.announcesArrival(
+                    of: session,
+                    unansweredTurnPaneIDs: sessionStore.unansweredTurnPaneIDs
+                )
+            {
+                accessibilityAnnouncer.announce(
+                    String(
+                        localized:
+                            "\(sidebarTitle(for: session, displayedTitles: displayedTitles)) is still waiting for a reply, moved to Needs Input",
+                        comment:
+                            "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Input section; the placeholder is the workspace title"
+                    )
+                )
+            }
             guard
                 let removedID = SidebarLiftedSectionTransition.singleRemoval(
                     from: oldIDs,

@@ -412,7 +412,9 @@ struct AwesoMuxApp: App {
                     appDelegate.surfacePrimaryWindow()
                     sessionStore.setActivePane(id: paneID, in: sessionID)
                     // Explicit gesture → immediate ack, same as the peek card (ADR-0003).
-                    sessionStore.acknowledgeSession(id: sessionID)
+                    // Arriving at the pane is not answering its turn, though: the
+                    // roster's whole workflow is cycling through waiting panes.
+                    sessionStore.acknowledgeSession(id: sessionID, answersUnansweredTurn: false)
                     requestTerminalFocus(sessionID: sessionID, paneID: paneID)
                     announcePaneFocused(index: paneIndex + 1)
                 },
