@@ -86,6 +86,68 @@ struct HelperConnectionTests {
     }
 
     @Test
+    func oversizedEnvelopeSpanningMultipleReadsArrivesIntact() async throws {
+        try await withServer { client, server in
+            // Layout engineered so a stale-scratch-buffer leak is fatal.
+            // The filler write fills the connection's 8 KiB read buffer
+            // exactly with newline-free bytes, so the next read starts
+            // mid-line; the follow-up write is one byte SHORT of the buffer,
+            // which both forces a second real socket read and makes its
+            // stale leftover region a mid-line fragment rather than a
+            // complete prior line. The decision line is split across that
+            // boundary: if the reader ever feeds bytes past the real read
+            // count into the parser, leaked filler fuses into the middle of
+            // the JSON, the line fails to parse and is silently dropped,
+            // and no decision ever arrives (readPermissionDecision times
+            // out). A layout whose stale region held complete prior lines
+            // instead would let the corruption surface as extra unwanted
+            // lines that the parser drops while the decision survives.
+            let decisionLine = try BridgeEnvelope(
+                token: "token", session: "session", id: "decision", ts: Date().timeIntervalSince1970,
+                message: .permissionDecision(
+                    PermissionDecision(inReplyTo: "request", decision: .deny, scope: .once, target: String(repeating: "target-", count: 40))
+                )
+            ).encodedLine()
+            let splitIndex = decisionLine.index(decisionLine.startIndex, offsetBy: decisionLine.count / 2)
+            let decisionHead = String(decisionLine[..<splitIndex])
+            let decisionTail = String(decisionLine[splitIndex...])
+            // Second write totals 8 KiB - 1: never a full read, never small
+            // enough for the final write to merge into the same read.
+            let fillerByteCount = 8 * 1024 - 2 - decisionHead.count
+            let task = Task.detached {
+                try server.acceptHelloAndAck()
+                let request = try server.readEnvelope()
+                guard case .permissionRequest = request.message else {
+                    throw TestSocketError.invalidFrame
+                }
+                try server.writeRaw(String(repeating: "A", count: 8 * 1024))
+                try server.writeRaw(String(repeating: "A", count: fillerByteCount) + "\n" + decisionHead)
+                try server.writeRaw(decisionTail + "\n")
+            }
+
+            try client.handshake(proto: "awesomux-bridge-v1", helper: "test")
+            try client.send(
+                BridgeEnvelope(
+                    token: "token", session: "session", id: "request", ts: Date().timeIntervalSince1970,
+                    message: .permissionRequest(
+                        PermissionRequest(tool: "Bash", target: "build", expiresAt: Date().addingTimeInterval(10).timeIntervalSince1970)
+                    )
+                ))
+            let decision = try client.readPermissionDecision(
+                deadline: HelperConnection.defaultMonotonicNow().addingTimeInterval(10)
+            )
+
+            guard case .permissionDecision(let resolved)? = decision?.message else {
+                Issue.record("expected permission decision")
+                return
+            }
+            #expect(resolved.inReplyTo == "request")
+            #expect(resolved.target == String(repeating: "target-", count: 40))
+            try await task.value
+        }
+    }
+
+    @Test
     func emitCommandRunsHandshakeAndPermissionFlowEndToEnd() async throws {
         let server = try TestUnixServer()
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-helper-fixture")
@@ -217,7 +279,13 @@ private final class TestUnixServer: @unchecked Sendable {
     }
 
     func write(_ line: String) throws {
-        let data = Data((line + "\n").utf8)
+        try writeRaw(line + "\n")
+    }
+
+    /// Writes bytes verbatim — no frame-terminating newline. Used to stage
+    /// buffer-exact patterns that must not form complete lines on the wire.
+    func writeRaw(_ text: String) throws {
+        let data = Data(text.utf8)
         try data.withUnsafeBytes { bytes in
             var offset = 0
             while offset < bytes.count {
