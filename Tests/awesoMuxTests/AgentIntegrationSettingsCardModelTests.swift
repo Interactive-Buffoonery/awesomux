@@ -5,7 +5,7 @@ import Testing
 
 /// Zero-delay seam for tests that care about ordering, not timing.
 struct ImmediateDelayClock: AgentIntegrationSettingsSleeping {
-    func sleep(for duration: Duration) async throws {}
+    func delay(for duration: Duration) async throws {}
 }
 
 /// One-shot resumption gate that can also be fired by cancellation, so a

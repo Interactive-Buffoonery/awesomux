@@ -3,13 +3,13 @@ import Foundation
 
 /// Injectable delay seam so debounce/retry timing is deterministic in tests.
 protocol AgentIntegrationSettingsSleeping: Sendable {
-    func sleep(for duration: Duration) async throws
+    func delay(for duration: Duration) async throws
 }
 
 struct ContinuousDelayClock: AgentIntegrationSettingsSleeping {
     private let clock = ContinuousClock()
 
-    func sleep(for duration: Duration) async throws {
+    func delay(for duration: Duration) async throws {
         try await clock.sleep(for: duration)
     }
 }
@@ -95,7 +95,7 @@ final class AgentIntegrationSettingsCardModel {
         debounceTasks[provider]?.cancel()
         let generationAtSchedule = currentGeneration(provider)
         debounceTasks[provider] = Task { @MainActor in
-            try? await clock.sleep(for: validationDebounce)
+            try? await clock.delay(for: validationDebounce)
             guard !Task.isCancelled else { return }
             // Superseded by an explicit refresh since scheduling? Then the
             // refresh's own probe already covers the newer input.
@@ -188,7 +188,7 @@ final class AgentIntegrationSettingsCardModel {
         generation: Int
     ) {
         let task = Task { @MainActor in
-            try? await clock.sleep(for: transientRetryDelay)
+            try? await clock.delay(for: transientRetryDelay)
             guard !Task.isCancelled else { return }
             guard generations[provider, default: 0] == generation else { return }
             startProbe(provider: provider, setup: setup, isTransientRetry: true)
