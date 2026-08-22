@@ -129,7 +129,7 @@ struct SSHWorkspaceConnectSheet: View {
             }
             HStack {
                 if origin.showsRememberActions {
-                    rememberMenu
+                    rememberMenu(execution: execution)
                 }
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
@@ -187,14 +187,16 @@ struct SSHWorkspaceConnectSheet: View {
         )
     }
 
-    private var rememberMenu: some View {
+    private func rememberMenu(execution: SSHExecution?) -> some View {
         Menu("Remember…") {
             Button("Always Manage This Destination") {
-                alwaysManageThisDestination()
+                alwaysManageThisDestination(execution: execution)
             }
+            .disabled(execution == nil)
             Button("Always Manage Any Destination") {
-                alwaysManageAnyDestination()
+                alwaysManageAnyDestination(execution: execution)
             }
+            .disabled(execution == nil)
             Divider()
             Button("Never Ask for This Destination") {
                 neverAskForThisDestination()
@@ -210,7 +212,8 @@ struct SSHWorkspaceConnectSheet: View {
     /// Saving the preference and connecting are one intent: "always" answers
     /// this prompt too. A failed save keeps the sheet open instead, mirroring
     /// how the never-ask actions behave when persistence fails.
-    private func alwaysManageThisDestination() {
+    private func alwaysManageThisDestination(execution: SSHExecution?) {
+        guard let execution else { return }
         preferenceErrorMessage = nil
         appSettingsStore.workspaces.update {
             _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination(destination, to: &$0)
@@ -225,17 +228,18 @@ struct SSHWorkspaceConnectSheet: View {
             showPreferenceSaveError()
             return
         }
-        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: sessionName))
+        connect(execution)
     }
 
-    private func alwaysManageAnyDestination() {
+    private func alwaysManageAnyDestination(execution: SSHExecution?) {
+        guard let execution else { return }
         preferenceErrorMessage = nil
         appSettingsStore.workspaces.update { $0.managedSSHAlwaysManageAllDestinations = true }
         guard appSettingsStore.workspaces.value.managedSSHAlwaysManageAllDestinations else {
             showPreferenceSaveError()
             return
         }
-        connect(SSHWorkspaceConnectFields.execution(destination: destination, sessionName: sessionName))
+        connect(execution)
     }
 
     private func neverAskForThisDestination() {

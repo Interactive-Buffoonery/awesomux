@@ -9,6 +9,24 @@ struct ManagedSSHOfferDestinationSheet: View {
         case neverAsk
         /// Destinations that become managed without asking.
         case alwaysManage
+
+        var addButtonTitle: LocalizedStringKey {
+            switch self {
+            case .neverAsk:
+                "Add Ignored Destination…"
+            case .alwaysManage:
+                "Add Always-Managed Destination…"
+            }
+        }
+
+        var sheetTitle: LocalizedStringKey {
+            switch self {
+            case .neverAsk:
+                "Add Ignored SSH Destination"
+            case .alwaysManage:
+                "Add Always-Managed SSH Destination"
+            }
+        }
     }
 
     let listKind: DestinationListKind
@@ -22,7 +40,7 @@ struct ManagedSSHOfferDestinationSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Add SSH Destination")
+            Text(listKind.sheetTitle)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
 

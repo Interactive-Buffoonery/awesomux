@@ -188,7 +188,7 @@ struct WorkspaceSettingsPane: View {
             SettingsField(
                 label: "Always make SSH managed without asking",
                 hint:
-                    "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt.",
+                    "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt. Background terminal sessions turn on automatically when needed.",
                 isFirst: true,
                 forwardsAccessibilityToControl: true
             ) {
@@ -307,7 +307,7 @@ struct WorkspaceSettingsPane: View {
                 sshDestinationListKind = listKind
                 isAddingSSHDestination = true
             } label: {
-                Label("Add Destination…", systemImage: "plus")
+                Label(listKind.addButtonTitle, systemImage: "plus")
             }
             .controlSize(.small)
         }
@@ -339,6 +339,8 @@ struct WorkspaceSettingsPane: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.aw.text3)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Remove destination")
