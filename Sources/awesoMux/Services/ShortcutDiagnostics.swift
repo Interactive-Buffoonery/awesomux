@@ -104,6 +104,25 @@ enum ShortcutDiagnostics {
         ])
     }
 
+    /// Total-bytes ceiling for the flight recorder. The recorder appends
+    /// one small record per key event with no rotation, so an unattended
+    /// session (or a stuck repeat key) would grow `/tmp` without bound.
+    /// 16 MiB is orders of magnitude past any real capture session while
+    /// staying negligible disk-wise.
+    static let maxTotalBytes = 16 * 1024 * 1024
+
+    /// Once `maxTotalBytes` is reached the recorder halts rather than rotating:
+    /// this is a developer tool whose records are only meaningful as a complete
+    /// chronological prefix, and truncate-and-restart would discard exactly that
+    /// context to keep recording events nobody asked for.
+
+    /// Whether appending a record of `incomingBytes` would push the file past
+    /// `maxTotalBytes`. Must be consulted before the write, so the file can
+    /// never exceed the cap by even one record.
+    static func recordWouldCrossCap(totalWritten: Int, incomingBytes: Int) -> Bool {
+        totalWritten + incomingBytes > maxTotalBytes
+    }
+
     private static func append(_ values: [String: Any]) {
         guard let fileURL else { return }
 
@@ -114,8 +133,17 @@ enum ShortcutDiagnostics {
         do {
             var data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
             data.append(0x0A)
+
             let handle = try FileHandle(forWritingTo: fileURL)
-            try handle.seekToEnd()
+            // Ask the file how big it is rather than tracking a parallel
+            // counter: a throwing close after a successful write would skip
+            // the increment and let the shadow count drift under the real
+            // size, defeating the cap it exists to enforce.
+            let offset = try handle.seekToEnd()
+            guard !recordWouldCrossCap(totalWritten: Int(offset), incomingBytes: data.count) else {
+                try handle.close()
+                return
+            }
             try handle.write(contentsOf: data)
             try handle.close()
         } catch {

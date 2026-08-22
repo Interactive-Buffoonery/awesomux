@@ -1053,6 +1053,32 @@ struct DocumentPaneView: View {
         isBannerShowing ? nil : snapshot
     }
 
+    /// Whether a reload must report its render to the tab cache: yes when
+    /// either side is missing (an error clears cached content; a first render
+    /// seeds it) or the on-disk source differs from what was rendered.
+    ///
+    /// Compares UTF-8 bytes (`utf8.elementsEqual`), matching `DocumentLoader`,
+    /// which makes the same byte-exact comparison when deciding whether to
+    /// rebuild. Two notions of equality on one path would strand the cache: a
+    /// document rewritten between normalization forms (NFD ↔ NFC) renders
+    /// identically, but its bytes change — `DocumentLoader` correctly rebuilds,
+    /// while a canonically-equivalent `String !=` here would suppress the
+    /// report and leave every remount reseeding the stale render forever. The
+    /// walk is O(n), bounded by the 2 MiB document size cap
+    /// (`DocumentURLValidator.maxFileSizeBytes`). A digest computed at load
+    /// time would give the fast comparison safely; that's a follow-up, not
+    /// something to hand-roll here.
+    ///
+    /// Static and pure so the rule is checkable without hosting the view.
+    static func sourceChanged(_ doc: RenderedDocument?, _ priorDoc: RenderedDocument?) -> Bool {
+        switch (doc?.source, priorDoc?.source) {
+        case let (source?, priorSource?):
+            return !source.utf8.elementsEqual(priorSource.utf8)
+        default:
+            return true
+        }
+    }
+
     private var currentSnapshot: MarkdownDocumentSnapshot? {
         guard case let .loaded(_, snapshot) = loadResult else { return nil }
         return snapshot
@@ -1218,8 +1244,11 @@ struct DocumentPaneView: View {
             case .loaded: break
             case .rejected, .readError: pendingScrollAnchor = nil
             }
-            // Report only when the content actually changed (source compare is
-            // O(1) on the reuse path — same String storage). An unchanged
+            // Report only when the content actually changed. The compare is
+            // byte-exact (see `sourceChanged`) because `DocumentLoader` decides
+            // whether to rebuild on UTF-8 bytes too — a canonical-equivalence
+            // compare here would disagree with it and strand the cache on a
+            // normalization-only rewrite. An unchanged
             // reload re-storing an identical entry would invalidate the whole
             // group view for nothing on every watcher wobble; the cache
             // already holds this content (it seeded us or stored the first
@@ -1243,8 +1272,7 @@ struct DocumentPaneView: View {
             // already a no-op here: it guards on a non-nil source, and a
             // rejection carries none.
             if !result.isRejectedForSize,
-                doc == nil || priorDoc == nil
-                    || doc?.source.utf8.elementsEqual(priorDoc?.source.utf8 ?? "".utf8) == false
+                Self.sourceChanged(doc, priorDoc)
             {
                 onRenderCompleted?(DocumentTabMemory.Render(loadResult: result, renderedDoc: doc))
             }

@@ -34,7 +34,13 @@ struct RemoteWorkspaceGroupCreateSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            TextField("Group name (optional)", text: $draftName)
+            TextField(
+                "Group name (optional)",
+                text: Binding(
+                    get: { draftName },
+                    set: { draftName = WorkspaceGroupNameDraft.clampedInput($0) }
+                )
+            )
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled(true)
                 .accessibilityLabel("Workspace group name")

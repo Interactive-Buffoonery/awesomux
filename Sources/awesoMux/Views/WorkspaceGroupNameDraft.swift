@@ -3,6 +3,23 @@ import Foundation
 import UnicodeHygiene
 
 struct WorkspaceGroupNameDraft {
+    /// Scalar ceiling on input reaching the mixed-script scan, which is
+    /// unbounded by design so the bridge permission prompt can see a spoof
+    /// anywhere in its payload. This draft is the one caller that runs it per
+    /// keystroke, so it bounds its own input rather than capping the shared
+    /// predicate.
+    ///
+    /// Matched to the bound `UnicodeHygiene.sanitize` already applies, so the
+    /// clamp cannot discard anything sanitization would have kept: a shorter
+    /// ceiling silently changed what got saved, because a paste of mostly
+    /// zero-width characters trims down to real text that a tight clamp had
+    /// already cut off.
+    static let inputScalarLimit = 4096
+
+    static func clampedInput(_ input: String) -> String {
+        String(input.unicodeScalars.prefix(inputScalarLimit))
+    }
+
     let typedName: String
     let sanitizedName: String
     let isDuplicate: Bool
@@ -14,6 +31,7 @@ struct WorkspaceGroupNameDraft {
         existingGroupNames: some Sequence<String>,
         allowsEmptyName: Bool = false
     ) {
+        let typedName = Self.clampedInput(typedName)
         let sanitizedName = SessionStore.sanitizedGroupName(typedName)
         self.typedName = typedName
         self.sanitizedName = sanitizedName

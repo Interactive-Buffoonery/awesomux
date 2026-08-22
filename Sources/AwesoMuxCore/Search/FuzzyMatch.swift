@@ -61,7 +61,7 @@ public enum FuzzyMatcher {
                     foldedQuery: foldedQuery,
                     startIndex: cursor
                 ) {
-                    if best == nil || candidate.score > best!.score {
+                    if best.map({ candidate.score > $0.score }) ?? true {
                         best = candidate
                     }
                 }

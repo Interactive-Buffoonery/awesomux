@@ -25,7 +25,13 @@ struct WorkspaceGroupCreateSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            TextField("Group name", text: $draftName)
+            TextField(
+                "Group name",
+                text: Binding(
+                    get: { draftName },
+                    set: { draftName = WorkspaceGroupNameDraft.clampedInput($0) }
+                )
+            )
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled(true)
                 .focused($isNameFocused)
