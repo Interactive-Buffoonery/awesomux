@@ -23,17 +23,24 @@ public enum AgentRuntimeEventLineSplitter {
         var combined = trailingFragment
         combined.append(chunk)
 
+        // Slice instead of `subdata(in:)`: slices share `combined`'s buffer, so
+        // a burst costs one copy (the fragment+chunk concat) no matter how many
+        // lines it contains.
         var lines: [Data] = []
         var lineStart = combined.startIndex
 
         for index in combined.indices where combined[index] == newlineByte {
-            lines.append(combined.subdata(in: lineStart..<index))
+            lines.append(combined[lineStart..<index])
             lineStart = combined.index(after: index)
         }
 
+        // `lines` stay slices: the caller drains them inside one poll, so sharing
+        // `combined` costs nothing. The remainder is stored on the watch and
+        // outlives the call, and a slice would pin the whole burst buffer behind
+        // a few trailing bytes — compact that one.
         let remainder = lineStart == combined.endIndex
             ? Data()
-            : combined.subdata(in: lineStart..<combined.endIndex)
+            : Data(combined[lineStart..<combined.endIndex])
 
         return (lines, remainder)
     }
