@@ -237,8 +237,8 @@ struct KeysSettingsPane: View {
             return
         }
 
-        var keyboard = appSettingsStore.keyboard.value
-        keyboard.shortcuts[bindingID] = candidate
+        // Check against the store's current value BEFORE mutating anything;
+        // assigning first would make the write dead work on the collision path.
         if let duplicate = KeyboardShortcutCatalog.collision(
             for: candidate,
             assigning: bindingID,
@@ -250,6 +250,8 @@ struct KeysSettingsPane: View {
             return
         }
 
+        var keyboard = appSettingsStore.keyboard.value
+        keyboard.shortcuts[bindingID] = candidate
         appSettingsStore.keyboard.update { $0 = keyboard }
         collision = nil
     }

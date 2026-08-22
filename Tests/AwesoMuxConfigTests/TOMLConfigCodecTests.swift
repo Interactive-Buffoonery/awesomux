@@ -1540,6 +1540,107 @@ struct TOMLConfigCodecTests {
         }
     }
 
+    /// Exercises every raw-line scan in one load — unknown top-level table,
+    /// preserved terminal + appearance lines, a multiline value containing a
+    /// header-shaped line and an escaped-quote line, all under CRLF endings.
+    /// The decode path now splits the source into lines exactly once and
+    /// shares that array; feeding any scan un-normalized (CRLF-carrying) or
+    /// mis-scanning the multiline delimiters shows up as `\r` leakage, a
+    /// spurious `[not_a_table]` capture, or an unstable re-encode here.
+    @Test("combined unknown content round-trips identically through the single-split decode")
+    func combinedUnknownContentRoundTripsThroughSingleSplitDecode() throws {
+        let appearanceExtras = [
+            "glow_strength = 0.65",
+            "font_ligatures = true",
+            "custom_ml = \"\"\"",
+            #"\""""#,
+            "[not_a_table]",
+            "still content",
+            "\"\"\"",
+        ].joined(separator: "\n")
+        let base = Self.defaultTOML
+            .replacing("glow_strength = 0.65", with: appearanceExtras)
+            .replacing(
+                #"clipboard_write_policy = "ask""#,
+                with: """
+                    clipboard_write_policy = "ask"
+                    custom_shell_integration = true
+                    """
+            )
+        let toml = (base + "\n[external_tool]\nenabled = true\nnote = \"kept\"\n")
+            .replacing("\n", with: "\r\n")
+
+        let decoded = try codec.decode(toml)
+        let reEncoded = try codec.encodeString(decoded)
+        let reDecoded = try codec.decode(reEncoded)
+
+        #expect(decoded.appearance.glowStrength == 0.65)
+        #expect(decoded.unknownAppearanceTableLines.contains("font_ligatures = true"))
+        #expect(decoded.terminal.clipboardWritePolicy == .ask)
+        #expect(decoded.unknownTerminalTableLines.contains("custom_shell_integration = true"))
+
+        // CRLF was normalized exactly once for every scan — no scan saw the
+        // raw \r\n bytes.
+        #expect(!decoded.unknownTerminalTableLines.contains("\r"))
+        #expect(!decoded.unknownAppearanceTableLines.contains("\r"))
+        #expect(decoded.unknownTopLevelTables["external_tool"]?.contains("\r") != true)
+        #expect(decoded.unknownTopLevelTables["external_tool"]?.contains("enabled = true") == true)
+
+        // The escaped-quote line did not terminate the multiline string, so
+        // `[not_a_table]` stayed value content instead of becoming a table.
+        #expect(decoded.unknownTopLevelTables["not_a_table"] == nil)
+
+        #expect(reEncoded.contains("[external_tool]"))
+        #expect(reEncoded.contains("enabled = true"))
+        #expect(reEncoded.contains("custom_shell_integration = true"))
+        #expect(reEncoded.contains("still content"))
+        #expect(reEncoded.components(separatedBy: "[not_a_table]").count - 1 == 1)
+
+        #expect(reDecoded.unknownTerminalTableLines.contains("custom_shell_integration = true"))
+        #expect(reDecoded.unknownTopLevelTables["external_tool"]?.contains("enabled = true") == true)
+        #expect(reDecoded.unknownTopLevelTables["not_a_table"] == nil)
+        #expect(try codec.encodeString(reDecoded) == reEncoded)
+    }
+
+    /// Pins the diagnostic seam behind `logUnknownOwnedSectionKeys`. The
+    /// warning goes to a private logger with no observable seam, so the
+    /// extracted pure scan is tested directly: an unrecognized key in a
+    /// diagnosed section is reported, while known owned keys, commented-out
+    /// lines, and keys in passthrough sections (`[terminal]`) are not.
+    @Test("unknown owned-section key scan reports only diagnosed-section typos")
+    func unknownOwnedSectionKeyScanReportsOnlyDiagnosedSectionTypos() {
+        let source = """
+            [general]
+            restore_workspaces = true
+            restore_workspaces_typo = true
+            # restore_workspaces_typo = false
+
+            [terminal]
+            custom_shell_integration = true
+
+            [notifications]
+            muted = false
+            """
+        let lines = source.split(separator: "\n").map(String.init)
+
+        let unknown = codec.unknownOwnedSectionKeys(inLines: lines)
+
+        #expect(unknown.map(\.section) == ["general"])
+        #expect(unknown.map(\.key) == ["restore_workspaces_typo"])
+    }
+
+    @Test("unknown owned-section key scan tolerates carriage-return line endings")
+    func unknownOwnedSectionKeyScanToleratesCarriageReturnLineEndings() {
+        // decode() normalizes CRLF before splitting, so the scan normally
+        // sees clean lines; a lone trailing \r (old-Mac-style endings) must
+        // not hide a typo either.
+        let lines = ["[general]\r", "restore_workspaces_typo = true\r"]
+        let unknown = codec.unknownOwnedSectionKeys(inLines: lines)
+
+        #expect(unknown.map(\.section) == ["general"])
+        #expect(unknown.map(\.key) == ["restore_workspaces_typo"])
+    }
+
     private static let v1DefaultTOML = """
         [appearance]
         theme = "system"
