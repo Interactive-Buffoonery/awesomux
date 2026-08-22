@@ -102,6 +102,15 @@ struct HelperConnectionTests {
             // out). A layout whose stale region held complete prior lines
             // instead would let the corruption surface as extra unwanted
             // lines that the parser drops while the decision survives.
+            //
+            // Known ceiling: SOCK_STREAM does not preserve write boundaries,
+            // so the read split this relies on is how the kernel happens to
+            // deliver these sizes, not a guarantee. Verified to fail 20/20
+            // under the unbounded-buffer mutation, and correct code
+            // reassembles regardless of chunking, so this cannot fail
+            // spuriously — the risk runs the other way, that it quietly
+            // stops catching the bug elsewhere. If this test is touched,
+            // re-run the mutation rather than trusting it still guards.
             let decisionLine = try BridgeEnvelope(
                 token: "token", session: "session", id: "decision", ts: Date().timeIntervalSince1970,
                 message: .permissionDecision(

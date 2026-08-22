@@ -156,10 +156,13 @@ struct AgentRuntimeEventLineSplitterTests {
         #expect(remainder.isEmpty)
 
         let partial = Data("partial-li".utf8)
-        let (_, carried) = AgentRuntimeEventLineSplitter.extractCompleteLines(
+        let (carriedLines, carried) = AgentRuntimeEventLineSplitter.extractCompleteLines(
             from: Data(),
             trailingFragment: partial
         )
+        // Discarding this would let a splitter that both emits the fragment and
+        // carries it forward pass — the caller would see the line twice.
+        #expect(carriedLines.isEmpty)
         #expect(carried == partial)
 
         let (lines, finalRemainder) = AgentRuntimeEventLineSplitter.extractCompleteLines(
