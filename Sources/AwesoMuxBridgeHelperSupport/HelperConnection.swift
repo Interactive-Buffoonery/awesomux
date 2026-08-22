@@ -25,9 +25,14 @@ public final class HelperConnection {
     private var queuedFrames: [BridgeFrameReader.Frame] = []
     private var closeAfterQueuedFrames = false
     private let monotonicNow: () -> Date
-    /// Reused across every `readFrame` poll. A connection's reads are
-    /// serialized by its own read loop, so one shared 8 KiB scratch buffer is
-    /// safe and avoids reallocating it on each readiness event.
+    /// Reused across every `readFrame` poll instead of reallocating on each
+    /// readiness event. Safe because nothing calls a connection concurrently:
+    /// `BridgeHelperCommand` is the only caller and drives it from one
+    /// synchronous CLI call chain. That is a call-site fact, not a type-level
+    /// guarantee — `tail`, `queuedFrames`, and `closeAfterQueuedFrames` rely
+    /// on the same assumption. Driving a connection from an async or
+    /// concurrent context needs an actor or a lock around the whole read
+    /// protocol, not just this buffer.
     private var readBuffer = [UInt8](repeating: 0, count: 8 * 1024)
 
     public init(
