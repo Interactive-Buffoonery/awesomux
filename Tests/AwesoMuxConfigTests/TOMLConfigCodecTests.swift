@@ -193,6 +193,8 @@ struct TOMLConfigCodecTests {
 
         #expect(decoded.workspaces.managedSSHOffersEnabled)
         #expect(decoded.workspaces.managedSSHOfferIgnoredDestinations.isEmpty)
+        #expect(decoded.workspaces.managedSSHAlwaysManagedDestinations.isEmpty)
+        #expect(!decoded.workspaces.managedSSHAlwaysManageAllDestinations)
     }
 
     @Test("managed SSH offer preferences round-trip")
@@ -211,6 +213,24 @@ struct TOMLConfigCodecTests {
         #expect(encoded.contains(#"managed_ssh_offer_ignored_destinations = ["build-box", "deploy@server-alias"]"#))
         #expect(!decoded.workspaces.managedSSHOffersEnabled)
         #expect(decoded.workspaces.managedSSHOfferIgnoredDestinations == ["build-box", "deploy@server-alias"])
+    }
+
+    @Test("managed SSH auto-manage preferences round-trip")
+    func managedSSHAutoManagePreferencesRoundTrip() throws {
+        let config = AwesoMuxConfig(
+            workspaces: WorkspaceConfig(
+                managedSSHAlwaysManagedDestinations: ["build-box", "deploy@server-alias"],
+                managedSSHAlwaysManageAllDestinations: true
+            )
+        )
+
+        let encoded = try codec.encodeString(config)
+        let decoded = try codec.decode(encoded)
+
+        #expect(encoded.contains(#"managed_ssh_always_managed_destinations = ["build-box", "deploy@server-alias"]"#))
+        #expect(encoded.contains("managed_ssh_always_manage_all_destinations = true"))
+        #expect(decoded.workspaces.managedSSHAlwaysManagedDestinations == ["build-box", "deploy@server-alias"])
+        #expect(decoded.workspaces.managedSSHAlwaysManageAllDestinations)
     }
 
     @Test("missing terminal table decodes clipboard writes to ask")

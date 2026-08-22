@@ -9,7 +9,7 @@ struct ManagedSSHOfferPolicyTests {
     func enabledOffersAskForUnlistedDestinations() throws {
         let target = try #require(RemoteTarget(parsing: "build-box"))
 
-        #expect(ManagedSSHOfferPolicy.shouldOffer(target: target, config: .defaultValue))
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: .defaultValue) == .offer)
     }
 
     @Test("disabled offers suppress every destination")
@@ -17,7 +17,7 @@ struct ManagedSSHOfferPolicyTests {
         let target = try #require(RemoteTarget(parsing: "build-box"))
         let config = WorkspaceConfig(managedSSHOffersEnabled: false)
 
-        #expect(!ManagedSSHOfferPolicy.shouldOffer(target: target, config: config))
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .none)
     }
 
     @Test("ignored destinations use exact normalized OpenSSH identity")
@@ -28,8 +28,8 @@ struct ManagedSSHOfferPolicyTests {
             managedSSHOfferIgnoredDestinations: ["  deploy@build-box  "]
         )
 
-        #expect(!ManagedSSHOfferPolicy.shouldOffer(target: ignored, config: config))
-        #expect(ManagedSSHOfferPolicy.shouldOffer(target: other, config: config))
+        #expect(ManagedSSHOfferPolicy.decision(target: ignored, config: config) == .none)
+        #expect(ManagedSSHOfferPolicy.decision(target: other, config: config) == .offer)
     }
 
     @Test("invalid persisted destinations cannot suppress an offer")
@@ -39,7 +39,125 @@ struct ManagedSSHOfferPolicyTests {
             managedSSHOfferIgnoredDestinations: ["-oProxyCommand=build-box", "user@"]
         )
 
-        #expect(ManagedSSHOfferPolicy.shouldOffer(target: target, config: config))
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .offer)
+    }
+
+    @Test("a destination on the always-managed list connects without asking")
+    func alwaysManagedDestinationsConnectAutomatically() throws {
+        let target = try #require(RemoteTarget(parsing: "deploy@build-box"))
+        let config = WorkspaceConfig(
+            managedSSHAlwaysManagedDestinations: ["deploy@build-box"]
+        )
+
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .connectAutomatically)
+    }
+
+    @Test("the always list wins over disabled offers and a stale ignore entry")
+    func alwaysListBeatsSuppression() throws {
+        let target = try #require(RemoteTarget(parsing: "build-box"))
+        let config = WorkspaceConfig(
+            managedSSHOffersEnabled: false,
+            managedSSHOfferIgnoredDestinations: ["build-box"],
+            managedSSHAlwaysManagedDestinations: ["build-box"]
+        )
+
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .connectAutomatically)
+    }
+
+    @Test("the global always toggle connects automatically even with offers off")
+    func globalAlwaysBeatsDisabledOffers() throws {
+        let target = try #require(RemoteTarget(parsing: "build-box"))
+        var config = WorkspaceConfig(managedSSHOffersEnabled: false)
+        config.managedSSHAlwaysManageAllDestinations = true
+
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .connectAutomatically)
+    }
+
+    @Test("invalid persisted always entries cannot auto-connect")
+    func invalidPersistedDestinationsCannotAutoConnect() throws {
+        let target = try #require(RemoteTarget(parsing: "build-box"))
+        let config = WorkspaceConfig(
+            managedSSHAlwaysManagedDestinations: ["-oProxyCommand=build-box", "user@"]
+        )
+
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .offer)
+    }
+
+    @Test("adding an always destination stores its normalized identity")
+    func addingAlwaysDestinationStoresNormalizedIdentity() {
+        var config = WorkspaceConfig()
+
+        let result = ManagedSSHOfferPolicy.addAlwaysManagedDestination("  deploy@build-box  ", to: &config)
+
+        #expect(result == .added("deploy@build-box"))
+        #expect(config.managedSSHAlwaysManagedDestinations == ["deploy@build-box"])
+    }
+
+    @Test("adding an invalid or duplicate always destination changes nothing")
+    func invalidOrDuplicateAlwaysAdditionChangesNothing() {
+        var config = WorkspaceConfig(
+            managedSSHAlwaysManagedDestinations: ["build-box"]
+        )
+
+        #expect(ManagedSSHOfferPolicy.addAlwaysManagedDestination("build-box", to: &config) == .duplicate)
+        #expect(ManagedSSHOfferPolicy.addAlwaysManagedDestination("-oProxyCommand=bad", to: &config) == .invalid)
+        #expect(config.managedSSHAlwaysManagedDestinations == ["build-box"])
+    }
+
+    @Test("the two lists stay disjoint whichever one is chosen")
+    func listsStayDisjoint() {
+        var config = WorkspaceConfig()
+
+        _ = ManagedSSHOfferPolicy.addIgnoredDestination("build-box", to: &config)
+        _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination("build-box", to: &config)
+        #expect(config.managedSSHAlwaysManagedDestinations == ["build-box"])
+        #expect(config.managedSSHOfferIgnoredDestinations.isEmpty)
+
+        _ = ManagedSSHOfferPolicy.addIgnoredDestination("staging", to: &config)
+        _ = ManagedSSHOfferPolicy.addIgnoredDestination("build-box", to: &config)
+        #expect(config.managedSSHOfferIgnoredDestinations.contains("build-box"))
+        #expect(!config.managedSSHAlwaysManagedDestinations.contains("build-box"))
+    }
+
+    @Test("re-adding to the ignored list repairs a stale always overlap")
+    func readdingIgnoredRepairsStaleAlwaysOverlap() {
+        var config = WorkspaceConfig(
+            managedSSHOfferIgnoredDestinations: ["build-box"],
+            managedSSHAlwaysManagedDestinations: ["build-box"]
+        )
+
+        let result = ManagedSSHOfferPolicy.addIgnoredDestination("build-box", to: &config)
+
+        #expect(result == .duplicate)
+        #expect(config.managedSSHOfferIgnoredDestinations == ["build-box"])
+        #expect(config.managedSSHAlwaysManagedDestinations.isEmpty)
+    }
+
+    @Test("re-adding to the always list repairs a stale ignored overlap")
+    func readdingAlwaysRepairsStaleIgnoredOverlap() {
+        var config = WorkspaceConfig(
+            managedSSHOfferIgnoredDestinations: ["build-box"],
+            managedSSHAlwaysManagedDestinations: ["build-box"]
+        )
+
+        let result = ManagedSSHOfferPolicy.addAlwaysManagedDestination("build-box", to: &config)
+
+        #expect(result == .duplicate)
+        #expect(config.managedSSHAlwaysManagedDestinations == ["build-box"])
+        #expect(config.managedSSHOfferIgnoredDestinations.isEmpty)
+    }
+
+    @Test("removing an always destination restores its offer eligibility")
+    func removingAlwaysDestinationRestoresOfferEligibility() throws {
+        let target = try #require(RemoteTarget(parsing: "build-box"))
+        var config = WorkspaceConfig(
+            managedSSHAlwaysManagedDestinations: ["build-box", "staging"]
+        )
+
+        ManagedSSHOfferPolicy.removeAlwaysManagedDestination("build-box", from: &config)
+
+        #expect(config.managedSSHAlwaysManagedDestinations == ["staging"])
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .offer)
     }
 
     @Test("adding a destination stores its normalized identity")
@@ -73,6 +191,6 @@ struct ManagedSSHOfferPolicyTests {
         ManagedSSHOfferPolicy.removeIgnoredDestination("build-box", from: &config)
 
         #expect(config.managedSSHOfferIgnoredDestinations == ["staging"])
-        #expect(ManagedSSHOfferPolicy.shouldOffer(target: target, config: config))
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .offer)
     }
 }

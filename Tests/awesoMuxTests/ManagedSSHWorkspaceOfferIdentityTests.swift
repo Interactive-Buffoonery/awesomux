@@ -18,13 +18,13 @@ struct ManagedSSHWorkspaceOfferIdentityTests {
     func allowedAutomaticOfferIsIdentifiedAndConsumedOnce() throws {
         let (store, sessionID, paneID) = try makeObservedStore(destination: "host-a")
 
-        let request = try #require(
-            SSHWorkspaceConnectRequest.automaticOffer(
-                sessionStore: store,
-                sessionID: sessionID,
-                paneID: paneID,
-                config: .defaultValue
-            )
+        let target = try #require(
+            store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID)
+        )
+        let request = SSHWorkspaceConnectRequest.automaticOffer(
+            sessionID: sessionID,
+            paneID: paneID,
+            target: target
         )
 
         #expect(request.origin == .automaticOffer)
@@ -39,14 +39,11 @@ struct ManagedSSHWorkspaceOfferIdentityTests {
             managedSSHOfferIgnoredDestinations: ["host-a"]
         )
 
-        let request = SSHWorkspaceConnectRequest.automaticOffer(
-            sessionStore: store,
-            sessionID: sessionID,
-            paneID: paneID,
-            config: config
+        let target = try #require(
+            store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID)
         )
+        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .none)
 
-        #expect(request == nil)
         #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID) == nil)
         #expect(store.managedSSHConversionTarget(sessionID: sessionID, paneID: paneID)?.sshDestination == "host-a")
     }
