@@ -34,21 +34,59 @@ async function emitAwesoMuxHook($, hookEventName, sessionID) {
     }
 }
 
-export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
+export const AwesoMuxOpenCodeStatus = async ({ $, client }) => {
     const rootSessionIDs = new Set()
     const childSessionIDs = new Set()
-    // Cap-then-track: these sets identify ACTIVE root vs child sessions, and
+    // Cap-then-track: these sets identify recently observed root vs child
+    // sessions, and
     // an unbounded map of dead ids would leak a few bytes per stale entry over
     // a long plugin-process lifetime. Clearing at the cap drops late events
-    // for sessions that started before it (fail silent, never misattributing),
-    // and 512 concurrent root sessions is far past any real process lifetime.
-    // A cleared child set can re-promote an old child via chat.message until
-    // its next session.created replays — the same fail-silent posture.
+    // for sessions that started before it. Unknown ids are classified from the
+    // session API before use, so clearing remains fail-closed rather than
+    // turning forgotten children into roots.
     const trackInto = (set, sessionID) => {
         if (set.size >= 512) {
             set.clear()
         }
         set.add(sessionID)
+    }
+    const trackRootSession = (sessionID) => {
+        childSessionIDs.delete(sessionID)
+        trackInto(rootSessionIDs, sessionID)
+    }
+    const trackChildSession = (sessionID) => {
+        rootSessionIDs.delete(sessionID)
+        trackInto(childSessionIDs, sessionID)
+    }
+    const isRootSession = async (sessionID) => {
+        if (typeof sessionID !== "string") {
+            return false
+        }
+        if (rootSessionIDs.has(sessionID)) {
+            return true
+        }
+        if (childSessionIDs.has(sessionID)) {
+            return false
+        }
+
+        try {
+            // The plugin can attach after a resumed session's creation event.
+            // Classify that unknown id from authoritative session metadata;
+            // absence from the child set alone never proves it is a root.
+            const response = await client.session.get({ path: { id: sessionID } })
+            const session = response?.data
+            if (session?.id !== sessionID) {
+                return false
+            }
+            if (session.parentID) {
+                trackChildSession(sessionID)
+                return false
+            }
+            trackRootSession(sessionID)
+            return true
+        } catch {
+            return false
+        }
     }
 
     return {
@@ -59,10 +97,10 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
                     return
                 }
                 if (info.parentID) {
-                    trackInto(childSessionIDs, info.id)
+                    trackChildSession(info.id)
                     return
                 }
-                trackInto(rootSessionIDs, info.id)
+                trackRootSession(info.id)
             }
             const sessionID = info?.id || event?.properties?.sessionID
             // Fail closed: lifecycle events (Stop → awesoMux "waiting",
@@ -77,13 +115,11 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
             await emitAwesoMuxHook($, sessionHookNames[event?.type], sessionID)
         },
         "chat.message": async ({ sessionID }) => {
-            // Subagent turns flow through this hook with their own session id;
-            // promoting them would let their later session.idle pass the root
-            // filter above as a false parent turn-end. Only sessions never
-            // announced as children may seed the root set (covers sessions
-            // created before this plugin attached).
-            if (!childSessionIDs.has(sessionID)) {
-                trackInto(rootSessionIDs, sessionID)
+            // Subagent turns flow through this hook with their own session id.
+            // Resolve unknown ids through OpenCode before emitting or tracking;
+            // a resumed child whose creation event was missed must stay silent.
+            if (!(await isRootSession(sessionID))) {
+                return
             }
             await emitAwesoMuxHook($, "UserPromptSubmit", sessionID)
         },

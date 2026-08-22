@@ -455,6 +455,16 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 terminalBackendMetadata = .empty
                 preservedDaemonIdentity = false
             }
+            let runtimeEstablishedAgentKind =
+                preservedDaemonIdentity && pane.agentKindIsRuntimeEstablished
+            let restoredAgentExecutionState =
+                preservedDaemonIdentity
+                ? SessionRestoreReducer.restoredAgentExecutionState(pane.agentExecutionState)
+                : .idle
+            let restoredExecutionPlan =
+                pane.hasExplicitExecutionPlan
+                ? pane.executionPlan
+                : legacyExecutionPlan
             // Preserve each pane's own kind so reopening a split workspace
             // doesn't downgrade a sibling agent pane to a bare shell (INT-504).
             // Execution state follows launch restore's policy
@@ -479,13 +489,9 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 // too rather than coming back colourless (QA).
                 color: pane.color,
                 agentKind: pane.agentKind,
-                agentExecutionState: preservedDaemonIdentity
-                        ? SessionRestoreReducer.restoredAgentExecutionState(
-                            pane.agentExecutionState)
-                        : .idle,
-                    executionPlan: pane.hasExplicitExecutionPlan
-                        ? pane.executionPlan
-                        : legacyExecutionPlan
+                    agentKindIsRuntimeEstablished: runtimeEstablishedAgentKind,
+                    agentExecutionState: restoredAgentExecutionState,
+                    executionPlan: restoredExecutionPlan
             ))
         case .split(let split):
             let first = reidentifiedLayout(

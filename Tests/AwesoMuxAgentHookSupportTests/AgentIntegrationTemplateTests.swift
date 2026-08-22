@@ -22,7 +22,10 @@ struct AgentIntegrationTemplateTests {
         // Fail closed: an unknown/missing session id must drop the event, not
         // emit it — OpenCode payload shapes have varied across versions.
         #expect(template.contains("if (!rootSessionIDs.has(sessionID))"))
-        #expect(template.contains("!childSessionIDs.has(sessionID)"))
+        #expect(template.contains("client.session.get({ path: { id: sessionID } })"))
+        #expect(template.contains("if (!(await isRootSession(sessionID)))"))
+        #expect(template.contains("rootSessionIDs.delete(sessionID)"))
+        #expect(template.contains("childSessionIDs.delete(sessionID)"))
         #expect(template.contains("chat.message\": async ({ sessionID })"))
         #expect(template.contains("session.created"))
         #expect(template.contains("session.idle"))
