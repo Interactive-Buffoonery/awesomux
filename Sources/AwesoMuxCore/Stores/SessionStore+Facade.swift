@@ -408,6 +408,12 @@ extension SessionStore {
         if outcome.didMutate {
             _groups[position.groupIndex].sessions[position.sessionIndex] = session
         }
+        // Same reasoning as `attentionClearIsAuthoritative` above, applied to the
+        // other side-state a dead process leaves behind: the agent that finished
+        // the unanswered turn cannot be answered now, and the pane keeps its
+        // identity so the live-pane prune never clears the mark. Leaving it would
+        // hold an errored pane's workspace in Needs Input over the recovery hint.
+        clearUnansweredTurn(paneIDs: [paneID])
 
         if let target = pane.executionPlan.remoteTarget {
             mutatePane(sessionID: sessionID, paneID: paneID) { errorPane in
@@ -552,6 +558,13 @@ extension SessionStore {
             return false
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        // The agent whose turn went unanswered is gone, so nothing can answer it
+        // and no `.promptSubmit`/`.sessionEnd` will ever retract the mark. The
+        // prune below cannot reach it either: this reset KEEPS the pane's
+        // identity, so the pane stays in `livePaneIDs` and the intersection is a
+        // no-op. Without this the workspace sits in Needs Input as a plain shell
+        // — the exact dead-agent chrome this reset exists to strip.
+        clearUnansweredTurn(paneIDs: [paneID])
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
         return true
     }
@@ -655,6 +668,12 @@ extension SessionStore {
         else {
             return false
         }
+        // Rides the reducer's accepted stream, so it inherits the dedupe,
+        // staleness, and cross-provider guards. Called before the pane update
+        // because an idle prompt usually changes NOTHING about the pane — it
+        // re-asserts the `.waiting` a Stop already set — so `didMutate` is false
+        // and no commit follows. Membership must therefore reconcile itself.
+        updateUnansweredTurn(paneID: paneID, event: event)
         // Two commits are intentional: unread must land before a nested
         // openDocumentPane full rebuild (so rebuild sees the tree's new badges),
         // and risk reclassify must run after titles/document side effects even
@@ -998,6 +1017,13 @@ extension SessionStore {
         unreadNotificationTotal = index.unreadNotificationTotal
         shellActivityReducer.prune(livePaneIDs: index.livePaneIDs)
         runtimeEventReducer.prune(livePaneIDs: index.livePaneIDs)
+        // Same lifetime rule as the two reducers above. Pruning here rather than
+        // in `updateUnansweredTurn` keeps every "this pane is gone" path — close,
+        // split collapse, bulk restore — covered by one sweep. No reconcile call:
+        // this runs inside `commit`, whose own `reconcileLiftedSessionIDs` has
+        // not happened yet, and a dead pane's session is already gone from the
+        // walk it performs.
+        unansweredTurns = unansweredTurns.filter { index.livePaneIDs.contains($0.key) }
 
         #if DEBUG
             let allIDs = _groups.flatMap { $0.sessions.map(\.id) }
@@ -1121,7 +1147,11 @@ extension SessionStore {
             // needing input keeps the workspace row loud (ADR-0003 amendment).
             // Passive, so it keeps the sticky: the row stays in Needs Input
             // until the user navigates away or evicts it deliberately.
-            self.acknowledgeSession(id: selectedSessionID, releasesAttentionSticky: false)
+            self.acknowledgeSession(
+                id: selectedSessionID,
+                releasesAttentionSticky: false,
+                answersUnansweredTurn: false
+            )
         }
     }
 }
