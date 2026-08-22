@@ -1670,6 +1670,171 @@ struct SessionPersistenceLoadTests {
         }
     }
 
+    /// Pins the retention boundaries the cap doc on
+    /// `maxQuarantineArchives` promises: the guard is exclusive, so landing
+    /// exactly at the cap evicts nothing, and one over the cap the anchor
+    /// keeps the earliest capture while the newest survives and a middle
+    /// archive is the one evicted.
+    @Test(
+        "quit-time archive retention at the cap evicts nothing and one over keeps both ends"
+    )
+    func unsavedArchiveRetentionAtAndOverCap() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            try Data("{not-json".utf8).write(to: snapshotURL)
+            #expect(SessionPersistence.load().recoveryWarning?.preventsInitialSave == true)
+
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            var dated: Set<URL> = []
+            let cap = SessionPersistence.maxQuarantineArchives
+            for index in 0...cap {
+                guard
+                    case .failure(.warningNotActive) = SessionPersistence.flush(
+                        SessionStore(restoring: Self.snapshot(groupName: "quit \(index)"))
+                    )
+                else {
+                    Issue.record("expected the recovery gate to refuse quit \(index)")
+                    return
+                }
+                try Self.pinCreationDates(
+                    of: try Self.unsavedArchives(in: tempDir),
+                    to: epoch.addingTimeInterval(TimeInterval(index)),
+                    dated: &dated
+                )
+                if index == cap - 1 {
+                    #expect(try Self.unsavedArchives(in: tempDir).count == cap)
+                }
+            }
+
+            // Oldest (the incident anchor) and newest survive; the second-
+            // oldest capture is the middle entry the eviction removed.
+            let survivors = try Self.creationDates(
+                of: try Self.unsavedArchives(in: tempDir)
+            )
+            #expect(
+                survivors
+                    == ([0] + Array(2...cap)).map { epoch.addingTimeInterval(TimeInterval($0)) }
+            )
+        }
+    }
+
+    /// The three load-time families re-archive the *same* bad snapshot on
+    /// every relaunch into it, so their oldest copy is the most redundant and
+    /// their eviction must stay plain oldest-first (#333).
+    @Test("corrupted archive retention at the cap evicts nothing and past it evicts oldest-first")
+    func corruptedArchiveRetentionEvictsOldestFirst() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            var dated: Set<URL> = []
+            let cap = SessionPersistence.maxQuarantineArchives
+            for index in 0...cap {
+                try Data("{not-json".utf8).write(to: snapshotURL)
+                _ = SessionPersistence.load()
+                try Self.pinCreationDates(
+                    of: try Self.corruptedArchives(in: tempDir),
+                    to: epoch.addingTimeInterval(TimeInterval(index)),
+                    dated: &dated
+                )
+                if index == cap - 1 {
+                    #expect(try Self.corruptedArchives(in: tempDir).count == cap)
+                }
+            }
+
+            let survivors = try Self.creationDates(
+                of: try Self.corruptedArchives(in: tempDir)
+            )
+            #expect(survivors == (1...cap).map { epoch.addingTimeInterval(TimeInterval($0)) })
+        }
+    }
+
+    @Test("sanitized archive retention at the cap evicts nothing and past it evicts oldest-first")
+    func sanitizedArchiveRetentionEvictsOldestFirst() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            var dated: Set<URL> = []
+            let cap = SessionPersistence.maxQuarantineArchives
+            for index in 0...cap {
+                try Self.write(
+                    Self.snapshot(groupName: "ops \(index)\u{202E}"),
+                    to: tempDir
+                )
+                _ = SessionPersistence.load()
+                try Self.pinCreationDates(
+                    of: try Self.sanitizedArchives(in: tempDir),
+                    to: epoch.addingTimeInterval(TimeInterval(index)),
+                    dated: &dated
+                )
+                if index == cap - 1 {
+                    #expect(try Self.sanitizedArchives(in: tempDir).count == cap)
+                }
+            }
+
+            let survivors = try Self.creationDates(
+                of: try Self.sanitizedArchives(in: tempDir)
+            )
+            #expect(survivors == (1...cap).map { epoch.addingTimeInterval(TimeInterval($0)) })
+        }
+    }
+
+    @Test("conflict archive retention at the cap evicts nothing and past it evicts oldest-first")
+    func conflictArchiveRetentionEvictsOldestFirst() throws {
+        try Self.withTemporarySupportDirectory { tempDir in
+            try FileManager.default.createDirectory(
+                at: tempDir,
+                withIntermediateDirectories: true
+            )
+            let snapshotURL = tempDir.appending(path: "session-state.json")
+            let replacementURL = tempDir.appending(path: "replacement.json")
+
+            let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+            var dated: Set<URL> = []
+            let cap = SessionPersistence.maxQuarantineArchives
+            for index in 0...cap {
+                // A snapshot swapped out after open decodes cleanly but no
+                // longer matches the opened identity, which is the conflict
+                // path; the archive keeps the opened bytes.
+                try Self.write(Self.snapshot(groupName: "opened \(index)"), to: tempDir)
+                try Self.write(
+                    Self.snapshot(groupName: "replacement"),
+                    to: tempDir,
+                    url: replacementURL
+                )
+                _ = SessionPersistence.load(afterSnapshotOpen: {
+                    try FileManager.default.removeItem(at: snapshotURL)
+                    try FileManager.default.moveItem(at: replacementURL, to: snapshotURL)
+                })
+                try Self.pinCreationDates(
+                    of: try Self.conflictArchives(in: tempDir),
+                    to: epoch.addingTimeInterval(TimeInterval(index)),
+                    dated: &dated
+                )
+                if index == cap - 1 {
+                    #expect(try Self.conflictArchives(in: tempDir).count == cap)
+                }
+            }
+
+            let survivors = try Self.creationDates(
+                of: try Self.conflictArchives(in: tempDir)
+            )
+            #expect(survivors == (1...cap).map { epoch.addingTimeInterval(TimeInterval($0)) })
+        }
+    }
+
     /// A detached debounced save can complete after a quit-time flush created
     /// a newer incident marker. Its snapshot predates that incident, so its
     /// success must not drop the pin and expose the first archive to eviction.
@@ -2015,6 +2180,40 @@ struct SessionPersistenceLoadTests {
             $0.lastPathComponent.hasPrefix("session-state.unsaved-")
                 && $0.pathExtension == "json"
         }
+    }
+
+    private static func conflictArchives(in tempDir: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("session-state.conflict-")
+                && $0.pathExtension == "json"
+        }
+    }
+
+    /// Archive filenames carry only second-resolution timestamps, so archives
+    /// written within one loop iteration tie on their real creation dates.
+    /// Pinning each iteration's new archive by hand makes the eviction order
+    /// assertions deterministic.
+    private static func pinCreationDates(
+        of archives: [URL],
+        to date: Date,
+        dated: inout Set<URL>
+    ) throws {
+        for archive in archives where !dated.contains(archive) {
+            try FileManager.default.setAttributes(
+                [.creationDate: date],
+                ofItemAtPath: archive.path
+            )
+            dated.insert(archive)
+        }
+    }
+
+    private static func creationDates(of archives: [URL]) throws -> [Date] {
+        try archives.map { archive in
+            try #require(archive.resourceValues(forKeys: [.creationDateKey]).creationDate)
+        }.sorted()
     }
 
     private static func snapshot(groupName: String) -> SessionSnapshot {
