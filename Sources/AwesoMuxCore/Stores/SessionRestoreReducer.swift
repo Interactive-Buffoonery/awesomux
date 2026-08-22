@@ -269,6 +269,10 @@ struct SessionRestoreReducer: Sendable {
                 workingDirectory: paneWorkingDirectory,
                 color: pane.color,
                 agentKind: agentKind,
+                // Keep provenance only when the kind itself survived restore
+                // sanitization; a fallback-to-shell pane has no kind to prove.
+                agentKindIsRuntimeEstablished: agentKind == pane.agentKind
+                    && pane.agentKindIsRuntimeEstablished,
                 agentExecutionState: executionState,
                 attentionReason: attentionReason,
                 executionPlan: executionPlan

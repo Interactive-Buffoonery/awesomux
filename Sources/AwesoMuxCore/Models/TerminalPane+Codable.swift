@@ -10,7 +10,7 @@ extension TerminalPane {
     // `terminalPromptObserved` / `foregroundProcessLiveness`, plus
     // `progressReport`, `remoteReconnect`, and `recentLinks`) so
     // restored panes come back active/idle with no progress chrome until live
-    // shell signals prove otherwise. The durable execution plan and four durable
+    // shell signals prove otherwise. The durable execution plan and five durable
     // agent fields persist.
     // Keep these in sync if stored properties change.
     private enum CodingKeys: String, CodingKey {
@@ -23,6 +23,7 @@ extension TerminalPane {
         case executionPlan
         case color
         case agentKind
+        case agentKindIsRuntimeEstablished
         case agentExecutionState
         case attentionReason
         case unreadNotificationCount
@@ -42,6 +43,13 @@ extension TerminalPane {
             workingDirectory: try container.decode(String.self, forKey: .workingDirectory),
             color: Self.decodeTolerantColor(from: container),
             agentKind: try container.decodeIfPresent(AgentKind.self, forKey: .agentKind) ?? .shell,
+            // Snapshots written before this field existed decode as "not
+            // runtime-proven": reclaimable by the first genuine event, the
+            // safe direction for a legacy text-guessed tag.
+            agentKindIsRuntimeEstablished: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .agentKindIsRuntimeEstablished
+            ) ?? false,
             agentExecutionState: Self.decodeTolerantExecutionState(from: container),
             attentionReason: try container.decodeIfPresent(
                 AttentionReason.self,
@@ -150,6 +158,7 @@ extension TerminalPane {
         try container.encode(executionPlan, forKey: .executionPlan)
         try container.encodeIfPresent(color, forKey: .color)
         try container.encode(agentKind, forKey: .agentKind)
+        try container.encode(agentKindIsRuntimeEstablished, forKey: .agentKindIsRuntimeEstablished)
         try container.encode(agentExecutionState, forKey: .agentExecutionState)
         try container.encodeIfPresent(attentionReason, forKey: .attentionReason)
         try container.encode(unreadNotificationCount, forKey: .unreadNotificationCount)

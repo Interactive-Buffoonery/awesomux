@@ -6,6 +6,12 @@ struct WorkspaceAttentionReducer: Sendable {
         var title: String?
         var workingDirectory: String?
         var agentKind: AgentKind?
+        /// Provenance for a non-nil `agentKind`: did the runtime-event stream
+        /// produce this kind (hooks — authoritative against other providers'
+        /// streams), or was it claimed from scraped viewport text (a guess that
+        /// must yield to the first genuine event)? `nil` leaves the pane's
+        /// current provenance untouched.
+        var agentKindIsRuntimeEstablished: Bool?
         var agentState: AgentState?
         var agentExecutionState: AgentExecutionState?
         var attentionReason: AttentionReason?
@@ -24,6 +30,7 @@ struct WorkspaceAttentionReducer: Sendable {
             title: String? = nil,
             workingDirectory: String? = nil,
             agentKind: AgentKind? = nil,
+            agentKindIsRuntimeEstablished: Bool? = nil,
             agentState: AgentState? = nil,
             agentExecutionState: AgentExecutionState? = nil,
             attentionReason: AttentionReason? = nil,
@@ -35,6 +42,7 @@ struct WorkspaceAttentionReducer: Sendable {
             self.title = title
             self.workingDirectory = workingDirectory
             self.agentKind = agentKind
+            self.agentKindIsRuntimeEstablished = agentKindIsRuntimeEstablished
             self.agentState = agentState
             self.agentExecutionState = agentExecutionState
             self.attentionReason = attentionReason
@@ -138,9 +146,31 @@ struct WorkspaceAttentionReducer: Sendable {
             guard pane.id == paneID else { return pane }
             var pane = pane
 
-            if let agentKind = update.agentKind, agentKind != pane.agentKind {
-                pane.agentKind = agentKind
-                didMutate = true
+            if let agentKind = update.agentKind {
+                let kindChanged = agentKind != pane.agentKind
+                if kindChanged {
+                    pane.agentKind = agentKind
+                    didMutate = true
+                }
+                // Kind provenance: a runtime event proves (or re-proves) the
+                // kind no matter whether it changed it; a text-detected claim
+                // downgrades provenance only when it actually overwrites the
+                // kind — re-detecting the same kind from the viewport must not
+                // clear proof established by live hooks.
+                switch update.agentKindIsRuntimeEstablished {
+                case .some(true):
+                    if !pane.agentKindIsRuntimeEstablished {
+                        pane.agentKindIsRuntimeEstablished = true
+                        didMutate = true
+                    }
+                case .some(false):
+                    if kindChanged, pane.agentKindIsRuntimeEstablished {
+                        pane.agentKindIsRuntimeEstablished = false
+                        didMutate = true
+                    }
+                case nil:
+                    break
+                }
             }
 
             if let agentExecutionState = update.agentExecutionState {
