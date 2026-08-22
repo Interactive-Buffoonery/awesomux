@@ -417,4 +417,66 @@ struct AttributedMarkdownBuilderTests {
         let z = try #require(cells.first { $0.text == "z" })
         #expect(z.row == 1 && z.col == 2)
     }
+
+    @Test("each table in a multi-table document parses its own delimiter row")
+    func multipleTablesEachParseOwnAlignments() {
+        let src = """
+            | A | B |
+            | :- | -: |
+            | a | b |
+
+            | C | D |
+            | :-: | - |
+            | c | d |
+            """
+        let doc = AttributedMarkdownBuilder.build(src)
+        func alignment(table: Int, column: Int) -> TableColumnAlignment? {
+            doc.runs.lazy.compactMap { run -> TableColumnAlignment? in
+                switch run.style {
+                case let .tableHeader(t, _, c, a) where t == table && c == column: return a
+                case let .tableCell(t, _, c, a) where t == table && c == column: return a
+                default: return nil
+                }
+            }.first
+        }
+        #expect(alignment(table: 0, column: 0) == .left)
+        #expect(alignment(table: 0, column: 1) == .right)
+        // Second table must not inherit the first table's delimiter row; its
+        // bare `-` cell is unspecified and defaults to .left.
+        #expect(alignment(table: 1, column: 0) == .center)
+        #expect(alignment(table: 1, column: 1) == .left)
+    }
+
+    @Test("multi-byte prose before a table does not shift its delimiter-row slice")
+    func tableAlignmentAfterMultiByteProse() {
+        // The delimiter row is recovered by slicing a UTF-8 BYTE range out of the
+        // source. Emoji and CJK ahead of the table push its byte offset far past
+        // its character offset, so anything that conflates the two lands mid-table
+        // and every column silently falls back to .left.
+        let src = "Intro 🎉🎉 with 日本語テスト before the table.\n\n| A | B |\n| :-: | -: |\n| x | y |\n"
+        let doc = AttributedMarkdownBuilder.build(src)
+        func alignment(ofColumn column: Int) -> TableColumnAlignment? {
+            doc.runs.lazy.compactMap { run -> TableColumnAlignment? in
+                switch run.style {
+                case let .tableHeader(_, _, c, a) where c == column: return a
+                case let .tableCell(_, _, c, a) where c == column: return a
+                default: return nil
+                }
+            }.first
+        }
+        #expect(alignment(ofColumn: 0) == .center)
+        #expect(alignment(ofColumn: 1) == .right)
+    }
+
+    @Test("a single-column table keeps its parsed alignment")
+    func singleColumnTableAlignment() throws {
+        let src = "| C |\n| :-: |\n| x |"
+        let doc = AttributedMarkdownBuilder.build(src)
+        let cell = try #require(doc.runs.first { $0.text == "x" })
+        guard case let .tableCell(_, _, column, alignment) = cell.style else {
+            Issue.record("expected tableCell style")
+            return
+        }
+        #expect(column == 0 && alignment == .center)
+    }
 }
