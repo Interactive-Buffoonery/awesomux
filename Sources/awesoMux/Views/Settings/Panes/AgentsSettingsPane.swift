@@ -68,9 +68,9 @@ struct AgentsSettingsPane: View {
                 subtitle: "Provider-owned files that report identity and coarse runtime state."
             ) {
                 // Card states come from the cached model; body evaluation never
-                // reads the manifest, stats a path, or byte-compares templates.
-                // Before the first probe lands this returns layout-stable
-                // placeholder cards with actions disabled.
+                // reads the manifest or byte-compares templates. Before the
+                // first probe lands this returns layout-stable placeholder
+                // cards with actions disabled.
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(AgentIntegrationDisplayProvider.allCases, id: \.self) { display in
                         if let provider = display.installable {

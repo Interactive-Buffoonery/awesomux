@@ -102,8 +102,7 @@ actor AgentIntegrationProbeService: AgentIntegrationProbing {
             binaryValidation = Self.validateExecutable(
                 installer: installer,
                 provider: provider,
-                path: setup.binaryPath,
-                homeDirectoryURL: homeDirectoryURL
+                path: setup.binaryPath
             )
             configHomeValidation = Self.validateConfigHome(
                 installer: installer,
@@ -175,8 +174,7 @@ actor AgentIntegrationProbeService: AgentIntegrationProbing {
     private static func validateExecutable(
         installer: AgentIntegrationInstaller,
         provider: AgentIntegrationInstallProvider,
-        path: String?,
-        homeDirectoryURL: URL
+        path: String?
     ) -> AgentIntegrationPathValidation {
         do {
             if let url = try installer.validateExecutablePath(path) {

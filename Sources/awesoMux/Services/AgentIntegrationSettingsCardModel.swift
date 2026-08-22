@@ -26,6 +26,10 @@ struct ContinuousDelayClock: AgentIntegrationSettingsSleeping {
 @MainActor
 final class AgentIntegrationSettingsCardModel {
     private(set) var cardStates: [AgentIntegrationInstallProvider: AgentIntegrationSettingsCardState] = [:]
+    /// The setup each published card was derived from. A draft that no longer
+    /// matches downgrades the card to advisory (`isAuthoritative` false), so a
+    /// stale Install affordance can never be acted on during a debounce window.
+    private var cardInputs: [AgentIntegrationInstallProvider: AgentIntegrationSetup] = [:]
 
     private let viewModel: AgentIntegrationSettingsViewModel
     private let probeService: any AgentIntegrationProbing
@@ -36,6 +40,7 @@ final class AgentIntegrationSettingsCardModel {
     private var generations: [AgentIntegrationInstallProvider: Int] = [:]
     private var probeTasks: [AgentIntegrationInstallProvider: Task<Void, Never>] = [:]
     private var debounceTasks: [AgentIntegrationInstallProvider: Task<Void, Never>] = [:]
+    private var retryTasks: [AgentIntegrationInstallProvider: Task<Void, Never>] = [:]
     /// Set while a `.busy`/`.unavailable` observation is awaiting its single
     /// bounded retry; cleared by any non-transient publication or explicit
     /// refresh. Prevents one lock collision from caching a durable "blocked".
@@ -62,7 +67,14 @@ final class AgentIntegrationSettingsCardModel {
         -> AgentIntegrationSettingsCardState
     {
         if let state = cardStates[provider], state.isAuthoritative {
-            return state
+            if let input = cardInputs[provider], input == setup {
+                return state
+            }
+            // Observations no longer match the current draft: keep the visible
+            // content stable but withdraw action authorization.
+            var advisory = state
+            advisory.isAuthoritative = false
+            return advisory
         }
         return viewModel.placeholderCardState(provider: provider, setup: setup)
     }
@@ -81,7 +93,6 @@ final class AgentIntegrationSettingsCardModel {
     /// after the debounce window; each reschedule cancels the previous wait.
     func scheduleDraftValidation(provider: AgentIntegrationInstallProvider, setup: AgentIntegrationSetup) {
         debounceTasks[provider]?.cancel()
-        guard !Task.isCancelled else { return }
         let generationAtSchedule = currentGeneration(provider)
         debounceTasks[provider] = Task { @MainActor in
             try? await clock.sleep(for: validationDebounce)
@@ -104,6 +115,10 @@ final class AgentIntegrationSettingsCardModel {
             task.cancel()
         }
         probeTasks.removeAll()
+        for task in retryTasks.values {
+            task.cancel()
+        }
+        retryTasks.removeAll()
     }
 
     // MARK: - Probe plumbing
@@ -125,6 +140,8 @@ final class AgentIntegrationSettingsCardModel {
         // set so one busy observation retries exactly once instead of looping.
         if !isTransientRetry {
             retryingTransient[provider] = false
+            retryTasks[provider]?.cancel()
+            retryTasks[provider] = nil
         }
         probeTasks[provider]?.cancel()
         probeTasks[provider] = Task { @MainActor in
@@ -143,6 +160,7 @@ final class AgentIntegrationSettingsCardModel {
         guard generations[provider] == generation else { return }
 
         cardStates[provider] = viewModel.cardState(provider: provider, setup: setup, probe: probe)
+        cardInputs[provider] = setup
 
         let transient = isTransient(probe.manifest)
         if transient && !(retryingTransient[provider] ?? false) {
@@ -162,11 +180,12 @@ final class AgentIntegrationSettingsCardModel {
         setup: AgentIntegrationSetup,
         generation: Int
     ) {
-        Task { @MainActor in
+        let task = Task { @MainActor in
             try? await clock.sleep(for: transientRetryDelay)
             guard !Task.isCancelled else { return }
-            guard generations[provider] == generation else { return }
+            guard generations[provider, default: 0] == generation else { return }
             startProbe(provider: provider, setup: setup, isTransientRetry: true)
         }
+        retryTasks[provider] = task
     }
 }

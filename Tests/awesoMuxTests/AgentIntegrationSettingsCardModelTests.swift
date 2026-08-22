@@ -42,6 +42,10 @@ final class SpyAgentIntegrationProbeService: AgentIntegrationProbing, @unchecked
     private let lock = NSLock()
     private var counts: [AgentIntegrationInstallProvider: Int] = [:]
     private var results: [AgentIntegrationInstallProvider: AgentIntegrationProviderProbe] = [:]
+    /// Per-call scripts consumed in call-start order regardless of completion
+    /// order, so an older held call can be given a different outcome than a
+    /// newer one.
+    private var scripts: [AgentIntegrationInstallProvider: [AgentIntegrationProviderProbe]] = [:]
     private var held: [CheckedContinuation<Void, Never>] = []
     private var shouldHold = false
 
@@ -57,6 +61,10 @@ final class SpyAgentIntegrationProbeService: AgentIntegrationProbing, @unchecked
 
     func setResult(_ result: AgentIntegrationProviderProbe, for provider: AgentIntegrationInstallProvider) {
         withLock { results[provider] = result }
+    }
+
+    func script(_ sequence: [AgentIntegrationProviderProbe], for provider: AgentIntegrationInstallProvider) {
+        withLock { scripts[provider] = sequence }
     }
 
     func holdCalls(_ hold: Bool) {
@@ -78,9 +86,15 @@ final class SpyAgentIntegrationProbeService: AgentIntegrationProbing, @unchecked
     func probe(provider: AgentIntegrationInstallProvider, setup: AgentIntegrationSetup) async
         -> AgentIntegrationProviderProbe
     {
-        withLock {
+        // Consume the per-call script at call START so completion order cannot
+        // reshuffle which outcome belongs to which probe.
+        let scripted: AgentIntegrationProviderProbe? = withLock {
             counts[provider, default: 0] += 1
             notifyWaiters()
+            guard var queue = scripts[provider], !queue.isEmpty else { return nil }
+            let next = queue.removeFirst()
+            scripts[provider] = queue
+            return next
         }
 
         while withLock({ shouldHold }) {
@@ -89,7 +103,7 @@ final class SpyAgentIntegrationProbeService: AgentIntegrationProbing, @unchecked
             }
         }
 
-        return withLock { results[provider] ?? Self.emptyProbe }
+        return scripted ?? withLock { results[provider] ?? Self.emptyProbe }
     }
 
     /// Suspends until `provider` has been probed at least `count` times, or
@@ -217,30 +231,60 @@ struct AgentIntegrationSettingsCardModelTests {
         let spy = SpyAgentIntegrationProbeService()
         let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
 
+        // Distinct outcomes per call: the held (older) probe validates the old
+        // path; the newer debounced validation validates the new one.
+        var olderProbe = SpyAgentIntegrationProbeService.emptyProbe
+        olderProbe.binaryValidation = .unset("/opt/homebrew/bin/opencode")
+        var newerProbe = SpyAgentIntegrationProbeService.emptyProbe
+        newerProbe.binaryValidation = .valid("/opt/homebrew/bin/opencode-new")
+        spy.script([olderProbe, newerProbe], for: .openCode)
+
         // First probe (explicit refresh) is held inside the service.
         spy.holdCalls(true)
         model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
-        // Wait until the first call is parked in the gate.
         await spy.waitForCallCount(provider: .openCode, atLeast: 1)
 
-        // Newer debounced validation with a different scripted outcome.
-        var newer = SpyAgentIntegrationProbeService.emptyProbe
-        newer.binaryValidation = .valid("/opt/homebrew/bin/opencode-new")
-        spy.setResult(newer, for: .openCode)
+        // Newer debounced validation completes while the older one is parked.
+        let newerSetup = AgentIntegrationSetup(enabled: true, binaryPath: "/opt/homebrew/bin/opencode-new")
         spy.holdCalls(false)
-        model.scheduleDraftValidation(
-            provider: .openCode,
-            setup: AgentIntegrationSetup(enabled: true, binaryPath: "/opt/homebrew/bin/opencode-new")
-        )
+        model.scheduleDraftValidation(provider: .openCode, setup: newerSetup)
         await spy.waitForCallCount(provider: .openCode, atLeast: 2)
         await settle()
 
-        // Release the old generation last; it must lose.
+        // Release the old generation last; it must lose despite finishing last.
         spy.releaseHeldCalls()
         await settle()
 
-        let state = model.state(for: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        let state = model.state(for: .openCode, setup: newerSetup)
         #expect(state.binaryValidation == .valid("/opt/homebrew/bin/opencode-new"))
+
+        // The inverse interleaving: a parked validation loses to a commit
+        // refresh that lands first.
+        let spy2 = SpyAgentIntegrationProbeService()
+        var staleValidation = SpyAgentIntegrationProbeService.emptyProbe
+        staleValidation.binaryValidation = .invalid("stale")
+        var committedResult = SpyAgentIntegrationProbeService.emptyProbe
+        committedResult.binaryValidation = .valid("/committed")
+        spy2.script([staleValidation, committedResult], for: .pi)
+
+        let model2 = makeModel(probeService: spy2, clock: ImmediateDelayClock())
+        spy2.holdCalls(true)
+        model2.scheduleDraftValidation(
+            provider: .pi,
+            setup: AgentIntegrationSetup(enabled: true, binaryPath: "/pending")
+        )
+        await spy2.waitForCallCount(provider: .pi, atLeast: 1)
+
+        let committedSetup = AgentIntegrationSetup(enabled: true, binaryPath: "/committed")
+        spy2.holdCalls(false)
+        model2.refresh(provider: .pi, setup: committedSetup)
+        await spy2.waitForCallCount(provider: .pi, atLeast: 2)
+        await settle()
+        spy2.releaseHeldCalls()
+        await settle()
+
+        let finalState = model2.state(for: .pi, setup: committedSetup)
+        #expect(finalState.binaryValidation == .valid("/committed"))
     }
 
     @Test("status, validations, and action affordances publish coherently")
@@ -302,9 +346,6 @@ struct AgentIntegrationSettingsCardModelTests {
 
     // MARK: - Helpers
 
-    /// A small, BOUNDED number of yields: enough for the model's probe task to
-    /// finish applying after the spy's call-count continuation fired, without
-    /// the unbounded spin loops that starve the cooperative pool.
     /// A small, BOUNDED number of yields: enough for the model's probe task to
     /// finish applying after the spy's call-count continuation fired, without
     /// the unbounded spin loops that starve the cooperative pool.
