@@ -101,7 +101,14 @@ final class AgentIntegrationSettingsCardModel {
             // refresh's own probe already covers the newer input.
             // A provider that has never probed has no stored generation yet;
             // both sides must read through the same defaulted lookup.
-            guard generations[provider, default: 0] == generationAtSchedule else { return }
+            // A newer generation alone does not imply coverage: a transient
+            // retry also raises the generation while re-probing an older
+            // setup, and that must not swallow this validation.
+            if generations[provider, default: 0] != generationAtSchedule,
+                cardInputs[provider] == setup
+            {
+                return
+            }
             startProbe(provider: provider, setup: setup)
         }
     }
