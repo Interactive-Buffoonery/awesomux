@@ -153,7 +153,7 @@ public enum PaneFocusDirection: Hashable, Sendable {
 /// `up`/`down` produce a stacked (`.horizontal`) split. The moved pane lands as
 /// the split's `first` for `left`/`up` and its `second` for `right`/`down`,
 /// matching the HStack/VStack rendering in `TerminalPaneView`.
-public enum PaneMoveEdge: Hashable, Sendable {
+public enum PaneMoveEdge: String, Codable, Hashable, Sendable {
     case up
     case down
     case left

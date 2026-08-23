@@ -158,7 +158,9 @@ struct AgentRuntimeEventReducer: Sendable {
         guard let currentSession,
             let currentPane = currentSession.layout.pane(id: paneID)
         else {
-            stateByPaneID[paneID] = nil
+            // Full-rebuild pruning and explicit pane closure own cleanup. A
+            // stale session lookup during a cross-workspace move must not erase
+            // the still-live pane's runtime state.
             return nil
         }
 

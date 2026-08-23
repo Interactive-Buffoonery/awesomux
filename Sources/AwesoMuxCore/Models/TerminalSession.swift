@@ -46,6 +46,7 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
     /// visible. Local-machine state: persisted in the session snapshot and
     /// discarded with the workspace.
     public var notificationsMuted: Bool
+    public var moveOrigin: PaneMoveOrigin?
     public var layout: TerminalPaneLayout
     public var activePaneID: TerminalPane.ID
 
@@ -56,6 +57,7 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
         syntheticTitle: SyntheticSessionTitle? = nil,
         isTitleUserEdited: Bool = false,
         notificationsMuted: Bool = false,
+        moveOrigin: PaneMoveOrigin? = nil,
         agentKind: AgentKind? = nil,
         agentState: AgentState? = nil,
         agentExecutionState: AgentExecutionState? = nil,
@@ -166,6 +168,7 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
         self.workingDirectory = workingDirectory
         self.isTitleUserEdited = isTitleUserEdited
         self.notificationsMuted = notificationsMuted
+        self.moveOrigin = moveOrigin
         self.layout = resolvedLayout
         self.activePaneID = resolvedActivePaneID
     }
@@ -312,6 +315,7 @@ extension TerminalSession: Codable {
         case workingDirectory
         case isTitleUserEdited
         case notificationsMuted
+        case moveOrigin
         case agentKind
         case agentExecutionState
         case attentionReason
@@ -416,6 +420,10 @@ extension TerminalSession: Codable {
                 Bool.self,
                 forKey: .notificationsMuted
             ) ?? false,
+            // Like tolerant pane-color decoding, a forward-written or corrupt
+            // additive value must not quarantine the whole session snapshot.
+            moveOrigin: (try? container.decodeIfPresent(PaneMoveOrigin.self, forKey: .moveOrigin))
+                ?? nil,
             // Legacy (v1) → folded onto the active pane. v2 → not read at all, so
             // panes keep their own decoded state untouched.
             agentKind: decodedAgentKind,
@@ -465,6 +473,9 @@ extension TerminalSession: Codable {
         // byte-for-byte unchanged (same rationale as `recentlyClosed`).
         if notificationsMuted {
             try container.encode(notificationsMuted, forKey: .notificationsMuted)
+        }
+        if let moveOrigin {
+            try container.encode(moveOrigin, forKey: .moveOrigin)
         }
         try container.encode(layout, forKey: .layout)
         try container.encode(activePaneID, forKey: .activePaneID)
