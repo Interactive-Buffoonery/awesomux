@@ -11,6 +11,8 @@ recorded in `.gitmodules` and `Package.resolved`.
 | [swift-toml](https://github.com/mattt/swift-toml) | TOML parsing | MIT |
 | [swift-markdown](https://github.com/swiftlang/swift-markdown) | Markdown parsing and rendering | Apache License 2.0 with Runtime Library Exception |
 | [swift-cmark](https://github.com/swiftlang/swift-cmark) | Transitive dependency of swift-markdown | BSD-2-Clause |
+| [Geist Sans](https://github.com/vercel/geist-font) | Bundled interface font | SIL Open Font License 1.1 |
+| [Selenized](https://github.com/jan-warchol/selenized) | Bundled terminal color scheme | MIT |
 
 ## Ghostty
 

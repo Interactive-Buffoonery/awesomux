@@ -36,7 +36,7 @@ read, review, and mark up notes without losing sight of the agent doing the
 work.
 
 Markdown panes are meant to support the terminal, not replace it: each workspace
-still keeps at least one terminal pane open. You can open local `.md` and
+still keeps at least one terminal pane open. You can open `.md` and
 `.markdown` files up to 2 MiB.
 
 Entry points:
@@ -47,13 +47,18 @@ Entry points:
 - Local Markdown links from terminal output, and Markdown links clicked inside
   another document pane, route back into awesoMux as document panes.
 
-The review workflow is file-backed. Select rendered text to add a comment;
-awesoMux writes a `<mark>...</mark><!-- USER COMMENT N: ... -->` marker pair
-into the Markdown file, renders the highlight/comment in the pane, and live
-reloads when the file changes. **Send to Agent** stages a plain-English nudge in
-the adjacent terminal prompt without pressing Return for you; the user reviews
-and sends it, then the agent resolves comments by removing the matching mark and
-comment marker.
+The review workflow is file-backed. A document can carry one whole-document note
+plus any number of inline annotations. Selecting rendered text and adding an
+inline annotation writes a `<mark>...</mark><!-- AMX id=... by=... -->` marker
+pair into the Markdown file; the whole-document note is one own-line AMX marker.
+awesoMux renders the highlight and comment in the pane and live reloads when the
+file changes. **Send to Agent** stages a plain-English nudge in the adjacent
+terminal prompt without pressing Return for you; the user reviews and sends it.
+An agent resolves an annotation by setting `status=resolved`, which keeps the
+marker in the file so the change stays verifiable. Legacy `USER COMMENT` markers
+are still readable and keep their original remove-on-complete lifecycle. See
+[`docs/plan-annotations.md`](docs/plan-annotations.md) for the full marker
+grammar, intents, and threaded replies.
 
 
 ## Install
@@ -71,7 +76,7 @@ and drag `awesoMux.app` to Applications. Download the matching `.sha256` file
 and verify the DMG before opening it:
 
 ```sh
-VERSION=0.2.0
+VERSION=0.14.0
 shasum -a 256 -c "awesoMux-$VERSION.dmg.sha256"
 ```
 
@@ -154,11 +159,20 @@ awesoMux uses a local preflight before merging. Run it before pushing or merging
 
 If you do not run this before opening a PR, **please note that in your PR.**
 
-The preflight runs public-wording and Ghostty-archive guards, the sidebar
-tint/status WCAG contrast gate (`script/check_tint_contrast.py`), a non-mutating
-Swift format check for changed lines, the
-Ghostty-aware Swift test wrapper, then builds, stages, ad-hoc signs, and
-launch-verifies `dist/awesoMux.app`. Maintainers can request advisory hosted
+To run the tests without the rest of the preflight:
+
+```sh
+./script/test.sh all                          # the full suite, in isolated groups
+./script/swift-test.sh --filter SomeTests     # one suite, by type name
+```
+
+`./script/test.sh all` takes no other arguments — it routes the full run through
+isolated shards so it cannot stall on the libdispatch thread limit. `--filter`
+matches the test **type** name rather than the `@Suite` display string, and a
+filter that matches nothing exits successfully having run no tests, so check the
+reported test count.
+
+The preflight runs thirteen steps in order: the public-wording guard, the public-seed-source guard, the plural-guard check, the test-wait guard's own self-test, the test-wait scan, the format self-test, a non-mutating Swift format check for changed lines (`./script/format.sh --lint`), the review-automation test, the Ghostty-archive drift guard, the agent-event hook test, the sidebar tint/status WCAG contrast gate (`script/check_tint_contrast.py`), the full grouped test suite (`./script/test.sh all`), and a build that stages, ad-hoc signs, and launch-verifies `dist/awesoMux.app`. Maintainers can request advisory hosted
 native validation for an exact pull-request SHA with `/ci`; the full local
 preflight remains the strongest pre-PR gate. Required checks, native scopes,
 trust boundaries, and troubleshooting are documented in
@@ -187,9 +201,6 @@ reports formatter findings on the same changed lines. Both modes use
 Swift and `swift-format` versions are pinned and their update procedure is
 documented in [`docs/toolchain.md`](docs/toolchain.md).
 
-OpenCode uses exact GLM 5.2 through Synthetic with no model fallback. The
-reviewer has no approval or merge capability.
-
 You can also run the contrast gate alone when iterating on design-system
 tokens or sidebar chrome:
 
@@ -207,10 +218,16 @@ awesoMux welcomes contributions. We are pro-AI for coding, when it includes a hu
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the project expectations around pull
 requests, AI disclosure, and local validation.
 
+Start with [`CONTEXT.md`](CONTEXT.md) for orientation and the project glossary,
+and [`AGENTS.md`](AGENTS.md) for the rules that apply to both human and AI
+contributors — where to look before changing an area, the GPL source firewall,
+and the code-style conventions. Claude Code and Codex both read `AGENTS.md`
+automatically.
+
 Please also see the project's [Code of Conduct](CODE_OF_CONDUCT.md),
 [security policy](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
 
-**We do not believe in using AI for creative endeavours.** All images for awesoMux are created by a real, human artist. Thank you to [Amanda Wood](http://nevernotamandawood.com) for creating our app icon!
+**We do not believe in using AI for creative endeavours.** All images for awesoMux are created by a real, human artist. Thank you to [Amanda Wood](https://nevernotamandawood.com) for creating our app icon!
 
 ## License
 
