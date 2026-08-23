@@ -341,10 +341,11 @@ public enum SecureFileReader {
     ) throws(SecureFileReadError) -> Data {
         var result = Data()
         var offset = startOffset
+        let bufferSize = min(64 * 1024, maximumBytes)
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
 
         while result.count < maximumBytes {
             let chunkSize = min(64 * 1024, maximumBytes - result.count)
-            var buffer = [UInt8](repeating: 0, count: chunkSize)
             let bytesRead = buffer.withUnsafeMutableBytes {
                 pread(descriptor, $0.baseAddress, chunkSize, offset)
             }

@@ -25,6 +25,15 @@ public final class HelperConnection {
     private var queuedFrames: [BridgeFrameReader.Frame] = []
     private var closeAfterQueuedFrames = false
     private let monotonicNow: () -> Date
+    /// Reused across every `readFrame` poll instead of reallocating on each
+    /// readiness event. Safe because nothing calls a connection concurrently:
+    /// `BridgeHelperCommand` is the only caller and drives it from one
+    /// synchronous CLI call chain. That is a call-site fact, not a type-level
+    /// guarantee — `tail`, `queuedFrames`, and `closeAfterQueuedFrames` rely
+    /// on the same assumption. Driving a connection from an async or
+    /// concurrent context needs an actor or a lock around the whole read
+    /// protocol, not just this buffer.
+    private var readBuffer = [UInt8](repeating: 0, count: 8 * 1024)
 
     public init(
         fileDescriptor: Int32,
@@ -184,8 +193,7 @@ public final class HelperConnection {
                 continue
             }
 
-            var buffer = [UInt8](repeating: 0, count: 8 * 1024)
-            let byteCount = read(fd, &buffer, buffer.count)
+            let byteCount = read(fd, &readBuffer, readBuffer.count)
             if byteCount < 0 {
                 if errno == EINTR { continue }
                 throw ConnectionError.closed
@@ -193,7 +201,7 @@ public final class HelperConnection {
             guard byteCount > 0 else { throw ConnectionError.closed }
 
             let result = BridgeFrameReader.consume(
-                Data(buffer.prefix(byteCount)),
+                Data(readBuffer.prefix(byteCount)),
                 pendingTail: tail,
                 now: monotonicNow(),
                 expectedToken: token,

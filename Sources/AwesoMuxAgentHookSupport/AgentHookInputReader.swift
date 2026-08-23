@@ -13,6 +13,8 @@ public enum AgentHookInputReader {
 
         let targetByteCount = maximumByteCount + 1
         var data = Data()
+        let chunkLimit = min(4096, targetByteCount)
+        var buffer = [UInt8](repeating: 0, count: chunkLimit)
 
         while data.count < targetByteCount {
             var pollDescriptor = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
@@ -25,14 +27,11 @@ public enum AgentHookInputReader {
                 return data
             }
 
-            var buffer = [UInt8](
-                repeating: 0,
-                count: min(4096, targetByteCount - data.count)
-            )
+            let requested = min(chunkLimit, targetByteCount - data.count)
             let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
                 var result: Int
                 repeat {
-                    result = Darwin.read(fileDescriptor, rawBuffer.baseAddress, rawBuffer.count)
+                    result = Darwin.read(fileDescriptor, rawBuffer.baseAddress, requested)
                 } while result < 0 && errno == EINTR
                 return result
             }

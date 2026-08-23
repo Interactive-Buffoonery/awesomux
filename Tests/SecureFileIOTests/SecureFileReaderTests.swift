@@ -30,6 +30,31 @@ struct SecureFileReaderTests {
         #expect(try Data(contentsOf: file) == Data("replacement".utf8))
     }
 
+    @Test("readPrefix crosses multiple 64 KiB chunks without cross-read contamination")
+    func readPrefixCrossesMultipleChunksWithoutCrossReadContamination() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-chunked")
+        let directory = temporaryDirectory.url
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let file = directory.appending(path: "chunked.bin")
+
+        // One full 64 KiB chunk plus a short tail: the read loop must run
+        // more than once against a reused buffer, and the final pass must be
+        // shorter than the first so a stale-tail leak shows up as extra or
+        // shifted bytes rather than passing silently.
+        let totalBytes = 64 * 1024 + 100
+        var pattern = Data(capacity: totalBytes)
+        for index in 0..<totalBytes {
+            pattern.append(UInt8((index * 7 + 13) % 251))
+        }
+        try pattern.write(to: file)
+
+        let handle = try SecureFileReader.open(at: file)
+        let prefix = try handle.readPrefix(maximumBytes: 200_000)
+
+        #expect(prefix == pattern)
+        #expect(prefix.count == totalBytes)
+    }
+
     @Test("rejects growth past the byte cap after opening")
     func rejectsGrowthPastByteCapAfterOpening() throws {
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-secure-read")

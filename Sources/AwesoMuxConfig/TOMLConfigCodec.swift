@@ -61,24 +61,31 @@ public struct TOMLConfigCodec: Sendable {
         }
 
         do {
+            // One CRLF normalization + line split shared by every raw-line scan
+            // below; each used to re-split the whole file on its own.
+            let sourceLines =
+                string
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
             let terminalPreservation = extractSectionPreservation(
-                from: string,
+                fromLines: sourceLines,
                 sectionName: "terminal",
                 ownedKeys: Self.ownedTerminalTableKeys
             )
             let appearancePreservation = extractSectionPreservation(
-                from: string,
+                fromLines: sourceLines,
                 sectionName: "appearance",
                 ownedKeys: AppearanceConfig.ownedTOMLKeys
             )
             var config = try configuredDecoder().decode(AwesoMuxConfig.self, from: string)
             try validate(config)
-            config.unknownTopLevelTables = extractUnknownTopLevelTables(from: string)
+            config.unknownTopLevelTables = extractUnknownTopLevelTables(fromLines: sourceLines)
             config.unknownTerminalTableLines = terminalPreservation.unknownLines
             config.terminalTableLineLayout = terminalPreservation.layout
             config.unknownAppearanceTableLines = appearancePreservation.unknownLines
             config.appearanceTableLineLayout = appearancePreservation.layout
-            logUnknownOwnedSectionKeys(in: string)
+            logUnknownOwnedSectionKeys(inLines: sourceLines)
             return config
         } catch let error as ConfigLoadError {
             throw error
@@ -103,8 +110,7 @@ public struct TOMLConfigCodec: Sendable {
     /// This is not a generic owned-section preservation pass. Unknown
     /// key/value lines inside owned sections are preserved separately by
     /// `extractSectionPreservation` for the sections that opt in.
-    private func extractUnknownTopLevelTables(from source: String) -> [String: String] {
-        let source = source.replacingOccurrences(of: "\r\n", with: "\n")
+    private func extractUnknownTopLevelTables(fromLines sourceLines: [String]) -> [String: String] {
         var captured: [String: [String]] = [:]
         var currentName: String?
         var currentBody: [String] = []
@@ -121,7 +127,7 @@ public struct TOMLConfigCodec: Sendable {
             currentName = nil
         }
 
-        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+        for rawLine in sourceLines {
             let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             let wasMidValue = scan.isMidValue
             advanceValueScan(&scan, over: rawLine)
@@ -163,11 +169,10 @@ public struct TOMLConfigCodec: Sendable {
     /// not one of that section's owned keys, so adopting structured keys does
     /// not erase hand-written settings that awesoMux does not understand.
     private func extractSectionPreservation(
-        from source: String,
+        fromLines sourceLines: [String],
         sectionName: String,
         ownedKeys: Set<String>
     ) -> (unknownLines: String, layout: [SectionLineLayout]) {
-        let source = source.replacingOccurrences(of: "\r\n", with: "\n")
         var isInSection = false
         var hasSeenSection = false
         var preserved: [String] = []
@@ -175,7 +180,7 @@ public struct TOMLConfigCodec: Sendable {
         var scan = TOMLValueScanState()
         var preserveMidValueLines = false
 
-        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+        for rawLine in sourceLines {
             let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             let wasMidValue = scan.isMidValue
             advanceValueScan(&scan, over: rawLine)
@@ -244,10 +249,23 @@ public struct TOMLConfigCodec: Sendable {
     /// Diagnostic only — never changes decode semantics. Best-effort line
     /// scan: a key-shaped line inside a multi-line string value can produce a
     /// spurious warning, which is acceptable for a log message.
-    private func logUnknownOwnedSectionKeys(in source: String) {
+    private func logUnknownOwnedSectionKeys(inLines sourceLines: [String]) {
+        for (section, key) in unknownOwnedSectionKeys(inLines: sourceLines) {
+            configLogger.warning(
+                "Unrecognized key '\(key, privacy: .public)' in [\(section, privacy: .public)]; possible typo — the owned setting falls back to its default"
+            )
+        }
+    }
+
+    /// Pure scan behind `logUnknownOwnedSectionKeys`: the `(section, key)`
+    /// pairs it would warn about. Internal (not private) so the diagnostic
+    /// logic stays directly testable — the logging side effect itself has no
+    /// observable seam.
+    func unknownOwnedSectionKeys(inLines sourceLines: [String]) -> [(section: String, key: String)] {
+        var unknown: [(section: String, key: String)] = []
         var currentSection: String?
 
-        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false) {
+        for rawLine in sourceLines {
             let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             if let inner = parseTableHeader(trimmed) {
                 currentSection = inner
@@ -264,11 +282,10 @@ public struct TOMLConfigCodec: Sendable {
                 trimmed[..<equalsIndex].trimmingCharacters(in: .whitespacesAndNewlines)
             )
             if !ownedKeys.contains(key) {
-                configLogger.warning(
-                    "Unrecognized key '\(key, privacy: .public)' in [\(section, privacy: .public)]; possible typo — the owned setting falls back to its default"
-                )
+                unknown.append((section, key))
             }
         }
+        return unknown
     }
 
     private func normalizedSectionLineKey(_ trimmed: String) -> String? {

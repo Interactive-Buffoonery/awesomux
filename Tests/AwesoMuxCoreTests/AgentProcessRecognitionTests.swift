@@ -13,6 +13,8 @@ struct AgentProcessRecognitionTests {
         #expect(AgentProcessRecognition.agentKind(forCommand: "grok") == .grok)
         #expect(AgentProcessRecognition.agentKind(forCommand: "/Users/example/.grok/bin/grok") == .grok)
         #expect(AgentProcessRecognition.agentKind(forCommand: "grok-arm64") == .grok)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "pi") == .pi)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "/opt/homebrew/bin/pi") == .pi)
     }
 
     @Test("recognizes npm-packaged .exe launchers")
@@ -37,5 +39,8 @@ struct AgentProcessRecognitionTests {
         #expect(AgentProcessRecognition.agentKind(forCommand: "my-codex-wrapper") == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: "node.exe") == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: ".exe") == nil)
+        // Pi matches its exact basename only — near-miss commands stay shell.
+        #expect(AgentProcessRecognition.agentKind(forCommand: "pip") == nil)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "pianobar") == nil)
     }
 }
