@@ -8,6 +8,17 @@ struct ImmediateDelayClock: AgentIntegrationSettingsSleeping {
     func delay(for duration: Duration) async throws {}
 }
 
+/// Never resumes on its own. Tests that need a probe to stay genuinely in
+/// flight use this: under `ImmediateDelayClock` the watchdog fires the instant
+/// the probe starts, publishes a timed-out card, and clears the in-flight
+/// marker — so a held probe is not actually in flight and the dedup it is
+/// supposed to trip never sees it.
+struct NeverDelayClock: AgentIntegrationSettingsSleeping {
+    func delay(for duration: Duration) async throws {
+        try await Task.sleep(for: .seconds(3600))
+    }
+}
+
 /// One-shot resumption gate that can also be fired by cancellation, so a
 /// parked wait never outlives its timeout.
 final class WaitHandle: @unchecked Sendable {
@@ -516,6 +527,63 @@ struct AgentIntegrationSettingsCardModelTests {
         #expect(!invalidated.canInstall)
         // The cached observation survives; only its authority is withdrawn.
         #expect(invalidated.isInstalledGlobally)
+    }
+
+    @Test("a mutation refresh outruns a pre-mutation probe still in flight")
+    func mutationRefreshOutrunsAnInFlightPreMutationProbe() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        let model = makeModel(probeServices: { _ in spy }, clock: NeverDelayClock())
+        let setup = AgentIntegrationSetup(enabled: true)
+
+        // A probe raised before the mutation and still running when it lands.
+        // Its setup is identical — the mutation changed files, not the setup —
+        // so the ordinary dedup would read the confirming probe as a duplicate
+        // of this one and drop it, leaving the pre-mutation observation free to
+        // re-authorize itself when it finally returns.
+        spy.holdCalls(true)
+        model.refresh(provider: .openCode, setup: setup)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+
+        model.refreshAfterMutation(provider: .openCode, setup: setup)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 2)
+
+        #expect(spy.callCounts[.openCode] == 2)
+
+        spy.releaseHeldCalls()
+        await settle()
+    }
+
+    @Test("a mutation refresh withdraws authority before its confirming probe")
+    func mutationRefreshWithdrawsAuthorityImmediately() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        var installed = SpyAgentIntegrationProbeService.emptyProbe
+        installed.manifest = .loaded(installedPath: "/tmp/installed")
+        installed.installedExists = true
+        spy.setResult(installed, for: .openCode)
+        let model = makeModel(probeServices: { _ in spy }, clock: NeverDelayClock())
+        let setup = AgentIntegrationSetup(enabled: true)
+
+        model.refresh(provider: .openCode, setup: setup)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await settle()
+        #expect(model.state(for: .openCode, setup: setup).isAuthoritative)
+
+        // Hold the confirming probe so the assertion sees the window between
+        // the mutation landing and disk being re-read — the window in which the
+        // badge and the action buttons must not act on pre-mutation state.
+        spy.holdCalls(true)
+        model.refreshAfterMutation(provider: .openCode, setup: setup)
+
+        let midMutation = model.state(for: .openCode, setup: setup)
+        #expect(!midMutation.isAuthoritative)
+        #expect(!midMutation.canInstall)
+        // The cached observation itself survives — only its authority is gone,
+        // which is what the pane's uninstall button reads alongside
+        // `canUninstall`.
+        #expect(midMutation.isInstalledGlobally)
+
+        spy.releaseHeldCalls()
+        await settle()
     }
 
     @Test("an unavailable manifest gives terminal guidance instead of retrying")

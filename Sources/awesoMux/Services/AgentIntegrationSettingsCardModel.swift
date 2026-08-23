@@ -125,6 +125,25 @@ final class AgentIntegrationSettingsCardModel {
         startProbe(provider: provider, setup: setup)
     }
 
+    /// Re-observe one provider after a mutation that changed files rather than
+    /// the setup — an install or an uninstall.
+    ///
+    /// Both halves are load-bearing and neither is obvious from the call site,
+    /// which is why they live here together instead of at the two callers.
+    /// `invalidateObservation` withdraws authority so the badge and action
+    /// affordances cannot act on the pre-mutation snapshot in the meantime, and
+    /// the refresh forces past the ordinary dedup because a probe raised before
+    /// the mutation carries the same setup — unforced, the confirming probe
+    /// would be dropped as a duplicate of it, and that pre-mutation observation
+    /// would re-authorize itself when it returned.
+    func refreshAfterMutation(
+        provider: AgentIntegrationInstallProvider,
+        setup: AgentIntegrationSetup
+    ) {
+        invalidateObservation(provider: provider)
+        refresh(provider: provider, setup: setup, forcing: true)
+    }
+
     func refreshAll(
         setupsByProvider: [AgentIntegrationInstallProvider: AgentIntegrationSetup],
         forcing: Bool = false

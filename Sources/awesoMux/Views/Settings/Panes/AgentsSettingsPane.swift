@@ -513,19 +513,7 @@ struct AgentsSettingsPane: View {
             actionResults[provider] = nil
             actionErrors[provider] = integrationViewModel.errorMessage(for: error)
         }
-        // The mutation changed files, not the setup, so the cached observation
-        // is stale the moment the mutation completes. Withdraw its authority
-        // before scheduling the confirming probe so the badge and action
-        // affordances can't act on pre-mutation state in the meantime.
-        cardModel.invalidateObservation(provider: provider)
-        // Forcing matters: a probe started before this mutation holds the same
-        // setup, so the ordinary dedup would drop this refresh and let that
-        // pre-mutation observation re-authorize itself once it returns.
-        //
-        // Untested: install/uninstall are private to this View with no seam, so
-        // nothing fails if this argument is dropped. Verify by hand, or extract
-        // the mutation sequence before relying on it.
-        cardModel.refresh(provider: provider, setup: draftSetup(for: provider), forcing: true)
+        cardModel.refreshAfterMutation(provider: provider, setup: draftSetup(for: provider))
     }
 
     private func uninstall(_ provider: AgentIntegrationInstallProvider) {
@@ -538,15 +526,7 @@ struct AgentsSettingsPane: View {
             actionResults[provider] = nil
             actionErrors[provider] = integrationViewModel.errorMessage(for: error)
         }
-        cardModel.invalidateObservation(provider: provider)
-        // Forcing matters: a probe started before this mutation holds the same
-        // setup, so the ordinary dedup would drop this refresh and let that
-        // pre-mutation observation re-authorize itself once it returns.
-        //
-        // Untested: install/uninstall are private to this View with no seam, so
-        // nothing fails if this argument is dropped. Verify by hand, or extract
-        // the mutation sequence before relying on it.
-        cardModel.refresh(provider: provider, setup: draftSetup(for: provider), forcing: true)
+        cardModel.refreshAfterMutation(provider: provider, setup: draftSetup(for: provider))
     }
 }
 
@@ -583,6 +563,8 @@ private struct AgentIntegrationSettingsCard: View {
     var onInstall: () -> Void
     var onUninstall: () -> Void
 
+    @State private var lastAnnouncedStatusLabel: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
@@ -609,8 +591,14 @@ private struct AgentIntegrationSettingsCard: View {
         // Placeholder → authoritative (and advisory → re-authoritative)
         // transitions otherwise update an unfocused card silently; speak the
         // resolved status so assistive technology learns the check finished.
+        //
+        // Only when the resolved status is new. Every draft keystroke pause
+        // withdraws and restores authority, so announcing each restoration
+        // would repeat the same unchanged status at a VoiceOver user for the
+        // whole time they are editing a path field (review finding).
         .onChange(of: state.isAuthoritative) { _, isAuthoritative in
-            guard isAuthoritative else { return }
+            guard isAuthoritative, state.status.label != lastAnnouncedStatusLabel else { return }
+            lastAnnouncedStatusLabel = state.status.label
             AccessibilityNotification.Announcement(
                 String(
                     localized: "\(state.title) status: \(state.status.label)",
