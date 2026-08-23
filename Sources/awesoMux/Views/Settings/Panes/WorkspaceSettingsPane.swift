@@ -11,7 +11,8 @@ struct WorkspaceSettingsPane: View {
     @FocusState private var defaultGroupFocused: Bool
     @State private var installedIDEs: [InstalledIDE] = []
     @State private var draggingBundleID: String?
-    @State private var isAddingIgnoredSSHOfferDestination = false
+    @State private var isAddingSSHDestination = false
+    @State private var sshDestinationListKind: ManagedSSHOfferDestinationSheet.DestinationListKind = .neverAsk
 
     private var defaultGroup: String {
         appSettingsStore.workspaces.value.defaultGroup
@@ -127,8 +128,8 @@ struct WorkspaceSettingsPane: View {
                 draftDefaultGroup = newValue
             }
         }
-        .sheet(isPresented: $isAddingIgnoredSSHOfferDestination) {
-            ManagedSSHOfferDestinationSheet()
+        .sheet(isPresented: $isAddingSSHDestination) {
+            ManagedSSHOfferDestinationSheet(listKind: sshDestinationListKind)
         }
     }
 
@@ -182,11 +183,32 @@ struct WorkspaceSettingsPane: View {
             index: 3,
             title: "Managed SSH",
             subtitle:
-                "Choose when awesoMux suggests reconnecting an SSH session as a managed workspace. This never changes existing connections."
+                "Choose when awesoMux reconnects an SSH session as a managed workspace — by asking or without asking. This never changes existing connections."
         ) {
             SettingsField(
-                label: "Never ask to make SSH managed",
+                label: "Always make SSH managed without asking",
+                hint:
+                    "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt, except destinations on the don’t-ask list below. Turning this on needs background terminal sessions; awesoMux asks before switching them on.",
                 isFirst: true,
+                forwardsAccessibilityToControl: true
+            ) {
+                Toggle("Always make SSH managed without asking", isOn: alwaysManageAllDestinations)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            SettingsField(
+                label: "Always manage these destinations",
+                hint:
+                    "SSH to a destination below reconnects as managed without asking. Destinations added here persist locally; to have the remote host own the session, answer the prompt on a live connection instead. Removing one restores the usual prompt for it."
+            ) {
+                alwaysManagedDestinationsControl
+            }
+
+            SettingsField(
+                label: "Never ask to make SSH managed",
+                hint:
+                    "Stops awesoMux offering to convert SSH connections. Destinations on the always-manage list above keep converting — remove them there to stop that too.",
                 forwardsAccessibilityToControl: true
             ) {
                 Toggle("Never ask to make SSH managed", isOn: neverAskForManagedSSH)
@@ -194,7 +216,12 @@ struct WorkspaceSettingsPane: View {
                     .toggleStyle(.switch)
             }
 
-            if !appSettingsStore.workspaces.value.managedSSHOffersEnabled {
+            // Also gated on the always-list being empty: the notice tells the
+            // user their SSH connections stay ordinary, which is false for
+            // every destination on that list.
+            if !appSettingsStore.workspaces.value.managedSSHOffersEnabled,
+                appSettingsStore.workspaces.value.managedSSHAlwaysManaged.isEmpty
+            {
                 managedSSHHelperNotice
             }
 
@@ -213,6 +240,29 @@ struct WorkspaceSettingsPane: View {
             set: { neverAsk in
                 appSettingsStore.workspaces.update {
                     $0.managedSSHOffersEnabled = !neverAsk
+                    // Keep the two blanket switches from reading as both-on.
+                    // The decline would win, so the always-toggle would sit
+                    // there enabled and inert — which is the state that made
+                    // this pane lie about what it was doing.
+                    if neverAsk {
+                        $0.managedSSHAlwaysManageAllDestinations = false
+                    }
+                }
+            }
+        )
+    }
+
+    private var alwaysManageAllDestinations: Binding<Bool> {
+        Binding(
+            get: { appSettingsStore.workspaces.value.managedSSHAlwaysManageAllDestinations },
+            set: { alwaysManage in
+                appSettingsStore.workspaces.update {
+                    $0.managedSSHAlwaysManageAllDestinations = alwaysManage
+                    // The mirror of the never-ask binding: a blanket grant
+                    // cannot coexist with the blanket decline that outranks it.
+                    if alwaysManage {
+                        $0.managedSSHOffersEnabled = true
+                    }
                 }
             }
         )
@@ -231,26 +281,64 @@ struct WorkspaceSettingsPane: View {
     }
 
     private var managedSSHIgnoredDestinationsControl: some View {
+        sshDestinationsControl(
+            rows: appSettingsStore.workspaces.value.managedSSHOfferIgnoredDestinations
+                .map { (destination: $0, sessionName: nil) },
+            emptyMessage: "No ignored destinations",
+            listKind: .neverAsk
+        )
+    }
+
+    private var alwaysManagedDestinationsControl: some View {
+        sshDestinationsControl(
+            rows: ManagedSSHOfferPolicy.sortedAlwaysManagedEntries(
+                in: appSettingsStore.workspaces.value
+            ),
+            emptyMessage: "No automatic destinations yet",
+            listKind: .alwaysManage
+        )
+    }
+
+    private func sshDestinationsControl(
+        rows: [(destination: String, sessionName: String?)],
+        emptyMessage: LocalizedStringKey,
+        listKind: ManagedSSHOfferDestinationSheet.DestinationListKind
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            let destinations = appSettingsStore.workspaces.value.managedSSHOfferIgnoredDestinations
-            if destinations.isEmpty {
-                Text("No ignored destinations")
+            if rows.isEmpty {
+                Text(emptyMessage)
                     .awFont(AwFont.UI.label)
                     .foregroundStyle(Color.aw.text3)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(destinations.enumerated()), id: \.offset) { index, destination in
-                        VStack(spacing: 0) {
-                            if index > 0 {
-                                Rectangle()
-                                    .fill(Color.aw.border)
-                                    .frame(height: 0.5)
+                // Bounded, because an unbounded list pushed the two blanket
+                // toggles out of one viewport — and they clear each other, so
+                // flipping the lower one silently turned the upper one off
+                // where the user could not see it happen.
+                ScrollView(.vertical) {
+                    VStack(spacing: 0) {
+                        // Keyed by destination, not by index: both lists hold
+                        // unique destinations, and index identity made a
+                        // removal animate as the last row vanishing while the
+                        // rows above swapped text — on a destructive control
+                        // with no undo.
+                        ForEach(rows, id: \.destination) { row in
+                            VStack(spacing: 0) {
+                                if row.destination != rows.first?.destination {
+                                    Rectangle()
+                                        .fill(Color.aw.border)
+                                        .frame(height: 0.5)
+                                }
+                                sshDestinationRow(
+                                    row.destination,
+                                    sessionName: row.sessionName,
+                                    listKind: listKind
+                                )
                             }
-                            ignoredDestinationRow(destination)
                         }
                     }
                 }
                 .frame(maxWidth: Self.listMaxWidth, alignment: .leading)
+                .frame(maxHeight: Self.listMaxHeight)
                 .background(
                     RoundedRectangle(cornerRadius: AwRadius.button)
                         .fill(Color.aw.surface.elevated)
@@ -262,39 +350,83 @@ struct WorkspaceSettingsPane: View {
             }
 
             Button {
-                isAddingIgnoredSSHOfferDestination = true
+                sshDestinationListKind = listKind
+                isAddingSSHDestination = true
             } label: {
-                Label("Add Destination…", systemImage: "plus")
+                Label(listKind.addButtonTitle, systemImage: "plus")
             }
             .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func ignoredDestinationRow(_ destination: String) -> some View {
+    private func sshDestinationRow(
+        _ destination: String,
+        sessionName: String?,
+        listKind: ManagedSSHOfferDestinationSheet.DestinationListKind
+    ) -> some View {
         HStack(spacing: 8) {
+            // Not `.accessibilityElement(children: .combine)` on the row: that
+            // folds the remove button into the label and costs it its own
+            // focus. Naming the list on the text is what linear traversal
+            // needed — two lists of identical destinations that mean opposite
+            // things.
             Text(destination)
                 .awFont(AwFont.Mono.body)
                 .foregroundStyle(Color.aw.text)
                 .lineLimit(1)
+                // Middle truncation keeps the host visible, which is the half
+                // that identifies what was granted.
+                .truncationMode(.middle)
+                .help(destination)
+                .accessibilityLabel(listKind.rowAccessibilityLabel(destination: destination))
+
+            if let sessionName {
+                Text(sessionName)
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(Color.aw.text3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityLabel(
+                        String(
+                            localized: "Remote session \(sessionName)",
+                            comment: "Accessibility label for the remote session name on an always-managed SSH row"
+                        )
+                    )
+            }
 
             Spacer(minLength: 8)
 
             Button {
                 appSettingsStore.workspaces.update {
-                    ManagedSSHOfferPolicy.removeIgnoredDestination(destination, from: &$0)
+                    switch listKind {
+                    case .neverAsk:
+                        ManagedSSHOfferPolicy.removeIgnoredDestination(destination, from: &$0)
+                    case .alwaysManage:
+                        ManagedSSHOfferPolicy.removeAlwaysManagedDestination(destination, from: &$0)
+                    }
                 }
+                // The row and its focused button both vanish; without this
+                // nothing tells a screen-reader user which list they just
+                // edited, on a control with no undo.
+                TerminalAccessibilityAnnouncer.announce(
+                    listKind.removedAnnouncement(destination: destination)
+                )
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.aw.text3)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Remove destination")
-            .accessibilityLabel("Remove \(destination)")
+            .help(listKind.removeAccessibilityLabel(destination: destination))
+            .accessibilityLabel(listKind.removeAccessibilityLabel(destination: destination))
         }
         .padding(.horizontal, 10)
-        .frame(height: Self.rowHeight)
+        // `minHeight`, not `height`: the destination text scales with Dynamic
+        // Type and the app's own text-scale factor, and a hard 34pt clipped it.
+        .frame(minHeight: Self.rowHeight)
     }
 
     // Symbol + color so the warning doesn't rely on color alone: the feature is
@@ -313,6 +445,7 @@ struct WorkspaceSettingsPane: View {
     }
 
     private static let listMaxWidth: CGFloat = 360
+    private static let listMaxHeight: CGFloat = 180
     private static let rowHeight: CGFloat = 34
 
     @ViewBuilder

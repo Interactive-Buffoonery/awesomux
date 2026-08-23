@@ -18,13 +18,13 @@ struct ManagedSSHWorkspaceOfferIdentityTests {
     func allowedAutomaticOfferIsIdentifiedAndConsumedOnce() throws {
         let (store, sessionID, paneID) = try makeObservedStore(destination: "host-a")
 
-        let request = try #require(
-            SSHWorkspaceConnectRequest.automaticOffer(
-                sessionStore: store,
-                sessionID: sessionID,
-                paneID: paneID,
-                config: .defaultValue
-            )
+        let target = try #require(
+            store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID)
+        )
+        let request = SSHWorkspaceConnectRequest.automaticOffer(
+            sessionID: sessionID,
+            paneID: paneID,
+            target: target
         )
 
         #expect(request.origin == .automaticOffer)
@@ -39,14 +39,18 @@ struct ManagedSSHWorkspaceOfferIdentityTests {
             managedSSHOfferIgnoredDestinations: ["host-a"]
         )
 
-        let request = SSHWorkspaceConnectRequest.automaticOffer(
-            sessionStore: store,
-            sessionID: sessionID,
-            paneID: paneID,
-            config: config
+        // `#require`, not a bare optional: `resolve(target: nil, …)` returns
+        // `.doNothing` from its first guard, so an unwrapped optional would let
+        // a store that consumed nothing pass a test named for consumption.
+        let target = try #require(
+            store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID)
         )
 
-        #expect(request == nil)
+        // Through the resolver the app actually uses, not a hand-rolled repeat
+        // of the two calls behind it: this now fails if the suppressed arm is
+        // rewired to present the sheet.
+        #expect(ManagedSSHOfferEffect.resolve(target: target, config: config) == .doNothing)
+
         #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID) == nil)
         #expect(store.managedSSHConversionTarget(sessionID: sessionID, paneID: paneID)?.sshDestination == "host-a")
     }

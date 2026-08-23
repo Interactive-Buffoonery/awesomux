@@ -193,6 +193,8 @@ struct TOMLConfigCodecTests {
 
         #expect(decoded.workspaces.managedSSHOffersEnabled)
         #expect(decoded.workspaces.managedSSHOfferIgnoredDestinations.isEmpty)
+        #expect(decoded.workspaces.managedSSHAlwaysManaged.isEmpty)
+        #expect(!decoded.workspaces.managedSSHAlwaysManageAllDestinations)
     }
 
     @Test("managed SSH offer preferences round-trip")
@@ -211,6 +213,65 @@ struct TOMLConfigCodecTests {
         #expect(encoded.contains(#"managed_ssh_offer_ignored_destinations = ["build-box", "deploy@server-alias"]"#))
         #expect(!decoded.workspaces.managedSSHOffersEnabled)
         #expect(decoded.workspaces.managedSSHOfferIgnoredDestinations == ["build-box", "deploy@server-alias"])
+    }
+
+    @Test("managed SSH auto-manage preferences round-trip")
+    func managedSSHAutoManagePreferencesRoundTrip() throws {
+        // Both persistence owners in one fixture. The local-amx entry is the
+        // load-bearing one: its only field is nil, so it encodes as a table
+        // header with no keys, and a codec that dropped empty tables would
+        // lose the destination entirely while the remote entry survived.
+        let config = AwesoMuxConfig(
+            workspaces: WorkspaceConfig(
+                managedSSHAlwaysManaged: [
+                    "build-box": ManagedSSHAlwaysManagedEntry(),
+                    "deploy@server-alias": ManagedSSHAlwaysManagedEntry(sessionName: "mysession"),
+                ],
+                managedSSHAlwaysManageAllDestinations: true
+            )
+        )
+
+        let encoded = try codec.encodeString(config)
+        let decoded = try codec.decode(encoded)
+
+        #expect(encoded.contains("managed_ssh_always_manage_all_destinations = true"))
+        #expect(encoded.contains(#"session_name = "mysession""#))
+        #expect(decoded.workspaces.managedSSHAlwaysManaged.count == 2)
+        // `#require` the entry before reading its owner. `subscript?.sessionName`
+        // flattens `String??` to `String?`, so `== nil` is also true when the
+        // key is absent — which is exactly the empty-table loss this test is
+        // named for, and the same optional-flattening trap `records()` exists
+        // to avoid. Only the count assertion was catching it.
+        let local = try #require(decoded.workspaces.managedSSHAlwaysManaged["build-box"])
+        #expect(local.sessionName == nil)
+        let remote = try #require(decoded.workspaces.managedSSHAlwaysManaged["deploy@server-alias"])
+        #expect(remote.sessionName == "mysession")
+        #expect(decoded.workspaces.managedSSHAlwaysManageAllDestinations)
+    }
+
+    @Test("an always-managed destination survives a config the app rewrites")
+    func alwaysManagedSurvivesRewrite() throws {
+        // Both characters that force quoting, and the dot is the one that
+        // matters: an unquoted dot is TOML's table-path separator, so a key
+        // that quotes on the way out but not on the way back in would nest
+        // itself into new tables on every save the app performs. A dotted key
+        // is also not exotic here — it is every fully qualified hostname.
+        let config = AwesoMuxConfig(
+            workspaces: WorkspaceConfig(
+                managedSSHAlwaysManaged: [
+                    "deploy@server-alias": ManagedSSHAlwaysManagedEntry(),
+                    "user@build.example.com": ManagedSSHAlwaysManagedEntry(sessionName: "web"),
+                ]
+            )
+        )
+
+        let once = try codec.encodeString(config)
+        let twice = try codec.encodeString(try codec.decode(once))
+
+        #expect(once == twice)
+        let reread = try codec.decode(twice).workspaces.managedSSHAlwaysManaged
+        #expect(Set(reread.keys) == ["deploy@server-alias", "user@build.example.com"])
+        #expect(try #require(reread["user@build.example.com"]).sessionName == "web")
     }
 
     @Test("missing terminal table decodes clipboard writes to ask")

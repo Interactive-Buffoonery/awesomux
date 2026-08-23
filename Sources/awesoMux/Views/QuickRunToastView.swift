@@ -6,6 +6,10 @@ struct QuickRunToast: Identifiable, Equatable {
         case running
         case finished(exitCode: Int32)
         case failed(String)
+        /// A one-shot message with no process behind it, so it carries its own
+        /// kicker instead of deriving one from an exit code. `command` holds
+        /// the subject and `output` the sentence.
+        case notice(kicker: String)
     }
 
     let id: UUID
@@ -62,6 +66,8 @@ struct QuickRunToastView: View {
             exitCode == 0 ? "Done" : "Exit \(exitCode)"
         case .failed:
             "Failed"
+        case .notice(let kicker):
+            kicker
         }
     }
 
@@ -73,6 +79,8 @@ struct QuickRunToastView: View {
             exitCode == 0 ? Color.aw.teal : Color.aw.red
         case .failed:
             Color.aw.red
+        case .notice:
+            Color.aw.accent(accentResolver.accent)
         }
     }
 

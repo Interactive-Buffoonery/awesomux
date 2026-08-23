@@ -865,6 +865,23 @@ extension SessionStore {
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
     }
 
+    /// The offer this pane would consume, without consuming it. The caller has
+    /// to know which arm it is about to take before it decides to defer: the
+    /// sheet-stacking guard is about presenting a sheet, and consuming an
+    /// ask-free conversion only to drop it loses the destination for good,
+    /// because the pane's `.task(id:)` will not fire again for this identity.
+    public func pendingManagedSSHWorkspaceOffer(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> RemoteTarget? {
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            !pane.hasConsumedManagedSSHWorkspaceOffer
+        else {
+            return nil
+        }
+        return managedSSHConversionTarget(sessionID: sessionID, paneID: paneID)
+    }
+
     public func consumeManagedSSHWorkspaceOffer(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
