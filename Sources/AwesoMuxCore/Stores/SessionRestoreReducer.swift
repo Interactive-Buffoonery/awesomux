@@ -213,6 +213,19 @@ struct SessionRestoreReducer: Sendable {
         }
     }
 
+    /// An origin that points back at its own row — by either the persisted id
+    /// or the one restore minted for it — can never return the pane: drop it so
+    /// Return greys out instead of failing forever.
+    private static func nonSelfReferentialMoveOrigin(
+        _ origin: PaneMoveOrigin?,
+        originalID: TerminalSession.ID,
+        restoredID: TerminalSession.ID
+    ) -> PaneMoveOrigin? {
+        origin.flatMap {
+            $0.sourceSessionID == originalID || $0.sourceSessionID == restoredID ? nil : $0
+        }
+    }
+
     static func restoredSession(
         from session: TerminalSession,
         legacyExecutionPlan: PaneExecutionPlan = .local,
@@ -272,10 +285,11 @@ struct SessionRestoreReducer: Sendable {
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
                 notificationsMuted: session.notificationsMuted,
-                moveOrigin: session.moveOrigin.map {
-                    $0.sourceSessionID == session.id || $0.sourceSessionID == restoredSessionID
-                        ? nil : $0
-                } ?? nil,
+                moveOrigin: nonSelfReferentialMoveOrigin(
+                    session.moveOrigin,
+                    originalID: session.id,
+                    restoredID: restoredSessionID
+                ),
                 agentKind: activeAgentKind,
                 agentExecutionState: activeExecutionState,
                 attentionReason: activeAttentionReason,
@@ -383,10 +397,11 @@ struct SessionRestoreReducer: Sendable {
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
                 notificationsMuted: session.notificationsMuted,
-                moveOrigin: session.moveOrigin.map {
-                    $0.sourceSessionID == session.id || $0.sourceSessionID == restoredSessionID
-                        ? nil : $0
-                } ?? nil,
+                moveOrigin: nonSelfReferentialMoveOrigin(
+                    session.moveOrigin,
+                    originalID: session.id,
+                    restoredID: restoredSessionID
+                ),
                 executionPlan: session.activePane?.hasExplicitExecutionPlan == true
                     ? session.activePane?.executionPlan ?? legacyExecutionPlan
                     : legacyExecutionPlan
@@ -417,10 +432,11 @@ struct SessionRestoreReducer: Sendable {
             syntheticTitle: fallbackSyntheticTitle,
             isTitleUserEdited: session.isTitleUserEdited,
             notificationsMuted: session.notificationsMuted,
-            moveOrigin: session.moveOrigin.map {
-                $0.sourceSessionID == session.id || $0.sourceSessionID == restoredSessionID
-                    ? nil : $0
-            } ?? nil,
+            moveOrigin: nonSelfReferentialMoveOrigin(
+                session.moveOrigin,
+                originalID: session.id,
+                restoredID: restoredSessionID
+            ),
             layout: layout,
             activePaneID: resolvedActivePane.id
         )
