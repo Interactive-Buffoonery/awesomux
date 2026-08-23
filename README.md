@@ -167,10 +167,15 @@ To run the tests without the rest of the preflight:
 ```
 
 `./script/test.sh all` takes no other arguments — it routes the full run through
-isolated shards so it cannot stall on the libdispatch thread limit. `--filter`
-matches the test **type** name rather than the `@Suite` display string, and a
-filter that matches nothing exits successfully having run no tests, so check the
-reported test count.
+isolated shards so it cannot stall on the libdispatch thread limit.
+
+`--filter` matches Swift **identifiers** — a suite's type name or a test's
+function name — and not the display strings in `@Suite("…")` or `@Test("…")`. So
+`--filter AboutWindowInfoTests` and `--filter creditNamesUnique` both work, while
+`--filter "Credit names are unique"` matches nothing. On the pinned toolchain a
+filter that matches nothing prints `warning: No matching test cases were run`,
+reports `0 tests`, and still **exits 0** — so a typo'd filter looks exactly like
+a pass. Check the reported test count, not the exit status.
 
 The preflight runs thirteen steps in order: the public-wording guard, the public-seed-source guard, the plural-guard check, the test-wait guard's own self-test, the test-wait scan, the format self-test, a non-mutating Swift format check for changed lines (`./script/format.sh --lint`), the review-automation test, the Ghostty-archive drift guard, the agent-event hook test, the sidebar tint/status WCAG contrast gate (`script/check_tint_contrast.py`), the full grouped test suite (`./script/test.sh all`), and a build that stages, ad-hoc signs, and launch-verifies `dist/awesoMux.app`. Maintainers can request advisory hosted
 native validation for an exact pull-request SHA with `/ci`; the full local
