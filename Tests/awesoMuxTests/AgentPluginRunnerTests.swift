@@ -278,7 +278,7 @@ struct AgentPluginRunnerTests {
         }
     }
 
-    @Test("Claude: install-record digest mismatch maps to needs-repair")
+    @Test("Claude: install-record digest mismatch offers an update, not repair")
     func claudeOutdatedSourceDigestNeedsRepair() async throws {
         try await Self.withRunner { runner, command, _ in
             let setup = Self.enabled
@@ -292,15 +292,15 @@ struct AgentPluginRunnerTests {
                 result: .ok(stdout: Self.claudeList(enabled: true))
             )
             let report = await runner.status(provider: .claudeCode, setup: setup)
-            guard case .needsRepair(let guidance) = report.status else {
-                Issue.record("expected needsRepair, got \(report.status)")
+            guard case .updateAvailable(let guidance) = report.status else {
+                Issue.record("expected updateAvailable, got \(report.status)")
                 return
             }
             #expect(guidance.contains("newer awesoMux status plugin"))
         }
     }
 
-    @Test("Codex: install-record digest mismatch maps to needs-repair when trusted")
+    @Test("Codex: install-record digest mismatch offers an update when trusted")
     func codexOutdatedSourceDigestNeedsRepair() async throws {
         try await Self.withRunner { runner, _, codex in
             let setup = Self.enabled
@@ -316,15 +316,15 @@ struct AgentPluginRunnerTests {
 
             codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
             let report = await runner.status(provider: .codex, setup: setup)
-            guard case .needsRepair(let guidance) = report.status else {
-                Issue.record("expected needsRepair, got \(report.status)")
+            guard case .updateAvailable(let guidance) = report.status else {
+                Issue.record("expected updateAvailable, got \(report.status)")
                 return
             }
             #expect(guidance.contains("newer awesoMux status plugin"))
         }
     }
 
-    @Test("Grok: install-record digest mismatch maps to needs-repair")
+    @Test("Grok: install-record digest mismatch offers an update")
     func grokOutdatedSourceDigestNeedsRepair() async throws {
         try await Self.withRunner { runner, command, _ in
             let setup = Self.enabled
@@ -342,8 +342,8 @@ struct AgentPluginRunnerTests {
                 result: .ok(stdout: Self.grokList(path: pluginDir.path))
             )
             let report = await runner.status(provider: .grok, setup: setup)
-            guard case .needsRepair(let guidance) = report.status else {
-                Issue.record("expected needsRepair, got \(report.status)")
+            guard case .updateAvailable(let guidance) = report.status else {
+                Issue.record("expected updateAvailable, got \(report.status)")
                 return
             }
             #expect(guidance.contains("newer awesoMux status plugin"))
@@ -363,7 +363,7 @@ struct AgentPluginRunnerTests {
         }
     }
 
-    @Test("Claude: legacy install record without digest maps to needs-repair")
+    @Test("Claude: legacy install record without digest offers a one-time update")
     func claudeLegacyInstallWithoutDigestNeedsRepair() async throws {
         try await Self.withRunner { runner, command, _ in
             let setup = Self.enabled
@@ -377,11 +377,141 @@ struct AgentPluginRunnerTests {
                 result: .ok(stdout: Self.claudeList(enabled: true))
             )
             let report = await runner.status(provider: .claudeCode, setup: setup)
+            guard case .updateAvailable(let guidance) = report.status else {
+                Issue.record("expected updateAvailable, got \(report.status)")
+                return
+            }
+            #expect(guidance.contains("Repair once"))
+        }
+    }
+
+    // MARK: - Deployed-copy verification (INT-882)
+
+    @Test("Claude: deployed copy matching the current render is enabled despite stale record bookkeeping")
+    func claudeDeployedCopyCurrentBeatsStaleDigest() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let setup = Self.enabled
+            let tree = try runner.renderedTree(provider: .claudeCode, setup: setup)
+            let ref = try runner.marketplaceRef(provider: .claudeCode)
+            try runner.recordInstall(provider: .claudeCode, setup: setup, tree: tree, ref: ref)
+            // The record claims an ancient source; reality (the cache copy below)
+            // is what Claude actually executes and it matches the fresh render.
+            try Self.rewriteInstallRecordDigest(runner: runner, provider: .claudeCode, digest: "deadbeef")
+
+            let cache = runner.homeDirectoryURL
+                .appending(path: ".claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0")
+            // Deploy the exact bytes the current app renders — the healthy state
+            // where only record bookkeeping is stale.
+            let renderedHooksURL = tree.hookConfigURLs[0]
+            let cacheHooksDir = cache.appending(path: "hooks", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: cacheHooksDir, withIntermediateDirectories: true)
+            try Data(contentsOf: renderedHooksURL).write(to: cacheHooksDir.appending(path: "hooks.json"))
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: Self.claudeList(enabled: true, installPath: cache.path))
+            )
+
+            // INT-882 regression: this exact state (record drift + healthy deploy)
+            // used to read as a red "Needs repair" on every launch.
+            let report = await runner.status(provider: .claudeCode, setup: setup)
+            #expect(report.status == .enabled)
+        }
+    }
+
+    @Test("Claude: functional but outdated deployed copy maps to update-available")
+    func claudeOutdatedDeployedCopyMapsToUpdateAvailable() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let setup = Self.enabled
+            let helper = try Self.makeExecutableHelper(in: runner.homeDirectoryURL)
+
+            let cache = runner.homeDirectoryURL
+                .appending(path: ".claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0")
+            try Self.deployClaudePluginCopy(installPath: cache, command: helper.path)
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: Self.claudeList(enabled: true, installPath: cache.path))
+            )
+
+            let report = await runner.status(provider: .claudeCode, setup: setup)
+            guard case .updateAvailable = report.status else {
+                Issue.record("expected updateAvailable, got \(report.status)")
+                return
+            }
+        }
+    }
+
+    @Test("Claude: deployed copy whose baked helper is gone maps to needs-repair")
+    func claudeDeadDeployedHelperMapsToNeedsRepair() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let setup = Self.enabled
+            let cache = runner.homeDirectoryURL
+                .appending(path: ".claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0")
+            try Self.deployClaudePluginCopy(
+                installPath: cache,
+                command: "/removed-worktree/dist/awesoMuxAgentHook"
+            )
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: Self.claudeList(enabled: true, installPath: cache.path))
+            )
+
+            let report = await runner.status(provider: .claudeCode, setup: setup)
             guard case .needsRepair(let guidance) = report.status else {
                 Issue.record("expected needsRepair, got \(report.status)")
                 return
             }
-            #expect(guidance.contains("Repair once"))
+            #expect(guidance.localizedCaseInsensitiveContains("repair"))
+        }
+    }
+
+    @Test("Claude: fresh record with drifted deployed copy still forces uninstall before reinstall")
+    func claudeDeployedDriftForcesCleanReinstall() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+
+            // Record bookkeeping is fully current — only the deployed cache copy
+            // drifted (the INT-882 shape: app replaced in place, version-keyed
+            // cache never re-pulled). The gate must still fire.
+            let cache = runner.homeDirectoryURL
+                .appending(path: ".claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0")
+            let helper = try Self.makeExecutableHelper(in: runner.homeDirectoryURL)
+            try Self.deployClaudePluginCopy(installPath: cache, command: helper.path)
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: Self.claudeList(enabled: true, installPath: cache.path))
+            )
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            #expect(argvs.contains(Self.claudeUninstallArgvExpected))
+        }
+    }
+
+    @Test("Claude: drifted deployed copy with no install record uninstalls by ref so Repair is never dead")
+    func claudeDeployedDriftWithoutRecordStillUninstalls() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+
+            // An out-of-band install: the plugin exists in Claude's cache but
+            // awesoMux has no record of it. Repair must still replace it.
+            let cache = runner.homeDirectoryURL
+                .appending(path: ".claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0")
+            let helper = try Self.makeExecutableHelper(in: runner.homeDirectoryURL)
+            try Self.deployClaudePluginCopy(installPath: cache, command: helper.path)
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: Self.claudeList(enabled: true, installPath: cache.path))
+            )
+
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+
+            let argvs = command.invocations.map(\.args)
+            #expect(argvs.contains(Self.claudeUninstallArgvExpected))
         }
     }
 
@@ -500,6 +630,63 @@ struct AgentPluginRunnerTests {
                 Issue.record("expected needsRepair, got \(report.status)")
                 return
             }
+        }
+    }
+
+    @Test("Codex: trusted hooks backed by a registered plugin with a dead helper need repair")
+    func codexTrustedHooksWithDeadRegisteredHelperNeedRepair() async throws {
+        try await Self.withRunner { runner, command, codex in
+            let setup = Self.enabled
+            try FileManager.default.createDirectory(
+                at: runner.homeDirectoryURL.appending(path: ".codex", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+            // Codex reports the hook fully healthy — trust and enabled — but the
+            // registered plugin copy on disk bakes a helper that no longer exists.
+            // Trust hashes are content-keyed, so Codex itself cannot see this.
+            let registered = runner.homeDirectoryURL
+                .appending(path: ".codex/plugins/cache/awesomux-codex/awesomux-codex-status")
+            try FileManager.default.createDirectory(
+                at: registered.appending(path: "hooks", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+            try Data(
+                #"{"hooks":{"pre_tool_use":[{"hooks":[{"type":"command","command":"AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-'/gone/dist/awesoMuxAgentHook'}; \"$AWESOMUX_AGENT_HOOK\" --provider codex"}]}]}}"#
+                    .utf8
+            )
+            .write(to: registered.appending(path: "hooks", directoryHint: .isDirectory).appending(path: "hooks.json"))
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(
+                    stdout:
+                        #"{"installed":[{"pluginId":"awesomux-codex-status@awesomux-codex","source":{"source":"local","path":"\#(registered.path)"}}]}"#
+                )
+            )
+
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            let report = await runner.status(provider: .codex, setup: setup)
+            guard case .needsRepair(let guidance) = report.status else {
+                Issue.record("expected needsRepair, got \(report.status)")
+                return
+            }
+            #expect(guidance.contains("/gone/dist/awesoMuxAgentHook"))
+            #expect(guidance.localizedCaseInsensitiveContains("repair"))
+        }
+    }
+
+    @Test("Codex: an unreadable plugin list does not flip a healthy install to repair")
+    func codexUnreadablePluginListFailsOpen() async throws {
+        try await Self.withRunner { runner, command, codex in
+            let setup = Self.enabled
+            try FileManager.default.createDirectory(
+                at: runner.homeDirectoryURL.appending(path: ".codex", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "not json"))
+
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            let report = await runner.status(provider: .codex, setup: setup)
+            #expect(report.status == .enabled)
         }
     }
 
@@ -735,18 +922,22 @@ struct AgentPluginRunnerTests {
 
     // MARK: - Action argv
 
-    @Test("Claude enable/install issues validate, marketplace add, install --scope user in order")
+    @Test("Claude enable/install probes, then issues validate, marketplace add, install --scope user in order")
     func claudeInstallArgv() async throws {
         try await Self.withRunner { runner, command, _ in
             command.defaultOutcome = .result(.ok(stdout: ""))
             let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
             #expect(outcome.status == .enabled)
 
+            // The read-only presence/deployed-copy probe always leads (INT-882):
+            // its installPath feeds the deployed-drift check even when records
+            // look fresh.
             let argvs = command.invocations.map(\.args)
-            #expect(argvs.count == 3)
-            #expect(argvs[0].first == "plugin" && argvs[0][1] == "validate")
-            #expect(Array(argvs[1].prefix(3)) == ["plugin", "marketplace", "add"])
-            #expect(argvs[2] == ["plugin", "install", "awesomux-claude-status@awesomux-claude", "--scope", "user"])
+            #expect(argvs.count == 4)
+            #expect(argvs[0] == ["plugin", "list", "--json"])
+            #expect(argvs[1].first == "plugin" && argvs[1][1] == "validate")
+            #expect(Array(argvs[2].prefix(3)) == ["plugin", "marketplace", "add"])
+            #expect(argvs[3] == ["plugin", "install", "awesomux-claude-status@awesomux-claude", "--scope", "user"])
         }
     }
 
@@ -1099,6 +1290,29 @@ struct AgentPluginRunnerTests {
                 != second.renderer.renderedTreeURL(provider: .codex))
     }
 
+    @Test("a bare-init runner keeps install state beside its rendered tree, out of the installed app's directory")
+    func bareInitInstallStateFollowsRuntimeProfile() {
+        // INT-882 regression: the default init used to pin every build — dev
+        // worktree builds included — to the production support directory while
+        // rendering into their own profile directory, so development runs
+        // rewrote the installed app's plugin-install manifest and each build
+        // saw the other's records as drift. Records must live in the same
+        // profile-scoped root the renderer uses.
+        let runner = ProcessAgentPluginRunner()
+        // By construction the default install state is the rendered tree's own
+        // root; assert the persisted artifact paths that follow from it, plus
+        // the regression itself. (Renderer-root equality isn't re-asserted
+        // here: SessionPersistence's environment is overridden concurrently by
+        // other suites, and re-reading it post-init would be racy.)
+        #expect(
+            runner.pluginManifestURL
+                == runner.installStateDirectoryURL.appending(path: "plugin-install-manifest.json"))
+        #expect(
+            runner.installStateDirectoryURL
+                != AppRuntimeProfile.production.supportDirectoryURL
+                .appending(path: "AgentIntegrations", directoryHint: .isDirectory))
+    }
+
     @Test("plugin manifest imports legacy development state only when canonical is absent")
     func pluginManifestLegacyImport() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -1424,16 +1638,18 @@ struct AgentPluginRunnerTests {
     @Test("Claude: a matching install record does not add an uninstall step")
     func claudeMatchingRecordSkipsUninstall() async throws {
         try await Self.withRunner { runner, command, _ in
-            command.defaultOutcome = .result(.ok(stdout: ""))
+            command.defaultOutcome = .result(.ok(stdout: Self.claudeList(enabled: true)))
             _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
 
             let before = command.invocations.count
             let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
             #expect(outcome.status == .enabled)
 
-            // No probe, no uninstall — the original 3-step sequence.
+            // The probe runs (deployed-copy check), then the original
+            // validate → marketplace-add → install sequence — but no uninstall.
             let argvs = command.invocations.dropFirst(before).map(\.args)
-            #expect(argvs.count == 3)
+            #expect(argvs.count == 4)
+            #expect(argvs.first == ["plugin", "list", "--json"])
             #expect(!argvs.contains { $0.contains("uninstall") })
         }
     }
@@ -1610,6 +1826,16 @@ struct AgentPluginRunnerTests {
         }
     }
 
+    @Test("update-available gates like an installed-and-working state, with repair offered")
+    func updateAvailableGating() {
+        let status = AgentPluginStatus.updateAvailable("A newer awesoMux status plugin is available")
+        #expect(status.label == "Update available")
+        #expect(status.allowsRepair)
+        #expect(status.allowsDisable)
+        #expect(status.allowsUninstall)
+        #expect(!status.allowsEnable)
+    }
+
     // MARK: - Diagnostics
 
     @Test("a failed op produces redacted, capped diagnostics with exit code and args")
@@ -1674,11 +1900,31 @@ struct AgentPluginRunnerTests {
 
     static let enabled = AgentIntegrationSetup(enabled: true)
 
-    static func claudeList(enabled: Bool, errors: [String] = []) -> String {
+    static func claudeList(enabled: Bool, errors: [String] = [], installPath: String? = nil) -> String {
         let errorsJSON = errors.isEmpty ? "[]" : "[\(errors.map { "\"\($0)\"" }.joined(separator: ","))]"
+        let installPathJSON = installPath.map { "\"\($0)\"" } ?? "null"
         return """
-            [{"name":"awesomux-claude-status@awesomux-claude","enabled":\(enabled),"errors":\(errorsJSON)}]
+            [{"name":"awesomux-claude-status@awesomux-claude","enabled":\(enabled),"errors":\(errorsJSON),"installPath":\(installPathJSON)}]
             """
+    }
+
+    /// Deploys a Claude plugin cache copy at `installPath/hooks/hooks.json` with
+    /// the given hook command baked in, mirroring what `claude plugin install`
+    /// snapshots into `~/.claude/plugins/cache`.
+    static func deployClaudePluginCopy(installPath: URL, command: String) throws {
+        let hooksDir = installPath.appending(path: "hooks", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
+        var template = try String(
+            contentsOf:
+                packageResourcesURL
+                .appending(path: "AgentIntegrations/claude_code/plugins/awesomux-claude-status/hooks/hooks.json"),
+            encoding: .utf8
+        )
+        template = template.replacingOccurrences(
+            of: AgentPluginTemplateRenderer.helperPlaceholderToken,
+            with: "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-'\(command)'};"
+        )
+        try Data(template.utf8).write(to: hooksDir.appending(path: "hooks.json"), options: .atomic)
     }
 
     static func grokList(
@@ -1696,6 +1942,34 @@ struct AgentPluginRunnerTests {
           "marketplace": null
         }]
         """
+    }
+
+    /// Extracts the single-quoted helper path baked by `deployClaudePluginCopy`.
+    static func bakedHelperPath(from renderedHooksJSON: Data) -> String {
+        let text = String(decoding: renderedHooksJSON, as: UTF8.self)
+        guard
+            let range = text.range(of: "AWESOMUX_AGENT_HOOK:-'"),
+            let end = text[range.upperBound...].firstIndex(of: "'")
+        else {
+            Issue.record("fixture render carries no baked helper path")
+            return ""
+        }
+        return String(text[range.upperBound..<end])
+    }
+
+    /// A real executable file so deployed-copy checks see a live helper.
+    static func makeExecutableHelper(in homeDirectory: URL) throws -> URL {
+        let helper =
+            homeDirectory
+            .appending(path: "helpers-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "awesoMuxAgentHook")
+        try FileManager.default.createDirectory(
+            at: helper.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: helper)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        return helper
     }
 
     /// Overwrites the recorded `sourceContentDigest` so status can be driven to

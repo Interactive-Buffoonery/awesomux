@@ -21,8 +21,23 @@ Status vocabulary the runner reports per provider:
 | Status | Meaning | Operator action |
 | --- | --- | --- |
 | **Needs review** | Provider has the plugin/hook on disk but it is awaiting an explicit trust/approval step before it will run. | Approve/trust it. |
-| **Needs repair** | Manifest/config claims it is installed but the on-disk reality disagrees (missing, modified, hash/trust mismatch, CLI error entry). | Re-install / re-render. |
+| **Needs repair** | Manifest/config claims it is installed but the on-disk reality disagrees (missing, modified, hash/trust mismatch, CLI error entry), or the deployed hook's baked helper is unreachable so it cannot run at all. | Re-install / re-render. |
+| **Update available** | Installed and functional, but this app would deploy different content than what the provider currently executes (an app update shipped new hooks, or the copy predates this bundle). Not a failure. | Update (same repair op) when convenient. |
 | **Unsupported** | This CLI/version/policy cannot host the plugin at all. | Surface path for manual handling; do not auto-write. |
+
+> **Deployed-copy verification (INT-882).** Install records describe what the
+> *installing app* did; they cannot see what the provider CLI actually executes.
+> Claude snapshots plugin content into a version-keyed cache, and Codex
+> registers a live directory — both can silently diverge from every awesoMux
+> record (app replaced in place, dev/release interleaving, out-of-band
+> installs). Where the CLI exposes the deployed location (`claude plugin list
+> --json` `installPath`, `codex plugin list --json` `source.path`), status and
+> the clean-reinstall gate verify those bytes against a fresh render first:
+> matching → healthy regardless of record bookkeeping; differing with a
+> reachable helper (executable path or baked runtime-resolution ladder) →
+> Update available; differing with an unreachable helper → Needs repair. When
+> the deployed location is unavailable or unreadable, fall back to record-based
+> signals rather than inventing a failure.
 
 > **Repo gap to close before the runner ships (Claude side).** The bundled
 > `Resources/AgentIntegrations/claude_code/plugins/awesomux-claude-status/` ships only
@@ -78,21 +93,25 @@ runner pins `--scope user` explicitly (global-only install per ADR 0010).
 | De-register catalog | `claude plugin marketplace remove awesomux --scope user` | `PATH` | Full uninstall = uninstall plugin, then remove marketplace. |
 | **Status (authoritative)** | `claude plugin list --json` | `PATH` | Machine-readable. Parse per §1.3. |
 
-**Clean reinstall (INT-651).** `claude plugin install` keys its cache on the plugin
+**Clean reinstall (INT-651, INT-882).** `claude plugin install` keys its cache on the plugin
 manifest `version`, which awesoMux never changes — installing over an existing install
 "succeeds" without re-pulling content, keeping the previously baked hook config
-(including a dead dev `dist/` helper path). When the recorded install's baked helper
-path or bundled source digest differs from the freshly rendered tree, the runner
-uninstalls the recorded plugin (recorded binary + config home + ref) after `plugin
-validate` succeeds and before `marketplace add`/`install`, forcing a fresh copy. A
-read-only `plugin list --json` presence probe (recorded env) runs first and skips the
-uninstall only when the plugin is definitively absent — an unreadable or unparseable
-list counts as installed, because skipping on doubt would let the stale copy survive a
-"successful" reinstall. A recorded binary that no longer exists falls back to the live
-binary against the recorded home rather than bricking the repair path. A failed
-uninstall aborts the reinstall (needs repair, record untouched) rather than letting a
-no-op install masquerade as success. Codex/Grok deliberately do not get this step:
-their cache semantics have not been shown to share the version-keyed no-op.
+(including a dead dev `dist/` helper path). When either trigger fires — the recorded
+install's baked helper path or bundled source digest disagrees with the freshly rendered
+tree, **or the deployed cache copy at the entry's `installPath` differs from the fresh
+render while every record looks current** — the runner uninstalls the recorded plugin
+(recorded binary + config home + ref) after `plugin validate` succeeds and before
+`marketplace add`/`install`, forcing a fresh copy. A read-only `plugin list --json`
+presence probe (recorded env) runs first and skips the uninstall only when the plugin is
+definitively absent — an unreadable or unparseable list counts as installed, because
+skipping on doubt would let the stale copy survive a "successful" reinstall. With no
+record at all, a drifted deployed copy still uninstalls by our ref against the live
+settings, so Repair is never a dead button. A recorded binary that no longer exists falls
+back to the live binary against the recorded home rather than bricking the repair path. A
+failed uninstall aborts the reinstall (needs repair, record untouched) rather than letting
+a no-op install masquerade as success. Codex/Grok deliberately do not get the full step:
+their registrations reference live directories whose staleness surfaces through trust
+hashes and on-disk inspection instead.
 
 ### 1.3 Parsing success vs failure
 
@@ -109,7 +128,10 @@ Decision table for our entry (`awesomux-claude-status@awesomux`):
 | Observed | Status |
 | --- | --- |
 | `claude` binary missing, or `--json` unsupported on this version (no JSON on stdout) | **Unsupported** |
-| Entry present, enabled true, `errors` empty | Installed-OK (no action) |
+| Entry present, enabled true, `errors` empty, deployed copy at `installPath` matches a fresh render | **Installed-OK** — record bookkeeping (digest lag) must not override this |
+| Entry present, enabled true, `errors` empty, deployed copy differs with a reachable helper | **Update available** |
+| Entry present, enabled true, `errors` empty, deployed copy differs and its baked helper is unreachable | **Needs repair** (the hook exits 127 on every event) |
+| Deployed location unavailable/unreadable, entry enabled true, `errors` empty; recorded digest ≠ bundled source or missing | **Update available** (was Needs repair before INT-882: the plugin runs; staleness is not breakage) |
 | Marketplace known but our plugin entry absent, **and** `enabledPlugins` in `settings.json` still references it | **Needs repair** (re-install) |
 | Entry present but `errors` non-empty (manifest/hooks path bad, plugin failed to load), or `claude plugin validate` fails on our rendered catalog | **Needs repair** |
 | Marketplace not yet added / plugin never installed | Not-installed (offer install) |
@@ -250,7 +272,9 @@ Match our hook(s) by `pluginId == awesomux-codex-status@<marketplace>` (or by
 | Our hook present, `enabled: true`, `trustStatus: modified` (current hash ≠ `trusted_hash`) | **Needs review** if the change is the user's; **Needs repair** if our rendered content drifted from what's on disk (we own the file → re-render/re-install) |
 | Our hook present, `enabled: true`, `trustStatus: trusted`, hashes match | Installed-OK |
 | `pluginId` configured but no matching hook discovered, or `sourcePath`/manifest missing, or `errors` non-empty | **Needs repair** |
+| Our hook present, enabled, trusted — but the registered plugin directory's deployed hooks bake an unreachable helper | **Needs repair** (trust hashes are content-keyed; Codex cannot see this itself) |
 | `enabled: false` (user disabled) | Not-active (respect user; offer enable, don't auto-flip) |
+| Installed and healthy; recorded digest ≠ bundled source (or missing) | **Update available** (Repair reinstalls the new hooks; Codex then re-asks for trust) |
 
 **Reload semantics (Codex).** Config/trust changes apply on the next thread/session; a live
 thread won't retroactively load a newly trusted hook. `config/batchWrite` with
@@ -311,6 +335,8 @@ Decision table for `awesomux-grok-status`:
 | Entry status reports `disabled` | Not-active |
 | Entry status reports an error/failure state | **Needs repair** |
 | Entry present with normal installed/enabled status | Installed-OK |
+| Recorded digest ≠ bundled source (or missing) | **Update available** |
+| Deployed hooks structurally stale (snake_case events, missing directory) or an error state | **Needs repair** |
 
 Current Grok versions expose `plugin disable`, but `plugin list --json` may still
 report disabled plugins as `"status": "installed"`. The runner is prepared for a
@@ -341,6 +367,18 @@ that JSON is the only non-interactive status source.
   and `grok plugin list --json` are the parse targets. Treat human-editable
   files (`settings.json`, `config.toml`) as inputs the user may have changed,
   not as the status source of truth.
+- **Verify provider-side reality before bookkeeping (INT-882).** Install
+  records and digests describe awesoMux's own history; they cannot see what
+  the provider CLI currently executes. Where a structured read exposes the
+  deployed copy, judge freshness from those bytes first (see the
+  deployed-copy verification note at the top of this document), and let
+  record drift alone offer an update rather than claim breakage.
+- **Install state is scoped to the running runtime profile.** The default
+  install-state location derives from the same support directory the rendered
+  trees use — never a hardcoded production path. A development build that
+  read or rewrote the installed app's manifest while baking its own `dist/`
+  helper paths made every build see the other's records as drift; explicit
+  injection overrides this for tests only.
 - **Consent stays explicit (ADR 0010).** Having a binary path / config home is metadata
   only. The runner does not `add`/`install`/trust without the user's install action, and
   does not flip a user-disabled plugin back on.

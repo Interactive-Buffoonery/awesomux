@@ -55,7 +55,7 @@ extension ProcessAgentPluginRunner {
             )
         }
 
-        return claudeMapList(result.stdout, ref: ref, executable: executable, args: args)
+        return claudeMapList(result.stdout, setup: setup, ref: ref, executable: executable, args: args)
     }
 
     private func claudeProbeFailure(
@@ -89,6 +89,7 @@ extension ProcessAgentPluginRunner {
 
     private func claudeMapList(
         _ stdout: String,
+        setup: AgentIntegrationSetup,
         ref: AgentPluginMarketplaceRef,
         executable: String,
         args: [String]
@@ -115,11 +116,74 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .disabled)
         }
 
+        // Freshness is judged against what Claude actually executes first
+        // (INT-882): the version-keyed cache can serve months-old content while
+        // every record looks current, so the deployed copy is the truthiest
+        // signal. Record bookkeeping (digest vs bundled source) only speaks when
+        // the deployed copy cannot be read — e.g. an older CLI that omits
+        // `installPath`.
+        switch claudeDeployedFreshness(entry: entry, setup: setup) {
+        case .concluded(let status):
+            return AgentPluginStatusReport(status: status)
+        case .inconclusive:
+            break
+        }
+
         if let guidance = outdatedSourceContentGuidance(provider: .claudeCode) {
-            return AgentPluginStatusReport(status: .needsRepair(guidance))
+            return AgentPluginStatusReport(status: .updateAvailable(guidance))
         }
 
         return AgentPluginStatusReport(status: .enabled)
+    }
+
+    /// Outcome of comparing the entry's deployed cache copy against a fresh
+    /// render. `inconclusive` means the comparison could not be performed (no
+    /// `installPath`, unreadable deployed file, render unavailable) and the
+    /// caller must fall back to record-based signals; any other outcome is the
+    /// final word — including "verified current", which outranks stale record
+    /// bookkeeping so a lagging digest can never nag about a healthy deploy.
+    private enum ClaudeDeployedCheck {
+        case inconclusive
+        case concluded(AgentPluginStatus)
+    }
+
+    private func claudeDeployedFreshness(
+        entry: ClaudePluginListEntry,
+        setup: AgentIntegrationSetup
+    ) -> ClaudeDeployedCheck {
+        guard let installPath = entry.installPath else {
+            return .inconclusive
+        }
+        guard
+            let tree = try? renderedTree(provider: .claudeCode, setup: setup),
+            let hookURL = tree.hookConfigURLs.first,
+            let renderedData = try? Data(contentsOf: hookURL)
+        else {
+            return .inconclusive
+        }
+        let deployedURL = URL(fileURLWithPath: installPath)
+            .appending(path: "hooks", directoryHint: .isDirectory)
+            .appending(path: "hooks.json")
+        guard
+            let finding = AgentPluginDeployedCopyInspector.assess(
+                deployedHooksURL: deployedURL,
+                renderedHooksData: renderedData,
+                fileManager: renderer.fileManager
+            )
+        else {
+            return .inconclusive
+        }
+        if !finding.differsFromCurrentRender {
+            return .concluded(.enabled)
+        }
+        if finding.helperReachable {
+            return .concluded(.updateAvailable(AgentPluginSourceFingerprint.outdatedInstallGuidance))
+        }
+        let deadPath = finding.firstBakedHelperPath ?? "a missing helper"
+        return .concluded(
+            .needsRepair(
+                "The installed status plugin's hook points at \(deadPath), which no longer exists; Repair to reinstall it from this copy of awesoMux"
+            ))
     }
 
     // MARK: Enable / install
@@ -146,6 +210,32 @@ extension ProcessAgentPluginRunner {
         // at any step surfaces that step's diagnostics verbatim. `validate` is
         // read-only; the uninstall, marketplace-add, and install steps mutate,
         // so only they arm the repairable-failure path.
+        //
+        // The presence/deployed-copy probe always runs ahead of the mutations:
+        // besides feeding the INT-651 clean-reinstall decision it carries the
+        // deployed copy's `installPath`, whose content is compared against the
+        // fresh render below. The version-keyed cache can serve months-old
+        // content while every awesoMux-side record looks current (INT-882), so
+        // record freshness alone cannot be trusted to skip the uninstall.
+        let recordedSetupProbe = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
+        var probeExecutable = resolvedExecutable(provider: .claudeCode, setup: recordedSetupProbe)
+        let probeEnv = claudeEnvironment(setup: recordedSetupProbe)
+        var presence: ClaudeInstalledPresence
+        do {
+            presence = try await claudePresence(ref: ref, executable: probeExecutable, env: probeEnv)
+        } catch {
+            // A recorded binary that no longer exists (`executableNotFound`)
+            // would gate off the one operation that rewrites the record and
+            // heals the card, so fall back to the live binary — still against
+            // the recorded config home, where the stale copy actually lives.
+            // Any other failure counts as installed: skipping cleanup on doubt
+            // could preserve the stale same-version cache.
+            probeExecutable = executable
+            presence =
+                (try? await claudePresence(ref: ref, executable: executable, env: probeEnv))
+                ?? .installed(installPath: nil)
+        }
+
         var steps: [MutationStep] = [
             MutationStep(["plugin", "validate", root], mutates: false)
         ]
@@ -160,37 +250,40 @@ extension ProcessAgentPluginRunner {
         // Its failure aborts before install — recordInstall then never rewrites
         // the record, so the staleness gate re-fires on the next attempt
         // instead of being silenced by a "successful" no-op install.
-        if let staleRecord = staleCachedInstallRecord(provider: .claudeCode, tree: tree) {
-            let recordedSetup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
-            var uninstallExecutable = resolvedExecutable(provider: .claudeCode, setup: recordedSetup)
-            let recordedEnv = claudeEnvironment(setup: recordedSetup)
-            var installed: Bool
-            do {
-                installed = try await claudePluginInstalled(
-                    ref: staleRecord.pluginRef,
-                    executable: uninstallExecutable,
-                    env: recordedEnv
-                )
-            } catch {
-                // The recorded binary no longer exists. Blocking here would gate
-                // off the one operation that rewrites the record and heals the
-                // card, so fall back to the live binary — still against the
-                // recorded config home, where the stale copy actually lives.
-                uninstallExecutable = executable
-                installed =
-                    (try? await claudePluginInstalled(
-                        ref: staleRecord.pluginRef,
-                        executable: executable,
-                        env: recordedEnv
-                    )) ?? true
-            }
-            if installed {
+        //
+        // Two independent triggers arm it: the record-side drift gate
+        // (helper path / source digest vs this bundle), and — new in INT-882 —
+        // deployed-copy drift, where the records are fresh but the cache copy
+        // Claude actually executes differs from the render. A definitively
+        // absent plugin skips the uninstall either way.
+        let recordStale = staleCachedInstallRecord(provider: .claudeCode, tree: tree)
+        var deployedDrift = false
+        if case .installed(.some(let installPath)) = presence {
+            deployedDrift = Self.deployedCopyDiffersFromRender(
+                installPath: installPath,
+                renderedHooksURL: tree.hookConfigURLs.first,
+                fileManager: renderer.fileManager
+            )
+        }
+        if recordStale != nil || deployedDrift, case .installed = presence {
+            if let record = recordStale ?? installRecord(provider: .claudeCode) {
+                let recordedSetup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
+                let recordedEnv = claudeEnvironment(setup: recordedSetup)
                 steps.append(
                     MutationStep(
-                        ["plugin", "uninstall", staleRecord.pluginRef.pluginRef, "--scope", "user"],
-                        executable: uninstallExecutable,
+                        ["plugin", "uninstall", record.pluginRef.pluginRef, "--scope", "user"],
+                        executable: probeExecutable,
                         env: recordedEnv
                     )
+                )
+            } else if deployedDrift {
+                // Deployed drift with no install record (out-of-band or lost-
+                // manifest install). Without an uninstall the version-keyed
+                // install would no-op and leave the stale copy in place forever
+                // — Repair must never be a dead button, so remove by our ref
+                // against the live settings.
+                steps.append(
+                    MutationStep(["plugin", "uninstall", ref.pluginRef, "--scope", "user"])
                 )
             }
         }
@@ -306,19 +399,20 @@ extension ProcessAgentPluginRunner {
 
     // MARK: Internals
 
-    /// Read-only presence probe for the clean-reinstall path. An unreadable or
-    /// unparseable list counts as installed: the staleness gate only fires with
-    /// a recorded install, and requiring the uninstall to succeed is safer than
-    /// skipping it and letting a stale cached copy survive a "successful"
-    /// reinstall — the exact silent failure INT-651 exists to prevent. Only a
-    /// definitive "not listed" (out-of-band manual uninstall) skips the step.
-    /// Throws only `executableNotFound`, so the caller can retry with the live
-    /// binary instead of pinning the reinstall to a binary that is gone.
-    private func claudePluginInstalled(
+    /// Read-only presence + deployed-copy probe for the clean-reinstall path.
+    /// An unreadable or unparseable list counts as installed: the staleness gate
+    /// only fires with a recorded install, and requiring the uninstall to
+    /// succeed is safer than skipping it and letting a stale cached copy survive
+    /// a "successful" reinstall — the exact silent failure INT-651 exists to
+    /// prevent. Only a definitive "not listed" (out-of-band manual uninstall)
+    /// reports `.absent`. Throws only `executableNotFound`, so the caller can
+    /// retry with the live binary instead of pinning the reinstall to a binary
+    /// that is gone.
+    private func claudePresence(
         ref: AgentPluginMarketplaceRef,
         executable: String,
         env: [String: String]
-    ) async throws -> Bool {
+    ) async throws -> ClaudeInstalledPresence {
         let result: CommandResult
         do {
             result = try await commandRunner.run(
@@ -333,12 +427,39 @@ extension ProcessAgentPluginRunner {
             // retry rather than "installed".
             throw CommandRunnerError.executableNotFound(path)
         } catch {
-            return true
+            return .installed(installPath: nil)
         }
         guard result.isSuccess, let entries = try? ClaudePluginList.parse(result.stdout) else {
-            return true
+            return .installed(installPath: nil)
         }
-        return entries.contains { $0.matches(ref) }
+        guard let entry = entries.first(where: { $0.matches(ref) }) else {
+            return .absent
+        }
+        return .installed(installPath: entry.installPath)
+    }
+
+    /// Whether the cache copy Claude actually executes differs from what this
+    /// app would render today (INT-882). An unreadable deployed file returns
+    /// `false` — without readable bytes there is no drift to prove, and the
+    /// record-based gates still stand.
+    static func deployedCopyDiffersFromRender(
+        installPath: String,
+        renderedHooksURL: URL?,
+        fileManager: FileManager
+    ) -> Bool {
+        guard let renderedHooksURL else {
+            return false
+        }
+        let deployedURL = URL(fileURLWithPath: installPath)
+            .appending(path: "hooks", directoryHint: .isDirectory)
+            .appending(path: "hooks.json")
+        guard
+            let deployedData = try? Data(contentsOf: deployedURL),
+            let renderedData = try? Data(contentsOf: renderedHooksURL)
+        else {
+            return false
+        }
+        return deployedData != renderedData
     }
 
     /// A note when the live Config home field diverges from the home the recorded
@@ -377,6 +498,15 @@ extension ProcessAgentPluginRunner {
 
 // MARK: - Claude plugin list parsing
 
+/// Outcome of the read-only presence/deployed-copy probe ahead of a reinstall.
+/// `installed(installPath: nil)` models an entry we know exists but could not
+/// fully read — the safe direction, since skipping cleanup on doubt would let a
+/// stale cached copy survive a "successful" reinstall.
+enum ClaudeInstalledPresence: Equatable, Sendable {
+    case absent
+    case installed(installPath: String?)
+}
+
 /// One entry from `claude plugin list --json`. The shape carries at least a
 /// name/ref, an enabled flag, and an `errors` array (contract §1.3). We tolerate
 /// either a flat `name@marketplace` field or split name/marketplace fields.
@@ -385,6 +515,11 @@ struct ClaudePluginListEntry: Decodable, Equatable, Sendable {
     var marketplace: String?
     var enabled: Bool
     var errors: [String]
+    /// Where the CLI deployed the plugin copy this entry executes (Claude
+    /// snapshots the marketplace content into its own version-keyed cache).
+    /// Optional: older CLI versions omit it, and absence simply disables
+    /// deployed-copy verification rather than inventing a failure.
+    var installPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -392,6 +527,7 @@ struct ClaudePluginListEntry: Decodable, Equatable, Sendable {
         case marketplace
         case enabled
         case errors
+        case installPath
     }
 
     init(from decoder: Decoder) throws {
@@ -425,13 +561,21 @@ struct ClaudePluginListEntry: Decodable, Equatable, Sendable {
         }
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         errors = try container.decodeIfPresent([String].self, forKey: .errors) ?? []
+        installPath = try container.decodeIfPresent(String.self, forKey: .installPath)
     }
 
-    init(name: String?, marketplace: String?, enabled: Bool, errors: [String]) {
+    init(
+        name: String?,
+        marketplace: String?,
+        enabled: Bool,
+        errors: [String],
+        installPath: String? = nil
+    ) {
         self.name = name
         self.marketplace = marketplace
         self.enabled = enabled
         self.errors = errors
+        self.installPath = installPath
     }
 
     /// Matches our plugin either by the `name@marketplace` ref or by the bare

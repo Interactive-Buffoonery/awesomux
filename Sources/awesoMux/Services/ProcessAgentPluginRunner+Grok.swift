@@ -126,8 +126,12 @@ extension ProcessAgentPluginRunner {
             // after an app update). Fall back to inspecting on-disk hooks for
             // legacy installs that predate the fingerprint, or installs with no
             // record — those still silently break when hooks stay on snake_case.
+            // Digest drift alone offers an update (INT-882): the plugin runs,
+            // the bundle just ships newer source. Structural staleness the
+            // inspector catches — snake_case events, missing directories —
+            // stays needsRepair, because those hooks genuinely do not run.
             if let guidance = outdatedSourceContentGuidance(provider: .grok) {
-                return AgentPluginStatusReport(status: .needsRepair(guidance))
+                return AgentPluginStatusReport(status: .updateAvailable(guidance))
             }
             if let guidance = GrokInstalledHooksInspector.repairGuidanceIfStale(
                 pluginDirectoryPath: entry.path,

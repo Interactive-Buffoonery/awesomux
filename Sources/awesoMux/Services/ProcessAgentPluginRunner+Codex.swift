@@ -66,7 +66,13 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .unsupported(error.localizedDescription))
         }
 
-        return codexMapHooks(hooks, ref: ref, hasInstallRecord: installRecord(provider: .codex) != nil)
+        return await codexMapHooks(
+            hooks,
+            ref: ref,
+            hasInstallRecord: installRecord(provider: .codex) != nil,
+            executable: executable,
+            home: home
+        )
     }
 
     /// Guidance for a configured-but-missing CODEX_HOME. It names the field, not
@@ -131,8 +137,10 @@ extension ProcessAgentPluginRunner {
     private func codexMapHooks(
         _ hooks: [HookEntry],
         ref: AgentPluginMarketplaceRef,
-        hasInstallRecord: Bool
-    ) -> AgentPluginStatusReport {
+        hasInstallRecord: Bool,
+        executable: String,
+        home: URL
+    ) async -> AgentPluginStatusReport {
         let matchingHooks = hooks.filter { codexHookMatches($0, ref: ref) }
         guard !matchingHooks.isEmpty else {
             // With a recorded install but no matching hook, the install drifted or
@@ -186,11 +194,72 @@ extension ProcessAgentPluginRunner {
 
         // Bundled source moved under the user (app update) outranks "enabled":
         // Repair reinstalls the new hooks; Codex will then re-ask for trust.
+        // Before offering that update, check the registered plugin directory's
+        // deployed hooks: trust hashes are content-keyed, so Codex reports a
+        // hook fully healthy even when its baked helper path points at a build
+        // folder that no longer exists (INT-882). That dead-helper state is a
+        // repair, not an update.
+        if let deadHelperGuidance = await codexRegisteredDeadHelperGuidance(
+            executable: executable,
+            home: home,
+            ref: ref
+        ) {
+            return AgentPluginStatusReport(status: .needsRepair(deadHelperGuidance))
+        }
+
         if let guidance = outdatedSourceContentGuidance(provider: .codex) {
-            return AgentPluginStatusReport(status: .needsRepair(guidance))
+            return AgentPluginStatusReport(status: .updateAvailable(guidance))
         }
 
         return AgentPluginStatusReport(status: .enabled)
+    }
+
+    /// Reads the plugin directory Codex registered for our ref via
+    /// `codex plugin list --json` and checks whether its deployed hook config
+    /// can still reach the awesoMuxAgentHook helper. Returns repair guidance
+    /// when the helper is determinably unreachable, and `nil` whenever the
+    /// check cannot be performed (no entry, unreadable list, unreadable file) —
+    /// an unverifiable deploy must never flip a healthy install to repair.
+    private func codexRegisteredDeadHelperGuidance(
+        executable: String,
+        home: URL,
+        ref: AgentPluginMarketplaceRef
+    ) async -> String? {
+        let args = ["plugin", "list", "--json"]
+        guard
+            let result = try? await commandRunner.run(
+                executable: executable,
+                args: args,
+                env: codexEnvironment(home: home),
+                cwd: nil
+            ),
+            result.isSuccess,
+            let plugins = try? CodexPluginList.parse(result.stdout),
+            let entry = plugins.first(where: { $0.matches(ref) }),
+            let sourcePath = entry.sourcePath,
+            !sourcePath.isEmpty
+        else {
+            return nil
+        }
+        let deployedHooksURL = URL(fileURLWithPath: sourcePath)
+            .appending(path: "hooks", directoryHint: .isDirectory)
+            .appending(path: "hooks.json")
+        // A ladder-baked command self-heals through Spotlight, so only a copy
+        // without one can strand on a dead absolute path.
+        var finding: AgentPluginDeployedCopyInspector.Finding?
+        if let data = try? Data(contentsOf: deployedHooksURL) {
+            finding = AgentPluginDeployedCopyInspector.assess(
+                deployedHooksData: data,
+                renderedHooksData: data,
+                fileManager: renderer.fileManager
+            )
+        }
+        guard let finding, !finding.helperReachable else {
+            return nil
+        }
+        let deadPath = finding.firstBakedHelperPath ?? "a missing helper"
+        return
+            "The registered status hook's command points at \(deadPath), which no longer exists; Repair to reinstall it from this copy of awesoMux"
     }
 
     /// Matches by `pluginId == <plugin>@<marketplace>` first (decision 6), by the
@@ -537,6 +606,29 @@ private enum CodexPluginList {
         var pluginId: String?
         var name: String?
         var marketplaceName: String?
+        /// The local directory Codex registered the plugin from
+        /// (`source.path`). Our installs register awesoMux's rendered tree, so
+        /// this names where the deployed hook config lives.
+        var sourcePath: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case pluginId
+            case name
+            case marketplaceName
+            case source
+        }
+
+        private struct Source: Decodable {
+            var path: String?
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            pluginId = try container.decodeIfPresent(String.self, forKey: .pluginId)
+            name = try container.decodeIfPresent(String.self, forKey: .name)
+            marketplaceName = try container.decodeIfPresent(String.self, forKey: .marketplaceName)
+            sourcePath = try container.decodeIfPresent(Source.self, forKey: .source)?.path
+        }
 
         func matches(_ ref: AgentPluginMarketplaceRef) -> Bool {
             pluginId == ref.pluginRef
