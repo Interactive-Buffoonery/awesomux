@@ -2071,6 +2071,103 @@ public final class SessionStore {
         return close.result
     }
 
+    public func canMovePaneToNewWorkspace(
+        id paneID: TerminalPane.ID,
+        in sessionID: TerminalSession.ID
+    ) -> Bool {
+        guard let position = position(for: sessionID) else { return false }
+        return PaneLayoutReducer.movePaneToNewWorkspace(
+            id: paneID,
+            from: _groups[position.groupIndex].sessions[position.sessionIndex]
+        ) != nil
+    }
+
+    @discardableResult
+    public func movePaneToNewWorkspace(
+        id paneID: TerminalPane.ID,
+        in sessionID: TerminalSession.ID
+    ) -> TerminalSession.ID? {
+        guard let position = position(for: sessionID),
+            let result = PaneLayoutReducer.movePaneToNewWorkspace(
+                id: paneID,
+                from: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
+            return nil
+        }
+
+        // Insert before rewriting the source: the insert lands after the source
+        // row, so the source index is unchanged, and a refused insert leaves
+        // the pane where it was instead of removed from both workspaces.
+        guard WorkspaceTreeReducer.insertSession(result.moved, after: sessionID, into: &_groups)
+        else { return nil }
+        _groups[position.groupIndex].sessions[position.sessionIndex] = result.source
+        // Document tabs associated with the moved pane deliberately stay in
+        // the source with a stale association. `documentSendTarget` fails
+        // closed, and `openDocumentPane` re-associates opportunistically when
+        // the document is reopened; this move does not change that policy.
+        // After the groups write: the rebuild prunes pins to live sessions.
+        if pinnedSessionIDs.contains(sessionID) {
+            let insertionIndex =
+                pinnedSessionIDs.firstIndex(of: sessionID).map { $0 + 1 }
+                ?? pinnedSessionIDs.endIndex
+            // Pinned rows render in this array's order, so inherit directly
+            // beneath the source instead of jumping to the section's end.
+            pinnedSessionIDs.insert(result.moved.id, at: insertionIndex)
+        }
+        commit(
+            WorkspaceMutationEffect(
+                needsFullRebuild: true,
+                selection: .set(result.moved.id)
+            ))
+        return result.moved.id
+    }
+
+    public func canReturnPaneToSourceWorkspace(sessionID: TerminalSession.ID) -> Bool {
+        guard let movedPosition = position(for: sessionID),
+            let origin = _groups[movedPosition.groupIndex].sessions[movedPosition.sessionIndex].moveOrigin,
+            origin.sourceSessionID != sessionID,
+            let sourcePosition = position(for: origin.sourceSessionID),
+            sourcePosition != movedPosition
+        else {
+            return false
+        }
+        return PaneLayoutReducer.returnPane(
+            from: _groups[movedPosition.groupIndex].sessions[movedPosition.sessionIndex],
+            to: _groups[sourcePosition.groupIndex].sessions[sourcePosition.sessionIndex]
+        ) != nil
+    }
+
+    public func returnPaneToSourceWorkspace(sessionID: TerminalSession.ID) -> Bool {
+        guard let movedPosition = position(for: sessionID) else { return false }
+        let moved = _groups[movedPosition.groupIndex].sessions[movedPosition.sessionIndex]
+        guard let origin = moved.moveOrigin,
+            origin.sourceSessionID != sessionID,
+            let sourcePosition = position(for: origin.sourceSessionID),
+            sourcePosition != movedPosition,
+            let source = PaneLayoutReducer.returnPane(
+                from: moved,
+                to: _groups[sourcePosition.groupIndex].sessions[sourcePosition.sessionIndex],
+                parentSplitIDIsLive: _groups.contains { group in
+                    group.sessions.contains { $0.id != sessionID && $0.layout.split(id: origin.parentSplitID) != nil }
+                }
+            )
+        else {
+            return false
+        }
+
+        _groups[sourcePosition.groupIndex].sessions[sourcePosition.sessionIndex] = source
+        // Not `closeSession`: that records a recently-closed entry and wipes
+        // pane-keyed runtime state for a pane that is still alive in the source.
+        _groups[movedPosition.groupIndex].sessions.remove(at: movedPosition.sessionIndex)
+        commit(
+            WorkspaceMutationEffect(
+                needsFullRebuild: true,
+                selection: .set(origin.sourceSessionID)
+            ))
+        return true
+    }
+
     /// Moves a pane against a workspace edge, reparenting the remaining tree
     /// under a new root split. Returns `true` only when the move actually
     /// happened, so callers can disable a command that would be a no-op.

@@ -114,6 +114,8 @@ struct PaletteAppActions {
     let movePaneLeft: @MainActor () -> Void
     let movePaneRight: @MainActor () -> Void
     let swapPaneWithNext: @MainActor () -> Void
+    let movePaneToNewWorkspace: @MainActor () -> Void
+    let returnPaneToSourceWorkspace: @MainActor () -> Void
     let focusPane: @MainActor (Int) -> Void
     let acknowledgeWorkspace: @MainActor () -> Void
     let focusPermissionPrompt: @MainActor () -> Void
@@ -187,6 +189,8 @@ struct PaletteAppActions {
             movePaneLeft: action,
             movePaneRight: action,
             swapPaneWithNext: action,
+            movePaneToNewWorkspace: action,
+            returnPaneToSourceWorkspace: action,
             focusPane: indexedAction,
             acknowledgeWorkspace: action,
             focusPermissionPrompt: action,
@@ -654,6 +658,35 @@ enum PaletteCommandRegistry {
                 selectionScope: .pane,
                 run: actions.swapPaneWithNext
             ),
+            PaletteCommand(
+                id: "movePaneToNewWorkspace",
+                title: "Move Pane to New Workspace",
+                subtitle: nil,
+                keywords: ["promote", "split", "workspace", "detach"],
+                // Chordless: no `KeyboardShortcutCatalog` entry exists to bind,
+                // and `KeyBinding` cannot represent the absence of one.
+                shortcut: nil,
+                isEnabled: canMovePaneToNewWorkspace(
+                    id: activePaneID,
+                    in: selectedSessionID,
+                    sessionStore: sessionStore
+                ),
+                selectionScope: .pane,
+                run: actions.movePaneToNewWorkspace
+            ),
+            PaletteCommand(
+                id: "returnPaneToSourceWorkspace",
+                title: "Return Pane to Source Workspace",
+                subtitle: nil,
+                keywords: ["demote", "undo", "workspace", "split"],
+                shortcut: nil,
+                isEnabled: canReturnPaneToSourceWorkspace(
+                    in: selectedSessionID,
+                    sessionStore: sessionStore
+                ),
+                selectionScope: .workspace,
+                run: actions.returnPaneToSourceWorkspace
+            ),
         ]
 
         commands.append(
@@ -1085,6 +1118,27 @@ enum PaletteCommandRegistry {
             toWorkspaceEdge: edge,
             in: sessionID
         )
+    }
+
+    private static func canMovePaneToNewWorkspace(
+        id paneID: TerminalPane.ID?,
+        in sessionID: TerminalSession.ID?,
+        sessionStore: SessionStore
+    ) -> Bool {
+        guard let paneID, let sessionID else {
+            return false
+        }
+        return sessionStore.canMovePaneToNewWorkspace(id: paneID, in: sessionID)
+    }
+
+    private static func canReturnPaneToSourceWorkspace(
+        in sessionID: TerminalSession.ID?,
+        sessionStore: SessionStore
+    ) -> Bool {
+        guard let sessionID else {
+            return false
+        }
+        return sessionStore.canReturnPaneToSourceWorkspace(sessionID: sessionID)
     }
 
     private static func canSwapActivePane(

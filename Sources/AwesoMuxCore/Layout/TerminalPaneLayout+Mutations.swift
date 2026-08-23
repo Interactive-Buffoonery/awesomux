@@ -1,6 +1,55 @@
 import Foundation
 
 public extension TerminalPaneLayout {
+    func restoringPane(
+        _ pane: TerminalPane,
+        beside sibling: PaneMoveOrigin.Sibling,
+        parentSplitID: TerminalSplit.ID,
+        on edge: PaneMoveEdge,
+        fraction: Double
+    ) -> TerminalPaneLayout? {
+        if matchesMoveOriginSibling(sibling) {
+            let moved = TerminalPaneLayout.pane(pane)
+            return .split(
+                TerminalSplit(
+                    id: parentSplitID,
+                    orientation: edge.orientation,
+                    first: edge.placesMovedPaneFirst ? moved : self,
+                    second: edge.placesMovedPaneFirst ? self : moved,
+                    firstFraction: fraction
+                ))
+        }
+        guard case let .split(split) = self else { return nil }
+        if let first = split.first.restoringPane(
+            pane,
+            beside: sibling,
+            parentSplitID: parentSplitID,
+            on: edge,
+            fraction: fraction
+        ) {
+            return .split(split.rebuilding(first: first))
+        }
+        if let second = split.second.restoringPane(
+            pane,
+            beside: sibling,
+            parentSplitID: parentSplitID,
+            on: edge,
+            fraction: fraction
+        ) {
+            return .split(split.rebuilding(second: second))
+        }
+        return nil
+    }
+
+    private func matchesMoveOriginSibling(_ sibling: PaneMoveOrigin.Sibling) -> Bool {
+        switch (self, sibling) {
+        case let (.pane(pane), .pane(id)): pane.id == id
+        case let (.split(split), .split(id)): split.id == id
+        case let (.documentGroup(group), .documentGroup(id)): group.id == id
+        default: false
+        }
+    }
+
     func replacingPane(
         id: TerminalPane.ID,
         with replacement: TerminalPaneLayout

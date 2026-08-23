@@ -1770,6 +1770,9 @@
     "Move Pane Up" : {
 
     },
+    "Move Pane to New Workspace" : {
+      "comment" : "Pane menu command that moves the active pane out into a workspace of its own."
+    },
     "Move Workspace" : {
       "comment" : "Undo action for moving a workspace within or between groups."
     },
@@ -1796,6 +1799,9 @@
     },
     "Moved pane next to target" : {
       "comment" : "VoiceOver announcement after a drag drops a pane onto an edge of another pane."
+    },
+    "Moved pane to a new workspace" : {
+      "comment" : "VoiceOver announcement after moving the active pane out into a workspace of its own."
     },
     "Moved pane to bottom" : {
       "comment" : "VoiceOver announcement after moving the active pane to the bottom edge of the workspace."
@@ -2757,11 +2763,17 @@
     "Retry" : {
       "comment" : "Retry Worktree Manager refresh action."
     },
+    "Return Pane to Source Workspace" : {
+      "comment" : "Pane menu command that puts a moved pane back into the workspace it came from. 'Return' is the verb, not the Return key."
+    },
     "Return inserts a new line · ⌘Return submits" : {
       "comment" : "Document note editor keyboard help"
     },
     "Return key to open" : {
 
+    },
+    "Returned pane to its source workspace" : {
+      "comment" : "VoiceOver announcement after returning a moved pane to the workspace it came from."
     },
     "Reveal in Finder" : {
 

@@ -161,6 +161,8 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.movePaneLeft.id,
                 KeyboardShortcutCatalog.movePaneRight.id,
                 KeyboardShortcutCatalog.swapPaneWithNext.id,
+                "movePaneToNewWorkspace",
+                "returnPaneToSourceWorkspace",
             ] + KeyboardShortcutCatalog.focusPaneBindings.map(\.id) + [
                 KeyboardShortcutCatalog.acknowledgeWorkspace.id,
                 KeyboardShortcutCatalog.focusPermissionPrompt.id,
@@ -649,6 +651,84 @@ struct PaletteCommandRegistryTests {
                     secondID: nextPaneID,
                     in: selected.id
                 ))
+    }
+
+    @Test("Cross-workspace pane commands mirror store availability")
+    @MainActor
+    func crossWorkspaceCommandsMirrorStoreAvailability() throws {
+        func commands(for store: SessionStore) -> [PaletteCommand] {
+            PaletteCommandRegistry.commands(
+                sessionStore: store,
+                availability: .init(),
+                actions: .noop
+            )
+        }
+
+        let singlePaneStore = SessionStore(groups: [
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(
+                        title: "One", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
+        ])
+        singlePaneStore.selectedSessionID = singlePaneStore.groups[0].sessions[0].id
+        let singlePaneSelected = try #require(singlePaneStore.selectedSession)
+        let singlePaneCommands = commands(for: singlePaneStore)
+
+        // A lone pane has nowhere to move to — the store refuses, so the
+        // command must be greyed out rather than silently no-op.
+        #expect(
+            !singlePaneStore.canMovePaneToNewWorkspace(
+                id: singlePaneSelected.activePaneID,
+                in: singlePaneSelected.id
+            ))
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(id: "movePaneToNewWorkspace", in: singlePaneCommands)
+            ).isEnabled
+                == singlePaneStore.canMovePaneToNewWorkspace(
+                    id: singlePaneSelected.activePaneID,
+                    in: singlePaneSelected.id
+                ))
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(
+                    id: "returnPaneToSourceWorkspace", in: singlePaneCommands)
+            ).isEnabled
+                == singlePaneStore.canReturnPaneToSourceWorkspace(sessionID: singlePaneSelected.id))
+
+        let store = SessionStore(groups: [
+            SessionGroup(
+                name: "Code",
+                sessions: [
+                    TerminalSession(
+                        title: "One", workingDirectory: "/tmp", agentKind: .shell, agentState: .idle)
+                ])
+        ])
+        store.selectedSessionID = store.groups[0].sessions[0].id
+        store.splitActivePane(orientation: .vertical)
+
+        let selected = try #require(store.selectedSession)
+        let splitCommands = commands(for: store)
+        #expect(
+            store.canMovePaneToNewWorkspace(id: selected.activePaneID, in: selected.id))
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(id: "movePaneToNewWorkspace", in: splitCommands)
+            ).isEnabled
+                == store.canMovePaneToNewWorkspace(id: selected.activePaneID, in: selected.id))
+
+        // After the move the new row is selected, which is exactly the state
+        // that makes Return usable.
+        let movedID = try #require(
+            store.movePaneToNewWorkspace(id: selected.activePaneID, in: selected.id))
+        let movedCommands = commands(for: store)
+        #expect(store.canReturnPaneToSourceWorkspace(sessionID: movedID))
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(id: "returnPaneToSourceWorkspace", in: movedCommands)
+            ).isEnabled == store.canReturnPaneToSourceWorkspace(sessionID: movedID))
     }
 
     @Test("Acknowledge command derives enablement from selected session")
