@@ -148,6 +148,13 @@ struct ManagedSSHOfferDestinationSheet: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let notice = siblingRemovalNotice {
+                Label(notice, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
@@ -187,17 +194,31 @@ struct ManagedSSHOfferDestinationSheet: View {
                 comment: "Error shown when a managed SSH destination is added twice"
             )
         }
-        // The two lists are kept disjoint, so adding here deletes the entry
-        // over there — including, for an always-managed entry, the persistence
-        // owner that can only be set from a live connect prompt. The duplicate
-        // check above looks only at the list being added to, so without this
-        // the field looks clean right up until the other row disappears.
-        if siblingDestinations.contains(where: {
-            SSHWorkspaceDestinationValidation.target(from: $0)?.sshDestination == target.sshDestination
-        }) {
-            return listKind.siblingRemovalWarning
-        }
         return nil
+    }
+
+    /// Disclosure, not refusal. The two lists are kept disjoint, so adding here
+    /// deletes the entry over there — including, for an always-managed entry,
+    /// the persistence owner that can only be set from a live connect prompt.
+    /// The duplicate check above looks only at the list being added to, so
+    /// without this the field looks clean right up until the other row
+    /// disappears.
+    ///
+    /// Deliberately not part of `validationMessage`: that also gates the Add
+    /// button, so returning it there left a sentence promising a move the
+    /// button could no longer perform, and made a destination on the opposite
+    /// list impossible to move from this sheet at all.
+    private var siblingRemovalNotice: String? {
+        guard SSHWorkspaceDestinationValidation.message(for: destination) == nil,
+            let target = SSHWorkspaceDestinationValidation.target(from: destination),
+            siblingDestinations.contains(where: {
+                SSHWorkspaceDestinationValidation.target(from: $0)?.sshDestination
+                    == target.sshDestination
+            })
+        else {
+            return nil
+        }
+        return listKind.siblingRemovalWarning
     }
 
     /// The list this destination will be removed from if it is added here.
