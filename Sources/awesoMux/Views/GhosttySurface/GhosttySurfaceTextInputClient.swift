@@ -172,6 +172,10 @@ extension GhosttySurfaceNSView: @preconcurrency NSTextInputClient {
         unmarkText()
 
         if var accumulator = inputState.keyTextAccumulator {
+            // Nil the stored property before mutating: while it still holds a
+            // reference the append fails the uniqueness check and copies the
+            // whole buffer on every keystroke.
+            inputState.keyTextAccumulator = nil
             accumulator.append(text)
             inputState.keyTextAccumulator = accumulator
         } else {

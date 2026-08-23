@@ -3,6 +3,30 @@ import Foundation
 import UnicodeHygiene
 
 struct WorkspaceGroupNameDraft {
+    /// Scalar ceiling on input reaching the mixed-script scan, which is
+    /// unbounded by design so the bridge permission prompt can see a spoof
+    /// anywhere in its payload. This draft is the one caller that runs it per
+    /// keystroke, so it bounds its own input rather than capping the shared
+    /// predicate.
+    ///
+    /// Matched to the bound `UnicodeHygiene.sanitize` already applies, so the
+    /// clamp cannot discard anything sanitization would have kept: a shorter
+    /// ceiling silently changed what got saved, because a paste of mostly
+    /// zero-width characters trims down to real text that a tight clamp had
+    /// already cut off.
+    ///
+    /// The match is on sanitization's *input* bound only. Its output can be
+    /// larger, because NFKC expands: 80 clusters of a base plus 50 U+0344 fold
+    /// to 4960 scalars in exactly 80 characters, and the 80-character clip
+    /// keeps all of them. So a saved name fed back in as input — the rename
+    /// sheet — is re-clamped, and that sheet clamps the name it compares
+    /// against to match.
+    static let inputScalarLimit = 4096
+
+    static func clampedInput(_ input: String) -> String {
+        String(input.unicodeScalars.prefix(inputScalarLimit))
+    }
+
     let typedName: String
     let sanitizedName: String
     let isDuplicate: Bool
@@ -14,6 +38,7 @@ struct WorkspaceGroupNameDraft {
         existingGroupNames: some Sequence<String>,
         allowsEmptyName: Bool = false
     ) {
+        let typedName = Self.clampedInput(typedName)
         let sanitizedName = SessionStore.sanitizedGroupName(typedName)
         self.typedName = typedName
         self.sanitizedName = sanitizedName
