@@ -26,6 +26,13 @@ public enum AgentProcessRecognition {
         if name == "grok" || name.hasPrefix("grok-") {
             return .grok
         }
+        // Exact basename only, mirroring AgentPromptGate's `.pi` arm so the two
+        // mappers agree on what the provider binary is called. Pi ships no
+        // sibling binaries, and a prefix arm here would claim unrelated
+        // commands ("pip", "pianobar") as agent panes.
+        if name == "pi" {
+            return .pi
+        }
         return nil
     }
 }
