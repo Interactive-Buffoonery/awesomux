@@ -117,10 +117,38 @@ struct WorkspaceGroupNameDraftTests {
         #expect(draft.visualSanitizationFeedback == nil)
     }
 
-    @Test("input past the scalar limit is truncated")
+    @Test("input past the scalar limit is truncated by scalars, not characters")
     func longInputIsTruncated() {
-        let paste = String(repeating: "a", count: WorkspaceGroupNameDraft.inputScalarLimit + 5000)
-        #expect(WorkspaceGroupNameDraft.clampedInput(paste).count == WorkspaceGroupNameDraft.inputScalarLimit)
+        // A combining sequence is where the two plausible clamps disagree: "e"
+        // plus an acute is one Character but two scalars, so clamping by
+        // Character would admit twice the scalars the mixed-script scan is
+        // bounded to. An all-ASCII fixture cannot tell them apart.
+        let paste = String(
+            repeating: "e\u{0301}",
+            count: WorkspaceGroupNameDraft.inputScalarLimit
+        )
+        let clamped = WorkspaceGroupNameDraft.clampedInput(paste)
+
+        #expect(paste.unicodeScalars.count == WorkspaceGroupNameDraft.inputScalarLimit * 2)
+        #expect(clamped.unicodeScalars.count == WorkspaceGroupNameDraft.inputScalarLimit)
+    }
+
+    @Test("a sanitized name can exceed the clamp, so re-entry re-clamps it")
+    func sanitizedNameCanExceedTheInputClamp() {
+        // The premise behind the rename sheet clamping the name it compares
+        // against. NFKC turns each U+0344 into two marks, and 80 clusters land
+        // exactly on the 80-character clip, so every expanded scalar survives:
+        // 4080 scalars in, 4960 out.
+        let paste = String(repeating: "a" + String(repeating: "\u{0344}", count: 50), count: 80)
+        let saved = WorkspaceGroupNameDraft(typedName: paste, existingGroupNames: []).sanitizedName
+
+        // Counts, not the strings themselves: a failure here would otherwise
+        // print several thousand combining marks twice.
+        #expect(saved.unicodeScalars.count > WorkspaceGroupNameDraft.inputScalarLimit)
+        #expect(
+            WorkspaceGroupNameDraft.clampedInput(saved).unicodeScalars.count
+                == WorkspaceGroupNameDraft.inputScalarLimit
+        )
     }
 
     @Test("mixed-script detection still fires within the capped input")

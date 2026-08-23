@@ -14,6 +14,13 @@ struct WorkspaceGroupNameDraft {
     /// ceiling silently changed what got saved, because a paste of mostly
     /// zero-width characters trims down to real text that a tight clamp had
     /// already cut off.
+    ///
+    /// The match is on sanitization's *input* bound only. Its output can be
+    /// larger, because NFKC expands: 80 clusters of a base plus 50 U+0344 fold
+    /// to 4960 scalars in exactly 80 characters, and the 80-character clip
+    /// keeps all of them. So a saved name fed back in as input — the rename
+    /// sheet — is re-clamped, and that sheet clamps the name it compares
+    /// against to match.
     static let inputScalarLimit = 4096
 
     static func clampedInput(_ input: String) -> String {
