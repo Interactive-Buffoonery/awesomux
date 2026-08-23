@@ -19,12 +19,26 @@ struct WorkspaceGroupRenameSheet: View {
         onCancel: @escaping () -> Void,
         onSave: @escaping (String) -> Void
     ) {
-        self.groupName = groupName
+        // Clamp the incoming name the same way typed input is clamped. A saved
+        // name can be longer than the clamp: sanitization bounds its *input* at
+        // the same 4096 scalars, but NFKC expands, and 80 clusters of a base
+        // plus 50 U+0344 fold to 4960 scalars in exactly 80 characters — which
+        // the 80-character clip keeps whole. Seeding the draft from such a name
+        // unclamped would leave `save()` comparing a clamped draft against an
+        // unclamped name, so an untouched rename would commit a truncation the
+        // user never typed.
+        //
+        // Untested: this init is private to the View with no seam, so nothing
+        // fails if the clamp is dropped. The premise it rests on — that a saved
+        // name can be longer than the clamp — is pinned by
+        // `sanitizedNameCanExceedTheInputClamp`.
+        let clampedGroupName = WorkspaceGroupNameDraft.clampedInput(groupName)
+        self.groupName = clampedGroupName
         self.existingGroups = existingGroups
         self.currentGroupID = currentGroupID
         self.onCancel = onCancel
         self.onSave = onSave
-        _draftName = State(initialValue: groupName)
+        _draftName = State(initialValue: clampedGroupName)
     }
 
     var body: some View {
@@ -44,7 +58,13 @@ struct WorkspaceGroupRenameSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            TextField("Group name", text: $draftName)
+            TextField(
+                "Group name",
+                text: Binding(
+                    get: { draftName },
+                    set: { draftName = WorkspaceGroupNameDraft.clampedInput($0) }
+                )
+            )
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled(true)
                 .focused($isNameFocused)

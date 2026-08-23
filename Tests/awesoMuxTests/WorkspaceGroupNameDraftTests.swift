@@ -117,6 +117,53 @@ struct WorkspaceGroupNameDraftTests {
         #expect(draft.visualSanitizationFeedback == nil)
     }
 
+    @Test("input past the scalar limit is truncated by scalars, not characters")
+    func longInputIsTruncated() {
+        // A combining sequence is where the two plausible clamps disagree: "e"
+        // plus an acute is one Character but two scalars, so clamping by
+        // Character would admit twice the scalars the mixed-script scan is
+        // bounded to. An all-ASCII fixture cannot tell them apart.
+        let paste = String(
+            repeating: "e\u{0301}",
+            count: WorkspaceGroupNameDraft.inputScalarLimit
+        )
+        let clamped = WorkspaceGroupNameDraft.clampedInput(paste)
+
+        #expect(paste.unicodeScalars.count == WorkspaceGroupNameDraft.inputScalarLimit * 2)
+        #expect(clamped.unicodeScalars.count == WorkspaceGroupNameDraft.inputScalarLimit)
+    }
+
+    @Test("a sanitized name can exceed the clamp, so re-entry re-clamps it")
+    func sanitizedNameCanExceedTheInputClamp() {
+        // The premise behind the rename sheet clamping the name it compares
+        // against. NFKC turns each U+0344 into two marks, and 80 clusters land
+        // exactly on the 80-character clip, so every expanded scalar survives:
+        // 4080 scalars in, 4960 out.
+        let paste = String(repeating: "a" + String(repeating: "\u{0344}", count: 50), count: 80)
+        let saved = WorkspaceGroupNameDraft(typedName: paste, existingGroupNames: []).sanitizedName
+
+        // Counts, not the strings themselves: a failure here would otherwise
+        // print several thousand combining marks twice.
+        #expect(saved.unicodeScalars.count > WorkspaceGroupNameDraft.inputScalarLimit)
+        #expect(
+            WorkspaceGroupNameDraft.clampedInput(saved).unicodeScalars.count
+                == WorkspaceGroupNameDraft.inputScalarLimit
+        )
+    }
+
+    @Test("mixed-script detection still fires within the capped input")
+    func mixingStillDetectedWithinCappedInput() {
+        // A Cyrillic а planted at the last in-range scalar must still flag:
+        // capping the field may not read as disabling the spoof check.
+        let inside = String(repeating: "a", count: WorkspaceGroupNameDraft.inputScalarLimit - 1) + "\u{0430}"
+        let draft = WorkspaceGroupNameDraft(
+            typedName: WorkspaceGroupNameDraft.clampedInput(inside),
+            existingGroupNames: []
+        )
+        #expect(draft.isMixedScript)
+        #expect(!draft.canSubmit)
+    }
+
     @MainActor
     @Test("saved-form announcement is deduplicated until the name changes")
     func adjustmentAnnouncementDeduplication() {
@@ -134,5 +181,27 @@ struct WorkspaceGroupNameDraftTests {
         gate.editingChanged()
         gate.announceIfNeeded(for: draft) { announcements.append($0) }
         #expect(announcements.count == 2)
+    }
+
+    @MainActor
+    @Test("init bounds its own input, so callers that skip the binding are still capped")
+    func initClampsUnboundedInput() {
+        // The rename sheet seeds state from an existing name without passing it
+        // through the TextField binding, so the clamp has to live in init or
+        // the per-keystroke mixed-script scan runs unbounded on first render.
+        let oversized = String(repeating: "a", count: WorkspaceGroupNameDraft.inputScalarLimit + 500)
+        let draft = WorkspaceGroupNameDraft(typedName: oversized, existingGroupNames: [])
+        #expect(draft.typedName.unicodeScalars.count == WorkspaceGroupNameDraft.inputScalarLimit)
+    }
+
+    @MainActor
+    @Test("the clamp keeps real text that follows a run of invisibles")
+    func clampPreservesTextAfterInvisibles() {
+        // A tighter ceiling silently changed what got saved: sanitization strips
+        // the invisibles first, so a clamp below the sanitizer's own bound can
+        // cut off the only real characters in the paste.
+        let paste = String(repeating: "\u{200D}", count: 200) + "Team"
+        let draft = WorkspaceGroupNameDraft(typedName: paste, existingGroupNames: [])
+        #expect(draft.sanitizedName == "Team")
     }
 }
