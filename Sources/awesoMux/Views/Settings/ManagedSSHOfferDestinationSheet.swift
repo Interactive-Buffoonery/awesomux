@@ -10,21 +10,108 @@ struct ManagedSSHOfferDestinationSheet: View {
         /// Destinations that become managed without asking.
         case alwaysManage
 
-        var addButtonTitle: LocalizedStringKey {
+        // `String(localized:)` per branch rather than bare literals coerced to
+        // `LocalizedStringKey`: both forms work at runtime, but a literal
+        // hidden behind a computed property is not where the rest of this
+        // codebase puts translatable copy, and only this form can carry a
+        // translator comment.
+        var addButtonTitle: String {
             switch self {
             case .neverAsk:
-                "Add Ignored Destination…"
+                String(
+                    localized: "Add Ignored Destination…",
+                    comment: "Button that opens the sheet for adding an SSH destination to the don’t-ask list"
+                )
             case .alwaysManage:
-                "Add Always-Managed Destination…"
+                String(
+                    localized: "Add Always-Managed Destination…",
+                    comment: "Button that opens the sheet for adding an SSH destination to the always-manage list"
+                )
             }
         }
 
-        var sheetTitle: LocalizedStringKey {
+        var sheetTitle: String {
             switch self {
             case .neverAsk:
-                "Add Ignored SSH Destination"
+                String(
+                    localized: "Add Ignored SSH Destination",
+                    comment: "Title of the sheet for adding an SSH destination to the don’t-ask list"
+                )
             case .alwaysManage:
-                "Add Always-Managed SSH Destination"
+                String(
+                    localized: "Add Always-Managed SSH Destination",
+                    comment: "Title of the sheet for adding an SSH destination to the always-manage list"
+                )
+            }
+        }
+
+        /// Warns that adding here removes the destination from the other list.
+        var siblingRemovalWarning: String {
+            switch self {
+            case .neverAsk:
+                String(
+                    localized:
+                        "This destination is set to be managed automatically. Adding it here will stop that.",
+                    comment: "Warning when adding an SSH destination to the don’t-ask list removes it from the always-manage list"
+                )
+            case .alwaysManage:
+                String(
+                    localized:
+                        "This destination is on the don’t-ask list. Adding it here will remove it from that list.",
+                    comment: "Warning when adding an SSH destination to the always-manage list removes it from the don’t-ask list"
+                )
+            }
+        }
+
+        /// Names the list on the destination text itself. Two lists of
+        /// identical rows meaning opposite things read the same in linear
+        /// traversal, and the section heading covers both of them.
+        func rowAccessibilityLabel(destination: String) -> String {
+            switch self {
+            case .neverAsk:
+                String(
+                    localized: "\(destination), on the don’t-ask list",
+                    comment: "Accessibility label for a destination row in the don’t-ask list"
+                )
+            case .alwaysManage:
+                String(
+                    localized: "\(destination), managed automatically",
+                    comment: "Accessibility label for a destination row in the always-manage list"
+                )
+            }
+        }
+
+        func removedAnnouncement(destination: String) -> String {
+            switch self {
+            case .neverAsk:
+                String(
+                    localized: "Removed \(destination) from the don’t-ask list",
+                    comment: "Announced after removing an SSH destination from the don’t-ask list"
+                )
+            case .alwaysManage:
+                String(
+                    localized: "Removed \(destination) from the always-manage list",
+                    comment: "Announced after removing an SSH destination from the always-manage list"
+                )
+            }
+        }
+
+        /// Names the list as well as the destination. Both lists render
+        /// identical rows with identical remove buttons and mean opposite
+        /// things, so "Remove build-box" alone leaves a screen-reader user
+        /// relying on how far back the section heading was.
+        func removeAccessibilityLabel(destination: String) -> String {
+            switch self {
+            case .neverAsk:
+                String(
+                    localized: "Remove \(destination) from the don’t-ask list",
+                    comment: "Accessibility label for the button removing an SSH destination from the don’t-ask list"
+                )
+            case .alwaysManage:
+                String(
+                    localized: "Remove \(destination) from the always-manage list",
+                    comment: "Accessibility label for the button removing an SSH destination from the always-manage list"
+                )
             }
         }
     }
@@ -81,7 +168,7 @@ struct ManagedSSHOfferDestinationSheet: View {
         case .neverAsk:
             return workspaces.managedSSHOfferIgnoredDestinations
         case .alwaysManage:
-            return workspaces.managedSSHAlwaysManagedDestinations
+            return ManagedSSHOfferPolicy.sortedAlwaysManagedDestinations(in: workspaces)
         }
     }
 
@@ -100,7 +187,28 @@ struct ManagedSSHOfferDestinationSheet: View {
                 comment: "Error shown when a managed SSH destination is added twice"
             )
         }
+        // The two lists are kept disjoint, so adding here deletes the entry
+        // over there — including, for an always-managed entry, the persistence
+        // owner that can only be set from a live connect prompt. The duplicate
+        // check above looks only at the list being added to, so without this
+        // the field looks clean right up until the other row disappears.
+        if siblingDestinations.contains(where: {
+            SSHWorkspaceDestinationValidation.target(from: $0)?.sshDestination == target.sshDestination
+        }) {
+            return listKind.siblingRemovalWarning
+        }
         return nil
+    }
+
+    /// The list this destination will be removed from if it is added here.
+    private var siblingDestinations: [String] {
+        let workspaces = appSettingsStore.workspaces.value
+        switch listKind {
+        case .neverAsk:
+            return ManagedSSHOfferPolicy.sortedAlwaysManagedDestinations(in: workspaces)
+        case .alwaysManage:
+            return workspaces.managedSSHOfferIgnoredDestinations
+        }
     }
 
     private var validatedDestination: RemoteTarget? {
@@ -110,6 +218,15 @@ struct ManagedSSHOfferDestinationSheet: View {
     private func addDestination() {
         guard validatedDestination != nil, validationMessage == nil else { return }
         submissionError = nil
+        // Same reasoning as the connect sheet's Remember actions, and the same
+        // guard: dismissing on an unwritten preference reads as success in
+        // both channels, and the Settings banner that would disclose it is
+        // behind this modal.
+        if let reason = ManagedSSHPreferenceWriteGuard.blockedReason(store: appSettingsStore) {
+            submissionError = reason
+            TerminalAccessibilityAnnouncer.announceSettingsError(submissionError)
+            return
+        }
         var result: ManagedSSHOfferPolicy.AddResult = .invalid
         appSettingsStore.workspaces.update {
             switch listKind {

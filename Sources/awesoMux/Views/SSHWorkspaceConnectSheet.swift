@@ -109,7 +109,11 @@ struct SSHWorkspaceConnectSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let message = validationMessage ?? preferenceErrorMessage ?? settingsErrorMessage ?? submission.errorMessage {
+            // `preferenceErrorMessage` first: it reports the outcome of an
+            // action the user just took, while `validationMessage` is ambient
+            // state. Behind validation it could be announced to VoiceOver and
+            // never rendered — a refusal that was mute for everyone else.
+            if let message = preferenceErrorMessage ?? validationMessage ?? settingsErrorMessage ?? submission.errorMessage {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -187,20 +191,86 @@ struct SSHWorkspaceConnectSheet: View {
         )
     }
 
+    /// The destination these actions will actually record — the edited field,
+    /// not the one that raised the prompt. Both are spelled into the menu
+    /// titles because "This Destination" reads as the host in front of you,
+    /// and a typo in the field otherwise enrols a different one silently.
+    private var rememberedDestination: String? {
+        SSHWorkspaceDestinationValidation.target(from: destination)?.sshDestination
+    }
+
+    private var alwaysManageThisTitle: String {
+        guard let rememberedDestination else {
+            return String(
+                localized: "Always Manage This Destination",
+                comment: "Remember-menu item in the managed SSH sheet when no valid destination is entered"
+            )
+        }
+        return String(
+            localized: "Always Manage “\(rememberedDestination)”",
+            comment: "Remember-menu item naming the SSH destination that will be managed without asking"
+        )
+    }
+
+    private var neverAskThisTitle: String {
+        guard let rememberedDestination else {
+            return String(
+                localized: "Never Ask for This Destination",
+                comment: "Remember-menu item in the managed SSH sheet when no valid destination is entered"
+            )
+        }
+        return String(
+            localized: "Never Ask for “\(rememberedDestination)”",
+            comment: "Remember-menu item naming the SSH destination that will stop prompting"
+        )
+    }
+
     private func rememberMenu(execution: SSHExecution?) -> some View {
         Menu("Remember…") {
-            Button("Always Manage This Destination") {
+            Button(alwaysManageThisTitle) {
                 alwaysManageThisDestination(execution: execution)
             }
             .disabled(execution == nil)
+            .accessibilityHint(
+                fieldValidationMessage
+                    ?? String(
+                        localized: "Enter a valid destination and session name to remember this destination",
+                        comment: "Accessibility hint on the disabled always-manage-this-destination menu item"
+                    ),
+                isEnabled: execution == nil
+            )
             Button("Always Manage Any Destination") {
                 alwaysManageAnyDestination(execution: execution)
             }
             .disabled(execution == nil)
+            .accessibilityHint(
+                fieldValidationMessage
+                    ?? String(
+                        localized: "Enter a valid destination and session name to always manage SSH",
+                        comment: "Accessibility hint on the disabled always-manage-any-destination menu item"
+                    ),
+                isEnabled: execution == nil
+            )
             Divider()
-            Button("Never Ask for This Destination") {
+            // Gated on the destination alone, not on `execution`: an invalid
+            // *session name* is no reason to refuse a suppression, and without
+            // any gate an empty field reported "Couldn't save the managed SSH
+            // setting" when nothing had failed to save.
+            Button(neverAskThisTitle) {
                 neverAskForThisDestination()
             }
+            .disabled(rememberedDestination == nil)
+            .accessibilityHint(
+                // Deliberately not `validationMessage`: this item is gated on
+                // the destination alone, so a session-name complaint would
+                // point at the wrong field.
+                SSHWorkspaceDestinationValidation.message(for: destination)
+                    ?? String(
+                        localized: "Enter a valid destination to stop asking about it",
+                        comment: "Accessibility hint on the disabled never-ask-for-this-destination menu item"
+                    ),
+                isEnabled: rememberedDestination == nil
+            )
             Button("Never Ask for Any Destination") {
                 neverAskForAnyDestination()
             }
@@ -215,14 +285,23 @@ struct SSHWorkspaceConnectSheet: View {
     private func alwaysManageThisDestination(execution: SSHExecution?) {
         guard let execution else { return }
         preferenceErrorMessage = nil
+        guard !rememberIsBlockedByInvalidConfig() else { return }
+        // Record the persistence owner alongside the destination. Storing the
+        // destination alone meant a remote-owned session reconnected through a
+        // local amx daemon on every later connect, whatever the user chose here.
         appSettingsStore.workspaces.update {
-            _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination(destination, to: &$0)
+            _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination(
+                destination,
+                sessionName: execution.sessionName,
+                to: &$0
+            )
         }
         guard
             let target = SSHWorkspaceDestinationValidation.target(from: destination),
-            ManagedSSHOfferPolicy.isAlwaysManaged(
+            ManagedSSHOfferPolicy.records(
                 target: target,
-                config: appSettingsStore.workspaces.value
+                sessionName: execution.sessionName,
+                in: appSettingsStore.workspaces.value
             )
         else {
             showPreferenceSaveError()
@@ -234,7 +313,14 @@ struct SSHWorkspaceConnectSheet: View {
     private func alwaysManageAnyDestination(execution: SSHExecution?) {
         guard let execution else { return }
         preferenceErrorMessage = nil
-        appSettingsStore.workspaces.update { $0.managedSSHAlwaysManageAllDestinations = true }
+        guard !rememberIsBlockedByInvalidConfig() else { return }
+        // Turning the blanket grant on also lifts a blanket decline: leaving
+        // `managedSSHOffersEnabled` false would make this choice inert, since
+        // a blanket decline now outranks a blanket grant.
+        appSettingsStore.workspaces.update {
+            $0.managedSSHAlwaysManageAllDestinations = true
+            $0.managedSSHOffersEnabled = true
+        }
         guard appSettingsStore.workspaces.value.managedSSHAlwaysManageAllDestinations else {
             showPreferenceSaveError()
             return
@@ -244,6 +330,7 @@ struct SSHWorkspaceConnectSheet: View {
 
     private func neverAskForThisDestination() {
         preferenceErrorMessage = nil
+        guard !rememberIsBlockedByInvalidConfig() else { return }
         appSettingsStore.workspaces.update {
             _ = ManagedSSHOfferPolicy.addIgnoredDestination(destination, to: &$0)
         }
@@ -262,12 +349,27 @@ struct SSHWorkspaceConnectSheet: View {
 
     private func neverAskForAnyDestination() {
         preferenceErrorMessage = nil
-        appSettingsStore.workspaces.update { $0.managedSSHOffersEnabled = false }
+        guard !rememberIsBlockedByInvalidConfig() else { return }
+        // Clear the blanket grant too. Without this the decline is outranked
+        // by nothing, but the setting it contradicts stays on and shows in
+        // Settings as if both were in force.
+        appSettingsStore.workspaces.update {
+            $0.managedSSHOffersEnabled = false
+            $0.managedSSHAlwaysManageAllDestinations = false
+        }
         guard !appSettingsStore.workspaces.value.managedSSHOffersEnabled else {
             showPreferenceSaveError()
             return
         }
         onCancel()
+    }
+
+    private func rememberIsBlockedByInvalidConfig() -> Bool {
+        guard let reason = ManagedSSHPreferenceWriteGuard.blockedReason(store: appSettingsStore)
+        else { return false }
+        preferenceErrorMessage = reason
+        TerminalAccessibilityAnnouncer.announceSettingsError(preferenceErrorMessage)
+        return true
     }
 
     private func showPreferenceSaveError() {

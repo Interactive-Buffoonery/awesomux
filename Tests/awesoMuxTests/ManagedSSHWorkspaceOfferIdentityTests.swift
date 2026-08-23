@@ -39,10 +39,17 @@ struct ManagedSSHWorkspaceOfferIdentityTests {
             managedSSHOfferIgnoredDestinations: ["host-a"]
         )
 
+        // `#require`, not a bare optional: `resolve(target: nil, …)` returns
+        // `.doNothing` from its first guard, so an unwrapped optional would let
+        // a store that consumed nothing pass a test named for consumption.
         let target = try #require(
             store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID)
         )
-        #expect(ManagedSSHOfferPolicy.decision(target: target, config: config) == .none)
+
+        // Through the resolver the app actually uses, not a hand-rolled repeat
+        // of the two calls behind it: this now fails if the suppressed arm is
+        // rewired to present the sheet.
+        #expect(ManagedSSHOfferEffect.resolve(target: target, config: config) == .doNothing)
 
         #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sessionID, paneID: paneID) == nil)
         #expect(store.managedSSHConversionTarget(sessionID: sessionID, paneID: paneID)?.sshDestination == "host-a")

@@ -14,12 +14,18 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultManagedSSHOffersEnabled> public var managedSSHOffersEnabled: Bool
     @TOMLDefault<DefaultManagedSSHOfferIgnoredDestinations>
     public var managedSSHOfferIgnoredDestinations: [String]
-    /// Destinations whose SSH connections become managed without asking.
-    /// Takes precedence over `managedSSHOfferIgnoredDestinations`.
-    @TOMLDefault<DefaultManagedSSHAlwaysManagedDestinations>
-    public var managedSSHAlwaysManagedDestinations: [String]
+    /// Destinations whose SSH connections become managed without asking,
+    /// keyed by normalized `user@host`. Keyed rather than a list because the
+    /// entry has to carry the persistence owner the user chose: a remembered
+    /// destination that stored only its name silently converted every later
+    /// connection to local-amx, whatever the user picked the first time.
+    ///
+    /// Outranked by `managedSSHOfferIgnoredDestinations` — an explicit
+    /// per-destination decline is the more specific and more recent answer.
+    @TOMLDefault<DefaultManagedSSHAlwaysManaged>
+    public var managedSSHAlwaysManaged: [String: ManagedSSHAlwaysManagedEntry]
     /// When true, every detected SSH connection becomes managed without
-    /// asking, regardless of the per-destination lists.
+    /// asking, unless the destination is explicitly ignored.
     @TOMLDefault<DefaultManagedSSHAlwaysManageAllDestinations>
     public var managedSSHAlwaysManageAllDestinations: Bool
     /// Ordered bundle identifiers, top = highest priority. Empty means no
@@ -40,7 +46,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         confirmDestructivePaneActionWithRunningAgent: true,
         managedSSHOffersEnabled: true,
         managedSSHOfferIgnoredDestinations: [],
-        managedSSHAlwaysManagedDestinations: [],
+        managedSSHAlwaysManaged: [:],
         managedSSHAlwaysManageAllDestinations: false,
         defaultIDEPriority: [],
         openInIDEEnabled: true
@@ -53,7 +59,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         confirmDestructivePaneActionWithRunningAgent: Bool = true,
         managedSSHOffersEnabled: Bool = true,
         managedSSHOfferIgnoredDestinations: [String] = [],
-        managedSSHAlwaysManagedDestinations: [String] = [],
+        managedSSHAlwaysManaged: [String: ManagedSSHAlwaysManagedEntry] = [:],
         managedSSHAlwaysManageAllDestinations: Bool = false,
         defaultIDEPriority: [String] = [],
         openInIDEEnabled: Bool = true
@@ -64,7 +70,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         self.confirmDestructivePaneActionWithRunningAgent = confirmDestructivePaneActionWithRunningAgent
         self.managedSSHOffersEnabled = managedSSHOffersEnabled
         self.managedSSHOfferIgnoredDestinations = managedSSHOfferIgnoredDestinations
-        self.managedSSHAlwaysManagedDestinations = managedSSHAlwaysManagedDestinations
+        self.managedSSHAlwaysManaged = managedSSHAlwaysManaged
         self.managedSSHAlwaysManageAllDestinations = managedSSHAlwaysManageAllDestinations
         self.defaultIDEPriority = defaultIDEPriority
         self.openInIDEEnabled = openInIDEEnabled
@@ -97,9 +103,9 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
                 TOMLDefault<DefaultManagedSSHOfferIgnoredDestinations>.self,
                 forKey: .managedSSHOfferIgnoredDestinations
             ).wrappedValue,
-            managedSSHAlwaysManagedDestinations: try container.decode(
-                TOMLDefault<DefaultManagedSSHAlwaysManagedDestinations>.self,
-                forKey: .managedSSHAlwaysManagedDestinations
+            managedSSHAlwaysManaged: try container.decode(
+                TOMLDefault<DefaultManagedSSHAlwaysManaged>.self,
+                forKey: .managedSSHAlwaysManaged
             ).wrappedValue,
             managedSSHAlwaysManageAllDestinations: try container.decode(
                 TOMLDefault<DefaultManagedSSHAlwaysManageAllDestinations>.self,
@@ -130,10 +136,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
             managedSSHOfferIgnoredDestinations,
             forKey: .managedSSHOfferIgnoredDestinations
         )
-        try container.encode(
-            managedSSHAlwaysManagedDestinations,
-            forKey: .managedSSHAlwaysManagedDestinations
-        )
+        try container.encode(managedSSHAlwaysManaged, forKey: .managedSSHAlwaysManaged)
         try container.encode(
             managedSSHAlwaysManageAllDestinations,
             forKey: .managedSSHAlwaysManageAllDestinations
@@ -149,10 +152,28 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         case confirmDestructivePaneActionWithRunningAgent = "confirm_destructive_pane_action_with_running_agent"
         case managedSSHOffersEnabled = "managed_ssh_offers_enabled"
         case managedSSHOfferIgnoredDestinations = "managed_ssh_offer_ignored_destinations"
-        case managedSSHAlwaysManagedDestinations = "managed_ssh_always_managed_destinations"
+        case managedSSHAlwaysManaged = "managed_ssh_always_managed"
         case managedSSHAlwaysManageAllDestinations = "managed_ssh_always_manage_all_destinations"
         case defaultIDEPriority = "default_ide_priority"
         case openInIDEEnabled = "open_in_ide_enabled"
+    }
+}
+
+/// What a remembered always-managed destination stores beyond its own name.
+///
+/// `sessionName` nil means local-amx persistence — an `amx` daemon on this
+/// machine in front of the SSH child. A name means the remote host owns the
+/// session and no local daemon is involved, which is why it cannot be inferred
+/// from the destination alone.
+public struct ManagedSSHAlwaysManagedEntry: Codable, Equatable, Sendable {
+    public var sessionName: String?
+
+    public init(sessionName: String? = nil) {
+        self.sessionName = sessionName
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionName = "session_name"
     }
 }
 
@@ -180,8 +201,8 @@ public struct DefaultManagedSSHOfferIgnoredDestinations: DefaultProvider {
     public static let defaultValue: [String] = []
 }
 
-public struct DefaultManagedSSHAlwaysManagedDestinations: DefaultProvider {
-    public static let defaultValue: [String] = []
+public struct DefaultManagedSSHAlwaysManaged: DefaultProvider {
+    public static let defaultValue: [String: ManagedSSHAlwaysManagedEntry] = [:]
 }
 
 public struct DefaultManagedSSHAlwaysManageAllDestinations: DefaultProvider {
