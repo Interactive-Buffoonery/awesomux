@@ -118,8 +118,12 @@ struct AboutCredit: Identifiable {
             resource: "OFL", ext: "txt", subdirectory: "Geist"),
         AboutCredit(
             name: "Hack Nerd Font Mono",
-            attribution: "Terminal font — MIT",
+            attribution: "Terminal font — MIT, public domain, and Bitstream Vera",
             resource: "LICENSE", ext: "md", subdirectory: "HackNerdFontMono"),
+        AboutCredit(
+            name: "Selenized",
+            attribution: "Terminal color scheme — MIT",
+            resource: "LICENSE", ext: nil, subdirectory: "Selenized"),
     ]
 
     func licenseURL(in bundle: Bundle = .main) -> URL? {
