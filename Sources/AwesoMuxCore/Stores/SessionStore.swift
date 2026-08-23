@@ -373,11 +373,14 @@ public final class SessionStore {
         locale: Locale
     ) -> String {
         let box = liveTitleBox(for: session.id)
+        // The flag gates, so the title cannot be nil here; `?? ""` keeps the
+        // override's non-optional contract that an empty coarse title is a
+        // valid snapshot (issue #329).
         return box.hasCoarseSnapshot
             ? session.displayTitle(
                 bundle: bundle,
                 locale: locale,
-                overridingRawTitle: box.coarseWorkspaceTitle
+                overridingRawTitle: box.coarseWorkspaceTitle ?? ""
             )
             : session.displayTitle(bundle: bundle, locale: locale)
     }

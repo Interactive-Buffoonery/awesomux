@@ -99,7 +99,84 @@ struct LiveTitleReadsChannelTests {
         #expect(LiveTitles(box: box, reads: .everything).workspace == "release prep")
     }
 
+    // MARK: - An unseeded box falls back to the session struct (#329)
+
+    /// Reachability: `SessionStore.liveTitleBox(for:)` stores a box WITHOUT
+    /// adopting it when `storedSessionForLiveTitleBox` finds nothing. Asking
+    /// for an ID storage does not know takes that same branch, so the box below
+    /// is the unseeded state — reached here by the simpler trigger, not by the
+    /// mid-structural-mutation timing the issue describes. No test drives that
+    /// window; every mutator is synchronous on `@MainActor` and commits before
+    /// returning, so it has no reachable caller today (see the note on
+    /// `SessionStore.liveTitleBox(for:)`).
+    ///
+    /// This is the channel the fix actually repairs: the fine channel has no
+    /// snapshot flag to hide behind, so an empty-string default blanked the
+    /// titlebar and path bar instead of falling back.
+    @Test("an unseeded box's fine channel falls back to the session struct's title")
+    func unseededBoxFineChannelFallsBackToStructTitle() {
+        let fixture = makeFixture()
+        let syntheticTitle = SyntheticSessionTitle(agentKind: .shell, index: 1)
+        let session = makeSession(syntheticTitle: syntheticTitle)
+        let box = fixture.store.liveTitleBox(for: UUID())
+
+        let titles = LiveTitles(box: box, reads: .workspaceTitle)
+
+        #expect(titles.workspace == nil)
+        #expect(titles.workspaceTitle(for: session) == syntheticTitle.localizedTitle())
+    }
+
+    /// The sidebar row and its accessibility label resolve from the same
+    /// `LiveTitles`, so they must fall back TOGETHER: a fix that repaired the
+    /// visible row while the label kept the sentinel would be the same bug with
+    /// less visibility.
+    ///
+    /// Note this asserts a property the sentinel fix did NOT change — `.everything`
+    /// short-circuits on `hasCoarseSnapshot` before it ever reads the title, so
+    /// the row and label already fell back correctly. Reverting both properties
+    /// to `String = ""` leaves this test green. It is a standing lockstep guard,
+    /// not proof of the fix; keep it if `hasCoarseSnapshot` is ever reconsidered,
+    /// because that gate is what currently holds this invariant up.
+    @Test("an unseeded box keeps the row and its accessibility label in lockstep on the struct title")
+    func unseededBoxKeepsRowAndAccessibilityLabelInLockstep() throws {
+        let bundle = try #require(AwesoMuxLocalizationTestSupport.bundle)
+        let fixture = makeFixture()
+        let syntheticTitle = SyntheticSessionTitle(agentKind: .shell, index: 1)
+        let session = makeSession(syntheticTitle: syntheticTitle)
+        let box = fixture.store.liveTitleBox(for: UUID())
+
+        // `.everything` is the sidebar row's channel.
+        let titles = LiveTitles(box: box, reads: .everything)
+
+        #expect(titles.workspaceTitle(for: session) == syntheticTitle.localizedTitle())
+        #expect(
+            SidebarSessionTile.workspaceIdentityAccessibilityLabel(
+                session: session,
+                rollup: session.agentRollup(),
+                title: titles.workspace,
+                bundle: bundle,
+                locale: AwesoMuxLocalizationTestSupport.pseudoLocale
+            )
+            .contains(syntheticTitle.localizedTitle(bundle: bundle, locale: AwesoMuxLocalizationTestSupport.pseudoLocale))
+        )
+    }
+
     // MARK: - Fixture
+
+    private func makeSession(syntheticTitle: SyntheticSessionTitle) -> TerminalSession {
+        let pane = TerminalPane(
+            title: "pane",
+            workingDirectory: "~",
+            executionPlan: .local
+        )
+        return TerminalSession(
+            title: "",
+            workingDirectory: "~",
+            syntheticTitle: syntheticTitle,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+    }
 
     /// Lock-guarded rather than a bare `var` behind `@unchecked Sendable`:
     /// `withObservationTracking`'s `onChange` is `@Sendable`, so the promise has
