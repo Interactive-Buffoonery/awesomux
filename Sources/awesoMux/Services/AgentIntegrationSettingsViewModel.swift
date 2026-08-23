@@ -99,7 +99,9 @@ struct AgentIntegrationSettingsViewModel {
 
     /// The card shown before the first authoritative probe lands. Layout-stable
     /// and actionless (`isAuthoritative` false disables install), so cards never
-    /// vanish from the pane while probing is in flight.
+    /// vanish from the pane while probing is in flight. Performs no filesystem
+    /// access whatsoever: it is reachable from view body evaluation, so every
+    /// path here is pure string composition.
     func placeholderCardState(
         provider: AgentIntegrationInstallProvider,
         setup: AgentIntegrationSetup
@@ -112,14 +114,10 @@ struct AgentIntegrationSettingsViewModel {
             configHomePlaceholder: provider.globalConfigHome(homeDirectory: homeDirectoryURL).path,
             templatePath: installer.templateURL(provider: provider).path,
             renderedPath: installer.renderedFileURL(provider: provider, setup: setup).path,
-            globalInstallPath: (try? installer.destinationFileURL(
-                provider: provider,
-                homeDirectory: homeDirectoryURL,
-                configuredConfigHome: setup.configHome
-            ))?.path ?? provider.globalInstallPathPlaceholder(homeDirectory: homeDirectoryURL),
+            globalInstallPath: provider.globalInstallPathPlaceholder(homeDirectory: homeDirectoryURL),
             binaryValidation: .unset(provider.defaultBinaryPath),
             configHomeValidation: .unset(provider.globalConfigHome(homeDirectory: homeDirectoryURL).path),
-            status: setup.enabled ? .notInstalled : .disabled,
+            status: .checking,
             installedPath: nil,
             isInstalledGlobally: false,
             isProviderEnabled: setup.enabled,
@@ -160,8 +158,14 @@ struct AgentIntegrationSettingsViewModel {
                 )
             )
         case .unavailable:
+            // Not transient: this catch-all covers permission-denied, disk-full,
+            // and read-only-volume, none of which resolve on their own. Say so
+            // instead of parking on "temporarily unavailable".
             .blocked(
-                String(localized: "Install state is temporarily unavailable", comment: "Unavailable agent integration install state status")
+                String(
+                    localized: "Can't read install state. Check permissions and available disk space.",
+                    comment: "Unavailable agent integration install state status"
+                )
             )
         }
     }
@@ -223,6 +227,9 @@ struct AgentIntegrationSettingsCardState: Equatable, Sendable {
     /// False only for pre-probe placeholders, where no observation backs the
     /// status yet and install actions must stay disabled.
     var isAuthoritative: Bool = true
+    /// True while a scheduled draft validation has not produced a publication
+    /// yet; the displayed path validations then describe the previous input.
+    var isValidating: Bool = false
 
     var canInstall: Bool {
         isAuthoritative && isProviderEnabled && status.allowsInstall
@@ -273,6 +280,8 @@ enum AgentIntegrationPathValidation: Equatable, Sendable {
 
 enum AgentIntegrationSettingsStatus: Equatable, Sendable {
     case disabled
+    /// No observation has landed yet; nothing about install state is known.
+    case checking
     case notInstalled
     case staged
     case installed
@@ -281,11 +290,16 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
     case updateAvailable
     case installStateRepairRequired(String)
     case blocked(String)
+    /// The probe itself did not finish within the watchdog bound, so install
+    /// state is unknown rather than negative.
+    case timedOut
 
     var label: String {
         switch self {
         case .disabled:
             "Off"
+        case .checking:
+            String(localized: "Checking…", comment: "Agent integration card status before the first check lands")
         case .notInstalled:
             "Not installed"
         case .staged:
@@ -296,6 +310,8 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
             "Update available"
         case .installStateRepairRequired, .blocked:
             "Needs attention"
+        case .timedOut:
+            String(localized: "Couldn't check", comment: "Agent integration card status when checking timed out")
         }
     }
 
@@ -303,6 +319,10 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
         switch self {
         case .disabled:
             "Enable this provider to integrate with awesoMux"
+        case .checking:
+            String(
+                localized: "Looking for an installed integration.",
+                comment: "Agent integration card status detail while the first check is in flight")
         case .notInstalled:
             "Template has not been installed"
         case .staged:
@@ -315,12 +335,16 @@ enum AgentIntegrationSettingsStatus: Equatable, Sendable {
             message
         case .blocked(let message):
             message
+        case .timedOut:
+            String(
+                localized: "Checking this integration timed out. It will retry when you reopen this pane or edit a field.",
+                comment: "Agent integration card status detail after a probe timed out")
         }
     }
 
     var allowsInstall: Bool {
         switch self {
-        case .blocked, .disabled:
+        case .blocked, .disabled, .checking, .timedOut:
             false
         case .notInstalled, .staged, .installed, .updateAvailable, .installStateRepairRequired:
             true

@@ -20,7 +20,9 @@ struct AgentsSettingsPane: View {
 
     @State private var cardModel = AgentIntegrationSettingsCardModel(
         viewModel: AgentIntegrationSettingsViewModel(),
-        probeService: AgentIntegrationProbeService()
+        // One probe-service actor per provider: a stuck path on one provider
+        // must not queue every other provider's probe behind it.
+        probeServices: { _ in AgentIntegrationProbeService() }
     )
 
     private let integrationViewModel = AgentIntegrationSettingsViewModel()
@@ -145,7 +147,10 @@ struct AgentsSettingsPane: View {
         .task {
             // Probe enabled CLI providers on appear (read-only; consent boundary).
             probeEnabledPluginProviders()
-            cardModel.refreshAll(setupsByProvider: draftSetupsByProvider)
+            // Forced: an unchanged setup says nothing about unchanged files, so
+            // the appear probe must re-stat (also the recovery trigger for a
+            // previously timed-out check).
+            cardModel.refreshAll(setupsByProvider: draftSetupsByProvider, forcing: true)
         }
         .onChange(of: controlActiveState) { _, newState in
             // Re-probe when the settings window regains key/active focus: after a
@@ -156,8 +161,9 @@ struct AgentsSettingsPane: View {
             if newState == .key {
                 probeEnabledPluginProviders()
                 // Covers template drift after an app update: the updateAvailable
-                // badge compares installed bytes against the new bundle.
-                cardModel.refreshAll(setupsByProvider: draftSetupsByProvider)
+                // badge compares installed bytes against the new bundle. Forced
+                // for the same reason as the appear probe.
+                cardModel.refreshAll(setupsByProvider: draftSetupsByProvider, forcing: true)
             }
         }
         .onChange(of: appSettingsStore.agentIntegrations.value) { oldIntegrations, integrations in
@@ -507,7 +513,19 @@ struct AgentsSettingsPane: View {
             actionResults[provider] = nil
             actionErrors[provider] = integrationViewModel.errorMessage(for: error)
         }
-        cardModel.refresh(provider: provider, setup: draftSetup(for: provider))
+        // The mutation changed files, not the setup, so the cached observation
+        // is stale the moment the mutation completes. Withdraw its authority
+        // before scheduling the confirming probe so the badge and action
+        // affordances can't act on pre-mutation state in the meantime.
+        cardModel.invalidateObservation(provider: provider)
+        // Forcing matters: a probe started before this mutation holds the same
+        // setup, so the ordinary dedup would drop this refresh and let that
+        // pre-mutation observation re-authorize itself once it returns.
+        //
+        // Untested: install/uninstall are private to this View with no seam, so
+        // nothing fails if this argument is dropped. Verify by hand, or extract
+        // the mutation sequence before relying on it.
+        cardModel.refresh(provider: provider, setup: draftSetup(for: provider), forcing: true)
     }
 
     private func uninstall(_ provider: AgentIntegrationInstallProvider) {
@@ -520,7 +538,15 @@ struct AgentsSettingsPane: View {
             actionResults[provider] = nil
             actionErrors[provider] = integrationViewModel.errorMessage(for: error)
         }
-        cardModel.refresh(provider: provider, setup: draftSetup(for: provider))
+        cardModel.invalidateObservation(provider: provider)
+        // Forcing matters: a probe started before this mutation holds the same
+        // setup, so the ordinary dedup would drop this refresh and let that
+        // pre-mutation observation re-authorize itself once it returns.
+        //
+        // Untested: install/uninstall are private to this View with no seam, so
+        // nothing fails if this argument is dropped. Verify by hand, or extract
+        // the mutation sequence before relying on it.
+        cardModel.refresh(provider: provider, setup: draftSetup(for: provider), forcing: true)
     }
 }
 
@@ -580,6 +606,18 @@ private struct AgentIntegrationSettingsCard: View {
                 .stroke(Color.aw.border, lineWidth: 0.5)
         }
         .accessibilityElement(children: .contain)
+        // Placeholder → authoritative (and advisory → re-authoritative)
+        // transitions otherwise update an unfocused card silently; speak the
+        // resolved status so assistive technology learns the check finished.
+        .onChange(of: state.isAuthoritative) { _, isAuthoritative in
+            guard isAuthoritative else { return }
+            AccessibilityNotification.Announcement(
+                String(
+                    localized: "\(state.title) status: \(state.status.label)",
+                    comment: "Announced when an agent integration card finishes checking and its status resolves"
+                )
+            ).post()
+        }
     }
 
     private var header: some View {
@@ -610,13 +648,22 @@ private struct AgentIntegrationSettingsCard: View {
         }
     }
 
+    /// Shown whenever the card has no confirmed observation — before the first
+    /// probe and after a mutation withdraws authority. Reusing the settled
+    /// status here is what let the badge read "Not installed" beside an
+    /// "Installed." action message.
+    private static let pendingStatusLabel = String(
+        localized: "Checking…",
+        comment: "Agent integration status badge while a check is in flight"
+    )
+
     private var statusBadge: some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(statusColor)
                 .frame(width: 7, height: 7)
                 .accessibilityHidden(true)
-            Text(state.status.label)
+            Text(state.isAuthoritative ? state.status.label : Self.pendingStatusLabel)
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text2)
         }
@@ -695,9 +742,9 @@ private struct AgentIntegrationSettingsCard: View {
                 .focused(self.focusedField, equals: focusedField)
                 .onSubmit(onCommit)
                 .accessibilityLabel(accessibilityLabel)
-                .accessibilityHint(validation.displayText)
+                .accessibilityHint(validationText(validation))
 
-            Text(validation.displayText)
+            Text(validationText(validation))
                 .awFont(AwFont.Mono.meta)
                 .foregroundStyle(validation.blockingMessage == nil ? Color.aw.text3 : Color.aw.red)
                 .lineLimit(2)
@@ -736,7 +783,10 @@ private struct AgentIntegrationSettingsCard: View {
             Button(action: onUninstall) {
                 Label("Remove", systemImage: "trash")
             }
-            .disabled(!state.canUninstall)
+            // Authority gates Remove as well as Install: between a file
+            // mutation and its confirming probe, the pre-mutation observation
+            // must not be actionable.
+            .disabled(!state.isAuthoritative || !state.canUninstall)
             .buttonStyle(.bordered)
             .help(removeHelp)
             .accessibilityHint(removeHelp)
@@ -752,11 +802,37 @@ private struct AgentIntegrationSettingsCard: View {
     }
 
     private var installHelp: String {
-        state.canInstall ? state.actionTitle : state.status.detail
+        if !state.isAuthoritative {
+            return String(
+                localized: "Checking the current status…",
+                comment: "Install button hint while the integration check is still in flight")
+        }
+        return state.canInstall ? state.actionTitle : state.status.detail
     }
 
     private var removeHelp: String {
-        state.canUninstall ? "Remove the installed awesoMux file" : "No installed file to remove"
+        if !state.isAuthoritative {
+            return String(
+                localized: "Checking for an installed file…",
+                comment: "Remove button hint while the integration check is still in flight")
+        }
+        if state.status == .timedOut {
+            // A timed-out check leaves installed state unknown; a confident
+            // "nothing to remove" would be false.
+            return String(
+                localized: "Couldn't check whether an installed file exists.",
+                comment: "Remove button hint after checking timed out")
+        }
+        return state.canUninstall ? "Remove the installed awesoMux file" : "No installed file to remove"
+    }
+
+    /// Marks path validations as describing the previous input while a fresh
+    /// validation is still pending.
+    private func validationText(_ validation: AgentIntegrationPathValidation) -> String {
+        guard state.isValidating else { return validation.displayText }
+        return String(
+            localized: "\(validation.displayText) (checking…)",
+            comment: "Path validation text suffixed while a re-validation of the edited field is still in flight")
     }
 
     private var actionMessage: String {
@@ -773,13 +849,15 @@ private struct AgentIntegrationSettingsCard: View {
         switch state.status {
         case .disabled:
             Color.aw.textFaint
+        case .checking:
+            Color.aw.textFaint
         case .notInstalled:
             Color.aw.textFaint
         case .staged:
             Color.aw.sky
         case .installed:
             Color.aw.green
-        case .updateAvailable, .installStateRepairRequired:
+        case .updateAvailable, .installStateRepairRequired, .timedOut:
             Color.aw.peach
         case .blocked:
             Color.aw.red

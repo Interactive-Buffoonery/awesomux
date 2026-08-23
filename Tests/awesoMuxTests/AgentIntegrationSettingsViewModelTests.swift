@@ -204,6 +204,32 @@ struct AgentIntegrationSettingsViewModelTests {
         }
     }
 
+    @Test("unavailable install state explains the non-retryable cause")
+    func unavailableManifestExplainsNonRetryableCause() async throws {
+        try await Self.withTemporaryDirectory { directory, viewModel in
+            // .unavailable is a catch-all for permission-denied, disk-full, and
+            // read-only-volume; the derived card must point at those causes
+            // instead of promising a temporary condition.
+            let probe = AgentIntegrationProviderProbe(
+                manifest: .unavailable,
+                installedExists: false,
+                templatePath: directory.appending(path: "template").path,
+                renderedPath: directory.appending(path: "rendered").path,
+                globalInstallPath: directory.appending(path: "destination").path,
+                binaryValidation: .unset("/opt/homebrew/bin/pi"),
+                configHomeValidation: .unset("/opt/homebrew/etc"),
+                templateExists: true,
+                renderedExists: false,
+                installedContentDiffersFromTemplate: false
+            )
+
+            let state = viewModel.cardState(provider: .pi, setup: .init(enabled: true), probe: probe)
+
+            #expect(state.status.detail == "Can't read install state. Check permissions and available disk space.")
+            #expect(!state.canInstall)
+        }
+    }
+
     @Test("missing bundled template blocks install")
     func missingBundledTemplateBlocksInstall() async throws {
         try await Self.withTemporaryDirectory { directory, _ in

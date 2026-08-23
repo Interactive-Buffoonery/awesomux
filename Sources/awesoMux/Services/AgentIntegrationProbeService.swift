@@ -36,11 +36,16 @@ protocol AgentIntegrationProbing: Sendable {
         -> AgentIntegrationProviderProbe
 }
 
-/// Confines every settings-time read of installer state (manifest load, stats,
-/// template byte-compare) to a single actor so no caller can reintroduce disk
-/// I/O on the main thread. The installer is constructed inside the actor: it is
-/// deliberately not Sendable (its `manifestWriter` closure), and this keeps it
-/// from ever crossing an isolation boundary.
+/// Confines this service's settings-time reads of installer state (manifest
+/// load, stats, template byte-compare) behind an actor so probing never
+/// happens on the main thread. Each provider gets its own instance, so one
+/// provider's slow path cannot serialize another's behind it. The guarantee is
+/// scoped to reads made through this type: callers elsewhere can still perform
+/// their own filesystem access wherever they run, so view-facing code must not
+/// reach for installer/probe APIs during body evaluation. The installer is
+/// constructed inside the actor: it is deliberately not Sendable (its
+/// `manifestWriter` closure), and this keeps it from ever crossing an
+/// isolation boundary.
 actor AgentIntegrationProbeService: AgentIntegrationProbing {
     /// Directory overrides exist so tests can point the confined installer at
     /// temporary locations; everything passed in is a Sendable value and the

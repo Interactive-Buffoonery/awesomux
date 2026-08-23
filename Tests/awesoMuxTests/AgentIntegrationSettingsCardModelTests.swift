@@ -189,12 +189,18 @@ struct AgentIntegrationSettingsCardModelTests {
     @Test("placeholder precedes first authoritative probe and locks install")
     func placeholderPrecedesFirstAuthoritativeProbe() async throws {
         let spy = SpyAgentIntegrationProbeService()
-        let model = makeModel(probeService: spy)
+        let home = FileManager.default.temporaryDirectory
+        let model = makeModel(probeServices: { _ in spy }, homeDirectoryURL: home)
         let setup = AgentIntegrationSetup(enabled: true)
 
         let placeholder = model.state(for: .openCode, setup: setup)
         #expect(!placeholder.isAuthoritative)
         #expect(!placeholder.canInstall)
+        // The placeholder must not borrow settled-state copy: it has not looked
+        // yet, so it says so instead of claiming "Not installed".
+        #expect(placeholder.status == .checking)
+        #expect(placeholder.status.label == "Checking…")
+        #expect(placeholder.status.detail == "Looking for an installed integration.")
 
         var authoritativeProbe = SpyAgentIntegrationProbeService.emptyProbe
         authoritativeProbe.templateExists = true
@@ -206,12 +212,24 @@ struct AgentIntegrationSettingsCardModelTests {
         let authoritative = model.state(for: .openCode, setup: setup)
         #expect(authoritative.isAuthoritative)
         #expect(authoritative.canInstall)
+        #expect(authoritative.status.label != placeholder.status.label)
+
+        // A custom config home must not reach the filesystem from body
+        // evaluation either: until a probe lands, the destination row shows the
+        // unconditional default-home placeholder path.
+        let customConfigHome = home.appending(path: "never-stat-me-\(UUID().uuidString)")
+        let customSetup = AgentIntegrationSetup(enabled: true, configHome: customConfigHome.path)
+        let customPlaceholder = model.state(for: .pi, setup: customSetup)
+        #expect(customPlaceholder.isAuthoritative == false)
+        #expect(customPlaceholder.globalInstallPath.hasSuffix(".pi/agent/extensions/awesomux-pi-status.ts"))
+        #expect(customPlaceholder.globalInstallPath.contains(home.path))
+        #expect(!customPlaceholder.globalInstallPath.contains("never-stat-me"))
     }
 
     @Test("a keystroke burst collapses into exactly one validation probe")
     func keystrokeBurstCollapsesIntoOneProbe() async throws {
         let spy = SpyAgentIntegrationProbeService()
-        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+        let model = makeModel(probeServices: { _ in spy }, clock: ImmediateDelayClock())
 
         for index in 0..<10 {
             model.scheduleDraftValidation(
@@ -229,7 +247,7 @@ struct AgentIntegrationSettingsCardModelTests {
     @Test("an older superseded probe cannot overwrite a newer publication")
     func staleGenerationCannotOverwriteNewerResult() async throws {
         let spy = SpyAgentIntegrationProbeService()
-        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+        let model = makeModel(probeServices: { _ in spy }, clock: ImmediateDelayClock())
 
         // Distinct outcomes per call: the held (older) probe validates the old
         // path; the newer debounced validation validates the new one.
@@ -267,7 +285,7 @@ struct AgentIntegrationSettingsCardModelTests {
         committedResult.binaryValidation = .valid("/committed")
         spy2.script([staleValidation, committedResult], for: .pi)
 
-        let model2 = makeModel(probeService: spy2, clock: ImmediateDelayClock())
+        let model2 = makeModel(probeServices: { _ in spy2 }, clock: ImmediateDelayClock())
         spy2.holdCalls(true)
         model2.scheduleDraftValidation(
             provider: .pi,
@@ -293,7 +311,7 @@ struct AgentIntegrationSettingsCardModelTests {
         var blocked = SpyAgentIntegrationProbeService.emptyProbe
         blocked.templateExists = false
         spy.setResult(blocked, for: .pi)
-        let model = makeModel(probeService: spy)
+        let model = makeModel(probeServices: { _ in spy })
 
         model.refresh(provider: .pi, setup: AgentIntegrationSetup(enabled: true))
         await spy.waitForCallCount(provider: .pi, atLeast: 1)
@@ -312,7 +330,7 @@ struct AgentIntegrationSettingsCardModelTests {
         var busy = SpyAgentIntegrationProbeService.emptyProbe
         busy.manifest = .busy
         spy.setResult(busy, for: .openCode)
-        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+        let model = makeModel(probeServices: { _ in spy }, clock: ImmediateDelayClock())
 
         model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
         // The zero-delay retry cascades on its own: still busy after the single
@@ -323,7 +341,9 @@ struct AgentIntegrationSettingsCardModelTests {
 
         // A fresh explicit trigger clears the latch: probe three fires, sees
         // busy again, schedules one more retry (call four), then stands down.
-        model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        // Forced, like the pane's lifecycle triggers: an unchanged setup with a
+        // settled card is otherwise absorbed as already observed.
+        model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true), forcing: true)
         await spy.waitForCallCount(provider: .openCode, atLeast: 4)
         await settle()
         #expect(spy.callCounts[.openCode] == 4)
@@ -332,7 +352,7 @@ struct AgentIntegrationSettingsCardModelTests {
     @Test("cancelPendingWork drains scheduled validations without probing")
     func cancelPendingWorkDrainsWithoutProbing() async throws {
         let spy = SpyAgentIntegrationProbeService()
-        let model = makeModel(probeService: spy, clock: ImmediateDelayClock())
+        let model = makeModel(probeServices: { _ in spy }, clock: ImmediateDelayClock())
 
         model.scheduleDraftValidation(provider: .pi, setup: AgentIntegrationSetup(enabled: true))
         // Cancels the debounce task before it can run; with the immediate clock
@@ -342,6 +362,179 @@ struct AgentIntegrationSettingsCardModelTests {
         await settle()
 
         #expect((spy.callCounts[.pi] ?? 0) == 0)
+    }
+
+    @Test("each provider probes through its own probe service")
+    func eachProviderProbesThroughItsOwnService() async throws {
+        let openCodeSpy = SpyAgentIntegrationProbeService()
+        let piSpy = SpyAgentIntegrationProbeService()
+        let spies: [AgentIntegrationInstallProvider: SpyAgentIntegrationProbeService] = [
+            .openCode: openCodeSpy,
+            .pi: piSpy,
+        ]
+        let model = makeModel(probeServices: { spies[$0]! })
+
+        // A stuck check on one provider must not block the other's: openCode's
+        // probe is held, and pi's must still run and publish through its own
+        // service instance.
+        openCodeSpy.holdCalls(true)
+        model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        await openCodeSpy.waitForCallCount(provider: .openCode, atLeast: 1)
+
+        model.refresh(provider: .pi, setup: AgentIntegrationSetup(enabled: true))
+        await piSpy.waitForCallCount(provider: .pi, atLeast: 1)
+        await settle()
+
+        #expect(piSpy.callCounts[.pi] == 1)
+        #expect(model.state(for: .pi, setup: AgentIntegrationSetup(enabled: true)).isAuthoritative)
+        openCodeSpy.releaseHeldCalls()
+    }
+
+    @Test("a stuck probe times out into a distinct couldn't-check state")
+    func stuckProbeTimesOutIntoDistinctState() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        spy.holdCalls(true)
+        let model = makeModel(probeServices: { _ in spy })
+        let setup = AgentIntegrationSetup(enabled: true)
+
+        model.refresh(provider: .openCode, setup: setup)
+        // The immediate clock fires the watchdog as soon as it runs; give the
+        // probe task and watchdog a real moment to execute.
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+
+        let state = model.state(for: .openCode, setup: setup)
+        #expect(state.status == .timedOut)
+        #expect(state.status.label == "Couldn't check")
+        #expect(state.isAuthoritative)
+        #expect(!state.canInstall)
+        #expect(!state.canUninstall)
+
+        spy.releaseHeldCalls()
+        await settle()
+    }
+
+    @Test("generation guard rejects a stale publication independent of cancellation")
+    func generationGuardRejectsStalePublicationIndependentOfCancellation() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        var current = SpyAgentIntegrationProbeService.emptyProbe
+        current.binaryValidation = .valid("/current")
+        spy.setResult(current, for: .openCode)
+        let model = makeModel(probeServices: { _ in spy })
+        let setup = AgentIntegrationSetup(enabled: true)
+
+        model.refresh(provider: .openCode, setup: setup)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await settle()
+        #expect(model.state(for: .openCode, setup: setup).binaryValidation == .valid("/current"))
+
+        // Drive a publication carrying generation 0 — older than anything this
+        // model has issued — directly through the apply seam. The provider slot
+        // is occupied by the live, uncancelled probe above, so only the
+        // generation guard can stop this stale write.
+        var stale = SpyAgentIntegrationProbeService.emptyProbe
+        stale.binaryValidation = .invalid("/stale")
+        model.apply(stale, provider: .openCode, setup: setup, generation: 0)
+        await settle()
+
+        let state = model.state(for: .openCode, setup: setup)
+        #expect(state.binaryValidation == .valid("/current"))
+        #expect(state.isAuthoritative)
+    }
+
+    @Test("one commit collapses targeted refresh and store echo into single probes")
+    func singleCommitCollapsesIntoSingleProbes() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        let model = makeModel(probeServices: { _ in spy }, clock: ImmediateDelayClock())
+        let openCodeSetup = AgentIntegrationSetup(enabled: true)
+        let piSetup = AgentIntegrationSetup(enabled: false)
+
+        // Pane appear.
+        model.refreshAll(setupsByProvider: [.openCode: openCodeSetup, .pi: piSetup], forcing: true)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await spy.waitForCallCount(provider: .pi, atLeast: 1)
+        await settle()
+        #expect(spy.callCounts[.openCode] == 1)
+        #expect(spy.callCounts[.pi] == 1)
+
+        // One commit: the pane's targeted refresh plus the self-triggered
+        // store-write echo into refreshAll for every provider. Both must be
+        // absorbed into zero additional probes.
+        model.refresh(provider: .openCode, setup: openCodeSetup)
+        model.refreshAll(setupsByProvider: [.openCode: openCodeSetup, .pi: piSetup])
+        await settle()
+
+        #expect(spy.callCounts[.openCode] == 1)
+        #expect(spy.callCounts[.pi] == 1)
+    }
+
+    @Test("one install issues exactly one follow-up probe")
+    func singleInstallIssuesExactlyOneFollowUpProbe() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        var installed = SpyAgentIntegrationProbeService.emptyProbe
+        installed.manifest = .loaded(installedPath: "/tmp/installed")
+        installed.installedExists = true
+        spy.setResult(installed, for: .openCode)
+        let model = makeModel(probeServices: { _ in spy }, clock: ImmediateDelayClock())
+        let openCodeSetup = AgentIntegrationSetup(enabled: true)
+        let piSetup = AgentIntegrationSetup(enabled: false)
+
+        model.refreshAll(setupsByProvider: [.openCode: openCodeSetup, .pi: piSetup], forcing: true)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await spy.waitForCallCount(provider: .pi, atLeast: 1)
+        await settle()
+
+        // One install action: withdraw authority for the mutated files, run the
+        // confirming probe, then absorb the store echo.
+        model.invalidateObservation(provider: .openCode)
+        model.refresh(provider: .openCode, setup: openCodeSetup)
+        model.refreshAll(setupsByProvider: [.openCode: openCodeSetup, .pi: piSetup])
+        await settle()
+
+        #expect(spy.callCounts[.openCode] == 2)
+        #expect(spy.callCounts[.pi] == 1)
+    }
+
+    @Test("invalidating observation withdraws action authority immediately")
+    func invalidatedObservationWithdrawsAuthorityBeforeNextProbe() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        var installed = SpyAgentIntegrationProbeService.emptyProbe
+        installed.manifest = .loaded(installedPath: "/tmp/installed")
+        installed.installedExists = true
+        spy.setResult(installed, for: .openCode)
+        let model = makeModel(probeServices: { _ in spy })
+        let setup = AgentIntegrationSetup(enabled: true)
+
+        model.refresh(provider: .openCode, setup: setup)
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await settle()
+        #expect(model.state(for: .openCode, setup: setup).isAuthoritative)
+
+        model.invalidateObservation(provider: .openCode)
+
+        let invalidated = model.state(for: .openCode, setup: setup)
+        #expect(!invalidated.isAuthoritative)
+        #expect(!invalidated.canInstall)
+        // The cached observation survives; only its authority is withdrawn.
+        #expect(invalidated.isInstalledGlobally)
+    }
+
+    @Test("an unavailable manifest gives terminal guidance instead of retrying")
+    func unavailableManifestDoesNotRetryAndExplainsCause() async throws {
+        let spy = SpyAgentIntegrationProbeService()
+        var unavailable = SpyAgentIntegrationProbeService.emptyProbe
+        unavailable.manifest = .unavailable
+        spy.setResult(unavailable, for: .openCode)
+        let model = makeModel(probeServices: { _ in spy }, clock: ImmediateDelayClock())
+
+        model.refresh(provider: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        await spy.waitForCallCount(provider: .openCode, atLeast: 1)
+        await settle()
+        await settle()
+
+        // Not transient: exactly one probe, no bounded retry cascade.
+        #expect(spy.callCounts[.openCode] == 1)
+        let state = model.state(for: .openCode, setup: AgentIntegrationSetup(enabled: true))
+        #expect(state.status.detail == "Can't read install state. Check permissions and available disk space.")
     }
 
     // MARK: - Helpers
@@ -356,16 +549,18 @@ struct AgentIntegrationSettingsCardModelTests {
     }
 
     private func makeModel(
-        probeService: SpyAgentIntegrationProbeService,
+        probeServices: @escaping @Sendable (AgentIntegrationInstallProvider) -> any AgentIntegrationProbing,
         clock: any AgentIntegrationSettingsSleeping = ImmediateDelayClock(),
-        homeDirectoryURL: URL = FileManager.default.temporaryDirectory
+        homeDirectoryURL: URL = FileManager.default.temporaryDirectory,
+        probeTimeout: Duration = AgentIntegrationSettingsCardModel.defaultProbeTimeout
     ) -> AgentIntegrationSettingsCardModel {
         AgentIntegrationSettingsCardModel(
             viewModel: AgentIntegrationSettingsViewModel(homeDirectoryURL: homeDirectoryURL),
-            probeService: probeService,
+            probeServices: probeServices,
             clock: clock,
             validationDebounce: .milliseconds(50),
-            transientRetryDelay: .milliseconds(100)
+            transientRetryDelay: .milliseconds(100),
+            probeTimeout: probeTimeout
         )
     }
 }
