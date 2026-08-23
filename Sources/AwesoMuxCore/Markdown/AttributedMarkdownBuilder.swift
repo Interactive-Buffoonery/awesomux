@@ -506,10 +506,15 @@ private struct Context {
     /// whose delimiter has no colon, and an empty array if the delimiter can't be
     /// located (callers default missing columns to `.left`).
     func parseColumnAlignments(for table: Table) -> [TableColumnAlignment] {
-        guard let range = byteRange(of: table) else { return [] }
-        let bytes = Array(source.utf8)
-        guard range.upperBound <= bytes.count else { return [] }
-        let tableText = String(decoding: bytes[range], as: UTF8.self)
+        // Slice the source's UTF-8 view instead of materializing every document
+        // byte once per table (N tables used to mean N full-document copies).
+        guard let range = byteRange(of: table),
+            range.upperBound <= source.utf8.count
+        else { return [] }
+        let tableText = String(
+            decoding: source.utf8.dropFirst(range.lowerBound).prefix(range.count),
+            as: UTF8.self
+        )
         // Split on any newline CHARACTER, not the "\n" scalar: in Swift `\r\n` is a
         // single grapheme cluster, so `split(separator: "\n")` never matches in a
         // CRLF file and the whole table collapses to one "line" — every column
