@@ -136,6 +136,16 @@ struct PaneTitleBarView: View {
                                     )
                                 }
                             ),
+                            // Targets the clicked pane, not the session's
+                            // active pane — right-clicking a bar should act on
+                            // the bar you clicked.
+                            PaneContextMenuItem(
+                                title: "Move Pane to New Workspace",
+                                isEnabled: sessionStore.canMovePaneToNewWorkspace(
+                                    id: pane.id, in: session.id
+                                ),
+                                action: movePaneToNewWorkspace
+                            ),
                             PaneContextMenuItem(
                                 title: "Color…",
                                 isEnabled: true,
@@ -366,18 +376,35 @@ struct PaneTitleBarView: View {
             .accessibilityLabel(Self.accessibilityLabel(for: pane, title: title) + colorSuffix)
             .accessibilityAction(named: "Rename") { beginEditing() }
         if pane.isTitleUserEdited {
-            base
+            moveAccessibilityAction(
+                to:
+                    base
                 .accessibilityAction(named: "Reset to Terminal Title") {
                     sessionStore.resetPaneTitle(sessionID: session.id, paneID: pane.id)
                 }
                 .accessibilityActions {
                     colorAccessibilityActions()
                 }
+            )
         } else {
-            base
+            moveAccessibilityAction(
+                to:
+                    base
                 .accessibilityActions {
                     colorAccessibilityActions()
                 }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func moveAccessibilityAction<Content: View>(to content: Content) -> some View {
+        if sessionStore.canMovePaneToNewWorkspace(id: pane.id, in: session.id) {
+            content.accessibilityAction(named: "Move Pane to New Workspace") {
+                movePaneToNewWorkspace()
+            }
+        } else {
+            content
         }
     }
 
@@ -432,6 +459,19 @@ struct PaneTitleBarView: View {
     private func beginEditing() {
         draft = pane.isTitleUserEdited ? pane.title : ""
         isEditing = true
+    }
+
+    private func movePaneToNewWorkspace() {
+        guard sessionStore.movePaneToNewWorkspace(id: pane.id, in: session.id) != nil else {
+            return
+        }
+        TerminalAccessibilityAnnouncer.announce(
+            String(
+                localized: "Moved pane to a new workspace",
+                comment:
+                    "VoiceOver announcement after moving the active pane out into a workspace of its own."
+            )
+        )
     }
 
     private func commit() {

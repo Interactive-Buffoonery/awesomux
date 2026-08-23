@@ -5,8 +5,8 @@ import Testing
 
 @Suite("AgentRuntimeEventReducer edge cases")
 struct AgentRuntimeEventReducerEdgeTests {
-    @Test("nil session clears state and returns nil")
-    func nilSessionClearsState() {
+    @Test("nil session leaves cleanup to prune and returns nil")
+    func nilSessionPreservesState() {
         let paneID = UUID()
         var reducer = AgentRuntimeEventReducer()
         reducer.stateByPaneID[paneID] = AgentRuntimeEventReducer.RuntimeEventState()
@@ -19,7 +19,7 @@ struct AgentRuntimeEventReducerEdgeTests {
             now: Date()
         )
         #expect(decision == nil)
-        #expect(reducer.stateByPaneID[paneID] == nil)
+        #expect(reducer.stateByPaneID[paneID] != nil)
     }
 
     @Test(

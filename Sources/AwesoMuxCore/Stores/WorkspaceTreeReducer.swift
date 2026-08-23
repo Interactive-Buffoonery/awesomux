@@ -65,6 +65,29 @@ struct WorkspaceTreeReducer: Sendable {
     }
 
     @discardableResult
+    static func insertSession(
+        _ session: TerminalSession,
+        after sourceSessionID: TerminalSession.ID,
+        into groups: inout [SessionGroup]
+    ) -> Bool {
+        guard !groups.contains(where: { $0.sessions.contains { $0.id == session.id } }) else {
+            return false
+        }
+        guard
+            let groupIndex = groups.firstIndex(where: {
+                $0.sessions.contains { $0.id == sourceSessionID }
+            }),
+            let sourceIndex = groups[groupIndex].sessions.firstIndex(where: {
+                $0.id == sourceSessionID
+            })
+        else {
+            return false
+        }
+        groups[groupIndex].sessions.insert(session, at: sourceIndex + 1)
+        return true
+    }
+
+    @discardableResult
     static func addSession(
         to groups: inout [SessionGroup],
         selectedSession: TerminalSession?,

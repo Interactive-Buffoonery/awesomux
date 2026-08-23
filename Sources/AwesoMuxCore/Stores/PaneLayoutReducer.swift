@@ -515,6 +515,81 @@ struct PaneLayoutReducer: Sendable {
 
     // MARK: - Move and swap
 
+    static func movePaneToNewWorkspace(
+        id paneID: TerminalPane.ID,
+        from session: TerminalSession
+    ) -> (source: TerminalSession, moved: TerminalSession)? {
+        guard let pane = session.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            session.layout.hasMultiplePanes,
+            let origin = session.layout.moveOrigin(of: paneID),
+            let close = closePane(id: paneID, in: session),
+            case .pane = close.result,
+            let source = close.session
+        else {
+            return nil
+        }
+
+        var moved = TerminalSession(
+            title: pane.title,
+            workingDirectory: pane.workingDirectory,
+            isTitleUserEdited: false,
+            notificationsMuted: session.notificationsMuted,
+            moveOrigin: PaneMoveOrigin(
+                sourceSessionID: session.id,
+                paneID: pane.id,
+                parentSplitID: origin.parentSplitID,
+                sibling: origin.sibling,
+                edge: origin.edge,
+                fraction: origin.fraction
+            ),
+            layout: .pane(pane)
+        )
+        syncSessionChromeToActivePane(&moved)
+        return (source, moved)
+    }
+
+    /// `parentSplitIDIsLive` lets the store report whether the recorded
+    /// parent id already exists in ANY surviving workspace, since a reducer
+    /// over two sessions cannot see the others.
+    static func returnPane(
+        from moved: TerminalSession,
+        to source: TerminalSession,
+        parentSplitIDIsLive: Bool = false
+    ) -> TerminalSession? {
+        guard let origin = moved.moveOrigin,
+            moved.id != source.id,
+            origin.sourceSessionID == source.id,
+            case let .pane(pane) = moved.layout,
+            // The moved row may have been split and its original pane closed.
+            // Return must never graft a pane that was never in the source.
+            pane.id == origin.paneID,
+            let layout = source.layout.restoringPane(
+                pane,
+                beside: origin.sibling,
+                // A restore that re-minted ids, or a reopened source, can
+                // already hold this id; never introduce a duplicate split.
+                parentSplitID: parentSplitIDIsLive || source.layout.split(id: origin.parentSplitID) != nil
+                    ? UUID() : origin.parentSplitID,
+                on: origin.edge,
+                fraction: origin.fraction
+            )
+                ?? source.layout.splittingPane(
+                    id: source.activePaneID,
+                    adding: pane,
+                    on: origin.edge
+                )
+        else {
+            return nil
+        }
+
+        var source = source
+        source.layout = layout
+        source.activePaneID = pane.id
+        syncSessionChromeToActivePane(&source)
+        return source
+    }
+
     /// Moves a pane to a workspace edge and focuses it.
     static func movePane(
         id paneID: TerminalPane.ID,

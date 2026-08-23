@@ -160,6 +160,43 @@ public extension TerminalPaneLayout {
         }
     }
 
+    func moveOrigin(
+        of paneID: TerminalPane.ID
+    ) -> (
+        sibling: PaneMoveOrigin.Sibling,
+        parentSplitID: TerminalSplit.ID,
+        edge: PaneMoveEdge,
+        fraction: Double
+    )? {
+        guard case let .split(split) = self else { return nil }
+
+        if case let .pane(pane) = split.first, pane.id == paneID {
+            return (
+                split.second.moveOriginSibling,
+                split.id,
+                split.orientation == .vertical ? .left : .up,
+                split.firstFraction
+            )
+        }
+        if case let .pane(pane) = split.second, pane.id == paneID {
+            return (
+                split.first.moveOriginSibling,
+                split.id,
+                split.orientation == .vertical ? .right : .down,
+                split.firstFraction
+            )
+        }
+        return split.first.moveOrigin(of: paneID) ?? split.second.moveOrigin(of: paneID)
+    }
+
+    private var moveOriginSibling: PaneMoveOrigin.Sibling {
+        switch self {
+        case let .pane(pane): .pane(pane.id)
+        case let .split(split): .split(split.id)
+        case let .documentGroup(group): .documentGroup(group.id)
+        }
+    }
+
     /// The first `.documentGroup` leaf in tree order. Reducers maintain an
     /// at-most-one-group invariant, so for well-formed layouts this IS the
     /// session's document viewer; for hand-edited multi-group layouts it is the

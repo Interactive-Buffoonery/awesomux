@@ -21,6 +21,27 @@ struct SessionRestoreReducer: Sendable {
         from snapshot: SessionSnapshot,
         now: Date = Date()
     ) -> RestoredSessionComponents {
+        let incomingSessionIDCounts = Dictionary(
+            snapshot.groups.flatMap(\.sessions).map { ($0.id, 1) },
+            uniquingKeysWith: +
+        )
+        let duplicatedIncomingSessionIDs = Set(
+            incomingSessionIDCounts.compactMap { id, count in count > 1 ? id : nil }
+        )
+        // Two namespaces, matching the repair domains below: splits are
+        // deduped via `seenSplitIDs`; panes, document groups, and document
+        // tabs share `seenPaneIDs`.
+        var incomingSplitIDCounts: [UUID: Int] = [:]
+        var incomingLeafIDCounts: [UUID: Int] = [:]
+        for session in snapshot.groups.flatMap(\.sessions) {
+            countLayoutIDs(in: session.layout, splits: &incomingSplitIDCounts, leaves: &incomingLeafIDCounts)
+        }
+        let duplicatedIncomingSplitIDs = Set(
+            incomingSplitIDCounts.compactMap { id, count in count > 1 ? id : nil }
+        )
+        let duplicatedIncomingLeafIDs = Set(
+            incomingLeafIDCounts.compactMap { id, count in count > 1 ? id : nil }
+        )
         var seenSessionIDs = Set<TerminalSession.ID>()
         var seenSplitIDs = Set<TerminalSplit.ID>()
         var seenPaneIDs = Set<TerminalPane.ID>()
@@ -109,6 +130,29 @@ struct SessionRestoreReducer: Sendable {
             sanitizationSummary: &sanitizationSummary
         )
 
+        // Re-minting one duplicate makes the old ID ambiguous: a kept origin
+        // could return its pane into an unrelated surviving row, fail its
+        // pane-identity guard forever, or recreate a split id that restore
+        // handed to another live layout. Dropping it only greys out Return.
+        for groupIndex in groups.indices {
+            for sessionIndex in groups[groupIndex].sessions.indices {
+                guard let origin = groups[groupIndex].sessions[sessionIndex].moveOrigin else { continue }
+                let siblingDuplicated =
+                    switch origin.sibling {
+                    case let .pane(id): duplicatedIncomingLeafIDs.contains(id)
+                    case let .split(id): duplicatedIncomingSplitIDs.contains(id)
+                    case let .documentGroup(id): duplicatedIncomingLeafIDs.contains(id)
+                    }
+                if duplicatedIncomingSessionIDs.contains(origin.sourceSessionID)
+                    || duplicatedIncomingLeafIDs.contains(origin.paneID)
+                    || duplicatedIncomingSplitIDs.contains(origin.parentSplitID)
+                    || siblingDuplicated
+                {
+                    groups[groupIndex].sessions[sessionIndex].moveOrigin = nil
+                }
+            }
+        }
+
         let restoredSessionIDs = Set(groups.flatMap(\.sessions).map(\.id))
 
         // Sessions whose IDs get reassigned during sanitization intentionally
@@ -147,6 +191,39 @@ struct SessionRestoreReducer: Sendable {
             pinnedSessionIDs: restoredPinned,
             sanitizationSummary: sanitizationSummary
         )
+    }
+
+    private static func countLayoutIDs(
+        in layout: TerminalPaneLayout,
+        splits: inout [UUID: Int],
+        leaves: inout [UUID: Int]
+    ) {
+        switch layout {
+        case let .pane(pane):
+            leaves[pane.id, default: 0] += 1
+        case let .split(split):
+            splits[split.id, default: 0] += 1
+            countLayoutIDs(in: split.first, splits: &splits, leaves: &leaves)
+            countLayoutIDs(in: split.second, splits: &splits, leaves: &leaves)
+        case let .documentGroup(group):
+            leaves[group.id, default: 0] += 1
+            for tab in group.tabs {
+                leaves[tab.id, default: 0] += 1
+            }
+        }
+    }
+
+    /// An origin that points back at its own row — by either the persisted id
+    /// or the one restore minted for it — can never return the pane: drop it so
+    /// Return greys out instead of failing forever.
+    private static func nonSelfReferentialMoveOrigin(
+        _ origin: PaneMoveOrigin?,
+        originalID: TerminalSession.ID,
+        restoredID: TerminalSession.ID
+    ) -> PaneMoveOrigin? {
+        origin.flatMap {
+            $0.sourceSessionID == originalID || $0.sourceSessionID == restoredID ? nil : $0
+        }
     }
 
     static func restoredSession(
@@ -208,6 +285,11 @@ struct SessionRestoreReducer: Sendable {
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
                 notificationsMuted: session.notificationsMuted,
+                moveOrigin: nonSelfReferentialMoveOrigin(
+                    session.moveOrigin,
+                    originalID: session.id,
+                    restoredID: restoredSessionID
+                ),
                 agentKind: activeAgentKind,
                 agentExecutionState: activeExecutionState,
                 attentionReason: activeAttentionReason,
@@ -315,6 +397,11 @@ struct SessionRestoreReducer: Sendable {
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
                 notificationsMuted: session.notificationsMuted,
+                moveOrigin: nonSelfReferentialMoveOrigin(
+                    session.moveOrigin,
+                    originalID: session.id,
+                    restoredID: restoredSessionID
+                ),
                 executionPlan: session.activePane?.hasExplicitExecutionPlan == true
                     ? session.activePane?.executionPlan ?? legacyExecutionPlan
                     : legacyExecutionPlan
@@ -345,6 +432,11 @@ struct SessionRestoreReducer: Sendable {
             syntheticTitle: fallbackSyntheticTitle,
             isTitleUserEdited: session.isTitleUserEdited,
             notificationsMuted: session.notificationsMuted,
+            moveOrigin: nonSelfReferentialMoveOrigin(
+                session.moveOrigin,
+                originalID: session.id,
+                restoredID: restoredSessionID
+            ),
             layout: layout,
             activePaneID: resolvedActivePane.id
         )

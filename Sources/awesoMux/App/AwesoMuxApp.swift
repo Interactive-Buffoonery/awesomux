@@ -1266,6 +1266,22 @@ struct AwesoMuxApp: App {
 
                 Divider()
 
+                // Cross-workspace moves, grouped apart from the
+                // in-workspace rearrange rows above. Deliberately chordless —
+                // no `KeyboardShortcutCatalog` entry, so ADR-0002's
+                // render-the-row-to-hold-the-chord rule has nothing to hold.
+                Button("Move Pane to New Workspace") {
+                    moveActivePaneToNewWorkspace()
+                }
+                .disabled(!canMoveActivePaneToNewWorkspace)
+
+                Button("Return Pane to Source Workspace") {
+                    returnActivePaneToSourceWorkspace()
+                }
+                .disabled(!canReturnActivePaneToSourceWorkspace)
+
+                Divider()
+
                 // Keyboard access to the document tab strip (INT-748 PR2): the
                 // strip's close buttons refuse first responder, so without
                 // these commands keyboard users couldn't switch tabs at all.
@@ -2364,6 +2380,59 @@ struct AwesoMuxApp: App {
             )
         }
         postAccessibilityAnnouncement(announcement)
+    }
+
+    private var canMoveActivePaneToNewWorkspace: Bool {
+        guard let session = sessionStore.selectedSession else {
+            return false
+        }
+        return sessionStore.canMovePaneToNewWorkspace(
+            id: session.activePaneID,
+            in: session.id
+        )
+    }
+
+    /// Moves the active pane out into a workspace row of its own. The store
+    /// selects the new row, so the announcement reports the destination rather
+    /// than a pane index.
+    private func moveActivePaneToNewWorkspace() {
+        guard let session = sessionStore.selectedSession,
+            sessionStore.movePaneToNewWorkspace(
+                id: session.activePaneID,
+                in: session.id
+            ) != nil
+        else {
+            return
+        }
+        postAccessibilityAnnouncement(
+            String(
+                localized: "Moved pane to a new workspace",
+                comment:
+                    "VoiceOver announcement after moving the active pane out into a workspace of its own."
+            ))
+    }
+
+    private var canReturnActivePaneToSourceWorkspace: Bool {
+        guard let sessionID = sessionStore.selectedSessionID else {
+            return false
+        }
+        return sessionStore.canReturnPaneToSourceWorkspace(sessionID: sessionID)
+    }
+
+    /// The one-shot inverse of the move. Workspace-scoped, not pane-scoped: the
+    /// whole row goes back, and the store re-validates the recorded origin.
+    private func returnActivePaneToSourceWorkspace() {
+        guard let sessionID = sessionStore.selectedSessionID,
+            sessionStore.returnPaneToSourceWorkspace(sessionID: sessionID)
+        else {
+            return
+        }
+        postAccessibilityAnnouncement(
+            String(
+                localized: "Returned pane to its source workspace",
+                comment:
+                    "VoiceOver announcement after returning a moved pane to the workspace it came from."
+            ))
     }
 
     /// The pane that follows the active pane in depth-first order, wrapping past
@@ -4154,6 +4223,8 @@ struct AwesoMuxApp: App {
                 moveActivePane(toWorkspaceEdge: .right)
             },
             swapPaneWithNext: swapActivePaneWithNext,
+            movePaneToNewWorkspace: moveActivePaneToNewWorkspace,
+            returnPaneToSourceWorkspace: returnActivePaneToSourceWorkspace,
             focusPane: { paneIndex in
                 if sessionStore.focusPane(at: paneIndex) {
                     announcePaneFocused(index: paneIndex)
