@@ -50,7 +50,13 @@ func liveTitleCoalescingWindowHasElapsed(
 public final class LiveTitleBox {
     /// The workspace title `PaneLayoutReducer.syncSessionChromeToActivePane`
     /// promoted from the active pane.
-    public private(set) var workspaceTitle: String = ""
+    ///
+    /// Nil means "nothing published yet" — a box created while
+    /// `storedSessionForLiveTitleBox` could not seed it (issue #329) — so every
+    /// reader's `??` chain falls back to the session struct instead of
+    /// rendering an empty string. An empty STRING, by contrast, is a real
+    /// published snapshot and stays authoritative.
+    public private(set) var workspaceTitle: String?
 
     /// One channel per pane, so a pane's spinner frame wakes only the views
     /// that render THAT pane.
@@ -126,11 +132,24 @@ public final class LiveTitleBox {
     /// Pane title bars deliberately keep reading the fine-grained properties
     /// above. An agent spinner's braille frame IS an animation, and coalescing it
     /// to 1 Hz reads as a stutter.
-    public private(set) var coarseWorkspaceTitle: String = ""
+    ///
+    /// Nil means "nothing published yet" — same semantics as `workspaceTitle`
+    /// (issue #329); see there. `hasCoarseSnapshot` remains the coarse
+    /// channel's gate, so its readers cannot observe the pre-publish nil; a
+    /// published empty string stays authoritative.
+    public private(set) var coarseWorkspaceTitle: String?
     /// See `coarseWorkspaceTitle`.
     public private(set) var coarsePaneTitles: [TerminalPane.ID: String] = [:]
     /// Distinguishes a valid empty title snapshot from a box created while the
     /// store's structural index is temporarily unable to seed it.
+    ///
+    /// Now that `coarseWorkspaceTitle` is optional (issue #329) this flag looks
+    /// redundant for the *title*, and for that field alone it is. Do not drop
+    /// it: `coarsePaneTitles` is a non-optional dictionary, so an empty map is
+    /// indistinguishable from an unpublished one, and this flag is the only
+    /// thing separating them. It is also the publish-ordering barrier — set
+    /// last in `publishCoarse()` so a reader waking on it sees a complete
+    /// snapshot rather than a half-published one.
     public private(set) var hasCoarseSnapshot = false
 
     init() {}
