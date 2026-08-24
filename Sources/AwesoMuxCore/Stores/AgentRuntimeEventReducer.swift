@@ -522,6 +522,20 @@ struct AgentRuntimeEventReducer: Sendable {
         let unreadDelta =
             !terminalIsFocused
                 && (enteringNeedsAttention || enteringUnseenTurnCompletion) ? 1 : 0
+        // A prompt submission is the agent's own confirmation that a reply
+        // reached this pane — typed by the user or delivered out-of-band via
+        // `amx send` — so it retires what the pane accumulated while the user
+        // was away: the unread badge and any pending attention reason,
+        // including one that `awaitsExplicitAnswer` (redirecting the agent
+        // moots the raised question). OpenCode/Codex/Pi turn-ends rest on
+        // quiet `.waiting` with no attention reason, so the badge such a
+        // turn-end raises previously had no clear path short of SessionEnd:
+        // answering the agent left the badge stuck and every later background
+        // turn-end ratcheted it higher. This is the event-path equivalent of
+        // `markNeedsAttentionPromptAnswered`'s authoritative clear, which
+        // keystroke routing only reaches for panes already projecting
+        // `.needsAttention`.
+        let answersPendingNotifications = event.phase == .promptSubmit
 
         let resolvedKind: AgentKind?
         if state.lifecycle.isEnded {
@@ -585,7 +599,9 @@ struct AgentRuntimeEventReducer: Sendable {
                 agentKind: resolvedKind,
                 agentExecutionState: eventExecutionState,
                 attentionReason: eventAttentionReason,
-                clearsAttention: clearsAttention,
+                clearsAttention: clearsAttention || answersPendingNotifications,
+                attentionClearIsAuthoritative: answersPendingNotifications,
+                clearsUnreadNotifications: answersPendingNotifications,
                 unreadNotificationDelta: unreadDelta
             ),
             recentLinkAction: recentLinkAction)
