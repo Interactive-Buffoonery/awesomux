@@ -145,6 +145,7 @@ struct ManagedSSHOfferDestinationSheet: View {
                 .autocorrectionDisabled(true)
                 .focused($destinationFocused)
                 .accessibilityLabel("SSH destination")
+                .accessibilityHint(destinationAccessibilityHint)
                 .onSubmit(addDestination)
 
             if let message = validationMessage ?? submissionError {
@@ -241,8 +242,19 @@ struct ManagedSSHOfferDestinationSheet: View {
         SSHWorkspaceDestinationValidation.target(from: destination)
     }
 
+    private var destinationAccessibilityHint: String {
+        validationMessage
+            ?? String(
+                localized: "Enter an OpenSSH alias or destination.",
+                comment: "Accessibility hint for the SSH destination field in the managed SSH preference sheet"
+            )
+    }
+
     private func addDestination() {
-        guard validatedDestination != nil, validationMessage == nil else { return }
+        guard validatedDestination != nil, validationMessage == nil else {
+            TerminalAccessibilityAnnouncer.announceSettingsError(destinationAccessibilityHint)
+            return
+        }
         submissionError = nil
         // Same reasoning as the connect sheet's Remember actions, and the same
         // guard: dismissing on an unwritten preference reads as success in
