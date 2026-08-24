@@ -11,8 +11,7 @@ struct WorkspaceSettingsPane: View {
     @FocusState private var defaultGroupFocused: Bool
     @State private var installedIDEs: [InstalledIDE] = []
     @State private var draggingBundleID: String?
-    @State private var isAddingSSHDestination = false
-    @State private var sshDestinationListKind: ManagedSSHOfferDestinationSheet.DestinationListKind = .neverAsk
+    @State private var sshDestinationListKind: ManagedSSHOfferDestinationSheet.DestinationListKind?
 
     private var defaultGroup: String {
         appSettingsStore.workspaces.value.defaultGroup
@@ -128,8 +127,8 @@ struct WorkspaceSettingsPane: View {
                 draftDefaultGroup = newValue
             }
         }
-        .sheet(isPresented: $isAddingSSHDestination) {
-            ManagedSSHOfferDestinationSheet(listKind: sshDestinationListKind)
+        .sheet(item: $sshDestinationListKind) { listKind in
+            ManagedSSHOfferDestinationSheet(listKind: listKind)
         }
     }
 
@@ -350,8 +349,11 @@ struct WorkspaceSettingsPane: View {
             }
 
             Button {
+                // Presenting with `.sheet(item:)` — not a Bool flag plus a
+                // separate list-kind `@State` — because setting both in one
+                // action let the sheet content read the kind's stale default
+                // and every add landed on the don't-ask list.
                 sshDestinationListKind = listKind
-                isAddingSSHDestination = true
             } label: {
                 Label(listKind.addButtonTitle, systemImage: "plus")
             }
