@@ -34,6 +34,29 @@ test("release workflow uploads and attaches the verification summary", () => {
   assert.match(draft, /dist\/release\/awesoMux-\$VERSION\.verification\.json/);
 });
 
+test("release lanes validate only the Sparkle keys they need before checkout", () => {
+  const publicValidation = workflow.match(
+    /\n      - name: Verify Sparkle public key is present[\s\S]*?(?=\n      - name: Verify appcast signing secret is present)/,
+  )?.[0];
+  assert.ok(publicValidation, "early Sparkle public-key validation step must exist");
+  assert.match(publicValidation, /if: github\.event_name != 'schedule'/);
+  assert.match(publicValidation, /SPARKLE_PUBLIC_ED_KEY: \$\{\{ vars\.SPARKLE_PUBLIC_ED_KEY \}\}/);
+  assert.doesNotMatch(publicValidation, /SPARKLE_PRIVATE_ED_KEY/);
+
+  const privateValidation = workflow.match(
+    /\n      - name: Verify appcast signing secret is present[\s\S]*?(?=\n      - name: Resolve release collisions)/,
+  )?.[0];
+  assert.ok(privateValidation, "early appcast private-key validation step must exist");
+  assert.match(privateValidation, /if: inputs\.create_draft_release \|\| startsWith\(github\.ref, 'refs\/tags\/'\)/);
+  assert.match(privateValidation, /SPARKLE_PRIVATE_ED_KEY: \$\{\{ secrets\.SPARKLE_PRIVATE_ED_KEY \}\}/);
+  assert.doesNotMatch(privateValidation, /SPARKLE_PUBLIC_ED_KEY/);
+
+  const releaseJob = workflow.indexOf("\n  release:\n");
+  const releaseCheckout = workflow.indexOf("- name: Checkout repository", releaseJob);
+  assert.ok(workflow.indexOf("- name: Verify Sparkle public key is present") < releaseCheckout);
+  assert.ok(workflow.indexOf("- name: Verify appcast signing secret is present") < releaseCheckout);
+});
+
 test("shared release build enables Sparkle only outside the nightly lane", () => {
   const build = workflow.match(
     /\n      - name: Build, sign, and notarize the release artifact[\s\S]*?(?=\n      - name: Verify release outputs before publication)/,
@@ -93,8 +116,12 @@ test("stable release generates one signed appcast without exposing its private k
   assert.match(generation, /printf '%s' "\$SPARKLE_PRIVATE_ED_KEY" \| "\$SIGN_UPDATE_TOOL" --verify --ed-key-file - "\$GITHUB_WORKSPACE\/appcast\.xml"/);
   assert.doesNotMatch(generation, /generate_keys|echo "\$SPARKLE_PRIVATE_ED_KEY"|>[^|\n]*SPARKLE_PRIVATE_ED_KEY/);
 
-  const outsideGeneration = workflow.replace(generation, "");
-  assert.doesNotMatch(outsideGeneration, /SPARKLE_PRIVATE_ED_KEY/);
+  const earlyValidation = workflow.match(
+    /\n      - name: Verify appcast signing secret is present[\s\S]*?(?=\n      - name: Resolve release collisions)/,
+  )?.[0];
+  assert.ok(earlyValidation, "early appcast key validation step must exist");
+  const outsideKeySteps = workflow.replace(generation, "").replace(earlyValidation, "");
+  assert.doesNotMatch(outsideKeySteps, /SPARKLE_PRIVATE_ED_KEY/);
 
   const draft = workflow.match(
     /\n      - name: Create draft GitHub Release[\s\S]*?(?=\n      - name: Publish rolling nightly prerelease)/,

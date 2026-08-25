@@ -272,6 +272,28 @@ jobs:
             exit 1
           fi
 
+      - name: Verify Sparkle public key is present
+        if: github.event_name != 'schedule'
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+            echo "::error::missing or empty SPARKLE_PUBLIC_ED_KEY in the 'release' environment" >&2
+            exit 1
+          fi
+
+      - name: Verify appcast signing secret is present
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
+        env:
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
+            echo "::error::missing or empty SPARKLE_PRIVATE_ED_KEY in the 'release' environment" >&2
+            exit 1
+          fi
+
       - name: Resolve release collisions for this version
         if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
@@ -773,13 +795,6 @@ jobs:
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
         run: |
           set -euo pipefail
-          for name in SPARKLE_PUBLIC_ED_KEY SPARKLE_PRIVATE_ED_KEY; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::missing or empty $name in the 'release' environment" >&2
-              exit 1
-            fi
-          done
-
           APPCAST_TOOL="$GITHUB_WORKSPACE/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
           SIGN_UPDATE_TOOL="$GITHUB_WORKSPACE/.build/artifacts/sparkle/Sparkle/bin/sign_update"
           [[ -x "$APPCAST_TOOL" ]] || {
