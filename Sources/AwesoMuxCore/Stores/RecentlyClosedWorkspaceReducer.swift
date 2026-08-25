@@ -479,6 +479,13 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 // too rather than coming back colourless (QA).
                 color: pane.color,
                 agentKind: pane.agentKind,
+                    // Provenance survives reopen only when this pane can
+                    // reattach to the SAME agent process (kept daemon identity).
+                    // A reassigned id starts a fresh daemon whose events belong to
+                    // an unproven session, so its kind stays reclaimable.
+                    agentKindIsRuntimeEstablished:
+                        preservedDaemonIdentity
+                        && pane.agentKindIsRuntimeEstablished,
                 agentExecutionState: preservedDaemonIdentity
                         ? SessionRestoreReducer.restoredAgentExecutionState(
                             pane.agentExecutionState)

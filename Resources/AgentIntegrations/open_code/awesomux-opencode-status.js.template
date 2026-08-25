@@ -64,6 +64,10 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
                     // strings, so even heavy Task-subagent churn costs only
                     // kilobytes over the plugin-process lifetime.
                     childSessionIDs.add(info.id)
+                    // Hook order is not contractual: a child's chat.message
+                    // can precede its session.created and promote it above.
+                    // Demote it so its mid-turn idle stays fail-closed.
+                    rootSessionIDs.delete(info.id)
                     return
                 }
                 trackInto(rootSessionIDs, info.id)
