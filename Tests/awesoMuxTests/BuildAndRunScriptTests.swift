@@ -188,6 +188,8 @@ struct BuildAndRunScriptTests {
         #expect(script.contains("SUEnableSystemProfiling"))
         #expect(script.contains("SUVerifyUpdateBeforeExtraction"))
         #expect(script.contains("SURequireSignedFeed"))
+        #expect(script.contains("SUSignedFeedFailureExpirationInterval"))
+        #expect(script.contains("Add :SUSignedFeedFailureExpirationInterval integer 0"))
         #expect(script.contains("SPARKLE_PUBLIC_ED_KEY is required when AWESOMUX_SPARKLE_ENABLED=1"))
     }
 

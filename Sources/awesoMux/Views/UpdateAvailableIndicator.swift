@@ -6,6 +6,7 @@ struct UpdateAvailableIndicator: View {
     let displayMode: SidebarWidthMode
 
     @Environment(UpdateController.self) private var updateController
+    @Environment(\.awAccent) private var accentResolver
 
     var body: some View {
         if let version = updateController.availableVersion {
@@ -30,11 +31,10 @@ struct UpdateAvailableIndicator: View {
                 label
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Self.accessibilityLabel(for: version))
-                    .accessibilityValue(version)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
-            .tint(Color.aw.accent)
+            .tint(Color.aw.accent(accentResolver.accent))
             .frame(
                 width: displayMode == .collapsed ? 40 : nil,
                 height: displayMode == .collapsed ? 40 : nil
@@ -49,6 +49,8 @@ struct UpdateAvailableIndicator: View {
                 )
             )
             .help(Self.accessibilityLabel(for: version))
+            .padding(.horizontal, displayMode == .collapsed ? 10 : 12)
+            .padding(.vertical, 6)
         }
     }
 
@@ -59,9 +61,9 @@ struct UpdateAvailableIndicator: View {
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 40, height: 40)
                 .contentShape(Rectangle())
-                .foregroundStyle(Color.aw.accent)
+                .foregroundStyle(Self.foregroundColor(for: displayMode, accent: accentResolver.accent))
                 .background(
-                    Color.aw.surface.elevated.opacity(0.6),
+                    Self.backgroundColor(for: displayMode, accent: accentResolver.accent),
                     in: RoundedRectangle(cornerRadius: AwRadius.panel)
                 )
         } else {
@@ -70,12 +72,12 @@ struct UpdateAvailableIndicator: View {
                 systemImage: "arrow.down.circle"
             )
             .awFont(AwFont.Mono.meta)
-            .foregroundStyle(Color.aw.accentOnChrome)
+            .foregroundStyle(Self.foregroundColor(for: displayMode, accent: accentResolver.accent))
             .padding(.horizontal, 8)
             .frame(minHeight: 32)
             .contentShape(Rectangle())
             .background(
-                Color.aw.accentSoft,
+                Self.backgroundColor(for: displayMode, accent: accentResolver.accent),
                 in: RoundedRectangle(cornerRadius: AwRadius.pill)
             )
         }
@@ -86,5 +88,15 @@ struct UpdateAvailableIndicator: View {
             localized: "Update available, version \(version)",
             comment: "Accessibility label for the sidebar update reminder; placeholder is the available version"
         )
+    }
+
+    static func foregroundColor(for displayMode: SidebarWidthMode, accent: AwAccent) -> Color {
+        displayMode == .collapsed ? Color.aw.accentOnChrome(accent) : Color.aw.text
+    }
+
+    static func backgroundColor(for displayMode: SidebarWidthMode, accent: AwAccent) -> Color {
+        displayMode == .collapsed
+            ? Color.aw.surface.elevated.opacity(0.6)
+            : Color.aw.accentSoft(accent)
     }
 }

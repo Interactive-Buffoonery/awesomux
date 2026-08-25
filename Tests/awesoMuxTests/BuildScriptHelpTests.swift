@@ -202,6 +202,7 @@ struct BuildScriptHelpTests {
     func releaseBuildConfiguresAndSignsSparkleInsideOut() throws {
         let script = try Self.contents(of: "script/build_release.sh")
 
+        #expect(script.contains("--use-staged-bundle"))
         let staging = try #require(script.range(of: "\"$ROOT_DIR/script/build_and_run.sh\" --stage-release"))
         let sparkleEnabledExport = try #require(script.range(of: "export AWESOMUX_SPARKLE_ENABLED=1"))
         let sparkleKeyExport = try #require(script.range(of: "export SPARKLE_PUBLIC_ED_KEY"))
@@ -220,6 +221,7 @@ struct BuildScriptHelpTests {
         #expect(script.contains("$SPARKLE_AUTOUPDATE"))
         #expect(script.contains("$SPARKLE_UPDATER"))
         #expect(script.contains("SIGNATURE_TARGETS"))
+        #expect(script.contains("SIGN_ARGS=(--force --options runtime)"))
         #expect(!script.contains("ENTITLEMENT_TARGETS"))
         #expect(script.contains("for target in \"${SIGNATURE_TARGETS[@]}\"; do\n  entitlements_xml="))
 
@@ -228,6 +230,44 @@ struct BuildScriptHelpTests {
         }
         #expect(!signingLines.isEmpty)
         #expect(signingLines.allSatisfy { !$0.contains("--deep") })
+    }
+
+    @Test("staged release mode cannot invoke build tooling")
+    func stagedReleaseModeCannotInvokeBuildTooling() throws {
+        let script = try Self.contents(of: "script/build_release.sh")
+        let stagedBranch = try #require(script.range(of: "if [[ \"$USE_STAGED_BUNDLE\" -eq 0 ]]"))
+        let build = try #require(script.range(of: "\"$ROOT_DIR/script/build_and_run.sh\" --stage-release"))
+        #expect(stagedBranch.lowerBound < build.lowerBound)
+        #expect(script.contains("staged bundle Sparkle policy does not match --enable-sparkle"))
+    }
+
+    @Test("staged release rejects a bundle from another commit")
+    func stagedReleaseRejectsBundleFromAnotherCommit() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-staged-revision")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        let infoPlist = temporaryDirectory.url.appendingPathComponent("Info.plist")
+        try """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict><key>AwesoMuxSourceRevision</key><string>stale</string></dict></plist>
+        """.write(to: infoPlist, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        let command = """
+            set -euo pipefail
+            ROOT_DIR="\(try Self.packageRootURL().path)"
+            INFO_PLIST="\(infoPlist.path)"
+            USE_STAGED_BUNDLE=1
+            RELEASE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+            \(try Self.stagedRevisionCheckBlock())
+            """
+        process.arguments = ["-c", command]
+
+        let captured = try captureOutput(of: process)
+        #expect(process.terminationStatus == 1)
+        #expect(captured.stderr.contains("staged bundle source revision does not match release commit"))
     }
 
     @Test("default release staging drops contaminated Sparkle inputs")
@@ -382,12 +422,29 @@ struct BuildScriptHelpTests {
     private static func releaseStagingBlock() throws -> String {
         let script = try contents(of: "script/build_release.sh")
         let start = try #require(
-            script.range(of: "\nif [[ \"$SPARKLE_ENABLED\" -eq 1 ]]; then\n")?.lowerBound,
+            script.range(of: "\n  if [[ \"$SPARKLE_ENABLED\" -eq 1 ]]; then\n")?.lowerBound,
             "release staging block not found"
         )
-        let end = try #require(
-            script.range(of: "\n# The staging script only warns", range: start..<script.endIndex)?.lowerBound,
+        let endMarker = try #require(
+            script.range(
+                of: "\n  fi\nfi\n\nif [[ \"$USE_STAGED_BUNDLE\" -eq 1 ]]; then",
+                range: start..<script.endIndex
+            ),
             "end of release staging block not found"
+        )
+        let end = script.index(endMarker.lowerBound, offsetBy: "\n  fi".count)
+        return String(script[start..<end])
+    }
+
+    private static func stagedRevisionCheckBlock() throws -> String {
+        let script = try contents(of: "script/build_release.sh")
+        let start = try #require(
+            script.range(of: "\nif [[ \"$USE_STAGED_BUNDLE\" -eq 1 ]]; then\n")?.lowerBound,
+            "staged revision check not found"
+        )
+        let end = try #require(
+            script.range(of: "\n\n# The staging script only warns", range: start..<script.endIndex)?.lowerBound,
+            "end of staged revision check not found"
         )
         return String(script[start..<end])
     }

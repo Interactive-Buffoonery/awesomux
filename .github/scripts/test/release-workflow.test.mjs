@@ -40,11 +40,35 @@ test("shared release build enables Sparkle only outside the nightly lane", () =>
   )?.[0];
   assert.ok(build, "shared release build step must exist");
   assert.match(build, /SPARKLE_PUBLIC_ED_KEY: \$\{\{ github\.event_name != 'schedule' && vars\.SPARKLE_PUBLIC_ED_KEY \|\| '' \}\}/);
+  assert.match(build, /--use-staged-bundle/);
   assert.match(build, /if \[\[ "\$GITHUB_EVENT_NAME" == "schedule" \]\]; then[\s\S]*?build_release\.sh[\s\S]*?else[\s\S]*?build_release\.sh[\s\S]*?--enable-sparkle/);
 
   const nightlyBranch = build.match(/if \[\[ "\$GITHUB_EVENT_NAME" == "schedule" \]\]; then([\s\S]*?)else/)?.[1];
   assert.ok(nightlyBranch, "nightly build branch must be explicit");
   assert.doesNotMatch(nightlyBranch, /--enable-sparkle|SPARKLE_PUBLIC_ED_KEY/);
+});
+
+test("release workflow stages the final bundle before importing credentials", () => {
+  const staging = workflow.match(
+    /\n      - name: Stage release bundle before signing material exists[\s\S]*?(?=\n      - name: Import signing identity)/,
+  )?.[0];
+  assert.ok(staging, "pre-credential staging step must exist");
+  assert.match(staging, /AWESOMUX_SPARKLE_ENABLED=1/);
+  assert.match(staging, /\.\/script\/build_and_run\.sh --stage-release/);
+
+  const afterImport = workflow.slice(workflow.indexOf("- name: Import signing identity"));
+  assert.doesNotMatch(afterImport, /build_and_run\.sh|swift build|ensure_ghostty_artifacts\.sh/);
+});
+
+test("release credentials are removed before third-party publication steps", () => {
+  const verification = workflow.indexOf("- name: Verify release outputs before publication");
+  const cleanup = workflow.indexOf("- name: Remove signing credentials before publication");
+  const upload = workflow.indexOf("- name: Upload release DMG");
+
+  assert.ok(verification >= 0 && cleanup > verification && upload > cleanup);
+  const cleanupStep = workflow.slice(cleanup, upload);
+  assert.match(cleanupStep, /security delete-keychain "\$KEYCHAIN_PATH"/);
+  assert.match(cleanupStep, /rm -f "\$P12_PATH" "\$NOTARY_KEY_PATH"/);
 });
 
 test("stable release generates one signed appcast without exposing its private key elsewhere", () => {
@@ -56,6 +80,7 @@ test("stable release generates one signed appcast without exposing its private k
   assert.match(generation, /SPARKLE_PRIVATE_ED_KEY: \$\{\{ secrets\.SPARKLE_PRIVATE_ED_KEY \}\}/);
   assert.match(generation, /SPARKLE_PUBLIC_ED_KEY: \$\{\{ vars\.SPARKLE_PUBLIC_ED_KEY \}\}/);
   assert.match(generation, /\.build\/artifacts\/sparkle\/Sparkle\/bin\/generate_appcast/);
+  assert.match(generation, /\.build\/artifacts\/sparkle\/Sparkle\/bin\/sign_update/);
   assert.match(generation, /\[\[ -x "\$APPCAST_TOOL" \]\]/);
   assert.match(generation, /printf '%s' "\$SPARKLE_PRIVATE_ED_KEY" \|/);
   assert.match(generation, /--ed-key-file -/);
@@ -65,6 +90,7 @@ test("stable release generates one signed appcast without exposing its private k
   assert.match(generation, /dist\/release\/awesoMux-\$RELEASE_VERSION\.dmg/);
   assert.match(generation, /EXPECTED_DMG_URL="https:\/\/github\.com\/Interactive-Buffoonery\/awesomux\/releases\/download\/v\$RELEASE_VERSION\/awesoMux-\$RELEASE_VERSION\.dmg"/);
   assert.match(generation, /"\$GITHUB_WORKSPACE\/\.github\/scripts\/validate_appcast\.sh" "\$GITHUB_WORKSPACE\/appcast\.xml" "\$EXPECTED_DMG_URL"/);
+  assert.match(generation, /printf '%s' "\$SPARKLE_PRIVATE_ED_KEY" \| "\$SIGN_UPDATE_TOOL" --verify --ed-key-file - "\$GITHUB_WORKSPACE\/appcast\.xml"/);
   assert.doesNotMatch(generation, /generate_keys|echo "\$SPARKLE_PRIVATE_ED_KEY"|>[^|\n]*SPARKLE_PRIVATE_ED_KEY/);
 
   const outsideGeneration = workflow.replace(generation, "");
@@ -86,9 +112,36 @@ test("stable release generates one signed appcast without exposing its private k
 test("appcast validator accepts one signed enclosure at the expected URL", { skip: !canValidateAppcast }, () => {
   const result = validateFixture(`
     <enclosure url="${expectedDmgURL}" sparkle:edSignature="signed-value" />
-  `);
+  `, validFeedSignature);
 
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("appcast validator rejects a missing feed signature trailer", { skip: !canValidateAppcast }, () => {
+  const result = validateFixture(`
+    <enclosure url="${expectedDmgURL}" sparkle:edSignature="signed-value" />
+  `, "");
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /signed feed trailer/);
+});
+
+test("appcast validator rejects an empty feed signature", { skip: !canValidateAppcast }, () => {
+  const result = validateFixture(`
+    <enclosure url="${expectedDmgURL}" sparkle:edSignature="signed-value" />
+  `, "<!-- sparkle-signatures:\nedSignature: \nlength: 123\n-->");
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /signed feed trailer/);
+});
+
+test("appcast validator rejects a non-positive feed signature length", { skip: !canValidateAppcast }, () => {
+  const result = validateFixture(`
+    <enclosure url="${expectedDmgURL}" sparkle:edSignature="signed-value" />
+  `, "<!-- sparkle-signatures:\nedSignature: ZmVlZC1zaWduYXR1cmU=\nlength: 0\n-->");
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /signed feed trailer/);
 });
 
 test("appcast validator rejects an unexpected enclosure URL", { skip: !canValidateAppcast }, () => {
@@ -119,7 +172,9 @@ test("appcast validator rejects multiple enclosures", { skip: !canValidateAppcas
   assert.match(result.stderr, /exactly one enclosure/);
 });
 
-function validateFixture(enclosures) {
+const validFeedSignature = "<!-- sparkle-signatures:\nedSignature: ZmVlZC1zaWduYXR1cmU=\nlength: 123\n-->";
+
+function validateFixture(enclosures, feedSignature = validFeedSignature) {
   assert.ok(existsSync(appcastValidator), "appcast validator must exist");
   const fixtureRoot = mkdtempSync(join(tmpdir(), "awesomux-appcast-validation-"));
   const appcastPath = join(fixtureRoot, "appcast.xml");
@@ -128,6 +183,7 @@ function validateFixture(enclosures) {
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel><item>${enclosures}</item></channel>
 </rss>
+${feedSignature}
 `);
     return spawnSync("bash", [appcastValidator, appcastPath, expectedDmgURL], { encoding: "utf8" });
   } finally {

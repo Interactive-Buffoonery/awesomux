@@ -58,6 +58,27 @@ struct UpdateControllerTests {
         #expect(controller.canCheckForUpdates)
     }
 
+    @Test("Sparkle availability changes update explicit-check state") @MainActor
+    func sparkleAvailabilityChangesUpdateExplicitCheckState() throws {
+        var checks = 0
+        let fixture = try configuredBundle()
+        let controller = UpdateController(
+            runtimeProfile: .production,
+            bundle: fixture.bundle,
+            checkForUpdatesAction: { checks += 1 }
+        )
+
+        controller.handleCanCheckForUpdatesChange(false)
+        controller.checkForUpdates()
+        #expect(!controller.canCheckForUpdates)
+        #expect(checks == 0)
+
+        controller.handleCanCheckForUpdatesChange(true)
+        controller.checkForUpdates()
+        #expect(controller.canCheckForUpdates)
+        #expect(checks == 1)
+    }
+
     @Test("scheduled updates record a display version until the session ends") @MainActor
     func scheduledUpdatesRecordDisplayVersionUntilSessionEnds() throws {
         let fixture = try configuredBundle()
@@ -107,6 +128,79 @@ struct UpdateControllerTests {
         controller.skipAvailableUpdate()
 
         #expect(controller.availableVersion == nil)
+    }
+
+    @Test("skip for now restores the reminder at the next update-check interval") @MainActor
+    func skipForNowRestoresReminderAtNextUpdateCheckInterval() throws {
+        var scheduledDelay: TimeInterval?
+        var reminder: (@MainActor () -> Void)?
+        let fixture = try configuredBundle()
+        let controller = UpdateController(
+            runtimeProfile: .production,
+            bundle: fixture.bundle,
+            checkForUpdatesAction: {},
+            updateCheckInterval: { 42 },
+            scheduleReminder: { delay, action in
+                scheduledDelay = delay
+                reminder = action
+                return {}
+            }
+        )
+        controller.handleUpdatePresentation(displayVersion: "2.0", handledBySparkle: false)
+
+        controller.skipAvailableUpdate()
+
+        #expect(controller.availableVersion == nil)
+        #expect(scheduledDelay == 42)
+        reminder?()
+        #expect(controller.availableVersion == "2.0")
+    }
+
+    @Test("new update state cancels and supersedes a skipped reminder") @MainActor
+    func newUpdateStateCancelsSkippedReminder() throws {
+        var reminder: (@MainActor () -> Void)?
+        var cancellations = 0
+        let fixture = try configuredBundle()
+        let controller = UpdateController(
+            runtimeProfile: .production,
+            bundle: fixture.bundle,
+            checkForUpdatesAction: {},
+            updateCheckInterval: { 42 },
+            scheduleReminder: { _, action in
+                reminder = action
+                return { cancellations += 1 }
+            }
+        )
+        controller.handleUpdatePresentation(displayVersion: "2.0", handledBySparkle: false)
+        controller.skipAvailableUpdate()
+
+        controller.handleUpdatePresentation(displayVersion: "3.0", handledBySparkle: false)
+        reminder?()
+
+        #expect(cancellations == 1)
+        #expect(controller.availableVersion == "3.0")
+        controller.standardUserDriverWillFinishUpdateSession()
+        #expect(controller.availableVersion == nil)
+    }
+
+    @Test("availability announcements suppress duplicate callbacks") @MainActor
+    func availabilityAnnouncementsSuppressDuplicateCallbacks() throws {
+        var announcements: [String] = []
+        let fixture = try configuredBundle()
+        let controller = UpdateController(
+            runtimeProfile: .production,
+            bundle: fixture.bundle,
+            checkForUpdatesAction: {},
+            announce: { announcements.append($0) }
+        )
+
+        controller.handleUpdatePresentation(displayVersion: "2.0", handledBySparkle: false)
+        controller.handleUpdatePresentation(displayVersion: "2.0", handledBySparkle: false)
+        controller.handleUpdatePresentation(displayVersion: "3.0", handledBySparkle: false)
+
+        #expect(announcements.count == 2)
+        #expect(announcements[0].contains("2.0"))
+        #expect(announcements[1].contains("3.0"))
     }
 
     @Test("explicit checks forward only through the enabled updater") @MainActor

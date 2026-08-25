@@ -19,6 +19,7 @@ NOTARY_PROFILE="awesomux-notary"
 OUTPUT_DIR="$ROOT_DIR/dist/release"
 UNSIGNED=0
 SPARKLE_ENABLED=0
+USE_STAGED_BUNDLE=0
 SIGNING_IDENTITY="ad-hoc"
 TEAM_ID=""
 SUBMISSION_ID=""
@@ -44,6 +45,8 @@ Options:
                          amx/Zig toolchain).
   --enable-sparkle       Stamp the stable Sparkle feed configuration.
                          Requires SPARKLE_PUBLIC_ED_KEY.
+  --use-staged-bundle    Sign the existing dist/awesoMux.app without running
+                         SwiftPM, Zig, or dependency build code.
 USAGE
 }
 
@@ -56,6 +59,7 @@ while [[ $# -gt 0 ]]; do
     --output) OUTPUT_DIR="${2:?--output needs a value}"; shift 2 ;;
     --unsigned) UNSIGNED=1; shift ;;
     --enable-sparkle) SPARKLE_ENABLED=1; shift ;;
+    --use-staged-bundle) USE_STAGED_BUNDLE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -125,23 +129,34 @@ fi
 # Ghostty. Releases are always ReleaseFast.
 export AWESOMUX_GHOSTTY_OPTIMIZE=ReleaseFast
 
-# SwiftPM does not reliably relink when the Ghostty archive under
-# .build/ghostty changes content (known gap in this repo) — remove the cached
-# release product so an exact-pin Ghostty rebuild cannot ship a stale-linked
-# binary that passes every downstream check.
-rm -f "$ROOT_DIR/.build/release/awesoMux"
+if [[ "$USE_STAGED_BUNDLE" -eq 0 ]]; then
+  # SwiftPM does not reliably relink when the Ghostty archive under
+  # .build/ghostty changes content (known gap in this repo) — remove the cached
+  # release product so an exact-pin Ghostty rebuild cannot ship a stale-linked
+  # binary that passes every downstream check.
+  rm -f "$ROOT_DIR/.build/release/awesoMux"
 
-if [[ "$SPARKLE_ENABLED" -eq 1 ]]; then
-  (
-    export AWESOMUX_SPARKLE_ENABLED=1
-    export SPARKLE_PUBLIC_ED_KEY
-    "$ROOT_DIR/script/build_and_run.sh" --stage-release
-  )
-else
-  (
-    unset AWESOMUX_SPARKLE_ENABLED SPARKLE_PUBLIC_ED_KEY
-    "$ROOT_DIR/script/build_and_run.sh" --stage-release
-  )
+  if [[ "$SPARKLE_ENABLED" -eq 1 ]]; then
+    (
+      export AWESOMUX_SPARKLE_ENABLED=1
+      export SPARKLE_PUBLIC_ED_KEY
+      "$ROOT_DIR/script/build_and_run.sh" --stage-release
+    )
+  else
+    (
+      unset AWESOMUX_SPARKLE_ENABLED SPARKLE_PUBLIC_ED_KEY
+      "$ROOT_DIR/script/build_and_run.sh" --stage-release
+    )
+  fi
+fi
+
+if [[ "$USE_STAGED_BUNDLE" -eq 1 ]]; then
+  EXPECTED_SOURCE_REVISION="$(git -C "$ROOT_DIR" rev-parse --short "$RELEASE_COMMIT")"
+  STAGED_SOURCE_REVISION="$(/usr/libexec/PlistBuddy -c 'Print :AwesoMuxSourceRevision' "$INFO_PLIST" 2>/dev/null || true)"
+  if [[ "$STAGED_SOURCE_REVISION" != "$EXPECTED_SOURCE_REVISION" ]]; then
+    echo "error: staged bundle source revision does not match release commit" >&2
+    exit 1
+  fi
 fi
 
 # The staging script only warns when actool (full Xcode) is missing; a
@@ -182,6 +197,47 @@ for path in "${required_bundle_paths[@]}"; do
     exit 1
   fi
 done
+
+SPARKLE_POLICY_KEYS=(
+  SUFeedURL
+  SUPublicEDKey
+  SUEnableAutomaticChecks
+  SUAutomaticallyUpdate
+  SUAllowsAutomaticUpdates
+  SUEnableSystemProfiling
+  SUVerifyUpdateBeforeExtraction
+  SURequireSignedFeed
+  SUSignedFeedFailureExpirationInterval
+)
+if [[ "$SPARKLE_ENABLED" -eq 1 ]]; then
+  EXPECTED_SPARKLE_POLICY=(
+    "SUFeedURL=https://github.com/Interactive-Buffoonery/awesomux/releases/latest/download/appcast.xml"
+    "SUPublicEDKey=$SPARKLE_PUBLIC_ED_KEY"
+    "SUEnableAutomaticChecks=true"
+    "SUAutomaticallyUpdate=false"
+    "SUAllowsAutomaticUpdates=false"
+    "SUEnableSystemProfiling=false"
+    "SUVerifyUpdateBeforeExtraction=true"
+    "SURequireSignedFeed=true"
+    "SUSignedFeedFailureExpirationInterval=0"
+  )
+  for policy in "${EXPECTED_SPARKLE_POLICY[@]}"; do
+    key="${policy%%=*}"
+    expected="${policy#*=}"
+    actual="$(/usr/libexec/PlistBuddy -c "Print :$key" "$INFO_PLIST" 2>/dev/null || true)"
+    if [[ "$actual" != "$expected" ]]; then
+      echo "error: staged bundle Sparkle policy does not match --enable-sparkle ($key)" >&2
+      exit 1
+    fi
+  done
+else
+  for key in "${SPARKLE_POLICY_KEYS[@]}"; do
+    if /usr/libexec/PlistBuddy -c "Print :$key" "$INFO_PLIST" >/dev/null 2>&1; then
+      echo "error: staged bundle contains stable Sparkle policy without --enable-sparkle ($key)" >&2
+      exit 1
+    fi
+  done
+fi
 
 # dist/awesoMux.app is shared with every build_and_run.sh mode; a dev build
 # started during the (long) notarization wait would mutate it mid-release.

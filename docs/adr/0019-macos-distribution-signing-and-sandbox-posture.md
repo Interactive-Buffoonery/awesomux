@@ -72,8 +72,11 @@ entitlements checks as the outer app. No Sparkle entitlement exceptions are
 added.
 
 Stable, updater-enabled bundles are an explicit release configuration. They
-embed `SURequireSignedFeed`, `SUVerifyUpdateBeforeExtraction`, and the public
-EdDSA key. Scheduled nightly builds do not receive that configuration and do
+embed `SURequireSignedFeed`, `SUVerifyUpdateBeforeExtraction`,
+`SUSignedFeedFailureExpirationInterval = 0`, and the public EdDSA key. Disabling
+Sparkle's signed-feed recovery interval keeps rejection strict instead of
+falling back to same-team Developer ID verification after prolonged feed
+failures. Scheduled nightly builds do not receive that configuration and do
 not contact the stable feed. The workflow generates a signed `appcast.xml`
 only when it will create a stable draft release, using the exact notarized and
 stapled versioned DMG already published to GitHub and consumed by Homebrew.

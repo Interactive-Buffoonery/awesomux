@@ -783,6 +783,7 @@ if [[ "${AWESOMUX_SPARKLE_ENABLED:-}" == "1" ]]; then
   /usr/libexec/PlistBuddy -c 'Add :SUEnableSystemProfiling bool false' "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c 'Add :SUVerifyUpdateBeforeExtraction bool true' "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c 'Add :SURequireSignedFeed bool true' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SUSignedFeedFailureExpirationInterval integer 0' "$INFO_PLIST"
 fi
 
 # Ad-hoc codesign the bundle. macOS UNUserNotifications (and other

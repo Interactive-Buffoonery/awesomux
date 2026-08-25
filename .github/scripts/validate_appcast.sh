@@ -43,3 +43,13 @@ if [[ -z "$ED_SIGNATURE" ]]; then
   echo "error: appcast enclosure must have a nonempty sparkle:edSignature" >&2
   exit 1
 fi
+
+FEED_SIGNATURE_TRAILER="$(/usr/bin/perl -0777 -ne '
+  if (/<!-- sparkle-signatures:\r?\nedSignature: (\S+)\r?\nlength: ([1-9][0-9]*)\r?\n-->\s*\z/) {
+    print "$1\n$2\n";
+  }
+' "$APPCAST_PATH")"
+if [[ -z "$FEED_SIGNATURE_TRAILER" ]]; then
+  echo "error: appcast must end with a signed feed trailer containing a nonempty edSignature and positive length" >&2
+  exit 1
+fi

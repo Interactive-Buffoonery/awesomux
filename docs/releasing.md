@@ -316,6 +316,10 @@ nightly lane. The private key is exposed only to the appcast generation step,
 only for a tag or dispatch that creates a draft GitHub Release, and is piped to
 Sparkle's resolved 2.9.6 `generate_appcast` tool through `--ed-key-file -`.
 Never print, inspect, persist, or pass that private key in arguments.
+The workflow then pipes the same key to Sparkle's `sign_update --verify` to
+cryptographically verify the signed feed in place. Stable bundles set
+`SUSignedFeedFailureExpirationInterval = 0`, so a prolonged feed failure never
+relaxes EdDSA enforcement to same-team Developer ID verification.
 
 The generated `appcast.xml` disables deltas and points its enclosure at the
 versioned GitHub download URL for the exact notarized and stapled DMG already
