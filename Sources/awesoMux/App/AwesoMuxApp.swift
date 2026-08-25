@@ -157,6 +157,7 @@ struct AwesoMuxApp: App {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sessionStore: SessionStore
     @State private var ghosttyRuntime: GhosttyRuntime
+    @State private var updateController: UpdateController
     @State private var workspaceEditRequest: WorkspaceEditRequest?
     @State private var paneEditRequest: PaneEditRequest?
     @State private var workspaceGroupCreateRequest: WorkspaceGroupCreateRequest?
@@ -348,6 +349,7 @@ struct AwesoMuxApp: App {
                 initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
                 diagnosticEventHandler: { diagnosticEvents.record($0) }
             ))
+        _updateController = State(initialValue: UpdateController())
         _terminalAppearancePreferencesCache = State(initialValue: terminalAppearancePreferencesCache)
         _recoveryWarning = State(initialValue: loadResult.recoveryWarning)
         _sessionManagerModel = State(
@@ -765,6 +767,7 @@ struct AwesoMuxApp: App {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: documentTabActions.noticeID)
             .preferredColorScheme(preferredScheme)
             .environment(appSettingsStore)
+            .environment(updateController)
             .environment(documentTabActions)
             .appearanceBridge(appSettingsStore)
             .modifier(CaptureOpenWindowAction(action: $openWindowAction))
@@ -790,6 +793,18 @@ struct AwesoMuxApp: App {
                 appSettingsStore: appSettingsStore,
                 shortcut: shortcut(KeyboardShortcutCatalog.newWorkspace)
             )
+
+            CommandGroup(after: .appInfo) {
+                Button(
+                    String(
+                        localized: "Check for Updates…",
+                        comment: "App menu command that explicitly checks for awesoMux updates"
+                    )
+                ) {
+                    updateController.checkForUpdates()
+                }
+                .disabled(!updateController.canCheckForUpdates)
+            }
 
             CommandGroup(after: .newItem) {
                 Button("Open Markdown File…") {
