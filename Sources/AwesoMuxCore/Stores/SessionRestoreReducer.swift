@@ -632,6 +632,8 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
+                    agentKindIsRuntimeEstablished:
+                        restoredPane.agentKindIsRuntimeEstablished,
                     agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
@@ -649,6 +651,8 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
+                    agentKindIsRuntimeEstablished:
+                        restoredPane.agentKindIsRuntimeEstablished,
                     agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
