@@ -74,6 +74,8 @@ GHOSTTY_ARTIFACT_DIR="$ROOT_DIR/.build/ghostty"
 GHOSTTY_SHARE="$GHOSTTY_ARTIFACT_DIR/share"
 SPARKLE_FRAMEWORK_SOURCE="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 SPARKLE_FRAMEWORK="$APP_FRAMEWORKS/Sparkle.framework"
+SPARKLE_AUTOUPDATE="$SPARKLE_FRAMEWORK/Versions/B/Autoupdate"
+SPARKLE_UPDATER="$SPARKLE_FRAMEWORK/Versions/B/Updater.app"
 
 cd "$ROOT_DIR"
 
@@ -784,6 +786,12 @@ if [[ "${AWESOMUX_SPARKLE_ENABLED:-}" == "1" ]]; then
   /usr/libexec/PlistBuddy -c 'Add :SUVerifyUpdateBeforeExtraction bool true' "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c 'Add :SURequireSignedFeed bool true' "$INFO_PLIST"
 fi
+
+# Sign Sparkle inside-out so its upstream Team ID cannot conflict with the
+# ad-hoc-signed development app under Hardened Runtime.
+codesign --force --sign - --options runtime "$SPARKLE_AUTOUPDATE"
+codesign --force --sign - --options runtime "$SPARKLE_UPDATER"
+codesign --force --sign - --options runtime "$SPARKLE_FRAMEWORK"
 
 # Ad-hoc codesign the bundle. macOS UNUserNotifications (and other
 # framework subsystems with a system-side identity tied to the
