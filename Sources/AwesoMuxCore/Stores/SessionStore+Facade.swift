@@ -211,6 +211,9 @@ extension SessionStore {
             paneID: targetPaneID,
             update: WorkspaceAttentionReducer.SessionUpdate(
                 agentKind: agentKind,
+                // Viewport text is a guess, never proof: a kind claimed here
+                // must stay reclaimable by the pane's own runtime stream.
+                agentKindIsRuntimeEstablished: agentKind != nil ? false : nil,
                 agentState: detectedState,
                 clearsAttention: clearsAttention,
                 clearsUnreadNotifications: clearsUnreadNotifications,

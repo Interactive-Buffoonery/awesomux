@@ -351,6 +351,10 @@ struct SessionRestoreReducer: Sendable {
                 workingDirectory: paneWorkingDirectory,
                 color: pane.color,
                 agentKind: agentKind,
+                // Keep provenance only when the kind itself survived restore
+                // sanitization; a fallback-to-shell pane has no kind to prove.
+                agentKindIsRuntimeEstablished: agentKind == pane.agentKind
+                    && pane.agentKindIsRuntimeEstablished,
                 agentExecutionState: executionState,
                 attentionReason: attentionReason,
                 executionPlan: executionPlan
@@ -628,6 +632,12 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
+                    // Identity remint starts a fresh daemon: the proving
+                    // stream is gone (metadata discarded, state reset to
+                    // .idle), so retained proof would lock a genuine
+                    // different-provider restart out of the pane. The kind
+                    // survives only as a reclaimable guess.
+                    agentKindIsRuntimeEstablished: false,
                     agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
@@ -645,6 +655,9 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
+                    // Same identity-remint rule as the duplicate pane-ID
+                    // repair above: a fresh daemon's proof cannot transfer.
+                    agentKindIsRuntimeEstablished: false,
                     agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )

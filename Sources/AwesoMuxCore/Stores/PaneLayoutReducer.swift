@@ -942,6 +942,7 @@ struct PaneLayoutReducer: Sendable {
         }
 
         pane.agentKind = .shell
+        pane.agentKindIsRuntimeEstablished = false
         pane.agentExecutionState = AgentKind.shell.initialSessionState.executionState ?? .idle
         pane.attentionReason = nil
         pane.progressReport = nil

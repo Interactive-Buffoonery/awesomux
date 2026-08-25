@@ -79,6 +79,9 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
                 title: syntheticTitle?.localizedTitle() ?? title,
                 workingDirectory: workingDirectory,
                 agentKind: agentKind ?? .shell,
+                    // Session-level kinds are persisted state (see the legacy fold
+                    // below), so they keep the strict cross-kind guard.
+                    agentKindIsRuntimeEstablished: agentKind != nil,
                 agentState: agentState,
                 agentExecutionState: agentExecutionState,
                 attentionReason: attentionReason,
@@ -127,7 +130,15 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
             resolvedLayout = resolvedLayout.mappingPanes { pane in
                 guard pane.id == resolvedActivePaneID else { return pane }
                 var folded = pane
-                if let agentKind { folded.agentKind = agentKind }
+                if let agentKind {
+                    folded.agentKind = agentKind
+                    // Legacy session-level kinds are persisted state, never a
+                    // live viewport guess, so they keep the strict cross-kind
+                    // guard (nested child processes must not take the pane
+                    // over). Only `applyDetectedAgentState`'s text claims are
+                    // reclaimable.
+                    folded.agentKindIsRuntimeEstablished = true
+                }
                 if let agentExecutionState {
                     folded.agentExecutionState = agentExecutionState
                 } else if let executionState = agentState?.executionState {

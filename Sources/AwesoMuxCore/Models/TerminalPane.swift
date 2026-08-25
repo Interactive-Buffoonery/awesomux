@@ -69,6 +69,14 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     // already pane-keyed, so the state they mutate belongs to the pane. The
     // session derives a loudest-pane rollup from these — see `SessionAgentRollup`.
     public var agentKind: AgentKind
+    /// Whether `agentKind` was established by this pane's own runtime-event
+    /// stream (hooks) rather than guessed from scraped viewport text. A
+    /// hook-proven kind may not be overruled by another provider's stream
+    /// (nested child processes); a text guess must yield to the first genuine
+    /// event, or one stray "claude code" string in scrollback would mislabel
+    /// the pane for its whole lifetime. Persisted so a restored pane keeps the
+    /// distinction across relaunches.
+    public var agentKindIsRuntimeEstablished: Bool
     public var agentExecutionState: AgentExecutionState
     public var attentionReason: AttentionReason?
     public var unreadNotificationCount: Int
@@ -126,6 +134,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         remoteWorkingDirectory: String? = nil,
         liveTerminalTitle: String? = nil,
         agentKind: AgentKind = .shell,
+        agentKindIsRuntimeEstablished: Bool = false,
         agentState: AgentState? = nil,
         agentExecutionState: AgentExecutionState? = nil,
         attentionReason: AttentionReason? = nil,
@@ -155,6 +164,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.remoteWorkingDirectory = remoteWorkingDirectory
         self.liveTerminalTitle = liveTerminalTitle
         self.agentKind = agentKind
+        self.agentKindIsRuntimeEstablished = agentKindIsRuntimeEstablished
         self.agentExecutionState =
             agentExecutionState
             ?? agentState?.executionState
