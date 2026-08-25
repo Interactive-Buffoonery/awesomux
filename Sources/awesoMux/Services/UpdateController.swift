@@ -79,10 +79,17 @@ final class UpdateController: NSObject, @preconcurrency SPUStandardUserDriverDel
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
-        guard !handleShowingUpdate else {
+        handleUpdatePresentation(
+            displayVersion: update.displayVersionString,
+            handledBySparkle: handleShowingUpdate
+        )
+    }
+
+    func handleUpdatePresentation(displayVersion: String, handledBySparkle: Bool) {
+        guard !handledBySparkle else {
             return
         }
-        recordScheduledUpdate(displayVersion: update.displayVersionString)
+        availableVersion = displayVersion
     }
 
     func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
@@ -91,10 +98,6 @@ final class UpdateController: NSObject, @preconcurrency SPUStandardUserDriverDel
 
     func standardUserDriverWillFinishUpdateSession() {
         skipAvailableUpdate()
-    }
-
-    func recordScheduledUpdate(displayVersion: String) {
-        availableVersion = displayVersion
     }
 
     private static func hasReleaseConfiguration(in bundle: Bundle) -> Bool {

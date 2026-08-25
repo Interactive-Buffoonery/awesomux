@@ -67,7 +67,10 @@ struct UpdateControllerTests {
             checkForUpdatesAction: {}
         )
 
-        controller.recordScheduledUpdate(displayVersion: "2.0")
+        controller.handleUpdatePresentation(displayVersion: "2.0", handledBySparkle: false)
+        #expect(controller.availableVersion == "2.0")
+
+        controller.handleUpdatePresentation(displayVersion: "3.0", handledBySparkle: true)
         #expect(controller.availableVersion == "2.0")
 
         controller.standardUserDriverWillFinishUpdateSession()
@@ -99,7 +102,7 @@ struct UpdateControllerTests {
             bundle: fixture.bundle,
             checkForUpdatesAction: {}
         )
-        controller.recordScheduledUpdate(displayVersion: "2.0")
+        controller.handleUpdatePresentation(displayVersion: "2.0", handledBySparkle: false)
 
         controller.skipAvailableUpdate()
 
@@ -119,6 +122,37 @@ struct UpdateControllerTests {
         controller.checkForUpdates()
 
         #expect(checks == 1)
+    }
+
+    @Test("disabled explicit checks do not forward") @MainActor
+    func disabledExplicitChecksDoNotForward() throws {
+        var checks = 0
+        let fixture = try configuredBundle()
+        let controller = UpdateController(
+            runtimeProfile: .development(worktreeID: nil),
+            bundle: fixture.bundle,
+            checkForUpdatesAction: { checks += 1 }
+        )
+
+        controller.checkForUpdates()
+
+        #expect(checks == 0)
+    }
+
+    @Test("user attention clears a scheduled update") @MainActor
+    func userAttentionClearsScheduledUpdate() throws {
+        let fixture = try configuredBundle()
+        let controller = UpdateController(
+            runtimeProfile: .production,
+            bundle: fixture.bundle,
+            checkForUpdatesAction: {}
+        )
+        controller.handleUpdatePresentation(displayVersion: "2.0", handledBySparkle: false)
+        #expect(controller.availableVersion == "2.0")
+
+        controller.standardUserDriverDidReceiveUserAttention(forUpdate: SUAppcastItem.empty())
+
+        #expect(controller.availableVersion == nil)
     }
 
     private func configuredBundle(
