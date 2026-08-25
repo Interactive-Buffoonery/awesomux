@@ -632,8 +632,12 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
-                    agentKindIsRuntimeEstablished:
-                        restoredPane.agentKindIsRuntimeEstablished,
+                    // Identity remint starts a fresh daemon: the proving
+                    // stream is gone (metadata discarded, state reset to
+                    // .idle), so retained proof would lock a genuine
+                    // different-provider restart out of the pane. The kind
+                    // survives only as a reclaimable guess.
+                    agentKindIsRuntimeEstablished: false,
                     agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )
@@ -651,8 +655,9 @@ struct SessionRestoreReducer: Sendable {
                     workingDirectory: restoredPane.workingDirectory,
                     color: restoredPane.color,
                     agentKind: restoredPane.agentKind,
-                    agentKindIsRuntimeEstablished:
-                        restoredPane.agentKindIsRuntimeEstablished,
+                    // Same identity-remint rule as the duplicate pane-ID
+                    // repair above: a fresh daemon's proof cannot transfer.
+                    agentKindIsRuntimeEstablished: false,
                     agentExecutionState: .idle,
                     executionPlan: restoredPane.executionPlan
                 )

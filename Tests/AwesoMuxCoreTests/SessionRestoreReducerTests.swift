@@ -19,6 +19,8 @@ struct SessionRestoreReducerTests {
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "first-backend"),
             title: "first",
             workingDirectory: "/first",
+            agentKind: .claudeCode,
+            agentKindIsRuntimeEstablished: true,
             executionPlan: .local
         )
         let second = TerminalPane(
@@ -27,6 +29,8 @@ struct SessionRestoreReducerTests {
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "second-backend"),
             title: "second",
             workingDirectory: "/second",
+            agentKind: .claudeCode,
+            agentKindIsRuntimeEstablished: true,
             executionPlan: .local
         )
         let layout = TerminalPaneLayout.split(
@@ -64,6 +68,11 @@ struct SessionRestoreReducerTests {
         #expect(restoredFirst.attentionReason == .userInputRequired)
         #expect(restoredFirst.unreadNotificationCount == 3)
 
+        // A reminted pane keeps its kind only as a reclaimable guess: its
+        // proving daemon is gone, so retained proof would lock a genuine
+        // different-provider restart out of the pane.
+        #expect(!restoredSecond.agentKindIsRuntimeEstablished)
+
         #expect(restoredSecond.id != duplicateID)
         #expect(restoredSecond.terminalSessionID != secondTerminalSessionID)
         #expect(restoredSecond.terminalBackendMetadata == .empty)
@@ -100,6 +109,8 @@ struct SessionRestoreReducerTests {
                 terminalSessionID: repeatedDaemon,
                 title: "y",
                 workingDirectory: "/y",
+                agentKind: .codex,
+                agentKindIsRuntimeEstablished: true,
                 executionPlan: .local
             ),
         ]
@@ -120,6 +131,9 @@ struct SessionRestoreReducerTests {
         #expect(restored[1].terminalSessionID != repeatedDaemon)
         #expect(restored[2].terminalSessionID != repeatedDaemon)
         #expect(Set(restored.map(\.terminalSessionID)).count == 3)
+        // Daemon-ID repair is also an identity remint: provenance cannot
+        // transfer to the fresh daemon.
+        #expect(!restored[2].agentKindIsRuntimeEstablished)
     }
 
     @Test("a duplicate daemon resets waiting and attention state")
