@@ -385,6 +385,7 @@ private final class SidebarSearchHostedFixture {
             onSidebarHover: { _ in }
         )
         .environment(settings)
+        .environment(UpdateController())
         .environment(SidebarPeekModel())
         .appearanceBridge(settings)
 

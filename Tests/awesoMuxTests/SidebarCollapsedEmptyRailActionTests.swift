@@ -110,6 +110,7 @@ private struct SidebarEmptyRailFixture {
             onSidebarHover: { _ in }
         )
         .environment(settings)
+        .environment(UpdateController())
         .environment(SidebarPeekModel())
         .appearanceBridge(settings)
 

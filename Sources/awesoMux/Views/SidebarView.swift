@@ -499,6 +499,10 @@ struct SidebarView: View {
                 }
             }
 
+            UpdateAvailableIndicator(displayMode: displayMode)
+                .padding(.horizontal, displayMode == .collapsed ? 10 : 12)
+                .padding(.vertical, 6)
+
             SidebarActivitySection(
                 sessionStore: sessionStore,
                 invalidationKey: SidebarActivityInvalidationKey(

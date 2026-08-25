@@ -132,6 +132,7 @@ struct ContentView: View {
     // `.appearanceBridge` do NOT reach it. Re-read the store here and re-apply both
     // to each pane inside the split closures so the panes keep their environment.
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(UpdateController.self) private var updateController
     @Environment(\.controlActiveState) private var controlActiveState
 
     private let sidebarWidthPreferenceStore = SidebarWidthPreferenceStore()
@@ -408,6 +409,7 @@ struct ContentView: View {
                         }
                     )
                     .environment(appSettingsStore)
+                    .environment(updateController)
                     .environment(peekModel)
                     .appearanceBridge(appSettingsStore)
                 },
