@@ -78,6 +78,57 @@ struct BuildScriptHelpTests {
         #expect(!result.output.contains("ensure_ghostty_artifacts.sh"))
     }
 
+    @Test("enabled Sparkle configuration rejects development and install modes before building", arguments: [[], ["--install"]])
+    func enabledSparkleConfigurationRejectsNonReleaseModesBeforeBuilding(arguments: [String]) throws {
+        // Mutation caught: removing the release-mode guard lets these invocations
+        // reach their build/install prerequisites instead of rejecting the flag.
+        let result = try Self.runCopiedBuildScript(
+            arguments: arguments,
+            environment: [
+                "AWESOMUX_SPARKLE_ENABLED": "1",
+                "SPARKLE_PUBLIC_ED_KEY": "test-public-ed-key",
+            ]
+        )
+
+        #expect(result.exitStatus == 2)
+        #expect(result.output.contains("AWESOMUX_SPARKLE_ENABLED=1 is only supported by --stage-release or stage-release"))
+        #expect(!result.output.contains("ensure_ghostty_artifacts.sh"))
+    }
+
+    @Test("default Sparkle updater policy omits feed credentials")
+    func defaultSparkleUpdaterPolicyOmitsFeedCredentials() throws {
+        // Mutation caught: unconditionally writing the updater configuration,
+        // or treating an unset enable flag as enabled, leaks release credentials.
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-sparkle-default-policy")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        let infoPlist = temporaryDirectory.url.appendingPathComponent("Info.plist")
+        try """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict><key>CFBundleName</key><string>awesoMux</string></dict></plist>
+        """.write(to: infoPlist, atomically: true, encoding: .utf8)
+
+        let policyBlock = try Self.sparkleUpdaterPolicyBlock()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [
+            "-c",
+            "set -euo pipefail\nINFO_PLIST=\"\(infoPlist.path)\"\nunset AWESOMUX_SPARKLE_ENABLED SPARKLE_PUBLIC_ED_KEY\n\(policyBlock)",
+        ]
+        let captured = try captureOutput(of: process)
+        #expect(process.terminationStatus == 0, "output: \(captured.stdout)\(captured.stderr)")
+
+        let data = try Data(contentsOf: infoPlist)
+        let values = try #require(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+            "configured Info.plist is not a dictionary"
+        )
+
+        #expect(values["SUFeedURL"] == nil)
+        #expect(values["SUPublicEDKey"] == nil)
+    }
+
     @Test("live Codex smoke-test help documents its read-only inputs")
     func liveCodexSmokeTestHelpDocumentsInputs() throws {
         let result = try Self.runHelp(script: "script/test_live_codex_plugin.sh", argument: "--help")
@@ -192,9 +243,54 @@ struct BuildScriptHelpTests {
         )
     }
 
+    private static func runCopiedBuildScript(
+        arguments: [String],
+        environment: [String: String]
+    ) throws -> ShellResult {
+        let root = try packageRootURL()
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-sparkle-mode-gate")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        let scriptDirectory = temporaryDirectory.url.appendingPathComponent("script")
+        try FileManager.default.createDirectory(at: scriptDirectory, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: root.appendingPathComponent("script/build_and_run.sh"),
+            to: scriptDirectory.appendingPathComponent("build_and_run.sh")
+        )
+        try FileManager.default.copyItem(
+            at: root.appendingPathComponent("script/runtime-profile.sh"),
+            to: scriptDirectory.appendingPathComponent("runtime-profile.sh")
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [scriptDirectory.appendingPathComponent("build_and_run.sh").path] + arguments
+        process.currentDirectoryURL = temporaryDirectory.url
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, testValue in testValue }
+
+        let captured = try captureOutput(of: process)
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout + captured.stderr
+        )
+    }
+
     private static func contents(of relativePath: String) throws -> String {
         let url = try packageRootURL().appendingPathComponent(relativePath)
         return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static func sparkleUpdaterPolicyBlock() throws -> String {
+        let script = try contents(of: "script/build_and_run.sh")
+        let start = try #require(
+            script.range(of: "\nif [[ \"${AWESOMUX_SPARKLE_ENABLED:-}\" == \"1\" ]]; then\n  /usr/libexec/PlistBuddy")?.lowerBound,
+            "Sparkle updater policy block not found"
+        )
+        let end = try #require(
+            script.range(of: "\n# Ad-hoc codesign", range: start..<script.endIndex)?.lowerBound,
+            "end of Sparkle updater policy block not found"
+        )
+        return String(script[start..<end])
     }
 
     private static func packageRootURL() throws -> URL {

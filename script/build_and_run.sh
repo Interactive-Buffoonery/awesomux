@@ -130,9 +130,15 @@ if [[ "$MODE" == "--help" || "$MODE" == "-h" || "$MODE" == "help" ]]; then
   exit 0
 fi
 
-if [[ "${AWESOMUX_SPARKLE_ENABLED:-}" == "1" && -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
-  echo "error: SPARKLE_PUBLIC_ED_KEY is required when AWESOMUX_SPARKLE_ENABLED=1." >&2
-  exit 2
+if [[ "${AWESOMUX_SPARKLE_ENABLED:-}" == "1" ]]; then
+  if [[ "$MODE" != "--stage-release" && "$MODE" != "stage-release" ]]; then
+    echo "error: AWESOMUX_SPARKLE_ENABLED=1 is only supported by --stage-release or stage-release." >&2
+    exit 2
+  fi
+  if [[ -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+    echo "error: SPARKLE_PUBLIC_ED_KEY is required when AWESOMUX_SPARKLE_ENABLED=1." >&2
+    exit 2
+  fi
 fi
 
 mode_requires_amx() {
