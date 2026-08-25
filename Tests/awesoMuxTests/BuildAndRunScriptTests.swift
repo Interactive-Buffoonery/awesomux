@@ -191,18 +191,14 @@ struct BuildAndRunScriptTests {
         #expect(script.contains("SPARKLE_PUBLIC_ED_KEY is required when AWESOMUX_SPARKLE_ENABLED=1"))
     }
 
-    @Test("ad-hoc signs Sparkle inside out before the development app")
-    func adHocSignsSparkleInsideOut() throws {
+    @Test("ad-hoc signs the development app without Hardened Runtime")
+    func adHocSignsDevelopmentAppWithoutHardenedRuntime() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")
 
-        let autoupdate = try #require(script.range(of: "codesign --force --sign - --options runtime \"$SPARKLE_AUTOUPDATE\""))
-        let updater = try #require(script.range(of: "codesign --force --sign - --options runtime \"$SPARKLE_UPDATER\""))
-        let framework = try #require(script.range(of: "codesign --force --sign - --options runtime \"$SPARKLE_FRAMEWORK\""))
-        let app = try #require(script.range(of: "codesign --force --deep --sign - --options runtime \"$APP_BUNDLE\""))
-
-        #expect(autoupdate.lowerBound < updater.lowerBound)
-        #expect(updater.lowerBound < framework.lowerBound)
-        #expect(framework.lowerBound < app.lowerBound)
+        #expect(script.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
+        #expect(!script.contains("SPARKLE_AUTOUPDATE"))
+        #expect(!script.contains("SPARKLE_UPDATER"))
+        #expect(!script.contains("codesign --force --deep --sign - --options runtime \"$APP_BUNDLE\""))
     }
 
     @Test("stages the DesignSystem resource bundle")
