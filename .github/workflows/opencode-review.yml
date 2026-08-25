@@ -16,7 +16,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(fromJSON(vars.MAINTAINER_LOGINS_JSON || '[]'), github.event.pull_request.user.login)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       id-token: write
       contents: read
@@ -133,7 +133,7 @@ jobs:
             {"default_agent":"review","provider":{"synthetic":{"options":{"apiKey":"{env:SYNTHETIC_API_KEY}"}}}}
           BASE_RANGE: ${{ steps.review_context.outputs.base_range }}
         with:
-          model: synthetic/hf:zai-org/GLM-5.2
+          model: synthetic/hf:moonshotai/Kimi-K3
           agent: review
           issue_number: ${{ github.event.pull_request.number }}
           review_guard: true

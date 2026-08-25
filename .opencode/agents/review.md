@@ -4,7 +4,7 @@ description: |
   and produces structured review comments. Does not push commits or modify
   files.
 mode: primary
-model: synthetic/hf:zai-org/GLM-5.2 # used by local opencode runs; CI workflows also pass model to the action
+model: synthetic/hf:moonshotai/Kimi-K3 # used by local opencode runs; CI workflows also pass model to the action
 temperature: 0.1
 permission:
   edit: deny

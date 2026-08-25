@@ -114,7 +114,7 @@ run_wrapper() {
     GITHUB_RUN_ID="direct-run-$mode" \
     GITHUB_REPOSITORY="Interactive-Buffoonery/awesomux" \
     ISSUE_NUMBER="574" \
-    MODEL="synthetic/hf:zai-org/GLM-5.2" \
+    MODEL="synthetic/hf:moonshotai/Kimi-K3" \
     AGENT="review" \
     PROMPT="Review the exact passive range." \
     REVIEW_GUARD="true" \
@@ -140,7 +140,7 @@ grep -Fx -- "run" "$temp_dir/opencode-args-success"
 grep -Fx -- "--pure" "$temp_dir/opencode-args-success"
 grep -Fx -- "--format" "$temp_dir/opencode-args-success"
 grep -Fx -- "json" "$temp_dir/opencode-args-success"
-grep -Fx -- "synthetic/hf:zai-org/GLM-5.2" "$temp_dir/opencode-args-success"
+grep -Fx -- "synthetic/hf:moonshotai/Kimi-K3" "$temp_dir/opencode-args-success"
 if grep -Fx -- "github" "$temp_dir/opencode-args-success"; then
   echo "OpenCode GitHub wrapper must not run" >&2
   exit 1

@@ -36,6 +36,10 @@ const action = stripYamlComments(readFileSync(actionPath, "utf-8"));
 const config = JSON.parse(readFileSync(configPath, "utf-8"));
 const runner = readFileSync(runnerPath, "utf-8");
 const appendReviewedFiles = readFileSync(appendReviewedFilesPath, "utf-8");
+const reviewAgent = readFileSync(
+  join(repoRoot, ".opencode/agents/review.md"),
+  "utf-8",
+);
 
 /** Strip YAML comments so structural checks do not match examples in comments. */
 function stripYamlComments(source) {
@@ -142,6 +146,24 @@ describe("opencode review tool output", () => {
       /"tool_output":\{"max_lines":10000,"max_bytes":524288\}/,
     );
     assert.doesNotMatch(body, /max_diff_lines:\s*["']10000["']/);
+  });
+});
+
+describe("opencode review model", () => {
+  test("uses exact Kimi K3 through Synthetic everywhere reviews run", () => {
+    const model = "synthetic/hf:moonshotai/Kimi-K3";
+
+    for (const source of [body, commentWorkflow, reviewAgent]) {
+      assert.match(source, new RegExp(escapeRegExp(model)));
+      assert.doesNotMatch(source, /synthetic\/hf:zai-org\/GLM-5\.2/);
+    }
+  });
+
+  test("allows Kimi K3 enough time for repository-wide review", () => {
+    for (const source of [body, commentWorkflow]) {
+      assert.match(source, /timeout-minutes:\s*20/);
+      assert.doesNotMatch(source, /timeout-minutes:\s*15/);
+    }
   });
 });
 

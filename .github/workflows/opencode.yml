@@ -32,7 +32,7 @@ jobs:
         github.event.comment.body) &&
       contains(fromJSON(vars.MAINTAINER_LOGINS_JSON || '[]'), github.actor)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       id-token: write
       contents: read
@@ -137,7 +137,7 @@ jobs:
             {"default_agent":"review","tool_output":{"max_lines":10000,"max_bytes":524288},"provider":{"synthetic":{"options":{"apiKey":"{env:SYNTHETIC_API_KEY}"}}}}
           BASE_RANGE: ${{ steps.review_context.outputs.base_range }}
         with:
-          model: synthetic/hf:zai-org/GLM-5.2
+          model: synthetic/hf:moonshotai/Kimi-K3
           agent: review
           issue_number: ${{ github.event.issue.number }}
           review_guard: true

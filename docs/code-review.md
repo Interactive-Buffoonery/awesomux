@@ -2,7 +2,7 @@
 
 awesoMux keeps AI review and deterministic testing separate:
 
-- **OpenCode review** performs read-only PR review with exact GLM 5.2 through
+- **OpenCode review** performs read-only PR review with exact Kimi K3 through
   Synthetic.
 - **Native validation** runs existing test and staging scripts for an immutable
   pull-request SHA when an allowlisted maintainer requests `/ci`. It is advisory
@@ -51,11 +51,12 @@ a fork because the fork head remains passive data.
 Both automatic and requested reviews use:
 
 ```text
-synthetic/hf:zai-org/GLM-5.2
+synthetic/hf:moonshotai/Kimi-K3
 ```
 
 There is no model fallback. The Synthetic key is supplied only to the trusted
-review step.
+review step. Automatic and requested review jobs have a 20-minute timeout so
+Kimi K3 can inspect the wider repository and complete bounded output recovery.
 
 OpenCode is pinned to version `1.17.8`. CI downloads the versioned Linux x64
 release archive, verifies its checked-in SHA-256, and only then extracts the
@@ -87,7 +88,7 @@ that explains how to request the larger manual review.
 
 | Name                     | Kind             | Purpose                                              |
 | ------------------------ | ---------------- | ---------------------------------------------------- |
-| `SYNTHETIC_API_KEY`      | Actions secret   | Calls GLM 5.2 through Synthetic.                     |
+| `SYNTHETIC_API_KEY`      | Actions secret   | Calls Kimi K3 through Synthetic.                     |
 | `MAINTAINER_LOGINS_JSON` | Actions variable | JSON array of logins allowed to trigger review and native CI. |
 
 ## Local verification
