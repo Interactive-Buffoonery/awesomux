@@ -33,12 +33,19 @@ fi
 
 VERSION_LINES="$(grep -Ec '^  version "[^"]+"$' "$CASK_PATH" || true)"
 SHA256_LINES="$(grep -Ec '^  sha256 "[0-9a-f]{64}"$' "$CASK_PATH" || true)"
+AUTO_UPDATE_LINES="$(grep -Ec '^[[:space:]]*auto_updates([[:space:]]|$)' "$CASK_PATH" || true)"
+AUTO_UPDATE_TRUE_LINES="$(grep -Ec '^[[:space:]]*auto_updates[[:space:]]+true[[:space:]]*$' "$CASK_PATH" || true)"
 if [[ "$VERSION_LINES" -ne 1 || "$SHA256_LINES" -ne 1 ]]; then
   echo "error: expected exactly one version and one SHA-256 field in $CASK_PATH" >&2
   exit 1
 fi
+if [[ "$AUTO_UPDATE_LINES" -gt 1 || "$AUTO_UPDATE_LINES" -ne "$AUTO_UPDATE_TRUE_LINES" ]]; then
+  echo "error: expected at most one auto_updates field, and it must be true, in $CASK_PATH" >&2
+  exit 1
+fi
 
-VERSION="$VERSION" SHA256="$SHA256" perl -pi -e '
+VERSION="$VERSION" SHA256="$SHA256" ADD_AUTO_UPDATES="$((AUTO_UPDATE_LINES == 0))" perl -pi -e '
   s/^  version "[^"]+"$/  version "$ENV{VERSION}"/;
   s/^  sha256 "[0-9a-f]+"$/  sha256 "$ENV{SHA256}"/;
+  $_ .= "  auto_updates true\n" if $ENV{ADD_AUTO_UPDATES} && /^  sha256 /;
 ' "$CASK_PATH"

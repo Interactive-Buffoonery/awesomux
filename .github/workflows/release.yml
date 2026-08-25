@@ -272,6 +272,28 @@ jobs:
             exit 1
           fi
 
+      - name: Verify Sparkle public key is present
+        if: github.event_name != 'schedule'
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+            echo "::error::missing or empty SPARKLE_PUBLIC_ED_KEY in the 'release' environment" >&2
+            exit 1
+          fi
+
+      - name: Verify appcast signing secret is present
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
+        env:
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
+            echo "::error::missing or empty SPARKLE_PRIVATE_ED_KEY in the 'release' environment" >&2
+            exit 1
+          fi
+
       - name: Resolve release collisions for this version
         if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
@@ -525,16 +547,21 @@ jobs:
           path: .build/ghostty
           key: ${{ steps.ghostty-cache.outputs.cache-primary-key }}
 
-      - name: Pre-build before signing material exists
+      - name: Stage release bundle before signing material exists
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ github.event_name != 'schedule' && vars.SPARKLE_PUBLIC_ED_KEY || '' }}
         run: |
           set -euo pipefail
           # SwiftPM resolves and compiles third-party packages here — that's
-          # build-time code execution. Running the expensive
-          # dependency-touching build BEFORE the keychain import below means
-          # no foreign build code ever executes while an unlocked signing
-          # keychain is on the search list. build_release.sh's own staging
-          # pass re-runs incrementally in seconds afterward.
-          ./script/build_and_run.sh --stage-release
+          # build-time code execution. Stage the exact bundle before importing
+          # credentials; the release step below only signs and packages it.
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            unset AWESOMUX_SPARKLE_ENABLED SPARKLE_PUBLIC_ED_KEY
+            ./script/build_and_run.sh --stage-release
+          else
+            export AWESOMUX_SPARKLE_ENABLED=1
+            ./script/build_and_run.sh --stage-release
+          fi
 
       - name: Import signing identity into a temporary keychain
         id: keychain
@@ -633,13 +660,22 @@ jobs:
             --keychain "$KEYCHAIN_PATH"
 
       - name: Build, sign, and notarize the release artifact
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ github.event_name != 'schedule' && vars.SPARKLE_PUBLIC_ED_KEY || '' }}
         run: |
           set -euo pipefail
-          ./script/build_release.sh \
-            --version "$RELEASE_VERSION" \
-            --identity "Developer ID Application: Interactive Buffoonery (7CNK4YPCQX)" \
-            --notary-profile awesomux-notary \
+          RELEASE_ARGS=(
+            --version "$RELEASE_VERSION"
+            --use-staged-bundle
+            --identity "Developer ID Application: Interactive Buffoonery (7CNK4YPCQX)"
+            --notary-profile awesomux-notary
             --output dist/release
+          )
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            ./script/build_release.sh "${RELEASE_ARGS[@]}"
+          else
+            ./script/build_release.sh "${RELEASE_ARGS[@]}" --enable-sparkle
+          fi
 
       - name: Verify release outputs before publication
         if: success()
@@ -678,6 +714,22 @@ jobs:
              and (.team_id | type == "string" and length > 0)
              and (.notarization_submission_id | type == "string" and length > 0)' \
             "$SUMMARY_PATH" >/dev/null
+
+      - name: Remove signing credentials before publication
+        run: |
+          set -euo pipefail
+          SEARCH_LIST_ARGS=()
+          while IFS= read -r kc; do
+            [[ -n "$kc" ]] && SEARCH_LIST_ARGS+=("$kc")
+          done <<<"${ORIGINAL_SEARCH_LIST:-}"
+          if [[ "${#SEARCH_LIST_ARGS[@]}" -gt 0 ]]; then
+            security list-keychains -d user -s "${SEARCH_LIST_ARGS[@]}"
+          else
+            security list-keychains -d user -s
+          fi
+          security default-keychain -d user -s "$ORIGINAL_DEFAULT_KEYCHAIN"
+          security delete-keychain "$KEYCHAIN_PATH"
+          rm -f "$P12_PATH" "$NOTARY_KEY_PATH"
 
       - name: Upload release DMG
         if: success()
@@ -736,6 +788,46 @@ jobs:
             [[ -s "$f" ]] || { echo "::error::missing release asset: $f" >&2; exit 1; }
           done
 
+      - name: Generate signed appcast
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          set -euo pipefail
+          APPCAST_TOOL="$GITHUB_WORKSPACE/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+          SIGN_UPDATE_TOOL="$GITHUB_WORKSPACE/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+          [[ -x "$APPCAST_TOOL" ]] || {
+            echo "::error::Sparkle generate_appcast tool is missing or not executable: $APPCAST_TOOL" >&2
+            exit 1
+          }
+          [[ -x "$SIGN_UPDATE_TOOL" ]] || {
+            echo "::error::Sparkle sign_update tool is missing or not executable: $SIGN_UPDATE_TOOL" >&2
+            exit 1
+          }
+          DMG_PATH="$GITHUB_WORKSPACE/dist/release/awesoMux-$RELEASE_VERSION.dmg"
+          [[ -s "$DMG_PATH" ]] || {
+            echo "::error::notarized and stapled release DMG is missing: $DMG_PATH" >&2
+            exit 1
+          }
+          APPCAST_SOURCE_DIR="$RUNNER_TEMP/awesomux-appcast-source"
+          mkdir -p "$APPCAST_SOURCE_DIR"
+          cp "$DMG_PATH" "$APPCAST_SOURCE_DIR/"
+
+          printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$APPCAST_TOOL" \
+            --ed-key-file - \
+            --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v$RELEASE_VERSION/" \
+            -o "$GITHUB_WORKSPACE/appcast.xml" \
+            "$APPCAST_SOURCE_DIR"
+          [[ -s "$GITHUB_WORKSPACE/appcast.xml" ]] || {
+            echo "::error::generate_appcast did not produce appcast.xml" >&2
+            exit 1
+          }
+          EXPECTED_DMG_URL="https://github.com/Interactive-Buffoonery/awesomux/releases/download/v$RELEASE_VERSION/awesoMux-$RELEASE_VERSION.dmg"
+          "$GITHUB_WORKSPACE/.github/scripts/validate_appcast.sh" "$GITHUB_WORKSPACE/appcast.xml" "$EXPECTED_DMG_URL"
+          printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$SIGN_UPDATE_TOOL" --verify --ed-key-file - "$GITHUB_WORKSPACE/appcast.xml"
+
       - name: Create draft GitHub Release
         if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
@@ -752,6 +844,7 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "v$VERSION" \
             --notes "Draft release created by release.yml — review, edit notes, and publish." \
+            "appcast.xml" \
             "dist/release/awesoMux-$VERSION.dmg" \
             "dist/release/awesoMux-$VERSION.dmg.sha256" \
             "dist/release/awesoMux-$VERSION.verification.json" \

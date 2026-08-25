@@ -167,6 +167,42 @@ struct BuildAndRunScriptTests {
         #expect(script.contains("swift-cmark/COPYING"))
     }
 
+    @Test("links and stages Sparkle with release-only updater policy")
+    func stagesSparkleWithReleaseOnlyUpdaterPolicy() throws {
+        let manifest = try Self.contents(of: "Package.swift")
+        let script = try Self.contents(of: "script/build_and_run.sh")
+
+        #expect(manifest.contains(".package(url: \"https://github.com/sparkle-project/Sparkle\", from: \"2.9.6\")"))
+        #expect(manifest.contains(".product(name: \"Sparkle\", package: \"Sparkle\")"))
+        #expect(script.contains("Sparkle.framework"))
+        #expect(script.contains("@executable_path/../Frameworks"))
+        #expect(script.contains("XPCServices"))
+        #expect(script.contains("AWESOMUX_SPARKLE_ENABLED"))
+        #expect(script.contains("SPARKLE_PUBLIC_ED_KEY"))
+        #expect(script.contains("SUFeedURL"))
+        #expect(script.contains("SUPublicEDKey"))
+        #expect(script.contains("https://github.com/Interactive-Buffoonery/awesomux/releases/latest/download/appcast.xml"))
+        #expect(script.contains("SUEnableAutomaticChecks"))
+        #expect(script.contains("SUAutomaticallyUpdate"))
+        #expect(script.contains("SUAllowsAutomaticUpdates"))
+        #expect(script.contains("SUEnableSystemProfiling"))
+        #expect(script.contains("SUVerifyUpdateBeforeExtraction"))
+        #expect(script.contains("SURequireSignedFeed"))
+        #expect(script.contains("SUSignedFeedFailureExpirationInterval"))
+        #expect(script.contains("Add :SUSignedFeedFailureExpirationInterval integer 0"))
+        #expect(script.contains("SPARKLE_PUBLIC_ED_KEY is required when AWESOMUX_SPARKLE_ENABLED=1"))
+    }
+
+    @Test("ad-hoc signs the development app without Hardened Runtime")
+    func adHocSignsDevelopmentAppWithoutHardenedRuntime() throws {
+        let script = try Self.contents(of: "script/build_and_run.sh")
+
+        #expect(script.contains("codesign --force --deep --sign - \"$APP_BUNDLE\""))
+        #expect(!script.contains("SPARKLE_AUTOUPDATE"))
+        #expect(!script.contains("SPARKLE_UPDATER"))
+        #expect(!script.contains("codesign --force --deep --sign - --options runtime \"$APP_BUNDLE\""))
+    }
+
     @Test("stages the DesignSystem resource bundle")
     func stagesDesignSystemResourceBundle() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")

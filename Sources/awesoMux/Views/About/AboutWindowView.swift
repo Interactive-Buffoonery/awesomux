@@ -92,6 +92,10 @@ struct AboutCredit: Identifiable {
 
     static let all: [AboutCredit] = [
         AboutCredit(
+            name: "Sparkle",
+            attribution: "Software updates — MIT",
+            resource: "LICENSE", ext: nil, subdirectory: "Sparkle"),
+        AboutCredit(
             name: "libghostty",
             attribution: "Ghostty terminal core — MIT",
             resource: "LICENSE", ext: nil, subdirectory: "Ghostty"),

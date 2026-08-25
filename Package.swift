@@ -77,6 +77,7 @@ import PackageDescription
             .library(name: "DesignSystem", targets: ["DesignSystem"]),
         ],
         dependencies: [
+            .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
             .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
             .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
         ],
@@ -92,6 +93,7 @@ import PackageDescription
                     "UnicodeHygiene",
                     "GhosttyKit",
                     "GhosttyKitLinker",
+                    .product(name: "Sparkle", package: "Sparkle"),
                 ]
             ),
             .target(

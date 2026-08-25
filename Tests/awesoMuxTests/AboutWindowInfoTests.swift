@@ -93,6 +93,16 @@ struct AboutWindowInfoTests {
         #expect(Set(names).count == names.count)
     }
 
+    @Test("Sparkle is credited with its bundled MIT license")
+    func sparkleCredit() {
+        let sparkle = AboutCredit.all.first { $0.name == "Sparkle" }
+
+        #expect(sparkle?.attribution == "Software updates — MIT")
+        #expect(sparkle?.resource == "LICENSE")
+        #expect(sparkle?.ext == nil)
+        #expect(sparkle?.subdirectory == "Sparkle")
+    }
+
     /// The source-tree test above proves the file exists in the repo, but the
     /// bundle only ships what `build_and_run.sh`'s `required_license_files`
     /// copies. A credit added to the manifest without updating that list would

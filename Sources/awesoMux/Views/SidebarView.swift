@@ -499,6 +499,8 @@ struct SidebarView: View {
                 }
             }
 
+            UpdateAvailableIndicator(displayMode: displayMode)
+
             SidebarActivitySection(
                 sessionStore: sessionStore,
                 invalidationKey: SidebarActivityInvalidationKey(

@@ -18,6 +18,8 @@ IDENTITY="Developer ID Application"
 NOTARY_PROFILE="awesomux-notary"
 OUTPUT_DIR="$ROOT_DIR/dist/release"
 UNSIGNED=0
+SPARKLE_ENABLED=0
+USE_STAGED_BUNDLE=0
 SIGNING_IDENTITY="ad-hoc"
 TEAM_ID=""
 SUBMISSION_ID=""
@@ -41,6 +43,10 @@ Options:
                          Creates an -unsigned.dmg without signing
                          credentials (still requires full Xcode and the
                          amx/Zig toolchain).
+  --enable-sparkle       Stamp the stable Sparkle feed configuration.
+                         Requires SPARKLE_PUBLIC_ED_KEY.
+  --use-staged-bundle    Sign the existing dist/awesoMux.app without running
+                         SwiftPM, Zig, or dependency build code.
 USAGE
 }
 
@@ -52,6 +58,8 @@ while [[ $# -gt 0 ]]; do
     --notary-profile) NOTARY_PROFILE="${2:?--notary-profile needs a value}"; shift 2 ;;
     --output) OUTPUT_DIR="${2:?--output needs a value}"; shift 2 ;;
     --unsigned) UNSIGNED=1; shift ;;
+    --enable-sparkle) SPARKLE_ENABLED=1; shift ;;
+    --use-staged-bundle) USE_STAGED_BUNDLE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -73,6 +81,10 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 if [[ -n "$BUILD_NUMBER" && ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
   echo "error: --build-number must be a positive integer, got: $BUILD_NUMBER" >&2
+  exit 2
+fi
+if [[ "$SPARKLE_ENABLED" -eq 1 && -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+  echo "error: SPARKLE_PUBLIC_ED_KEY is required with --enable-sparkle" >&2
   exit 2
 fi
 
@@ -117,13 +129,35 @@ fi
 # Ghostty. Releases are always ReleaseFast.
 export AWESOMUX_GHOSTTY_OPTIMIZE=ReleaseFast
 
-# SwiftPM does not reliably relink when the Ghostty archive under
-# .build/ghostty changes content (known gap in this repo) — remove the cached
-# release product so an exact-pin Ghostty rebuild cannot ship a stale-linked
-# binary that passes every downstream check.
-rm -f "$ROOT_DIR/.build/release/awesoMux"
+if [[ "$USE_STAGED_BUNDLE" -eq 0 ]]; then
+  # SwiftPM does not reliably relink when the Ghostty archive under
+  # .build/ghostty changes content (known gap in this repo) — remove the cached
+  # release product so an exact-pin Ghostty rebuild cannot ship a stale-linked
+  # binary that passes every downstream check.
+  rm -f "$ROOT_DIR/.build/release/awesoMux"
 
-"$ROOT_DIR/script/build_and_run.sh" --stage-release
+  if [[ "$SPARKLE_ENABLED" -eq 1 ]]; then
+    (
+      export AWESOMUX_SPARKLE_ENABLED=1
+      export SPARKLE_PUBLIC_ED_KEY
+      "$ROOT_DIR/script/build_and_run.sh" --stage-release
+    )
+  else
+    (
+      unset AWESOMUX_SPARKLE_ENABLED SPARKLE_PUBLIC_ED_KEY
+      "$ROOT_DIR/script/build_and_run.sh" --stage-release
+    )
+  fi
+fi
+
+if [[ "$USE_STAGED_BUNDLE" -eq 1 ]]; then
+  EXPECTED_SOURCE_REVISION="$(git -C "$ROOT_DIR" rev-parse --short "$RELEASE_COMMIT")"
+  STAGED_SOURCE_REVISION="$(/usr/libexec/PlistBuddy -c 'Print :AwesoMuxSourceRevision' "$INFO_PLIST" 2>/dev/null || true)"
+  if [[ "$STAGED_SOURCE_REVISION" != "$EXPECTED_SOURCE_REVISION" ]]; then
+    echo "error: staged bundle source revision does not match release commit" >&2
+    exit 1
+  fi
+fi
 
 # The staging script only warns when actool (full Xcode) is missing; a
 # release bundle without the composed icon is not shippable.
@@ -153,6 +187,9 @@ required_bundle_paths=(
   "Contents/Resources/terminfo/78/xterm-ghostty"
   "Contents/Resources/en.lproj/Localizable.strings"
   "Contents/Resources/en.lproj/Localizable.stringsdict"
+  "Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+  "Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"
+  "Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
 )
 for path in "${required_bundle_paths[@]}"; do
   if [[ ! -e "$APP_BUNDLE/$path" ]]; then
@@ -160,6 +197,47 @@ for path in "${required_bundle_paths[@]}"; do
     exit 1
   fi
 done
+
+SPARKLE_POLICY_KEYS=(
+  SUFeedURL
+  SUPublicEDKey
+  SUEnableAutomaticChecks
+  SUAutomaticallyUpdate
+  SUAllowsAutomaticUpdates
+  SUEnableSystemProfiling
+  SUVerifyUpdateBeforeExtraction
+  SURequireSignedFeed
+  SUSignedFeedFailureExpirationInterval
+)
+if [[ "$SPARKLE_ENABLED" -eq 1 ]]; then
+  EXPECTED_SPARKLE_POLICY=(
+    "SUFeedURL=https://github.com/Interactive-Buffoonery/awesomux/releases/latest/download/appcast.xml"
+    "SUPublicEDKey=$SPARKLE_PUBLIC_ED_KEY"
+    "SUEnableAutomaticChecks=true"
+    "SUAutomaticallyUpdate=false"
+    "SUAllowsAutomaticUpdates=false"
+    "SUEnableSystemProfiling=false"
+    "SUVerifyUpdateBeforeExtraction=true"
+    "SURequireSignedFeed=true"
+    "SUSignedFeedFailureExpirationInterval=0"
+  )
+  for policy in "${EXPECTED_SPARKLE_POLICY[@]}"; do
+    key="${policy%%=*}"
+    expected="${policy#*=}"
+    actual="$(/usr/libexec/PlistBuddy -c "Print :$key" "$INFO_PLIST" 2>/dev/null || true)"
+    if [[ "$actual" != "$expected" ]]; then
+      echo "error: staged bundle Sparkle policy does not match --enable-sparkle ($key)" >&2
+      exit 1
+    fi
+  done
+else
+  for key in "${SPARKLE_POLICY_KEYS[@]}"; do
+    if /usr/libexec/PlistBuddy -c "Print :$key" "$INFO_PLIST" >/dev/null 2>&1; then
+      echo "error: staged bundle contains stable Sparkle policy without --enable-sparkle ($key)" >&2
+      exit 1
+    fi
+  done
+fi
 
 # dist/awesoMux.app is shared with every build_and_run.sh mode; a dev build
 # started during the (long) notarization wait would mutate it mid-release.
@@ -180,6 +258,16 @@ ln -s /Applications "$DMG_SOURCE_DIR/Applications"
 APP_BUNDLE="$DMG_SOURCE_DIR/awesoMux.app"
 APP_MACOS="$APP_BUNDLE/Contents/MacOS"
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
+SPARKLE_FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+SPARKLE_AUTOUPDATE="$SPARKLE_FRAMEWORK/Versions/B/Autoupdate"
+SPARKLE_UPDATER="$SPARKLE_FRAMEWORK/Versions/B/Updater.app"
+
+for xpc_services in "$SPARKLE_FRAMEWORK/XPCServices" "$SPARKLE_FRAMEWORK/Versions/B/XPCServices"; do
+  if [[ -e "$xpc_services" || -L "$xpc_services" ]]; then
+    echo "error: unused Sparkle XPC services remain in the non-sandboxed release bundle: $xpc_services" >&2
+    exit 1
+  fi
+done
 
 # Strip stray extended attributes (quarantine, Finder metadata) before
 # signing so none ride into the notarized archive.
@@ -205,13 +293,30 @@ fi
 for exe in amx awesoMuxAgentHook awesoMuxBridgeHelper; do
   codesign "${SIGN_ARGS[@]}" "$APP_MACOS/$exe"
 done
+codesign "${SIGN_ARGS[@]}" "$SPARKLE_AUTOUPDATE"
+codesign "${SIGN_ARGS[@]}" "$SPARKLE_UPDATER"
+codesign "${SIGN_ARGS[@]}" "$SPARKLE_FRAMEWORK"
 codesign "${SIGN_ARGS[@]}" "$APP_BUNDLE"
 
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
+SIGNATURE_TARGETS=(
+  "$APP_BUNDLE"
+  "$APP_MACOS/awesoMux"
+  "$APP_MACOS/awesoMuxAgentHook"
+  "$APP_MACOS/awesoMuxBridgeHelper"
+  "$APP_MACOS/amx"
+  "$SPARKLE_AUTOUPDATE"
+  "$SPARKLE_UPDATER"
+  "$SPARKLE_FRAMEWORK"
+)
+for target in "${SIGNATURE_TARGETS[@]}"; do
+  codesign --verify --strict --verbose=2 "$target"
+done
+
 # ADR-0019: entitlements start empty — on every signed executable, not just
 # the outer bundle. Fail loudly if any sneak in.
-for target in "$APP_BUNDLE" "$APP_MACOS/awesoMux" "$APP_MACOS/awesoMuxAgentHook" "$APP_MACOS/awesoMuxBridgeHelper" "$APP_MACOS/amx"; do
+for target in "${SIGNATURE_TARGETS[@]}"; do
   entitlements_xml="$(codesign -d --entitlements - --xml "$target" 2>/dev/null)" || {
     echo "error: could not read entitlements for $target" >&2
     exit 1
@@ -223,8 +328,19 @@ for target in "$APP_BUNDLE" "$APP_MACOS/awesoMux" "$APP_MACOS/awesoMuxAgentHook"
 done
 
 if [[ "$UNSIGNED" -eq 0 ]]; then
-  # Assert the signature is the one we meant: Developer ID authority, secure
-  # timestamp, Hardened Runtime — before spending a notarization round-trip.
+  # Assert every nested signature has Developer ID authority, a secure
+  # timestamp, and Hardened Runtime before spending a notarization round-trip.
+  for target in "${SIGNATURE_TARGETS[@]}"; do
+    TARGET_SIGN_INFO="$(codesign -dvvv "$target" 2>&1)"
+    for want in "Authority=Developer ID Application" "Timestamp=" "runtime"; do
+      if ! grep -q "$want" <<<"$TARGET_SIGN_INFO"; then
+        echo "error: $target signature missing expected marker: $want" >&2
+        echo "$TARGET_SIGN_INFO" >&2
+        exit 1
+      fi
+    done
+  done
+
   SIGN_INFO="$(codesign -dvvv "$APP_BUNDLE" 2>&1)"
   SIGNING_IDENTITY="$(awk -F= '/^Authority=/{print $2; exit}' <<<"$SIGN_INFO")"
   TEAM_ID="$(awk -F= '/^TeamIdentifier=/{print $2; exit}' <<<"$SIGN_INFO")"
@@ -233,13 +349,6 @@ if [[ "$UNSIGNED" -eq 0 ]]; then
     echo "$SIGN_INFO" >&2
     exit 1
   fi
-  for want in "Authority=Developer ID Application" "Timestamp=" "runtime"; do
-    if ! grep -q "$want" <<<"$SIGN_INFO"; then
-      echo "error: bundle signature missing expected marker: $want" >&2
-      echo "$SIGN_INFO" >&2
-      exit 1
-    fi
-  done
 fi
 
 mkdir -p "$OUTPUT_DIR"
