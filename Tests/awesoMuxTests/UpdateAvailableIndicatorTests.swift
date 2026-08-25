@@ -35,6 +35,8 @@ struct UpdateAvailableIndicatorTests {
         #expect(fixture.checks == 1)
         fixture.controller.skipAvailableUpdate()
         #expect(fixture.controller.availableVersion == nil)
+        SidebarHostedTestHarness.settleMainRunLoop()
+        #expect(fixture.buttons.isEmpty)
     }
 
     @Test("hosted collapsed indicator preserves the versioned minimum control") @MainActor
