@@ -46,6 +46,11 @@ struct AgentRuntimeEventReducer: Sendable {
         static let recentEventIDCapacity = 64
         var recentEventIDs: [String] = []
         var lastAppliedTimestamp: Date?
+        // Whether any event was ever applied on this pane. Timestamps are
+        // optional on the wire, so `lastAppliedTimestamp != nil` cannot stand
+        // in for this: a timestamp-less stream would otherwise read as
+        // "nothing applied" forever.
+        var hasAppliedEvent = false
         // Arrival-order lifecycle state complements timestamps: it suppresses
         // both post-exit Stop events and an old SessionEnd delivered after a
         // stopped lifecycle has been superseded in the same pane.
@@ -214,11 +219,11 @@ struct AgentRuntimeEventReducer: Sendable {
         // it mid-turn would steal the pane, mark the child's kind
         // runtime-proven, and leave the parent's genuine events failing the
         // cross-provider guard forever. An unproven guess
-        // (`lastAppliedTimestamp == nil`) stays reclaimable — the stray-
+        // (`hasAppliedEvent == false`) stays reclaimable — the stray-
         // scrollback case above — and a stopped or ended lifecycle clears the
         // live-turn test the same way it clears the runtime-proven exception.
         let incumbentShowsLiveTurn =
-            state.lastAppliedTimestamp != nil
+            state.hasAppliedEvent
             && !state.lifecycle.currentIsStopped
             && !state.lifecycle.isEnded
         if let eventKind = event.kind,
@@ -652,6 +657,7 @@ struct AgentRuntimeEventReducer: Sendable {
         now: Date,
         into state: inout RuntimeEventState
     ) {
+        state.hasAppliedEvent = true
         if let dedupeKey {
             state.recentEventIDs.append(dedupeKey)
             if state.recentEventIDs.count > RuntimeEventState.recentEventIDCapacity {
