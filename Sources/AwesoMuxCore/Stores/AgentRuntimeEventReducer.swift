@@ -207,12 +207,27 @@ struct AgentRuntimeEventReducer: Sendable {
         // therefore yields to a genuine identity boundary (session start or
         // user prompt) from another provider; foreign tool-lifecycle chatter
         // still cannot steal the pane.
+        // A text-guessed kind may yield to a foreign identity boundary only
+        // while the guessed provider's own stream shows no live turn. A nested
+        // child of a DIFFERENT provider can fire `.promptSubmit` into this
+        // pane's event file while the real (text-guessed) agent works; taking
+        // it mid-turn would steal the pane, mark the child's kind
+        // runtime-proven, and leave the parent's genuine events failing the
+        // cross-provider guard forever. An unproven guess
+        // (`lastAppliedTimestamp == nil`) stays reclaimable — the stray-
+        // scrollback case above — and a stopped or ended lifecycle clears the
+        // live-turn test the same way it clears the runtime-proven exception.
+        let incumbentShowsLiveTurn =
+            state.lastAppliedTimestamp != nil
+            && !state.lifecycle.currentIsStopped
+            && !state.lifecycle.isEnded
         if let eventKind = event.kind,
             currentPane.agentKind != .shell,
             currentPane.agentKind != eventKind,
             !(event.phase == .sessionStart && (state.lifecycle.isEnded || state.lifecycle.currentIsStopped)),
             currentPane.agentKindIsRuntimeEstablished
                 || !(event.phase == .sessionStart || event.phase == .promptSubmit)
+                || incumbentShowsLiveTurn
         {
             return nil
         }

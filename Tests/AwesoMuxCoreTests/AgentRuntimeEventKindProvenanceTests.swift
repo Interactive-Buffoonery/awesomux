@@ -48,6 +48,21 @@ struct AgentRuntimeEventKindProvenanceTests {
         )
     }
 
+    private func claudeCodeEvent(
+        phase: AgentRuntimePhase,
+        eventID: String,
+        timestamp: Date
+    ) -> AgentRuntimeEvent {
+        AgentRuntimeEvent(
+            source: .claudeCode,
+            kind: .claudeCode,
+            executionState: .thinking,
+            phase: phase,
+            eventID: eventID,
+            timestamp: timestamp
+        )
+    }
+
     @Test("a text-guessed kind yields to another provider's prompt submit")
     func textGuessedKindYieldsToPromptSubmit() throws {
         let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
@@ -69,6 +84,91 @@ struct AgentRuntimeEventKindProvenanceTests {
         let decision = try #require(reclaimed)
         #expect(decision.update.agentKind == .openCode)
         #expect(decision.update.agentKindIsRuntimeEstablished == true)
+    }
+
+    @Test("a foreign prompt submit cannot steal a mid-turn text-guessed pane")
+    func foreignPromptSubmitDoesNotReclaimMidTurn() throws {
+        let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        // The guessed provider's own prompt proves the pane is genuinely
+        // mid-turn, so a nested child of another provider must not reclaim it.
+        let parentTurn = reducer.decision(
+            for: claudeCodeEvent(
+                phase: .promptSubmit,
+                eventID: "parent-turn",
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 11)
+        )
+        _ = try #require(parentTurn)
+
+        #expect(
+            reducer.decision(
+                for: openCodeEvent(
+                    phase: .promptSubmit,
+                    eventID: "child-steal",
+                    timestamp: Date(timeIntervalSince1970: 12)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: Date(timeIntervalSince1970: 13)
+            ) == nil,
+            "a foreign prompt submit mid-turn must stay rejected over a text-guessed kind"
+        )
+    }
+
+    @Test("a stopped text-guessed pane still yields to another provider")
+    func stoppedTextGuessedKindStillYields() throws {
+        let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
+        let paneID = session.activePaneID
+        var reducer = AgentRuntimeEventReducer()
+
+        // A finished turn is not a live one: once the guessed provider stops
+        // between turns, the reclaim path stays open for a genuine handoff.
+        let earlierTurn = reducer.decision(
+            for: claudeCodeEvent(
+                phase: .promptSubmit,
+                eventID: "earlier-turn",
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 11)
+        )
+        _ = try #require(earlierTurn)
+        let turnEnd = reducer.decision(
+            for: claudeCodeEvent(
+                phase: .stop,
+                eventID: "turn-end",
+                timestamp: Date(timeIntervalSince1970: 12)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 13)
+        )
+        _ = try #require(turnEnd)
+
+        let reclaimed = reducer.decision(
+            for: openCodeEvent(
+                phase: .promptSubmit,
+                eventID: "handoff",
+                timestamp: Date(timeIntervalSince1970: 14)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 15)
+        )
+        let handoff = try #require(reclaimed)
+        #expect(handoff.update.agentKind == .openCode)
     }
 
     @Test("a text-guessed kind yields to another provider's session start")
