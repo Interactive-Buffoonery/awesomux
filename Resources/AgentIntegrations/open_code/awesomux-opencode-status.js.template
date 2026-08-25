@@ -82,7 +82,7 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
             // filter above as a false parent turn-end. Only sessions never
             // announced as children may seed the root set (covers sessions
             // created before this plugin attached).
-            if (!childSessionIDs.has(sessionID)) {
+            if (typeof sessionID === "string" && !childSessionIDs.has(sessionID)) {
                 trackInto(rootSessionIDs, sessionID)
             }
             await emitAwesoMuxHook($, "UserPromptSubmit", sessionID)
