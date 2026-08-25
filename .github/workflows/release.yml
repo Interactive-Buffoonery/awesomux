@@ -782,6 +782,8 @@ jobs:
             echo "::error::generate_appcast did not produce appcast.xml" >&2
             exit 1
           }
+          EXPECTED_DMG_URL="https://github.com/Interactive-Buffoonery/awesomux/releases/download/v$RELEASE_VERSION/awesoMux-$RELEASE_VERSION.dmg"
+          "$GITHUB_WORKSPACE/.github/scripts/validate_appcast.sh" "$GITHUB_WORKSPACE/appcast.xml" "$EXPECTED_DMG_URL"
 
       - name: Create draft GitHub Release
         if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')

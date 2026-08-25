@@ -1,11 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const workflow = readFileSync(join(repoRoot, ".github/workflows/release.yml"), "utf8");
+const appcastValidator = join(repoRoot, ".github/scripts/validate_appcast.sh");
+const expectedDmgURL = "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v9.9.9/awesoMux-9.9.9.dmg";
+const canValidateAppcast = existsSync("/usr/bin/xmllint");
 
 test("release workflow validates the DMG, checksum, and summary before publication", () => {
   const verification = workflow.match(
@@ -58,6 +63,8 @@ test("stable release generates one signed appcast without exposing its private k
   assert.match(generation, /--download-url-prefix "https:\/\/github\.com\/Interactive-Buffoonery\/awesomux\/releases\/download\/v\$RELEASE_VERSION\/"/);
   assert.match(generation, /-o "\$GITHUB_WORKSPACE\/appcast\.xml"/);
   assert.match(generation, /dist\/release\/awesoMux-\$RELEASE_VERSION\.dmg/);
+  assert.match(generation, /EXPECTED_DMG_URL="https:\/\/github\.com\/Interactive-Buffoonery\/awesomux\/releases\/download\/v\$RELEASE_VERSION\/awesoMux-\$RELEASE_VERSION\.dmg"/);
+  assert.match(generation, /"\$GITHUB_WORKSPACE\/\.github\/scripts\/validate_appcast\.sh" "\$GITHUB_WORKSPACE\/appcast\.xml" "\$EXPECTED_DMG_URL"/);
   assert.doesNotMatch(generation, /generate_keys|echo "\$SPARKLE_PRIVATE_ED_KEY"|>[^|\n]*SPARKLE_PRIVATE_ED_KEY/);
 
   const outsideGeneration = workflow.replace(generation, "");
@@ -75,3 +82,55 @@ test("stable release generates one signed appcast without exposing its private k
   assert.ok(nightly, "nightly publication step must exist");
   assert.doesNotMatch(nightly, /appcast|SPARKLE_PRIVATE_ED_KEY/);
 });
+
+test("appcast validator accepts one signed enclosure at the expected URL", { skip: !canValidateAppcast }, () => {
+  const result = validateFixture(`
+    <enclosure url="${expectedDmgURL}" sparkle:edSignature="signed-value" />
+  `);
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("appcast validator rejects an unexpected enclosure URL", { skip: !canValidateAppcast }, () => {
+  const result = validateFixture(`
+    <enclosure url="https://example.invalid/awesoMux-9.9.9.dmg" sparkle:edSignature="signed-value" />
+  `);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unexpected enclosure URL/);
+});
+
+test("appcast validator rejects an empty Sparkle EdDSA signature", { skip: !canValidateAppcast }, () => {
+  const result = validateFixture(`
+    <enclosure url="${expectedDmgURL}" sparkle:edSignature="" />
+  `);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /nonempty sparkle:edSignature/);
+});
+
+test("appcast validator rejects multiple enclosures", { skip: !canValidateAppcast }, () => {
+  const result = validateFixture(`
+    <enclosure url="${expectedDmgURL}" sparkle:edSignature="signed-value" />
+    <enclosure url="${expectedDmgURL}" sparkle:edSignature="signed-value" />
+  `);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /exactly one enclosure/);
+});
+
+function validateFixture(enclosures) {
+  assert.ok(existsSync(appcastValidator), "appcast validator must exist");
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "awesomux-appcast-validation-"));
+  const appcastPath = join(fixtureRoot, "appcast.xml");
+  try {
+    writeFileSync(appcastPath, `<?xml version="1.0"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel><item>${enclosures}</item></channel>
+</rss>
+`);
+    return spawnSync("bash", [appcastValidator, appcastPath, expectedDmgURL], { encoding: "utf8" });
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}

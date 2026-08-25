@@ -220,13 +220,56 @@ struct BuildScriptHelpTests {
         #expect(script.contains("$SPARKLE_AUTOUPDATE"))
         #expect(script.contains("$SPARKLE_UPDATER"))
         #expect(script.contains("SIGNATURE_TARGETS"))
-        #expect(script.contains("ENTITLEMENT_TARGETS"))
+        #expect(!script.contains("ENTITLEMENT_TARGETS"))
+        #expect(script.contains("for target in \"${SIGNATURE_TARGETS[@]}\"; do\n  entitlements_xml="))
 
         let signingLines = script.split(separator: "\n").filter {
             $0.contains("codesign") && $0.contains("SIGN_ARGS")
         }
         #expect(!signingLines.isEmpty)
         #expect(signingLines.allSatisfy { !$0.contains("--deep") })
+    }
+
+    @Test("default release staging drops contaminated Sparkle inputs")
+    func defaultReleaseStagingDropsContaminatedSparkleInputs() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-release-sparkle-contamination")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        let infoPlist = temporaryDirectory.url.appendingPathComponent("Info.plist")
+        try """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict><key>CFBundleName</key><string>awesoMux</string></dict></plist>
+        """.write(to: infoPlist, atomically: true, encoding: .utf8)
+
+        let scriptDirectory = temporaryDirectory.url.appendingPathComponent("script")
+        try FileManager.default.createDirectory(at: scriptDirectory, withIntermediateDirectories: true)
+        let fakeStager = scriptDirectory.appendingPathComponent("build_and_run.sh")
+        try """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        INFO_PLIST="$TEST_INFO_PLIST"
+        \(try Self.sparkleUpdaterPolicyBlock())
+        """.write(to: fakeStager, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeStager.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        let command = "set -euo pipefail\nROOT_DIR=\"\(temporaryDirectory.url.path)\"\nSPARKLE_ENABLED=0\n\(try Self.releaseStagingBlock())"
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "AWESOMUX_SPARKLE_ENABLED": "1",
+            "SPARKLE_PUBLIC_ED_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "TEST_INFO_PLIST": infoPlist.path,
+        ]) { _, testValue in testValue }
+
+        let captured = try captureOutput(of: process)
+        #expect(process.terminationStatus == 0, "command:\n\(command)\noutput: \(captured.stdout)\(captured.stderr)")
+
+        let data = try Data(contentsOf: infoPlist)
+        let values = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        #expect(values["SUFeedURL"] == nil)
+        #expect(values["SUPublicEDKey"] == nil)
     }
 
     @Test("release build rejects a dirty worktree before staging")
@@ -332,6 +375,19 @@ struct BuildScriptHelpTests {
         let end = try #require(
             script.range(of: "\n# Ad-hoc codesign", range: start..<script.endIndex)?.lowerBound,
             "end of Sparkle updater policy block not found"
+        )
+        return String(script[start..<end])
+    }
+
+    private static func releaseStagingBlock() throws -> String {
+        let script = try contents(of: "script/build_release.sh")
+        let start = try #require(
+            script.range(of: "\nif [[ \"$SPARKLE_ENABLED\" -eq 1 ]]; then\n")?.lowerBound,
+            "release staging block not found"
+        )
+        let end = try #require(
+            script.range(of: "\n# The staging script only warns", range: start..<script.endIndex)?.lowerBound,
+            "end of release staging block not found"
         )
         return String(script[start..<end])
     }

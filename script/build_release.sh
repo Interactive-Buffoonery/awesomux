@@ -138,7 +138,10 @@ if [[ "$SPARKLE_ENABLED" -eq 1 ]]; then
     "$ROOT_DIR/script/build_and_run.sh" --stage-release
   )
 else
-  "$ROOT_DIR/script/build_and_run.sh" --stage-release
+  (
+    unset AWESOMUX_SPARKLE_ENABLED SPARKLE_PUBLIC_ED_KEY
+    "$ROOT_DIR/script/build_and_run.sh" --stage-release
+  )
 fi
 
 # The staging script only warns when actool (full Xcode) is missing; a
@@ -257,8 +260,7 @@ done
 
 # ADR-0019: entitlements start empty — on every signed executable, not just
 # the outer bundle. Fail loudly if any sneak in.
-ENTITLEMENT_TARGETS=("${SIGNATURE_TARGETS[@]}")
-for target in "${ENTITLEMENT_TARGETS[@]}"; do
+for target in "${SIGNATURE_TARGETS[@]}"; do
   entitlements_xml="$(codesign -d --entitlements - --xml "$target" 2>/dev/null)" || {
     echo "error: could not read entitlements for $target" >&2
     exit 1
