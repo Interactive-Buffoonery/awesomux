@@ -25,6 +25,19 @@ context (direct callers/callees) only after you have the full diff in hand.
 Focus on the diff — flag pre-existing issues only if they interact with the
 change.
 
+Ground every finding in the final, post-change code. Before claiming something
+is missing, removed, or broken, inspect the relevant current files and confirm
+that the added code does not already address it. Code absent from the diff was
+not necessarily removed.
+
+When a change affects shared behavior, search for its callers, consumers,
+sibling implementations, persistence formats, and tests. Verify those
+contracts before reporting a regression or compatibility problem.
+
+Do not review the internals of generated output, vendored dependencies,
+lockfiles, snapshots, or mechanically produced fixtures. Review the authored
+source and configuration that produced them instead.
+
 Large-diff budget rule: prioritize drafting the `## Code Review` over exhaustive
 reading. If you are running short on budget, draft the review from the diff you
 already have rather than continuing to investigate. A complete `## Code Review`
@@ -153,6 +166,10 @@ The public PR comment must be short and directly actionable.
 - Cap findings at 5 total, with at most 2 nits.
 - Each finding must use `file:line — problem; fix` and be no more than two
   short sentences.
+- Report a blocker or should-fix item only when you can name the observable
+  failure, unsafe behavior, broken contract, or concrete maintenance cost. If
+  the proposed fix would not change behavior, error handling, data, or
+  diagnostics, omit it or classify it as a nit.
 - If there are no blockers or should-fix items, output only:
 
 ```markdown

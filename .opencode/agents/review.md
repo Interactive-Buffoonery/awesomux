@@ -5,6 +5,7 @@ description: |
   files.
 mode: primary
 model: synthetic/hf:moonshotai/Kimi-K3 # used by local opencode runs; CI workflows also pass model to the action
+steps: 40
 temperature: 0.1
 permission:
   edit: deny

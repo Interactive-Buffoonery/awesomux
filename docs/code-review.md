@@ -57,6 +57,13 @@ synthetic/hf:moonshotai/Kimi-K3
 There is no model fallback. The Synthetic key is supplied only to the trusted
 review step. Automatic and requested review jobs have a 20-minute timeout so
 Kimi K3 can inspect the wider repository and complete bounded output recovery.
+The review agent may take at most 40 steps within that window.
+
+The review instructions require findings to be checked against the final code,
+including callers and other consumers when shared behavior changes. Generated,
+vendored, lock, snapshot, and mechanically produced files are excluded from
+direct review, and every blocker or should-fix item must name a concrete
+consequence.
 
 OpenCode is pinned to version `1.17.8`. CI downloads the versioned Linux x64
 release archive, verifies its checked-in SHA-256, and only then extracts the

@@ -40,6 +40,10 @@ const reviewAgent = readFileSync(
   join(repoRoot, ".opencode/agents/review.md"),
   "utf-8",
 );
+const reviewSkill = readFileSync(
+  join(repoRoot, ".opencode/skills/pr-review/SKILL.md"),
+  "utf-8",
+);
 
 /** Strip YAML comments so structural checks do not match examples in comments. */
 function stripYamlComments(source) {
@@ -164,6 +168,14 @@ describe("opencode review model", () => {
       assert.match(source, /timeout-minutes:\s*20/);
       assert.doesNotMatch(source, /timeout-minutes:\s*15/);
     }
+    assert.match(reviewAgent, /^steps:\s*40$/m);
+  });
+
+  test("requires repository-grounded actionable findings", () => {
+    assert.match(reviewSkill, /final, post-change code/);
+    assert.match(reviewSkill, /callers, consumers/);
+    assert.match(reviewSkill, /generated output, vendored dependencies/);
+    assert.match(reviewSkill, /observable\s+failure/);
   });
 });
 
