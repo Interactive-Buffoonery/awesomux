@@ -182,7 +182,7 @@ native validation for an exact pull-request SHA with `/ci`; the full local
 preflight remains the strongest pre-PR gate. Required checks, native scopes,
 trust boundaries, and troubleshooting are documented in
 [`docs/ci.md`](docs/ci.md).
-The OpenCode review workflows run exact GLM 5.2 reviews through Synthetic for
+The OpenCode review workflows run exact Kimi K3 reviews through Synthetic for
 eligible maintainer PRs and support maintainer-requested `/codereview` reruns;
 they cannot publish approvals or merge.
 [The OpenCode review guide](docs/code-review.md) documents review

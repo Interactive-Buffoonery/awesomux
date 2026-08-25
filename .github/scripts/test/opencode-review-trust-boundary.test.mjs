@@ -169,12 +169,21 @@ describe("opencode review model", () => {
       assert.doesNotMatch(source, /timeout-minutes:\s*15/);
     }
     assert.match(reviewAgent, /^steps:\s*40$/m);
+    assert.match(action, /opencode --pure debug agent "\$AGENT"/);
+    assert.match(action, /\.steps \/\/ empty/);
+    assert.match(action, /EXPECTED_AGENT_STEPS:\s*["']40["']/);
   });
 
   test("requires repository-grounded actionable findings", () => {
     assert.match(reviewSkill, /final, post-change code/);
     assert.match(reviewSkill, /callers, consumers/);
+    assert.match(reviewSkill, /sibling implementations/);
+    assert.match(reviewSkill, /persistence formats/);
+    assert.match(reviewSkill, /and tests/);
     assert.match(reviewSkill, /generated output, vendored dependencies/);
+    assert.match(reviewSkill, /lockfiles/);
+    assert.match(reviewSkill, /snapshots/);
+    assert.match(reviewSkill, /mechanically produced fixtures/);
     assert.match(reviewSkill, /observable\s+failure/);
   });
 });

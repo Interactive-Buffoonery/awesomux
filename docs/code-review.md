@@ -58,6 +58,8 @@ There is no model fallback. The Synthetic key is supplied only to the trusted
 review step. Automatic and requested review jobs have a 20-minute timeout so
 Kimi K3 can inspect the wider repository and complete bounded output recovery.
 The review agent may take at most 40 steps within that window.
+CI asks the pinned OpenCode binary to resolve the trusted review-agent
+configuration and fails before review if that effective step limit is not 40.
 
 The review instructions require findings to be checked against the final code,
 including callers and other consumers when shared behavior changes. Generated,

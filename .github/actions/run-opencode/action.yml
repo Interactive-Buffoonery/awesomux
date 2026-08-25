@@ -134,6 +134,20 @@ runs:
           exit 1
         fi
 
+    - name: Verify opencode review agent limits
+      shell: bash
+      env:
+        AGENT: ${{ inputs.agent }}
+        EXPECTED_AGENT_STEPS: "40"
+      run: |
+        agent_config="${RUNNER_TEMP}/opencode-agent-config.json"
+        opencode --pure debug agent "$AGENT" > "$agent_config"
+        resolved_steps="$(jq -r '.steps // empty' "$agent_config")"
+        if [ "$resolved_steps" != "$EXPECTED_AGENT_STEPS" ]; then
+          echo "OpenCode agent $AGENT resolved steps=$resolved_steps; expected $EXPECTED_AGENT_STEPS" >&2
+          exit 1
+        fi
+
     - name: Run opencode
       id: run
       shell: bash
