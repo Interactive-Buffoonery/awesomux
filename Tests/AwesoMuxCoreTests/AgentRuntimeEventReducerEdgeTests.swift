@@ -239,6 +239,62 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.unreadNotificationCount == 0)
     }
 
+    @Test("nested session prompt submit preserves the parent's pending attention")
+    func nestedSessionPromptSubmitPreservesParentAttention() throws {
+        var session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        _ = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .sessionStart,
+                eventID: "parent-start",
+                providerSessionID: "parent",
+                timestamp: Date(timeIntervalSince1970: 1)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+
+        let submitResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .promptSubmit,
+                eventID: "child-submit",
+                providerSessionID: "child",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let submit = try #require(submitResult)
+        #expect(!submit.update.clearsUnreadNotifications)
+        #expect(!submit.update.attentionClearIsAuthoritative)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: submit.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == .permissionPrompt)
+        #expect(session.unreadNotificationCount == 1)
+    }
+
     @Test("only prompt submits claim the authoritative notification clear")
     func onlyPromptSubmitClaimsAuthoritativeClear() throws {
         let session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .openCode)

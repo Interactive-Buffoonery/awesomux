@@ -535,7 +535,11 @@ struct AgentRuntimeEventReducer: Sendable {
         // `markNeedsAttentionPromptAnswered`'s authoritative clear, which
         // keystroke routing only reaches for panes already projecting
         // `.needsAttention`.
-        let answersPendingNotifications = event.phase == .promptSubmit
+        let answersPendingNotifications =
+            event.phase == .promptSubmit
+            && (normalizedProviderSessionID(event.providerSessionID).map {
+                $0 == state.providerSessionID
+            } ?? true)
 
         let resolvedKind: AgentKind?
         if state.lifecycle.isEnded {
