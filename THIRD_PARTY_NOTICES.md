@@ -5,6 +5,7 @@ recorded in `.gitmodules` and `Package.resolved`.
 
 | Component | Use in awesoMux | License |
 | --- | --- | --- |
+| [Sparkle](https://github.com/sparkle-project/Sparkle) | Software updates | MIT and bundled third-party notices |
 | [Ghostty](https://github.com/ghostty-org/ghostty) | Terminal runtime and bundled resources | MIT |
 | [zmx](https://github.com/neurosnap/zmx) | Built and bundled as the `amx` command-bridge binary | MIT |
 | Hack Nerd Font | Bundled terminal font | MIT; public domain; Bitstream Vera License |
@@ -13,6 +14,12 @@ recorded in `.gitmodules` and `Package.resolved`.
 | [swift-cmark](https://github.com/swiftlang/swift-cmark) | Transitive dependency of swift-markdown | BSD-2-Clause |
 | [Geist Sans](https://github.com/vercel/geist-font) | Bundled interface font | SIL Open Font License 1.1 |
 | [Selenized](https://github.com/jan-warchol/selenized) | Bundled terminal color scheme | MIT |
+
+## Sparkle
+
+Sparkle is copyright its contributors and is licensed under the MIT License.
+Its full license, including bundled third-party notices, is included at
+`Resources/Licenses/Sparkle/LICENSE`.
 
 ## Ghostty
 

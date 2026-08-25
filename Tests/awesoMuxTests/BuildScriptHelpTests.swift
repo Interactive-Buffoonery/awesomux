@@ -56,6 +56,28 @@ struct BuildScriptHelpTests {
         #expect(result.output.contains("AWESOMUX_PERF_SAMPLE_PORTS"))
     }
 
+    @Test("app build help works without Sparkle release inputs")
+    func appBuildHelpWorksWithoutSparkleReleaseInputs() throws {
+        let result = try Self.run(script: "script/build_and_run.sh", arguments: ["--help"])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.output.contains("Usage:"))
+        #expect(!result.output.contains("SPARKLE_PUBLIC_ED_KEY is required"))
+    }
+
+    @Test("enabled build rejects an empty Sparkle public key before building")
+    func enabledBuildRejectsEmptySparklePublicKeyBeforeBuilding() throws {
+        let result = try Self.run(
+            script: "script/build_and_run.sh",
+            arguments: ["--stage-release"],
+            environment: ["AWESOMUX_SPARKLE_ENABLED": "1"]
+        )
+
+        #expect(result.exitStatus == 2)
+        #expect(result.output.contains("SPARKLE_PUBLIC_ED_KEY is required when AWESOMUX_SPARKLE_ENABLED=1"))
+        #expect(!result.output.contains("ensure_ghostty_artifacts.sh"))
+    }
+
     @Test("live Codex smoke-test help documents its read-only inputs")
     func liveCodexSmokeTestHelpDocumentsInputs() throws {
         let result = try Self.runHelp(script: "script/test_live_codex_plugin.sh", argument: "--help")

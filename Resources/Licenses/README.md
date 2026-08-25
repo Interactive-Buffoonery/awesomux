@@ -10,6 +10,7 @@ named in the table:
 
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
+| Sparkle | 2.9.6 | `Sparkle/LICENSE` |
 | Ghostty | `5851d98615187d85052e41042bcf66e0ccec11d4` | `Ghostty/LICENSE` |
 | zmx / amx | `e3bd8f0e72839c9d24a12d54490c4c3bcc869244` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |

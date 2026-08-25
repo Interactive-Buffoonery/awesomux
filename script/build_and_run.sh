@@ -48,6 +48,7 @@ INSTALLED_APP_BUNDLE="$INSTALL_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 AGENT_HOOK_NAME="awesoMuxAgentHook"
 AGENT_HOOK_BINARY="$APP_MACOS/$AGENT_HOOK_NAME"
@@ -71,6 +72,8 @@ APP_LOCALIZATIONS="$ROOT_DIR/Resources"
 APP_STRING_CATALOG="$APP_LOCALIZATIONS/Localizable.xcstrings"
 GHOSTTY_ARTIFACT_DIR="$ROOT_DIR/.build/ghostty"
 GHOSTTY_SHARE="$GHOSTTY_ARTIFACT_DIR/share"
+SPARKLE_FRAMEWORK_SOURCE="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+SPARKLE_FRAMEWORK="$APP_FRAMEWORKS/Sparkle.framework"
 
 cd "$ROOT_DIR"
 
@@ -115,6 +118,8 @@ Environment:
                                        (default: 30; --perf and --perf-install only).
   AWESOMUX_PERF_SAMPLE_PORTS           Include Mach port counts: 0 or 1
                                        (default: 0; --perf and --perf-install only).
+  AWESOMUX_SPARKLE_ENABLED             Set to 1 only for updater-enabled stable releases.
+  SPARKLE_PUBLIC_ED_KEY                Required with AWESOMUX_SPARKLE_ENABLED=1.
 
 See docs/ghostty-integration.md#build-the-xcframework for Ghostty build details.
 USAGE
@@ -123,6 +128,11 @@ USAGE
 if [[ "$MODE" == "--help" || "$MODE" == "-h" || "$MODE" == "help" ]]; then
   usage
   exit 0
+fi
+
+if [[ "${AWESOMUX_SPARKLE_ENABLED:-}" == "1" && -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+  echo "error: SPARKLE_PUBLIC_ED_KEY is required when AWESOMUX_SPARKLE_ENABLED=1." >&2
+  exit 2
 fi
 
 mode_requires_amx() {
@@ -530,7 +540,7 @@ fi
 if [[ -e "$APP_BUNDLE" ]]; then
   trash_path "$APP_BUNDLE"
 fi
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
 cp "$BUILD_BINARY" "$APP_BINARY"
 cp "$BUILD_AGENT_HOOK_BINARY" "$AGENT_HOOK_BINARY"
 if [[ ! -d "$DESIGN_SYSTEM_RESOURCE_BUNDLE" ]]; then
@@ -552,6 +562,23 @@ cp "$BUILD_BRIDGE_HELPER_BINARY" "$BRIDGE_HELPER_BINARY"
 chmod +x "$APP_BINARY"
 chmod +x "$AGENT_HOOK_BINARY"
 chmod +x "$BRIDGE_HELPER_BINARY"
+if [[ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]]; then
+  echo "error: Sparkle framework is missing: $SPARKLE_FRAMEWORK_SOURCE" >&2
+  exit 1
+fi
+cp -R "$SPARKLE_FRAMEWORK_SOURCE" "$APP_FRAMEWORKS/"
+# Sparkle's XPC helpers are optional for this non-sandboxed app. Remove the
+# public symlink first, then its versioned target, so the framework remains
+# valid without shipping dormant helper services.
+if [[ -L "$SPARKLE_FRAMEWORK/XPCServices" || -e "$SPARKLE_FRAMEWORK/XPCServices" ]]; then
+  trash_path "$SPARKLE_FRAMEWORK/XPCServices"
+fi
+if [[ -e "$SPARKLE_FRAMEWORK/Versions/B/XPCServices" ]]; then
+  trash_path "$SPARKLE_FRAMEWORK/Versions/B/XPCServices"
+fi
+if ! otool -l "$APP_BINARY" | grep -A 2 LC_RPATH | grep -Fq '@executable_path/../Frameworks'; then
+  install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP_BINARY"
+fi
 # Stage amx only if it was built. A bundle without it still runs (local-shell
 # only); the command bridge stays unavailable until amx is present.
 if [[ -x "$AMX_BUILT_BINARY" ]]; then
@@ -567,6 +594,7 @@ fi
 cp -R "$GHOSTTY_SHARE/." "$APP_RESOURCES/"
 mkdir -p "$APP_RESOURCES/Licenses"
 required_license_files=(
+  "Sparkle/LICENSE"
   "Ghostty/LICENSE"
   "zmx/LICENSE"
   "HackNerdFontMono/LICENSE.md"
@@ -739,6 +767,17 @@ cat >"$INFO_PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+
+if [[ "${AWESOMUX_SPARKLE_ENABLED:-}" == "1" ]]; then
+  /usr/libexec/PlistBuddy -c 'Add :SUFeedURL string https://github.com/Interactive-Buffoonery/awesomux/releases/latest/download/appcast.xml' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_ED_KEY" "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool true' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool false' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SUAllowsAutomaticUpdates bool false' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SUEnableSystemProfiling bool false' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SUVerifyUpdateBeforeExtraction bool true' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SURequireSignedFeed bool true' "$INFO_PLIST"
+fi
 
 # Ad-hoc codesign the bundle. macOS UNUserNotifications (and other
 # framework subsystems with a system-side identity tied to the
