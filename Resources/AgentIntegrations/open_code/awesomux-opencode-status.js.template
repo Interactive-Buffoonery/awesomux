@@ -42,8 +42,6 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
     // a long plugin-process lifetime. Clearing at the cap drops late events
     // for sessions that started before it (fail silent, never misattributing),
     // and 512 concurrent root sessions is far past any real process lifetime.
-    // A cleared child set can re-promote an old child via chat.message until
-    // its next session.created replays — the same fail-silent posture.
     const trackInto = (set, sessionID) => {
         if (set.size >= 512) {
             set.clear()
@@ -59,7 +57,13 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
                     return
                 }
                 if (info.parentID) {
-                    trackInto(childSessionIDs, info.id)
+                    // Child ids stay sticky (never capped): a cleared child
+                    // set would re-promote an evicted child via chat.message,
+                    // whose later session.idle would then pass the root
+                    // filter as a false parent turn-end. Session ids are short
+                    // strings, so even heavy Task-subagent churn costs only
+                    // kilobytes over the plugin-process lifetime.
+                    childSessionIDs.add(info.id)
                     return
                 }
                 trackInto(rootSessionIDs, info.id)
