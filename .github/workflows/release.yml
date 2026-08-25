@@ -633,13 +633,21 @@ jobs:
             --keychain "$KEYCHAIN_PATH"
 
       - name: Build, sign, and notarize the release artifact
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ github.event_name != 'schedule' && vars.SPARKLE_PUBLIC_ED_KEY || '' }}
         run: |
           set -euo pipefail
-          ./script/build_release.sh \
-            --version "$RELEASE_VERSION" \
-            --identity "Developer ID Application: Interactive Buffoonery (7CNK4YPCQX)" \
-            --notary-profile awesomux-notary \
+          RELEASE_ARGS=(
+            --version "$RELEASE_VERSION"
+            --identity "Developer ID Application: Interactive Buffoonery (7CNK4YPCQX)"
+            --notary-profile awesomux-notary
             --output dist/release
+          )
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            ./script/build_release.sh "${RELEASE_ARGS[@]}"
+          else
+            ./script/build_release.sh "${RELEASE_ARGS[@]}" --enable-sparkle
+          fi
 
       - name: Verify release outputs before publication
         if: success()
@@ -736,6 +744,45 @@ jobs:
             [[ -s "$f" ]] || { echo "::error::missing release asset: $f" >&2; exit 1; }
           done
 
+      - name: Generate signed appcast
+        if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          set -euo pipefail
+          for name in SPARKLE_PUBLIC_ED_KEY SPARKLE_PRIVATE_ED_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::missing or empty $name in the 'release' environment" >&2
+              exit 1
+            fi
+          done
+
+          APPCAST_TOOL="$GITHUB_WORKSPACE/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+          [[ -x "$APPCAST_TOOL" ]] || {
+            echo "::error::Sparkle generate_appcast tool is missing or not executable: $APPCAST_TOOL" >&2
+            exit 1
+          }
+          DMG_PATH="$GITHUB_WORKSPACE/dist/release/awesoMux-$RELEASE_VERSION.dmg"
+          [[ -s "$DMG_PATH" ]] || {
+            echo "::error::notarized and stapled release DMG is missing: $DMG_PATH" >&2
+            exit 1
+          }
+          APPCAST_SOURCE_DIR="$RUNNER_TEMP/awesomux-appcast-source"
+          mkdir -p "$APPCAST_SOURCE_DIR"
+          cp "$DMG_PATH" "$APPCAST_SOURCE_DIR/"
+
+          printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$APPCAST_TOOL" \
+            --ed-key-file - \
+            --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v$RELEASE_VERSION/" \
+            -o "$GITHUB_WORKSPACE/appcast.xml" \
+            "$APPCAST_SOURCE_DIR"
+          [[ -s "$GITHUB_WORKSPACE/appcast.xml" ]] || {
+            echo "::error::generate_appcast did not produce appcast.xml" >&2
+            exit 1
+          }
+
       - name: Create draft GitHub Release
         if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
@@ -752,6 +799,7 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "v$VERSION" \
             --notes "Draft release created by release.yml — review, edit notes, and publish." \
+            "appcast.xml" \
             "dist/release/awesoMux-$VERSION.dmg" \
             "dist/release/awesoMux-$VERSION.dmg.sha256" \
             "dist/release/awesoMux-$VERSION.verification.json" \

@@ -186,6 +186,49 @@ struct BuildScriptHelpTests {
         #expect(!invalidBuild.output.contains("build_and_run.sh"))
     }
 
+    @Test("updater-enabled release rejects a missing public key before staging")
+    func updaterEnabledReleaseRejectsMissingPublicKeyBeforeStaging() throws {
+        let result = try Self.run(
+            script: "script/build_release.sh",
+            arguments: ["--unsigned", "--enable-sparkle", "--version", "0.12.0", "--build-number", "722"]
+        )
+
+        #expect(result.exitStatus == 2)
+        #expect(result.output.contains("SPARKLE_PUBLIC_ED_KEY is required with --enable-sparkle"))
+        #expect(!result.output.contains("build_and_run.sh"))
+    }
+
+    @Test("release build configures staging and signs Sparkle inside out")
+    func releaseBuildConfiguresAndSignsSparkleInsideOut() throws {
+        let script = try Self.contents(of: "script/build_release.sh")
+
+        let staging = try #require(script.range(of: "\"$ROOT_DIR/script/build_and_run.sh\" --stage-release"))
+        let sparkleEnabledExport = try #require(script.range(of: "export AWESOMUX_SPARKLE_ENABLED=1"))
+        let sparkleKeyExport = try #require(script.range(of: "export SPARKLE_PUBLIC_ED_KEY"))
+        #expect(sparkleEnabledExport.lowerBound < staging.lowerBound)
+        #expect(sparkleKeyExport.lowerBound < staging.lowerBound)
+
+        let autoupdate = try #require(script.range(of: "codesign \"${SIGN_ARGS[@]}\" \"$SPARKLE_AUTOUPDATE\""))
+        let updater = try #require(script.range(of: "codesign \"${SIGN_ARGS[@]}\" \"$SPARKLE_UPDATER\""))
+        let framework = try #require(script.range(of: "codesign \"${SIGN_ARGS[@]}\" \"$SPARKLE_FRAMEWORK\""))
+        let app = try #require(script.range(of: "codesign \"${SIGN_ARGS[@]}\" \"$APP_BUNDLE\""))
+        #expect(autoupdate.lowerBound < updater.lowerBound)
+        #expect(updater.lowerBound < framework.lowerBound)
+        #expect(framework.lowerBound < app.lowerBound)
+
+        #expect(script.contains("$SPARKLE_FRAMEWORK/Versions/B/XPCServices"))
+        #expect(script.contains("$SPARKLE_AUTOUPDATE"))
+        #expect(script.contains("$SPARKLE_UPDATER"))
+        #expect(script.contains("SIGNATURE_TARGETS"))
+        #expect(script.contains("ENTITLEMENT_TARGETS"))
+
+        let signingLines = script.split(separator: "\n").filter {
+            $0.contains("codesign") && $0.contains("SIGN_ARGS")
+        }
+        #expect(!signingLines.isEmpty)
+        #expect(signingLines.allSatisfy { !$0.contains("--deep") })
+    }
+
     @Test("release build rejects a dirty worktree before staging")
     func releaseBuildRejectsDirtyWorktreeBeforeStaging() throws {
         let fileManager = FileManager.default

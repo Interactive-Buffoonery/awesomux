@@ -32,6 +32,9 @@ compatibility spike proves otherwise.
   Developer ID Application signing, Hardened Runtime, notarization, stapling,
   no App Sandbox for direct releases, and no hardened-runtime exception
   entitlements unless a concrete signed-release failure proves they are needed.
+- Stable release bundles explicitly enable Sparkle with a public EdDSA key.
+  Nightly, development, test, and local-install bundles omit the stable feed
+  configuration.
 - A later TestFlight path needs App Store Connect upload, provisioning, and beta
   review setup.
 - `vendor/ghostty` stays a submodule. Do not copy `vendor/ghostty` contents into
@@ -45,7 +48,7 @@ compatibility spike proves otherwise.
 
 | Lane | Audience | Artifact | Signing | Distribution |
 | --- | --- | --- | --- | --- |
-| GitHub Release | Public stable and public prerelease users | `.dmg` plus checksum | Developer ID Application, hardened runtime, notarized and stapled | GitHub Releases |
+| GitHub Release | Public stable and public prerelease users | `.dmg`, checksum, and stable-only signed `appcast.xml` | Developer ID Application, hardened runtime, notarized and stapled | GitHub Releases |
 | Nightly | Testers tracking `main` | Rolling `awesoMux-nightly.dmg` plus checksum | Same Developer ID signed/notarized artifact | Rolling `nightly` GitHub prerelease |
 | Homebrew cask | Users who install apps from the terminal | Same public GitHub Release `.dmg` | Same Developer ID signed/notarized artifact | org tap first; optional `Homebrew/homebrew-cask` later |
 | TestFlight | Internal and external beta testers | App Store Connect macOS build | App Store distribution signing and provisioning profile | TestFlight |
@@ -93,10 +96,19 @@ bundle-version handling are changed to support them first.
 - [ ] Create required certificates and credentials:
   - [ ] Developer ID Application certificate for GitHub releases.
   - [ ] Notary credentials for `xcrun notarytool`.
+  - [ ] Generate one Sparkle EdDSA key pair with Sparkle's `generate_keys` and
+        place it directly into the protected release environment; do not add
+        either key to the repository or release scripts.
 - [ ] Decide where secrets live:
   - [ ] GitHub Actions environment secrets for automated GitHub releases.
   - [ ] Local maintainer keychain for manual first releases.
 - [ ] Protect release workflows so signing secrets only run on trusted refs.
+- [ ] Store `SPARKLE_PUBLIC_ED_KEY` as a protected `release` environment
+      variable and `SPARKLE_PRIVATE_ED_KEY` as a protected environment secret.
+- [ ] Assign a backup custodian for the Sparkle private key. Losing it prevents
+      existing updater-enabled installs from accepting future updates; replacing
+      either key without a multi-release transition requires users to install a
+      new bootstrap release manually.
 - [ ] Add release notes/changelog convention.
 - [ ] Add a rollback policy for bad releases.
 
@@ -172,11 +184,16 @@ Keep release policy in ADR-0019 and use this section as the build checklist.
   - [ ] app binary
   - [ ] bundled helper executables (`awesoMuxAgentHook`, `amx`)
   - [ ] nested code, if any
+  - [ ] Sparkle `Autoupdate`, `Updater.app`, then `Sparkle.framework`, in that
+        order before the outer app; do not use `codesign --deep` for signing
   - [ ] final app bundle with hardened runtime
   - [ ] entitlements match ADR-0019
 - [ ] Verify signing:
   - [ ] `codesign --verify --deep --strict --verbose=2 dist/awesoMux.app`
   - [ ] inspect entitlements
+  - [ ] confirm Developer ID authority, Hardened Runtime, and empty entitlements
+        on `Autoupdate`, `Updater.app`, and `Sparkle.framework`
+  - [ ] confirm the staged framework has no `XPCServices`
 - [ ] Package the app:
   - [ ] create the `.dmg`
   - [ ] preserve the signed bundle exactly
@@ -218,8 +235,9 @@ xcrun notarytool store-credentials awesomux-notary \
 From a clean checkout with initialized submodules, run:
 
 ```sh
-./script/build_release.sh \
+SPARKLE_PUBLIC_ED_KEY='<public-key>' ./script/build_release.sh \
   --version X.Y.Z \
+  --enable-sparkle \
   --identity "Developer ID Application: Name (TEAMID)" \
   --notary-profile awesomux-notary
 ```
@@ -251,7 +269,9 @@ spctl --assess --type execute --verbose "/Volumes/awesoMux/awesoMux.app"
 
 When rotating certificates, install and verify the replacement, update the
 protected environment, and complete a signed release validation before revoking
-the old certificate.
+the old certificate. Do not treat Sparkle keys the same way: the public key is
+embedded in installed apps. Preserve the EdDSA private key, and design and test
+a multi-release transition before changing the embedded public key.
 
 ### Withdrawal and rollback
 
@@ -288,6 +308,19 @@ Environment named `release`, which must hold five secrets:
 verbatim via `secrets.<NAME>` — so renaming any of them in the GitHub
 Environment without a matching workflow change breaks the run at the
 signing/notarization step, not at dispatch time.
+
+Stable publication additionally requires the environment variable
+`SPARKLE_PUBLIC_ED_KEY` and secret `SPARKLE_PRIVATE_ED_KEY`. The shared build
+step passes the public key and `--enable-sparkle` only outside the scheduled
+nightly lane. The private key is exposed only to the appcast generation step,
+only for a tag or dispatch that creates a draft GitHub Release, and is piped to
+Sparkle's resolved 2.9.6 `generate_appcast` tool through `--ed-key-file -`.
+Never print, inspect, persist, or pass that private key in arguments.
+
+The generated `appcast.xml` disables deltas and points its enclosure at the
+versioned GitHub download URL for the exact notarized and stapled DMG already
+used by GitHub and Homebrew. It is attached in the same `gh release create`
+call as that DMG. Do not create a second archive or a GitHub Pages feed.
 
 **The `release` environment's protection rules are load-bearing, not just its
 secrets.** Two separate policy rows matter: required reviewers (a human
@@ -344,6 +377,9 @@ artifact is published.
   tag, then recreates both at the new commit, so the tag always points at the
   built commit. The Linux bridge helpers are release/tag scope and are not
   attached to nightlies.
+- **Updater isolation.** Nightlies execute `build_release.sh` without
+  `--enable-sparkle`, receive neither Sparkle key, and never generate or publish
+  an appcast. They remain disconnected from the stable update feed.
 - **Unattended operation.** By default the nightly reuses the reviewer-gated
   `release` environment, so each cron waits for the same manual approval a real
   release does. To run nightlies hands-off, create a dedicated environment
@@ -353,6 +389,13 @@ artifact is published.
   then reach the signing/notary secrets automatically.
 
 ### Per-release checklist
+
+The first updater-enabled release is a bootstrap release. It can validate feed
+signatures and bundle policy, but a preceding non-Sparkle build cannot update
+into it. Keep issue #17 open. Before closing it, use the next stable release for
+a real notarized N-to-N+1 test covering discovery, the gentle sidebar notice,
+explicit installation, cancellation through the existing quit-risk sheet,
+successful relaunch, preserved terminal sessions, and the Homebrew path below.
 
 - [ ] Create release branch or use the protected release commit.
 - [ ] Confirm version and build number.
@@ -373,6 +416,8 @@ artifact is published.
 - [ ] Confirm the app shows the expected version/build.
 - [ ] Confirm session smoke still works from the installed app.
 - [ ] Review generated checksums.
+- [ ] Inspect `appcast.xml`: signed feed, no deltas, and one enclosure URL for
+      `awesoMux-X.Y.Z.dmg` under the versioned GitHub Release.
 - [ ] Review release notes.
 - [ ] Publish GitHub Release.
 - [ ] Announce release in the chosen channels.
@@ -406,6 +451,8 @@ The cask always consumes the signed, notarized, stapled GitHub Release artifact.
 Publishing a stable release triggers `.github/workflows/homebrew-cask.yml`, which
 verifies that artifact and its checksum before opening a pull request in the
 organization tap. Cask updates never push directly to the tap's `main` branch.
+It declares `auto_updates true` exactly once because Sparkle updates the same
+installed app independently of `brew upgrade`.
 
 ### One-time implementation checklist
 
@@ -469,6 +516,7 @@ cask declares `depends_on arch: :arm64`.
 cask "awesomux" do
   version "0.1.0"
   sha256 "<sha256-of-release-artifact>"
+  auto_updates true
 
   url "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v#{version}/awesoMux-#{version}.dmg",
       verified: "github.com/Interactive-Buffoonery/awesomux/"
@@ -511,6 +559,8 @@ end
   - [ ] app shows the expected version/build
   - [ ] app can create a terminal session
 - [ ] Confirm upgrade behavior from the previous cask version.
+- [ ] From a Cask-installed N build, complete the Sparkle update to N+1 and
+      confirm `brew upgrade` cannot replace it with an older stable artifact.
 - [ ] Confirm uninstall leaves expected user data in place.
 - [ ] Confirm `brew zap --cask awesomux` removes only intended user data.
 - [ ] Run `brew audit --cask awesomux`.

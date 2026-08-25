@@ -26,6 +26,7 @@ and verification. The app bundle also contains multiple executables:
 - `awesoMux`
 - `awesoMuxAgentHook`
 - `amx`
+- Sparkle's `Autoupdate` helper and `Updater.app`
 
 All release executables need valid signatures. Shared libraries, static archives,
 and in-process code inherit from the host executable rather than carrying their
@@ -61,8 +62,28 @@ For direct distribution, release builds use:
 - No App Sandbox entitlement.
 
 Release signing must cover the app and bundled helper executables. In practice,
-the release flow signs `awesoMux`, `awesoMuxAgentHook`, `amx`, any nested code,
-and then the final `.app` bundle.
+the release flow signs the app helpers, Sparkle's `Autoupdate`, `Updater.app`,
+and `Sparkle.framework` inside-out with Hardened Runtime before signing the
+final `.app` bundle. The non-sandboxed bundle omits Sparkle's unused XPC
+services. Signing must never use `codesign --deep`; deep verification of the
+finished bundle remains required. Every nested executable and framework is
+covered by the same Developer ID authority, Hardened Runtime, and empty-
+entitlements checks as the outer app. No Sparkle entitlement exceptions are
+added.
+
+Stable, updater-enabled bundles are an explicit release configuration. They
+embed `SURequireSignedFeed`, `SUVerifyUpdateBeforeExtraction`, and the public
+EdDSA key. Scheduled nightly builds do not receive that configuration and do
+not contact the stable feed. The workflow generates a signed `appcast.xml`
+only when it will create a stable draft release, using the exact notarized and
+stapled versioned DMG already published to GitHub and consumed by Homebrew.
+Delta generation is disabled; no second archive or feed hosting lane exists.
+
+The Sparkle public key is the protected `release` environment variable
+`SPARKLE_PUBLIC_ED_KEY`. Its private counterpart is the environment secret
+`SPARKLE_PRIVATE_ED_KEY`, exposed only to the stable appcast generation step
+and piped to Sparkle through standard input. The private key is never written
+to disk or passed in process arguments.
 
 Hardened Runtime exception entitlements start empty. Do not add
 `com.apple.security.cs.allow-jit`,
@@ -92,7 +113,22 @@ build/run loop.
 
 Homebrew work is blocked on a signed, notarized, stapled GitHub Release artifact.
 The cask should install that artifact directly rather than rebuilding or
-repackaging awesoMux.
+repackaging awesoMux, and declares `auto_updates true` because the installed app
+uses Sparkle rather than relying on `brew upgrade` for updates.
+
+Sparkle key custody is release continuity. Losing the private key means existing
+updater-enabled installs cannot accept a newly signed feed. Replacing either key
+without a planned transition likewise strands those installs; recovery requires
+a manually installed bootstrap release carrying a new public key. Rotation must
+therefore be validated across releases before retiring the old key.
+
+The first updater-enabled stable release is only a bootstrap: older builds do
+not contain Sparkle and cannot exercise an update into it. Issue #17 remains
+open until the following stable release passes a real notarized N-to-N+1 smoke
+test. That smoke must cover discovery, the gentle reminder, explicit install,
+quit cancellation for at-risk terminal work through the existing
+`AppDelegate.applicationShouldTerminate` sheet, successful relaunch, preserved
+sessions, and a Homebrew Cask install that remains self-updating.
 
 The direct-release app keeps terminal behavior intact: shell spawning, project
 file access, user CLIs, `awesoMuxAgentHook`, and `amx` remain designed for an
