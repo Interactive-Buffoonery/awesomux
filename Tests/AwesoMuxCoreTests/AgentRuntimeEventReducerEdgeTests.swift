@@ -151,6 +151,178 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.unreadNotificationCount == 1)
     }
 
+    @Test("prompt submit retires the unread badge a background turn-end raised")
+    func promptSubmitClearsUnreadRaisedByBackgroundTurnEnd() throws {
+        var session = TerminalSession(title: "opencode", workingDirectory: "~", agentKind: .openCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        let stopResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                executionState: .waiting,
+                phase: .stop,
+                eventID: "stop",
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 11)
+        )
+        let stop = try #require(stopResult)
+        #expect(stop.update.unreadNotificationDelta == 1)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: stop.update, now: Date(timeIntervalSince1970: 11)
+        )
+        #expect(session.unreadNotificationCount == 1)
+
+        let submitResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                executionState: .thinking,
+                phase: .promptSubmit,
+                eventID: "submit",
+                timestamp: Date(timeIntervalSince1970: 20)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 21)
+        )
+        let submit = try #require(submitResult)
+        #expect(submit.update.clearsUnreadNotifications)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: submit.update, now: Date(timeIntervalSince1970: 21)
+        )
+        #expect(session.unreadNotificationCount == 0)
+        #expect(session.agentState == .thinking)
+    }
+
+    @Test("prompt submit authoritatively resolves a pending input-required reason")
+    func promptSubmitAuthoritativelyClearsAwaitedAttentionReason() throws {
+        var session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .waiting)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .userInputRequired,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == .userInputRequired)
+        var reducer = AgentRuntimeEventReducer()
+
+        let submitResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .promptSubmit,
+                eventID: "submit",
+                timestamp: Date(timeIntervalSince1970: 10)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 11)
+        )
+        let submit = try #require(submitResult)
+        #expect(submit.update.attentionClearIsAuthoritative)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: submit.update, now: Date(timeIntervalSince1970: 11)
+        )
+        #expect(session.attentionReason == nil)
+        #expect(session.unreadNotificationCount == 0)
+    }
+
+    @Test("nested session prompt submit preserves the parent's pending attention")
+    func nestedSessionPromptSubmitPreservesParentAttention() throws {
+        var session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        _ = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .sessionStart,
+                eventID: "parent-start",
+                providerSessionID: "parent",
+                timestamp: Date(timeIntervalSince1970: 1)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+
+        let submitResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .thinking,
+                phase: .promptSubmit,
+                eventID: "child-submit",
+                providerSessionID: "child",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let submit = try #require(submitResult)
+        #expect(!submit.update.clearsUnreadNotifications)
+        #expect(!submit.update.attentionClearIsAuthoritative)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: submit.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == .permissionPrompt)
+        #expect(session.unreadNotificationCount == 1)
+    }
+
+    @Test("only prompt submits claim the authoritative notification clear")
+    func onlyPromptSubmitClaimsAuthoritativeClear() throws {
+        let session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .openCode)
+        var reducer = AgentRuntimeEventReducer()
+
+        let stopResult = reducer.decision(
+            for: AgentRuntimeEvent(source: .openCode, executionState: .waiting, phase: .stop),
+            currentSession: session,
+            paneID: session.activePaneID,
+            terminalIsFocused: false,
+            now: Date()
+        )
+        let stop = try #require(stopResult)
+        #expect(!stop.update.clearsUnreadNotifications)
+        #expect(!stop.update.attentionClearIsAuthoritative)
+
+        let toolEndResult = reducer.decision(
+            for: AgentRuntimeEvent(source: .openCode, executionState: .thinking, phase: .toolEnd),
+            currentSession: session,
+            paneID: session.activePaneID,
+            terminalIsFocused: false,
+            now: Date()
+        )
+        let toolEnd = try #require(toolEndResult)
+        #expect(!toolEnd.update.clearsUnreadNotifications)
+        #expect(!toolEnd.update.attentionClearIsAuthoritative)
+    }
+
     @Test("Grok subagent stop with a different session id is dropped")
     func grokSubagentStopWithDifferentSessionIDIsDropped() throws {
         let session = TerminalSession(title: "grok", workingDirectory: "~", agentKind: .shell)
@@ -479,8 +651,15 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.unreadNotificationCount == 0)
     }
 
-    @Test("after turn-end, next prompt leaves waiting unread until acknowledgement")
-    func turnEndUnreadClearsOnAcknowledgeNotNextPrompt() throws {
+    @Test("after turn-end, the next prompt retires the waiting unread")
+    func turnEndUnreadClearsOnNextPrompt() throws {
+        // This test once pinned the opposite contract — unread surviving until
+        // an explicit acknowledgement — because Claude Code's keystroke path
+        // already cleared `.needsAttention` panes before the event landed. For
+        // providers whose turn-ends rest on quiet `.waiting` (OpenCode, Codex,
+        // Pi) that left the badge with no clear path at all, so prompt
+        // submissions became authoritative acknowledgements; see the
+        // `answersPendingNotifications` gate in the reducer.
         var session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .claudeCode)
         let paneID = session.activePaneID
         seedExecutionState(&session, paneID: paneID, .thinking)
@@ -519,18 +698,14 @@ struct AgentRuntimeEventReducerEdgeTests {
             now: Date(timeIntervalSince1970: 13)
         )
         let prompt = try #require(promptResult)
-        #expect(prompt.update.clearsAttention == false)
+        #expect(prompt.update.clearsUnreadNotifications)
+        #expect(prompt.update.attentionClearIsAuthoritative)
 
-        // The prompt decision was only inspected, not applied, so the session still
-        // carries Stop's resting executionState (.waiting) and unread marker.
-        #expect(session.agentExecutionState == .waiting)
-        #expect(session.attentionReason == nil)
-        #expect(session.unreadNotificationCount == 1)
-
-        _ = WorkspaceAttentionReducer.acknowledgePane(&session, paneID: paneID)
+        _ = WorkspaceAttentionReducer.updatePane(&session, paneID: paneID, update: prompt.update, now: Date())
+        #expect(session.agentExecutionState == .thinking)
         #expect(session.attentionReason == nil)
         #expect(session.unreadNotificationCount == 0)
-        #expect(session.agentState == .waiting)
+        #expect(session.agentState == .thinking)
     }
 
     @Test("session exit resets the tile to quiet shell: idle, no attention, no agent kind")
