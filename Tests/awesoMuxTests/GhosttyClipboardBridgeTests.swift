@@ -1,6 +1,7 @@
 import AppKit
 import AwesoMuxConfig
 import AwesoMuxTestSupport
+import GhosttyKit
 import Testing
 @testable import awesoMux
 
@@ -652,5 +653,125 @@ struct GhosttyClipboardBridgeTests {
 
         #expect(completionCallCount == 1)
         #expect(!GhosttyRuntime.isUnsafePasteAlertPresented)
+    }
+}
+
+/// Pure decoding tests for the borrowed confirm payload → dialog preview text.
+/// No shared state, so no serialization needed.
+@Suite("Ghostty clipboard confirm preview decoding")
+struct GhosttyClipboardConfirmPreviewTests {
+    /// Builds a `ghostty_clipboard_confirm_s` over C memory that stays valid
+    /// for the duration of `body`, mirroring how libghostty owns the payload
+    /// only for its callback duration. A representation may pass an explicit
+    /// `len` with `bytes: nil` — the corrupt shape libghostty never sends but
+    /// a broken embedder could.
+    private func withConfirm(
+        _ representations: [(mime: String, bytes: [UInt8]?, len: Int?)],
+        _ body: (ghostty_clipboard_confirm_s) -> Void
+    ) {
+        var contents: [ghostty_clipboard_content_s] = []
+        var mimeCopies: [UnsafeMutablePointer<CChar>] = []
+        var dataBuffers: [UnsafeMutableRawPointer] = []
+        defer {
+            mimeCopies.forEach { free($0) }
+            dataBuffers.forEach { $0.deallocate() }
+        }
+
+        for representation in representations {
+            guard let mime = strdup(representation.mime) else {
+                Issue.record("strdup failed")
+                continue
+            }
+            mimeCopies.append(mime)
+            let bytes = representation.bytes
+            var dataPointer: UnsafePointer<CChar>?
+            if let bytes {
+                let buffer = UnsafeMutableRawPointer.allocate(
+                    byteCount: max(bytes.count, 1),
+                    alignment: 1
+                )
+                dataBuffers.append(buffer)
+                bytes.withUnsafeBufferPointer { source in
+                    if let base = source.baseAddress {
+                        buffer.copyMemory(from: base, byteCount: source.count)
+                    }
+                }
+                dataPointer = UnsafePointer(buffer.assumingMemoryBound(to: CChar.self))
+            }
+            contents.append(
+                ghostty_clipboard_content_s(
+                    mime: mime,
+                    data: dataPointer,
+                    len: representation.len ?? bytes?.count ?? 0
+                )
+            )
+        }
+
+        contents.withUnsafeBufferPointer { contentsBuffer in
+            let confirm = ghostty_clipboard_confirm_s(
+                contents: contentsBuffer.baseAddress,
+                contents_len: contentsBuffer.count,
+                available: nil,
+                available_len: 0,
+                name: nil,
+                can_remember: false
+            )
+            body(confirm)
+        }
+    }
+
+    @Test("preview decodes the text/plain representation")
+    func previewDecodesTextPlain() {
+        withConfirm([("text/plain", Array("rm -rf /".utf8), nil)]) { confirm in
+            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "rm -rf /")
+        }
+    }
+
+    @Test("preview picks text/plain even when it is not first")
+    func previewPicksTextPlainAmongSiblings() {
+        withConfirm([
+            ("image/png", [0x89, 0x50], nil),
+            ("text/plain", Array("hello".utf8), nil),
+        ]) { confirm in
+            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "hello")
+        }
+    }
+
+    @Test("preview falls back to byte summaries without text/plain")
+    func previewFallsBackToByteSummaries() {
+        withConfirm([
+            ("image/png", [0x89, 0x50, 0x4E], nil),
+            ("application/octet-stream", Array(repeating: UInt8(0), count: 12), nil),
+        ]) { confirm in
+            #expect(
+                GhosttyRuntime.confirmPreviewText(from: confirm)
+                    == "image/png (3 bytes)\napplication/octet-stream (12 bytes)"
+            )
+        }
+    }
+
+    @Test("preview of invalid UTF-8 text/plain uses the byte summary")
+    func previewOfInvalidUtf8TextPlainFallsBackToSummary() {
+        withConfirm([("text/plain", [0xFF, 0xFE], nil)]) { confirm in
+            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "text/plain (2 bytes)")
+        }
+    }
+
+    @Test("preview treats nil data with non-zero length as empty bytes")
+    func previewTreatsNilDataWithLengthAsEmptyBytes() {
+        // The crash shape from review: len > 0 with a nil pointer must not
+        // trap; an empty Data decodes as "" for text/plain.
+        withConfirm([("text/plain", nil, 7)]) { confirm in
+            #expect(confirm.contents[0].len > 0)
+            #expect(confirm.contents[0].data == nil)
+            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "")
+        }
+    }
+
+    @Test("empty confirm payload previews as empty text")
+    func emptyPayloadPreviewsAsEmptyText() {
+        withConfirm([]) { confirm in
+            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "")
+        }
     }
 }

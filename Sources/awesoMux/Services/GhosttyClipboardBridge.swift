@@ -276,7 +276,7 @@ extension GhosttyRuntime {
     /// Dialog preview text from a borrowed confirmation payload: the text/plain
     /// representation when there is one, otherwise a per-representation byte
     /// summary. Mirrors upstream's Ghostty.App.confirmReadClipboard decoding.
-    private nonisolated static func confirmPreviewText(
+    nonisolated static func confirmPreviewText(
         from confirm: ghostty_clipboard_confirm_s
     ) -> String {
         var representations: [(mime: String, data: Data)] = []
@@ -285,10 +285,15 @@ extension GhosttyRuntime {
                 let content = contents[index]
                 guard let mimePtr = content.mime else { continue }
                 let mime = String(cString: mimePtr)
-                let data: Data =
-                    content.len > 0
-                    ? Data(bytes: content.data, count: content.len)
-                    : Data()
+                // libghostty owns this memory only for the callback duration;
+                // a nil pointer with a non-zero length must degrade to empty
+                // bytes rather than crash the confirm path.
+                let data: Data
+                if content.len > 0, let bytes = content.data {
+                    data = Data(bytes: bytes, count: content.len)
+                } else {
+                    data = Data()
+                }
                 representations.append((mime, data))
             }
         }
