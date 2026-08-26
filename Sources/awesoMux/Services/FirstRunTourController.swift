@@ -63,12 +63,13 @@ final class FirstRunTourController {
 
     var hasReachedNotificationBeat: Bool { currentBeat >= Self.notificationBeatIndex }
 
-    /// Placeholder pending Task 8: the real beats don't exist yet, so there is
-    /// nothing to measure. `show()` falls back to this exactly the way
-    /// `AboutPanelController` falls back when its fitting size is zero; Task 8
-    /// replaces the zero-fitting-size branch with a tallest-beat measurement
-    /// (`maximumBeatFittingSize`) once the beat views exist.
+    /// Used only when measurement can't run — an unbundled/headless context
+    /// where `NSHostingView` reports a degenerate fitting size.
     private static let fallbackSize = CGSize(width: 480, height: 420)
+
+    /// Supplied by the app so beat three's button can open the agent settings
+    /// section. A no-op default keeps the tour usable before that wiring exists.
+    @ObservationIgnored var onOpenAgentSettings: () -> Void = {}
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -80,12 +81,10 @@ final class FirstRunTourController {
         let panel = panel ?? makePanel()
         self.panel = panel
 
+        panel.hostSwiftUIContent(makeRootView())
+
         if !isVisible {
-            let fitting = panel.contentViewController?.view.fittingSize ?? .zero
-            let size =
-                fitting.width > 0 && fitting.height > 0
-                ? fitting : Self.fallbackSize
-            panel.setFixedContentSize(size)
+            panel.setFixedContentSize(maximumBeatFittingSize())
             panel.center()
         }
         panel.presentAndFocus()
@@ -112,6 +111,62 @@ final class FirstRunTourController {
         guard isVisible, isKeyWindow else { return false }
         dismissByUser()
         return true
+    }
+
+    @ViewBuilder
+    private func makeRootView() -> some View {
+        let root = FirstRunTourView(
+            controller: self,
+            shortcuts: resolvedShortcuts(),
+            onOpenAgentSettings: { [weak self] in self?.onOpenAgentSettings() }
+        )
+        if let appSettingsStore {
+            root.appearanceBridge(appSettingsStore)
+        } else {
+            root
+        }
+    }
+
+    private func resolvedShortcuts() -> FirstRunTourShortcuts {
+        FirstRunTourShortcuts(keyboard: appSettingsStore?.keyboard.value ?? .defaultValue)
+    }
+
+    /// Every beat is measured and the panel pinned to the tallest. Sizing to
+    /// the current beat instead would resize the window under the user on each
+    /// page turn, and sizing to beat one would clip the longer beats outright
+    /// at large interface text sizes.
+    private func maximumBeatFittingSize() -> CGSize {
+        let shortcuts = resolvedShortcuts()
+        var size = CGSize.zero
+        for beat in 0..<Self.beatCount {
+            let fitting = NSHostingView(
+                rootView: measurementRoot(beat: beat, shortcuts: shortcuts)
+            ).fittingSize
+            size.width = max(size.width, fitting.width)
+            size.height = max(size.height, fitting.height)
+        }
+        guard size.width > 0, size.height > 0 else { return Self.fallbackSize }
+        return size
+    }
+
+    /// Measured through the same appearance bridge the live panel uses —
+    /// without it the probe renders at scale 1.0 and the pinned height is short
+    /// for anyone who moved the interface text-size slider.
+    @ViewBuilder
+    private func measurementRoot(beat: Int, shortcuts: FirstRunTourShortcuts) -> some View {
+        let page = FirstRunTourPage(
+            beat: beat,
+            shortcuts: shortcuts,
+            onBack: {},
+            onNext: {},
+            onDismiss: {},
+            onOpenAgentSettings: {}
+        )
+        if let appSettingsStore {
+            page.appearanceBridge(appSettingsStore)
+        } else {
+            page
+        }
     }
 
     private func makePanel() -> FloatingSwiftUIPanelWindow {
