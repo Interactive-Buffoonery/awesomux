@@ -12,11 +12,41 @@
             }
           }
         }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.idle",
+          "properties": {
+            "info": {
+              "id": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.error",
+          "properties": {
+            "info": {
+              "id": "root-session"
+            }
+          }
+        }
       }
     ],
     "expected": [
       {
         "hook_event_name": "SessionStart",
+        "session_id": "root-session"
+      },
+      {
+        "hook_event_name": "Stop",
+        "session_id": "root-session"
+      },
+      {
+        "hook_event_name": "StopFailure",
         "session_id": "root-session"
       }
     ]
@@ -81,7 +111,47 @@
     "expected": []
   },
   {
-    "name": "child lifecycle after root tracking reset",
+    "name": "out-of-order child lifecycle",
+    "steps": [
+      {
+        "handler": "chat.message",
+        "input": {
+          "sessionID": "late-child-session"
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.created",
+          "properties": {
+            "info": {
+              "id": "late-child-session",
+              "parentID": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.idle",
+          "properties": {
+            "info": {
+              "id": "late-child-session"
+            }
+          }
+        }
+      }
+    ],
+    "expected": [
+      {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "late-child-session"
+      }
+    ]
+  },
+  {
+    "name": "child lifecycle after tracking pressure",
     "steps": [
       {
         "handler": "event",
@@ -96,7 +166,7 @@
         }
       },
       {
-        "repeatRootSessionCreated": 512
+        "repeatChildSessionCreated": 512
       },
       {
         "handler": "chat.message",

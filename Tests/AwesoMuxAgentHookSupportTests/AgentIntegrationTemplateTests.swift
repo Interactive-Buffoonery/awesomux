@@ -52,10 +52,12 @@ struct AgentIntegrationTemplateTests {
                 "child lifecycle",
                 "unknown lifecycle",
                 "missing ID lifecycle",
-                "child lifecycle after root tracking reset",
+                "out-of-order child lifecycle",
+                "child lifecycle after tracking pressure",
             ])
 
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-opencode-routing")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let harnessURL = temporaryDirectory.url.appendingPathComponent("routing-harness.mjs")
         try Data((template + Self.openCodeRoutingHarness).utf8).write(to: harnessURL)
 
@@ -282,8 +284,12 @@ struct AgentIntegrationTemplateTests {
 
         const fixtures = JSON.parse(readFileSync(process.argv[2], "utf8"))
         const outputs = []
+        const lifecycleEventTypes = new Set(["session.created", "session.idle", "session.error"])
 
         for (const fixture of fixtures) {
+            if (!Array.isArray(fixture.steps) || fixture.steps.length === 0) {
+                throw new Error(`routing fixture ${fixture.name} has no steps`)
+            }
             const emitted = []
             const capture = (_strings, ...values) => ({
                 quiet: async () => {
@@ -297,21 +303,34 @@ struct AgentIntegrationTemplateTests {
             const handlers = await AwesoMuxOpenCodeStatus({ $: capture })
 
             for (const step of fixture.steps) {
-                if (step.repeatRootSessionCreated) {
-                    for (let index = 0; index < step.repeatRootSessionCreated; index += 1) {
+                if (step.repeatChildSessionCreated !== undefined) {
+                    if (!Number.isInteger(step.repeatChildSessionCreated) || step.repeatChildSessionCreated < 1) {
+                        throw new Error(`routing fixture ${fixture.name} has an invalid child repeat`)
+                    }
+                    for (let index = 0; index < step.repeatChildSessionCreated; index += 1) {
                         await handlers.event({
                             event: {
                                 type: "session.created",
-                                properties: { info: { id: `root-${index}` } },
+                                properties: {
+                                    info: { id: `filler-child-${index}`, parentID: "root-session" },
+                                },
                             },
                         })
                     }
-                    emitted.length = 0
                     continue
                 }
                 if (step.handler === "event") {
+                    if (!lifecycleEventTypes.has(step.input?.type) || !step.input.properties) {
+                        throw new Error(`routing fixture ${fixture.name} has an invalid lifecycle event`)
+                    }
+                    if (step.input.type === "session.created" && typeof step.input.properties.info?.id !== "string") {
+                        throw new Error(`routing fixture ${fixture.name} has a session.created event without an ID`)
+                    }
                     await handlers.event({ event: step.input })
                     continue
+                }
+                if (step.handler !== "chat.message" || typeof step.input?.sessionID !== "string") {
+                    throw new Error(`routing fixture ${fixture.name} has an invalid handler`)
                 }
                 await handlers[step.handler](step.input)
             }
@@ -336,9 +355,41 @@ struct AgentIntegrationTemplateTests {
         let hookEventName: String
         let sessionID: String?
 
-        enum CodingKeys: String, CodingKey {
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.container(keyedBy: OpenCodeHookEmissionKey.self)
+            let allowedKeys = Set(CodingKeys.allCases.map(\.rawValue))
+            let unexpectedKeys = Set(raw.allKeys.map(\.stringValue)).subtracting(allowedKeys)
+            guard unexpectedKeys.isEmpty else {
+                throw DecodingError.dataCorrupted(
+                    .init(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "Unexpected OpenCode hook payload keys: \(unexpectedKeys.sorted())"
+                    ))
+            }
+
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            hookEventName = try values.decode(String.self, forKey: .hookEventName)
+            sessionID = try values.decodeIfPresent(String.self, forKey: .sessionID)
+        }
+
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case hookEventName = "hook_event_name"
             case sessionID = "session_id"
+        }
+    }
+
+    private struct OpenCodeHookEmissionKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            intValue = nil
+        }
+
+        init?(intValue: Int) {
+            stringValue = String(intValue)
+            self.intValue = intValue
         }
     }
 }
