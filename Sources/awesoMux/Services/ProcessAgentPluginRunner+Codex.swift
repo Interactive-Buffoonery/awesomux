@@ -246,15 +246,13 @@ extension ProcessAgentPluginRunner {
             .appending(path: "hooks.json")
         // A ladder-baked command self-heals through Spotlight, so only a copy
         // without one can strand on a dead absolute path.
-        var finding: AgentPluginDeployedCopyInspector.Finding?
-        if let data = try? Data(contentsOf: deployedHooksURL) {
-            finding = AgentPluginDeployedCopyInspector.assess(
-                deployedHooksData: data,
-                renderedHooksData: data,
+        guard
+            let finding = AgentPluginDeployedCopyInspector.helperReachability(
+                deployedHooksURL: deployedHooksURL,
                 fileManager: renderer.fileManager
-            )
-        }
-        guard let finding, !finding.helperReachable else {
+            ),
+            !finding.helperReachable
+        else {
             return nil
         }
         let deadPath = finding.firstBakedHelperPath ?? "a missing helper"
@@ -593,7 +591,7 @@ extension ProcessAgentPluginRunner {
 
 // MARK: - Codex plugin list parsing
 
-private enum CodexPluginList {
+enum CodexPluginList {
     static func parse(_ stdout: String) throws -> [Entry] {
         try JSONDecoder().decode(Response.self, from: Data(stdout.utf8)).installed
     }
@@ -627,7 +625,13 @@ private enum CodexPluginList {
             pluginId = try container.decodeIfPresent(String.self, forKey: .pluginId)
             name = try container.decodeIfPresent(String.self, forKey: .name)
             marketplaceName = try container.decodeIfPresent(String.self, forKey: .marketplaceName)
-            sourcePath = try container.decodeIfPresent(Source.self, forKey: .source)?.path
+            // CLI builds vary in whether `source` is an object ({path}) or a
+            // plain string path. A shape mismatch must not throw the whole
+            // list parse away — the presence probe and dead-helper check both
+            // degrade silently if installed entries vanish from our view.
+            let objectShape = (try? container.decodeIfPresent(Source.self, forKey: .source)).flatMap { $0 }
+            let stringShape = (try? container.decodeIfPresent(String.self, forKey: .source)).flatMap { $0 }
+            sourcePath = objectShape?.path ?? stringShape
         }
 
         func matches(_ ref: AgentPluginMarketplaceRef) -> Bool {

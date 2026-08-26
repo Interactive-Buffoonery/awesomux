@@ -387,6 +387,81 @@ struct AgentPluginRunnerTests {
 
     // MARK: - Deployed-copy verification (INT-882)
 
+    @Test("deployed-copy drift ignores environment-specific helper path and bundle id")
+    func deployedDriftIgnoresEnvironmentSpecificBytes() throws {
+        func hooksData(helperPath: String, bundleID: String, extraEvent: Bool) throws -> Data {
+            let command =
+                "if [ -x '\(helperPath)' ]; then AWESOMUX_AGENT_HOOK='\(helperPath)'; "
+                + "else AWESOMUX_AGENT_HOOK=\"$(mdfind \"kMDItemCFBundleIdentifier == '\(bundleID)'\")\"; fi"
+            var events: [String: Any] = [
+                "Stop": [
+                    [
+                        "hooks": [["type": "command", "command": command]]
+                    ]
+                ]
+            ]
+            if extraEvent {
+                events["SessionStart"] = [
+                    [
+                        "hooks": [["type": "command", "command": "true"]]
+                    ]
+                ]
+            }
+            return try JSONSerialization.data(withJSONObject: ["hooks": events])
+        }
+
+        let devRender = try hooksData(
+            helperPath: "/Users/dev/src/awesomux/.build/artifacts/awesoMux.app/Contents/MacOS/awesoMuxAgentHook",
+            bundleID: "dev.awesomux.worktree",
+            extraEvent: false
+        )
+        let releaseDeploy = try hooksData(
+            helperPath: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook",
+            bundleID: "com.awesomux.awesoMux",
+            extraEvent: false
+        )
+        // A dev→release switch re-bakes the path and id without changing
+        // behavior, so it must not read as a permanent update offer.
+        let finding = try #require(
+            AgentPluginDeployedCopyInspector.assess(
+                deployedHooksData: releaseDeploy,
+                renderedHooksData: devRender
+            )
+        )
+        #expect(!finding.differsFromCurrentRender)
+
+        let genuinelyNewer = try hooksData(
+            helperPath: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook",
+            bundleID: "com.awesomux.awesoMux",
+            extraEvent: true
+        )
+        let drifted = try #require(
+            AgentPluginDeployedCopyInspector.assess(
+                deployedHooksData: genuinelyNewer,
+                renderedHooksData: devRender
+            )
+        )
+        #expect(drifted.differsFromCurrentRender)
+    }
+
+    @Test("Codex plugin list tolerates object, string, and missing source shapes")
+    func codexPluginListToleratesSourceShapes() throws {
+        let objectShape = """
+            {"installed":[{"pluginId":"awesomux-codex-status@awesomux-codex","source":{"path":"/plugins/dir"}}]}
+            """
+        #expect(try CodexPluginList.parse(objectShape).first?.sourcePath == "/plugins/dir")
+
+        let stringShape = """
+            {"installed":[{"pluginId":"awesomux-codex-status@awesomux-codex","source":"/plugins/dir"}]}
+            """
+        #expect(try CodexPluginList.parse(stringShape).first?.sourcePath == "/plugins/dir")
+
+        let absentShape = """
+            {"installed":[{"pluginId":"awesomux-codex-status@awesomux-codex"}]}
+            """
+        #expect(try CodexPluginList.parse(absentShape).first?.sourcePath == nil)
+    }
+
     @Test("Claude: deployed copy matching the current render is enabled despite stale record bookkeeping")
     func claudeDeployedCopyCurrentBeatsStaleDigest() async throws {
         try await Self.withRunner { runner, command, _ in

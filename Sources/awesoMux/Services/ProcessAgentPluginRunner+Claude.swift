@@ -439,7 +439,10 @@ extension ProcessAgentPluginRunner {
     }
 
     /// Whether the cache copy Claude actually executes differs from what this
-    /// app would render today (INT-882). An unreadable deployed file returns
+    /// app would render today (INT-882). Environment-specific baked values are
+    /// masked before comparing, so a dev↔release switch — which re-bakes the
+    /// helper path and bundle id without changing hook behavior — does not read
+    /// as permanent content drift. An unreadable deployed file returns
     /// `false` — without readable bytes there is no drift to prove, and the
     /// record-based gates still stand.
     static func deployedCopyDiffersFromRender(
@@ -459,7 +462,10 @@ extension ProcessAgentPluginRunner {
         else {
             return false
         }
-        return deployedData != renderedData
+        return AgentPluginDeployedCopyInspector.contentDrift(
+            deployed: deployedData,
+            rendered: renderedData
+        )
     }
 
     /// A note when the live Config home field diverges from the home the recorded

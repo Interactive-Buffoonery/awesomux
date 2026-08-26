@@ -53,8 +53,72 @@ enum AgentPluginDeployedCopyInspector {
             usesLadder
             || bakedPaths.contains { fileManager.isExecutableFile(atPath: $0) }
         return Finding(
-            differsFromCurrentRender: deployedHooksData != renderedHooksData,
+            differsFromCurrentRender: contentDrift(
+                deployed: deployedHooksData,
+                rendered: renderedHooksData
+            ),
             helperReachable: reachable,
+            firstBakedHelperPath: bakedPaths.first
+        )
+    }
+
+    /// Whether the deployed hooks differ from this build's render in *content*.
+    /// Rendering bakes environment-specific values — the installing app's
+    /// helper path and Spotlight bundle identifier — that a dev↔release switch
+    /// re-bakes without changing hook behavior. Comparing raw bytes would make
+    /// whichever build did not install last show a permanent update offer that
+    /// Repair can only flip to the other build, so those tokens are masked
+    /// before comparing; only real hook-content drift signals.
+    static func contentDrift(deployed: Data, rendered: Data) -> Bool {
+        normalizeEnvironmentSpecificBytes(deployed) != normalizeEnvironmentSpecificBytes(rendered)
+    }
+
+    private static func normalizeEnvironmentSpecificBytes(_ data: Data) -> String {
+        // JSONSerialization escapes solidus (`\/`), which would otherwise chop
+        // every baked absolute path into non-matching fragments.
+        let text = String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: "\\/", with: "/")
+        // Absolute runs ending in the hook executable name, whichever app
+        // baked them (the deployed copy carries the *other* build's path).
+        let pathPattern =
+            "/[^\"'\\s\\\\]+"
+            + NSRegularExpression.escapedPattern(for: AgentRuntimeEnvironment.hookExecutableName)
+        let pathMasked = replacingMatches(of: pathPattern, in: text, with: "<HELPER PATH>")
+        return replacingMatches(
+            of: "kMDItemCFBundleIdentifier == '[^']*'",
+            in: pathMasked,
+            with: "kMDItemCFBundleIdentifier == '<BUNDLE ID>'"
+        )
+    }
+
+    private static func replacingMatches(of pattern: String, in text: String, with template: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: template)
+    }
+
+    /// Reachability-only probe for callers that never compare against a render:
+    /// does the deployed hook config still resolve to a runnable helper?
+    /// Returns `nil` when the file is missing/unreadable or carries no hook
+    /// commands — an undeployable check must never invent a failure.
+    static func helperReachability(
+        deployedHooksURL: URL,
+        fileManager: FileManager = .default
+    ) -> Finding? {
+        guard let data = try? Data(contentsOf: deployedHooksURL) else {
+            return nil
+        }
+        let commands = hookCommands(in: data)
+        guard !commands.isEmpty else {
+            return nil
+        }
+        let bakedPaths = commands.flatMap { bakedHelperPaths(in: $0) }
+        let usesLadder = commands.contains { $0.contains("mdfind") }
+        return Finding(
+            differsFromCurrentRender: false,
+            helperReachable: usesLadder || bakedPaths.contains { fileManager.isExecutableFile(atPath: $0) },
             firstBakedHelperPath: bakedPaths.first
         )
     }
