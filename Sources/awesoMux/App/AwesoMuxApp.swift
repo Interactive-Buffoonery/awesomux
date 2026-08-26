@@ -604,6 +604,11 @@ struct AwesoMuxApp: App {
                 installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
                 appDelegate.syncMenuBarMiniStatusItem()
+                    // Inert by policy, and deliberately still here: every prime
+                    // call routes through `NotificationPrimePolicy` so that one
+                    // place decides, and `shouldPrime` refuses every launch
+                    // evaluation. Deleting the call would leave that rule with no
+                    // caller to apply it to.
                     appDelegate.requestNotificationAuthorizationIfNeeded(
                         notificationPrimeInputs(isLaunchEvaluation: true))
                 let terminalSettings = appSettingsStore.terminal.value

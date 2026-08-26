@@ -300,7 +300,16 @@ final class FirstRunTourController {
         // Settings *underneath* the tour, permanently unreachable. Ride normal
         // ordering while something else is key; float again when refocused so
         // the tour still sits above the main window during onboarding.
-        panel?.level = isKey ? .floating : .normal
+        //
+        // Deferred because `onKeyStateChanged` is documented flags-only: it can
+        // run inside `sendEvent` via the pointer re-key, and re-ordering a
+        // window on that stack is exactly the reaction the contract excludes.
+        // Reads `isKeyWindow` rather than the captured `isKey` so that if key
+        // state flips twice before these land, the last state wins.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            panel?.level = isKeyWindow ? .floating : .normal
+        }
     }
 
     // MARK: - Test seams
