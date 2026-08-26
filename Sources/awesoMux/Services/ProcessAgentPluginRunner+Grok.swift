@@ -122,19 +122,23 @@ extension ProcessAgentPluginRunner {
         case "error", "errored", "failed", "invalid":
             return AgentPluginStatusReport(status: .needsRepair("The Grok plugin reported status \(entry.status ?? "unknown")"))
         default:
-            // Prefer the shared install-record digest (works for every provider
-            // after an app update). Fall back to inspecting on-disk hooks for
-            // legacy installs that predate the fingerprint, or installs with no
-            // record — those still silently break when hooks stay on snake_case.
-            if let guidance = outdatedSourceContentGuidance(provider: .grok) {
-                return AgentPluginStatusReport(status: .needsRepair(guidance))
-            }
+            // Breakage outranks freshness: a structurally stale deploy
+            // (snake_case events, missing directories) genuinely does not run,
+            // so it must read Needs Repair even when the record also drifts —
+            // and every pre-fingerprint legacy install has a missing digest,
+            // which alone would otherwise mask breakage behind an update
+            // offer. Only after the deployed hooks inspect healthy does
+            // digest drift downgrade to an offer (INT-882): the plugin runs,
+            // the bundle just ships newer source.
             if let guidance = GrokInstalledHooksInspector.repairGuidanceIfStale(
                 pluginDirectoryPath: entry.path,
                 allowedHome: allowedHome,
                 fileManager: renderer.fileManager
             ) {
                 return AgentPluginStatusReport(status: .needsRepair(guidance))
+            }
+            if let guidance = outdatedSourceContentGuidance(provider: .grok) {
+                return AgentPluginStatusReport(status: .updateAvailable(guidance))
             }
             return AgentPluginStatusReport(status: .enabled)
         }

@@ -101,7 +101,7 @@ test("stable release generates one signed appcast without exposing its private k
   assert.ok(generation, "stable appcast generation step must exist");
   assert.match(generation, /if: inputs\.create_draft_release \|\| startsWith\(github\.ref, 'refs\/tags\/'\)/);
   assert.match(generation, /SPARKLE_PRIVATE_ED_KEY: \$\{\{ secrets\.SPARKLE_PRIVATE_ED_KEY \}\}/);
-  assert.match(generation, /SPARKLE_PUBLIC_ED_KEY: \$\{\{ vars\.SPARKLE_PUBLIC_ED_KEY \}\}/);
+  assert.doesNotMatch(generation, /SPARKLE_PUBLIC_ED_KEY/);
   assert.match(generation, /\.build\/artifacts\/sparkle\/Sparkle\/bin\/generate_appcast/);
   assert.match(generation, /\.build\/artifacts\/sparkle\/Sparkle\/bin\/sign_update/);
   assert.match(generation, /\[\[ -x "\$APPCAST_TOOL" \]\]/);

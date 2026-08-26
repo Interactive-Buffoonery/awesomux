@@ -111,8 +111,8 @@ jobs:
             exit 1
           fi
 
-          # `all` runs as three independent `swift test` processes (`timing` /
-          # `sidebar` / `nontiming`, see script/test.sh) so suites that make real
+          # `all` runs the vendored zmx suite plus three independent `swift test`
+          # processes (`timing` / `sidebar` / `nontiming`, see script/test.sh) so suites that make real
           # blocking OS calls (sockets, subprocesses, file watchers, file
           # locks) don't share one process-wide Swift Concurrency thread pool
           # with ~4600 other tests on a CPU-constrained hosted runner (#162),
@@ -120,7 +120,7 @@ jobs:
           # of the target is active.
           # Single-scope dispatches (unit/adapter/system) stay one job each.
           if [[ "$SCOPE" == "all" ]]; then
-            groups='["timing","sidebar","nontiming"]'
+            groups='["zmx","timing","sidebar","nontiming"]'
           else
             groups="[\"$SCOPE\"]"
           fi
@@ -199,6 +199,18 @@ jobs:
         uses: ./_trusted/.github/actions/prepare-native
         with:
           save-cache: "false"
+          prepare-ghostty: ${{ matrix.group != 'zmx' }}
+
+      - name: Install zmx Zig toolchain
+        id: zmx_zig
+        if: matrix.group == 'zmx' && steps.prepare.outcome == 'success'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+          ZMX_ZIG_FORMULA: ${{ steps.prepare.outputs.zmx-zig-formula }}
+        run: |
+          set -euo pipefail
+          brew install "$ZMX_ZIG_FORMULA"
+          echo "AWESOMUX_ZMX_ZIG=$(brew --prefix "$ZMX_ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
 
       - name: Run native validation
         id: execute
@@ -208,6 +220,7 @@ jobs:
           START_EPOCH: ${{ steps.timing.outputs.started-at }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          ZMX_ZIG_OUTCOME: ${{ steps.zmx_zig.outcome }}
           XUNIT_PATH: .build/test-results/native-ci.xml
           LOG_PATH: .build/test-results/native-ci.log
         run: |
@@ -220,13 +233,29 @@ jobs:
           elif [[ "$PREPARE_OUTCOME" != "success" ]]; then
             echo "Native preparation failed; tests were not executed." | tee -a "$LOG_PATH"
             result=failure
+          elif [[ "$GROUP" == "zmx" && "$ZMX_ZIG_OUTCOME" != "success" ]]; then
+            echo "The zmx Zig toolchain could not be installed; tests were not executed." | tee -a "$LOG_PATH"
+            result=failure
           else
             set +e
-            ./script/test.sh "$GROUP" --xunit-output "$XUNIT_PATH" 2>&1 | tee -a "$LOG_PATH"
+            if [[ "$GROUP" == "zmx" ]]; then
+              ./script/test.sh zmx 2>&1 | tee -a "$LOG_PATH"
+            else
+              ./script/test.sh "$GROUP" --xunit-output "$XUNIT_PATH" 2>&1 | tee -a "$LOG_PATH"
+            fi
             test_status=${PIPESTATUS[0]}
             set -e
             if [[ "$test_status" -ne 0 ]]; then
               result=failure
+            elif [[ "$GROUP" == "zmx" ]]; then
+              cat > "$XUNIT_PATH" <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <testsuites tests="1" failures="0">
+            <testsuite name="zmx" tests="1" failures="0">
+              <testcase name="zigBuildTest" />
+            </testsuite>
+          </testsuites>
+          XML
             fi
           fi
 

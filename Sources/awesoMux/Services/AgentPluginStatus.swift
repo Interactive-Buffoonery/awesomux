@@ -28,9 +28,20 @@ enum AgentPluginStatus: Equatable, Sendable {
     /// value is the operator guidance ("Approve the hook in Codex").
     case needsReview(String)
     /// Manifest/config claims it is installed but on-disk reality disagrees
-    /// (missing, modified, CLI error entry, configured-but-missing CODEX_HOME).
-    /// The associated value is the repair guidance.
+    /// (missing, modified, CLI error entry, configured-but-missing CODEX_HOME,
+    /// a deployed copy whose baked helper no longer exists). The associated
+    /// value is the repair guidance.
     case needsRepair(String)
+    /// Installed and functional, but the running app would deploy different
+    /// plugin content than what the provider CLI currently executes (an app
+    /// update shipped new hooks, or the install predates this bundle). Not a
+    /// failure: the hook still runs. The associated value offers the update.
+    ///
+    /// Kept distinct from `needsRepair` deliberately (INT-882): routine content
+    /// drift after an app update used to read as red "Needs repair", training
+    /// users to reinstall constantly. Breakage (dead helper, load errors) stays
+    /// `needsRepair`; freshness alone lands here.
+    case updateAvailable(String)
     /// This CLI/version/policy cannot host the plugin at all (CLI absent,
     /// `--json`/`hooks/list` unsupported, `allow_managed_hooks_only`). The
     /// associated value is the reason. Do not auto-write; surface for manual
@@ -47,6 +58,7 @@ enum AgentPluginStatus: Equatable, Sendable {
         case .disabled: "Off"
         case .needsReview: "Needs review"
         case .needsRepair: "Needs repair"
+        case .updateAvailable: "Update available"
         case .unsupported:
             isExecutableNotFoundUnsupported ? "Executable not found" : "Unsupported"
         }
@@ -66,6 +78,8 @@ enum AgentPluginStatus: Equatable, Sendable {
             guidance
         case .needsRepair(let guidance):
             guidance
+        case .updateAvailable(let guidance):
+            guidance
         case .unsupported(let reason):
             reason
         }
@@ -81,23 +95,25 @@ enum AgentPluginStatus: Equatable, Sendable {
     // MARK: Per-action gating
 
     /// Enable/Install is offered whenever the provider can host the plugin and it
-    /// is not already enabled. `unsupported` cannot install; `enabled` is already
-    /// on. `needsReview` does not offer enable — the plugin *is* enabled, it
-    /// awaits trust, which is the user's out-of-band step.
+    /// is not already enabled. `unsupported` cannot install; `enabled` and
+    /// `updateAvailable` are already on. `needsReview` does not offer enable —
+    /// the plugin *is* enabled, it awaits trust, which is the user's out-of-band
+    /// step.
     var allowsEnable: Bool {
         switch self {
         case .notInstalled, .disabled:
             true
-        case .notConfigured, .enabled, .needsReview, .needsRepair, .unsupported:
+        case .notConfigured, .enabled, .needsReview, .needsRepair, .updateAvailable, .unsupported:
             false
         }
     }
 
     /// Repair re-renders and re-installs in place. Offered when the on-disk state
-    /// disagrees with the manifest, but never when the CLI cannot host the plugin.
+    /// disagrees with the manifest or a newer deploy is available, but never when
+    /// the CLI cannot host the plugin.
     var allowsRepair: Bool {
         switch self {
-        case .needsRepair:
+        case .needsRepair, .updateAvailable:
             true
         case .notConfigured, .notInstalled, .enabled, .disabled, .needsReview, .unsupported:
             false
@@ -108,7 +124,7 @@ enum AgentPluginStatus: Equatable, Sendable {
     /// plugin is on (or awaiting trust while enabled).
     var allowsDisable: Bool {
         switch self {
-        case .enabled, .needsReview:
+        case .enabled, .needsReview, .updateAvailable:
             true
         case .notConfigured, .notInstalled, .disabled, .needsRepair, .unsupported:
             false
@@ -120,7 +136,7 @@ enum AgentPluginStatus: Equatable, Sendable {
     /// unsupported), so a broken install can always be cleaned up.
     var allowsUninstall: Bool {
         switch self {
-        case .enabled, .disabled, .needsReview, .needsRepair:
+        case .enabled, .disabled, .needsReview, .needsRepair, .updateAvailable:
             true
         case .notConfigured, .notInstalled, .unsupported:
             false

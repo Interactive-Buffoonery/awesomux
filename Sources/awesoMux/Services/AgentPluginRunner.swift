@@ -100,6 +100,11 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
     var codexClientFactory: CodexAppServerClientFactory
     var homeDirectoryURL: URL
     var helperPathResolver: @Sendable () -> AgentHookHelperPath?
+    /// Resolves a Spotlight bundle identifier baked into a deployed
+    /// runtime-resolution ladder to whether an executable helper sits behind it
+    /// (INT-882). Reachability and drift-masking decisions consult this instead
+    /// of sniffing for `mdfind` text, which a dead dev deploy also carries.
+    var ladderProbe: AgentPluginDeployedCopyInspector.LadderProbe
     var installStateDirectoryURL: URL
     var legacyInstallStateDirectoryURL: URL
 
@@ -127,20 +132,29 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         },
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         helperPathResolver: @escaping @Sendable () -> AgentHookHelperPath? = { AgentHookHelperPath.resolve() },
+        ladderProbe: @escaping AgentPluginDeployedCopyInspector.LadderProbe = AgentPluginDeployedCopyInspector.systemLadderProbe,
         installStateDirectoryURL: URL? = nil,
         legacyInstallStateDirectoryURL: URL? = nil
     ) {
         let resolvedRenderer = renderer ?? AgentPluginTemplateRenderer()
+        // Default the install-state location to the rendered tree's own root,
+        // not a hardcoded production path (INT-882): the bare init the settings
+        // view model uses used to pin every build — development worktree builds
+        // included — to the installed app's plugin-install manifest while
+        // rendering into their own profile directory. Each build then saw the
+        // other's records as drift (or masked real drift), driving the recurring
+        // reinstall nag. The default renderer resolves to the running profile's
+        // support directory, so this keeps records and rendered trees in the
+        // same scope; an explicitly injected renderer still owns the location
+        // for test isolation.
         let resolvedInstallStateDirectoryURL =
-            installStateDirectoryURL
-            ?? (renderer == nil
-                ? AgentIntegrationInstallStateLocation.canonicalDirectoryURL
-                : resolvedRenderer.rootDirectoryURL)
+            installStateDirectoryURL ?? resolvedRenderer.rootDirectoryURL
         self.commandRunner = commandRunner
         self.renderer = resolvedRenderer
         self.codexClientFactory = codexClientFactory
         self.homeDirectoryURL = homeDirectoryURL
         self.helperPathResolver = helperPathResolver
+        self.ladderProbe = ladderProbe
         self.installStateDirectoryURL = resolvedInstallStateDirectoryURL
         self.legacyInstallStateDirectoryURL =
             legacyInstallStateDirectoryURL

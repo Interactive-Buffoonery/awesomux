@@ -14,6 +14,9 @@ cd "$ROOT_DIR"
 "$ROOT_DIR/script/format.sh" --lint
 "$ROOT_DIR/script/test-review-automation.sh"
 "$ROOT_DIR/script/check_ghostty_archive_drift.sh"
+"$ROOT_DIR/script/test-ghostty-license-pins.sh"
+"$ROOT_DIR/script/check_ghostty_license_pins.sh"
+"$ROOT_DIR/script/test-ghostty-third-party-licenses.sh"
 "$ROOT_DIR/script/agent-hooks/test-awesomux-agent-event.sh"
 # Sidebar tint/status chrome contrast (F44). Cheap pure-Python gate; run
 # before the Swift suite so token drift fails fast without a full build.
