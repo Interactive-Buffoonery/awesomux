@@ -217,17 +217,6 @@ struct AwesoMuxApp: App {
     /// (INT-819). Any selection change from another path invalidates it.
     @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
-    /// Captured in `init()`, in the one window where it is provably still this
-    /// launch's answer: between `bootstrap()`, which sets `loadSource`, and
-    /// `startWatching()`, which watches the whole config directory and turns any
-    /// vnode event into a reload that rewrites `loadSource` to `.existingFile`.
-    /// Reading it later would make a first-run signal depend on nothing having
-    /// touched that directory in between — silently, and with every test green.
-    ///
-    /// Kept as the raw source rather than the derived Bool because seeding has
-    /// to tell "bootstrap threw, we know nothing" (`nil`) apart from real
-    /// evidence, and must not persist the former.
-    private let configLoadSource: ConfigLoadSource?
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -313,7 +302,16 @@ struct AwesoMuxApp: App {
             }
         )
         appSettingsStore.bootstrap()
-        configLoadSource = appSettingsStore.loadSource
+        // Seeded here for two reasons, both of which are the same bug class.
+        // `loadSource` is only this launch's answer in the window between
+        // `bootstrap()`, which sets it, and `startWatching()`, which turns any
+        // vnode event in the config directory into a reload that rewrites it to
+        // `.existingFile`. And a launch that creates the config but dies before
+        // the scene mounts must still have classified itself, or launch two
+        // reads `.existingFile` and permanently suppresses onboarding for a
+        // genuinely new user. The write is idempotent (see the policy), so
+        // running it on every launch costs nothing.
+        FirstRunTourPolicy.seedSeenFlagIfNeeded(loadSource: appSettingsStore.loadSource)
         appSettingsStore.startWatching()
         let terminalAppearancePreferencesCache = TerminalAppearancePreferencesCache()
         let initialAppearance = appSettingsStore.appearance.value
@@ -621,15 +619,6 @@ struct AwesoMuxApp: App {
                 }
                 presentRecoveryWarningIfNeeded()
 
-                    // A directory-existence probe here would be checking a
-                    // directory `bootstrap()` itself created, on every launch
-                    // including the first; `loadSource` is what actually
-                    // distinguishes "nothing was there yet" (`.createdDefault`)
-                    // from every other case. It is read in `init()`, not here —
-                    // see `hasPriorInstallEvidence`.
-                    FirstRunTourPolicy.seedSeenFlagIfNeeded(
-                        loadSource: configLoadSource)
-
                     // Evaluated once, from this launch's snapshot. Closing the last
                     // group later returns the tree to `.firstLaunch`; that must not
                     // resurrect the tour.
@@ -670,20 +659,6 @@ struct AwesoMuxApp: App {
                 // exists to prevent.
                 .onChange(of: firstRunTourController.isDeferringNotificationPrime) { _, isDeferring in
                     guard !isDeferring else { return }
-                    appDelegate.requestNotificationAuthorizationIfNeeded(
-                        notificationPrimeInputs(isLaunchEvaluation: false))
-                }
-                // Every trigger above needs a change *after* mount, and a
-                // returning user has none: the store is final before
-                // `.onAppear` (`State(initialValue:)`), the launch evaluation is
-                // a deliberate no-op, the tour never shows, and preferences are
-                // untouched. Without this they fall through to the first real
-                // agent event, which is exactly the uncontextualised system
-                // dialog this work exists to remove. Deferred off `.onAppear`
-                // rather than folded into it so the launch evaluation stays the
-                // no-op the spec requires.
-                .task {
-                    await Task.yield()
                     appDelegate.requestNotificationAuthorizationIfNeeded(
                         notificationPrimeInputs(isLaunchEvaluation: false))
                 }

@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
@@ -75,6 +76,23 @@ struct WorkspaceNotificationBridgeTests {
 
         #expect(bridge.pendingAuthorizationEventCountForTesting == 0)
         #expect(bridge.isAuthorizationRequestInFlight == false)
+    }
+
+    /// Fix J's early-out is only safe with an invalidation path. Settings →
+    /// Notifications deep-links the user into System Settings so a `.denied`
+    /// answer can be reversed, and that re-query never reaches this cache — so
+    /// without this every later event would hit `case .denied` and be dropped
+    /// until relaunch.
+    @Test("A settled authorization status does not survive an app activation")
+    @MainActor
+    func activationInvalidatesCachedStatus() {
+        let bridge = WorkspaceNotificationBridge()
+        bridge.setAuthorizationStatusForTesting(.denied)
+
+        NotificationCenter.default.post(
+            name: NSApplication.didBecomeActiveNotification, object: nil)
+
+        #expect(bridge.authorizationStatusForTesting == nil)
     }
 
     /// A settled answer is not worth an XPC round trip. Priming is wired to

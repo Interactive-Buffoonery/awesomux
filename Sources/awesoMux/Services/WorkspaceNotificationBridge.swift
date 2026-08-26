@@ -48,12 +48,36 @@ final class WorkspaceNotificationBridge {
         return center
     }()
 
+    /// The cached status short-circuits the `getNotificationSettings` round
+    /// trip, which is only safe while the answer cannot have changed behind our
+    /// back. It can: Settings → Notifications deep-links the user into System
+    /// Settings precisely so a `.denied` decision can be reversed (INT-598), and
+    /// `NotificationAuthorizationModel` re-queries there without writing back
+    /// here. Returning to awesoMux is the one bounded moment that can have
+    /// happened, so the cache is dropped there rather than on every agent tick.
+    @ObservationIgnored private var didBecomeActiveObserver: NSObjectProtocol?
+
     init(
         preferencesProvider: @escaping @MainActor () -> NotificationPreferences = {
             .defaultValue
         }
     ) {
         self.preferencesProvider = preferencesProvider
+        // `object: nil` deliberately: resolving `NSApp` here would boot AppKit
+        // in the unbundled test runner just to register an observer.
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.authorizationStatus = nil }
+        }
+    }
+
+    isolated deinit {
+        if let didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+        }
     }
 
     func configurePreferencesProvider(
@@ -396,6 +420,8 @@ final class WorkspaceNotificationBridge {
     }
 
     var pendingAuthorizationEventCountForTesting: Int { pendingAuthorizationEvents.count }
+
+    var authorizationStatusForTesting: UNAuthorizationStatus? { authorizationStatus }
 
     private(set) var explanationPresentationCountForTesting = 0
 }

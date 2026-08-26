@@ -99,6 +99,28 @@ struct FirstRunTourPolicyTests {
         #expect(FirstRunTourPolicy.seenFlag(defaults: defaults) == true)
     }
 
+    /// The seed runs in `AwesoMuxApp.init()`, not the scene's `.onAppear`, so a
+    /// first launch that creates the config and then dies before the scene ever
+    /// mounts has still classified itself. Left in `.onAppear` this sequence
+    /// reached launch two with the key unwritten, read `.existingFile`, and
+    /// suppressed onboarding permanently for a genuinely new user.
+    @Test("A first launch that dies before the scene mounts still classifies")
+    func crashBeforeSceneMountStillClassifies() {
+        let defaults = freshDefaults("tour.seed.crashbeforemount")
+
+        // Launch one: init seeds, then the process dies. Nothing else writes.
+        FirstRunTourPolicy.seedSeenFlagIfNeeded(defaults: defaults, loadSource: .createdDefault)
+
+        // Launches two and three see the config launch one wrote.
+        FirstRunTourPolicy.seedSeenFlagIfNeeded(defaults: defaults, loadSource: .existingFile)
+        FirstRunTourPolicy.seedSeenFlagIfNeeded(defaults: defaults, loadSource: .existingFile)
+
+        #expect(
+            FirstRunTourPolicy.shouldAutoPresent(
+                seenFlag: FirstRunTourPolicy.seenFlag(defaults: defaults),
+                mode: .firstLaunch) == true)
+    }
+
     /// A bootstrap failure knows nothing, so it must persist nothing —
     /// otherwise repairing the profile later could never restore onboarding.
     @Test("A failed bootstrap persists no classification")
