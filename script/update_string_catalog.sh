@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CATALOG="$ROOT_DIR/Resources/Localizable.xcstrings"
-EXTRACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-localization.XXXXXX")"
 CHECK_ONLY=false
 
 if [[ "${1:-}" == "--check" && $# -eq 1 ]]; then
@@ -17,6 +16,8 @@ if ! command -v trash >/dev/null 2>&1; then
   echo "error: trash is required to clean the temporary extraction directory" >&2
   exit 1
 fi
+
+EXTRACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-localization.XXXXXX")"
 trap 'trash "$EXTRACT_DIR"' EXIT
 
 SYNC_CATALOG="$CATALOG"
