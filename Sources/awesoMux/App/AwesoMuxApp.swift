@@ -217,6 +217,13 @@ struct AwesoMuxApp: App {
     /// (INT-819). Any selection change from another path invalidates it.
     @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
+    /// Captured in `init()`, in the one window where it is provably still this
+    /// launch's answer: between `bootstrap()`, which sets `loadSource`, and
+    /// `startWatching()`, which watches the whole config directory and turns any
+    /// vnode event into a reload that rewrites `loadSource` to `.existingFile`.
+    /// Reading it later would make a first-run signal depend on nothing having
+    /// touched that directory in between — silently, and with every test green.
+    private let hasPriorInstallEvidence: Bool
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -302,6 +309,8 @@ struct AwesoMuxApp: App {
             }
         )
         appSettingsStore.bootstrap()
+        hasPriorInstallEvidence = FirstRunTourPolicy.hasPriorInstallEvidence(
+            loadSource: appSettingsStore.loadSource)
         appSettingsStore.startWatching()
         let terminalAppearancePreferencesCache = TerminalAppearancePreferencesCache()
         let initialAppearance = appSettingsStore.appearance.value
@@ -609,25 +618,21 @@ struct AwesoMuxApp: App {
                 }
                 presentRecoveryWarningIfNeeded()
 
-                    // `loadSource` was set once, synchronously, by
-                    // `appSettingsStore.bootstrap()` in `init()` — long before
-                    // this `.onAppear` runs — and nothing touches it in
-                    // between. A directory-existence probe here would instead
-                    // be checking a directory that very `bootstrap()` call
-                    // already created, on every launch including the first;
-                    // `loadSource` is what actually distinguishes "nothing
-                    // was there yet" (`.createdDefault`) from every other
-                    // case.
+                    // A directory-existence probe here would be checking a
+                    // directory `bootstrap()` itself created, on every launch
+                    // including the first; `loadSource` is what actually
+                    // distinguishes "nothing was there yet" (`.createdDefault`)
+                    // from every other case. It is read in `init()`, not here —
+                    // see `hasPriorInstallEvidence`.
                     FirstRunTourPolicy.seedSeenFlagIfNeeded(
-                        hasPriorInstallEvidence: FirstRunTourPolicy.hasPriorInstallEvidence(
-                            loadSource: appSettingsStore.loadSource))
+                        hasPriorInstallEvidence: hasPriorInstallEvidence)
 
                     // Evaluated once, from this launch's snapshot. Closing the last
                     // group later returns the tree to `.firstLaunch`; that must not
                     // resurrect the tour.
                     if FirstRunTourPolicy.shouldAutoPresent(
                         hasSeenTour: UserDefaults.standard.bool(forKey: SettingsKey.hasSeenFirstRunTour),
-                        hasPriorInstallEvidence: false,
+                        hasPriorInstallEvidence: hasPriorInstallEvidence,
                         mode: EmptyWorkspaceMode.resolve(
                             hasRecoveryWarning: recoveryWarning != nil,
                             hasAnyGroup: !sessionStore.groups.isEmpty))
@@ -650,6 +655,19 @@ struct AwesoMuxApp: App {
                 appDelegate.syncMenuBarMiniStatusItem()
             }
                 .onChange(of: appSettingsStore.notifications.value) { (_: NotificationConfig, _: NotificationConfig) in
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
+                }
+                // The prime policy *defers* while the tour is up below beat
+                // three, and nothing else brings the evaluation back: menu
+                // chords stay live over the tour, so a user who follows beat
+                // one's "press ⌘N" mutates `groups` during the deferral, and
+                // paging on to Done mutates nothing at all. Without this the
+                // explanation is never shown and the first real agent event
+                // fires the bare system dialog — exactly what the pre-prompt
+                // exists to prevent.
+                .onChange(of: firstRunTourController.isDeferringNotificationPrime) { _, isDeferring in
+                    guard !isDeferring else { return }
                     appDelegate.requestNotificationAuthorizationIfNeeded(
                         notificationPrimeInputs(isLaunchEvaluation: false))
                 }

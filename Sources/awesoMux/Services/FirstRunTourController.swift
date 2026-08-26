@@ -69,6 +69,14 @@ final class FirstRunTourController {
 
     var hasReachedNotificationBeat: Bool { currentBeat >= Self.notificationBeatIndex }
 
+    /// The single condition `NotificationPrimePolicy` defers on, exposed as one
+    /// derived value so the app can re-evaluate the prime on exactly one
+    /// `.onChange`. Watching `isVisible` and `currentBeat` separately would fire
+    /// on every page turn and on presentation too — six evaluations per tour to
+    /// catch the one transition (reaching beat three, or dismissal) that ends
+    /// the deferral.
+    var isDeferringNotificationPrime: Bool { isVisible && !hasReachedNotificationBeat }
+
     /// Used only when measurement can't run — an unbundled/headless context
     /// where `NSHostingView` reports a degenerate fitting size.
     private static let fallbackSize = CGSize(width: 480, height: 420)
@@ -95,6 +103,15 @@ final class FirstRunTourController {
         }
         panel.presentAndFocus()
         isVisible = true
+        // `presentAndFocus()` only makes the hosting view first responder; it
+        // tells VoiceOver nothing, so a panel that appears over the empty state
+        // is silent. The page's own initial accessibility focus then reads the
+        // beat itself.
+        AccessibilityNotification.Announcement(
+            String(
+                localized: "Welcome to awesoMux",
+                comment: "Announced to VoiceOver when the welcome tour panel presents")
+        ).post()
     }
 
     func advance() { currentBeat = min(currentBeat + 1, Self.beatCount - 1) }

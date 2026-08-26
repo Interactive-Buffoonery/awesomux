@@ -152,6 +152,14 @@ enum FirstRunTourCopy {
 /// Panel root. Holds the controller so the `currentBeat` read below happens
 /// inside a `body` and is tracked by Observation; `FirstRunTourPage` is the
 /// pure half the controller measures without a live controller.
+///
+/// The bare pass-through below is load-bearing, not incidental:
+/// `FirstRunTourController.maximumBeatFittingSize()` measures
+/// `FirstRunTourPage` and pins the panel to that size, so this root and the
+/// measured one must stay geometrically identical. Chrome added here (padding,
+/// a header, a background inset) would silently desync the pin from what
+/// renders, and no test would catch it — `beatsMeasureDifferently` measures
+/// `FirstRunTourPage` too. Anything visual belongs inside the page.
 struct FirstRunTourView: View {
     let controller: FirstRunTourController
     let shortcuts: FirstRunTourShortcuts
@@ -180,6 +188,8 @@ struct FirstRunTourPage: View {
     let onOpenAgentSettings: () -> Void
 
     @Environment(\.awAccent) private var accentResolver
+    @AccessibilityFocusState private var beatFocused: Bool
+    @State private var didRequestInitialFocus = false
 
     private var isFirstBeat: Bool { beat <= 0 }
     private var isLastBeat: Bool { beat >= FirstRunTourController.beatCount - 1 }
@@ -224,7 +234,12 @@ struct FirstRunTourPage: View {
                 String(
                     localized: "Step \(beat + 1) of \(FirstRunTourController.beatCount)",
                     comment:
-                        "Accessibility label for one welcome tour beat. First argument is the current step, second is the total."))
+                        "Accessibility label for one welcome tour beat. First argument is the current step, second is the total.")
+            )
+            // Initial VoiceOver focus lands on the beat, not on the controls at
+            // the end of the reading order, so the copy is what a first-run
+            // user actually hears.
+            .accessibilityFocused($beatFocused)
 
             Spacer(minLength: 0)
 
@@ -245,11 +260,25 @@ struct FirstRunTourPage: View {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
+        // Container only, deliberately unlabelled: the panel's own title and
+        // accessibility label already name the window, and a third copy of
+        // "Welcome to awesoMux" here made VoiceOver say it three times before
+        // ever reaching "Step 1 of 5".
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(
-            String(
-                localized: "Welcome to awesoMux",
-                comment: "Accessibility label for the welcome tour panel"))
+        .onAppear(perform: focusInitialBeat)
+    }
+
+    /// The panel is presented programmatically, so nothing moves VoiceOver into
+    /// it on its own. Deferred a turn for the same reason `AwModalView` defers:
+    /// the element has to exist in the hosting view's accessibility tree before
+    /// the focus request can land on it.
+    private func focusInitialBeat() {
+        guard !didRequestInitialFocus else { return }
+        didRequestInitialFocus = true
+        Task { @MainActor in
+            await Task.yield()
+            beatFocused = true
+        }
     }
 
     private var controls: some View {

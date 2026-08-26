@@ -4240,7 +4240,7 @@
       }
     },
     "Welcome to awesoMux" : {
-      "comment" : "Accessibility label for the welcome tour panel"
+      "comment" : "Announced to VoiceOver when the welcome tour panel presents"
     },
     "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘." : {
       "comment" : "Settings field hint for the sidebar jump numbers toggle"
