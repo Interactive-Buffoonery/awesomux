@@ -162,7 +162,11 @@ enum KeyboardShortcutCatalog {
         id: "newWorkspace",
         action: "New Workspace",
         key: "n",
-        keyDisplay: "N"
+        keyDisplay: "N",
+        // Without this, spokenForm defaults to "Command Key N" — clunky
+        // mid-sentence in the welcome tour and empty-state copy that name
+        // this shortcut in prose, not just a standalone chip.
+        keySpokenName: "N"
     )
 
     static let newWorkspaceInCurrentDirectory = KeyBinding(

@@ -1217,8 +1217,15 @@
         }
       }
     },
+    "Create a workspace with %arg, or reopen the last one you closed." : {
+      "comment" : "Empty-state guidance when a recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the empty-state guidance with reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+    },
+    "Create a workspace with %arg." : {
+      "comment" : "Empty-state guidance when no recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the empty-state guidance with no reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+    },
     "Create a workspace with Command-N, or reopen the last one you closed." : {
       "comment" : "Empty-state guidance when a recently closed workspace can be reopened.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1230,6 +1237,7 @@
     },
     "Create a workspace with Command-N." : {
       "comment" : "Empty-state guidance when no recently closed workspace can be reopened.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3479,6 +3487,9 @@
     "Show Terminal Companion" : {
       "comment" : "Dock right-click menu item that shows the Terminal Companion."
     },
+    "Show Welcome Tour" : {
+
+    },
     "Show in Finder" : {
       "comment" : "Action that reveals a session snapshot recovery archive"
     },
@@ -4213,8 +4224,12 @@
     "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces. An exact copy was archived for recovery. Automatic session saving is paused so the live saved file is not replaced without your approval." : {
       "comment" : "Recovery warning shown after unreadable workspace data was archived"
     },
+    "We found a problem with your saved session and set it aside safely. Create a workspace with %arg to start fresh." : {
+      "comment" : "Recovery explanation shown after an invalid saved session was quarantined. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the recovery explanation. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+    },
     "We found a problem with your saved session and set it aside safely. Create a workspace with Command-N to start fresh." : {
       "comment" : "Recovery explanation shown after an invalid saved session was quarantined.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

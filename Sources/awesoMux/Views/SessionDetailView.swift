@@ -159,6 +159,12 @@ struct SessionDetailView: View {
                 },
                 onOpenRecent: onReopenClosedWorkspace,
                 canReopenWorkspace: sessionStore.canReopenClosedWorkspace,
+                // Resolved here, not defaulted inside the view: a literal
+                // ⌘N would keep teaching the old key after a rebind.
+                newWorkspace: KeyboardShortcutCatalog.resolved(
+                    KeyboardShortcutCatalog.newWorkspace,
+                    keyboard: appSettingsStore.keyboard.value
+                ),
                 initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest(
                     isFirstRunTourVisible: { firstRunTourController.isVisible })
             )
@@ -206,12 +212,76 @@ enum EmptyWorkspaceMode: Equatable {
     }
 }
 
+/// Empty-state body copy in two renderings, matching `FirstRunTourCopy`:
+/// `visible` carries the glyph chord, `spoken` carries the spelled-out one for
+/// VoiceOver. Both interpolate the *resolved* binding — a literal chord here
+/// would keep teaching the old key after a rebind.
+enum EmptyWorkspaceCopy {
+    typealias Body = (visible: String, spoken: String)
+
+    static func body(mode: EmptyWorkspaceMode, canReopen: Bool, newWorkspace: KeyBinding) -> Body {
+        switch mode {
+        case .recovered:
+            return (
+                visible: String(
+                    localized:
+                        "We found a problem with your saved session and set it aside safely. Create a workspace with \(newWorkspace.displaySymbol) to start fresh.",
+                    comment:
+                        "Recovery explanation shown after an invalid saved session was quarantined. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
+                ),
+                spoken: String(
+                    localized:
+                        "We found a problem with your saved session and set it aside safely. Create a workspace with \(newWorkspace.spokenForm) to start fresh.",
+                    comment:
+                        "Spoken form of the recovery explanation. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+                )
+            )
+        case .firstLaunch, .noSelection:
+            // Reopen is offered as a button, not a shortcut, so the copy only
+            // names the New Workspace chord to match the actual bound keys
+            // (INT-166 review: the hint used to advertise Cmd-N for reopen,
+            // which nothing binds).
+            if canReopen {
+                return (
+                    visible: String(
+                        localized:
+                            "Create a workspace with \(newWorkspace.displaySymbol), or reopen the last one you closed.",
+                        comment:
+                            "Empty-state guidance when a recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
+                    ),
+                    spoken: String(
+                        localized:
+                            "Create a workspace with \(newWorkspace.spokenForm), or reopen the last one you closed.",
+                        comment:
+                            "Spoken form of the empty-state guidance with reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+                    )
+                )
+            }
+            return (
+                visible: String(
+                    localized:
+                        "Create a workspace with \(newWorkspace.displaySymbol).",
+                    comment:
+                        "Empty-state guidance when no recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
+                ),
+                spoken: String(
+                    localized:
+                        "Create a workspace with \(newWorkspace.spokenForm).",
+                    comment:
+                        "Spoken form of the empty-state guidance with no reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+                )
+            )
+        }
+    }
+}
+
 @MainActor
 struct EmptyWorkspaceView: View {
     let mode: EmptyWorkspaceMode
     let onNewWorkspace: () -> Void
     let onOpenRecent: () -> Void
     let canReopenWorkspace: Bool
+    let newWorkspace: KeyBinding
 
     @Environment(\.awAccent) private var accentResolver
     @State private var initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest
@@ -221,6 +291,7 @@ struct EmptyWorkspaceView: View {
         onNewWorkspace: @escaping () -> Void,
         onOpenRecent: @escaping () -> Void,
         canReopenWorkspace: Bool,
+        newWorkspace: KeyBinding,
         initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest =
             EmptyWorkspaceInitialAccessibilityFocusRequest()
     ) {
@@ -228,6 +299,7 @@ struct EmptyWorkspaceView: View {
         self.onNewWorkspace = onNewWorkspace
         self.onOpenRecent = onOpenRecent
         self.canReopenWorkspace = canReopenWorkspace
+        self.newWorkspace = newWorkspace
         _initialAccessibilityFocusRequest = State(
             initialValue: initialAccessibilityFocusRequest)
     }
@@ -252,28 +324,8 @@ struct EmptyWorkspaceView: View {
         }
     }
 
-    private var bodyText: LocalizedStringResource {
-        switch mode {
-        case .recovered:
-            return LocalizedStringResource(
-                "We found a problem with your saved session and set it aside safely. Create a workspace with Command-N to start fresh.",
-                comment: "Recovery explanation shown after an invalid saved session was quarantined."
-            )
-        case .firstLaunch, .noSelection:
-            // Reopen is offered as a button, not a shortcut, so the copy only
-            // names Command-N to match the actual bound keys (INT-166 review:
-            // the hint used to advertise Cmd-N for reopen, which nothing binds).
-            if canReopenWorkspace {
-                return LocalizedStringResource(
-                    "Create a workspace with Command-N, or reopen the last one you closed.",
-                    comment: "Empty-state guidance when a recently closed workspace can be reopened."
-                )
-            }
-            return LocalizedStringResource(
-                "Create a workspace with Command-N.",
-                comment: "Empty-state guidance when no recently closed workspace can be reopened."
-            )
-        }
+    private var bodyCopy: EmptyWorkspaceCopy.Body {
+        EmptyWorkspaceCopy.body(mode: mode, canReopen: canReopenWorkspace, newWorkspace: newWorkspace)
     }
 
     var body: some View {
@@ -293,9 +345,10 @@ struct EmptyWorkspaceView: View {
                     .foregroundStyle(accentColor)
                     .accessibilityAddTraits(.isHeader)
 
-                Text(bodyText)
+                Text(bodyCopy.visible)
                     .awFont(AwFont.UI.body)
                     .foregroundStyle(Color.aw.text3)
+                    .accessibilityLabel(bodyCopy.spoken)
             }
 
             // ViewThatFits drops to a vertical stack at large Dynamic Type or
