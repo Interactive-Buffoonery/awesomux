@@ -556,6 +556,41 @@ struct AgentPluginRunnerTests {
         }
     }
 
+    @Test("Grok: legacy missing-digest record with structurally stale hooks needs repair, not an update offer")
+    func grokLegacyMissingDigestWithStaleHooksNeedsRepair() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let setup = Self.enabled
+            let tree = try runner.renderedTree(provider: .grok, setup: setup)
+            let ref = try runner.marketplaceRef(provider: .grok)
+            try runner.recordInstall(provider: .grok, setup: setup, tree: tree, ref: ref)
+            // Pre-fingerprint install: a record exists but carries no digest.
+            try Self.rewriteInstallRecordDigest(runner: runner, provider: .grok, digest: nil)
+
+            // The deployed hooks are the legacy snake_case shape that never runs.
+            let pluginDir = try Self.writeGrokPluginHooks(
+                eventNames: [
+                    "session_start", "user_prompt_submit", "pre_tool_use", "post_tool_use",
+                    "subagent_start", "subagent_stop", "permission_denied", "notification",
+                    "stop", "session_end", "stop_failure",
+                ],
+                homeDirectory: runner.homeDirectoryURL
+            )
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: Self.grokList(path: pluginDir.path))
+            )
+
+            // Breakage outranks freshness: the missing digest alone must not
+            // downgrade a broken install to peach "Update available".
+            let report = await runner.status(provider: .grok, setup: setup)
+            guard case .needsRepair(let guidance) = report.status else {
+                Issue.record("expected needsRepair, got \(report.status)")
+                return
+            }
+            #expect(guidance.localizedCaseInsensitiveContains("snake_case"))
+        }
+    }
+
     @Test("Grok: plugin path outside GROK_HOME needs repair")
     func grokPluginPathOutsideHomeNeedsRepair() async throws {
         try await Self.withRunner { runner, command, _ in

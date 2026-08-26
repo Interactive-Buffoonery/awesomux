@@ -335,8 +335,8 @@ Decision table for `awesomux-grok-status`:
 | Entry status reports `disabled` | Not-active |
 | Entry status reports an error/failure state | **Needs repair** |
 | Entry present with normal installed/enabled status | Installed-OK |
-| Recorded digest ≠ bundled source (or missing) | **Update available** |
-| Deployed hooks structurally stale (snake_case events, missing directory) or an error state | **Needs repair** |
+| Deployed hooks structurally stale (snake_case events, missing directory) or an error state | **Needs repair** (outranks digest state — hooks that do not run are breakage, not staleness) |
+| Deployed hooks healthy; recorded digest ≠ bundled source (or missing) | **Update available** |
 
 Current Grok versions expose `plugin disable`, but `plugin list --json` may still
 report disabled plugins as `"status": "installed"`. The runner is prepared for a

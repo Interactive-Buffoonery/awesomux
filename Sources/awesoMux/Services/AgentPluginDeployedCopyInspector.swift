@@ -92,17 +92,15 @@ enum AgentPluginDeployedCopyInspector {
         var paths: [String] = []
         var searchStart = command.startIndex
         while let nameRange = command.range(of: name, range: searchStart..<command.endIndex) {
-            // Walk back to the start of the `/…` run containing the name.
+            // Walk back to the start of the `/…` run containing the name:
+            // advance while the previous character is not a terminator.
             var start = nameRange.lowerBound
             while start > command.startIndex {
                 let previous = command.index(before: start)
-                if command[previous] == "/" {
-                    start = previous
-                } else if isPathTerminator(command[previous]) {
+                if isPathTerminator(command[previous]) {
                     break
-                } else {
-                    start = previous
                 }
+                start = previous
             }
             guard command[start] == "/" else {
                 searchStart = nameRange.upperBound
@@ -112,13 +110,8 @@ enum AgentPluginDeployedCopyInspector {
             while end < command.endIndex, !isPathTerminator(command[end]) {
                 end = command.index(after: end)
             }
-            let candidate = String(command[start..<end])
-            // A bare trailing slash pair like "/name" is still a real candidate;
-            // require the run to be more than just the executable name's own
-            // leading slash context by checking it is rooted.
-            if candidate.hasPrefix("/"), candidate.contains(name) {
-                paths.append(candidate)
-            }
+            // Rooted by the guard above, and containing `name` by construction.
+            paths.append(String(command[start..<end]))
             searchStart = end
         }
         return paths
