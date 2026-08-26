@@ -363,9 +363,14 @@ struct AwesoMuxApp: App {
 
     var body: some Scene {
         Window("awesoMux", id: AwesoMuxSceneID.primary) {
+            // Split into chained `let` sub-expressions: this modifier chain
+            // was already at the type-checker's budget, and the extra
+            // `.onChange` this task adds tips it over ("unable to type-check
+            // this expression in reasonable time").
+            //
             // Any future animation in this root view should check
             // `@Environment(\.accessibilityReduceMotion)` before animating.
-            ContentView(
+            let rootContent = ContentView(
                 sessionStore: sessionStore,
                 ghosttyRuntime: ghosttyRuntime,
                 floatingPanelController: floatingPanelController,
@@ -561,6 +566,9 @@ struct AwesoMuxApp: App {
                     .appearanceBridge(appSettingsStore)
                     .onAppear { activeSheetDidPresent = true }
             }
+
+            let rootContentAfterAppear =
+                rootContent
             .onAppear {
                 // Give the floating-panel controllers the settings store so
                 // their detached SwiftUI roots carry the appearance bridge
@@ -568,8 +576,8 @@ struct AwesoMuxApp: App {
                 commandPaletteController.appSettingsStore = appSettingsStore
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
                 aboutPanelController.appSettingsStore = appSettingsStore
-                firstRunTourController.appSettingsStore = appSettingsStore
-                firstRunTourController.onOpenAgentSettings = { openSettingsWindow(section: .agents) }
+                    firstRunTourController.appSettingsStore = appSettingsStore
+                    firstRunTourController.onOpenAgentSettings = { openSettingsWindow(section: .agents) }
                 sessionManagerController.appSettingsStore = appSettingsStore
                 worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
@@ -585,7 +593,8 @@ struct AwesoMuxApp: App {
                 installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
                 appDelegate.syncMenuBarMiniStatusItem()
-                appDelegate.requestNotificationAuthorizationIfNeeded()
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: true))
                 let terminalSettings = appSettingsStore.terminal.value
                 DaemonGarbageCollector.sweepIfEnabled(
                     store: sessionStore,
@@ -599,24 +608,27 @@ struct AwesoMuxApp: App {
                 }
                 presentRecoveryWarningIfNeeded()
 
-                FirstRunTourPolicy.seedSeenFlagIfNeeded(
-                    hasPriorInstallEvidence: FirstRunTourPolicy.hasPriorInstallEvidence(
-                        snapshotExists: SessionPersistence.snapshotExists(),
-                        configDirectoryExists: appSettingsStore.configDirectoryExists()))
+                    FirstRunTourPolicy.seedSeenFlagIfNeeded(
+                        hasPriorInstallEvidence: FirstRunTourPolicy.hasPriorInstallEvidence(
+                            snapshotExists: SessionPersistence.snapshotExists(),
+                            configDirectoryExists: appSettingsStore.configDirectoryExists()))
 
-                // Evaluated once, from this launch's snapshot. Closing the last
-                // group later returns the tree to `.firstLaunch`; that must not
-                // resurrect the tour.
-                if FirstRunTourPolicy.shouldAutoPresent(
-                    hasSeenTour: UserDefaults.standard.bool(forKey: SettingsKey.hasSeenFirstRunTour),
-                    hasPriorInstallEvidence: false,
-                    mode: EmptyWorkspaceMode.resolve(
-                        hasRecoveryWarning: recoveryWarning != nil,
-                        hasAnyGroup: !sessionStore.groups.isEmpty))
-                {
-                    firstRunTourController.show()
-                }
+                    // Evaluated once, from this launch's snapshot. Closing the last
+                    // group later returns the tree to `.firstLaunch`; that must not
+                    // resurrect the tour.
+                    if FirstRunTourPolicy.shouldAutoPresent(
+                        hasSeenTour: UserDefaults.standard.bool(forKey: SettingsKey.hasSeenFirstRunTour),
+                        hasPriorInstallEvidence: false,
+                        mode: EmptyWorkspaceMode.resolve(
+                            hasRecoveryWarning: recoveryWarning != nil,
+                            hasAnyGroup: !sessionStore.groups.isEmpty))
+                    {
+                        firstRunTourController.show()
+                    }
             }
+
+            let rootContentAfterGroupsWatch =
+                rootContentAfterAppear
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
@@ -624,8 +636,14 @@ struct AwesoMuxApp: App {
                 dismissWorkspaceGroupEditorIfTargetClosed()
                 dismissPaneEditorIfTargetClosed()
                 appDelegate.evaluateAndPostNotifications()
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
                 appDelegate.syncMenuBarMiniStatusItem()
             }
+                .onChange(of: appSettingsStore.notifications.value) { (_: NotificationConfig, _: NotificationConfig) in
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
+                }
             .task(id: worktreeRepositorySelectionID) {
                 await refreshWorktreeRepositoryContext()
             }
@@ -672,6 +690,8 @@ struct AwesoMuxApp: App {
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
             }
+
+            rootContentAfterGroupsWatch
             .onChange(of: appSettingsStore.keyboard.value, initial: true) { _, keyboard in
                 CurrentKeyboardShortcuts.keyboard = keyboard
             }
@@ -791,7 +811,7 @@ struct AwesoMuxApp: App {
             .environment(appSettingsStore)
             .environment(updateController)
             .environment(documentTabActions)
-            .environment(firstRunTourController)
+                .environment(firstRunTourController)
             .appearanceBridge(appSettingsStore)
             .modifier(CaptureOpenWindowAction(action: $openWindowAction))
         }
@@ -5169,6 +5189,26 @@ extension AwesoMuxApp {
         SessionPersistence.save(store) { result in
             record(result, in: failure)
         }
+    }
+
+    private func notificationPrimeInputs(isLaunchEvaluation: Bool) -> NotificationPrimePolicy.Inputs {
+        let preferences = NotificationPreferences(config: appSettingsStore.notifications.value)
+        return .init(
+            // A group can hold `sessions: []`, so group count is not workspace
+            // count — priming for a user with no terminal is the same class of
+            // bug as priming at launch.
+            hasEligibleSession: sessionStore.groups.contains { !$0.sessions.isEmpty },
+            isLaunchEvaluation: isLaunchEvaluation,
+            tourIsVisible: firstRunTourController.isVisible,
+            tourReachedNotificationBeat: firstRunTourController.hasReachedNotificationBeat,
+            anyChannelEnabled: preferences.shouldDeliverNeedsAttention()
+                || preferences.shouldDeliverTurnDone(),
+            requestInFlight: appDelegate.isNotificationRequestInFlight,
+            // Deliberately permissive: the bridge re-checks real authorization
+            // status asynchronously before showing anything. This policy's
+            // job here is ordering (don't ask before the tour/workspace
+            // exist), not authorization state.
+            isNotDetermined: true)
     }
 
     private func handleSessionSaveResult(

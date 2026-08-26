@@ -1252,8 +1252,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    func requestNotificationAuthorizationIfNeeded() {
+    func requestNotificationAuthorizationIfNeeded(_ inputs: NotificationPrimePolicy.Inputs) {
+        guard NotificationPrimePolicy.shouldPrime(inputs) else { return }
         notificationBridge.requestAuthorizationWithExplanationIfNeeded()
+    }
+
+    var isNotificationRequestInFlight: Bool {
+        notificationBridge.isAuthorizationRequestInFlight
     }
 
     /// Re-evaluate the attention policy against the current store + focus
