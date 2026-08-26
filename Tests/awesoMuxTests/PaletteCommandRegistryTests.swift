@@ -179,6 +179,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.togglePinWorkspace.id,
                 "recenterPalette",
                 "openSettings",
+                "showWelcomeTour",
                 "openInIDE",
                 KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
                 KeyboardShortcutCatalog.openMarkdownFile.id,

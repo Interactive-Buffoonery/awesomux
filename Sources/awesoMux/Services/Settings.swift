@@ -27,6 +27,14 @@ enum SettingsKey {
     static let updateChannel = "settings.updateChannel"
     static let lastUpdateCheckEpoch = "settings.lastUpdateCheckEpoch"
     static let appKitStateRestorationEnabled = "settings.appKitStateRestorationEnabled"
+    /// Machine-owned "have they been shown the welcome tour" bit. UserDefaults
+    /// rather than TOML deliberately: TOML is the hand-editable user surface
+    /// and this is not a settings row. Deliberately absent from
+    /// `SettingsDefault.registerInitialValues` — `FirstRunTourPolicy` seeds it
+    /// exactly once by testing `object(forKey:) == nil`, and a registration
+    /// entry would make that read non-nil forever (the registration domain is
+    /// process-wide, so it would also leak across suites in tests).
+    static let hasSeenFirstRunTour = "settings.hasSeenFirstRunTour"
 }
 
 enum SettingsDefault {

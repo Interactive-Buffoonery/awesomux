@@ -36,6 +36,7 @@ struct PrimaryContentFocusRouterTests {
                 onNewWorkspace: {},
                 onOpenRecent: {},
                 canReopenWorkspace: false,
+                newWorkspace: KeyboardShortcutCatalog.newWorkspace,
                 initialAccessibilityFocusRequest: initialFocusRequest))
         let frame = CGRect(x: 0, y: 0, width: 720, height: 480)
         let window = ReadinessWindow(

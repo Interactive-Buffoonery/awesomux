@@ -5,6 +5,7 @@ import SwiftUI
 
 struct AwesoMuxSettingsView: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(SettingsSectionRequest.self) private var sectionRequest
     @State private var selection: SettingsSectionID = .general
     @State private var escapeMonitor = SettingsEscapeMonitor()
 
@@ -23,6 +24,23 @@ struct AwesoMuxSettingsView: View {
         .background(WindowAccessor { escapeMonitor.window = $0 })
         .onAppear { escapeMonitor.start() }
         .onDisappear { escapeMonitor.stop() }
+        // Two paths, both required: onAppear covers "Settings was closed",
+        // onChange covers "Settings already open on another section".
+        //
+        // The `if let` gate on `consume()` is load-bearing, not defensive
+        // filler: `consume()` clears `pending` back to nil as a side effect,
+        // and @Observable's generated setter notifies on every write
+        // regardless of value equality, so that clear re-fires `.onChange`
+        // a second time with `pending == nil`. The gate makes that second
+        // firing a no-op. Assign unconditionally here and every Settings
+        // open would silently reset the user's selected section back to
+        // whatever `consume()` returns on the phantom second call.
+        .onAppear {
+            if let target = sectionRequest.consume() { selection = target }
+        }
+        .onChange(of: sectionRequest.pending) { _, _ in
+            if let target = sectionRequest.consume() { selection = target }
+        }
     }
 
     @ViewBuilder

@@ -142,6 +142,7 @@ struct PaletteAppActions {
     let openWorktreeManager: @MainActor () -> Void
     let createWorktree: @MainActor () -> Void
     let openWorktree: @MainActor () -> Void
+    let showWelcomeTour: @MainActor () -> Void
 
     static var noop: PaletteAppActions {
         noop()
@@ -216,7 +217,8 @@ struct PaletteAppActions {
             openRecentLink: openRecentLink,
             openWorktreeManager: action,
             createWorktree: action,
-            openWorktree: action
+            openWorktree: action,
+            showWelcomeTour: action
         )
     }
 }
@@ -872,6 +874,16 @@ enum PaletteCommandRegistry {
                 isEnabled: true,
                 selectionScope: .none,
                 run: actions.openSettings
+            ),
+            PaletteCommand(
+                id: "showWelcomeTour",
+                title: "Show Welcome Tour",
+                subtitle: nil,
+                keywords: ["onboarding", "help", "intro", "dave"],
+                shortcut: nil,
+                isEnabled: true,
+                selectionScope: .none,
+                run: actions.showWelcomeTour
             ),
             PaletteCommand(
                 id: "openInIDE",

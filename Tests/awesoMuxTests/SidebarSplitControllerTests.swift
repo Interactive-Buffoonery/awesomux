@@ -908,7 +908,8 @@ struct SidebarSplitControllerTests {
                 mode: .firstLaunch,
                 onNewWorkspace: { newWorkspaceCount += 1 },
                 onOpenRecent: {},
-                canReopenWorkspace: false))
+                canReopenWorkspace: false,
+                newWorkspace: KeyboardShortcutCatalog.newWorkspace))
         var focusedAccessibilityElement: Any?
         sidebarFocus.onFocusChange = { focused in
             focusedAccessibilityElement = focused ? sidebarFocus : nil
@@ -993,6 +994,7 @@ struct SidebarSplitControllerTests {
                 onNewWorkspace: {},
                 onOpenRecent: {},
                 canReopenWorkspace: true,
+                newWorkspace: KeyboardShortcutCatalog.newWorkspace,
                 initialAccessibilityFocusRequest: initialFocusRequest))
         let window = EmptyWorkspaceReadinessWindow(
             contentRect: CGRect(x: 0, y: 0, width: 720, height: 480),

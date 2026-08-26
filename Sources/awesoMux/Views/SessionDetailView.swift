@@ -23,6 +23,7 @@ struct SessionDetailView: View {
     let edgeTabVisibilitySource: SidebarVisibilitySource
     let sidebarPosition: AppearanceConfig.SidebarPosition
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(FirstRunTourController.self) private var firstRunTourController
     // Read here (ungated) and passed into the path bar as compared snapshots —
     // an in-view environment read stales behind its `.equatable()` gate
     // (PR #428). Free: `ContentView` above already reads `controlActiveState`,
@@ -43,6 +44,10 @@ struct SessionDetailView: View {
                             // gotchas elsewhere in this codebase). Tried and reverted.
                             NeedsInputBar(
                                 session: session,
+                                acknowledgeWorkspace: KeyboardShortcutCatalog.resolved(
+                                    KeyboardShortcutCatalog.acknowledgeWorkspace,
+                                    keyboard: appSettingsStore.keyboard.value
+                                ),
                                 onAcknowledge: {
                                     // Workspace-scoped, matching the ⌘⇧K action the
                                     // button advertises: the banner shows when ANY
@@ -157,7 +162,15 @@ struct SessionDetailView: View {
                     )
                 },
                 onOpenRecent: onReopenClosedWorkspace,
-                canReopenWorkspace: sessionStore.canReopenClosedWorkspace
+                canReopenWorkspace: sessionStore.canReopenClosedWorkspace,
+                // Resolved here, not defaulted inside the view: a literal
+                // ⌘N would keep teaching the old key after a rebind.
+                newWorkspace: KeyboardShortcutCatalog.resolved(
+                    KeyboardShortcutCatalog.newWorkspace,
+                    keyboard: appSettingsStore.keyboard.value
+                ),
+                initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest(
+                    isFirstRunTourVisible: { firstRunTourController.isVisible })
             )
             .foregroundStyle(Color.aw.text2)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -184,7 +197,7 @@ struct SessionDetailView: View {
     }
 }
 
-enum EmptyWorkspaceMode {
+enum EmptyWorkspaceMode: Equatable {
     case firstLaunch
     case noSelection
     case recovered
@@ -203,12 +216,76 @@ enum EmptyWorkspaceMode {
     }
 }
 
+/// Empty-state body copy in two renderings, matching `FirstRunTourCopy`:
+/// `visible` carries the glyph chord, `spoken` carries the spelled-out one for
+/// VoiceOver. Both interpolate the *resolved* binding — a literal chord here
+/// would keep teaching the old key after a rebind.
+enum EmptyWorkspaceCopy {
+    typealias Body = (visible: String, spoken: String)
+
+    static func body(mode: EmptyWorkspaceMode, canReopen: Bool, newWorkspace: KeyBinding) -> Body {
+        switch mode {
+        case .recovered:
+            return (
+                visible: String(
+                    localized:
+                        "We found a problem with your saved session and set it aside safely. Create a workspace with \(newWorkspace.displaySymbol) to start fresh.",
+                    comment:
+                        "Recovery explanation shown after an invalid saved session was quarantined. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
+                ),
+                spoken: String(
+                    localized:
+                        "We found a problem with your saved session and set it aside safely. Create a workspace with \(newWorkspace.spokenForm) to start fresh.",
+                    comment:
+                        "Spoken form of the recovery explanation. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+                )
+            )
+        case .firstLaunch, .noSelection:
+            // Reopen is offered as a button, not a shortcut, so the copy only
+            // names the New Workspace chord to match the actual bound keys
+            // (INT-166 review: the hint used to advertise Cmd-N for reopen,
+            // which nothing binds).
+            if canReopen {
+                return (
+                    visible: String(
+                        localized:
+                            "Create a workspace with \(newWorkspace.displaySymbol), or reopen the last one you closed.",
+                        comment:
+                            "Empty-state guidance when a recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
+                    ),
+                    spoken: String(
+                        localized:
+                            "Create a workspace with \(newWorkspace.spokenForm), or reopen the last one you closed.",
+                        comment:
+                            "Spoken form of the empty-state guidance with reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+                    )
+                )
+            }
+            return (
+                visible: String(
+                    localized:
+                        "Create a workspace with \(newWorkspace.displaySymbol).",
+                    comment:
+                        "Empty-state guidance when no recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
+                ),
+                spoken: String(
+                    localized:
+                        "Create a workspace with \(newWorkspace.spokenForm).",
+                    comment:
+                        "Spoken form of the empty-state guidance with no reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+                )
+            )
+        }
+    }
+}
+
 @MainActor
 struct EmptyWorkspaceView: View {
     let mode: EmptyWorkspaceMode
     let onNewWorkspace: () -> Void
     let onOpenRecent: () -> Void
     let canReopenWorkspace: Bool
+    let newWorkspace: KeyBinding
 
     @Environment(\.awAccent) private var accentResolver
     @State private var initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest
@@ -218,6 +295,7 @@ struct EmptyWorkspaceView: View {
         onNewWorkspace: @escaping () -> Void,
         onOpenRecent: @escaping () -> Void,
         canReopenWorkspace: Bool,
+        newWorkspace: KeyBinding,
         initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest =
             EmptyWorkspaceInitialAccessibilityFocusRequest()
     ) {
@@ -225,6 +303,7 @@ struct EmptyWorkspaceView: View {
         self.onNewWorkspace = onNewWorkspace
         self.onOpenRecent = onOpenRecent
         self.canReopenWorkspace = canReopenWorkspace
+        self.newWorkspace = newWorkspace
         _initialAccessibilityFocusRequest = State(
             initialValue: initialAccessibilityFocusRequest)
     }
@@ -249,28 +328,8 @@ struct EmptyWorkspaceView: View {
         }
     }
 
-    private var bodyText: LocalizedStringResource {
-        switch mode {
-        case .recovered:
-            return LocalizedStringResource(
-                "We found a problem with your saved session and set it aside safely. Create a workspace with Command-N to start fresh.",
-                comment: "Recovery explanation shown after an invalid saved session was quarantined."
-            )
-        case .firstLaunch, .noSelection:
-            // Reopen is offered as a button, not a shortcut, so the copy only
-            // names Command-N to match the actual bound keys (INT-166 review:
-            // the hint used to advertise Cmd-N for reopen, which nothing binds).
-            if canReopenWorkspace {
-                return LocalizedStringResource(
-                    "Create a workspace with Command-N, or reopen the last one you closed.",
-                    comment: "Empty-state guidance when a recently closed workspace can be reopened."
-                )
-            }
-            return LocalizedStringResource(
-                "Create a workspace with Command-N.",
-                comment: "Empty-state guidance when no recently closed workspace can be reopened."
-            )
-        }
+    private var bodyCopy: EmptyWorkspaceCopy.Body {
+        EmptyWorkspaceCopy.body(mode: mode, canReopen: canReopenWorkspace, newWorkspace: newWorkspace)
     }
 
     var body: some View {
@@ -290,9 +349,10 @@ struct EmptyWorkspaceView: View {
                     .foregroundStyle(accentColor)
                     .accessibilityAddTraits(.isHeader)
 
-                Text(bodyText)
+                Text(bodyCopy.visible)
                     .awFont(AwFont.UI.body)
                     .foregroundStyle(Color.aw.text3)
+                    .accessibilityLabel(bodyCopy.spoken)
             }
 
             // ViewThatFits drops to a vertical stack at large Dynamic Type or
@@ -367,15 +427,35 @@ struct EmptyWorkspaceView: View {
     }
 }
 
+extension Notification.Name {
+    /// Posted when the welcome tour hides. The empty state's one-shot VoiceOver
+    /// focus request is suppressed while the tour is up, and the retry
+    /// observers below all watch the main window — none of which fires when the
+    /// tour is closed from behind another key window (Settings, opened by the
+    /// tour's own beat-three button). This makes the restore explicit rather
+    /// than dependent on an incidental AppKit key transition.
+    static let awEmptyWorkspaceInitialFocusShouldRestore =
+        Notification.Name("aw.emptyWorkspace.initialFocusShouldRestore")
+}
+
 @MainActor
 final class EmptyWorkspaceInitialAccessibilityFocusRequest {
     private(set) var isConsumed = false
     fileprivate let applicationIsActive: () -> Bool
+    // The welcome tour owns VoiceOver focus while it's up: an auto-presented
+    // tour and this one-shot request otherwise compete for focus and one
+    // silently loses. Closes over the live controller, not a snapshot value,
+    // so dismissal restores normal behavior without re-constructing this.
+    fileprivate let isFirstRunTourVisible: () -> Bool
     private var isTransferPending = false
     private weak var focusedButton: EmptyWorkspacePrimaryActionFocusButton?
 
-    init(applicationIsActive: @escaping () -> Bool = { NSApp.isActive }) {
+    init(
+        applicationIsActive: @escaping () -> Bool = { NSApp.isActive },
+        isFirstRunTourVisible: @escaping () -> Bool = { false }
+    ) {
         self.applicationIsActive = applicationIsActive
+        self.isFirstRunTourVisible = isFirstRunTourVisible
     }
 
     fileprivate func consume(
@@ -667,6 +747,7 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
             let initialAccessibilityFocusRequest,
             !isRetired,
             initialAccessibilityFocusRequest.applicationIsActive(),
+            !initialAccessibilityFocusRequest.isFirstRunTourVisible(),
             let window,
             window.isVisible,
             window.isKeyWindow,
@@ -693,6 +774,9 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
             observeReadinessTransition(
                 NSWindow.didResizeNotification,
                 object: window),
+            observeReadinessTransition(
+                .awEmptyWorkspaceInitialFocusShouldRestore,
+                object: NSApp),
         ]
     }
 
@@ -745,6 +829,9 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
 
 private struct NeedsInputBar: View {
     let session: TerminalSession
+    /// Resolved by the caller for the same reason the empty state resolves its
+    /// own: the default is only right until someone rebinds the action.
+    let acknowledgeWorkspace: KeyBinding
     let onAcknowledge: () -> Void
 
     /// In a single-pane layout the pane's own always-reserved accent band sits
@@ -788,9 +875,9 @@ private struct NeedsInputBar: View {
             }
             .buttonStyle(.plain)
             .layoutPriority(1)
-            .help("\(KeyboardShortcutCatalog.acknowledgeWorkspace.action) (\(KeyboardShortcutCatalog.acknowledgeWorkspace.displaySymbol))")
+            .help("\(acknowledgeWorkspace.action) (\(acknowledgeWorkspace.displaySymbol))")
             .accessibilityLabel(
-                "\(KeyboardShortcutCatalog.acknowledgeWorkspace.action), \(KeyboardShortcutCatalog.acknowledgeWorkspace.spokenForm)")
+                "\(acknowledgeWorkspace.action), \(acknowledgeWorkspace.spokenForm)")
         }
         .padding(.leading, 16)
         .padding(.trailing, 12)

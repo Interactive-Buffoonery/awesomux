@@ -11,7 +11,6 @@ final class WorkspaceNotificationBridge {
         static let workspaceNeedsAttention = "workspace-needs-attention"
     }
 
-    private let center: UNUserNotificationCenter
     private let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
         category: "notifications"
@@ -19,15 +18,66 @@ final class WorkspaceNotificationBridge {
     private var preferencesProvider: @MainActor () -> NotificationPreferences
     private var authorizationStatus: UNAuthorizationStatus?
 
+    /// Set for the whole explanation-plus-request round trip. The status fetch
+    /// is async, so without this a burst of group mutations can each start a
+    /// round trip and stack multiple explanation modals.
+    private(set) var isAuthorizationRequestInFlight = false
+
+    /// Events that arrived while authorization was still undetermined. They
+    /// wait for the one round trip below instead of each starting their own —
+    /// `AppDelegate.evaluateAndPostNotifications()` posts a whole batch in a
+    /// synchronous loop, and `authorizationStatus` only updates on the first
+    /// request's async completion.
+    private var pendingAuthorizationEvents: [WorkspaceNotificationEvent] = []
+
+    /// A burst is only worth replaying so far; beyond this the oldest are the
+    /// least useful. ponytail: fixed cap, revisit only if a real batch ever
+    /// exceeds it.
+    private static let pendingAuthorizationEventLimit = 8
+
+    /// `UNUserNotificationCenter.current()` reads `Bundle.main` and crashes
+    /// when the calling process isn't a real app bundle — true of the
+    /// unbundled `swift test` runner. `lazy` defers that call past
+    /// construction, so a bridge can still be built for tests that never
+    /// touch a real notification round trip (there is no other way to get an
+    /// instance: its designated init is unavailable and it can't be
+    /// subclassed).
+    private lazy var center: UNUserNotificationCenter = {
+        let center = UNUserNotificationCenter.current()
+        registerNotificationCategories(on: center)
+        return center
+    }()
+
+    /// The cached status short-circuits the `getNotificationSettings` round
+    /// trip, which is only safe while the answer cannot have changed behind our
+    /// back. It can: Settings → Notifications deep-links the user into System
+    /// Settings precisely so a `.denied` decision can be reversed (INT-598), and
+    /// `NotificationAuthorizationModel` re-queries there without writing back
+    /// here. Returning to awesoMux is the one bounded moment that can have
+    /// happened, so the cache is dropped there rather than on every agent tick.
+    @ObservationIgnored private var didBecomeActiveObserver: NSObjectProtocol?
+
     init(
-        center: UNUserNotificationCenter = .current(),
         preferencesProvider: @escaping @MainActor () -> NotificationPreferences = {
             .defaultValue
         }
     ) {
-        self.center = center
         self.preferencesProvider = preferencesProvider
-        registerNotificationCategories()
+        // `object: nil` deliberately: resolving `NSApp` here would boot AppKit
+        // in the unbundled test runner just to register an observer.
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.authorizationStatus = nil }
+        }
+    }
+
+    isolated deinit {
+        if let didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+        }
     }
 
     func configurePreferencesProvider(
@@ -47,13 +97,65 @@ final class WorkspaceNotificationBridge {
             return
         }
 
-        refreshAuthorizationStatus { [weak self] status in
-            guard status == .notDetermined else {
-                return
-            }
+        guard !isAuthorizationRequestInFlight else {
+            return
+        }
 
-            self?.presentAuthorizationExplanation()
-            self?.requestAuthorization()
+        // Priming is driven off session-store mutations, which tick on ordinary
+        // agent state changes. Without this, a settled answer is re-fetched
+        // from notifyd forever; `refreshAuthorizationStatus` is only worth an
+        // XPC round trip while the answer can still change.
+        if let authorizationStatus, authorizationStatus != .notDetermined {
+            handlePrimeStatus(authorizationStatus)
+            return
+        }
+
+        isAuthorizationRequestInFlight = true
+
+        refreshAuthorizationStatus { [weak self] status in
+            self?.handlePrimeStatus(status)
+        }
+    }
+
+    /// Split out of `requestAuthorizationWithExplanationIfNeeded`'s status
+    /// completion (not `private`) so both flag-clearing exits are callable
+    /// directly with a plain `UNAuthorizationStatus` — unit-testable without
+    /// constructing a `UNUserNotificationCenter`, same reasoning as the
+    /// `nonisolated static foregroundPresentationOptions` above. Only the
+    /// `!= .notDetermined` branch is safe to drive from a test: the
+    /// `.notDetermined` branch calls a real, blocking `NSAlert.runModal()`.
+    func handlePrimeStatus(_ status: UNAuthorizationStatus) {
+        guard status == .notDetermined else {
+            isAuthorizationRequestInFlight = false
+            let isAuthorized: Bool =
+                switch status {
+                case .authorized, .provisional, .ephemeral: true
+                default: false
+                }
+            flushPendingAuthorizationEvents(isAuthorized: isAuthorized)
+            return
+        }
+
+        presentAuthorizationExplanation()
+        requestAuthorization { [weak self] granted in
+            self?.handlePrimeRequestResult(granted: granted)
+        }
+    }
+
+    /// Split out of the same round trip's request completion, for the same
+    /// reason — lets a test drive the "the request finished" exit directly
+    /// with a plain `Bool`, without a real `UNUserNotificationCenter`.
+    func handlePrimeRequestResult(granted: Bool) {
+        isAuthorizationRequestInFlight = false
+        flushPendingAuthorizationEvents(isAuthorized: granted)
+    }
+
+    private func flushPendingAuthorizationEvents(isAuthorized: Bool) {
+        let events = pendingAuthorizationEvents
+        pendingAuthorizationEvents.removeAll()
+        guard isAuthorized else { return }
+        for event in events {
+            postAuthorizedWorkspaceNotification(event)
         }
     }
 
@@ -66,13 +168,17 @@ final class WorkspaceNotificationBridge {
         case .authorized, .provisional, .ephemeral:
             postAuthorizedWorkspaceNotification(event)
         case .notDetermined:
-            requestAuthorization { [weak self] isAuthorized in
-                guard isAuthorized else {
-                    return
-                }
-
-                self?.postAuthorizedWorkspaceNotification(event)
+            // Never requests here. This path used to call
+            // `center.requestAuthorization` directly, which showed the bare
+            // system dialog with no explanation — and, because the caller posts
+            // a batch synchronously while `authorizationStatus` updates only on
+            // the first completion, once per eligible event. The event waits for
+            // the single guarded round trip instead.
+            pendingAuthorizationEvents.append(event)
+            if pendingAuthorizationEvents.count > Self.pendingAuthorizationEventLimit {
+                pendingAuthorizationEvents.removeFirst()
             }
+            requestAuthorizationWithExplanationIfNeeded()
         case .denied:
             // Deliberately quiet at post time: macOS shows the permission
             // dialog at most once, so there is nothing useful to do here.
@@ -156,7 +262,10 @@ final class WorkspaceNotificationBridge {
         return options
     }
 
-    private func registerNotificationCategories() {
+    /// Takes the resolved center as a parameter, not `self.center`, because
+    /// this runs from inside `center`'s own lazy initializer — reading
+    /// `self.center` there would re-enter it.
+    private func registerNotificationCategories(on center: UNUserNotificationCenter) {
         let openAction = UNNotificationAction(
             identifier: "open-awesomux",
             title: "Open awesoMux",
@@ -172,6 +281,8 @@ final class WorkspaceNotificationBridge {
     }
 
     private func presentAuthorizationExplanation() {
+        explanationPresentationCountForTesting += 1
+
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Allow awesoMux notifications?"
@@ -292,6 +403,27 @@ final class WorkspaceNotificationBridge {
             showWorkspaceDetails: preferences.shouldShowWorkspaceDetails()
         )
     }
+
+    // MARK: - Test seams
+
+    /// Forces the in-flight state without a real round trip, so coalescing
+    /// can be tested without driving `UNUserNotificationCenter` (which
+    /// requires a real app bundle and crashes an unbundled test process).
+    func beginAuthorizationRequestForTesting() {
+        isAuthorizationRequestInFlight = true
+    }
+
+    /// Seeds the cached status so `postWorkspaceNotification`'s routing can be
+    /// driven without a real `UNUserNotificationCenter` round trip.
+    func setAuthorizationStatusForTesting(_ status: UNAuthorizationStatus?) {
+        authorizationStatus = status
+    }
+
+    var pendingAuthorizationEventCountForTesting: Int { pendingAuthorizationEvents.count }
+
+    var authorizationStatusForTesting: UNAuthorizationStatus? { authorizationStatus }
+
+    private(set) var explanationPresentationCountForTesting = 0
 }
 
 private extension NotificationPreferences.InterruptionLevel {

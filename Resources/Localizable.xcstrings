@@ -185,6 +185,39 @@
         }
       }
     },
+    "%arg opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. %arg opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch." : {
+      "comment" : "Spoken form of beat four. Arguments are those two shortcuts spelled out.\nWelcome tour beat four. Arguments are the floating-panel and Terminal Companion shortcuts as symbols.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. %2$arg opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch."
+          }
+        }
+      }
+    },
+    "%arg opens the command palette — every command awesoMux has, searchable. %arg shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
+      "comment" : "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg opens the command palette — every command awesoMux has, searchable. %2$arg shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+          }
+        }
+      }
+    },
+    "%arg opens the command palette — every command awesoMux has, searchable. %arg shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E." : {
+      "comment" : "Spoken form of beat five. Arguments are those two shortcuts spelled out.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg opens the command palette — every command awesoMux has, searchable. %2$arg shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E."
+          }
+        }
+      }
+    },
     "%arg percent" : {
 
     },
@@ -618,6 +651,9 @@
     },
     "BSD Notice" : {
       "comment" : "Button opening a BSD license notice"
+    },
+    "Back" : {
+      "comment" : "Welcome tour button returning to the previous beat"
     },
     "Back to %arg" : {
       "comment" : "Help text for the Files toggle while the file browser is showing"
@@ -1198,8 +1234,15 @@
         }
       }
     },
+    "Create a workspace with %arg, or reopen the last one you closed." : {
+      "comment" : "Empty-state guidance when a recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the empty-state guidance with reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+    },
+    "Create a workspace with %arg." : {
+      "comment" : "Empty-state guidance when no recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the empty-state guidance with no reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+    },
     "Create a workspace with Command-N, or reopen the last one you closed." : {
       "comment" : "Empty-state guidance when a recently closed workspace can be reopened.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1211,6 +1254,7 @@
     },
     "Create a workspace with Command-N." : {
       "comment" : "Empty-state guidance when no recently closed workspace can be reopened.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1384,7 +1428,7 @@
       "comment" : "Accessibility label for the document viewer's tab strip"
     },
     "Done" : {
-      "comment" : "Agent state label",
+      "comment" : "Agent state label\nWelcome tour button closing the tour on the last beat",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1512,6 +1556,9 @@
     },
     "Event severity" : {
 
+    },
+    "Every project gets a workspace — its own shell, its own name in the sidebar. Press %arg to make one." : {
+      "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
     },
     "Every session is attached to an open pane. When you quit with a session running, its daemon keeps the shell and scrollback alive — and shows up here to pin or reap." : {
 
@@ -2177,6 +2224,9 @@
     },
     "New workspace in %arg" : {
       "comment" : "VoiceOver label for the row that creates a workspace in a sidebar group, naming the group so repeated rows are distinguishable."
+    },
+    "Next" : {
+      "comment" : "Welcome tour button advancing to the next beat"
     },
     "Next Document Tab" : {
 
@@ -3402,6 +3452,9 @@
     "Set Workspace Group Color to %arg" : {
 
     },
+    "Set up agents…" : {
+      "comment" : "Welcome tour button opening the agent settings section"
+    },
     "Settings" : {
 
     },
@@ -3452,6 +3505,9 @@
     "Show Terminal Companion" : {
       "comment" : "Dock right-click menu item that shows the Terminal Companion."
     },
+    "Show Welcome Tour" : {
+
+    },
     "Show in Finder" : {
       "comment" : "Action that reveals a session snapshot recovery archive"
     },
@@ -3481,6 +3537,9 @@
     },
     "Sidebar search" : {
 
+    },
+    "Skip" : {
+      "comment" : "Welcome tour button dismissing the tour"
     },
     "Skip for Now" : {
       "comment" : "Action that hides the current sidebar update reminder"
@@ -3537,6 +3596,17 @@
     },
     "Steady" : {
       "comment" : "Diagnostics resource trend"
+    },
+    "Step %arg of %arg" : {
+      "comment" : "Welcome tour step indicator. First argument is the current step, second is the total.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Step %1$arg of %2$arg"
+          }
+        }
+      }
     },
     "Stop checking %arg status" : {
 
@@ -3941,6 +4011,9 @@
     "This document's terminal isn't available — reopen the document from a running terminal to reconnect" : {
       "comment" : "Tooltip for the send button when its terminal is gone"
     },
+    "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app." : {
+      "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
+    },
     "This link prefills the recipient, body, or subject. Verify before opening." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
     },
@@ -4174,8 +4247,12 @@
     "We couldn't read your saved workspace data, so awesoMux opened with fresh workspaces. An exact copy was archived for recovery. Automatic session saving is paused so the live saved file is not replaced without your approval." : {
       "comment" : "Recovery warning shown after unreadable workspace data was archived"
     },
+    "We found a problem with your saved session and set it aside safely. Create a workspace with %arg to start fresh." : {
+      "comment" : "Recovery explanation shown after an invalid saved session was quarantined. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the recovery explanation. Argument is the New Workspace shortcut spelled out, e.g. Command N."
+    },
     "We found a problem with your saved session and set it aside safely. Create a workspace with Command-N to start fresh." : {
       "comment" : "Recovery explanation shown after an invalid saved session was quarantined.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4184,6 +4261,9 @@
           }
         }
       }
+    },
+    "Welcome to awesoMux" : {
+      "comment" : "Announced to VoiceOver when the welcome tour panel presents"
     },
     "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘." : {
       "comment" : "Settings field hint for the sidebar jump numbers toggle"
@@ -4227,6 +4307,9 @@
           }
         }
       }
+    },
+    "Workspaces live in the vertical sidebar, and you can drag them into groups to keep a project together. Splitting a workspace adds panes inside it — one sidebar row, as many panes as your heart desires. Go wild!" : {
+      "comment" : "Welcome tour beat two, explaining the sidebar and panes."
     },
     "Worktree Manager" : {
       "comment" : "Worktree Manager accessibility title.\nWorktree Manager panel title bar.\nWorktree Manager panel title."
@@ -4288,6 +4371,12 @@
     },
     "agent activity" : {
       "comment" : "Activity noun in the quit dialog body when only agents are at risk."
+    },
+    "agents, watched" : {
+      "comment" : "Welcome tour heading for the agents beat"
+    },
+    "always within reach" : {
+      "comment" : "Welcome tour heading for the floating panel and Terminal Companion beat"
     },
     "amx:" : {
 
@@ -4522,6 +4611,9 @@
         }
       }
     },
+    "the sidebar" : {
+      "comment" : "Welcome tour heading for the sidebar beat"
+    },
     "this document's terminal isn't running" : {
       "comment" : "Fallback reason phrase for the send button when no typed failure reason is available"
     },
@@ -4541,6 +4633,12 @@
           }
         }
       }
+    },
+    "where everything else lives" : {
+      "comment" : "Welcome tour heading for the closing beat"
+    },
+    "workspaces, not tabs" : {
+      "comment" : "Welcome tour heading for the workspaces beat"
     },
     "· %arg" : {
 

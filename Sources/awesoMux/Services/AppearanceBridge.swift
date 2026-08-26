@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxConfig
 import DesignSystem
 import SwiftUI
@@ -23,6 +24,10 @@ import SwiftUI
 /// the user's config.
 struct AppearanceBridge: ViewModifier {
     let appSettingsStore: AppSettingsStore
+
+    /// Held so a later theme change can reach the window, not just the first
+    /// attach — `WindowAccessor` fires only on `viewDidMoveToWindow`.
+    @State private var hostWindow: NSWindow?
 
     func body(content: Content) -> some View {
         // Depend only on the appearance section so accent/theme/glow
@@ -50,6 +55,36 @@ struct AppearanceBridge: ViewModifier {
             // Drive chrome text scaling (INT-237): the continuous user factor
             // that every `awFont` call site multiplies into its scaled size.
             .awTextScale(appearance.uiTextScale)
+            // Theme rides the bridge rather than each scene, because a
+            // detached NSHostingView (every FloatingSwiftUIPanelWindow root,
+            // and the Settings scene) inherits the SYSTEM appearance, not the
+            // main window's `.preferredColorScheme`. Those diverge for anyone
+            // whose in-app theme differs from their system theme, which showed
+            // up as a dark welcome tour floating over a light app.
+            .preferredColorScheme(appearance.theme.colorScheme)
+            // `.preferredColorScheme(nil)` does not clear an NSWindow override
+            // SwiftUI already installed for a concrete scheme, so going Latte
+            // -> System left the window pinned light while the system was dark.
+            // Asserting the desired state is idempotent: a no-op when nothing
+            // was stuck, and the un-stick when something was.
+            .background(WindowAccessor { hostWindow = $0 })
+            .onChange(of: appearance.theme) { _, _ in
+                syncWindowAppearance(appearance.theme.colorScheme)
+            }
+            .onAppear { syncWindowAppearance(appearance.theme.colorScheme) }
+    }
+}
+
+extension AppearanceBridge {
+    @MainActor
+    fileprivate func syncWindowAppearance(_ scheme: ColorScheme?) {
+        guard let hostWindow else { return }
+        switch scheme {
+        case .none: hostWindow.appearance = nil
+        case .dark: hostWindow.appearance = NSAppearance(named: .darkAqua)
+        case .light: hostWindow.appearance = NSAppearance(named: .aqua)
+        @unknown default: hostWindow.appearance = nil
+        }
     }
 }
 

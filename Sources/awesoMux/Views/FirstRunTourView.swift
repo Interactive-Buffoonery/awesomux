@@ -1,0 +1,393 @@
+import AwesoMuxConfig
+import DesignSystem
+import SwiftUI
+
+// MARK: - Resolved shortcuts
+
+/// The chords the tour names, already resolved against the user's keyboard
+/// config. Grouped because the same five travel together through both the live
+/// panel root and the per-beat measurement pass. Constructed inside
+/// `FirstRunTourView.body` from the live settings store, never snapshotted at
+/// present time — beat three sends the user to Settings to rebind, and a
+/// snapshot would keep teaching the chord they just replaced.
+struct FirstRunTourShortcuts {
+    let newWorkspace: KeyBinding
+    let toggleFloatingPanel: KeyBinding
+    let togglePopUpTerminal: KeyBinding
+    let toggleCommandPalette: KeyBinding
+    let showKeyboardCheatsheet: KeyBinding
+
+    init(keyboard: KeyboardConfig) {
+        newWorkspace = KeyboardShortcutCatalog.resolved(
+            KeyboardShortcutCatalog.newWorkspace, keyboard: keyboard)
+        toggleFloatingPanel = KeyboardShortcutCatalog.resolved(
+            KeyboardShortcutCatalog.toggleFloatingPanel, keyboard: keyboard)
+        togglePopUpTerminal = KeyboardShortcutCatalog.resolved(
+            KeyboardShortcutCatalog.togglePopUpTerminal, keyboard: keyboard)
+        toggleCommandPalette = KeyboardShortcutCatalog.resolved(
+            KeyboardShortcutCatalog.toggleCommandPalette, keyboard: keyboard)
+        showKeyboardCheatsheet = KeyboardShortcutCatalog.resolved(
+            KeyboardShortcutCatalog.showKeyboardCheatsheet, keyboard: keyboard)
+    }
+}
+
+// MARK: - Copy
+
+/// Beat copy in two renderings. `visible` carries the glyph chord (`⌘N`);
+/// `spoken` carries the spelled-out one, because VoiceOver reads a bare glyph
+/// as an ambiguous symbol name. Both interpolate the *resolved* binding — a
+/// literal chord in this copy teaches the wrong key the moment a user rebinds.
+enum FirstRunTourCopy {
+    typealias Body = (visible: String, spoken: String)
+
+    static func workspacesBeat(newWorkspace: KeyBinding) -> Body {
+        (
+            visible: String(
+                localized:
+                    "Every project gets a workspace — its own shell, its own name in the sidebar. Press \(newWorkspace.displaySymbol) to make one.",
+                comment:
+                    "Welcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."),
+            spoken: String(
+                localized:
+                    "Every project gets a workspace — its own shell, its own name in the sidebar. Press \(newWorkspace.spokenForm) to make one.",
+                comment:
+                    "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.")
+        )
+    }
+
+    static func sidebarBeat() -> Body {
+        let text = String(
+            localized:
+                "Workspaces live in the vertical sidebar, and you can drag them into groups to keep a project together. Splitting a workspace adds panes inside it — one sidebar row, as many panes as your heart desires. Go wild!",
+            comment: "Welcome tour beat two, explaining the sidebar and panes.")
+        return (visible: text, spoken: text)
+    }
+
+    static func agentsBeat() -> Body {
+        let text = String(
+            localized:
+                "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app.",
+            comment: "Welcome tour beat three, introducing agent awareness and notifications.")
+        return (visible: text, spoken: text)
+    }
+
+    static func companionBeat(floatingPanel: KeyBinding, popUpTerminal: KeyBinding) -> Body {
+        (
+            visible: String(
+                localized:
+                    "\(floatingPanel.displaySymbol) opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. \(popUpTerminal.displaySymbol) opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch.",
+                comment:
+                    "Welcome tour beat four. Arguments are the floating-panel and Terminal Companion shortcuts as symbols."),
+            spoken: String(
+                localized:
+                    "\(floatingPanel.spokenForm) opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. \(popUpTerminal.spokenForm) opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch.",
+                comment:
+                    "Spoken form of beat four. Arguments are those two shortcuts spelled out.")
+        )
+    }
+
+    static func elsewhereBeat(commandPalette: KeyBinding, keyboardCheatsheet: KeyBinding) -> Body {
+        (
+            visible: String(
+                localized:
+                    "\(commandPalette.displaySymbol) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.displaySymbol) shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
+                comment:
+                    "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot."),
+            spoken: String(
+                localized:
+                    "\(commandPalette.spokenForm) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.spokenForm) shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
+                comment:
+                    "Spoken form of beat five. Arguments are those two shortcuts spelled out.")
+        )
+    }
+
+    /// Headings and bodies for a beat index. The index is already clamped to
+    /// `0..<beatCount` by `FirstRunTourController`, so the final case doubles
+    /// as the out-of-range landing spot rather than a crash or a blank panel.
+    static func beat(_ beat: Int, shortcuts: FirstRunTourShortcuts) -> (heading: String, body: Body) {
+        switch beat {
+        case 0:
+            return (
+                heading: String(
+                    localized: "workspaces, not tabs",
+                    comment: "Welcome tour heading for the workspaces beat"),
+                body: workspacesBeat(newWorkspace: shortcuts.newWorkspace)
+            )
+        case 1:
+            return (
+                heading: String(
+                    localized: "the sidebar",
+                    comment: "Welcome tour heading for the sidebar beat"),
+                body: sidebarBeat()
+            )
+        case 2:
+            return (
+                heading: String(
+                    localized: "agents, watched",
+                    comment: "Welcome tour heading for the agents beat"),
+                body: agentsBeat()
+            )
+        case 3:
+            return (
+                heading: String(
+                    localized: "always within reach",
+                    comment: "Welcome tour heading for the floating panel and Terminal Companion beat"),
+                body: companionBeat(
+                    floatingPanel: shortcuts.toggleFloatingPanel,
+                    popUpTerminal: shortcuts.togglePopUpTerminal)
+            )
+        default:
+            return (
+                heading: String(
+                    localized: "where everything else lives",
+                    comment: "Welcome tour heading for the closing beat"),
+                body: elsewhereBeat(
+                    commandPalette: shortcuts.toggleCommandPalette,
+                    keyboardCheatsheet: shortcuts.showKeyboardCheatsheet)
+            )
+        }
+    }
+}
+
+// MARK: - Panel root
+
+/// Panel root. Holds the controller so the `currentBeat` read below happens
+/// inside a `body` and is tracked by Observation; `FirstRunTourPage` is the
+/// pure half the controller measures without a live controller.
+///
+/// The bare pass-through below is load-bearing, not incidental:
+/// `FirstRunTourController.maximumBeatFittingSize()` measures
+/// `FirstRunTourPage` and pins the panel to that size, so this root and the
+/// measured one must stay geometrically identical. Chrome added here (padding,
+/// a header, a background inset) would silently desync the pin from what
+/// renders, and no test would catch it — `beatsMeasureDifferently` measures
+/// `FirstRunTourPage` too. Anything visual belongs inside the page.
+struct FirstRunTourView: View {
+    let controller: FirstRunTourController
+    let appSettingsStore: AppSettingsStore?
+    let presentationToken: Int
+    let onOpenAgentSettings: () -> Void
+
+    var body: some View {
+        FirstRunTourPage(
+            beat: controller.currentBeat,
+            presentationToken: presentationToken,
+            // Resolved here rather than snapshotted at present time: beat three
+            // sends the user to Settings, where rebinding a chord the tour is
+            // currently teaching must change what it teaches. Reading
+            // `keyboard.value` inside this body is what makes that reactive.
+            shortcuts: FirstRunTourShortcuts(
+                keyboard: appSettingsStore?.keyboard.value ?? .defaultValue),
+            onBack: { controller.retreat() },
+            onNext: { controller.advance() },
+            onDismiss: { controller.dismissByUser() },
+            onOpenAgentSettings: onOpenAgentSettings
+        )
+    }
+}
+
+// MARK: - Page
+
+struct FirstRunTourPage: View {
+    let beat: Int
+    /// Changes on every presentation. See `FirstRunTourController`.
+    var presentationToken: Int = 0
+    let shortcuts: FirstRunTourShortcuts
+    let onBack: () -> Void
+    let onNext: () -> Void
+    let onDismiss: () -> Void
+    let onOpenAgentSettings: () -> Void
+
+    @Environment(\.awAccent) private var accentResolver
+    @AccessibilityFocusState private var beatFocused: Bool
+
+    private var isFirstBeat: Bool { beat <= 0 }
+    private var isLastBeat: Bool { beat >= FirstRunTourController.beatCount - 1 }
+
+    private var stepLabel: String {
+        String(
+            localized: "Step \(beat + 1) of \(FirstRunTourController.beatCount)",
+            comment:
+                "Welcome tour step indicator. First argument is the current step, second is the total.")
+    }
+
+    var body: some View {
+        let copy = FirstRunTourCopy.beat(beat, shortcuts: shortcuts)
+        // The text-safe accent, not the raw one: at this size the raw Latte
+        // accent lands at 2.6–3.0:1 on the light background, under WCAG 1.4.3's
+        // 4.5:1 floor for normal text.
+        let accentColor = Color.aw.accentOnChrome(accentResolver.accent)
+
+        VStack(alignment: .leading, spacing: AwSpacing.sectionGap) {
+            DaveMark()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(copy.heading)
+                    .awFont(AwFont.Mono.kicker)
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(accentColor)
+                    .accessibilityAddTraits(.isHeader)
+
+                Text(copy.body.visible)
+                    .awFont(AwFont.UI.body)
+                    .foregroundStyle(Color.aw.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(copy.body.spoken)
+
+                if beat == FirstRunTourController.notificationBeatIndex {
+                    Button(
+                        String(
+                            localized: "Set up agents…",
+                            comment: "Welcome tour button opening the agent settings section"),
+                        action: onOpenAgentSettings
+                    )
+                    .buttonStyle(.bordered)
+                    .padding(.top, 2)
+                }
+            }
+            // One reading order per beat: heading, body, and the agent button
+            // are each their own stop, and the group is what pages under the
+            // user rather than the window.
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(stepLabel)
+            // Initial VoiceOver focus lands on the beat, not on the controls at
+            // the end of the reading order, so the copy is what a first-run
+            // user actually hears.
+            .accessibilityFocused($beatFocused)
+
+            Spacer(minLength: 0)
+
+            controls
+        }
+        .padding(AwSpacing.panelPadding)
+        // Vertical traffic-light clearance, matching AboutWindowView: the panel
+        // shows standard window buttons and the content starts at the top edge.
+        .padding(.top, AwSpacing.titlebar - AwSpacing.panelPadding)
+        .frame(width: 420, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: AwRadius.window)
+                .fill(Color.aw.surface.window)
+                .awShadow(.sheet, rendering: .composited)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AwRadius.window))
+        .overlay {
+            RoundedRectangle(cornerRadius: AwRadius.window)
+                .stroke(Color.aw.border2, lineWidth: 0.5)
+        }
+        // Container only, deliberately unlabelled: the panel's own title and
+        // accessibility label already name the window, and a third copy of
+        // "Welcome to awesoMux" here made VoiceOver say it three times before
+        // ever reaching "Step 1 of 5".
+        .accessibilityElement(children: .contain)
+        // Keyed on presentation *and* beat, because this page outlives both.
+        // The panel is reused across dismiss/recall, so a one-shot flag left
+        // VoiceOver users navigating in by hand on every recall; and the page
+        // keeps its identity across page turns, so nothing moved focus off
+        // stale beat-one content when the user pressed Next.
+        .onChange(of: [presentationToken, beat], initial: true) { _, _ in
+            focusBeat()
+        }
+    }
+
+    /// The panel is presented programmatically, so nothing moves VoiceOver into
+    /// it on its own. Cleared first so a re-focus on the same binding is a real
+    /// transition; deferred a turn for the same reason `AwModalView` defers,
+    /// because the element has to exist in the hosting view's accessibility
+    /// tree before the focus request can land on it.
+    private func focusBeat() {
+        beatFocused = false
+        Task { @MainActor in
+            await Task.yield()
+            beatFocused = true
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            stepIndicator
+
+            Spacer(minLength: 12)
+
+            // Nothing to skip on the closing beat — Skip and Done would run the
+            // same action side by side.
+            if !isLastBeat {
+                Button(
+                    String(localized: "Skip", comment: "Welcome tour button dismissing the tour"),
+                    action: onDismiss
+                )
+                .buttonStyle(.link)
+            }
+
+            Button(
+                String(localized: "Back", comment: "Welcome tour button returning to the previous beat"),
+                action: onBack
+            )
+            .buttonStyle(.bordered)
+            .disabled(isFirstBeat)
+
+            Button(
+                isLastBeat
+                    ? String(localized: "Done", comment: "Welcome tour button closing the tour on the last beat")
+                    : String(localized: "Next", comment: "Welcome tour button advancing to the next beat"),
+                action: isLastBeat ? onDismiss : onNext
+            )
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    /// The dots alone conveyed position by colour only (WCAG 1.4.1), and at
+    /// 1.15–2.08:1 selected-vs-unselected in the light theme. The text carries
+    /// the position; the dots are decoration beside it.
+    private var stepIndicator: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 5) {
+                ForEach(0..<FirstRunTourController.beatCount, id: \.self) { index in
+                    Circle()
+                        .fill(
+                            index == beat
+                                ? Color.aw.accentOnChrome(accentResolver.accent)
+                                : Color.aw.textFaint
+                        )
+                        .frame(width: 5, height: 5)
+                }
+            }
+
+            Text(stepLabel)
+                .awFont(AwFont.UI.meta)
+                // Primary text, not `text2`: this label is now the sole
+                // non-colour carrier of "which step am I on", and `text2` is
+                // 4.37:1 on the Latte window surface — under 1.4.3's 4.5:1.
+                .foregroundStyle(Color.aw.text)
+        }
+        // The beat group above already announces "Step N of 5"; repeating it
+        // here would make every page turn read twice.
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - D.A.V.E.
+
+private struct DaveMark: View {
+    @Environment(\.awAccent) private var accentResolver
+
+    // Art, not copy — deliberately outside the string catalog. Monospaced so
+    // the three rows stay aligned; the surrounding beat copy carries every
+    // word a screen reader needs. The leading `\u{20}` on the indented rows
+    // survives any whitespace trimming that would otherwise shear the head off
+    // the body.
+    private static let art = """
+        \u{20}   _
+        \u{20}__(.)<   H O N K !
+        (_____)
+        """
+
+    var body: some View {
+        Text(Self.art)
+            .awFont(AwFont.Mono.body)
+            .foregroundStyle(Color.aw.accent(accentResolver.accent))
+            .awGlow(color: Color.aw.accentGlow(accentResolver.accent), radius: 6)
+            .accessibilityHidden(true)
+    }
+}

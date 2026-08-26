@@ -193,6 +193,7 @@ struct AwesoMuxApp: App {
     @State private var commandPaletteController = CommandPaletteController()
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
     @State private var aboutPanelController = AboutPanelController()
+    @State private var firstRunTourController = FirstRunTourController()
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
     @State private var worktreeManagerController = WorktreeManagerController()
@@ -204,6 +205,7 @@ struct AwesoMuxApp: App {
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
     @State private var customCommandStore = CustomCommandStore()
+    @State private var settingsSectionRequest = SettingsSectionRequest()
     @State private var isCloseConfirmAlertPresented = false
     @State private var sidebarPresentationCommandMailbox = SidebarPresentationCommandMailbox()
     @State private var sidebarWidthToggleRequestID: UUID?
@@ -300,6 +302,16 @@ struct AwesoMuxApp: App {
             }
         )
         appSettingsStore.bootstrap()
+        // Seeded here for two reasons, both of which are the same bug class.
+        // `loadSource` is only this launch's answer in the window between
+        // `bootstrap()`, which sets it, and `startWatching()`, which turns any
+        // vnode event in the config directory into a reload that rewrites it to
+        // `.existingFile`. And a launch that creates the config but dies before
+        // the scene mounts must still have classified itself, or launch two
+        // reads `.existingFile` and permanently suppresses onboarding for a
+        // genuinely new user. The write is idempotent (see the policy), so
+        // running it on every launch costs nothing.
+        FirstRunTourPolicy.seedSeenFlagIfNeeded(loadSource: appSettingsStore.loadSource)
         appSettingsStore.startWatching()
         let terminalAppearancePreferencesCache = TerminalAppearancePreferencesCache()
         let initialAppearance = appSettingsStore.appearance.value
@@ -361,9 +373,14 @@ struct AwesoMuxApp: App {
 
     var body: some Scene {
         Window("awesoMux", id: AwesoMuxSceneID.primary) {
+            // Split into chained `let` sub-expressions: this modifier chain
+            // was already at the type-checker's budget, and the extra
+            // `.onChange` this task adds tips it over ("unable to type-check
+            // this expression in reasonable time").
+            //
             // Any future animation in this root view should check
             // `@Environment(\.accessibilityReduceMotion)` before animating.
-            ContentView(
+            let rootContent = ContentView(
                 sessionStore: sessionStore,
                 ghosttyRuntime: ghosttyRuntime,
                 floatingPanelController: floatingPanelController,
@@ -388,6 +405,7 @@ struct AwesoMuxApp: App {
                 hasSessionSaveFailure: sessionSaveFailure != nil,
                 onRetrySessionSave: saveSessionIfRestoreEnabled,
                 onOpenQuickSettings: requestQuickSettings,
+                onShowWelcomeTour: { firstRunTourController.show() },
                 onToggleCommandPalette: toggleCommandPalette,
                 onOpenSelectedWorkspaceInIDE: { openSelectedWorkspaceInIDE() },
                 onOpenSelectedWorkspaceInIDEWithApp: open,
@@ -559,6 +577,9 @@ struct AwesoMuxApp: App {
                     .appearanceBridge(appSettingsStore)
                     .onAppear { activeSheetDidPresent = true }
             }
+
+            let rootContentAfterAppear =
+                rootContent
             .onAppear {
                 // Give the floating-panel controllers the settings store so
                 // their detached SwiftUI roots carry the appearance bridge
@@ -566,6 +587,8 @@ struct AwesoMuxApp: App {
                 commandPaletteController.appSettingsStore = appSettingsStore
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
                 aboutPanelController.appSettingsStore = appSettingsStore
+                    firstRunTourController.appSettingsStore = appSettingsStore
+                    firstRunTourController.onOpenAgentSettings = { openSettingsWindow(section: .agents) }
                 sessionManagerController.appSettingsStore = appSettingsStore
                 worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
@@ -581,7 +604,13 @@ struct AwesoMuxApp: App {
                 installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
                 appDelegate.syncMenuBarMiniStatusItem()
-                appDelegate.requestNotificationAuthorizationIfNeeded()
+                    // Inert by policy, and deliberately still here: every prime
+                    // call routes through `NotificationPrimePolicy` so that one
+                    // place decides, and `shouldPrime` refuses every launch
+                    // evaluation. Deleting the call would leave that rule with no
+                    // caller to apply it to.
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: true))
                 let terminalSettings = appSettingsStore.terminal.value
                 DaemonGarbageCollector.sweepIfEnabled(
                     store: sessionStore,
@@ -594,7 +623,22 @@ struct AwesoMuxApp: App {
                     saveSessionIfRestoreEnabled()
                 }
                 presentRecoveryWarningIfNeeded()
+
+                    // Evaluated once, from this launch's snapshot. Closing the last
+                    // group later returns the tree to `.firstLaunch`; that must not
+                    // resurrect the tour.
+                    if FirstRunTourPolicy.shouldAutoPresent(
+                        seenFlag: FirstRunTourPolicy.seenFlag(),
+                        mode: EmptyWorkspaceMode.resolve(
+                            hasRecoveryWarning: recoveryWarning != nil,
+                            hasAnyGroup: !sessionStore.groups.isEmpty))
+                    {
+                        firstRunTourController.show()
+                    }
             }
+
+            let rootContentAfterGroupsWatch =
+                rootContentAfterAppear
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
@@ -602,8 +646,36 @@ struct AwesoMuxApp: App {
                 dismissWorkspaceGroupEditorIfTargetClosed()
                 dismissPaneEditorIfTargetClosed()
                 appDelegate.evaluateAndPostNotifications()
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
                 appDelegate.syncMenuBarMiniStatusItem()
             }
+                .onChange(of: appSettingsStore.notifications.value) { (_: NotificationConfig, _: NotificationConfig) in
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
+                }
+                // The prime policy *defers* while the tour is up below beat
+                // three, and nothing else brings the evaluation back: menu
+                // chords stay live over the tour, so a user who follows beat
+                // one's "press ⌘N" mutates `groups` during the deferral, and
+                // paging on to Done mutates nothing at all. Without this the
+                // explanation is never shown and the first real agent event
+                // fires the bare system dialog — exactly what the pre-prompt
+                // exists to prevent.
+                .onChange(of: firstRunTourController.isDeferringNotificationPrime) { _, isDeferring in
+                    guard !isDeferring else { return }
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
+                }
+                // The empty state's one-shot VoiceOver focus request is
+                // suppressed while the tour is up, and its own retry observers
+                // watch the MAIN window — which fires nothing when the tour is
+                // closed from behind Settings. Restore explicitly instead.
+                .onChange(of: firstRunTourController.isVisible) { _, isVisible in
+                    guard !isVisible else { return }
+                    NotificationCenter.default.post(
+                        name: .awEmptyWorkspaceInitialFocusShouldRestore, object: NSApp)
+                }
             .task(id: worktreeRepositorySelectionID) {
                 await refreshWorktreeRepositoryContext()
             }
@@ -650,6 +722,8 @@ struct AwesoMuxApp: App {
             .onChange(of: appSettingsStore.workspaces.value.outputMarksNeedsAttention) { _, _ in
                 appDelegate.evaluateAndPostNotifications()
             }
+
+            rootContentAfterGroupsWatch
             .onChange(of: appSettingsStore.keyboard.value, initial: true) { _, keyboard in
                 CurrentKeyboardShortcuts.keyboard = keyboard
             }
@@ -769,6 +843,7 @@ struct AwesoMuxApp: App {
             .environment(appSettingsStore)
             .environment(updateController)
             .environment(documentTabActions)
+                .environment(firstRunTourController)
             .appearanceBridge(appSettingsStore)
             .modifier(CaptureOpenWindowAction(action: $openWindowAction))
         }
@@ -1343,6 +1418,7 @@ struct AwesoMuxApp: App {
         Window("Settings", id: AwesoMuxSceneID.settings) {
             AwesoMuxSettingsView()
                 .environment(appSettingsStore)
+                .environment(settingsSectionRequest)
                 // Keys pane manages custom command shortcuts (INT-755).
                 .environment(customCommandStore)
                 // Notifications pane reads/writes per-workspace mute (INT-598).
@@ -2670,6 +2746,10 @@ struct AwesoMuxApp: App {
         }
 
         if aboutPanelController.hideIfKeyWindow() {
+            return
+        }
+
+        if firstRunTourController.hideIfKeyWindow() {
             return
         }
 
@@ -4316,7 +4396,7 @@ struct AwesoMuxApp: App {
             recenterPalette: {
                 commandPaletteController.recenter()
             },
-            openSettings: openSettingsWindow,
+            openSettings: { openSettingsWindow() },
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
@@ -4335,7 +4415,8 @@ struct AwesoMuxApp: App {
             },
             openWorktreeManager: showWorktreeManager,
             createWorktree: presentWorktreeCreateForm,
-            openWorktree: showWorktreeManager
+            openWorktree: showWorktreeManager,
+            showWelcomeTour: { firstRunTourController.show() }
         )
     }
 
@@ -4849,13 +4930,14 @@ struct AwesoMuxApp: App {
         return validated.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
-    private func openSettingsWindow() {
+    private func openSettingsWindow(section: SettingsSectionID? = nil) {
         guard let openWindowAction else {
             assertionFailure("Open Settings requested before openWindow action was captured.")
             NSSound.beep()
             return
         }
 
+        if let section { settingsSectionRequest.request(section) }
         openWindowAction(id: AwesoMuxSceneID.settings)
     }
 
@@ -5140,6 +5222,26 @@ extension AwesoMuxApp {
         SessionPersistence.save(store) { result in
             record(result, in: failure)
         }
+    }
+
+    private func notificationPrimeInputs(isLaunchEvaluation: Bool) -> NotificationPrimePolicy.Inputs {
+        let preferences = NotificationPreferences(config: appSettingsStore.notifications.value)
+        return .init(
+            // A group can hold `sessions: []`, so group count is not workspace
+            // count — priming for a user with no terminal is the same class of
+            // bug as priming at launch.
+            hasEligibleSession: sessionStore.groups.contains { !$0.sessions.isEmpty },
+            isLaunchEvaluation: isLaunchEvaluation,
+            tourIsVisible: firstRunTourController.isVisible,
+            tourReachedNotificationBeat: firstRunTourController.hasReachedNotificationBeat,
+            anyChannelEnabled: preferences.shouldDeliverNeedsAttention()
+                || preferences.shouldDeliverTurnDone(),
+            requestInFlight: appDelegate.isNotificationRequestInFlight,
+            // Deliberately permissive: the bridge re-checks real authorization
+            // status asynchronously before showing anything. This policy's
+            // job here is ordering (don't ask before the tour/workspace
+            // exist), not authorization state.
+            isNotDetermined: true)
     }
 
     private func handleSessionSaveResult(
