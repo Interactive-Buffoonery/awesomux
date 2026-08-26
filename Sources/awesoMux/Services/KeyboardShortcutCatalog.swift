@@ -65,7 +65,17 @@ struct KeyBinding: Identifiable {
             key: resolved.key,
             modifiers: normalizedModifiers,
             keyDisplay: resolved.display,
-            keySpokenName: resolved.spokenName ?? keySpokenName
+            // Inherit the original tuned name only when the key itself is
+            // unchanged. A rebind to a different key makes the old name a lie
+            // VoiceOver reads aloud — better the generic "Key J" than "N".
+            // Tuning wins over the resolver's own name on a same-key rebind:
+            // the catalog overrode it for a reason, and changing modifiers is
+            // not a reason to discard that. Compared on the key itself, not on
+            // `display` — that is uppercased, and Unicode's locale-independent
+            // uppercasing folds distinct keys together (U+0131 dotless i, a
+            // real key on Turkish layouts, uppercases to plain "I").
+            keySpokenName: (resolved.key.character == key.character ? keySpokenName : nil)
+                ?? resolved.spokenName
         )
     }
 
@@ -903,7 +913,15 @@ enum ShortcutKeyResolver {
         case ",": "Comma"
         case ".": "Period"
         case "`": "Grave Accent"
-        default: nil
+        // Any digit speaks bare — "Command 3", not "Command Key 3". The "Key"
+        // disambiguator exists so VoiceOver doesn't read a lone letter as a
+        // phoneme; a digit is never ambiguous, so it doesn't need one. Keyed
+        // off the character rather than the binding id deliberately: the
+        // catalog's own digit bindings and anything a user rebinds onto a
+        // digit should announce the same way.
+        default:
+            display.count == 1 && display.allSatisfy { $0.isASCII && $0.isNumber }
+                ? display : nil
         }
     }
 }

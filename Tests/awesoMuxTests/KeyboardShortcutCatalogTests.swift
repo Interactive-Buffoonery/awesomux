@@ -570,6 +570,157 @@ struct KeyboardShortcutCatalogTests {
         #expect(binding.spokenForm == "Control Option Shift Command Key X")
     }
 
+    // `newWorkspace` carries an explicit `keySpokenName` of "N" so tour and
+    // empty-state prose read "Command N" instead of "Command Key N". That
+    // override is only ever right for the key it was written for: inheriting
+    // it across a rebind makes VoiceOver announce a chord the user cannot
+    // press.
+    @Test("rebinding a letter drops an inherited spoken name for the old key")
+    func rebindingALetterDropsInheritedSpokenName() {
+        let binding = KeyboardShortcutCatalog.newWorkspace
+            .applying(ShortcutBindingConfig(key: "j", modifiers: [.command, .shift]))
+
+        #expect(binding.displaySymbol == "⇧⌘J")
+        #expect(binding.spokenForm == "Shift Command Key J")
+    }
+
+    @Test("rebinding a letter to a punctuation key speaks the punctuation name")
+    func rebindingALetterToPunctuationSpeaksPunctuationName() {
+        let binding = KeyboardShortcutCatalog.newWorkspace
+            .applying(ShortcutBindingConfig(key: "[", modifiers: [.command]))
+
+        #expect(binding.displaySymbol == "⌘[")
+        #expect(binding.spokenForm == "Command Left Bracket")
+    }
+
+    @Test("rebinding only the modifiers keeps the tuned spoken name")
+    func rebindingOnlyModifiersKeepsTunedSpokenName() {
+        let binding = KeyboardShortcutCatalog.newWorkspace
+            .applying(ShortcutBindingConfig(key: "n", modifiers: [.command, .option]))
+
+        #expect(binding.displaySymbol == "⌥⌘N")
+        #expect(binding.spokenForm == "Option Command N")
+    }
+
+    @Test("rebinding a digit to another digit keeps the bare-digit convention")
+    func rebindingADigitKeepsBareDigitConvention() {
+        let binding = KeyboardShortcutCatalog.focusPaneBindings[0]
+            .applying(ShortcutBindingConfig(key: "7", modifiers: [.command, .option]))
+
+        #expect(binding.displaySymbol == "⌥⌘7")
+        #expect(binding.spokenForm == "Option Command 7")
+    }
+
+    @Test("rebinding a digit to a letter speaks the letter generically")
+    func rebindingADigitToALetterSpeaksGenerically() {
+        let binding = KeyboardShortcutCatalog.jumpWorkspaces[0]
+            .applying(ShortcutBindingConfig(key: "j", modifiers: [.command]))
+
+        #expect(binding.displaySymbol == "⌘J")
+        #expect(binding.spokenForm == "Command Key J")
+    }
+
+    @Test("rebinding a digit to punctuation speaks the punctuation name")
+    func rebindingADigitToPunctuationSpeaksPunctuationName() {
+        let binding = KeyboardShortcutCatalog.focusPaneBindings[2]
+            .applying(ShortcutBindingConfig(key: "[", modifiers: [.command, .option]))
+
+        #expect(binding.displaySymbol == "⌥⌘[")
+        #expect(binding.spokenForm == "Option Command Left Bracket")
+    }
+
+    // The bare-digit form is keyed off the character, not the binding id, so a
+    // binding that never shipped on a digit still announces like one.
+    @Test("rebinding a letter to a digit adopts the bare-digit convention")
+    func rebindingALetterToADigitAdoptsBareDigitConvention() {
+        let binding = KeyboardShortcutCatalog.newWorkspace
+            .applying(ShortcutBindingConfig(key: "7", modifiers: [.command]))
+
+        #expect(binding.displaySymbol == "⌘7")
+        #expect(binding.spokenForm == "Command 7")
+    }
+
+    // The catalog overrides a key's spoken name deliberately. Changing only the
+    // modifiers is not a reason to discard that override in favour of the
+    // resolver's generic name for the same key.
+    @Test("a same-key rebind prefers the catalog's tuned name over the resolver's")
+    func sameKeyRebindPrefersTunedNameOverResolver() {
+        let tuned = KeyBinding(
+            id: "tunedPunctuationFixture",
+            action: "Tuned Punctuation Fixture",
+            key: "/",
+            keyDisplay: "/",
+            keySpokenName: "Forward Slash"
+        )
+
+        let binding = tuned.applying(
+            ShortcutBindingConfig(key: "/", modifiers: [.command, .option]))
+
+        #expect(binding.displaySymbol == "⌥⌘/")
+        #expect(binding.spokenForm == "Option Command Forward Slash")
+    }
+
+    // `NeedsInputBar` is private to SessionDetailView and its tooltip and
+    // accessibility label are SwiftUI modifiers, so no assertion on a value can
+    // reach them. Both once read the compile-time default binding and so
+    // advertised ⇧⌘K to a user who had rebound the action — scan the source the
+    // way the empty-state button's own metadata test does, and fail if either
+    // line goes back to naming the catalog constant instead of the parameter.
+    @Test("the needs-input banner names its resolved binding, not the catalog default")
+    func needsInputBarNamesResolvedBinding() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/awesoMux/Views/SessionDetailView.swift"),
+            encoding: .utf8)
+        let afterDeclaration = try #require(
+            source.split(separator: "private struct NeedsInputBar", maxSplits: 1).last)
+        // Stop at the next top-level type, or the scan reads its neighbours too
+        // and reports their code in the failure message.
+        let barSource = try #require(
+            afterDeclaration.split(separator: "\nprivate struct ", maxSplits: 1).first)
+        let compact = barSource.filter { !$0.isWhitespace }
+
+        #expect(compact.contains("letacknowledgeWorkspace:KeyBinding"))
+        #expect(compact.contains(".help(\"\\(acknowledgeWorkspace.action)(\\(acknowledgeWorkspace.displaySymbol))\")"))
+        #expect(compact.contains("\\(acknowledgeWorkspace.action),\\(acknowledgeWorkspace.spokenForm)"))
+        #expect(!compact.contains("KeyboardShortcutCatalog.acknowledgeWorkspace"))
+    }
+
+    // U+0131 LATIN SMALL LETTER DOTLESS I is a real key on Turkish layouts, and
+    // Unicode's locale-independent uppercasing folds it onto plain "I". A
+    // same-key check that compared uppercased displays would call this an
+    // unchanged key and inherit a spoken name for a key the user cannot press.
+    @Test("a rebind to a key that case-folds onto the original still drops the tuned name")
+    func rebindToCaseFoldingCollisionDropsTunedName() {
+        let tuned = KeyBinding(
+            id: "tunedLetterFixture",
+            action: "Tuned Letter Fixture",
+            key: "i",
+            keyDisplay: "I",
+            keySpokenName: "India"
+        )
+
+        let binding = tuned.applying(ShortcutBindingConfig(key: "\u{0131}", modifiers: [.command]))
+
+        #expect("\u{0131}".uppercased() == "I", "precondition: the fold this guards against")
+        #expect(binding.spokenForm.contains("India") == false)
+    }
+
+    // The same-key check is only meaningful if a letter binding's `keyDisplay`
+    // is the resolver's own canonical form. Nothing else enforces that, and a
+    // lowercase typo would silently drop a tuned name on a modifiers-only
+    // rebind.
+    @Test("every single-character letter display is already canonical uppercase")
+    func singleCharacterLetterDisplaysAreCanonical() {
+        for binding in KeyboardShortcutCatalog.allBindings() {
+            let display = binding.keyDisplay
+            guard display.count == 1, display.allSatisfy(\.isLetter) else { continue }
+            #expect(display == display.uppercased(), "\(binding.id) has a non-canonical keyDisplay")
+        }
+    }
+
     @Test("all settings shortcut ids are unique")
     func allSettingsShortcutIdsAreUnique() {
         let ids = KeyboardShortcutCatalog.settingsSections

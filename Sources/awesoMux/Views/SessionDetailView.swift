@@ -44,6 +44,10 @@ struct SessionDetailView: View {
                             // gotchas elsewhere in this codebase). Tried and reverted.
                             NeedsInputBar(
                                 session: session,
+                                acknowledgeWorkspace: KeyboardShortcutCatalog.resolved(
+                                    KeyboardShortcutCatalog.acknowledgeWorkspace,
+                                    keyboard: appSettingsStore.keyboard.value
+                                ),
                                 onAcknowledge: {
                                     // Workspace-scoped, matching the ⌘⇧K action the
                                     // button advertises: the banner shows when ANY
@@ -825,6 +829,9 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
 
 private struct NeedsInputBar: View {
     let session: TerminalSession
+    /// Resolved by the caller for the same reason the empty state resolves its
+    /// own: the default is only right until someone rebinds the action.
+    let acknowledgeWorkspace: KeyBinding
     let onAcknowledge: () -> Void
 
     /// In a single-pane layout the pane's own always-reserved accent band sits
@@ -868,9 +875,9 @@ private struct NeedsInputBar: View {
             }
             .buttonStyle(.plain)
             .layoutPriority(1)
-            .help("\(KeyboardShortcutCatalog.acknowledgeWorkspace.action) (\(KeyboardShortcutCatalog.acknowledgeWorkspace.displaySymbol))")
+            .help("\(acknowledgeWorkspace.action) (\(acknowledgeWorkspace.displaySymbol))")
             .accessibilityLabel(
-                "\(KeyboardShortcutCatalog.acknowledgeWorkspace.action), \(KeyboardShortcutCatalog.acknowledgeWorkspace.spokenForm)")
+                "\(acknowledgeWorkspace.action), \(acknowledgeWorkspace.spokenForm)")
         }
         .padding(.leading, 16)
         .padding(.trailing, 12)
