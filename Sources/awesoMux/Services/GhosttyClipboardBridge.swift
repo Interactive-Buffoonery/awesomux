@@ -265,15 +265,19 @@ extension GhosttyRuntime {
             // does NOT run synchronously with this call (Task{} schedules, it
             // doesn't block), so the payload must be copied to Swift values
             // before entering the Task, never inside it.
-            let requestData: String
+            // Nil off the discard paths (unknown/write kind, toggle-disabled,
+            // nested-request dedup): they never present a dialog and never
+            // reach a confirmed delivery.
+            let confirmPayload: ClipboardConfirmPayload?
             if willPresentDialog,
                 let confirmAddress,
                 let confirm = UnsafePointer<ghostty_clipboard_confirm_s>(bitPattern: confirmAddress)
             {
-                requestData = Self.confirmPreviewText(from: confirm.pointee)
+                confirmPayload = Self.decodeClipboardConfirmPayload(from: confirm.pointee)
             } else {
-                requestData = ""
+                confirmPayload = nil
             }
+            let requestData = confirmPayload?.preview ?? ""
 
             Task { @MainActor in
                 await resolveClipboardConfirmationRequest(
@@ -288,32 +292,56 @@ extension GhosttyRuntime {
                     paneTitle: view.liveTitle,
                     parentWindow: view.window,
                     confirmClipboardRead: confirmClipboardRead
-                ) { data, confirmed in
-                    if confirmed {
-                        view.completeClipboardRequest(
-                            data: data,
-                            state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:)),
-                            confirmed: true
-                        )
-                    } else {
+                ) { _, confirmed in
+                    guard confirmed else {
                         // A dropped or cancelled confirmation denies the native
                         // request outright — completing it unconfirmed is only
                         // meaningful for read completions, never prompts.
-                        view.denyClipboardRequest(
+                        return view.denyClipboardRequest(
                             state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:))
                         )
                     }
+                    guard let deliverableText = confirmPayload?.deliverableText else {
+                        // The preview was a byte-summary fallback (binary or
+                        // undecodable payload): awesoMux serves text only, so
+                        // confirming denies instead of pasting the summary as
+                        // clipboard content.
+                        clipboardReadLog.debug(
+                            "Clipboard read-confirm denied: payload carries no decodable text/plain representation"
+                        )
+                        return view.denyClipboardRequest(
+                            state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:))
+                        )
+                    }
+                    return view.completeClipboardRequest(
+                        data: deliverableText,
+                        state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:)),
+                        confirmed: true
+                    )
                 }
             }
         }
     }
 
-    /// Dialog preview text from a borrowed confirmation payload: the text/plain
-    /// representation when there is one, otherwise a per-representation byte
-    /// summary. Mirrors upstream's Ghostty.App.confirmReadClipboard decoding.
-    nonisolated static func confirmPreviewText(
+    /// Decoded view of a borrowed confirmation payload.
+    struct ClipboardConfirmPayload {
+        /// Text shown in the permission dialog: the decodable text/plain
+        /// representation when there is one, otherwise a per-representation
+        /// byte summary.
+        let preview: String
+        /// The text to deliver when the user confirms, or nil when the payload
+        /// carries no decodable text/plain representation — such requests must
+        /// be denied rather than completing with the preview summary itself.
+        let deliverableText: String?
+    }
+
+    /// Decodes a borrowed confirmation payload. Mirrors upstream's
+    /// Ghostty.App.confirmReadClipboard decoding for the preview, and keeps
+    /// the summary strictly preview-only so confirming can never paste the
+    /// byte summary into the terminal as clipboard content.
+    nonisolated static func decodeClipboardConfirmPayload(
         from confirm: ghostty_clipboard_confirm_s
-    ) -> String {
+    ) -> ClipboardConfirmPayload {
         var representations: [(mime: String, data: Data)] = []
         if let contents = confirm.contents {
             for index in 0..<confirm.contents_len {
@@ -336,12 +364,14 @@ extension GhosttyRuntime {
         if let textRepresentation = representations.first(where: { $0.mime == "text/plain" }),
             let text = String(data: textRepresentation.data, encoding: .utf8)
         {
-            return text
+            return ClipboardConfirmPayload(preview: text, deliverableText: text)
         }
-        return
-            representations
-            .map { "\($0.mime) (\($0.data.count) bytes)" }
-            .joined(separator: "\n")
+        return ClipboardConfirmPayload(
+            preview: representations
+                .map { "\($0.mime) (\($0.data.count) bytes)" }
+                .joined(separator: "\n"),
+            deliverableText: nil
+        )
     }
 
     @MainActor

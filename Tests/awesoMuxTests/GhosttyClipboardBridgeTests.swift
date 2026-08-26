@@ -656,9 +656,9 @@ struct GhosttyClipboardBridgeTests {
     }
 }
 
-/// Pure decoding tests for the borrowed confirm payload → dialog preview text.
-/// No shared state, so no serialization needed.
-@Suite("Ghostty clipboard confirm preview decoding")
+/// Pure decoding tests for the borrowed confirm payload → dialog preview and
+/// deliverable text. No shared state, so no serialization needed.
+@Suite("Ghostty clipboard confirm payload decoding")
 struct GhosttyClipboardConfirmPreviewTests {
     /// Builds a `ghostty_clipboard_confirm_s` over C memory that stays valid
     /// for the duration of `body`, mirroring how libghostty owns the payload
@@ -720,58 +720,70 @@ struct GhosttyClipboardConfirmPreviewTests {
         }
     }
 
-    @Test("preview decodes the text/plain representation")
-    func previewDecodesTextPlain() {
+    @Test("payload decodes the text/plain representation for preview and delivery")
+    func payloadDecodesTextPlain() {
         withConfirm([("text/plain", Array("rm -rf /".utf8), nil)]) { confirm in
-            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "rm -rf /")
+            let decoded = GhosttyRuntime.decodeClipboardConfirmPayload(from: confirm)
+            #expect(decoded.preview == "rm -rf /")
+            #expect(decoded.deliverableText == "rm -rf /")
         }
     }
 
-    @Test("preview picks text/plain even when it is not first")
-    func previewPicksTextPlainAmongSiblings() {
+    @Test("payload picks text/plain even when it is not first")
+    func payloadPicksTextPlainAmongSiblings() {
         withConfirm([
             ("image/png", [0x89, 0x50], nil),
             ("text/plain", Array("hello".utf8), nil),
         ]) { confirm in
-            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "hello")
+            let decoded = GhosttyRuntime.decodeClipboardConfirmPayload(from: confirm)
+            #expect(decoded.preview == "hello")
+            #expect(decoded.deliverableText == "hello")
         }
     }
 
-    @Test("preview falls back to byte summaries without text/plain")
-    func previewFallsBackToByteSummaries() {
+    @Test("binary-only payload previews byte summaries and delivers nothing")
+    func binaryOnlyPayloadPreviewsSummariesAndDeliversNothing() {
         withConfirm([
             ("image/png", [0x89, 0x50, 0x4E], nil),
             ("application/octet-stream", Array(repeating: UInt8(0), count: 12), nil),
         ]) { confirm in
+            let decoded = GhosttyRuntime.decodeClipboardConfirmPayload(from: confirm)
             #expect(
-                GhosttyRuntime.confirmPreviewText(from: confirm)
-                    == "image/png (3 bytes)\napplication/octet-stream (12 bytes)"
+                decoded.preview == "image/png (3 bytes)\napplication/octet-stream (12 bytes)"
             )
+            // Confirming must deny rather than paste the summary text itself.
+            #expect(decoded.deliverableText == nil)
         }
     }
 
-    @Test("preview of invalid UTF-8 text/plain uses the byte summary")
-    func previewOfInvalidUtf8TextPlainFallsBackToSummary() {
+    @Test("invalid UTF-8 text/plain previews a summary and delivers nothing")
+    func invalidUtf8TextPlainDeliversNothing() {
         withConfirm([("text/plain", [0xFF, 0xFE], nil)]) { confirm in
-            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "text/plain (2 bytes)")
+            let decoded = GhosttyRuntime.decodeClipboardConfirmPayload(from: confirm)
+            #expect(decoded.preview == "text/plain (2 bytes)")
+            #expect(decoded.deliverableText == nil)
         }
     }
 
-    @Test("preview treats nil data with non-zero length as empty bytes")
-    func previewTreatsNilDataWithLengthAsEmptyBytes() {
+    @Test("nil data with non-zero length degrades to empty bytes, not a crash")
+    func payloadTreatsNilDataWithLengthAsEmptyBytes() {
         // The crash shape from review: len > 0 with a nil pointer must not
-        // trap; an empty Data decodes as "" for text/plain.
+        // trap; an empty Data decodes as "" for text/plain — still deliverable.
         withConfirm([("text/plain", nil, 7)]) { confirm in
             #expect(confirm.contents[0].len > 0)
             #expect(confirm.contents[0].data == nil)
-            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "")
+            let decoded = GhosttyRuntime.decodeClipboardConfirmPayload(from: confirm)
+            #expect(decoded.preview == "")
+            #expect(decoded.deliverableText == "")
         }
     }
 
-    @Test("empty confirm payload previews as empty text")
+    @Test("empty payload previews as empty text and delivers nothing")
     func emptyPayloadPreviewsAsEmptyText() {
         withConfirm([]) { confirm in
-            #expect(GhosttyRuntime.confirmPreviewText(from: confirm) == "")
+            let decoded = GhosttyRuntime.decodeClipboardConfirmPayload(from: confirm)
+            #expect(decoded.preview == "")
+            #expect(decoded.deliverableText == nil)
         }
     }
 }
