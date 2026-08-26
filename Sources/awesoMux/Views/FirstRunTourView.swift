@@ -44,12 +44,12 @@ enum FirstRunTourCopy {
         (
             visible: String(
                 localized:
-                    "Every project gets a workspace — its own folder, its own shell, its own name in the sidebar. Press \(newWorkspace.displaySymbol) to make one.",
+                    "Every project gets a workspace — its own shell, its own name in the sidebar. Press \(newWorkspace.displaySymbol) to make one.",
                 comment:
                     "Welcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."),
             spoken: String(
                 localized:
-                    "Every project gets a workspace — its own folder, its own shell, its own name in the sidebar. Press \(newWorkspace.spokenForm) to make one.",
+                    "Every project gets a workspace — its own shell, its own name in the sidebar. Press \(newWorkspace.spokenForm) to make one.",
                 comment:
                     "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.")
         )
@@ -58,7 +58,7 @@ enum FirstRunTourCopy {
     static func sidebarBeat() -> Body {
         let text = String(
             localized:
-                "Workspaces live in the vertical sidebar, and you can drag them into groups to keep a project together. Splitting a workspace adds panes inside it — one sidebar row, however many panes.",
+                "Workspaces live in the vertical sidebar, and you can drag them into groups to keep a project together. Splitting a workspace adds panes inside it — one sidebar row, as many panes as your heart desires. Go wild!",
             comment: "Welcome tour beat two, explaining the sidebar and panes.")
         return (visible: text, spoken: text)
     }
@@ -75,12 +75,12 @@ enum FirstRunTourCopy {
         (
             visible: String(
                 localized:
-                    "Press \(floatingPanel.displaySymbol) to float the current workspace above your other windows, or \(popUpTerminal.displaySymbol) to drop the Terminal Companion down over whatever app you're in.",
+                    "\(floatingPanel.displaySymbol) opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. \(popUpTerminal.displaySymbol) opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch.",
                 comment:
                     "Welcome tour beat four. Arguments are the floating-panel and Terminal Companion shortcuts as symbols."),
             spoken: String(
                 localized:
-                    "Press \(floatingPanel.spokenForm) to float the current workspace above your other windows, or \(popUpTerminal.spokenForm) to drop the Terminal Companion down over whatever app you're in.",
+                    "\(floatingPanel.spokenForm) opens a temporary terminal in a Floating Panel over the workspace you're in — one per workspace, gone when you're done. \(popUpTerminal.spokenForm) opens the Terminal Companion: a single shell that follows you from workspace to workspace and keeps running while you switch.",
                 comment:
                     "Spoken form of beat four. Arguments are those two shortcuts spelled out.")
         )
@@ -90,12 +90,12 @@ enum FirstRunTourCopy {
         (
             visible: String(
                 localized:
-                    "\(commandPalette.displaySymbol) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.displaySymbol) shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something. — D.A.V.E.",
+                    "\(commandPalette.displaySymbol) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.displaySymbol) shows the full keyboard cheatsheet. The ? button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
                 comment:
                     "Beat five. Arguments are the command-palette and cheatsheet shortcuts as symbols; D.A.V.E. is the mascot."),
             spoken: String(
                 localized:
-                    "\(commandPalette.spokenForm) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.spokenForm) shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something. — D.A.V.E.",
+                    "\(commandPalette.spokenForm) opens the command palette — every command awesoMux has, searchable. \(keyboardCheatsheet.spokenForm) shows the full keyboard cheatsheet. The question mark button in the sidebar footer brings this tour back whenever you want it. Go build something awesome…ux. (I'm an AI Goose, I did my best, sorry.) — D.A.V.E.",
                 comment:
                     "Spoken form of beat five. Arguments are those two shortcuts spelled out.")
         )
