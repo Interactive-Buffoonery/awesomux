@@ -54,3 +54,9 @@ jobs:
         env:
           FORMAT_LINT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: ./script/format.sh --lint
+
+      - name: Ghostty license pin guardrail tests
+        run: ./script/test-ghostty-license-pins.sh
+
+      - name: Ghostty license pins
+        run: ./script/check_ghostty_license_pins.sh

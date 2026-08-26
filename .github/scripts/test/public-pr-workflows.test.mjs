@@ -334,6 +334,11 @@ test("fast required checks have stable names", () => {
   assert.match(workflows.template, /name: Validate PR metadata/);
 });
 
+test("cheap guards reject stale Ghostty license pins", () => {
+  assert.match(workflows.cheapGuards, /\.\/script\/test-ghostty-license-pins\.sh/);
+  assert.match(workflows.cheapGuards, /\.\/script\/check_ghostty_license_pins\.sh/);
+});
+
 test("interpreted CodeQL stays automatic without waiting for Swift", () => {
   const workflow = workflows.codeql;
   assertMatchingCodeQLActionPins("interpreted CodeQL", workflow);
