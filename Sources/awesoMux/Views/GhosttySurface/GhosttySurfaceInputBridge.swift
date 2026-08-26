@@ -931,24 +931,123 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     /// while its confirm dialog was still up — callers must not treat that
     /// as a real outcome (e.g. announcing success/cancellation to VoiceOver
     /// for a completion that silently no-opped).
+    ///
+    /// A `confirmed` completion delivers the data as a single text/plain
+    /// representation; an unconfirmed one denies the native request — the
+    /// prompt path's cancel/drop shapes both route here, while raw read
+    /// completions use `completeReadRequest` (an unconfirmed read delivery
+    /// is not a denial).
     @discardableResult
     func completeClipboardRequest(
         data: String,
         state: UnsafeMutableRawPointer?,
-        confirmed: Bool = false
+        confirmed: Bool
     ) -> Bool {
-        guard let surface else {
+        guard let surface, let state else {
+            return false
+        }
+        guard confirmed else {
+            ghostty_surface_deny_clipboard_request(surface, state)
+            return true
+        }
+
+        return data.withCString { cData in
+            "text/plain".withCString { mime in
+                var content = ghostty_clipboard_content_s(
+                    mime: mime,
+                    data: cData,
+                    len: data.utf8.count
+                )
+                var complete = ghostty_clipboard_complete_s(
+                    contents: &content,
+                    contents_len: 1,
+                    available: nil,
+                    available_len: 0,
+                    confirmed: true,
+                    remember: false
+                )
+                ghostty_surface_complete_clipboard_request(surface, &complete, state)
+                return true
+            }
+        }
+    }
+
+    /// Completes a clipboard READ started by the runtime callback: the served
+    /// representations plus, for listing requests, the available-type listing.
+    /// Returns whether the completion actually reached libghostty (see
+    /// `completeClipboardRequest` above).
+    @discardableResult
+    func completeReadRequest(
+        contents: [(mime: String, data: Data)],
+        available: [String],
+        state: UnsafeMutableRawPointer?
+    ) -> Bool {
+        guard let surface, let state else {
             return false
         }
 
-        data.withCString { cData in
-            ghostty_surface_complete_clipboard_request(
-                surface,
-                cData,
-                state,
-                confirmed
+        // Copy everything into C memory for the duration of the call.
+        var cStrings: [UnsafeMutablePointer<CChar>] = []
+        var cDatas: [UnsafeMutableRawPointer] = []
+        defer {
+            cStrings.forEach { free($0) }
+            cDatas.forEach { $0.deallocate() }
+        }
+
+        var cContents: [ghostty_clipboard_content_s] = []
+        for entry in contents {
+            guard let mime = strdup(entry.mime) else { continue }
+            cStrings.append(mime)
+            let buffer = UnsafeMutableRawPointer.allocate(
+                byteCount: max(entry.data.count, 1),
+                alignment: 1
+            )
+            cDatas.append(buffer)
+            entry.data.withUnsafeBytes { source in
+                if let base = source.baseAddress {
+                    buffer.copyMemory(from: base, byteCount: source.count)
+                }
+            }
+            cContents.append(
+                ghostty_clipboard_content_s(
+                    mime: mime,
+                    data: buffer.assumingMemoryBound(to: CChar.self),
+                    len: entry.data.count
+                )
             )
         }
+
+        var cAvailable: [UnsafePointer<CChar>?] = []
+        for mime in available {
+            guard let copied = strdup(mime) else { continue }
+            cStrings.append(copied)
+            cAvailable.append(UnsafePointer(copied))
+        }
+
+        cContents.withUnsafeBufferPointer { contentsBuffer in
+            cAvailable.withUnsafeBufferPointer { availableBuffer in
+                var complete = ghostty_clipboard_complete_s(
+                    contents: contentsBuffer.baseAddress,
+                    contents_len: contentsBuffer.count,
+                    available: availableBuffer.baseAddress,
+                    available_len: availableBuffer.count,
+                    confirmed: false,
+                    remember: false
+                )
+                ghostty_surface_complete_clipboard_request(surface, &complete, state)
+            }
+        }
+        return true
+    }
+
+    /// Denies a pending clipboard request outright. Returns whether the
+    /// request actually reached libghostty (surface still alive).
+    @discardableResult
+    func denyClipboardRequest(state: UnsafeMutableRawPointer?) -> Bool {
+        guard let surface, let state else {
+            return false
+        }
+        ghostty_surface_deny_clipboard_request(surface, state)
         return true
     }
 

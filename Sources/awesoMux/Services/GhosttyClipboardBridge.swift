@@ -75,14 +75,17 @@ extension GhosttyRuntime {
     nonisolated static func readClipboard(
         _ userdata: UnsafeMutableRawPointer?,
         location: ghostty_clipboard_e,
-        state: UnsafeMutableRawPointer?
-    ) -> Bool {
+        state: UnsafeMutableRawPointer?,
+        mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+        mimesLen: Int,
+        list: Bool
+    ) -> ghostty_clipboard_read_result_e {
         guard location == GHOSTTY_CLIPBOARD_STANDARD else {
-            return false
+            return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
         }
         guard let userdata else {
             // Nil userdata means libghostty invoked this callback without a
-            // registered surface view. Returning false makes libghostty
+            // registered surface view. A non-`.started` result makes libghostty
             // destroy the request state it allocated for this read (see
             // Surface.clipboardRequest in vendor/ghostty's embedded.zig), so
             // nothing is left pending — this traps
@@ -90,48 +93,87 @@ extension GhosttyRuntime {
             // silent drop.
             assertionFailure(describeNilUserdataReadClipboard())
             clipboardReadLog.error("\(describeNilUserdataReadClipboard(), privacy: .public)")
-            return false
+            return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
         }
 
         let userdataAddress = UInt(bitPattern: userdata)
         let stateAddress = state.map(UInt.init(bitPattern:))
 
+        // LOAD-BEARING INVARIANT: `mimes` is libghostty-owned stack memory,
+        // valid only for the synchronous duration of this callback. Decode it
+        // HERE, before any closure capture, so no @MainActor closure ever
+        // holds the raw pointer.
+        var requestedMimes: [String] = []
+        if let mimes {
+            for index in 0..<mimesLen {
+                guard let mimePtr = mimes[index] else { continue }
+                let mime = String(cString: mimePtr)
+                guard !requestedMimes.contains(mime) else { continue }
+                requestedMimes.append(mime)
+            }
+        }
+
         return onMainThread {
             guard let userdata = UnsafeMutableRawPointer(bitPattern: userdataAddress) else {
-                return false
+                return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
             }
 
             let view = Unmanaged<GhosttySurfaceNSView>
                 .fromOpaque(userdata)
                 .takeUnretainedValue()
 
-            guard let content = TerminalPasteboardString.content(from: NSPasteboard.general) else {
-                return false
-            }
+            let pasteboardContent = TerminalPasteboardString.content(from: NSPasteboard.general)
+
             if view.pane.executionPlan.remoteTarget != nil,
-                let candidate = TerminalPasteboardString.remoteHandoffCandidate(from: content)
+                let pasteboardContent,
+                let candidate = TerminalPasteboardString.remoteHandoffCandidate(from: pasteboardContent)
             {
                 view.beginRemoteHandoff(candidate)
-                return false
+                return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE
             }
-            guard let pasteString = TerminalPasteboardString.string(from: content) else {
-                return false
+
+            // awesoMux serves exactly one representation: text/plain, sourced
+            // through the same pasteboard-content ladder paste uses (file URLs
+            // escaped as text, strings, materialized images). Requested mimes
+            // we cannot serve are skipped rather than failing the whole read.
+            let servableText = pasteboardContent.flatMap { TerminalPasteboardString.string(from: $0) }
+            var contents: [(mime: String, data: Data)] = []
+            if requestedMimes.contains("text/plain"), let servableText {
+                contents.append(("text/plain", Data(servableText.utf8)))
+            }
+
+            // The listing of available types, only gathered when requested.
+            // A pure listing request passes no mimes at all, so this must be
+            // independent of whether any representation was actually read.
+            let available: [String] =
+                list && servableText != nil ? ["text/plain"] : []
+
+            // With nothing to serve and no listing requested there is
+            // nothing to complete the read with.
+            if contents.isEmpty && !list {
+                clipboardReadLog.debug("Clipboard read unavailable: no servable text/plain content")
+                return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE
             }
 
             // Propagate completion failure (surface already torn down):
             // libghostty frees the request state it allocated only when this
-            // callback returns false or the completion call actually lands,
-            // so an unconditional `true` here would strand the native request.
-            return view.completeClipboardRequest(
-                data: pasteString,
+            // callback returns a non-started result or the completion call
+            // actually lands, so an unconditional `.started` here would strand
+            // the native request.
+            let completed = view.completeReadRequest(
+                contents: contents,
+                available: available,
                 state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:))
             )
+            return completed
+                ? GHOSTTY_CLIPBOARD_READ_STARTED
+                : GHOSTTY_CLIPBOARD_READ_UNAVAILABLE
         }
     }
 
     nonisolated static func confirmReadClipboard(
         _ userdata: UnsafeMutableRawPointer?,
-        string: UnsafePointer<CChar>?,
+        confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
         state: UnsafeMutableRawPointer?,
         request: ghostty_clipboard_request_e
     ) {
@@ -151,7 +193,7 @@ extension GhosttyRuntime {
 
         let userdataAddress = UInt(bitPattern: userdata)
         let stateAddress = state.map(UInt.init(bitPattern:))
-        let stringAddress = string.map(UInt.init(bitPattern:))
+        let confirmAddress = confirm.map(UInt.init(bitPattern:))
 
         onMainThread {
             guard let userdata = UnsafeMutableRawPointer(bitPattern: userdataAddress) else {
@@ -165,7 +207,7 @@ extension GhosttyRuntime {
             let confirmClipboardRead = view.runtime.shouldConfirmClipboardRead
 
             // Peek at whether a dialog will actually be presented so the C
-            // string decode below can be skipped on the discard paths
+            // payload decode below can be skipped on the discard paths
             // (unknown/write kind, the toggle-disabled early-out, the
             // nested-request dedup guard). `resolveClipboardConfirmationRequest`
             // remains the single source of truth for whether to actually
@@ -181,18 +223,19 @@ extension GhosttyRuntime {
                 willPresentDialog = false
             }
 
-            // LOAD-BEARING INVARIANT: `string` is owned by libghostty and only
-            // valid for the synchronous duration of this callback — same
-            // ownership shape as `writeClipboard`'s `content` pointer below.
-            // The `Task { @MainActor in }` this feeds does NOT run
-            // synchronously with this call (Task{} schedules, it doesn't
-            // block), so the C string must be copied to a Swift `String`
+            // LOAD-BEARING INVARIANT: `confirm` and everything it points to are
+            // owned by libghostty and only valid for the synchronous duration
+            // of this callback — same ownership shape as `writeClipboard`'s
+            // `content` pointer below. The `Task { @MainActor in }` this feeds
+            // does NOT run synchronously with this call (Task{} schedules, it
+            // doesn't block), so the payload must be copied to Swift values
             // before entering the Task, never inside it.
             let requestData: String
             if willPresentDialog,
-               let stringAddress,
-               let string = UnsafePointer<CChar>(bitPattern: stringAddress) {
-                requestData = String(cString: string)
+                let confirmAddress,
+                let confirm = UnsafePointer<ghostty_clipboard_confirm_s>(bitPattern: confirmAddress)
+            {
+                requestData = Self.confirmPreviewText(from: confirm.pointee)
             } else {
                 requestData = ""
             }
@@ -211,14 +254,54 @@ extension GhosttyRuntime {
                     parentWindow: view.window,
                     confirmClipboardRead: confirmClipboardRead
                 ) { data, confirmed in
-                    view.completeClipboardRequest(
-                        data: data,
-                        state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:)),
-                        confirmed: confirmed
-                    )
+                    if confirmed {
+                        view.completeClipboardRequest(
+                            data: data,
+                            state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:)),
+                            confirmed: true
+                        )
+                    } else {
+                        // A dropped or cancelled confirmation denies the native
+                        // request outright — completing it unconfirmed is only
+                        // meaningful for read completions, never prompts.
+                        view.denyClipboardRequest(
+                            state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:))
+                        )
+                    }
                 }
             }
         }
+    }
+
+    /// Dialog preview text from a borrowed confirmation payload: the text/plain
+    /// representation when there is one, otherwise a per-representation byte
+    /// summary. Mirrors upstream's Ghostty.App.confirmReadClipboard decoding.
+    private nonisolated static func confirmPreviewText(
+        from confirm: ghostty_clipboard_confirm_s
+    ) -> String {
+        var representations: [(mime: String, data: Data)] = []
+        if let contents = confirm.contents {
+            for index in 0..<confirm.contents_len {
+                let content = contents[index]
+                guard let mimePtr = content.mime else { continue }
+                let mime = String(cString: mimePtr)
+                let data: Data =
+                    content.len > 0
+                    ? Data(bytes: content.data, count: content.len)
+                    : Data()
+                representations.append((mime, data))
+            }
+        }
+
+        if let textRepresentation = representations.first(where: { $0.mime == "text/plain" }),
+            let text = String(data: textRepresentation.data, encoding: .utf8)
+        {
+            return text
+        }
+        return
+            representations
+            .map { "\($0.mime) (\($0.data.count) bytes)" }
+            .joined(separator: "\n")
     }
 
     @MainActor

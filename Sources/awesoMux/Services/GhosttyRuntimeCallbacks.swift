@@ -910,20 +910,30 @@ func awesoMuxGhosttyAction(
 func awesoMuxGhosttyReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
-    _ state: UnsafeMutableRawPointer?
-) -> Bool {
-    GhosttyRuntime.readClipboard(userdata, location: location, state: state)
+    _ state: UnsafeMutableRawPointer?,
+    _ mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+    _ mimesLen: Int,
+    _ list: Bool
+) -> ghostty_clipboard_read_result_e {
+    GhosttyRuntime.readClipboard(
+        userdata,
+        location: location,
+        state: state,
+        mimes: mimes,
+        mimesLen: mimesLen,
+        list: list
+    )
 }
 
 func awesoMuxGhosttyConfirmReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
-    _ string: UnsafePointer<CChar>?,
+    _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
     _ state: UnsafeMutableRawPointer?,
     _ request: ghostty_clipboard_request_e
 ) {
     GhosttyRuntime.confirmReadClipboard(
         userdata,
-        string: string,
+        confirm: confirm,
         state: state,
         request: request
     )
