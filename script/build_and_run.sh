@@ -635,6 +635,7 @@ required_license_files=(
   "Wuffs/LICENSE"
   "Wuffs/LICENSE-APACHE"
   "Wuffs/LICENSE-MIT"
+  "Zig/LICENSE"
 )
 for license_file in "${required_license_files[@]}"; do
   source_license="$LICENSE_RESOURCES/$license_file"

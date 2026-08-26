@@ -1,7 +1,8 @@
 # Audited against GhosttyKit ReleaseFast at vendor/ghostty pin below.
 # ghostty_pin=5851d98615187d85052e41042bcf66e0ccec11d4
-# archive_member_count=276
-# archive_members_sha256=9aceb38bc7e4113cf2081c68c13faa8eb9a029d2443b39c1aed8114b04c1292a
+# zig_version_series=0.16
+# archive_member_count=277
+# archive_members_sha256=dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82
 #
 # component<TAB>pinned source<TAB>representative archive member<TAB>Licenses-relative files (| separated)
 FreeType	2.13.2 / N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub	ftbase.o	FreeType/LICENSE.TXT|FreeType/FTL.TXT|FreeType/GPLv2.TXT
@@ -20,3 +21,4 @@ Highway	1.2.0 / 66486a10623fa0d72fe91260f96c892e41aceb06	libhighway_zcu.o	Highwa
 glslang	14.2.0 / N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy	glslang_tab.o	glslang/LICENSE.txt
 SPIRV-Cross	13.1.1 / N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv	spirv_cross.o	SPIRV-Cross/LICENSE|SPIRV-Cross/KhronosFreeUse.txt
 Wuffs	7411f488fe2e2c205c3d3b3d28638b7356522930 / N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI	wuffs-v0.4.o	Wuffs/LICENSE|Wuffs/LICENSE-APACHE|Wuffs/LICENSE-MIT
+Zig compiler runtime	0.16.x compatible toolchain	compiler_rt.o	Zig/LICENSE

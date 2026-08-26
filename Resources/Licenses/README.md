@@ -35,6 +35,7 @@ named in the table:
 | glslang | 14.2.0 (`N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy`) | `glslang/LICENSE.txt` |
 | SPIRV-Cross | 13.1.1 (`N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv`) | `SPIRV-Cross/LICENSE`, `SPIRV-Cross/KhronosFreeUse.txt` |
 | Wuffs | `7411f488fe2e2c205c3d3b3d28638b7356522930` (`N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI`) | `Wuffs/LICENSE`, `Wuffs/LICENSE-APACHE`, `Wuffs/LICENSE-MIT` |
+| Zig compiler runtime | Compatible 0.16.x toolchain (exact artifact version stamped at build time; license copied from 0.16.0) | `Zig/LICENSE` |
 
 When a dependency pin changes, refresh its corresponding files from that exact
 revision in the same change. The two font rows record the version the bundled
@@ -52,3 +53,32 @@ sorted member inventory. `script/check_ghostty_third_party_licenses.sh` makes a
 Ghostty pin or archive-composition change fail until that binary audit and these
 license copies are refreshed. Dependencies declared by Ghostty but absent from
 the macOS archive are intentionally not listed here.
+
+### Refreshing the GhosttyKit audit
+
+After changing the Ghostty pin, build its ReleaseFast artifact and confirm the
+artifact stamps name the expected source and toolchain:
+
+```sh
+AWESOMUX_GHOSTTY_OPTIMIZE=ReleaseFast \
+  AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH=1 \
+  ./script/ensure_ghostty_artifacts.sh
+head -n 1 .build/ghostty/.built-from-sha .build/ghostty/.built-zig-version
+```
+
+Generate the complete sorted inventory without deduplicating same-named
+objects, then update the count and digest in the manifest:
+
+```sh
+LIB=.build/ghostty/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a
+members_file="$(mktemp -t awesomux-ghostty-members)"
+xcrun ar t "$LIB" | LC_ALL=C sort > "$members_file"
+wc -l "$members_file"
+shasum -a 256 "$members_file"
+```
+
+Do not update only the digest. Review every added or removed member, map it to
+the producing archive and Ghostty's exact pinned package source, and refresh
+the component row, license copies, bundle staging, About actions, and notices
+together. Finish with `./script/test-ghostty-third-party-licenses.sh` and
+`./script/check_ghostty_third_party_licenses.sh` before the full preflight.

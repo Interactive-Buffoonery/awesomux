@@ -1,7 +1,8 @@
 # Third-party notices
 
-awesoMux includes the following third-party components. Dependency revisions are
-recorded in `.gitmodules` and `Package.resolved`.
+awesoMux includes the following third-party components. Direct dependency
+revisions are recorded in `.gitmodules` and `Package.resolved`; GhosttyKit's
+linked dependency audit is recorded separately as described below.
 
 | Component | Use in awesoMux | License |
 | --- | --- | --- |
@@ -30,6 +31,7 @@ recorded in `.gitmodules` and `Package.resolved`.
 | [glslang](https://github.com/KhronosGroup/glslang) | Shader compilation statically linked through GhosttyKit | Bundled open-source licenses |
 | [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | Shader translation statically linked through GhosttyKit | Apache-2.0 and Khronos notice |
 | [Wuffs](https://github.com/google/wuffs) | Image decoding statically linked through GhosttyKit | Apache-2.0 or MIT |
+| [Zig compiler runtime](https://ziglang.org/) | Toolchain runtime statically linked into GhosttyKit | MIT |
 
 ## Sparkle
 

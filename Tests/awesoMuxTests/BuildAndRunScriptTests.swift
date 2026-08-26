@@ -169,6 +169,7 @@ struct BuildAndRunScriptTests {
         #expect(script.contains("GNU-gettext/COPYING.LIB"))
         #expect(script.contains("Breakpad/LICENSE"))
         #expect(script.contains("Wuffs/LICENSE-MIT"))
+        #expect(script.contains("Zig/LICENSE"))
         #expect(script.contains("check_ghostty_third_party_licenses.sh"))
     }
 

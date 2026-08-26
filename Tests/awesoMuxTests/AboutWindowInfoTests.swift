@@ -72,18 +72,12 @@ struct AboutWindowInfoTests {
 
         for credit in AboutCredit.all {
             let directory = licensesRoot.appendingPathComponent(credit.subdirectory, isDirectory: true)
-            let fileName = credit.ext.map { "\(credit.resource).\($0)" } ?? credit.resource
-            let licensePath = directory.appendingPathComponent(fileName)
-            #expect(
-                FileManager.default.fileExists(atPath: licensePath.path),
-                "Missing license file for \(credit.name): \(licensePath.path)")
-
-            if let notice = credit.notice {
-                let noticeName = notice.ext.map { "\(notice.resource).\($0)" } ?? notice.resource
-                let noticePath = directory.appendingPathComponent(noticeName)
+            for document in credit.documents {
+                let fileName = document.ext.map { "\(document.resource).\($0)" } ?? document.resource
+                let documentPath = directory.appendingPathComponent(fileName)
                 #expect(
-                    FileManager.default.fileExists(atPath: noticePath.path),
-                    "Missing notice file for \(credit.name): \(noticePath.path)")
+                    FileManager.default.fileExists(atPath: documentPath.path),
+                    "Missing license document for \(credit.name): \(documentPath.path)")
             }
         }
     }
@@ -102,6 +96,7 @@ struct AboutWindowInfoTests {
         #expect(sparkle?.resource == "LICENSE")
         #expect(sparkle?.ext == nil)
         #expect(sparkle?.subdirectory == "Sparkle")
+        #expect(sparkle?.documents.count == 1)
     }
 
     @Test("Every audited GhosttyKit component has an About credit")
@@ -111,6 +106,7 @@ struct AboutWindowInfoTests {
             "FreeType", "libpng", "zlib", "Oniguruma", "GNU gettext libintl",
             "Dear Bindings", "Dear ImGui", "sentry-native", "MPack", "stb_sprintf",
             "Google Breakpad", "simdutf", "Highway", "glslang", "SPIRV-Cross", "Wuffs",
+            "Zig compiler runtime",
         ]
 
         #expect(expected.isSubset(of: credited))
@@ -174,12 +170,17 @@ struct AboutWindowInfoTests {
                 return fields[3].split(separator: "|").map(String.init)
             })
         let copied = try bundledLicensePaths()
+        let exposed = Set(AboutCredit.all.flatMap(creditRelativePaths))
         let missingPaths = auditedPaths.subtracting(copied).sorted().joined(separator: ", ")
+        let hiddenPaths = auditedPaths.subtracting(exposed).sorted().joined(separator: ", ")
 
         #expect(!auditedPaths.isEmpty, "GhosttyKit audit manifest has no license paths")
         #expect(
             auditedPaths.isSubset(of: copied),
             "GhosttyKit audit licenses missing from required_license_files: \(missingPaths)")
+        #expect(
+            auditedPaths.isSubset(of: exposed),
+            "GhosttyKit audit licenses missing from About actions: \(hiddenPaths)")
     }
 
     /// `Resources/Licenses/README.md` records which upstream revision each
@@ -438,13 +439,10 @@ struct AboutWindowInfoTests {
     /// `Licenses/`-relative paths a credit points at, matching the entries in
     /// `required_license_files` (e.g. `Ghostty/LICENSE`, `swift-markdown/NOTICE.txt`).
     private func creditRelativePaths(_ credit: AboutCredit) -> [String] {
-        let license = credit.ext.map { "\(credit.resource).\($0)" } ?? credit.resource
-        var paths = ["\(credit.subdirectory)/\(license)"]
-        if let notice = credit.notice {
-            let noticeName = notice.ext.map { "\(notice.resource).\($0)" } ?? notice.resource
-            paths.append("\(credit.subdirectory)/\(noticeName)")
+        credit.documents.map { document in
+            let fileName = document.ext.map { "\(document.resource).\($0)" } ?? document.resource
+            return "\(credit.subdirectory)/\(fileName)"
         }
-        return paths
     }
 
     /// Repo root derived from this test file's location:
