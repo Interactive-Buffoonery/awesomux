@@ -15,4 +15,22 @@ enum FirstRunTourPolicy {
         guard !hasSeenTour, !hasPriorInstallEvidence else { return false }
         return mode == .firstLaunch
     }
+
+    static func hasPriorInstallEvidence(
+        snapshotExists: Bool,
+        configDirectoryExists: Bool
+    ) -> Bool {
+        snapshotExists || configDirectoryExists
+    }
+
+    /// Written once, before the tour can ever evaluate. Without it an existing
+    /// user upgrading into this build has the (false-by-default) flag and gets
+    /// greeted as brand new.
+    static func seedSeenFlagIfNeeded(
+        defaults: UserDefaults = .standard,
+        hasPriorInstallEvidence: Bool
+    ) {
+        guard hasPriorInstallEvidence else { return }
+        defaults.set(true, forKey: SettingsKey.hasSeenFirstRunTour)
+    }
 }

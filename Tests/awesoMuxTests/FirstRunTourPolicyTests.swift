@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import awesoMux
 
@@ -31,5 +32,28 @@ struct FirstRunTourPolicyTests {
     func noSelectionSuppresses() {
         #expect(FirstRunTourPolicy.shouldAutoPresent(
             hasSeenTour: false, hasPriorInstallEvidence: false, mode: .noSelection) == false)
+    }
+
+    @Test("Either artifact counts as prior use")
+    func evidenceSources() {
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(
+            snapshotExists: true, configDirectoryExists: false) == true)
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(
+            snapshotExists: false, configDirectoryExists: true) == true)
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(
+            snapshotExists: false, configDirectoryExists: false) == false)
+    }
+
+    @Test("Seeding marks an upgrading install as already seen")
+    func seedingWritesFlagOnlyForPriorInstalls() {
+        let upgraded = UserDefaults(suiteName: "tour.seed.upgraded")!
+        upgraded.removePersistentDomain(forName: "tour.seed.upgraded")
+        FirstRunTourPolicy.seedSeenFlagIfNeeded(defaults: upgraded, hasPriorInstallEvidence: true)
+        #expect(upgraded.bool(forKey: SettingsKey.hasSeenFirstRunTour) == true)
+
+        let fresh = UserDefaults(suiteName: "tour.seed.fresh")!
+        fresh.removePersistentDomain(forName: "tour.seed.fresh")
+        FirstRunTourPolicy.seedSeenFlagIfNeeded(defaults: fresh, hasPriorInstallEvidence: false)
+        #expect(fresh.bool(forKey: SettingsKey.hasSeenFirstRunTour) == false)
     }
 }
