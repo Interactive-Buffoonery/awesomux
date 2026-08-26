@@ -193,6 +193,7 @@ struct AwesoMuxApp: App {
     @State private var commandPaletteController = CommandPaletteController()
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
     @State private var aboutPanelController = AboutPanelController()
+    @State private var firstRunTourController = FirstRunTourController()
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
     @State private var worktreeManagerController = WorktreeManagerController()
@@ -567,6 +568,8 @@ struct AwesoMuxApp: App {
                 commandPaletteController.appSettingsStore = appSettingsStore
                 keyboardCheatsheetController.appSettingsStore = appSettingsStore
                 aboutPanelController.appSettingsStore = appSettingsStore
+                firstRunTourController.appSettingsStore = appSettingsStore
+                firstRunTourController.onOpenAgentSettings = { openSettingsWindow(section: .agents) }
                 sessionManagerController.appSettingsStore = appSettingsStore
                 worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
@@ -595,6 +598,24 @@ struct AwesoMuxApp: App {
                     saveSessionIfRestoreEnabled()
                 }
                 presentRecoveryWarningIfNeeded()
+
+                FirstRunTourPolicy.seedSeenFlagIfNeeded(
+                    hasPriorInstallEvidence: FirstRunTourPolicy.hasPriorInstallEvidence(
+                        snapshotExists: SessionPersistence.snapshotExists(),
+                        configDirectoryExists: appSettingsStore.configDirectoryExists()))
+
+                // Evaluated once, from this launch's snapshot. Closing the last
+                // group later returns the tree to `.firstLaunch`; that must not
+                // resurrect the tour.
+                if FirstRunTourPolicy.shouldAutoPresent(
+                    hasSeenTour: UserDefaults.standard.bool(forKey: SettingsKey.hasSeenFirstRunTour),
+                    hasPriorInstallEvidence: false,
+                    mode: EmptyWorkspaceMode.resolve(
+                        hasRecoveryWarning: recoveryWarning != nil,
+                        hasAnyGroup: !sessionStore.groups.isEmpty))
+                {
+                    firstRunTourController.show()
+                }
             }
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
@@ -770,6 +791,7 @@ struct AwesoMuxApp: App {
             .environment(appSettingsStore)
             .environment(updateController)
             .environment(documentTabActions)
+            .environment(firstRunTourController)
             .appearanceBridge(appSettingsStore)
             .modifier(CaptureOpenWindowAction(action: $openWindowAction))
         }
@@ -2672,6 +2694,10 @@ struct AwesoMuxApp: App {
         }
 
         if aboutPanelController.hideIfKeyWindow() {
+            return
+        }
+
+        if firstRunTourController.hideIfKeyWindow() {
             return
         }
 

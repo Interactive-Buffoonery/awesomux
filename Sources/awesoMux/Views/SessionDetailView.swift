@@ -23,6 +23,7 @@ struct SessionDetailView: View {
     let edgeTabVisibilitySource: SidebarVisibilitySource
     let sidebarPosition: AppearanceConfig.SidebarPosition
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(FirstRunTourController.self) private var firstRunTourController
     // Read here (ungated) and passed into the path bar as compared snapshots —
     // an in-view environment read stales behind its `.equatable()` gate
     // (PR #428). Free: `ContentView` above already reads `controlActiveState`,
@@ -157,7 +158,9 @@ struct SessionDetailView: View {
                     )
                 },
                 onOpenRecent: onReopenClosedWorkspace,
-                canReopenWorkspace: sessionStore.canReopenClosedWorkspace
+                canReopenWorkspace: sessionStore.canReopenClosedWorkspace,
+                initialAccessibilityFocusRequest: EmptyWorkspaceInitialAccessibilityFocusRequest(
+                    isFirstRunTourVisible: { firstRunTourController.isVisible })
             )
             .foregroundStyle(Color.aw.text2)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -371,11 +374,20 @@ struct EmptyWorkspaceView: View {
 final class EmptyWorkspaceInitialAccessibilityFocusRequest {
     private(set) var isConsumed = false
     fileprivate let applicationIsActive: () -> Bool
+    // The welcome tour owns VoiceOver focus while it's up: an auto-presented
+    // tour and this one-shot request otherwise compete for focus and one
+    // silently loses. Closes over the live controller, not a snapshot value,
+    // so dismissal restores normal behavior without re-constructing this.
+    fileprivate let isFirstRunTourVisible: () -> Bool
     private var isTransferPending = false
     private weak var focusedButton: EmptyWorkspacePrimaryActionFocusButton?
 
-    init(applicationIsActive: @escaping () -> Bool = { NSApp.isActive }) {
+    init(
+        applicationIsActive: @escaping () -> Bool = { NSApp.isActive },
+        isFirstRunTourVisible: @escaping () -> Bool = { false }
+    ) {
         self.applicationIsActive = applicationIsActive
+        self.isFirstRunTourVisible = isFirstRunTourVisible
     }
 
     fileprivate func consume(
@@ -667,6 +679,7 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
             let initialAccessibilityFocusRequest,
             !isRetired,
             initialAccessibilityFocusRequest.applicationIsActive(),
+            !initialAccessibilityFocusRequest.isFirstRunTourVisible(),
             let window,
             window.isVisible,
             window.isKeyWindow,
