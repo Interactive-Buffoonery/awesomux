@@ -384,7 +384,8 @@ done
 mkdir -p "$STAGING_DIR/share"
 ditto "$GHOSTTY_BUILT_SHARE_DIR" "$STAGING_DIR/share"
 
-rm -f "$ARTIFACT_DIR/.built-from-sha" "$ARTIFACT_DIR/.built-optimize"
+rm -f "$ARTIFACT_DIR/.built-from-sha" "$ARTIFACT_DIR/.built-optimize" \
+  "$ARTIFACT_DIR/.built-zig-version"
 if [[ -e "$GHOSTTY_XCFRAMEWORK" ]]; then
   mv "$GHOSTTY_XCFRAMEWORK" "$GHOSTTY_XCFRAMEWORK.old"
 fi
@@ -415,6 +416,8 @@ if VENDOR_SHA="$(git -C "$GHOSTTY_DIR" rev-parse HEAD 2>/dev/null)"; then
 fi
 printf '%s\n' "$AWESOMUX_GHOSTTY_OPTIMIZE" > "$ARTIFACT_DIR/.built-optimize.tmp"
 mv "$ARTIFACT_DIR/.built-optimize.tmp" "$ARTIFACT_DIR/.built-optimize"
+"$ZIG_BIN" version > "$ARTIFACT_DIR/.built-zig-version.tmp"
+mv "$ARTIFACT_DIR/.built-zig-version.tmp" "$ARTIFACT_DIR/.built-zig-version"
 
 echo "Built $GHOSTTY_XCFRAMEWORK"
 echo "Staged Ghostty link archives in $GHOSTTY_XCFRAMEWORK:"
