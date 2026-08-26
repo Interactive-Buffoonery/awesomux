@@ -220,9 +220,17 @@ extension ProcessAgentPluginRunner {
         let recordedSetupProbe = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
         var probeExecutable = resolvedExecutable(provider: .claudeCode, setup: recordedSetupProbe)
         let probeEnv = claudeEnvironment(setup: recordedSetupProbe)
+        // The probe must look for the *recorded* install: the uninstall below
+        // targets the recorded ref, so if a build ever renames the plugin or
+        // marketplace id, probing the fresh ref would read the recorded install
+        // as absent, skip its cleanup, and let the stale old-id cache survive a
+        // "successful" reinstall with the record rewritten — exactly the silent
+        // failure the clean-reinstall gate exists to prevent. Without a record
+        // there is nothing recorded to target, so the fresh ref stands in.
+        let probeRef = installRecord(provider: .claudeCode)?.pluginRef ?? ref
         var presence: ClaudeInstalledPresence
         do {
-            presence = try await claudePresence(ref: ref, executable: probeExecutable, env: probeEnv)
+            presence = try await claudePresence(ref: probeRef, executable: probeExecutable, env: probeEnv)
         } catch {
             // A recorded binary that no longer exists (`executableNotFound`)
             // would gate off the one operation that rewrites the record and
@@ -232,7 +240,7 @@ extension ProcessAgentPluginRunner {
             // could preserve the stale same-version cache.
             probeExecutable = executable
             presence =
-                (try? await claudePresence(ref: ref, executable: executable, env: probeEnv))
+                (try? await claudePresence(ref: probeRef, executable: executable, env: probeEnv))
                 ?? .installed(installPath: nil)
         }
 

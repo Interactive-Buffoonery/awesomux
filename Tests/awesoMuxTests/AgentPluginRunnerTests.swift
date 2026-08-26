@@ -1699,6 +1699,40 @@ struct AgentPluginRunnerTests {
         }
     }
 
+    @Test("Claude: a renamed plugin id still probes the recorded ref so its stale cache is cleaned up")
+    func claudeRenamedIdProbesRecordedRef() async throws {
+        let legacyRef = "awesomux-claude-status-legacy@awesomux-claude"
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            // The recorded install predates a rename: old id in the record, and
+            // the CLI still lists the installed copy under that old id. The
+            // fresh marketplace ref no longer matches anything on disk.
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+                $0.marketplaceName = "awesomux-claude"
+                $0.pluginName = "awesomux-claude-status-legacy"
+            }
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(stdout: Self.claudeList(enabled: true, installPath: nil, pluginRef: legacyRef))
+            )
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+
+            let argvs = command.invocations.dropFirst(before).map(\.args)
+            // The uninstall must target the RECORDED ref — probing the fresh
+            // ref would read absent, skip cleanup, and let the old-id cache
+            // survive the reinstall with the record rewritten.
+            #expect(
+                argvs.contains(["plugin", "uninstall", legacyRef, "--scope", "user"]),
+                "recorded-ref install must be uninstalled before reinstalling under the new id"
+            )
+        }
+    }
+
     @Test("Claude: a stale recorded helper path forces uninstall before reinstall")
     func claudeStaleHelperPathCleanReinstall() async throws {
         try await Self.withRunner { runner, command, _ in
@@ -2010,11 +2044,16 @@ struct AgentPluginRunnerTests {
 
     static let enabled = AgentIntegrationSetup(enabled: true)
 
-    static func claudeList(enabled: Bool, errors: [String] = [], installPath: String? = nil) -> String {
+    static func claudeList(
+        enabled: Bool,
+        errors: [String] = [],
+        installPath: String? = nil,
+        pluginRef: String = "awesomux-claude-status@awesomux-claude"
+    ) -> String {
         let errorsJSON = errors.isEmpty ? "[]" : "[\(errors.map { "\"\($0)\"" }.joined(separator: ","))]"
         let installPathJSON = installPath.map { "\"\($0)\"" } ?? "null"
         return """
-            [{"name":"awesomux-claude-status@awesomux-claude","enabled":\(enabled),"errors":\(errorsJSON),"installPath":\(installPathJSON)}]
+            [{"name":"\(pluginRef)","enabled":\(enabled),"errors":\(errorsJSON),"installPath":\(installPathJSON)}]
             """
     }
 

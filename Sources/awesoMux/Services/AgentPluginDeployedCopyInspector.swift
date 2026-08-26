@@ -47,18 +47,14 @@ enum AgentPluginDeployedCopyInspector {
         guard !commands.isEmpty else {
             return nil
         }
-        let bakedPaths = commands.flatMap { bakedHelperPaths(in: $0) }
-        let usesLadder = commands.contains { $0.contains("mdfind") }
-        let reachable =
-            usesLadder
-            || bakedPaths.contains { fileManager.isExecutableFile(atPath: $0) }
+        let reachability = helperReachability(ofCommands: commands, fileManager: fileManager)
         return Finding(
             differsFromCurrentRender: contentDrift(
                 deployed: deployedHooksData,
                 rendered: renderedHooksData
             ),
-            helperReachable: reachable,
-            firstBakedHelperPath: bakedPaths.first
+            helperReachable: reachability.reachable,
+            firstBakedHelperPath: reachability.firstBakedHelperPath
         )
     }
 
@@ -114,13 +110,24 @@ enum AgentPluginDeployedCopyInspector {
         guard !commands.isEmpty else {
             return nil
         }
-        let bakedPaths = commands.flatMap { bakedHelperPaths(in: $0) }
-        let usesLadder = commands.contains { $0.contains("mdfind") }
+        let reachability = helperReachability(ofCommands: commands, fileManager: fileManager)
         return Finding(
             differsFromCurrentRender: false,
-            helperReachable: usesLadder || bakedPaths.contains { fileManager.isExecutableFile(atPath: $0) },
-            firstBakedHelperPath: bakedPaths.first
+            helperReachable: reachability.reachable,
+            firstBakedHelperPath: reachability.firstBakedHelperPath
         )
+    }
+
+    private static func helperReachability(
+        ofCommands commands: [String],
+        fileManager: FileManager
+    ) -> (reachable: Bool, firstBakedHelperPath: String?) {
+        let bakedPaths = commands.flatMap { bakedHelperPaths(in: $0) }
+        let usesLadder = commands.contains { $0.contains("mdfind") }
+        let reachable =
+            usesLadder
+            || bakedPaths.contains { fileManager.isExecutableFile(atPath: $0) }
+        return (reachable, bakedPaths.first)
     }
 
     /// Hook command strings from a rendered/deployed `hooks.json` shape:
