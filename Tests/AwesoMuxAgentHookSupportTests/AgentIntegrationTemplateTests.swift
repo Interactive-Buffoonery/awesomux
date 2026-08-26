@@ -304,6 +304,9 @@ struct AgentIntegrationTemplateTests {
 
             for (const step of fixture.steps) {
                 if (step.repeatChildSessionCreated !== undefined) {
+                    if (Object.keys(step).length !== 1) {
+                        throw new Error(`routing fixture ${fixture.name} mixes repeat and event fields`)
+                    }
                     if (!Number.isInteger(step.repeatChildSessionCreated) || step.repeatChildSessionCreated < 1) {
                         throw new Error(`routing fixture ${fixture.name} has an invalid child repeat`)
                     }
@@ -320,14 +323,29 @@ struct AgentIntegrationTemplateTests {
                     continue
                 }
                 if (step.handler === "event") {
-                    if (!lifecycleEventTypes.has(step.input?.type) || !step.input.properties) {
+                    const allowedStepKeys = new Set(["handler", "input", "allowMissingSessionID"])
+                    if (Object.keys(step).some((key) => !allowedStepKeys.has(key))) {
+                        throw new Error(`routing fixture ${fixture.name} has unknown event fields`)
+                    }
+                    if (!lifecycleEventTypes.has(step.input?.type)
+                        || typeof step.input.properties !== "object"
+                        || step.input.properties === null
+                        || Array.isArray(step.input.properties)) {
                         throw new Error(`routing fixture ${fixture.name} has an invalid lifecycle event`)
                     }
-                    if (step.input.type === "session.created" && typeof step.input.properties.info?.id !== "string") {
-                        throw new Error(`routing fixture ${fixture.name} has a session.created event without an ID`)
+                    const sessionID = step.input.properties.info?.id ?? step.input.properties.sessionID
+                    if (step.allowMissingSessionID !== true && typeof sessionID !== "string") {
+                        throw new Error(`routing fixture ${fixture.name} has a lifecycle event without an ID`)
+                    }
+                    if (step.allowMissingSessionID === true
+                        && (step.input.type === "session.created" || sessionID !== undefined)) {
+                        throw new Error(`routing fixture ${fixture.name} expected a missing lifecycle ID`)
                     }
                     await handlers.event({ event: step.input })
                     continue
+                }
+                if (Object.keys(step).some((key) => key !== "handler" && key !== "input")) {
+                    throw new Error(`routing fixture ${fixture.name} has unknown handler fields`)
                 }
                 if (step.handler !== "chat.message" || typeof step.input?.sessionID !== "string") {
                     throw new Error(`routing fixture ${fixture.name} has an invalid handler`)

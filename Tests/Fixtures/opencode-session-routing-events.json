@@ -102,6 +102,7 @@
     "steps": [
       {
         "handler": "event",
+        "allowMissingSessionID": true,
         "input": {
           "type": "session.error",
           "properties": {}
