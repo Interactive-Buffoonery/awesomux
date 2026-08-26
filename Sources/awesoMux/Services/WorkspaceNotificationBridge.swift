@@ -11,7 +11,6 @@ final class WorkspaceNotificationBridge {
         static let workspaceNeedsAttention = "workspace-needs-attention"
     }
 
-    private let centerProvider: @MainActor () -> UNUserNotificationCenter
     private let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
         category: "notifications"
@@ -26,24 +25,22 @@ final class WorkspaceNotificationBridge {
 
     /// `UNUserNotificationCenter.current()` reads `Bundle.main` and crashes
     /// when the calling process isn't a real app bundle — true of the
-    /// unbundled `swift test` runner. Deferring it behind a closure (instead
-    /// of a stored `UNUserNotificationCenter`, whose designated init is
-    /// unavailable so it can neither be constructed nor faked directly)
-    /// keeps plain construction safe for tests that never touch a real
-    /// notification round trip.
+    /// unbundled `swift test` runner. `lazy` defers that call past
+    /// construction, so a bridge can still be built for tests that never
+    /// touch a real notification round trip (there is no other way to get an
+    /// instance: its designated init is unavailable and it can't be
+    /// subclassed).
     private lazy var center: UNUserNotificationCenter = {
-        let center = centerProvider()
+        let center = UNUserNotificationCenter.current()
         registerNotificationCategories(on: center)
         return center
     }()
 
     init(
-        center: @escaping @MainActor () -> UNUserNotificationCenter = { .current() },
         preferencesProvider: @escaping @MainActor () -> NotificationPreferences = {
             .defaultValue
         }
     ) {
-        self.centerProvider = center
         self.preferencesProvider = preferencesProvider
     }
 
@@ -70,16 +67,34 @@ final class WorkspaceNotificationBridge {
         isAuthorizationRequestInFlight = true
 
         refreshAuthorizationStatus { [weak self] status in
-            guard status == .notDetermined else {
-                self?.isAuthorizationRequestInFlight = false
-                return
-            }
-
-            self?.presentAuthorizationExplanation()
-            self?.requestAuthorization { _ in
-                self?.isAuthorizationRequestInFlight = false
-            }
+            self?.handlePrimeStatus(status)
         }
+    }
+
+    /// Split out of `requestAuthorizationWithExplanationIfNeeded`'s status
+    /// completion (not `private`) so both flag-clearing exits are callable
+    /// directly with a plain `UNAuthorizationStatus` — unit-testable without
+    /// constructing a `UNUserNotificationCenter`, same reasoning as the
+    /// `nonisolated static foregroundPresentationOptions` above. Only the
+    /// `!= .notDetermined` branch is safe to drive from a test: the
+    /// `.notDetermined` branch calls a real, blocking `NSAlert.runModal()`.
+    func handlePrimeStatus(_ status: UNAuthorizationStatus) {
+        guard status == .notDetermined else {
+            isAuthorizationRequestInFlight = false
+            return
+        }
+
+        presentAuthorizationExplanation()
+        requestAuthorization { [weak self] granted in
+            self?.handlePrimeRequestResult(granted: granted)
+        }
+    }
+
+    /// Split out of the same round trip's request completion, for the same
+    /// reason — lets a test drive the "the request finished" exit directly
+    /// with a plain `Bool`, without a real `UNUserNotificationCenter`.
+    func handlePrimeRequestResult(granted: Bool) {
+        isAuthorizationRequestInFlight = false
     }
 
     func postWorkspaceNotification(_ event: WorkspaceNotificationEvent) {
@@ -213,15 +228,6 @@ final class WorkspaceNotificationBridge {
     private func refreshAuthorizationStatus(
         completion: @escaping @MainActor (UNAuthorizationStatus) -> Void
     ) {
-        // Bypasses the real round trip when set, so tests can drive the
-        // status-dependent completion logic without a real center (see
-        // `center`'s doc comment for why one can't be faked directly).
-        if let overriddenStatus = authorizationStatusOverrideForTesting {
-            authorizationStatus = overriddenStatus
-            completion(overriddenStatus)
-            return
-        }
-
         center.getNotificationSettings { [weak self] settings in
             Task { @MainActor in
                 self?.authorizationStatus = settings.authorizationStatus
@@ -342,8 +348,6 @@ final class WorkspaceNotificationBridge {
     }
 
     private(set) var explanationPresentationCountForTesting = 0
-
-    var authorizationStatusOverrideForTesting: UNAuthorizationStatus?
 }
 
 private extension NotificationPreferences.InterruptionLevel {

@@ -16,19 +16,33 @@ struct WorkspaceNotificationBridgeTests {
         #expect(bridge.explanationPresentationCountForTesting == 0)
     }
 
-    // Guards the latch bug directly: coalescing alone can pass even if the
-    // flag is never cleared, since a permanently-true flag also drops every
-    // later call. This drives a full round trip (via the status override,
-    // never a real UNUserNotificationCenter — see WorkspaceNotificationBridge
-    // .center's doc comment) and requires the flag to come back down.
-    @Test("The in-flight flag is cleared once a round trip completes")
+    // Guards the latch bug on the "already decided" exit: a burst of
+    // mutations that finds authorization already denied/authorized must not
+    // leave the flag stuck true, or every later prime request drops forever.
+    // Drives `handlePrimeStatus` directly (see its doc comment) rather than
+    // the full round trip, since a real `UNUserNotificationCenter` crashes an
+    // unbundled test process.
+    @Test("The in-flight flag clears when the status is already decided")
     @MainActor
-    func clearsFlagAfterCompletedRoundTrip() {
+    func clearsFlagWhenStatusAlreadyDecided() {
         let bridge = WorkspaceNotificationBridge()
-        bridge.configurePreferencesProvider { NotificationPreferences.allEnabledForTesting }
-        bridge.authorizationStatusOverrideForTesting = .denied
+        bridge.beginAuthorizationRequestForTesting()
 
-        bridge.requestAuthorizationWithExplanationIfNeeded()
+        bridge.handlePrimeStatus(.denied)
+
+        #expect(bridge.isAuthorizationRequestInFlight == false)
+    }
+
+    // Guards the latch bug on the OTHER exit: once the system request itself
+    // finishes (granted or denied), the flag must also clear, or the first
+    // real "not determined yet" prime latches the bridge permanently.
+    @Test("The in-flight flag clears when the authorization request finishes")
+    @MainActor
+    func clearsFlagWhenRequestFinishes() {
+        let bridge = WorkspaceNotificationBridge()
+        bridge.beginAuthorizationRequestForTesting()
+
+        bridge.handlePrimeRequestResult(granted: true)
 
         #expect(bridge.isAuthorizationRequestInFlight == false)
     }
