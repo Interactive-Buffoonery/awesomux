@@ -791,7 +791,6 @@ jobs:
       - name: Generate signed appcast
         if: inputs.create_draft_release || startsWith(github.ref, 'refs/tags/')
         env:
-          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
         run: |
           set -euo pipefail
