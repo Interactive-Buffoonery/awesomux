@@ -49,6 +49,33 @@ struct ClaudePluginListParsingTests {
         #expect(entries[0].matches(ref))
     }
 
+    @Test("parses installPath when the CLI reports where it deployed the copy")
+    func parsesInstallPath() throws {
+        let json = """
+            [{
+              "id": "awesomux-claude-status@awesomux-claude",
+              "version": "0.1.0",
+              "scope": "user",
+              "enabled": true,
+              "installPath": "/Users/example/.claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0",
+              "installedAt": "2026-07-01T14:30:14.535Z",
+              "lastUpdated": "2026-07-01T14:30:14.535Z"
+            }]
+            """
+        let entries = try ClaudePluginList.parse(json)
+        #expect(
+            entries[0].installPath == "/Users/example/.claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0")
+    }
+
+    @Test("entries without installPath decode as nil so deployed checks fall back")
+    func toleratesMissingInstallPath() throws {
+        let json = """
+            [{"id": "awesomux-claude-status@awesomux-claude", "enabled": true}]
+            """
+        let entries = try ClaudePluginList.parse(json)
+        #expect(entries[0].installPath == nil)
+    }
+
     @Test("does not match a differently-named id")
     func rejectsMismatchedID() throws {
         let json = """

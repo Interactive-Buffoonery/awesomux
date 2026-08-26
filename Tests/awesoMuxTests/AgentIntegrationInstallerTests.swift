@@ -107,6 +107,23 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
+    @Test("a bare-init installer resolves install state beside its own support dir, out of the installed app's")
+    func bareInitInstallStateFollowsRuntimeProfile() {
+        // INT-882 regression: with no explicit directories the installer used
+        // to pin install state to the production canonical path even in dev
+        // builds, so a development run rewrote the installed app's manifest.
+        let installer = AgentIntegrationInstaller()
+        #expect(
+            installer.installStateDirectoryURL
+                == installer.supportDirectoryURL.appending(path: "AgentIntegrations", directoryHint: .isDirectory))
+        #expect(
+            installer.manifestURL
+                == installer.installStateDirectoryURL.appending(path: "install-manifest.json"))
+        #expect(
+            installer.supportDirectoryURL
+                != AppRuntimeProfile.production.supportDirectoryURL)
+    }
+
     @Test("legacy development manifest imports only when canonical state is absent")
     func importsLegacyManifestWithoutOverwritingCanonicalState() throws {
         try Self.withTemporaryDirectory { directory in

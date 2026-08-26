@@ -120,10 +120,16 @@ struct AgentIntegrationInstaller {
         manifestWriter: ((AgentIntegrationInstallManifest) throws -> Void)? = nil
     ) {
         let resolvedSupportDirectoryURL = supportDirectoryURL ?? SessionPersistence.supportDirectoryURL
+        // Default the install-state location to the *running profile's* support
+        // directory, not a hardcoded production path (INT-882): a development
+        // build that fell through to the canonical production directory would
+        // read and rewrite the installed app's install manifest while baking
+        // its own dist/ helper paths into provider installs — each build then
+        // saw the other's records as drift and nagged for reinstalls.
         let resolvedInstallStateDirectoryURL =
             installStateDirectoryURL
             ?? supportDirectoryURL?.appending(path: "AgentIntegrations", directoryHint: .isDirectory)
-            ?? AgentIntegrationInstallStateLocation.canonicalDirectoryURL
+            ?? resolvedSupportDirectoryURL.appending(path: "AgentIntegrations", directoryHint: .isDirectory)
         self.resourcesDirectoryURL = resourcesDirectoryURL
         self.supportDirectoryURL = resolvedSupportDirectoryURL
         self.installStateDirectoryURL = resolvedInstallStateDirectoryURL

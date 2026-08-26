@@ -505,7 +505,7 @@ struct AgentPluginCard: View {
             Color.aw.textFaint
         case .enabled:
             Color.aw.green
-        case .needsReview:
+        case .needsReview, .updateAvailable:
             Color.aw.peach
         case .needsRepair, .unsupported:
             Color.aw.red
