@@ -102,6 +102,7 @@ private struct SidebarEmptyRailFixture {
             canMakeWorkspaceManaged: { _ in false },
             onMakeWorkspaceManaged: { _ in },
             onOpenQuickSettings: {},
+            onShowWelcomeTour: {},
             onToggleCommandPalette: {},
             onFocusPane: { _, _ in },
             focusRequestID: nil,

@@ -19,6 +19,7 @@ struct SidebarStatusFooterLayoutTests {
             total: 19,
             displayMode: .expanded,
             onOpenQuickSettings: {},
+            onShowWelcomeTour: {},
             onSelectNextMatchingState: { _ in },
             onToggleActivityPanel: { _ in },
             activityPanelOpen: false

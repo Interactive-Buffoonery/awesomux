@@ -40,6 +40,7 @@ struct SidebarView: View {
     let canMakeWorkspaceManaged: (TerminalSession) -> Bool
     let onMakeWorkspaceManaged: (TerminalSession) -> Void
     let onOpenQuickSettings: () -> Void
+    let onShowWelcomeTour: () -> Void
     /// Opens the command palette from the collapsed rail's search button —
     /// the rail is too narrow for the inline search field (INT-537).
     let onToggleCommandPalette: () -> Void
@@ -518,6 +519,7 @@ struct SidebarView: View {
                 activityPanelOpen: $activityPanelOpen,
                 activityPanelScrollTarget: $activityPanelScrollTarget,
                 onOpenQuickSettings: onOpenQuickSettings,
+                onShowWelcomeTour: onShowWelcomeTour,
                 onFocusPane: onFocusPane
             )
             .equatable()
@@ -1704,6 +1706,7 @@ private struct SidebarActivitySection: View, Equatable {
     @Binding var activityPanelOpen: Bool
     @Binding var activityPanelScrollTarget: AgentDisplayState?
     let onOpenQuickSettings: () -> Void
+    let onShowWelcomeTour: () -> Void
     let onFocusPane: (TerminalSession.ID, UUID) -> Void
 
     // The equatable gate freezes the previous view value — closures included —
@@ -1744,6 +1747,7 @@ private struct SidebarActivitySection: View, Equatable {
                 total: roster.total,
                 displayMode: invalidationKey.displayMode,
                 onOpenQuickSettings: onOpenQuickSettings,
+                onShowWelcomeTour: onShowWelcomeTour,
                 onSelectNextMatchingState: { focusNextAgentPane(matching: $0, in: roster) },
                 onToggleActivityPanel: { state in
                     // Chips only open/retarget; closing lives on the total

@@ -395,6 +395,7 @@ struct AwesoMuxApp: App {
                 hasSessionSaveFailure: sessionSaveFailure != nil,
                 onRetrySessionSave: saveSessionIfRestoreEnabled,
                 onOpenQuickSettings: requestQuickSettings,
+                onShowWelcomeTour: { firstRunTourController.show() },
                 onToggleCommandPalette: toggleCommandPalette,
                 onOpenSelectedWorkspaceInIDE: { openSelectedWorkspaceInIDE() },
                 onOpenSelectedWorkspaceInIDEWithApp: open,
@@ -4391,7 +4392,8 @@ struct AwesoMuxApp: App {
             },
             openWorktreeManager: showWorktreeManager,
             createWorktree: presentWorktreeCreateForm,
-            openWorktree: showWorktreeManager
+            openWorktree: showWorktreeManager,
+            showWelcomeTour: { firstRunTourController.show() }
         )
     }
 

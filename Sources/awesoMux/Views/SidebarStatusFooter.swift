@@ -7,6 +7,7 @@ struct SidebarStatusFooter: View {
     let total: Int
     let displayMode: SidebarWidthMode
     let onOpenQuickSettings: () -> Void
+    let onShowWelcomeTour: () -> Void
     let onSelectNextMatchingState: (AwState) -> Void
     /// Toggle the roster panel (expanded mode). nil = opened via the total label
     /// (no scroll target); a state opens the panel scrolled to that group.
@@ -162,6 +163,10 @@ struct SidebarStatusFooter: View {
 
     private var feedbackMenu: some View {
         Menu {
+            Button("Show Welcome Tour") {
+                onShowWelcomeTour()
+            }
+            Divider()
             Button("Report a bug…") {
                 openFeedbackForm()
             }
