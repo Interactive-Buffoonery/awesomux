@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -33,6 +34,52 @@ struct AgentIntegrationTemplateTests {
         #expect(template.contains("tool.execute.after"))
         #expect(!template.contains("AWESOMUX_AGENT_ENABLED_SOURCES"))
         #expect(!template.contains("AWESOMUX_SOURCE"))
+    }
+
+    @Test
+    func openCodeTemplateRoutesOnlyRootLifecycleEvents() throws {
+        let template = try Self.contents(
+            of: "Resources/AgentIntegrations/open_code/awesomux-opencode-status.js.template"
+        )
+        let fixtureURL = try Self.packageRootURL()
+            .appendingPathComponent("Tests/Fixtures/opencode-session-routing-events.json")
+        let fixtureData = try Data(contentsOf: fixtureURL)
+        let fixtures = try JSONDecoder().decode([OpenCodeRoutingFixture].self, from: fixtureData)
+
+        #expect(
+            fixtures.map(\.name) == [
+                "root lifecycle",
+                "child lifecycle",
+                "unknown lifecycle",
+                "missing ID lifecycle",
+                "child lifecycle after root tracking reset",
+            ])
+
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-opencode-routing")
+        let harnessURL = temporaryDirectory.url.appendingPathComponent("routing-harness.mjs")
+        try Data((template + Self.openCodeRoutingHarness).utf8).write(to: harnessURL)
+
+        let node = try #require(
+            Self.executableOnPath("node"),
+            "Node is required to evaluate the bundled OpenCode status template"
+        )
+        let process = Process()
+        process.executableURL = node
+        process.arguments = [harnessURL.path, fixtureURL.path]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "AWESOMUX_AGENT_EVENT_PROTOCOL": "awesomux-agent-v1",
+            "AWESOMUX_AGENT_EVENT_FILE": "/tmp/awesomux-routing-test-events.jsonl",
+            "AWESOMUX_AGENT_HOOK": "awesoMuxAgentHook",
+        ]) { _, new in new }
+        let output = try captureOutput(of: process)
+        try #require(process.terminationStatus == 0, "Node routing harness failed: \(output.stderr)")
+
+        let outputs = try JSONDecoder().decode([OpenCodeRoutingOutput].self, from: Data(output.stdout.utf8))
+        #expect(outputs.map(\.name) == fixtures.map(\.name))
+        for fixture in fixtures {
+            let output = try #require(outputs.first { $0.name == fixture.name })
+            #expect(output.emitted == fixture.expected)
+        }
     }
 
     @Test
@@ -214,5 +261,84 @@ struct AgentIntegrationTemplateTests {
             "Package.swift not found at \(manifest.path); the test file likely moved depth"
         )
         return root
+    }
+
+    private static func executableOnPath(_ name: String) -> URL? {
+        guard let path = ProcessInfo.processInfo.environment["PATH"] else {
+            return nil
+        }
+        for directory in path.split(separator: ":") {
+            let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(name)
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private static let openCodeRoutingHarness = #"""
+
+        import { readFileSync } from "node:fs"
+
+        const fixtures = JSON.parse(readFileSync(process.argv[2], "utf8"))
+        const outputs = []
+
+        for (const fixture of fixtures) {
+            const emitted = []
+            const capture = (_strings, ...values) => ({
+                quiet: async () => {
+                    const response = values.find((value) => value instanceof Response)
+                    if (!response) {
+                        throw new Error("awesoMux hook invocation did not include a Response payload")
+                    }
+                    emitted.push(JSON.parse(await response.text()))
+                },
+            })
+            const handlers = await AwesoMuxOpenCodeStatus({ $: capture })
+
+            for (const step of fixture.steps) {
+                if (step.repeatRootSessionCreated) {
+                    for (let index = 0; index < step.repeatRootSessionCreated; index += 1) {
+                        await handlers.event({
+                            event: {
+                                type: "session.created",
+                                properties: { info: { id: `root-${index}` } },
+                            },
+                        })
+                    }
+                    emitted.length = 0
+                    continue
+                }
+                if (step.handler === "event") {
+                    await handlers.event({ event: step.input })
+                    continue
+                }
+                await handlers[step.handler](step.input)
+            }
+
+            outputs.push({ name: fixture.name, emitted })
+        }
+
+        process.stdout.write(JSON.stringify(outputs))
+        """#
+
+    private struct OpenCodeRoutingFixture: Decodable {
+        let name: String
+        let expected: [OpenCodeHookEmission]
+    }
+
+    private struct OpenCodeRoutingOutput: Decodable {
+        let name: String
+        let emitted: [OpenCodeHookEmission]
+    }
+
+    private struct OpenCodeHookEmission: Decodable, Equatable {
+        let hookEventName: String
+        let sessionID: String?
+
+        enum CodingKeys: String, CodingKey {
+            case hookEventName = "hook_event_name"
+            case sessionID = "session_id"
+        }
     }
 }
