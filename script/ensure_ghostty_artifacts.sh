@@ -96,6 +96,7 @@ _ghostty_artifacts_present() {
   done
   [[ -f "$dir/share/terminfo/78/xterm-ghostty" ]] || return 1
   [[ -d "$dir/share/ghostty/shell-integration" ]] || return 1
+  [[ -f "$dir/.built-zig-version" ]] || return 1
   _ghostty_optimize_stamp_matches "$dir" || return 1
   _ghostty_sha_stamp_matches "$dir" || return 1
   return 0

@@ -34,6 +34,7 @@ build, signing, and launch verification. Run focused native groups with:
 ./script/test.sh unit
 ./script/test.sh adapter
 ./script/test.sh system
+./script/test.sh zmx
 ./script/test.sh all
 ```
 
@@ -69,15 +70,20 @@ Maintainers may also dispatch the workflow manually and select `all`, `unit`,
 SHA. They are restore-only and do not populate caches.
 
 The `all` scope runs the existing interfaces rather than introducing another
-build system, split across three parallel jobs plus a release-build job:
+build system. It uses four parallel test jobs plus a release-build job:
 
 ```sh
+./script/test.sh zmx         # vendored Zig backend suite
 ./script/test.sh timing      # one runner, one swift test process
 ./script/test.sh sidebar     # a second runner, AppKit-heavy sidebar suites
 ./script/test.sh nontiming   # a third runner, all remaining tests
 ./script/build_and_run.sh --stage-release   # after all test jobs succeed
 codesign --verify --deep --strict --verbose=2 dist/awesoMux.app
 ```
+
+The zmx job installs the Zig version declared by `vendor/zmx` and runs from the
+package directory. This avoids Zig 0.16's relative `--build-file` build-root
+failure and keeps zmx's toolchain independent from the app's Ghostty toolchain.
 
 `timing` isolates the suites that make real, synchronous, blocking OS calls
 (Unix-socket handshakes, subprocesses, file watchers, file locks) into their
@@ -90,12 +96,13 @@ removes that cross-suite contention. The `sidebar` shard separately bounds
 concurrent AppKit animation waits; those suites can reach the dispatch thread
 soft limit when scheduled with the rest of the target even without the timing
 suites. `nontiming` contains the remaining tests (`all` minus `timing` and
-`sidebar`). Local `./script/test.sh all` and `./script/preflight.sh` run the same
-three shards sequentially, reusing the first shard's build for the other two.
+`sidebar`). Local `./script/test.sh all` and `./script/preflight.sh` run zmx and
+the same three Swift shards sequentially, reusing the first Swift shard's build
+for the other two.
 
 `./script/test.sh all` intentionally rejects additional `swift test` arguments:
 the old fallback ran every test in one process and could exhaust AppKit's
-dispatch-thread limit. Use `timing`, `sidebar`, and `nontiming` explicitly when
+dispatch-thread limit. Use `zmx`, `timing`, `sidebar`, and `nontiming` explicitly when
 you need custom arguments. Give each shard a distinct path when collecting
 `--xunit-output`.
 

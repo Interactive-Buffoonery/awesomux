@@ -1,0 +1,24 @@
+# Audited against GhosttyKit ReleaseFast at vendor/ghostty pin below.
+# ghostty_pin=5851d98615187d85052e41042bcf66e0ccec11d4
+# zig_version_series=0.16
+# archive_member_count=277
+# archive_members_sha256=dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82
+#
+# component<TAB>pinned source<TAB>representative archive member<TAB>Licenses-relative files (| separated)
+FreeType	2.13.2 / N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub	ftbase.o	FreeType/LICENSE.TXT|FreeType/FTL.TXT|FreeType/GPLv2.TXT
+libpng	1.6.43 / N-V-__8AAJrvXQCqAT8Mg9o_tk6m0yf5Fz-gCNEOKLyTSerD	png.o	libpng/LICENSE
+zlib	1.3.1 / N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o	deflate.o	zlib/LICENSE
+Oniguruma	6.9.9 / N-V-__8AAHjwMQDBXnLq3Q2QhaivE0kE2aD138vtX2Bq1g7c	onig_init.o	Oniguruma/COPYING
+GNU gettext libintl	0.24 / N-V-__8AADcZkgn4cMhTUpIz6mShCKyqqB-NBtf_S2bHaTC-	dcigettext.o	GNU-gettext/COPYING.LIB
+Dear Bindings	v0.17 / 2b12a29197ec944cd364031a9776cde814546d52	dcimgui.o	DearBindings/LICENSE.txt
+Dear ImGui	1.92.5-docking / 3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c	imgui.o	DearImGui/LICENSE.txt
+sentry-native	0.7.8 / N-V-__8AAPlZGwBEa-gxrcypGBZ2R8Bse4JYSfo_ul8i2jlG	sentry_core.o	sentry-native/LICENSE
+MPack	1.0 / vendored by sentry-native 0.7.8	mpack.o	MPack/LICENSE
+stb_sprintf	1.09 / vendored by sentry-native 0.7.8	stb.o	stb-sprintf/LICENSE
+Google Breakpad	b99f444ba5f6b98cac261cbb391d8766b34a5918	exception_handler.o	Breakpad/LICENSE
+simdutf	9.0.0 / ca7acbcea967b5dcbab490066e99e3a6e6925539	simdutf.o	simdutf/LICENSE-MIT|simdutf/LICENSE-APACHE|simdutf/NOTICE-BSD3
+Highway	1.2.0 / 66486a10623fa0d72fe91260f96c892e41aceb06	libhighway_zcu.o	Highway/LICENSE|Highway/LICENSE-BSD3
+glslang	14.2.0 / N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy	glslang_tab.o	glslang/LICENSE.txt
+SPIRV-Cross	13.1.1 / N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv	spirv_cross.o	SPIRV-Cross/LICENSE|SPIRV-Cross/KhronosFreeUse.txt
+Wuffs	7411f488fe2e2c205c3d3b3d28638b7356522930 / N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI	wuffs-v0.4.o	Wuffs/LICENSE|Wuffs/LICENSE-APACHE|Wuffs/LICENSE-MIT
+Zig compiler runtime	0.16.x compatible toolchain	compiler_rt.o	Zig/LICENSE
