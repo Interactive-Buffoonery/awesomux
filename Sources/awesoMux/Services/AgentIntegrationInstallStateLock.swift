@@ -45,13 +45,7 @@ final class AgentIntegrationInstallStateLock: @unchecked Sendable {
         descriptor = -1
     }
 }
-
 enum AgentIntegrationInstallStateLocation {
-    static var canonicalDirectoryURL: URL {
-        AppRuntimeProfile.production.supportDirectoryURL
-            .appending(path: "AgentIntegrations", directoryHint: .isDirectory)
-    }
-
     static var legacyDevelopmentDirectoryURL: URL {
         AppRuntimeProfile.development(worktreeID: nil).supportDirectoryURL
             .appending(path: "AgentIntegrations", directoryHint: .isDirectory)
