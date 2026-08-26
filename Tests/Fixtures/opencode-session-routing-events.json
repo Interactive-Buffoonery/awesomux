@@ -1,0 +1,197 @@
+[
+  {
+    "name": "root lifecycle",
+    "steps": [
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.created",
+          "properties": {
+            "info": {
+              "id": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.idle",
+          "properties": {
+            "info": {
+              "id": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.error",
+          "properties": {
+            "info": {
+              "id": "root-session"
+            }
+          }
+        }
+      }
+    ],
+    "expected": [
+      {
+        "hook_event_name": "SessionStart",
+        "session_id": "root-session"
+      },
+      {
+        "hook_event_name": "Stop",
+        "session_id": "root-session"
+      },
+      {
+        "hook_event_name": "StopFailure",
+        "session_id": "root-session"
+      }
+    ]
+  },
+  {
+    "name": "child lifecycle",
+    "steps": [
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.created",
+          "properties": {
+            "info": {
+              "id": "child-session",
+              "parentID": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.idle",
+          "properties": {
+            "info": {
+              "id": "child-session"
+            }
+          }
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "unknown lifecycle",
+    "steps": [
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.idle",
+          "properties": {
+            "info": {
+              "id": "unknown-session"
+            }
+          }
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "missing ID lifecycle",
+    "steps": [
+      {
+        "handler": "event",
+        "allowMissingSessionID": true,
+        "input": {
+          "type": "session.error",
+          "properties": {}
+        }
+      }
+    ],
+    "expected": []
+  },
+  {
+    "name": "out-of-order child lifecycle",
+    "steps": [
+      {
+        "handler": "chat.message",
+        "input": {
+          "sessionID": "late-child-session"
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.created",
+          "properties": {
+            "info": {
+              "id": "late-child-session",
+              "parentID": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.idle",
+          "properties": {
+            "info": {
+              "id": "late-child-session"
+            }
+          }
+        }
+      }
+    ],
+    "expected": [
+      {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "late-child-session"
+      }
+    ]
+  },
+  {
+    "name": "child lifecycle after tracking pressure",
+    "steps": [
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.created",
+          "properties": {
+            "info": {
+              "id": "child-session",
+              "parentID": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "repeatChildSessionCreated": 512
+      },
+      {
+        "handler": "chat.message",
+        "input": {
+          "sessionID": "child-session"
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.idle",
+          "properties": {
+            "info": {
+              "id": "child-session"
+            }
+          }
+        }
+      }
+    ],
+    "expected": [
+      {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "child-session"
+      }
+    ]
+  }
+]
