@@ -32,7 +32,7 @@ struct UpdateAvailableIndicator: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Self.accessibilityLabel(for: version))
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
             .menuIndicator(.hidden)
             .tint(Color.aw.accent(accentResolver.accent))
             .frame(
