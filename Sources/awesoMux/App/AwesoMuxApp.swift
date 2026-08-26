@@ -204,6 +204,7 @@ struct AwesoMuxApp: App {
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
     @State private var customCommandStore = CustomCommandStore()
+    @State private var settingsSectionRequest = SettingsSectionRequest()
     @State private var isCloseConfirmAlertPresented = false
     @State private var sidebarPresentationCommandMailbox = SidebarPresentationCommandMailbox()
     @State private var sidebarWidthToggleRequestID: UUID?
@@ -1343,6 +1344,7 @@ struct AwesoMuxApp: App {
         Window("Settings", id: AwesoMuxSceneID.settings) {
             AwesoMuxSettingsView()
                 .environment(appSettingsStore)
+                .environment(settingsSectionRequest)
                 // Keys pane manages custom command shortcuts (INT-755).
                 .environment(customCommandStore)
                 // Notifications pane reads/writes per-workspace mute (INT-598).
@@ -4316,7 +4318,7 @@ struct AwesoMuxApp: App {
             recenterPalette: {
                 commandPaletteController.recenter()
             },
-            openSettings: openSettingsWindow,
+            openSettings: { openSettingsWindow() },
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
@@ -4849,13 +4851,14 @@ struct AwesoMuxApp: App {
         return validated.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
-    private func openSettingsWindow() {
+    private func openSettingsWindow(section: SettingsSectionID? = nil) {
         guard let openWindowAction else {
             assertionFailure("Open Settings requested before openWindow action was captured.")
             NSSound.beep()
             return
         }
 
+        if let section { settingsSectionRequest.request(section) }
         openWindowAction(id: AwesoMuxSceneID.settings)
     }
 

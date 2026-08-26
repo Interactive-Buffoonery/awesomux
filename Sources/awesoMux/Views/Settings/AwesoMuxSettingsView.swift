@@ -5,6 +5,7 @@ import SwiftUI
 
 struct AwesoMuxSettingsView: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(SettingsSectionRequest.self) private var sectionRequest
     @State private var selection: SettingsSectionID = .general
     @State private var escapeMonitor = SettingsEscapeMonitor()
 
@@ -23,6 +24,14 @@ struct AwesoMuxSettingsView: View {
         .background(WindowAccessor { escapeMonitor.window = $0 })
         .onAppear { escapeMonitor.start() }
         .onDisappear { escapeMonitor.stop() }
+        // Two paths, both required: onAppear covers "Settings was closed",
+        // onChange covers "Settings already open on another section".
+        .onAppear {
+            if let target = sectionRequest.consume() { selection = target }
+        }
+        .onChange(of: sectionRequest.pending) { _, _ in
+            if let target = sectionRequest.consume() { selection = target }
+        }
     }
 
     @ViewBuilder
