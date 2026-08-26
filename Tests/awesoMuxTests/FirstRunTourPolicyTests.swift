@@ -6,42 +6,50 @@ import Testing
 struct FirstRunTourPolicyTests {
     @Test("A brand-new install on an empty tree is eligible")
     func newInstallIsEligible() {
-        #expect(FirstRunTourPolicy.shouldAutoPresent(
-            hasSeenTour: false, hasPriorInstallEvidence: false, mode: .firstLaunch) == true)
+        #expect(
+            FirstRunTourPolicy.shouldAutoPresent(
+                hasSeenTour: false, hasPriorInstallEvidence: false, mode: .firstLaunch) == true)
     }
 
     @Test("An upgrading user is never greeted as new")
     func priorInstallSuppresses() {
-        #expect(FirstRunTourPolicy.shouldAutoPresent(
-            hasSeenTour: false, hasPriorInstallEvidence: true, mode: .firstLaunch) == false)
+        #expect(
+            FirstRunTourPolicy.shouldAutoPresent(
+                hasSeenTour: false, hasPriorInstallEvidence: true, mode: .firstLaunch) == false)
     }
 
     @Test("Dismissed once, never auto-shown again")
     func seenSuppresses() {
-        #expect(FirstRunTourPolicy.shouldAutoPresent(
-            hasSeenTour: true, hasPriorInstallEvidence: false, mode: .firstLaunch) == false)
+        #expect(
+            FirstRunTourPolicy.shouldAutoPresent(
+                hasSeenTour: true, hasPriorInstallEvidence: false, mode: .firstLaunch) == false)
     }
 
     @Test("A quarantined session outranks onboarding")
     func recoveredSuppresses() {
-        #expect(FirstRunTourPolicy.shouldAutoPresent(
-            hasSeenTour: false, hasPriorInstallEvidence: false, mode: .recovered) == false)
+        #expect(
+            FirstRunTourPolicy.shouldAutoPresent(
+                hasSeenTour: false, hasPriorInstallEvidence: false, mode: .recovered) == false)
     }
 
     @Test("A returning user between workspaces is not new")
     func noSelectionSuppresses() {
-        #expect(FirstRunTourPolicy.shouldAutoPresent(
-            hasSeenTour: false, hasPriorInstallEvidence: false, mode: .noSelection) == false)
+        #expect(
+            FirstRunTourPolicy.shouldAutoPresent(
+                hasSeenTour: false, hasPriorInstallEvidence: false, mode: .noSelection) == false)
     }
 
     @Test("Either artifact counts as prior use")
     func evidenceSources() {
-        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(
-            snapshotExists: true, configDirectoryExists: false) == true)
-        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(
-            snapshotExists: false, configDirectoryExists: true) == true)
-        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(
-            snapshotExists: false, configDirectoryExists: false) == false)
+        #expect(
+            FirstRunTourPolicy.hasPriorInstallEvidence(
+                snapshotExists: true, configDirectoryExists: false) == true)
+        #expect(
+            FirstRunTourPolicy.hasPriorInstallEvidence(
+                snapshotExists: false, configDirectoryExists: true) == true)
+        #expect(
+            FirstRunTourPolicy.hasPriorInstallEvidence(
+                snapshotExists: false, configDirectoryExists: false) == false)
     }
 
     @Test("Seeding marks an upgrading install as already seen")

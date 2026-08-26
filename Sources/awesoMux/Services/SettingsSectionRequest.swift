@@ -1,4 +1,4 @@
-import SwiftUI
+import Observation
 
 /// One-shot hand-off for "open Settings *on this section*".
 ///

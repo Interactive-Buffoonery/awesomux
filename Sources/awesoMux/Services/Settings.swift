@@ -74,7 +74,7 @@ enum SettingsDefault {
             SettingsKey.updateChannel: updateChannel,
             SettingsKey.lastUpdateCheckEpoch: lastUpdateCheckEpoch,
             SettingsKey.appKitStateRestorationEnabled: appKitStateRestorationEnabled,
-            SettingsKey.hasSeenFirstRunTour: hasSeenFirstRunTour
+            SettingsKey.hasSeenFirstRunTour: hasSeenFirstRunTour,
         ])
     }
 }
