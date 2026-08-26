@@ -27,6 +27,11 @@ enum SettingsKey {
     static let updateChannel = "settings.updateChannel"
     static let lastUpdateCheckEpoch = "settings.lastUpdateCheckEpoch"
     static let appKitStateRestorationEnabled = "settings.appKitStateRestorationEnabled"
+    /// Machine-owned "have they been shown the welcome tour" bit. UserDefaults
+    /// rather than TOML deliberately: TOML is the hand-editable user surface
+    /// and this is not a settings row. Seeded true for installs that show
+    /// evidence of prior use, so an upgrade is never greeted as a new install.
+    static let hasSeenFirstRunTour = "settings.hasSeenFirstRunTour"
 }
 
 enum SettingsDefault {
@@ -42,6 +47,7 @@ enum SettingsDefault {
     static let updateChannel = UpdateChannel.stable.rawValue
     static let lastUpdateCheckEpoch: Double = 0
     static let appKitStateRestorationEnabled = false
+    static let hasSeenFirstRunTour = false
 
     /// Validated read of `SettingsKey.updateChannel`. `UpdateChannel` is a
     /// `RawRepresentable` enum backed by an unencrypted UserDefaults string
@@ -67,7 +73,8 @@ enum SettingsDefault {
             SettingsKey.outputMarksNeedsAttention: outputMarksNeedsAttention,
             SettingsKey.updateChannel: updateChannel,
             SettingsKey.lastUpdateCheckEpoch: lastUpdateCheckEpoch,
-            SettingsKey.appKitStateRestorationEnabled: appKitStateRestorationEnabled
+            SettingsKey.appKitStateRestorationEnabled: appKitStateRestorationEnabled,
+            SettingsKey.hasSeenFirstRunTour: hasSeenFirstRunTour
         ])
     }
 }

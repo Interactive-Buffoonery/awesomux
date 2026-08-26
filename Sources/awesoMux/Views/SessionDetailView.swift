@@ -184,7 +184,7 @@ struct SessionDetailView: View {
     }
 }
 
-enum EmptyWorkspaceMode {
+enum EmptyWorkspaceMode: Equatable {
     case firstLaunch
     case noSelection
     case recovered
