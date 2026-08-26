@@ -222,10 +222,27 @@ struct AgentRuntimeEventReducer: Sendable {
         // (`hasAppliedEvent == false`) stays reclaimable — the stray-
         // scrollback case above — and a stopped or ended lifecycle clears the
         // live-turn test the same way it clears the runtime-proven exception.
+        //
+        // The yield is also refused when the boundary PROVES itself foreign.
+        // The session-id latch survives a mid-turn text retag (only sessionEnd
+        // clears it), so when both sides carry ids and they disagree, this is
+        // the same proof the sessionEnd path below already acts on: the event
+        // belongs to some other session than the one running in this pane, and
+        // no quiet turn boundary makes it the real agent. A nested child firing
+        // its own boundary while the real agent idles between applied turns is
+        // refused here rather than stealing the kind and its proof. An id-less
+        // boundary stays unproven and remains governed by the live-turn test
+        // alone, exactly as unproven ends remain governed by the lifecycle
+        // shape. The ended/stopped restart bypasses all of this by design —
+        // between turns, a different id IS how a user-launched replacement
+        // announces itself.
         let incumbentShowsLiveTurn =
             state.hasAppliedEvent
             && !state.lifecycle.currentIsStopped
             && !state.lifecycle.isEnded
+        let boundaryProvesForeignSession =
+            (event.phase == .sessionStart || event.phase == .promptSubmit)
+            && idsProveAnotherSession(event.providerSessionID, latched: state.providerSessionID)
         if let eventKind = event.kind,
             currentPane.agentKind != .shell,
             currentPane.agentKind != eventKind,
@@ -233,6 +250,7 @@ struct AgentRuntimeEventReducer: Sendable {
             currentPane.agentKindIsRuntimeEstablished
                 || !(event.phase == .sessionStart || event.phase == .promptSubmit)
                 || incumbentShowsLiveTurn
+                || boundaryProvesForeignSession
         {
             return nil
         }
@@ -684,6 +702,19 @@ struct AgentRuntimeEventReducer: Sendable {
     private func normalizedProviderSessionID(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// True when both sides carry ids and they disagree — proof, per the
+    /// sessionEnd rule below, that the event belongs to some other session
+    /// than the one latched for this pane. A missing id on either side stays
+    /// unproven and leaves the decision to the caller's other gates.
+    private func idsProveAnotherSession(
+        _ eventSessionID: String?,
+        latched latchedSessionID: String?
+    ) -> Bool {
+        let eventID = normalizedProviderSessionID(eventSessionID)
+        let latchedID = normalizedProviderSessionID(latchedSessionID)
+        return eventID != nil && latchedID != nil && eventID != latchedID
     }
 
     private func shouldDropGrokChildSessionEvent(
