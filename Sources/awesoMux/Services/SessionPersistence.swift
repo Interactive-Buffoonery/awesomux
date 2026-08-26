@@ -1294,12 +1294,6 @@ enum SessionPersistence {
         return lstat(snapshotURL.path, &status) == 0
     }
 
-    /// First-run tour gate: was a session snapshot already on disk before this
-    /// launch? See `FirstRunTourPolicy.hasPriorInstallEvidence`.
-    nonisolated static func snapshotExists() -> Bool {
-        snapshotPathExists
-    }
-
     nonisolated private static func snapshotPathMatches(
         _ expectedIdentity: SecureFileIdentity
     ) -> Bool {

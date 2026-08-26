@@ -193,15 +193,6 @@ public final class AppSettingsStore {
         reloadFromDisk(trigger: .manual)
     }
 
-    /// Whether this profile's config directory already existed before this
-    /// launch — first-run tour evidence (`FirstRunTourPolicy`). Reads
-    /// `configURL`, not a re-derived path: this type can't compute the
-    /// profile-correct directory itself (see `ConfigPathResolver.default`'s
-    /// doc comment), only the caller-supplied `fileStore` that built it can.
-    public func configDirectoryExists() -> Bool {
-        FileManager.default.fileExists(atPath: configURL.deletingLastPathComponent().path)
-    }
-
     private func reloadFromDisk(trigger: AppSettingsDiagnosticTrigger) {
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             // Manual deletion of the config file is an unambiguous

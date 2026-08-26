@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import Foundation
 import Testing
 @testable import awesoMux
@@ -39,17 +40,16 @@ struct FirstRunTourPolicyTests {
                 hasSeenTour: false, hasPriorInstallEvidence: false, mode: .noSelection) == false)
     }
 
-    @Test("Either artifact counts as prior use")
+    @Test("Only a freshly-created config counts as no prior install")
     func evidenceSources() {
-        #expect(
-            FirstRunTourPolicy.hasPriorInstallEvidence(
-                snapshotExists: true, configDirectoryExists: false) == true)
-        #expect(
-            FirstRunTourPolicy.hasPriorInstallEvidence(
-                snapshotExists: false, configDirectoryExists: true) == true)
-        #expect(
-            FirstRunTourPolicy.hasPriorInstallEvidence(
-                snapshotExists: false, configDirectoryExists: false) == false)
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(loadSource: .createdDefault) == false)
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(loadSource: .existingFile) == true)
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(loadSource: .migratedLegacy) == true)
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(loadSource: .invalidExistingFile) == true)
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(loadSource: .unreadableExistingFile) == true)
+        // Bootstrap threw and never set a source — an unknown history is not
+        // license to re-onboard a possibly-returning user.
+        #expect(FirstRunTourPolicy.hasPriorInstallEvidence(loadSource: nil) == true)
     }
 
     @Test("Seeding marks an upgrading install as already seen")

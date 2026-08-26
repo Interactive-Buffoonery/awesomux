@@ -20,11 +20,17 @@ enum FirstRunTourPolicy {
         return mode == .firstLaunch
     }
 
-    static func hasPriorInstallEvidence(
-        snapshotExists: Bool,
-        configDirectoryExists: Bool
-    ) -> Bool {
-        snapshotExists || configDirectoryExists
+    /// `.createdDefault` is the only `ConfigLoadSource` that means "nothing
+    /// was on disk before this launch's bootstrap wrote it" — every other
+    /// case (an existing/migrated/invalid/unreadable file) means the profile
+    /// was used before. A filesystem probe for the config directory can't
+    /// tell first launch from launch two: `AppSettingsStore.bootstrap()` runs
+    /// on every launch and creates that directory itself before this can ever
+    /// be checked, so it reads "exists" from the very first run onward. `nil`
+    /// (bootstrap threw) is treated as evidence too — an unknown history is
+    /// not license to re-onboard a possibly-returning user.
+    static func hasPriorInstallEvidence(loadSource: ConfigLoadSource?) -> Bool {
+        loadSource != .createdDefault
     }
 
     /// Written once, before the tour can ever evaluate. Without it an existing

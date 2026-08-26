@@ -608,10 +608,18 @@ struct AwesoMuxApp: App {
                 }
                 presentRecoveryWarningIfNeeded()
 
+                    // `loadSource` was set once, synchronously, by
+                    // `appSettingsStore.bootstrap()` in `init()` — long before
+                    // this `.onAppear` runs — and nothing touches it in
+                    // between. A directory-existence probe here would instead
+                    // be checking a directory that very `bootstrap()` call
+                    // already created, on every launch including the first;
+                    // `loadSource` is what actually distinguishes "nothing
+                    // was there yet" (`.createdDefault`) from every other
+                    // case.
                     FirstRunTourPolicy.seedSeenFlagIfNeeded(
                         hasPriorInstallEvidence: FirstRunTourPolicy.hasPriorInstallEvidence(
-                            snapshotExists: SessionPersistence.snapshotExists(),
-                            configDirectoryExists: appSettingsStore.configDirectoryExists()))
+                            loadSource: appSettingsStore.loadSource))
 
                     // Evaluated once, from this launch's snapshot. Closing the last
                     // group later returns the tree to `.firstLaunch`; that must not
