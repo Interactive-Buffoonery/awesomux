@@ -61,6 +61,13 @@ extension AboutInfo {
 /// credits test asserts each entry exists in the source `Resources/Licenses`
 /// tree AND is listed in `required_license_files`, so a manifest that drifts
 /// from the shipped/copied set fails CI rather than silently dropping a license.
+struct AboutCreditDocument: Identifiable {
+    var id: String { [resource, ext].compactMap { $0 }.joined(separator: ".") }
+    let label: String
+    let resource: String
+    let ext: String?
+}
+
 struct AboutCredit: Identifiable {
     var id: String { name }
     let name: String
@@ -72,7 +79,10 @@ struct AboutCredit: Identifiable {
     /// Subdirectory beneath the bundle's `Licenses/` folder.
     let subdirectory: String
     /// Optional secondary NOTICE file (Apache-2.0 components).
-    let notice: (resource: String, ext: String)?
+    let notice: (resource: String, ext: String?)?
+    let primaryLabel: String?
+    let noticeLabel: String?
+    let additionalDocuments: [AboutCreditDocument]
 
     init(
         name: String,
@@ -80,7 +90,10 @@ struct AboutCredit: Identifiable {
         resource: String,
         ext: String?,
         subdirectory: String,
-        notice: (resource: String, ext: String)? = nil
+        notice: (resource: String, ext: String?)? = nil,
+        primaryLabel: String? = nil,
+        noticeLabel: String? = nil,
+        additionalDocuments: [AboutCreditDocument] = []
     ) {
         self.name = name
         self.attribution = attribution
@@ -88,6 +101,29 @@ struct AboutCredit: Identifiable {
         self.ext = ext
         self.subdirectory = subdirectory
         self.notice = notice
+        self.primaryLabel = primaryLabel
+        self.noticeLabel = noticeLabel
+        self.additionalDocuments = additionalDocuments
+    }
+
+    var documents: [AboutCreditDocument] {
+        var result = [
+            AboutCreditDocument(
+                label: primaryLabel
+                    ?? String(localized: "License", comment: "Button opening a bundled third-party license file"),
+                resource: resource,
+                ext: ext)
+        ]
+        if let notice {
+            result.append(
+                AboutCreditDocument(
+                    label: noticeLabel
+                        ?? String(localized: "Notice", comment: "Button opening a bundled third-party notice file"),
+                    resource: notice.resource,
+                    ext: notice.ext))
+        }
+        result.append(contentsOf: additionalDocuments)
+        return result
     }
 
     static let all: [AboutCredit] = [
@@ -128,16 +164,109 @@ struct AboutCredit: Identifiable {
             name: "Selenized",
             attribution: "Terminal color scheme — MIT",
             resource: "LICENSE", ext: nil, subdirectory: "Selenized"),
+        AboutCredit(
+            name: "FreeType",
+            attribution: "Font rendering — FreeType License or GPL-2.0-or-later",
+            resource: "LICENSE", ext: "TXT", subdirectory: "FreeType",
+            primaryLabel: String(localized: "Overview", comment: "Button opening a component's license overview"),
+            additionalDocuments: [
+                AboutCreditDocument(
+                    label: String(
+                        localized: "FreeType License",
+                        comment: "Button opening the FreeType License text"),
+                    resource: "FTL", ext: "TXT"),
+                AboutCreditDocument(
+                    label: String(localized: "GPL v2", comment: "Button opening the GPL version 2 text"),
+                    resource: "GPLv2", ext: "TXT"),
+            ]),
+        AboutCredit(
+            name: "libpng",
+            attribution: "PNG image support — libpng-2.0",
+            resource: "LICENSE", ext: nil, subdirectory: "libpng"),
+        AboutCredit(
+            name: "zlib",
+            attribution: "Compression — Zlib",
+            resource: "LICENSE", ext: nil, subdirectory: "zlib"),
+        AboutCredit(
+            name: "Oniguruma",
+            attribution: "Regular expressions — BSD-2-Clause",
+            resource: "COPYING", ext: nil, subdirectory: "Oniguruma"),
+        AboutCredit(
+            name: "GNU gettext libintl",
+            attribution: "Localization — LGPL-2.1-or-later",
+            resource: "COPYING", ext: "LIB", subdirectory: "GNU-gettext"),
+        AboutCredit(
+            name: "Dear Bindings",
+            attribution: "C bindings for Dear ImGui — MIT",
+            resource: "LICENSE", ext: "txt", subdirectory: "DearBindings"),
+        AboutCredit(
+            name: "Dear ImGui",
+            attribution: "Immediate-mode UI — MIT",
+            resource: "LICENSE", ext: "txt", subdirectory: "DearImGui"),
+        AboutCredit(
+            name: "sentry-native",
+            attribution: "Crash reporting runtime — MIT",
+            resource: "LICENSE", ext: nil, subdirectory: "sentry-native"),
+        AboutCredit(
+            name: "MPack",
+            attribution: "MessagePack serialization — MIT",
+            resource: "LICENSE", ext: nil, subdirectory: "MPack"),
+        AboutCredit(
+            name: "stb_sprintf",
+            attribution: "String formatting — MIT or public domain",
+            resource: "LICENSE", ext: nil, subdirectory: "stb-sprintf"),
+        AboutCredit(
+            name: "Google Breakpad",
+            attribution: "Crash handling — BSD-3-Clause and bundled notices",
+            resource: "LICENSE", ext: nil, subdirectory: "Breakpad"),
+        AboutCredit(
+            name: "simdutf",
+            attribution: "Unicode processing — Apache-2.0 or MIT; BSD-3-Clause notice",
+            resource: "LICENSE-MIT", ext: nil, subdirectory: "simdutf",
+            notice: (resource: "NOTICE-BSD3", ext: nil),
+            primaryLabel: String(localized: "MIT License", comment: "Button opening an MIT license text"),
+            noticeLabel: String(localized: "BSD Notice", comment: "Button opening a BSD license notice"),
+            additionalDocuments: [
+                AboutCreditDocument(
+                    label: String(localized: "Apache License", comment: "Button opening an Apache license text"),
+                    resource: "LICENSE-APACHE", ext: nil)
+            ]),
+        AboutCredit(
+            name: "Highway",
+            attribution: "SIMD operations — Apache-2.0 and BSD-3-Clause",
+            resource: "LICENSE", ext: nil, subdirectory: "Highway",
+            notice: (resource: "LICENSE-BSD3", ext: nil)),
+        AboutCredit(
+            name: "glslang",
+            attribution: "Shader compilation — bundled open-source licenses",
+            resource: "LICENSE", ext: "txt", subdirectory: "glslang"),
+        AboutCredit(
+            name: "SPIRV-Cross",
+            attribution: "Shader translation — Apache-2.0 and Khronos notice",
+            resource: "LICENSE", ext: nil, subdirectory: "SPIRV-Cross",
+            notice: (resource: "KhronosFreeUse", ext: "txt")),
+        AboutCredit(
+            name: "Wuffs",
+            attribution: "Image decoding — Apache-2.0 or MIT",
+            resource: "LICENSE", ext: nil, subdirectory: "Wuffs",
+            primaryLabel: String(localized: "Overview", comment: "Button opening a component's license overview"),
+            additionalDocuments: [
+                AboutCreditDocument(
+                    label: String(localized: "Apache License", comment: "Button opening an Apache license text"),
+                    resource: "LICENSE-APACHE", ext: nil),
+                AboutCreditDocument(
+                    label: String(localized: "MIT License", comment: "Button opening an MIT license text"),
+                    resource: "LICENSE-MIT", ext: nil),
+            ]),
+        AboutCredit(
+            name: "Zig compiler runtime",
+            attribution: "Compiler support runtime — MIT",
+            resource: "LICENSE", ext: nil, subdirectory: "Zig"),
     ]
 
-    func licenseURL(in bundle: Bundle = .main) -> URL? {
-        bundle.url(forResource: resource, withExtension: ext, subdirectory: "Licenses/\(subdirectory)")
-    }
-
-    func noticeURL(in bundle: Bundle = .main) -> URL? {
-        guard let notice else { return nil }
+    func url(for document: AboutCreditDocument, in bundle: Bundle = .main) -> URL? {
         return bundle.url(
-            forResource: notice.resource, withExtension: notice.ext,
+            forResource: document.resource, withExtension: document.ext,
             subdirectory: "Licenses/\(subdirectory)")
     }
 }
@@ -248,6 +377,7 @@ struct AboutWindowView: View {
             Text(String(localized: "Open source", comment: "About window section heading for bundled third-party licenses"))
                 .awFont(AwFont.UI.label)
                 .foregroundStyle(Color.aw.text3)
+                .accessibilityHeading(.h2)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -285,30 +415,24 @@ struct AboutWindowView: View {
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text2)
                 .fixedSize(horizontal: false, vertical: true)
-            // Short visible labels keep the two-button row inside the fixed
-            // window width under longer localizations; the accessibility labels
-            // carry the full "View license for <component>" phrasing (which also
-            // keeps the visible word as a substring for Voice Control, WCAG 2.5.3).
-            HStack(spacing: 12) {
-                if let licenseURL = credit.licenseURL() {
-                    Button(String(localized: "License", comment: "Button opening a bundled third-party license file")) {
-                        openReadable(licenseURL)
+            // Stack document links so multi-license components remain inside
+            // the fixed window width under longer localizations. The accessible
+            // labels retain each visible document label verbatim for Voice
+            // Control's Label in Name requirement (WCAG 2.5.3).
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(credit.documents) { document in
+                    if let url = credit.url(for: document) {
+                        Button(document.label) {
+                            openReadable(url)
+                        }
+                        .buttonStyle(.link)
+                        .accessibilityLabel(
+                            String(
+                                localized: "View \(document.label) for \(credit.name)",
+                                comment:
+                                    "Accessibility label for a button opening one of a component's bundled license or notice documents. Arguments are the document label and component name."
+                            ))
                     }
-                    .buttonStyle(.link)
-                    .accessibilityLabel(
-                        String(
-                            localized: "View license for \(credit.name)",
-                            comment: "Accessibility label for the button opening a component's license. Argument is the component name."))
-                }
-                if let noticeURL = credit.noticeURL() {
-                    Button(String(localized: "Notice", comment: "Button opening a bundled third-party NOTICE file")) {
-                        openReadable(noticeURL)
-                    }
-                    .buttonStyle(.link)
-                    .accessibilityLabel(
-                        String(
-                            localized: "View notice for \(credit.name)",
-                            comment: "Accessibility label for the button opening a component's NOTICE. Argument is the component name."))
                 }
             }
         }

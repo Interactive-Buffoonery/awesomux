@@ -6,6 +6,10 @@ inputs:
     description: Save newly built Ghostty artifacts when true.
     required: false
     default: "false"
+  prepare-ghostty:
+    description: Restore or build app Ghostty artifacts when true.
+    required: false
+    default: "true"
   cache-namespace:
     description: Namespace used to invalidate native Ghostty caches.
     required: false
@@ -42,6 +46,13 @@ runs:
           true|false) ;;
           *)
             echo "save-cache must be true or false" >&2
+            exit 2
+            ;;
+        esac
+        case "${{ inputs.prepare-ghostty }}" in
+          true|false) ;;
+          *)
+            echo "prepare-ghostty must be true or false" >&2
             exit 2
             ;;
         esac
@@ -93,13 +104,14 @@ runs:
 
     - name: Restore cached Ghostty artifacts
       id: ghostty-cache
+      if: inputs.prepare-ghostty == 'true'
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: .build/ghostty
         key: ${{ inputs.cache-namespace }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.context.outputs.ghostty-sha }}-${{ steps.context.outputs.optimize-mode }}-${{ steps.context.outputs.swift-pin }}-${{ steps.context.outputs.xcode-id }}
 
     - name: Install Ghostty build tools
-      if: steps.ghostty-cache.outputs.cache-hit != 'true'
+      if: inputs.prepare-ghostty == 'true' && steps.ghostty-cache.outputs.cache-hit != 'true'
       shell: bash
       working-directory: ${{ github.workspace }}
       env:
@@ -123,6 +135,7 @@ runs:
     # PR's own changes. Runs unconditionally (not gated behind the Ghostty
     # cache-hit check above) since it's a fast no-op when already present.
     - name: Install ripgrep
+      if: inputs.prepare-ghostty == 'true'
       shell: bash
       env:
         # Same tap-trust opt-out as the Ghostty tools step above.
@@ -130,6 +143,7 @@ runs:
       run: command -v rg >/dev/null 2>&1 || brew install ripgrep
 
     - name: Build or validate Ghostty artifacts
+      if: inputs.prepare-ghostty == 'true'
       shell: bash
       working-directory: ${{ github.workspace }}
       env:
@@ -137,7 +151,7 @@ runs:
       run: ./script/ensure_ghostty_artifacts.sh
 
     - name: Save cached Ghostty artifacts
-      if: inputs.save-cache == 'true' && steps.ghostty-cache.outputs.cache-hit != 'true'
+      if: inputs.prepare-ghostty == 'true' && inputs.save-cache == 'true' && steps.ghostty-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: .build/ghostty

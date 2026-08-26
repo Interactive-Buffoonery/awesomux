@@ -134,6 +134,7 @@ test("native preparation exposes exact-pin restore and opt-in save behavior", ()
   const action = readFileSync(actionPath, "utf8");
 
   assert.match(action, /save-cache:[\s\S]*?default: "false"/);
+  assert.match(action, /prepare-ghostty:[\s\S]*?default: "true"/);
   assert.match(action, /cache-namespace:[\s\S]*?default: native-ghostty-v1/);
   for (const output of ["ghostty-sha", "xcode-id", "cache-hit", "zig-formula"]) {
     assert.match(action, new RegExp(`^  ${output}:`, "m"));
@@ -152,12 +153,16 @@ test("native preparation exposes exact-pin restore and opt-in save behavior", ()
   ]) {
     assert.match(action, new RegExp(dimension.replace(".", "\\.")));
   }
-  assert.match(action, /if: steps\.ghostty-cache\.outputs\.cache-hit != 'true'/);
+  assert.match(
+    action,
+    /if: inputs\.prepare-ghostty == 'true' && steps\.ghostty-cache\.outputs\.cache-hit != 'true'/,
+  );
+  assert.match(action, /if: inputs\.prepare-ghostty == 'true'/);
   assert.match(action, /AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH: "1"/);
   assert.match(action, /run: \.\/script\/ensure_ghostty_artifacts\.sh/);
   assert.match(
     action,
-    /if: inputs\.save-cache == 'true' && steps\.ghostty-cache\.outputs\.cache-hit != 'true'/,
+    /if: inputs\.prepare-ghostty == 'true' && inputs\.save-cache == 'true' && steps\.ghostty-cache\.outputs\.cache-hit != 'true'/,
   );
   assert.doesNotMatch(action, /^\s+path: \.build\/?$/m);
 });
@@ -274,7 +279,7 @@ test("native CI executes captured PR code with read-only permissions and restore
   }
 });
 
-test("native CI splits scope=all across isolated timing/sidebar/nontiming processes", () => {
+test("native CI runs zmx plus isolated timing/sidebar/nontiming processes", () => {
   const workflow = nativeExecutorWorkflow;
   const resolveJob = workflow.match(/\n  resolve:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
   const nativeJob = workflow.match(/\n  native:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
@@ -286,11 +291,17 @@ test("native CI splits scope=all across isolated timing/sidebar/nontiming proces
   // starving Swift Concurrency's process-wide thread pool for ~4600
   // unrelated tests on a CPU-constrained hosted runner (issue #162). Sidebar
   // isolation separately bounds concurrent AppKit animation waits.
-  assert.match(resolveJob, /groups='\["timing","sidebar","nontiming"\]'/);
+  assert.match(resolveJob, /groups='\["zmx","timing","sidebar","nontiming"\]'/);
   assert.match(resolveJob, /groups="\[\\"\$SCOPE\\"\]"/);
   assert.match(nativeJob, /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+group: \$\{\{ fromJson\(needs\.resolve\.outputs\.groups\) \}\}/);
   assert.match(nativeJob, /concurrency:\n\s+group: native-pr-.*-\$\{\{ matrix\.group \}\}/);
   assert.match(nativeJob, /name: native-ci-\$\{\{ matrix\.group \}\}-\$\{\{ needs\.resolve\.outputs\.target-sha \}\}/);
+  assert.match(nativeJob, /if: matrix\.group == 'zmx' && steps\.prepare\.outcome == 'success'/);
+  assert.match(nativeJob, /prepare-ghostty: \$\{\{ matrix\.group != 'zmx' \}\}/);
+  assert.match(nativeJob, /HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"/);
+  assert.match(nativeJob, /ZMX_ZIG_FORMULA: \$\{\{ steps\.prepare\.outputs\.zmx-zig-formula \}\}/);
+  assert.match(nativeJob, /\.\/script\/test\.sh zmx/);
+  assert.match(nativeJob, /<testsuite name="zmx" tests="1" failures="0">/);
   assert.match(nativeTestScript, /timing_pattern=.*BoundedProcessRunnerTests/);
   assert.match(nativeTestScript, /sidebar_pattern='awesoMuxTests\\\.Sidebar/);
 });

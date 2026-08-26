@@ -189,6 +189,9 @@ enum DaemonGarbageCollector {
     /// Terminates leaked `amx attach` clients reparented to launchd
     /// (Interactive-Buffoonery/awesomux#183): each one pins its daemon's
     /// `clients` count >= 1 forever, permanently defeating `reapable` above.
+    /// Own-profile leaks only: the confirm pass requires the session's socket
+    /// to live in THIS profile's directory, so a sister profile's orphaned
+    /// `amx` processes are never this sweep's to kill (Interactive-Buffoonery/awesomux#277).
     /// `snapshot` is the one already fetched for busy/idle classification —
     /// the shortlist pass costs nothing extra; the confirm pass below only
     /// runs when that shortlist is non-empty (rare — real orphans are
@@ -250,8 +253,31 @@ enum DaemonGarbageCollector {
             log.error("orphan attach GC aborted: process confirm query unavailable")
             return
         }
+        // Profile fence (INT-914): every fence above is process-local, so a
+        // SISTER profile's daemon matches them all (same binary name, same
+        // `attach <uuid>` argv, ppid == 1 after its app relaunched and its
+        // old clients died). What cannot cross profiles is where the session's
+        // socket lives: only sessions with a live socket in THIS profile's
+        // directory are this sweep's to reap. Computed fresh like the
+        // list/snapshot above; a stat failure reads as foreign — spared.
+        let localSessionSockets = Set(
+            samples.compactMap(\.sessionArgument).filter {
+                DaemonGCPlan.isUUIDShaped($0)
+                    && sessionSocketExists(named: $0, in: AmxBackend.sessionSocketDirectory())
+            }
+        )
+        let foreignCandidates = samples.filter {
+            $0.sessionArgument.map { DaemonGCPlan.isUUIDShaped($0) && !localSessionSockets.contains($0) }
+                ?? false
+        }.count
+        if foreignCandidates > 0 {
+            log.info(
+                "orphan attach GC: sparing \(foreignCandidates) candidate(s) with no session socket in this profile's directory"
+            )
+        }
         let confirmed = DaemonGCPlan.confirmedOrphanAttachPIDs(
-            samples: samples, daemonPIDs: freshDaemonPIDs, executableName: AmxBackend.executableName
+            samples: samples, daemonPIDs: freshDaemonPIDs, executableName: AmxBackend.executableName,
+            localSessionSockets: localSessionSockets
         )
         guard !confirmed.isEmpty else { return }
 
@@ -363,6 +389,27 @@ enum DaemonGarbageCollector {
             gcStart: gcStart
         )
         unlinkStale(stale, in: directory, kind: "log file")
+    }
+
+    /// Whether `directory/name` is a unix-socket filesystem entry — the
+    /// INT-914 ownership test for orphan-attach GC. `lstat` (not `stat`) and
+    /// a strict S_IFSOCK type check: an absent entry, a squatting regular
+    /// file, or a symlink all read as NOT ours, which spares the candidate
+    /// rather than authenticating a cross-profile kill.
+    ///
+    /// Deliberately an EXISTENCE test, never a liveness probe: only this
+    /// profile's daemons ever create entries here, so even an entry left by a
+    /// SIGKILLed daemon (no unlink on the way out) proves the targeted session
+    /// belonged to this profile — and its orphaned attach client is exactly
+    /// who this sweep exists to reap. Requiring a connectable listener instead
+    /// would spare those crashes' clients forever, and against a same-user
+    /// squatter a liveness check buys nothing (`bind()` costs no more than
+    /// creating a dead socket). Only ever called with UUID-shaped names (no
+    /// path traversal) from `reapOrphanAttachClients`.
+    nonisolated static func sessionSocketExists(named name: String, in directory: String) -> Bool {
+        var status = stat()
+        guard lstat(directory + "/" + name, &status) == 0 else { return false }
+        return (status.st_mode & S_IFMT) == S_IFSOCK
     }
 
     /// Enumerates `directory` and returns regular files whose name matches

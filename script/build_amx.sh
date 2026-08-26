@@ -17,6 +17,20 @@ ZMX_DIR="$ROOT_DIR/vendor/zmx"
 OUT_DIR="$ROOT_DIR/.build/amx"
 AMX_BINARY="$OUT_DIR/amx"
 
+action="${1:-build}"
+if [[ "$#" -gt 1 ]]; then
+  echo "Usage: ./script/build_amx.sh [build|test]" >&2
+  exit 2
+fi
+case "$action" in
+  build|test) ;;
+  *)
+    echo "Unknown action: $action" >&2
+    echo "Usage: ./script/build_amx.sh [build|test]" >&2
+    exit 2
+    ;;
+esac
+
 if [[ ! -d "$ZMX_DIR/.git" && ! -f "$ZMX_DIR/.git" ]]; then
   echo "Initializing vendor/zmx for this worktree..." >&2
   git -C "$ROOT_DIR" submodule update --init --recursive -- vendor/zmx
@@ -154,6 +168,16 @@ EOF
 
 REQUIRED_ZIG_VERSION="$(read_required_zig_version)"
 ZIG_BIN="$(select_zig "$REQUIRED_ZIG_VERSION")"
+
+if [[ "$action" == "test" ]]; then
+  echo "Testing vendored zmx with $ZIG_BIN (zig $("$ZIG_BIN" version))..."
+  # A relative `--build-file vendor/zmx/build.zig` leaves Zig 0.16's top-level
+  # build root relative. translate-c later passes that root to
+  # openDirAbsolute() and aborts while constructing Ghostty's build graph.
+  # Running from the package directory gives every dependency an absolute root.
+  cd "$ZMX_DIR"
+  exec "$ZIG_BIN" build test
+fi
 
 echo "Building amx (vendored zmx) with $ZIG_BIN (zig $("$ZIG_BIN" version))..."
 # Build out-of-tree so the submodule worktree stays clean (ignore = dirty still

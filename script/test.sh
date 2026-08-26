@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
     cat <<'EOF'
-Usage: ./script/test.sh <unit|adapter|system|timing|sidebar|nontiming|all> [swift test arguments]
+Usage: ./script/test.sh <unit|adapter|system|timing|sidebar|nontiming|zmx|all> [swift test arguments]
 EOF
 }
 
@@ -52,12 +52,20 @@ case "$group" in
     nontiming)
         skip="^($timing_pattern|$sidebar_pattern)/"
         ;;
+    zmx)
+        if [[ "$#" -ne 0 ]]; then
+            echo "The zmx group does not accept Swift test arguments." >&2
+            exit 2
+        fi
+        exec "$ROOT_DIR/script/build_amx.sh" test
+        ;;
     all)
         if [[ "$#" -ne 0 ]]; then
             echo "The all group does not accept swift test arguments because that would collapse the isolated shards into one unsafe process." >&2
-            echo "Run timing, sidebar, and nontiming explicitly when you need per-shard arguments or xUnit output." >&2
+            echo "Run zmx, timing, sidebar, and nontiming explicitly when you need per-shard arguments or xUnit output." >&2
             exit 2
         fi
+        "$ROOT_DIR/script/test.sh" zmx
         "$ROOT_DIR/script/test.sh" timing
         "$ROOT_DIR/script/test.sh" sidebar --skip-build
         exec "$ROOT_DIR/script/test.sh" nontiming --skip-build
