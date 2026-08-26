@@ -134,24 +134,22 @@ extension GhosttyRuntime {
 
             // awesoMux serves exactly one representation: text/plain, sourced
             // through the same pasteboard-content ladder paste uses (file URLs
-            // escaped as text, strings, materialized images). Requested mimes
-            // we cannot serve are skipped rather than failing the whole read.
+            // escaped as text, strings, materialized images).
             let servableText = pasteboardContent.flatMap { TerminalPasteboardString.string(from: $0) }
-            var contents: [(mime: String, data: Data)] = []
-            if requestedMimes.contains("text/plain"), let servableText {
-                contents.append(("text/plain", Data(servableText.utf8)))
-            }
-
-            // The listing of available types, only gathered when requested.
-            // A pure listing request passes no mimes at all, so this must be
-            // independent of whether any representation was actually read.
-            let available: [String] =
-                list && servableText != nil ? ["text/plain"] : []
+            let delivery = Self.planClipboardRead(
+                requestedMimes: requestedMimes,
+                list: list,
+                servableText: servableText
+            )
 
             // With nothing to serve and no listing requested there is
             // nothing to complete the read with.
-            if contents.isEmpty && !list {
-                clipboardReadLog.debug("Clipboard read unavailable: no servable text/plain content")
+            guard delivery.deliverable else {
+                // Payload-free detail: which mimes were asked for, so a
+                // wrong-mime rejection isn't mistaken for an empty clipboard.
+                clipboardReadLog.debug(
+                    "Clipboard read unavailable: no servable representation (requested: \(requestedMimes.joined(separator: ", "), privacy: .public))"
+                )
                 return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE
             }
 
@@ -161,14 +159,51 @@ extension GhosttyRuntime {
             // actually lands, so an unconditional `.started` here would strand
             // the native request.
             let completed = view.completeReadRequest(
-                contents: contents,
-                available: available,
+                contents: delivery.contents,
+                available: delivery.available,
                 state: stateAddress.flatMap(UnsafeMutableRawPointer.init(bitPattern:))
             )
             return completed
                 ? GHOSTTY_CLIPBOARD_READ_STARTED
                 : GHOSTTY_CLIPBOARD_READ_UNAVAILABLE
         }
+    }
+
+    /// What a clipboard READ should hand back to libghostty. Produced by the
+    /// pure routing decision in `planClipboardRead`.
+    struct ClipboardReadDelivery {
+        /// Representations to deliver, in serve order.
+        let contents: [(mime: String, data: Data)]
+        /// Available-type listing for listing requests.
+        let available: [String]
+        /// False when nothing can be served AND no listing was requested —
+        /// libghostty must receive a non-started result instead of an empty
+        /// completion.
+        let deliverable: Bool
+    }
+
+    /// Pure mime/list routing decision for a clipboard READ, split from
+    /// `readClipboard` so the requested-mime matrix is unit-testable without
+    /// a live pasteboard. Requested mimes awesoMux cannot serve are skipped
+    /// rather than failing the whole read; a pure listing request passes no
+    /// mimes at all, so the listing must be independent of whether any
+    /// representation was actually read.
+    nonisolated static func planClipboardRead(
+        requestedMimes: [String],
+        list: Bool,
+        servableText: String?
+    ) -> ClipboardReadDelivery {
+        var contents: [(mime: String, data: Data)] = []
+        if requestedMimes.contains("text/plain"), let servableText {
+            contents.append(("text/plain", Data(servableText.utf8)))
+        }
+        let available: [String] =
+            list && servableText != nil ? ["text/plain"] : []
+        return ClipboardReadDelivery(
+            contents: contents,
+            available: available,
+            deliverable: !contents.isEmpty || list
+        )
     }
 
     nonisolated static func confirmReadClipboard(

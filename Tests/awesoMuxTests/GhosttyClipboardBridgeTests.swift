@@ -775,3 +775,93 @@ struct GhosttyClipboardConfirmPreviewTests {
         }
     }
 }
+
+/// The pure mime/list routing matrix for clipboard reads. If upstream ever
+/// changes the mime strings it requests, these pin which shapes awesoMux
+/// serves, lists, or refuses — a silent all-reads failure shows up here.
+@Suite("Ghostty clipboard read routing")
+struct GhosttyClipboardReadRoutingTests {
+    private let text = "served payload"
+
+    private func plan(
+        _ mimes: [String],
+        list: Bool = false,
+        servable: String? = "served payload"
+    ) -> GhosttyRuntime.ClipboardReadDelivery {
+        GhosttyRuntime.planClipboardRead(
+            requestedMimes: mimes,
+            list: list,
+            servableText: servable
+        )
+    }
+
+    @Test("requested text/plain with servable content delivers it")
+    func requestedTextPlainWithContentDelivers() {
+        let delivery = plan(["text/plain"])
+        #expect(delivery.deliverable)
+        #expect(delivery.contents.map(\.mime) == ["text/plain"])
+        #expect(delivery.contents.first?.data == Data(text.utf8))
+        #expect(delivery.available.isEmpty)
+    }
+
+    @Test("listing flag adds the available listing alongside the delivery")
+    func listingFlagAddsAvailable() {
+        let delivery = plan(["text/plain"], list: true)
+        #expect(delivery.deliverable)
+        #expect(delivery.contents.map(\.mime) == ["text/plain"])
+        #expect(delivery.contents.first?.data == Data(text.utf8))
+        #expect(delivery.available == ["text/plain"])
+    }
+
+    @Test("unservable mime alone is refused without a listing")
+    func unservableMimeAloneIsRefused() {
+        let delivery = plan(["image/png"])
+        #expect(!delivery.deliverable)
+    }
+
+    @Test("unservable mime with a listing still reports the available type")
+    func unservableMimeWithListingReportsAvailable() {
+        let delivery = plan(["image/png"], list: true)
+        #expect(delivery.deliverable)
+        #expect(delivery.contents.isEmpty)
+        #expect(delivery.available == ["text/plain"])
+    }
+
+    @Test("pure listing request passes no mimes and lists what is servable")
+    func pureListingRequestListsServableType() {
+        let delivery = plan([], list: true)
+        #expect(delivery.deliverable)
+        #expect(delivery.contents.isEmpty)
+        #expect(delivery.available == ["text/plain"])
+    }
+
+    @Test("pure listing request with an empty pasteboard completes empty")
+    func pureListingWithEmptyPasteboardCompletesEmpty() {
+        let delivery = plan([], list: true, servable: nil)
+        #expect(delivery.deliverable)
+        #expect(delivery.contents.isEmpty)
+        #expect(delivery.available.isEmpty)
+    }
+
+    @Test("text/plain request against an empty pasteboard is refused")
+    func textPlainAgainstEmptyPasteboardIsRefused() {
+        let delivery = plan(["text/plain"], servable: nil)
+        #expect(!delivery.deliverable)
+    }
+
+    @Test("mixed mimes deliver text/plain when servable")
+    func mixedMimesDeliverTextPlain() {
+        let delivery = plan(["image/png", "text/plain", "application/x-zsh"])
+        #expect(delivery.deliverable)
+        #expect(delivery.contents.map(\.mime) == ["text/plain"])
+        #expect(delivery.contents.first?.data == Data(text.utf8))
+    }
+
+    @Test("empty pasteboard listing never invents an available type")
+    func emptyPasteboardListingStaysEmpty() {
+        let delivery = plan([], list: true, servable: nil)
+        #expect(delivery.available.isEmpty)
+        let refused = plan(["text/plain"], list: true, servable: nil)
+        #expect(refused.available.isEmpty)
+    }
+}

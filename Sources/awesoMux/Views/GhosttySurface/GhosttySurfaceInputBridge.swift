@@ -958,15 +958,20 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                     data: cData,
                     len: data.utf8.count
                 )
-                var complete = ghostty_clipboard_complete_s(
-                    contents: &content,
-                    contents_len: 1,
-                    available: nil,
-                    available_len: 0,
-                    confirmed: true,
-                    remember: false
-                )
-                ghostty_surface_complete_clipboard_request(surface, &complete, state)
+                // The completion struct borrows `content` for the duration of
+                // the completion call below; take the pointer explicitly so
+                // the borrow outlives both statements.
+                withUnsafeMutablePointer(to: &content) { contentPointer in
+                    var complete = ghostty_clipboard_complete_s(
+                        contents: contentPointer,
+                        contents_len: 1,
+                        available: nil,
+                        available_len: 0,
+                        confirmed: true,
+                        remember: false
+                    )
+                    ghostty_surface_complete_clipboard_request(surface, &complete, state)
+                }
                 return true
             }
         }
