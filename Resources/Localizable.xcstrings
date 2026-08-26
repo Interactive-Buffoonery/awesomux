@@ -610,6 +610,9 @@
     "Another awesoMux instance is changing agent integrations; try again." : {
       "comment" : "CLI agent plugin install state lock contention warning"
     },
+    "Apache License" : {
+      "comment" : "Button opening an Apache license text"
+    },
     "App" : {
       "comment" : "Diagnostics process type"
     },
@@ -645,6 +648,9 @@
     },
     "Auto-cleanup" : {
 
+    },
+    "BSD Notice" : {
+      "comment" : "Button opening a BSD license notice"
     },
     "Back" : {
       "comment" : "Welcome tour button returning to the previous beat"
@@ -1652,8 +1658,14 @@
     "For more details, try ssh %arg in a local workspace." : {
       "comment" : "Safe ordinary SSH diagnostic shown after a managed SSH connection fails"
     },
+    "FreeType License" : {
+      "comment" : "Button opening the FreeType License text"
+    },
     "Full URL: %arg" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
+    },
+    "GPL v2" : {
+      "comment" : "Button opening the GPL version 2 text"
     },
     "Geist Sans — Copyright 2024 The Geist Project Authors. SIL Open Font License 1.1." : {
       "comment" : "About settings attribution for the bundled Geist Sans interface font"
@@ -1932,6 +1944,9 @@
     },
     "MIT" : {
 
+    },
+    "MIT License" : {
+      "comment" : "Button opening an MIT license text"
     },
     "Make Active Pane Managed…" : {
       "comment" : "Sidebar workspace context-menu and VoiceOver action for converting the selected active ordinary SSH pane"
@@ -2313,7 +2328,7 @@
       "comment" : "Composer failure when the draft is empty after sanitizing"
     },
     "Notice" : {
-      "comment" : "Button opening a bundled third-party NOTICE file"
+      "comment" : "Button opening a bundled third-party notice file"
     },
     "Notification banners and sounds can come through, and you can turn on Dock bouncing." : {
 
@@ -2469,6 +2484,9 @@
     },
     "Oversized runtime event data was dropped" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Overview" : {
+      "comment" : "Button opening a component's license overview"
     },
     "Overwrites the on-disk config file with the current settings. Cannot be undone." : {
 
@@ -4183,14 +4201,19 @@
     "Version" : {
       "comment" : "About window field label for the app version"
     },
+    "View %arg for %arg" : {
+      "comment" : "Accessibility label for a button opening one of a component's bundled license or notice documents. Arguments are the document label and component name.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "View %1$arg for %2$arg"
+          }
+        }
+      }
+    },
     "View license" : {
       "comment" : "Button that opens the bundled Geist Sans license"
-    },
-    "View license for %arg" : {
-      "comment" : "Accessibility label for the button opening a component's license. Argument is the component name."
-    },
-    "View notice for %arg" : {
-      "comment" : "Accessibility label for the button opening a component's NOTICE. Argument is the component name."
     },
     "Visible prefix: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated `user@` prefix that disguises the real host."
