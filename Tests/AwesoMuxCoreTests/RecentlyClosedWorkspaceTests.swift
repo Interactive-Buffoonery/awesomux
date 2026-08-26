@@ -901,6 +901,7 @@ struct RecentlyClosedWorkspaceTests {
         let reopenedID = try #require(store.reopenMostRecentlyClosed())
         let reopened = try #require(store.session(id: reopenedID))
         #expect(reopened.agentState == .waiting)
+        #expect(reopened.activePane?.agentKindIsRuntimeEstablished == true)
     }
 
     @Test("closing an unknown session id is a silent no-op")
