@@ -293,6 +293,14 @@ final class FirstRunTourController {
     /// controller exists to avoid.
     private func handleKeyStateChanged(_ isKey: Bool) {
         isKeyWindow = isKey
+        // Every other FloatingSwiftUIPanelWindow consumer dismisses on resign,
+        // so its `.floating` level never has to coexist with another window.
+        // The tour is the first that stays up after losing key — and floating
+        // above normal windows means beat three's own "Set up agents…" opens
+        // Settings *underneath* the tour, permanently unreachable. Ride normal
+        // ordering while something else is key; float again when refocused so
+        // the tour still sits above the main window during onboarding.
+        panel?.level = isKey ? .floating : .normal
     }
 
     // MARK: - Test seams
