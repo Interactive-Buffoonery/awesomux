@@ -60,6 +60,7 @@ After changing the Ghostty pin, build its ReleaseFast artifact and confirm the
 artifact stamps name the expected source and toolchain:
 
 ```sh
+./script/check_ghostty_license_pins.sh
 AWESOMUX_GHOSTTY_OPTIMIZE=ReleaseFast \
   AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH=1 \
   ./script/ensure_ghostty_artifacts.sh
