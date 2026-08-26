@@ -79,7 +79,8 @@ struct AboutWindowInfoTests {
                 "Missing license file for \(credit.name): \(licensePath.path)")
 
             if let notice = credit.notice {
-                let noticePath = directory.appendingPathComponent("\(notice.resource).\(notice.ext)")
+                let noticeName = notice.ext.map { "\(notice.resource).\($0)" } ?? notice.resource
+                let noticePath = directory.appendingPathComponent(noticeName)
                 #expect(
                     FileManager.default.fileExists(atPath: noticePath.path),
                     "Missing notice file for \(credit.name): \(noticePath.path)")
@@ -101,6 +102,18 @@ struct AboutWindowInfoTests {
         #expect(sparkle?.resource == "LICENSE")
         #expect(sparkle?.ext == nil)
         #expect(sparkle?.subdirectory == "Sparkle")
+    }
+
+    @Test("Every audited GhosttyKit component has an About credit")
+    func ghosttyKitComponentsAreCredited() {
+        let credited = Set(AboutCredit.all.map(\.name))
+        let expected: Set<String> = [
+            "FreeType", "libpng", "zlib", "Oniguruma", "GNU gettext libintl",
+            "Dear Bindings", "Dear ImGui", "sentry-native", "MPack", "stb_sprintf",
+            "Google Breakpad", "simdutf", "Highway", "glslang", "SPIRV-Cross", "Wuffs",
+        ]
+
+        #expect(expected.isSubset(of: credited))
     }
 
     /// The source-tree test above proves the file exists in the repo, but the
@@ -142,6 +155,31 @@ struct AboutWindowInfoTests {
         #expect(
             uncredited.isEmpty,
             "Shipped with no About credit row: \(uncredited.joined(separator: ", "))")
+    }
+
+    @Test("Every GhosttyKit audit license is copied into the app bundle")
+    func ghosttyKitAuditLicensesAreBundled() throws {
+        let manifest = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "script/ghostty-third-party-components.tsv"),
+            encoding: .utf8)
+        let auditedPaths = Set(
+            manifest.split(whereSeparator: \.isNewline).flatMap { line -> [String] in
+                guard !line.hasPrefix("#") else { return [] }
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard fields.count == 4 else {
+                    Issue.record("Malformed GhosttyKit audit row: \(line)")
+                    return []
+                }
+                return fields[3].split(separator: "|").map(String.init)
+            })
+        let copied = try bundledLicensePaths()
+        let missingPaths = auditedPaths.subtracting(copied).sorted().joined(separator: ", ")
+
+        #expect(!auditedPaths.isEmpty, "GhosttyKit audit manifest has no license paths")
+        #expect(
+            auditedPaths.isSubset(of: copied),
+            "GhosttyKit audit licenses missing from required_license_files: \(missingPaths)")
     }
 
     /// `Resources/Licenses/README.md` records which upstream revision each
@@ -403,7 +441,8 @@ struct AboutWindowInfoTests {
         let license = credit.ext.map { "\(credit.resource).\($0)" } ?? credit.resource
         var paths = ["\(credit.subdirectory)/\(license)"]
         if let notice = credit.notice {
-            paths.append("\(credit.subdirectory)/\(notice.resource).\(notice.ext)")
+            let noticeName = notice.ext.map { "\(notice.resource).\($0)" } ?? notice.resource
+            paths.append("\(credit.subdirectory)/\(noticeName)")
         }
         return paths
     }

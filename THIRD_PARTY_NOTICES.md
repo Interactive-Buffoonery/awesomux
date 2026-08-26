@@ -14,6 +14,22 @@ recorded in `.gitmodules` and `Package.resolved`.
 | [swift-cmark](https://github.com/swiftlang/swift-cmark) | Transitive dependency of swift-markdown | BSD-2-Clause |
 | [Geist Sans](https://github.com/vercel/geist-font) | Bundled interface font | SIL Open Font License 1.1 |
 | [Selenized](https://github.com/jan-warchol/selenized) | Bundled terminal color scheme | MIT |
+| [FreeType](https://freetype.org/) | Statically linked through GhosttyKit for font rendering | FreeType License or GPL-2.0-or-later |
+| [libpng](https://libpng.org/) | Statically linked through GhosttyKit for PNG images | PNG Reference Library License v2 |
+| [zlib](https://zlib.net/) | Statically linked through GhosttyKit for compression | Zlib |
+| [Oniguruma](https://github.com/kkos/oniguruma) | Statically linked through GhosttyKit for regular expressions | BSD-2-Clause |
+| [GNU gettext libintl](https://www.gnu.org/software/gettext/) | Statically linked through GhosttyKit for localization | LGPL-2.1-or-later |
+| [Dear Bindings](https://github.com/dearimgui/dear_bindings) | C bindings statically linked through GhosttyKit | MIT |
+| [Dear ImGui](https://github.com/ocornut/imgui) | Statically linked through GhosttyKit | MIT |
+| [sentry-native](https://github.com/getsentry/sentry-native) | Crash runtime statically linked through GhosttyKit | MIT |
+| [MPack](https://github.com/ludocode/mpack) | Vendored by sentry-native and statically linked through GhosttyKit | MIT |
+| [stb_sprintf](https://github.com/nothings/stb) | Vendored by sentry-native and statically linked through GhosttyKit | MIT or public domain |
+| [Google Breakpad](https://chromium.googlesource.com/breakpad/breakpad/) | Crash handling statically linked through GhosttyKit | BSD-3-Clause with bundled Unicode and APSL notices |
+| [simdutf](https://github.com/simdutf/simdutf) | Unicode processing statically linked through GhosttyKit | Apache-2.0 or MIT with BSD-3-Clause notice |
+| [Highway](https://github.com/google/highway) | SIMD operations statically linked through GhosttyKit | Apache-2.0 and BSD-3-Clause notices |
+| [glslang](https://github.com/KhronosGroup/glslang) | Shader compilation statically linked through GhosttyKit | Bundled open-source licenses |
+| [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | Shader translation statically linked through GhosttyKit | Apache-2.0 and Khronos notice |
+| [Wuffs](https://github.com/google/wuffs) | Image decoding statically linked through GhosttyKit | Apache-2.0 or MIT |
 
 ## Sparkle
 
@@ -141,3 +157,25 @@ is copyright (c) 2014 John MacFarlane and licensed under BSD-2-Clause:
 <https://github.com/swiftlang/swift-cmark/blob/main/COPYING>. That file also
 preserves notices for its houdini, GitHub, utf8proc, markdowntest, and
 CommonMark-derived sources.
+
+## GhosttyKit static dependencies
+
+The components listed above as statically linked through GhosttyKit were
+identified from the ReleaseFast `libghostty-fat.a` built from the pinned
+Ghostty submodule. The complete audit record, including source versions,
+representative archive members, and the full member-inventory digest, is in
+`script/ghostty-third-party-components.tsv`. Full license and notice texts are
+bundled under each component's directory in `Resources/Licenses` and are
+available from the app's About window.
+
+FreeType is distributed under a choice of the FreeType License or
+GPL-2.0-or-later; all three upstream explanatory and license files are bundled.
+Breakpad's upstream `LICENSE` is preserved in full because the archive includes
+both its Unicode conversion object and Apple-derived macOS object. Crediting
+Breakpad as BSD-3-Clause alone would omit those notices.
+
+GNU gettext's libintl runtime is statically linked under LGPL-2.1-or-later.
+awesoMux's complete source, pinned Ghostty source, and reproducible build scripts
+are public so recipients can rebuild the application with a modified libintl.
+This statement describes the materials the project provides; it is not legal
+advice or a claim that those materials settle every jurisdiction's requirements.

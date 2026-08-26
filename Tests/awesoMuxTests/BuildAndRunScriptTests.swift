@@ -165,6 +165,11 @@ struct BuildAndRunScriptTests {
         #expect(script.contains("swift-markdown/LICENSE.txt"))
         #expect(script.contains("swift-markdown/NOTICE.txt"))
         #expect(script.contains("swift-cmark/COPYING"))
+        #expect(script.contains("FreeType/FTL.TXT"))
+        #expect(script.contains("GNU-gettext/COPYING.LIB"))
+        #expect(script.contains("Breakpad/LICENSE"))
+        #expect(script.contains("Wuffs/LICENSE-MIT"))
+        #expect(script.contains("check_ghostty_third_party_licenses.sh"))
     }
 
     @Test("links and stages Sparkle with release-only updater policy")

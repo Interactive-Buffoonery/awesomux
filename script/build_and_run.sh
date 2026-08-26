@@ -450,6 +450,7 @@ if mode_requires_exact_ghostty_pin; then
 fi
 
 "$ROOT_DIR/script/ensure_ghostty_artifacts.sh"
+"$ROOT_DIR/script/check_ghostty_third_party_licenses.sh"
 
 # Build the amx (vendored zmx) persistent-session backend. Independent of the
 # ghostty xcframework — it links none of vendor/ghostty and is a runtime helper,
@@ -610,6 +611,30 @@ required_license_files=(
   "swift-markdown/LICENSE.txt"
   "swift-markdown/NOTICE.txt"
   "swift-cmark/COPYING"
+  "FreeType/LICENSE.TXT"
+  "FreeType/FTL.TXT"
+  "FreeType/GPLv2.TXT"
+  "libpng/LICENSE"
+  "zlib/LICENSE"
+  "Oniguruma/COPYING"
+  "GNU-gettext/COPYING.LIB"
+  "DearBindings/LICENSE.txt"
+  "DearImGui/LICENSE.txt"
+  "sentry-native/LICENSE"
+  "MPack/LICENSE"
+  "stb-sprintf/LICENSE"
+  "Breakpad/LICENSE"
+  "simdutf/LICENSE-MIT"
+  "simdutf/LICENSE-APACHE"
+  "simdutf/NOTICE-BSD3"
+  "Highway/LICENSE"
+  "Highway/LICENSE-BSD3"
+  "glslang/LICENSE.txt"
+  "SPIRV-Cross/LICENSE"
+  "SPIRV-Cross/KhronosFreeUse.txt"
+  "Wuffs/LICENSE"
+  "Wuffs/LICENSE-APACHE"
+  "Wuffs/LICENSE-MIT"
 )
 for license_file in "${required_license_files[@]}"; do
   source_license="$LICENSE_RESOURCES/$license_file"
