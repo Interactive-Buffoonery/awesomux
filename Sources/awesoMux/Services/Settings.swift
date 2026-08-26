@@ -29,8 +29,11 @@ enum SettingsKey {
     static let appKitStateRestorationEnabled = "settings.appKitStateRestorationEnabled"
     /// Machine-owned "have they been shown the welcome tour" bit. UserDefaults
     /// rather than TOML deliberately: TOML is the hand-editable user surface
-    /// and this is not a settings row. Seeded true for installs that show
-    /// evidence of prior use, so an upgrade is never greeted as a new install.
+    /// and this is not a settings row. Deliberately absent from
+    /// `SettingsDefault.registerInitialValues` — `FirstRunTourPolicy` seeds it
+    /// exactly once by testing `object(forKey:) == nil`, and a registration
+    /// entry would make that read non-nil forever (the registration domain is
+    /// process-wide, so it would also leak across suites in tests).
     static let hasSeenFirstRunTour = "settings.hasSeenFirstRunTour"
 }
 
@@ -47,7 +50,6 @@ enum SettingsDefault {
     static let updateChannel = UpdateChannel.stable.rawValue
     static let lastUpdateCheckEpoch: Double = 0
     static let appKitStateRestorationEnabled = false
-    static let hasSeenFirstRunTour = false
 
     /// Validated read of `SettingsKey.updateChannel`. `UpdateChannel` is a
     /// `RawRepresentable` enum backed by an unencrypted UserDefaults string
@@ -73,8 +75,7 @@ enum SettingsDefault {
             SettingsKey.outputMarksNeedsAttention: outputMarksNeedsAttention,
             SettingsKey.updateChannel: updateChannel,
             SettingsKey.lastUpdateCheckEpoch: lastUpdateCheckEpoch,
-            SettingsKey.appKitStateRestorationEnabled: appKitStateRestorationEnabled,
-            SettingsKey.hasSeenFirstRunTour: hasSeenFirstRunTour,
+            SettingsKey.appKitStateRestorationEnabled: appKitStateRestorationEnabled
         ])
     }
 }

@@ -23,6 +23,18 @@ final class WorkspaceNotificationBridge {
     /// round trip and stack multiple explanation modals.
     private(set) var isAuthorizationRequestInFlight = false
 
+    /// Events that arrived while authorization was still undetermined. They
+    /// wait for the one round trip below instead of each starting their own —
+    /// `AppDelegate.evaluateAndPostNotifications()` posts a whole batch in a
+    /// synchronous loop, and `authorizationStatus` only updates on the first
+    /// request's async completion.
+    private var pendingAuthorizationEvents: [WorkspaceNotificationEvent] = []
+
+    /// A burst is only worth replaying so far; beyond this the oldest are the
+    /// least useful. ponytail: fixed cap, revisit only if a real batch ever
+    /// exceeds it.
+    private static let pendingAuthorizationEventLimit = 8
+
     /// `UNUserNotificationCenter.current()` reads `Bundle.main` and crashes
     /// when the calling process isn't a real app bundle — true of the
     /// unbundled `swift test` runner. `lazy` defers that call past
@@ -64,6 +76,16 @@ final class WorkspaceNotificationBridge {
         guard !isAuthorizationRequestInFlight else {
             return
         }
+
+        // Priming is driven off session-store mutations, which tick on ordinary
+        // agent state changes. Without this, a settled answer is re-fetched
+        // from notifyd forever; `refreshAuthorizationStatus` is only worth an
+        // XPC round trip while the answer can still change.
+        if let authorizationStatus, authorizationStatus != .notDetermined {
+            handlePrimeStatus(authorizationStatus)
+            return
+        }
+
         isAuthorizationRequestInFlight = true
 
         refreshAuthorizationStatus { [weak self] status in
@@ -81,6 +103,12 @@ final class WorkspaceNotificationBridge {
     func handlePrimeStatus(_ status: UNAuthorizationStatus) {
         guard status == .notDetermined else {
             isAuthorizationRequestInFlight = false
+            let isAuthorized: Bool =
+                switch status {
+                case .authorized, .provisional, .ephemeral: true
+                default: false
+                }
+            flushPendingAuthorizationEvents(isAuthorized: isAuthorized)
             return
         }
 
@@ -95,6 +123,16 @@ final class WorkspaceNotificationBridge {
     /// with a plain `Bool`, without a real `UNUserNotificationCenter`.
     func handlePrimeRequestResult(granted: Bool) {
         isAuthorizationRequestInFlight = false
+        flushPendingAuthorizationEvents(isAuthorized: granted)
+    }
+
+    private func flushPendingAuthorizationEvents(isAuthorized: Bool) {
+        let events = pendingAuthorizationEvents
+        pendingAuthorizationEvents.removeAll()
+        guard isAuthorized else { return }
+        for event in events {
+            postAuthorizedWorkspaceNotification(event)
+        }
     }
 
     func postWorkspaceNotification(_ event: WorkspaceNotificationEvent) {
@@ -106,13 +144,17 @@ final class WorkspaceNotificationBridge {
         case .authorized, .provisional, .ephemeral:
             postAuthorizedWorkspaceNotification(event)
         case .notDetermined:
-            requestAuthorization { [weak self] isAuthorized in
-                guard isAuthorized else {
-                    return
-                }
-
-                self?.postAuthorizedWorkspaceNotification(event)
+            // Never requests here. This path used to call
+            // `center.requestAuthorization` directly, which showed the bare
+            // system dialog with no explanation — and, because the caller posts
+            // a batch synchronously while `authorizationStatus` updates only on
+            // the first completion, once per eligible event. The event waits for
+            // the single guarded round trip instead.
+            pendingAuthorizationEvents.append(event)
+            if pendingAuthorizationEvents.count > Self.pendingAuthorizationEventLimit {
+                pendingAuthorizationEvents.removeFirst()
             }
+            requestAuthorizationWithExplanationIfNeeded()
         case .denied:
             // Deliberately quiet at post time: macOS shows the permission
             // dialog at most once, so there is nothing useful to do here.
@@ -346,6 +388,14 @@ final class WorkspaceNotificationBridge {
     func beginAuthorizationRequestForTesting() {
         isAuthorizationRequestInFlight = true
     }
+
+    /// Seeds the cached status so `postWorkspaceNotification`'s routing can be
+    /// driven without a real `UNUserNotificationCenter` round trip.
+    func setAuthorizationStatusForTesting(_ status: UNAuthorizationStatus?) {
+        authorizationStatus = status
+    }
+
+    var pendingAuthorizationEventCountForTesting: Int { pendingAuthorizationEvents.count }
 
     private(set) var explanationPresentationCountForTesting = 0
 }

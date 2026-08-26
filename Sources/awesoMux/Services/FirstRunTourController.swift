@@ -11,13 +11,29 @@ import SwiftUI
 /// that state, and workspace restore being off makes it permanent. Install
 /// age is a separate input.
 enum FirstRunTourPolicy {
+    /// The seeded flag is the *only* install-age input, and it is deliberately
+    /// three-valued. Re-deriving age from `loadSource` here instead would ask a
+    /// signal that is only meaningful on the launch that created the config,
+    /// and get "existing" on every launch after — so a first launch interrupted
+    /// before the tour was dismissed could never be resumed.
+    ///
+    /// `nil` means the seed has never run: this launch's bootstrap failed and
+    /// no earlier launch classified the install. An unknown history is not
+    /// licence to re-onboard a possibly-returning user; a later healthy launch
+    /// seeds properly and this answers correctly then.
     static func shouldAutoPresent(
-        hasSeenTour: Bool,
-        hasPriorInstallEvidence: Bool,
+        seenFlag: Bool?,
         mode: EmptyWorkspaceMode
     ) -> Bool {
-        guard !hasSeenTour, !hasPriorInstallEvidence else { return false }
+        guard seenFlag == false else { return false }
         return mode == .firstLaunch
+    }
+
+    /// `nil` when the flag has never been written — see `seedSeenFlagIfNeeded`.
+    /// `bool(forKey:)` cannot express that: it reports a missing key as `false`,
+    /// which is also the "seeded, genuinely new" answer.
+    static func seenFlag(defaults: UserDefaults = .standard) -> Bool? {
+        defaults.object(forKey: SettingsKey.hasSeenFirstRunTour) as? Bool
     }
 
     /// `.createdDefault` is the only `ConfigLoadSource` that means "nothing
@@ -26,22 +42,38 @@ enum FirstRunTourPolicy {
     /// was used before. A filesystem probe for the config directory can't
     /// tell first launch from launch two: `AppSettingsStore.bootstrap()` runs
     /// on every launch and creates that directory itself before this can ever
-    /// be checked, so it reads "exists" from the very first run onward. `nil`
-    /// (bootstrap threw) is treated as evidence too — an unknown history is
-    /// not license to re-onboard a possibly-returning user.
-    static func hasPriorInstallEvidence(loadSource: ConfigLoadSource?) -> Bool {
+    /// be checked, so it reads "exists" from the very first run onward.
+    static func hasPriorInstallEvidence(loadSource: ConfigLoadSource) -> Bool {
         loadSource != .createdDefault
     }
 
-    /// Written once, before the tour can ever evaluate. Without it an existing
-    /// user upgrading into this build has the (false-by-default) flag and gets
-    /// greeted as brand new.
+    /// Written once per install, before the tour can ever evaluate. Without it
+    /// an existing user upgrading into this build has the (false-by-default)
+    /// flag and gets greeted as brand new.
+    ///
+    /// Two guards, both load-bearing:
+    ///
+    /// `loadSource` only separates new from existing on the launch that
+    /// *created* the config; every launch after that reads `.existingFile`.
+    /// Re-deriving a persisted decision from it on launch two would mean a
+    /// first launch interrupted before the tour was dismissed (quit, crash, or
+    /// simply never reaching the scene's `.onAppear`) permanently loses
+    /// onboarding. Writing the classification exactly once — including the
+    /// `false` a genuinely new install gets — makes launch two a no-op instead.
+    ///
+    /// A `nil` source means bootstrap threw and this launch knows nothing. That
+    /// suppresses the tour for one launch (`shouldAutoPresent` above), but is
+    /// never persisted: repairing the disk later would otherwise never restore
+    /// onboarding.
     static func seedSeenFlagIfNeeded(
         defaults: UserDefaults = .standard,
-        hasPriorInstallEvidence: Bool
+        loadSource: ConfigLoadSource?
     ) {
-        guard hasPriorInstallEvidence else { return }
-        defaults.set(true, forKey: SettingsKey.hasSeenFirstRunTour)
+        guard let loadSource else { return }
+        guard seenFlag(defaults: defaults) == nil else { return }
+        defaults.set(
+            hasPriorInstallEvidence(loadSource: loadSource),
+            forKey: SettingsKey.hasSeenFirstRunTour)
     }
 }
 
@@ -66,6 +98,13 @@ final class FirstRunTourController {
 
     private(set) var isVisible = false
     private(set) var currentBeat = 0
+    /// Bumped on every presentation. The panel is reused across dismiss
+    /// (`orderOut`, not `close`) and `hostSwiftUIContent` only swaps `rootView`,
+    /// so SwiftUI keeps the page's identity and its `@State` — a one-shot
+    /// "have I focused yet" flag therefore never fires again for a recall.
+    /// Handing the page a value that changes per presentation is what lets it
+    /// drive VoiceOver focus off presentation instead.
+    private(set) var presentationToken = 0
 
     var hasReachedNotificationBeat: Bool { currentBeat >= Self.notificationBeatIndex }
 
@@ -90,19 +129,21 @@ final class FirstRunTourController {
     }
 
     /// Re-summoning resumes rather than restarting: `currentBeat` is
-    /// deliberately left untouched here.
+    /// deliberately left untouched here and in `beginPresentation()`.
     func show() {
+        let isFirstPresentation = !isVisible
+        beginPresentation()
+
         let panel = panel ?? makePanel()
         self.panel = panel
 
         panel.hostSwiftUIContent(makeRootView())
 
-        if !isVisible {
+        if isFirstPresentation {
             panel.setFixedContentSize(maximumBeatFittingSize())
             panel.center()
         }
         panel.presentAndFocus()
-        isVisible = true
         // `presentAndFocus()` only makes the hosting view first responder; it
         // tells VoiceOver nothing, so a panel that appears over the empty state
         // is silent. The page's own initial accessibility focus then reads the
@@ -114,6 +155,15 @@ final class FirstRunTourController {
         ).post()
     }
 
+    /// Every part of `show()` that isn't the window. `showForTesting()` routes
+    /// through this rather than duplicating the transition, so a regression
+    /// that reset `currentBeat` on present would be caught by a test that can
+    /// only run headless.
+    private func beginPresentation() {
+        presentationToken += 1
+        isVisible = true
+    }
+
     func advance() { currentBeat = min(currentBeat + 1, Self.beatCount - 1) }
     func retreat() { currentBeat = max(currentBeat - 1, 0) }
 
@@ -123,6 +173,11 @@ final class FirstRunTourController {
     /// three, permanently.
     func dismissByUser() {
         defaults.set(true, forKey: SettingsKey.hasSeenFirstRunTour)
+        // Reaching the closing beat *is* completing the tour, whichever control
+        // ends it there. Leaving `currentBeat` on the last beat would make the
+        // "?" button that beat five advertises reopen on a screen whose only
+        // remaining control is Done. Dismissing mid-tour still resumes.
+        if currentBeat == Self.beatCount - 1 { currentBeat = 0 }
         isVisible = false
         isKeyWindow = false
         panel?.orderOut(nil)
@@ -138,9 +193,14 @@ final class FirstRunTourController {
 
     @ViewBuilder
     private func makeRootView() -> some View {
+        // The store itself, not a snapshot of its chords: resolving once here
+        // would keep teaching the old key after beat three's own Settings
+        // button is used to rebind one. `FirstRunTourView` resolves inside its
+        // body, so Observation re-renders the live panel on a rebind.
         let root = FirstRunTourView(
             controller: self,
-            shortcuts: resolvedShortcuts(),
+            appSettingsStore: appSettingsStore,
+            presentationToken: presentationToken,
             onOpenAgentSettings: { [weak self] in self?.onOpenAgentSettings() }
         )
         if let appSettingsStore {
@@ -241,7 +301,7 @@ final class FirstRunTourController {
     /// runs unbundled, and `FloatingSwiftUIPanelWindow` sizing/chrome assumes a
     /// live `NSScreen`/window server that isn't available there.
     func showForTesting() {
-        isVisible = true
+        beginPresentation()
     }
 
     /// Routes through the same `handleKeyStateChanged` the real panel's

@@ -36,12 +36,66 @@ struct FirstRunTourControllerTests {
         #expect(controller.hasReachedNotificationBeat == true)
     }
 
+    /// `showForTesting()` routes through the same `beginPresentation()` the real
+    /// `show()` calls, so this covers the presentation transition rather than a
+    /// parallel copy of it. (The window half of `show()` can't run headless.)
     @Test("Re-summoning resumes rather than restarting")
     func resumesAtCurrentBeat() {
         let controller = FirstRunTourController(
             defaults: UserDefaults(suiteName: "tour.ctrl.resume")!)
         controller.advance()
         controller.showForTesting()
+        #expect(controller.currentBeat == 1)
+    }
+
+    /// The panel is reused across dismiss (`orderOut`, not `close`) and only its
+    /// `rootView` is swapped, so the page's `@State` survives. Presentation has
+    /// to be observable from the page or a recall never moves VoiceOver focus.
+    @Test("Every presentation is distinguishable to the hosted page")
+    func presentationTokenChangesPerShow() {
+        let defaults = UserDefaults(suiteName: "tour.ctrl.token")!
+        defaults.removePersistentDomain(forName: "tour.ctrl.token")
+        let controller = FirstRunTourController(defaults: defaults)
+
+        let first = controller.presentationToken
+        controller.showForTesting()
+        let second = controller.presentationToken
+        controller.dismissByUser()
+        controller.showForTesting()
+
+        #expect(second != first)
+        #expect(controller.presentationToken != second)
+    }
+
+    /// Beat five's own copy promises the "?" button brings the tour back. A user
+    /// who finishes normally must not land on the closing screen, whose only
+    /// remaining control is Done.
+    @Test("Finishing on the last beat restarts the next recall")
+    func completingResetsToFirstBeat() {
+        let defaults = UserDefaults(suiteName: "tour.ctrl.complete")!
+        defaults.removePersistentDomain(forName: "tour.ctrl.complete")
+        let controller = FirstRunTourController(defaults: defaults)
+        controller.showForTesting()
+        for _ in 0..<FirstRunTourController.beatCount { controller.advance() }
+        #expect(controller.currentBeat == FirstRunTourController.beatCount - 1)
+
+        controller.dismissByUser()
+        controller.showForTesting()
+
+        #expect(controller.currentBeat == 0)
+    }
+
+    @Test("Skipping mid-tour still resumes where it left off")
+    func skippingMidTourResumes() {
+        let defaults = UserDefaults(suiteName: "tour.ctrl.skipmid")!
+        defaults.removePersistentDomain(forName: "tour.ctrl.skipmid")
+        let controller = FirstRunTourController(defaults: defaults)
+        controller.showForTesting()
+        controller.advance()
+
+        controller.dismissByUser()
+        controller.showForTesting()
+
         #expect(controller.currentBeat == 1)
     }
 

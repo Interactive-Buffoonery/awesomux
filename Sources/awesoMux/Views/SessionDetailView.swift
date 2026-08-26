@@ -423,6 +423,17 @@ struct EmptyWorkspaceView: View {
     }
 }
 
+extension Notification.Name {
+    /// Posted when the welcome tour hides. The empty state's one-shot VoiceOver
+    /// focus request is suppressed while the tour is up, and the retry
+    /// observers below all watch the main window — none of which fires when the
+    /// tour is closed from behind another key window (Settings, opened by the
+    /// tour's own beat-three button). This makes the restore explicit rather
+    /// than dependent on an incidental AppKit key transition.
+    static let awEmptyWorkspaceInitialFocusShouldRestore =
+        Notification.Name("aw.emptyWorkspace.initialFocusShouldRestore")
+}
+
 @MainActor
 final class EmptyWorkspaceInitialAccessibilityFocusRequest {
     private(set) var isConsumed = false
@@ -759,6 +770,9 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
             observeReadinessTransition(
                 NSWindow.didResizeNotification,
                 object: window),
+            observeReadinessTransition(
+                .awEmptyWorkspaceInitialFocusShouldRestore,
+                object: NSApp),
         ]
     }
 

@@ -223,7 +223,11 @@ struct AwesoMuxApp: App {
     /// vnode event into a reload that rewrites `loadSource` to `.existingFile`.
     /// Reading it later would make a first-run signal depend on nothing having
     /// touched that directory in between — silently, and with every test green.
-    private let hasPriorInstallEvidence: Bool
+    ///
+    /// Kept as the raw source rather than the derived Bool because seeding has
+    /// to tell "bootstrap threw, we know nothing" (`nil`) apart from real
+    /// evidence, and must not persist the former.
+    private let configLoadSource: ConfigLoadSource?
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -309,8 +313,7 @@ struct AwesoMuxApp: App {
             }
         )
         appSettingsStore.bootstrap()
-        hasPriorInstallEvidence = FirstRunTourPolicy.hasPriorInstallEvidence(
-            loadSource: appSettingsStore.loadSource)
+        configLoadSource = appSettingsStore.loadSource
         appSettingsStore.startWatching()
         let terminalAppearancePreferencesCache = TerminalAppearancePreferencesCache()
         let initialAppearance = appSettingsStore.appearance.value
@@ -625,14 +628,13 @@ struct AwesoMuxApp: App {
                     // from every other case. It is read in `init()`, not here —
                     // see `hasPriorInstallEvidence`.
                     FirstRunTourPolicy.seedSeenFlagIfNeeded(
-                        hasPriorInstallEvidence: hasPriorInstallEvidence)
+                        loadSource: configLoadSource)
 
                     // Evaluated once, from this launch's snapshot. Closing the last
                     // group later returns the tree to `.firstLaunch`; that must not
                     // resurrect the tour.
                     if FirstRunTourPolicy.shouldAutoPresent(
-                        hasSeenTour: UserDefaults.standard.bool(forKey: SettingsKey.hasSeenFirstRunTour),
-                        hasPriorInstallEvidence: hasPriorInstallEvidence,
+                        seenFlag: FirstRunTourPolicy.seenFlag(),
                         mode: EmptyWorkspaceMode.resolve(
                             hasRecoveryWarning: recoveryWarning != nil,
                             hasAnyGroup: !sessionStore.groups.isEmpty))
@@ -670,6 +672,29 @@ struct AwesoMuxApp: App {
                     guard !isDeferring else { return }
                     appDelegate.requestNotificationAuthorizationIfNeeded(
                         notificationPrimeInputs(isLaunchEvaluation: false))
+                }
+                // Every trigger above needs a change *after* mount, and a
+                // returning user has none: the store is final before
+                // `.onAppear` (`State(initialValue:)`), the launch evaluation is
+                // a deliberate no-op, the tour never shows, and preferences are
+                // untouched. Without this they fall through to the first real
+                // agent event, which is exactly the uncontextualised system
+                // dialog this work exists to remove. Deferred off `.onAppear`
+                // rather than folded into it so the launch evaluation stays the
+                // no-op the spec requires.
+                .task {
+                    await Task.yield()
+                    appDelegate.requestNotificationAuthorizationIfNeeded(
+                        notificationPrimeInputs(isLaunchEvaluation: false))
+                }
+                // The empty state's one-shot VoiceOver focus request is
+                // suppressed while the tour is up, and its own retry observers
+                // watch the MAIN window — which fires nothing when the tour is
+                // closed from behind Settings. Restore explicitly instead.
+                .onChange(of: firstRunTourController.isVisible) { _, isVisible in
+                    guard !isVisible else { return }
+                    NotificationCenter.default.post(
+                        name: .awEmptyWorkspaceInitialFocusShouldRestore, object: NSApp)
                 }
             .task(id: worktreeRepositorySelectionID) {
                 await refreshWorktreeRepositoryContext()

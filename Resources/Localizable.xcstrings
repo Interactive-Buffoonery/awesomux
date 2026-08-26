@@ -3580,7 +3580,7 @@
       "comment" : "Diagnostics resource trend"
     },
     "Step %arg of %arg" : {
-      "comment" : "Accessibility label for one welcome tour beat. First argument is the current step, second is the total.",
+      "comment" : "Welcome tour step indicator. First argument is the current step, second is the total.",
       "localizations" : {
         "en" : {
           "stringUnit" : {

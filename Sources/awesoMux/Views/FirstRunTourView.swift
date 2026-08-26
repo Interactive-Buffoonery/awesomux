@@ -5,9 +5,11 @@ import SwiftUI
 // MARK: - Resolved shortcuts
 
 /// The chords the tour names, already resolved against the user's keyboard
-/// config. Grouped because the same five travel from the controller through
-/// both the live panel root and the per-beat measurement pass; the views
-/// themselves must never resolve, or rebound keys would stop being taught.
+/// config. Grouped because the same five travel together through both the live
+/// panel root and the per-beat measurement pass. Constructed inside
+/// `FirstRunTourView.body` from the live settings store, never snapshotted at
+/// present time — beat three sends the user to Settings to rebind, and a
+/// snapshot would keep teaching the chord they just replaced.
 struct FirstRunTourShortcuts {
     let newWorkspace: KeyBinding
     let toggleFloatingPanel: KeyBinding
@@ -162,13 +164,20 @@ enum FirstRunTourCopy {
 /// `FirstRunTourPage` too. Anything visual belongs inside the page.
 struct FirstRunTourView: View {
     let controller: FirstRunTourController
-    let shortcuts: FirstRunTourShortcuts
+    let appSettingsStore: AppSettingsStore?
+    let presentationToken: Int
     let onOpenAgentSettings: () -> Void
 
     var body: some View {
         FirstRunTourPage(
             beat: controller.currentBeat,
-            shortcuts: shortcuts,
+            presentationToken: presentationToken,
+            // Resolved here rather than snapshotted at present time: beat three
+            // sends the user to Settings, where rebinding a chord the tour is
+            // currently teaching must change what it teaches. Reading
+            // `keyboard.value` inside this body is what makes that reactive.
+            shortcuts: FirstRunTourShortcuts(
+                keyboard: appSettingsStore?.keyboard.value ?? .defaultValue),
             onBack: { controller.retreat() },
             onNext: { controller.advance() },
             onDismiss: { controller.dismissByUser() },
@@ -181,6 +190,8 @@ struct FirstRunTourView: View {
 
 struct FirstRunTourPage: View {
     let beat: Int
+    /// Changes on every presentation. See `FirstRunTourController`.
+    var presentationToken: Int = 0
     let shortcuts: FirstRunTourShortcuts
     let onBack: () -> Void
     let onNext: () -> Void
@@ -189,14 +200,23 @@ struct FirstRunTourPage: View {
 
     @Environment(\.awAccent) private var accentResolver
     @AccessibilityFocusState private var beatFocused: Bool
-    @State private var didRequestInitialFocus = false
 
     private var isFirstBeat: Bool { beat <= 0 }
     private var isLastBeat: Bool { beat >= FirstRunTourController.beatCount - 1 }
 
+    private var stepLabel: String {
+        String(
+            localized: "Step \(beat + 1) of \(FirstRunTourController.beatCount)",
+            comment:
+                "Welcome tour step indicator. First argument is the current step, second is the total.")
+    }
+
     var body: some View {
         let copy = FirstRunTourCopy.beat(beat, shortcuts: shortcuts)
-        let accentColor = Color.aw.accent(accentResolver.accent)
+        // The text-safe accent, not the raw one: at this size the raw Latte
+        // accent lands at 2.6–3.0:1 on the light background, under WCAG 1.4.3's
+        // 4.5:1 floor for normal text.
+        let accentColor = Color.aw.accentOnChrome(accentResolver.accent)
 
         VStack(alignment: .leading, spacing: AwSpacing.sectionGap) {
             DaveMark()
@@ -230,12 +250,7 @@ struct FirstRunTourPage: View {
             // are each their own stop, and the group is what pages under the
             // user rather than the window.
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(
-                String(
-                    localized: "Step \(beat + 1) of \(FirstRunTourController.beatCount)",
-                    comment:
-                        "Accessibility label for one welcome tour beat. First argument is the current step, second is the total.")
-            )
+            .accessibilityLabel(stepLabel)
             // Initial VoiceOver focus lands on the beat, not on the controls at
             // the end of the reading order, so the copy is what a first-run
             // user actually hears.
@@ -265,16 +280,23 @@ struct FirstRunTourPage: View {
         // "Welcome to awesoMux" here made VoiceOver say it three times before
         // ever reaching "Step 1 of 5".
         .accessibilityElement(children: .contain)
-        .onAppear(perform: focusInitialBeat)
+        // Keyed on presentation *and* beat, because this page outlives both.
+        // The panel is reused across dismiss/recall, so a one-shot flag left
+        // VoiceOver users navigating in by hand on every recall; and the page
+        // keeps its identity across page turns, so nothing moved focus off
+        // stale beat-one content when the user pressed Next.
+        .onChange(of: [presentationToken, beat], initial: true) { _, _ in
+            focusBeat()
+        }
     }
 
     /// The panel is presented programmatically, so nothing moves VoiceOver into
-    /// it on its own. Deferred a turn for the same reason `AwModalView` defers:
-    /// the element has to exist in the hosting view's accessibility tree before
-    /// the focus request can land on it.
-    private func focusInitialBeat() {
-        guard !didRequestInitialFocus else { return }
-        didRequestInitialFocus = true
+    /// it on its own. Cleared first so a re-focus on the same binding is a real
+    /// transition; deferred a turn for the same reason `AwModalView` defers,
+    /// because the element has to exist in the hosting view's accessibility
+    /// tree before the focus request can land on it.
+    private func focusBeat() {
+        beatFocused = false
         Task { @MainActor in
             await Task.yield()
             beatFocused = true
@@ -283,15 +305,19 @@ struct FirstRunTourPage: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            progressDots
+            stepIndicator
 
             Spacer(minLength: 12)
 
-            Button(
-                String(localized: "Skip", comment: "Welcome tour button dismissing the tour"),
-                action: onDismiss
-            )
-            .buttonStyle(.link)
+            // Nothing to skip on the closing beat — Skip and Done would run the
+            // same action side by side.
+            if !isLastBeat {
+                Button(
+                    String(localized: "Skip", comment: "Welcome tour button dismissing the tour"),
+                    action: onDismiss
+                )
+                .buttonStyle(.link)
+            }
 
             Button(
                 String(localized: "Back", comment: "Welcome tour button returning to the previous beat"),
@@ -311,16 +337,29 @@ struct FirstRunTourPage: View {
         }
     }
 
-    private var progressDots: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<FirstRunTourController.beatCount, id: \.self) { index in
-                Circle()
-                    .fill(
-                        index == beat
-                            ? Color.aw.accent(accentResolver.accent) : Color.aw.textFaint
-                    )
-                    .frame(width: 5, height: 5)
+    /// The dots alone conveyed position by colour only (WCAG 1.4.1), and at
+    /// 1.15–2.08:1 selected-vs-unselected in the light theme. The text carries
+    /// the position; the dots are decoration beside it.
+    private var stepIndicator: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 5) {
+                ForEach(0..<FirstRunTourController.beatCount, id: \.self) { index in
+                    Circle()
+                        .fill(
+                            index == beat
+                                ? Color.aw.accentOnChrome(accentResolver.accent)
+                                : Color.aw.textFaint
+                        )
+                        .frame(width: 5, height: 5)
+                }
             }
+
+            Text(stepLabel)
+                .awFont(AwFont.UI.meta)
+                // Primary text, not `text2`: this label is now the sole
+                // non-colour carrier of "which step am I on", and `text2` is
+                // 4.37:1 on the Latte window surface — under 1.4.3's 4.5:1.
+                .foregroundStyle(Color.aw.text)
         }
         // The beat group above already announces "Step N of 5"; repeating it
         // here would make every page turn read twice.
