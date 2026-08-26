@@ -391,12 +391,21 @@ enum DaemonGarbageCollector {
         unlinkStale(stale, in: directory, kind: "log file")
     }
 
-    /// Whether `directory/name` is a live unix socket — the INT-914 ownership
-    /// test for orphan-attach GC. `lstat` (not `stat`) and a strict S_IFSOCK
-    /// type check: an absent entry, a squatting regular file, or a symlink all
-    /// read as NOT ours, which spares the candidate rather than authenticating
-    /// a cross-profile kill. Only ever called with UUID-shaped names (no path
-    /// traversal) from `reapOrphanAttachClients`.
+    /// Whether `directory/name` is a unix-socket filesystem entry — the
+    /// INT-914 ownership test for orphan-attach GC. `lstat` (not `stat`) and
+    /// a strict S_IFSOCK type check: an absent entry, a squatting regular
+    /// file, or a symlink all read as NOT ours, which spares the candidate
+    /// rather than authenticating a cross-profile kill.
+    ///
+    /// Deliberately an EXISTENCE test, never a liveness probe: only this
+    /// profile's daemons ever create entries here, so even an entry left by a
+    /// SIGKILLed daemon (no unlink on the way out) proves the targeted session
+    /// belonged to this profile — and its orphaned attach client is exactly
+    /// who this sweep exists to reap. Requiring a connectable listener instead
+    /// would spare those crashes' clients forever, and against a same-user
+    /// squatter a liveness check buys nothing (`bind()` costs no more than
+    /// creating a dead socket). Only ever called with UUID-shaped names (no
+    /// path traversal) from `reapOrphanAttachClients`.
     nonisolated static func sessionSocketExists(named name: String, in directory: String) -> Bool {
         var status = stat()
         guard lstat(directory + "/" + name, &status) == 0 else { return false }

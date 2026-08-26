@@ -329,6 +329,41 @@ struct DaemonGarbageCollectorTests {
         #expect(DaemonGarbageCollector.sessionSocketExists(named: uuid, in: directory))
     }
 
+    @Test("session socket check: a stale socket file left by a dead daemon still proves ownership")
+    func sessionSocketExistsAcceptsStaleSocketFile() throws {
+        let uuid = Self.orphanUUID
+        // Short path: the 104-byte sockaddr_un budget can't hold a
+        // NSTemporaryDirectory-based fixture dir plus a 36-char session name.
+        let directory = "/tmp/amx-gc-" + UUID().uuidString.prefix(8)
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let path = directory + "/" + uuid
+
+        // Bind a real listener, then close it WITHOUT unlinking the path —
+        // the exact residue a SIGKILLed daemon leaves behind. The entry stays
+        // socket-typed on disk while its endpoint is gone.
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        #expect(listener >= 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(path.utf8)
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: pathBytes) }
+        let length = socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1)
+        let bindResult = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(listener, $0, length)
+            }
+        }
+        #expect(bindResult == 0)
+        Darwin.close(listener)
+
+        // Ownership comes from WHERE the entry lives (only this profile's
+        // daemons write here), not from whether a listener survives — a
+        // stale entry must keep admitting this profile's orphaned attach
+        // clients to the sweep, so pin that reading here.
+        #expect(DaemonGarbageCollector.sessionSocketExists(named: uuid, in: directory))
+    }
+
     @Test("session socket check: absent, regular file, and squatting directory are all foreign")
     func sessionSocketExistsRejectsNonSockets() throws {
         let uuid = Self.orphanUUID
