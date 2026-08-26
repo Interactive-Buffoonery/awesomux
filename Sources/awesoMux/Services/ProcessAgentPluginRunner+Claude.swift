@@ -168,22 +168,27 @@ extension ProcessAgentPluginRunner {
             let finding = AgentPluginDeployedCopyInspector.assess(
                 deployedHooksURL: deployedURL,
                 renderedHooksData: renderedData,
-                fileManager: renderer.fileManager
+                fileManager: renderer.fileManager,
+                ladderProbe: ladderProbe
             )
         else {
             return .inconclusive
         }
-        if !finding.differsFromCurrentRender {
-            return .concluded(.enabled)
+        // Reachability outranks freshness: a deployed copy that byte-matches
+        // today's render but cannot resolve a helper (this build's own helper
+        // missing, Spotlight dead) is still broken and must read Needs Repair,
+        // never a green "enabled" hiding behind matching content.
+        if !finding.helperReachable {
+            let deadPath = finding.firstBakedHelperPath ?? "a missing helper"
+            return .concluded(
+                .needsRepair(
+                    "The installed status plugin's hook points at \(deadPath), which no longer exists; Repair to reinstall it from this copy of awesoMux"
+                ))
         }
-        if finding.helperReachable {
+        if finding.differsFromCurrentRender {
             return .concluded(.updateAvailable(AgentPluginSourceFingerprint.outdatedInstallGuidance))
         }
-        let deadPath = finding.firstBakedHelperPath ?? "a missing helper"
-        return .concluded(
-            .needsRepair(
-                "The installed status plugin's hook points at \(deadPath), which no longer exists; Repair to reinstall it from this copy of awesoMux"
-            ))
+        return .concluded(.enabled)
     }
 
     // MARK: Enable / install
@@ -232,12 +237,17 @@ extension ProcessAgentPluginRunner {
         do {
             presence = try await claudePresence(ref: probeRef, executable: probeExecutable, env: probeEnv)
         } catch {
-            // A recorded binary that no longer exists (`executableNotFound`)
-            // would gate off the one operation that rewrites the record and
-            // heals the card, so fall back to the live binary — still against
-            // the recorded config home, where the stale copy actually lives.
-            // Any other failure counts as installed: skipping cleanup on doubt
-            // could preserve the stale same-version cache.
+            // A recorded binary that cannot answer — gone entirely
+            // (`executableNotFound`) or unspawnable (`spawnFailed`, e.g. an
+            // arch mismatch after a machine migration) would gate off the one
+            // operation that rewrites the record and heals the card, so fall
+            // back to the live binary — still against the recorded config
+            // home, where the stale copy actually lives. The probeExecutable
+            // swap matters beyond the retry: the uninstall step below runs
+            // through it, so pinning it to the recorded binary here would
+            // abort every repair before install. Any other failure counts as
+            // installed: skipping cleanup on doubt could preserve the stale
+            // same-version cache.
             probeExecutable = executable
             presence =
                 (try? await claudePresence(ref: probeRef, executable: executable, env: probeEnv))
@@ -270,7 +280,8 @@ extension ProcessAgentPluginRunner {
             deployedDrift = Self.deployedCopyDiffersFromRender(
                 installPath: installPath,
                 renderedHooksURL: tree.hookConfigURLs.first,
-                fileManager: renderer.fileManager
+                fileManager: renderer.fileManager,
+                ladderProbe: ladderProbe
             )
         }
         if recordStale != nil || deployedDrift, case .installed = presence {
@@ -413,9 +424,10 @@ extension ProcessAgentPluginRunner {
     /// succeed is safer than skipping it and letting a stale cached copy survive
     /// a "successful" reinstall — the exact silent failure INT-651 exists to
     /// prevent. Only a definitive "not listed" (out-of-band manual uninstall)
-    /// reports `.absent`. Throws only `executableNotFound`, so the caller can
-    /// retry with the live binary instead of pinning the reinstall to a binary
-    /// that is gone.
+    /// reports `.absent`. Throws `executableNotFound` and `spawnFailed` — the
+    /// two failures where the recorded binary provably cannot answer but the
+    /// live one still can — so the caller can retry with the live binary
+    /// instead of pinning the reinstall to it.
     private func claudePresence(
         ref: AgentPluginMarketplaceRef,
         executable: String,
@@ -430,10 +442,13 @@ extension ProcessAgentPluginRunner {
                 cwd: nil
             )
         } catch CommandRunnerError.executableNotFound(let path) {
-            // The one probe failure the caller can meaningfully react to: a
-            // recorded binary that is gone entirely warrants a live-binary
-            // retry rather than "installed".
+            // Probe failures the caller can meaningfully react to: a recorded
+            // binary that is gone — or present but cannot start (arch mismatch,
+            // broken quarantine) — warrants a live-binary retry rather than
+            // "installed".
             throw CommandRunnerError.executableNotFound(path)
+        } catch CommandRunnerError.spawnFailed(let path, let reason) {
+            throw CommandRunnerError.spawnFailed(path, reason: reason)
         } catch {
             return .installed(installPath: nil)
         }
@@ -448,32 +463,24 @@ extension ProcessAgentPluginRunner {
 
     /// Whether the cache copy Claude actually executes differs from what this
     /// app would render today (INT-882). Environment-specific baked values are
-    /// masked before comparing, so a dev↔release switch — which re-bakes the
-    /// helper path and bundle id without changing hook behavior — does not read
+    /// masked before comparing — bundle ids only when the copy's own ladder can
+    /// still resolve a helper — so a dev↔release switch, which re-bakes the
+    /// helper path and bundle id without changing hook behavior, does not read
     /// as permanent content drift. An unreadable deployed file returns
     /// `false` — without readable bytes there is no drift to prove, and the
     /// record-based gates still stand.
     static func deployedCopyDiffersFromRender(
         installPath: String,
         renderedHooksURL: URL?,
-        fileManager: FileManager
+        fileManager: FileManager,
+        ladderProbe: AgentPluginDeployedCopyInspector.LadderProbe?
     ) -> Bool {
-        guard let renderedHooksURL else {
-            return false
-        }
-        let deployedURL = URL(fileURLWithPath: installPath)
-            .appending(path: "hooks", directoryHint: .isDirectory)
-            .appending(path: "hooks.json")
-        guard
-            let deployedData = try? Data(contentsOf: deployedURL),
-            let renderedData = try? Data(contentsOf: renderedHooksURL)
-        else {
-            return false
-        }
-        return AgentPluginDeployedCopyInspector.contentDrift(
-            deployed: deployedData,
-            rendered: renderedData
-        )
+        AgentPluginDeployedCopyInspector.deployedCopyFinding(
+            installPath: installPath,
+            renderedHooksURL: renderedHooksURL,
+            fileManager: fileManager,
+            ladderProbe: ladderProbe
+        )?.differsFromCurrentRender ?? false
     }
 
     /// A note when the live Config home field diverges from the home the recorded

@@ -444,6 +444,106 @@ struct AgentPluginRunnerTests {
         #expect(drifted.differsFromCurrentRender)
     }
 
+    @Test("a dead baked path stays unreachable unless its Spotlight ladder provably resolves")
+    func deadBakedPathNeedsResolvableLadder() throws {
+        let deadProbe: AgentPluginDeployedCopyInspector.LadderProbe = { _ in false }
+        let liveProbe: AgentPluginDeployedCopyInspector.LadderProbe = { _ in true }
+        let unknownProbe: AgentPluginDeployedCopyInspector.LadderProbe = { _ in nil }
+
+        let laddered = try Self.deployHooksJSON(
+            command: Self.ladderCommand(
+                helperPath: "/gone/worktree/dist/awesoMuxAgentHook",
+                bundleID: "com.awesomux.worktree"
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: laddered.deletingLastPathComponent()) }
+
+        // Text-sniffing treated any mdfind mention as self-healing; only a
+        // lookup that resolves an executable helper counts now.
+        let dead = try #require(
+            AgentPluginDeployedCopyInspector.helperReachability(
+                deployedHooksURL: laddered,
+                ladderProbe: deadProbe
+            ))
+        #expect(!dead.helperReachable)
+        #expect(dead.firstBakedHelperPath == "/gone/worktree/dist/awesoMuxAgentHook")
+
+        // A live resolution route keeps the copy reachable…
+        let alive =
+            AgentPluginDeployedCopyInspector.helperReachability(
+                deployedHooksURL: laddered,
+                ladderProbe: liveProbe
+            )?.helperReachable
+        #expect(alive == true)
+        // …and an unperformable lookup fails open rather than inventing a repair.
+        let unknown =
+            AgentPluginDeployedCopyInspector.helperReachability(
+                deployedHooksURL: laddered,
+                ladderProbe: unknownProbe
+            )?.helperReachable
+        #expect(unknown == true)
+
+        // No Spotlight fallback at all: a frozen-path command whose path died
+        // is out of routes regardless of any probe.
+        let frozen = try Self.deployHooksJSON(
+            command: "AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-'/removed/dist/awesoMuxAgentHook'};"
+        )
+        defer { try? FileManager.default.removeItem(at: frozen.deletingLastPathComponent()) }
+        let stranded =
+            AgentPluginDeployedCopyInspector.helperReachability(
+                deployedHooksURL: frozen,
+                ladderProbe: liveProbe
+            )?.helperReachable
+        #expect(stranded == false)
+    }
+
+    @Test("bundle-id differences mask as environment-only only when both ladders resolve")
+    func bundleIDMaskingRequiresResolvableLadders() throws {
+        let liveProbe: AgentPluginDeployedCopyInspector.LadderProbe = { _ in true }
+        let devDeadProbe: AgentPluginDeployedCopyInspector.LadderProbe = { $0 != "com.awesomux.awesomux.dev" }
+        let unknownProbe: AgentPluginDeployedCopyInspector.LadderProbe = { _ in nil }
+
+        func hooksData(helperPath: String, bundleID: String) throws -> Data {
+            let command = Self.ladderCommand(helperPath: helperPath, bundleID: bundleID)
+            return try JSONSerialization.data(withJSONObject: [
+                "hooks": ["Stop": [["hooks": [["type": "command", "command": command]]]]]
+            ])
+        }
+
+        let devDeploy = try hooksData(
+            helperPath: "/gone/dev/dist/awesoMuxAgentHook",
+            bundleID: "com.awesomux.awesomux.dev"
+        )
+        let releaseRender = try hooksData(
+            helperPath: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook",
+            bundleID: "com.interactivebuffoonery.awesomux"
+        )
+
+        // Both ladders resolve: a dev↔release switch re-baked id + path only,
+        // without changing hook behavior — no drift.
+        let environmentOnly = AgentPluginDeployedCopyInspector.contentDrift(
+            deployed: devDeploy,
+            rendered: releaseRender,
+            ladderProbe: liveProbe
+        )
+        #expect(!environmentOnly)
+        // The deployed ladder provably resolves nothing: masking its bundle id
+        // would hide real breakage behind a fake environment-only match.
+        let brokenLadder = AgentPluginDeployedCopyInspector.contentDrift(
+            deployed: devDeploy,
+            rendered: releaseRender,
+            ladderProbe: devDeadProbe
+        )
+        #expect(brokenLadder)
+        // Unperformable lookups stay fail-open: both sides mask, as before.
+        let unverifiable = AgentPluginDeployedCopyInspector.contentDrift(
+            deployed: devDeploy,
+            rendered: releaseRender,
+            ladderProbe: unknownProbe
+        )
+        #expect(!unverifiable)
+    }
+
     @Test("Codex plugin list tolerates object, string, and missing source shapes")
     func codexPluginListToleratesSourceShapes() throws {
         let objectShape = """
@@ -537,6 +637,50 @@ struct AgentPluginRunnerTests {
             }
             #expect(guidance.localizedCaseInsensitiveContains("repair"))
         }
+    }
+
+    @Test("Claude: a content-matching deployed copy whose helper cannot resolve still needs repair")
+    func claudeContentMatchUnresolvableHelperNeedsRepair() async throws {
+        // The old freshness order returned `.enabled` whenever the deployed
+        // bytes matched today's render — even when no resolution route could
+        // actually produce a runnable helper (this build's own helper missing,
+        // Spotlight dead). Reachability must outrank the match.
+        let support = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-runner-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let home = support.appending(path: "home", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: support) }
+        let command = StubCommandRunner()
+        let deadHelperPath = "/nonexistent-\(UUID().uuidString)/dist/awesoMuxAgentHook"
+        let runner = Self.makeRunner(
+            renderedSupport: support,
+            command: command,
+            homeDirectoryURL: home,
+            helperPath: deadHelperPath,
+            ladderProbe: { _ in false }
+        )
+
+        let setup = Self.enabled
+        let tree = try runner.renderedTree(provider: .claudeCode, setup: setup)
+        // Deploy exactly the bytes this build renders — matching content,
+        // dead helper.
+        let cache =
+            home
+            .appending(path: ".claude/plugins/cache/awesomux-claude/awesomux-claude-status/0.1.0")
+        let hooksDir = cache.appending(path: "hooks", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
+        try Data(contentsOf: tree.hookConfigURLs[0]).write(to: hooksDir.appending(path: "hooks.json"))
+        command.stub(
+            args: ["plugin", "list", "--json"],
+            result: .ok(stdout: Self.claudeList(enabled: true, installPath: cache.path))
+        )
+
+        let report = await runner.status(provider: .claudeCode, setup: setup)
+        guard case .needsRepair(let guidance) = report.status else {
+            Issue.record("expected needsRepair, got \(report.status)")
+            return
+        }
+        #expect(guidance.contains(deadHelperPath))
     }
 
     @Test("Claude: fresh record with drifted deployed copy still forces uninstall before reinstall")
@@ -797,6 +941,98 @@ struct AgentPluginRunnerTests {
             codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
             let report = await runner.status(provider: .codex, setup: setup)
             #expect(report.status == .enabled)
+        }
+    }
+
+    @Test("Codex: repair removes a registered dead copy even without an install record")
+    func codexRecordlessDeadRegisteredCopyStillRemoved() async throws {
+        try await Self.withRunner { runner, command, codex in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            try FileManager.default.createDirectory(
+                at: runner.homeDirectoryURL.appending(path: ".codex", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+
+            // An out-of-band install: the registered copy bakes a dead dev
+            // helper, but awesoMux has no install record — so the stale-record
+            // gate never fires and `plugin add` alone would keep the stale copy.
+            let registered = runner.homeDirectoryURL
+                .appending(path: ".codex/plugins/cache/awesomux-codex/awesomux-codex-status")
+            let hooksDir = registered.appending(path: "hooks", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
+            try Data(
+                #"{"hooks":{"pre_tool_use":[{"hooks":[{"type":"command","command":"AWESOMUX_AGENT_HOOK=${AWESOMUX_AGENT_HOOK:-'/gone/worktree/dist/awesoMuxAgentHook'}; \"$AWESOMUX_AGENT_HOOK\" --provider codex"}]}]}}"#
+                    .utf8
+            )
+            .write(to: hooksDir.appending(path: "hooks.json"))
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(
+                    stdout:
+                        #"{"installed":[{"pluginId":"awesomux-codex-status@awesomux-codex","source":{"source":"local","path":"\#(registered.path)"}}]}"#
+                )
+            )
+
+            let outcome = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
+            guard case .needsReview = outcome.status else {
+                Issue.record("expected needsReview, got \(outcome.status)")
+                return
+            }
+            let argvs = command.invocations.map(\.args)
+            guard argvs.count == 4 else {
+                Issue.record("expected four commands, got \(argvs.count): \(argvs)")
+                return
+            }
+            // The replacement gate's read-only list leads, then remove precedes
+            // the re-add that would otherwise no-op against the stale cache.
+            #expect(argvs[0] == ["plugin", "list", "--json"])
+            #expect(argvs[1] == Self.codexRemoveArgvExpected)
+            #expect(Array(argvs[2].prefix(3)) == ["plugin", "marketplace", "add"])
+            #expect(argvs[3] == ["plugin", "add", "awesomux-codex-status@awesomux-codex"])
+        }
+    }
+
+    @Test("Codex: repair leaves a current registered copy alone when no install record exists")
+    func codexRecordlessCurrentRegisteredCopyUntouched() async throws {
+        try await Self.withRunner { runner, command, codex in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            codex.setHooksList([Self.codexHook(enabled: true, trust: .trusted)])
+            try FileManager.default.createDirectory(
+                at: runner.homeDirectoryURL.appending(path: ".codex", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+
+            // Record-less but healthy: the registered copy carries exactly the
+            // bytes this build renders. No removal may be scheduled.
+            let tree = try runner.renderedTree(provider: .codex, setup: Self.enabled)
+            let registered = runner.homeDirectoryURL
+                .appending(path: ".codex/plugins/cache/awesomux-codex/awesomux-codex-status")
+            let hooksDir = registered.appending(path: "hooks", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
+            try Data(contentsOf: tree.hookConfigURLs[0]).write(to: hooksDir.appending(path: "hooks.json"))
+            command.stub(
+                args: ["plugin", "list", "--json"],
+                result: .ok(
+                    stdout:
+                        #"{"installed":[{"pluginId":"awesomux-codex-status@awesomux-codex","source":{"source":"local","path":"\#(registered.path)"}}]}"#
+                )
+            )
+
+            let outcome = await runner.enableOrInstall(provider: .codex, setup: Self.enabled)
+            guard case .needsReview = outcome.status else {
+                Issue.record("expected needsReview, got \(outcome.status)")
+                return
+            }
+            let argvs = command.invocations.map(\.args)
+            guard argvs.count == 3 else {
+                Issue.record("expected three commands, got \(argvs.count): \(argvs)")
+                return
+            }
+            #expect(argvs[0] == ["plugin", "list", "--json"])
+            #expect(!argvs.contains(Self.codexRemoveArgvExpected))
+            #expect(Array(argvs[1].prefix(3)) == ["plugin", "marketplace", "add"])
+            #expect(argvs[2] == ["plugin", "add", "awesomux-codex-status@awesomux-codex"])
         }
     }
 
@@ -1942,6 +2178,41 @@ struct AgentPluginRunnerTests {
         }
     }
 
+    @Test("Claude: a recorded binary that cannot spawn falls back to the live binary for the uninstall")
+    func claudeCleanReinstallUnspawnableRecordedBinaryFallsBack() async throws {
+        try await Self.withRunner { runner, command, _ in
+            command.defaultOutcome = .result(.ok(stdout: ""))
+            _ = await runner.enableOrInstall(
+                provider: .claudeCode,
+                setup: AgentIntegrationSetup(enabled: true, binaryPath: "/broken/claude")
+            )
+            try Self.rewriteInstallRecord(runner: runner, provider: .claudeCode) {
+                $0.helperPath = Self.staleHelperPath
+            }
+            // The recorded binary exists but cannot start; the live default
+            // still works. Treating spawnFailed as "installed" used to pin the
+            // uninstall step to the broken binary, aborting repair before
+            // install.
+            command.stub(
+                executable: "/broken/claude",
+                args: ["plugin", "list", "--json"],
+                failure: .spawnFailed("/broken/claude", reason: "bad CPU type")
+            )
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: Self.claudeList(enabled: true)))
+
+            let before = command.invocations.count
+            let outcome = await runner.enableOrInstall(provider: .claudeCode, setup: Self.enabled)
+            #expect(outcome.status == .enabled)
+
+            let invocations = Array(command.invocations.dropFirst(before))
+            // The probe ran against the recorded binary and failed to spawn…
+            #expect(invocations.first?.executable == "/broken/claude")
+            // …and the uninstall still ran — via the live binary.
+            let uninstall = try #require(invocations.first { $0.args == Self.claudeUninstallArgvExpected })
+            #expect(uninstall.executable == "claude")
+        }
+    }
+
     @Test("Claude: an uninstall failure names the step's executable, not the live one")
     func claudeCleanReinstallErrorNamesStepExecutable() async throws {
         try await Self.withRunner { runner, command, _ in
@@ -2121,6 +2392,31 @@ struct AgentPluginRunnerTests {
         return helper
     }
 
+    /// A realistic baked runtime-resolution ladder: env override → baked path →
+    /// Spotlight bundle-id fallback, mirroring `helperResolutionSnippet`'s
+    /// output shape.
+    static func ladderCommand(helperPath: String, bundleID: String) -> String {
+        "if [ -n \"$AWESOMUX_AGENT_HOOK\" ] && [ -x \"$AWESOMUX_AGENT_HOOK\" ]; then :; "
+            + "elif [ -x '\(helperPath)' ]; then AWESOMUX_AGENT_HOOK='\(helperPath)'; "
+            + "else AWESOMUX_AGENT_HOOK=\"$(mdfind \"kMDItemCFBundleIdentifier == '\(bundleID)'\" 2>/dev/null | while IFS= read -r app; do if [ -x \"$app/Contents/MacOS/awesoMuxAgentHook\" ]; then printf '%s' \"$app/Contents/MacOS/awesoMuxAgentHook\"; break; fi; done)\"; fi"
+    }
+
+    /// Writes a hooks.json carrying one hook `command` to a throwaway file so
+    /// the inspector's URL-taking entry points can read it. Returns the file URL.
+    @discardableResult
+    static func deployHooksJSON(command: String) throws -> URL {
+        let hooksDir = FileManager.default.temporaryDirectory
+            .appending(path: "hooks-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "hooks", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
+        let url = hooksDir.appending(path: "hooks.json")
+        let data = try JSONSerialization.data(withJSONObject: [
+            "hooks": ["Stop": [["hooks": [["type": "command", "command": command]]]]]
+        ])
+        try data.write(to: url)
+        return url
+    }
+
     /// Overwrites the recorded `sourceContentDigest` so status can be driven to
     /// Needs Repair without rewriting the bundled plugin tree under Resources.
     /// Pass `nil` to model a pre-fingerprint install record.
@@ -2243,7 +2539,9 @@ struct AgentPluginRunnerTests {
         legacyInstallState: URL? = nil,
         command: StubCommandRunner = StubCommandRunner(),
         codex: StubCodexAppServerClient = StubCodexAppServerClient(),
-        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        helperPath: String = "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook",
+        ladderProbe: @escaping AgentPluginDeployedCopyInspector.LadderProbe = { _ in true }
     ) -> ProcessAgentPluginRunner {
         let renderer = AgentPluginTemplateRenderer(
             resourcesDirectoryURL: packageResourcesURL,
@@ -2255,8 +2553,9 @@ struct AgentPluginRunnerTests {
             codexClientFactory: { _, _ in codex },
             homeDirectoryURL: homeDirectoryURL,
             helperPathResolver: {
-                AgentHookHelperPath(path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook", isDevelopmentBundle: false)
+                AgentHookHelperPath(path: helperPath, isDevelopmentBundle: false)
             },
+            ladderProbe: ladderProbe,
             installStateDirectoryURL: installState,
             legacyInstallStateDirectoryURL: legacyInstallState
         )

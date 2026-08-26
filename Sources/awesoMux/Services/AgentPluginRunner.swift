@@ -100,6 +100,11 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
     var codexClientFactory: CodexAppServerClientFactory
     var homeDirectoryURL: URL
     var helperPathResolver: @Sendable () -> AgentHookHelperPath?
+    /// Resolves a Spotlight bundle identifier baked into a deployed
+    /// runtime-resolution ladder to whether an executable helper sits behind it
+    /// (INT-882). Reachability and drift-masking decisions consult this instead
+    /// of sniffing for `mdfind` text, which a dead dev deploy also carries.
+    var ladderProbe: AgentPluginDeployedCopyInspector.LadderProbe
     var installStateDirectoryURL: URL
     var legacyInstallStateDirectoryURL: URL
 
@@ -127,6 +132,7 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         },
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         helperPathResolver: @escaping @Sendable () -> AgentHookHelperPath? = { AgentHookHelperPath.resolve() },
+        ladderProbe: @escaping AgentPluginDeployedCopyInspector.LadderProbe = AgentPluginDeployedCopyInspector.systemLadderProbe,
         installStateDirectoryURL: URL? = nil,
         legacyInstallStateDirectoryURL: URL? = nil
     ) {
@@ -148,6 +154,7 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         self.codexClientFactory = codexClientFactory
         self.homeDirectoryURL = homeDirectoryURL
         self.helperPathResolver = helperPathResolver
+        self.ladderProbe = ladderProbe
         self.installStateDirectoryURL = resolvedInstallStateDirectoryURL
         self.legacyInstallStateDirectoryURL =
             legacyInstallStateDirectoryURL

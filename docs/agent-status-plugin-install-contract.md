@@ -33,11 +33,21 @@ Status vocabulary the runner reports per provider:
 > installs). Where the CLI exposes the deployed location (`claude plugin list
 > --json` `installPath`, `codex plugin list --json` `source.path`), status and
 > the clean-reinstall gate verify those bytes against a fresh render first:
-> matching → healthy regardless of record bookkeeping; differing with a
-> reachable helper (executable path or baked runtime-resolution ladder) →
-> Update available; differing with an unreachable helper → Needs repair. When
-> the deployed location is unavailable or unreadable, fall back to record-based
-> signals rather than inventing a failure.
+> unreachable helper → Needs repair (this outranks a content match — matching
+> bytes are no endorsement when no resolution route produces a runnable
+> helper); differing with a reachable helper (executable baked path, or a baked
+> runtime-resolution ladder that provably resolves to an executable through its
+> Spotlight bundle-id lookup) → Update available; matching with a reachable
+> helper → healthy regardless of record bookkeeping. Reachability is resolved,
+> not sniffed: merely containing `mdfind` text proves nothing when the baked
+> bundle id resolves nothing. Environment-specific bytes (helper path, bundle
+> id) are masked before content comparison so a dev↔release switch does not
+> read as drift — but a side's bundle id is masked only while its own ladder
+> still resolves, so a dead ladder surfaces as repair instead of hiding behind
+> a fake environment-only match. When the deployed location is unavailable or
+> unreadable, fall back to record-based signals rather than inventing a failure;
+> an unperformable Spotlight lookup likewise fails open rather than flipping a
+> healthy install to repair.
 
 > **Repo gap to close before the runner ships (Claude side).** The bundled
 > `Resources/AgentIntegrations/claude_code/plugins/awesomux-claude-status/` ships only
@@ -106,12 +116,14 @@ presence probe (recorded env) runs first and skips the uninstall only when the p
 definitively absent — an unreadable or unparseable list counts as installed, because
 skipping on doubt would let the stale copy survive a "successful" reinstall. With no
 record at all, a drifted deployed copy still uninstalls by our ref against the live
-settings, so Repair is never a dead button. A recorded binary that no longer exists falls
-back to the live binary against the recorded home rather than bricking the repair path. A
-failed uninstall aborts the reinstall (needs repair, record untouched) rather than letting
-a no-op install masquerade as success. Codex/Grok deliberately do not get the full step:
-their registrations reference live directories whose staleness surfaces through trust
-hashes and on-disk inspection instead.
+settings, so Repair is never a dead button. A recorded binary that no longer exists —
+or is present but cannot spawn (arch mismatch after a machine migration) — falls back
+to the live binary for both the probe and the uninstall step against the recorded home,
+rather than bricking the repair path; uncertain probe failures (timeouts) keep the
+recorded binary and count as installed. A failed uninstall aborts the reinstall (needs
+repair, record untouched) rather than letting a no-op install masquerade as success.
+Grok deliberately does not get the full step: its registration references a live
+directory whose staleness surfaces through on-disk inspection instead.
 
 ### 1.3 Parsing success vs failure
 
@@ -128,7 +140,8 @@ Decision table for our entry (`awesomux-claude-status@awesomux`):
 | Observed | Status |
 | --- | --- |
 | `claude` binary missing, or `--json` unsupported on this version (no JSON on stdout) | **Unsupported** |
-| Entry present, enabled true, `errors` empty, deployed copy at `installPath` matches a fresh render | **Installed-OK** — record bookkeeping (digest lag) must not override this |
+| Entry present, enabled true, `errors` empty, deployed copy at `installPath` matches a fresh render and its helper is reachable | **Installed-OK** — record bookkeeping (digest lag) must not override this |
+| Entry present, enabled true, `errors` empty, deployed copy matches a fresh render but no resolution route reaches a helper | **Needs repair** (reachability outranks the match — the hook cannot run regardless of content) |
 | Entry present, enabled true, `errors` empty, deployed copy differs with a reachable helper | **Update available** |
 | Entry present, enabled true, `errors` empty, deployed copy differs and its baked helper is unreachable | **Needs repair** (the hook exits 127 on every event) |
 | Deployed location unavailable/unreadable, entry enabled true, `errors` empty; recorded digest ≠ bundled source or missing | **Update available** (was Needs repair before INT-882: the plugin runs; staleness is not breakage) |
@@ -272,9 +285,17 @@ Match our hook(s) by `pluginId == awesomux-codex-status@<marketplace>` (or by
 | Our hook present, `enabled: true`, `trustStatus: modified` (current hash ≠ `trusted_hash`) | **Needs review** if the change is the user's; **Needs repair** if our rendered content drifted from what's on disk (we own the file → re-render/re-install) |
 | Our hook present, `enabled: true`, `trustStatus: trusted`, hashes match | Installed-OK |
 | `pluginId` configured but no matching hook discovered, or `sourcePath`/manifest missing, or `errors` non-empty | **Needs repair** |
-| Our hook present, enabled, trusted — but the registered plugin directory's deployed hooks bake an unreachable helper | **Needs repair** (trust hashes are content-keyed; Codex cannot see this itself) |
+| Our hook present, enabled, trusted — but the registered plugin directory's deployed hooks bake an unreachable helper (no executable baked path, and the ladder's Spotlight bundle id resolves nothing) | **Needs repair** (trust hashes are content-keyed; Codex cannot see this itself) |
 | `enabled: false` (user disabled) | Not-active (respect user; offer enable, don't auto-flip) |
 | Installed and healthy; recorded digest ≠ bundled source (or missing) | **Update available** (Repair reinstalls the new hooks; Codex then re-asks for trust) |
+
+**Clean reinstall (Codex).** `codex plugin add` keeps a same-version cached plugin intact,
+so a stale recorded install is removed before re-adding. With no install record at all,
+the registered plugin directory for our ref is inspected against a fresh render: a copy
+whose deployed hooks drifted — or whose helper can no longer be resolved — is removed by
+our ref against the live settings before the add, so Repair is never a dead button
+(INT-882). Unprovable states (unreadable list, unreadable deployed hooks) leave the copy
+alone.
 
 **Reload semantics (Codex).** Config/trust changes apply on the next thread/session; a live
 thread won't retroactively load a newly trusted hook. `config/batchWrite` with
