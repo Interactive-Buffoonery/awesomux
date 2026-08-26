@@ -236,6 +236,14 @@ struct AgentRuntimeEventReducer: Sendable {
         // shape. The ended/stopped restart bypasses all of this by design —
         // between turns, a different id IS how a user-launched replacement
         // announces itself.
+        //
+        // Only the `.promptSubmit` half of the boundary test carries behavioral
+        // weight. A `.sessionStart` bypassing the restart clause above implies
+        // the lifecycle is neither ended nor stopped, and a non-nil session-id
+        // latch implies an applied event, so `incumbentShowsLiveTurn` already
+        // refuses it; the `.sessionStart` arm stays as defense in depth should
+        // the latch-without-applied-event state ever become reachable (e.g. a
+        // future persistence change).
         let incumbentShowsLiveTurn =
             state.hasAppliedEvent
             && !state.lifecycle.currentIsStopped
