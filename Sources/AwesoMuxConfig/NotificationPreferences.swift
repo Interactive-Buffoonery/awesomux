@@ -15,6 +15,19 @@ public struct NotificationPreferences: Equatable, Sendable {
 
     public static let defaultValue = NotificationPreferences(config: .defaultValue)
 
+    /// Every channel on, for tests that only care about clearing the
+    /// preference-gate guard rather than exercising specific toggles.
+    public static let allEnabledForTesting = NotificationPreferences(
+        muted: false,
+        sound: true,
+        respectDoNotDisturb: false,
+        notifyOnNeedsAttention: true,
+        dockBounceOnNeedsAttention: true,
+        notifyOnTurnDone: true,
+        turnDoneAlertsWhenFocused: true,
+        showWorkspaceDetails: true
+    )
+
     public init(
         muted: Bool,
         sound: Bool,
