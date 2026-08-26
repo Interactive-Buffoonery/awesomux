@@ -367,7 +367,8 @@ extension GhosttyRuntime {
             return ClipboardConfirmPayload(preview: text, deliverableText: text)
         }
         return ClipboardConfirmPayload(
-            preview: representations
+            preview:
+                representations
                 .map { "\($0.mime) (\($0.data.count) bytes)" }
                 .joined(separator: "\n"),
             deliverableText: nil
