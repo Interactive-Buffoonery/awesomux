@@ -76,14 +76,16 @@ Use the Ghostty-aware group wrapper for focused or full Swift test runs:
 ./script/test.sh unit
 ./script/test.sh adapter
 ./script/test.sh system
+./script/test.sh zmx
 ./script/test.sh all
 ```
 
 Arguments after the group are passed to `swift test`. For example,
 `./script/test.sh unit --xunit-output result.xml` records the unit result.
 The `all` group is the exception: it accepts no additional arguments because
-it must preserve process isolation. Run `timing`, `sidebar`, and `nontiming`
-explicitly with distinct output paths when collecting full-suite xUnit output.
+it runs the zmx suite and must preserve Swift process isolation. Run `zmx`,
+`timing`, `sidebar`, and `nontiming` explicitly when collecting full-suite
+results; only the Swift groups accept `--xunit-output`.
 `./script/preflight.sh` remains the complete local check, including non-Swift
 guards and app launch verification.
 

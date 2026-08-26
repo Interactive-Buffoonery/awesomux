@@ -234,6 +234,26 @@ struct BuildAndRunScriptTests {
         #expect(!script.contains("both pin 0.15.x"))
     }
 
+    @Test("zmx tests run from the package directory")
+    func zmxTestsUseAbsolutePackageRoot() throws {
+        let buildScript = try Self.contents(of: "script/build_amx.sh")
+        let testScript = try Self.contents(of: "script/test.sh")
+
+        #expect(buildScript.contains("ZMX_DIR=\"$ROOT_DIR/vendor/zmx\""))
+        let testAction = try #require(buildScript.range(of: "if [[ \"$action\" == \"test\" ]]"))
+        let testActionEnd = try #require(
+            buildScript.range(of: "\nfi", range: testAction.upperBound..<buildScript.endIndex))
+        let testActionBody = testAction.upperBound..<testActionEnd.lowerBound
+        let packageDirectory = try #require(
+            buildScript.range(of: "cd \"$ZMX_DIR\"", range: testActionBody))
+        let zigTest = try #require(
+            buildScript.range(of: "exec \"$ZIG_BIN\" build test", range: testActionBody))
+
+        #expect(testAction.lowerBound < packageDirectory.lowerBound)
+        #expect(packageDirectory.lowerBound < zigTest.lowerBound)
+        #expect(testScript.contains("exec \"$ROOT_DIR/script/build_amx.sh\" test"))
+    }
+
     @Test("Ghostty build removes the duplicate private-external memset")
     func ghosttyBuildLocalizesCompilerRTMemset() throws {
         let script = try Self.contents(of: "script/build_ghostty_xcframework.sh")
@@ -249,6 +269,7 @@ struct BuildAndRunScriptTests {
         let swiftTestScript = try Self.contents(of: "script/swift-test.sh")
         let preflight = try Self.contents(of: "script/preflight.sh")
 
+        #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" zmx"))
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" timing"))
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" sidebar --skip-build"))
         #expect(testScript.contains("nontiming --skip-build"))
@@ -271,7 +292,7 @@ struct BuildAndRunScriptTests {
 
         #expect(process.terminationStatus == 2)
         #expect(captured.stderr.contains("The all group does not accept swift test arguments"))
-        #expect(captured.stderr.contains("Run timing, sidebar, and nontiming explicitly"))
+        #expect(captured.stderr.contains("Run zmx, timing, sidebar, and nontiming explicitly"))
     }
 
     @Test("compiles the English string catalog into the app bundle")
