@@ -49,7 +49,7 @@ enum FirstRunTourCopy {
                 localized:
                     "Every project gets a workspace — its own folder, its own shell, its own name in the sidebar. Press \(newWorkspace.spokenForm) to make one.",
                 comment:
-                    "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command Key N.")
+                    "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.")
         )
     }
 

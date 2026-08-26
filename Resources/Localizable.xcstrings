@@ -1541,7 +1541,7 @@
 
     },
     "Every project gets a workspace — its own folder, its own shell, its own name in the sidebar. Press %arg to make one." : {
-      "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command Key N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
+      "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
     },
     "Every session is attached to an open pane. When you quit with a session running, its daemon keeps the shell and scrollback alive — and shows up here to pin or reap." : {
 
