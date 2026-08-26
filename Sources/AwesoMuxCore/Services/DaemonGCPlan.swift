@@ -580,10 +580,21 @@ public enum DaemonGCPlan {
     /// so a hand-run `amx attach dev` is never killed"). Without this fence
     /// an orphaned hand-run `amx attach dev` would be signaled by this pass
     /// even though the daemon side of GC always spares it.
+    ///
+    /// `localSessionSockets` is the profile fence (INT-914): the session names
+    /// whose live socket sits in THIS launch's socket directory. Every fence
+    /// above is process-local — a sister profile's daemon matches them all
+    /// once its app relaunched and re-attached (it keeps the client's
+    /// `amx attach <uuid>` argv and the `ppid == 1` its old instance's dying
+    /// client left behind), and `daemonPIDs` cannot spare it: that set is
+    /// built from THIS profile's `amx list` only. Where the session's socket
+    /// file lives is the one ground truth that cannot cross profiles, so a
+    /// session with no local socket is never this pass's to kill.
     public static func confirmedOrphanAttachPIDs(
         samples: [AttachProcessSample],
         daemonPIDs: Set<Int32>,
         executableName: String,
+        localSessionSockets: Set<String>,
         minAgeSeconds: Int = orphanAttachMinAgeSeconds
     ) -> [Int32] {
         samples.compactMap { sample -> Int32? in
@@ -592,7 +603,8 @@ public enum DaemonGCPlan {
                 ShellRecognition.basename(sample.argv0) == executableName,
                 sample.subcommand == "attach",
                 !daemonPIDs.contains(sample.pid),
-                sample.etimeSeconds >= minAgeSeconds
+                sample.etimeSeconds >= minAgeSeconds,
+                localSessionSockets.contains(sessionArgument)
             else { return nil }
             return sample.pid
         }.sorted()
