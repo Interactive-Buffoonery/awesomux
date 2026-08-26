@@ -13,6 +13,8 @@ Run `script/update_string_catalog.sh` after adding or removing localizable Swift
 copy. The script extracts modern Foundation and SwiftUI strings from `Sources/`,
 syncs the catalog, and validates the result. Review generated changes before
 committing, especially merged translator comments and interpolated format strings.
+Local preflight runs the same script with `--check` and fails when extracted source
+strings would change the committed catalog.
 
 Follow [ADR-0014](adr/0014-literal-as-key-localized-strings.md): ordinary strings
 use the English literal as the key and include a translator comment. Plurals use a
