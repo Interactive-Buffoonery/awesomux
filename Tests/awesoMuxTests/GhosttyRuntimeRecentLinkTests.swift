@@ -39,20 +39,35 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
     }
 
-    @Test func absoluteAndTildeMarkdownUseExistingResolutionGate() async {
+    @Test func absoluteAndTildeMarkdownUseExistingResolutionGate() async throws {
+        GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting()
+        defer { GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting() }
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let absoluteFileURL = directory.appending(path: "readme.md")
+        try Data("# Test".utf8).write(to: absoluteFileURL)
+        let homeFileURL = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".awesomux-test-\(UUID().uuidString).md")
+        try Data("# Test".utf8).write(to: homeFileURL)
+        defer { try? FileManager.default.removeItem(at: homeFileURL) }
+
         let (store, session, pane) = makeStore(workingDirectory: "/tmp")
         var routed: [URL] = []
+        var rejectedCount = 0
         GhosttyRuntime.setOpenDocumentHandler { routed.append($0) }
+        GhosttyRuntime.terminalLinkOpenFailurePresenter = { _ in rejectedCount += 1 }
         defer { GhosttyRuntime.setOpenDocumentHandler(nil) }
 
         await GhosttyRuntime.openRecentLink(
-            "/tmp/readme.md",
+            absoluteFileURL.path,
             in: session.id,
             associatedWith: pane.id,
             sessionStore: store
         )
         await GhosttyRuntime.openRecentLink(
-            "~/readme.md",
+            "~/\(homeFileURL.lastPathComponent)",
             in: session.id,
             associatedWith: pane.id,
             sessionStore: store
@@ -65,12 +80,17 @@ struct GhosttyRuntimeRecentLinkTests {
         )
         #expect(routed.count == 2)
         #expect(routed.allSatisfy { $0.pathExtension == "md" })
+        #expect(rejectedCount == 1)
     }
 
     @Test func unsupportedSchemeFailsClosed() async {
+        GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting()
+        defer { GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting() }
         let (store, session, pane) = makeStore(workingDirectory: "/tmp")
         var routed: [URL] = []
+        var didPresentFailure = false
         GhosttyRuntime.setOpenDocumentHandler { routed.append($0) }
+        GhosttyRuntime.terminalLinkOpenFailurePresenter = { _ in didPresentFailure = true }
         defer { GhosttyRuntime.setOpenDocumentHandler(nil) }
 
         await GhosttyRuntime.openRecentLink(
@@ -81,6 +101,7 @@ struct GhosttyRuntimeRecentLinkTests {
         )
         #expect(routed.isEmpty)
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+        #expect(didPresentFailure)
     }
 
     @Test func remoteMarkdownUsesCapturedPaneRoutingContext() async throws {

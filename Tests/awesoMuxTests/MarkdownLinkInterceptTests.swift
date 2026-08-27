@@ -3,6 +3,24 @@ import Testing
 @testable import awesoMux
 
 @Suite struct MarkdownLinkInterceptTests {
+    private var existingMarkdownPath: String {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "README.md")
+            .path
+    }
+
+    private func makeMarkdownFile(named name: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appending(path: name)
+        try Data("# Notes".utf8).write(to: fileURL)
+        return fileURL
+    }
+
     @Test func acceptsFileMarkdown() {
         #expect(MarkdownLinkIntercept.shouldOpenAsDocument(URL(fileURLWithPath: "/tmp/notes.md")))
         #expect(MarkdownLinkIntercept.shouldOpenAsDocument(URL(string: "file:///tmp/a.markdown")!))
@@ -31,14 +49,20 @@ import Testing
     // (no OSC 8, no scheme) and hands the raw string to embedders. These
     // cover the schemeless-path gate independent of the OpenURLAction wiring.
     @Test func schemelessAbsolutePathOpens() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: existingMarkdownPath)
+        #expect(url?.path == existingMarkdownPath)
     }
 
-    @Test func schemelessCurrentUserTildePathOpens() {
-        let expected = (("~/notes.md") as NSString).expandingTildeInPath
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "~/notes.md")
-        #expect(url?.path == expected)
+    @Test func schemelessCurrentUserTildePathOpens() throws {
+        let fileURL = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".awesomux-test-\(UUID().uuidString).md")
+        try Data("# Notes".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let url = MarkdownLinkIntercept.documentURL(
+            forSchemelessPath: "~/\(fileURL.lastPathComponent)"
+        )
+        #expect(url?.path == fileURL.path)
     }
 
     @Test func schemelessOtherUserTildeRejected() {
@@ -80,22 +104,25 @@ import Testing
 
     // Raw strings from libghostty are never percent-decoded; a literal `%0A`
     // in a filename must stay literal, not collapse into a control character.
-    @Test func schemelessPathWithPercentLookingCharactersStaysLiteral() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/a%0A.md")
+    @Test func schemelessPathWithPercentLookingCharactersStaysLiteral() throws {
+        let fileURL = try makeMarkdownFile(named: "a%0A.md")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: fileURL.path)
         #expect(url?.lastPathComponent == "a%0A.md")
     }
 
     // URL(fileURLWithPath:) treats a leading "//" as a local path, not a
     // network authority — confirm no host sneaks in via a doubled slash.
     @Test func schemelessDoubleSlashPathStaysLocal() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "//tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/\(existingMarkdownPath)")
         #expect(url != nil)
         #expect(url?.host == nil)
     }
 
     @Test func schemelessAbsolutePathStripsLineSuffix() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md:12:5")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath):12:5")
+        #expect(url?.path == existingMarkdownPath)
     }
 
     // libghostty's bare-path regex only excludes trailing `.`/`,` for
@@ -104,53 +131,59 @@ import Testing
     // has no no_trailing_punctuation guard) — a path mentioned at the end
     // of a sentence hands us the trailing period as part of the match.
     @Test func schemelessAbsolutePathStripsTrailingSentencePeriod() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md.")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath).")
+        #expect(url?.path == existingMarkdownPath)
     }
 
     @Test func schemelessAbsolutePathStripsTrailingSentenceComma() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md,")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath),")
+        #expect(url?.path == existingMarkdownPath)
     }
 
     @Test func schemelessAbsolutePathStripsMultipleTrailingPeriods() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md..")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)..")
+        #expect(url?.path == existingMarkdownPath)
     }
 
-    @Test func schemelessTildePathStripsTrailingSentencePeriod() {
-        let expected = (("~/notes.md") as NSString).expandingTildeInPath
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "~/notes.md.")
-        #expect(url?.path == expected)
+    @Test func schemelessTildePathStripsTrailingSentencePeriod() throws {
+        let fileURL = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".awesomux-test-\(UUID().uuidString).md")
+        try Data("# Notes".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let url = MarkdownLinkIntercept.documentURL(
+            forSchemelessPath: "~/\(fileURL.lastPathComponent)."
+        )
+        #expect(url?.path == fileURL.path)
     }
 
     // libghostty's path_chars ([\w\-.~:\/?#@!$&*+;=%]) includes `?` and `!`,
     // unlike `,` — an agent's closing line ending "...notes.md?" or "...md!"
     // hands us the trailing character as part of the bare-path match too.
     @Test func schemelessAbsolutePathStripsTrailingQuestionMark() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md?")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)?")
+        #expect(url?.path == existingMarkdownPath)
     }
 
     @Test func schemelessAbsolutePathStripsTrailingExclamationMark() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md!")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)!")
+        #expect(url?.path == existingMarkdownPath)
     }
 
     @Test func schemelessAbsolutePathStripsLineSuffixThenTrailingPeriod() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md:12:5.")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath):12:5.")
+        #expect(url?.path == existingMarkdownPath)
     }
 
     @Test func schemelessAbsolutePathPreservesAnchorFragment() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md#install")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)#install")
+        #expect(url?.path == existingMarkdownPath)
         #expect(url?.fragment == "install")
     }
 
     @Test func schemelessAbsolutePathPreservesAnchorFragmentThenStripsTrailingPeriod() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.md#install.")
-        #expect(url?.path == "/tmp/notes.md")
+        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)#install.")
+        #expect(url?.path == existingMarkdownPath)
         #expect(url?.fragment == "install")
     }
 
@@ -422,14 +455,17 @@ import Testing
         #expect(url != nil)
     }
 
-    // Absolute schemeless paths keep their existing contract: gated on
-    // extension + codepoints only, no existence requirement.
-    @Test func absolutePathBehaviorUnchangedByBaseParameter() {
+    // Absolute schemeless paths bypass the base-directory join while still
+    // requiring the target file to exist.
+    @Test func absolutePathBehaviorUnchangedByBaseParameter() throws {
+        let root = try makeFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileURL = root.appending(path: "docs/notes.md")
         let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "/tmp/does-not-need-to-exist.md",
+            forSchemelessPath: fileURL.path,
             relativeTo: "/private/tmp"
         )
-        #expect(url?.path == "/tmp/does-not-need-to-exist.md")
+        #expect(url?.path == fileURL.path)
     }
 
     @Test func resolvesRelativeLineSuffixAndAnchorAgainstBase() throws {

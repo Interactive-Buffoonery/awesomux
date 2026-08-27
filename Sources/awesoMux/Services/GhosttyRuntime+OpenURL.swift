@@ -120,6 +120,19 @@ extension GhosttyRuntime {
     }
 
     @MainActor
+    static var terminalLinkOpenFailurePresenter: @MainActor (NSView?) -> Void = {
+        presentTerminalLinkOpenFailure(from: $0)
+    }
+
+    @MainActor
+    static func resetTerminalLinkOpenFailurePresenterForTesting() {
+        terminalLinkOpenFailurePresenter = {
+            presentTerminalLinkOpenFailure(from: $0)
+        }
+        isTerminalLinkOpenFailurePresented = false
+    }
+
+    @MainActor
     static func openRecentLink(
         _ value: String,
         in sessionID: TerminalSession.ID,
@@ -161,6 +174,7 @@ extension GhosttyRuntime {
         }
 
         guard MarkdownLinkIntercept.isRelativeDocumentCandidate(value) else {
+            terminalLinkOpenFailurePresenter(nil)
             return
         }
         var workingDirectory = pane.workingDirectory
@@ -175,6 +189,7 @@ extension GhosttyRuntime {
                 relativeTo: workingDirectory
             )
         else {
+            terminalLinkOpenFailurePresenter(nil)
             return
         }
         sessionStore.openDocumentPane(
@@ -348,6 +363,7 @@ extension GhosttyRuntime {
         }
 
         guard MarkdownLinkIntercept.isRelativeDocumentCandidate(action.value) else {
+            terminalLinkOpenFailurePresenter(view)
             return
         }
 
@@ -363,6 +379,7 @@ extension GhosttyRuntime {
                 relativeTo: workingDirectory
             )
         else {
+            terminalLinkOpenFailurePresenter(view)
             return
         }
         view.sessionStore.openDocumentPane(
@@ -400,6 +417,34 @@ extension GhosttyRuntime {
             }
         } else {
             defer { isRemoteMarkdownRoutingFailurePresented = false }
+            alert.runModal()
+        }
+    }
+
+    @MainActor
+    private(set) static var isTerminalLinkOpenFailurePresented = false
+
+    @MainActor
+    private static func presentTerminalLinkOpenFailure(from view: NSView?) {
+        guard !isTerminalLinkOpenFailurePresented else { return }
+        isTerminalLinkOpenFailurePresented = true
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "Cannot Open This Terminal Link",
+            comment: "Title for a terminal link that awesoMux rejected or could not resolve"
+        )
+        alert.informativeText = String(
+            localized:
+                "From terminal output, awesoMux opens safe web and email links plus existing Markdown files. Other local files and unsafe links stay blocked.",
+            comment: "Explanation of the terminal link-opening security boundary"
+        )
+        if let window = view?.window {
+            alert.beginSheetModal(for: window) { _ in
+                isTerminalLinkOpenFailurePresented = false
+            }
+        } else {
+            defer { isTerminalLinkOpenFailurePresented = false }
             alert.runModal()
         }
     }

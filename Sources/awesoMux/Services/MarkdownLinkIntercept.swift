@@ -51,10 +51,16 @@ enum MarkdownLinkIntercept {
         let expanded = path.hasPrefix("~/") ? (path as NSString).expandingTildeInPath : path
         let payload = documentPathPayload(from: expanded)
         if payload.path.hasPrefix("/") {
-            // hasPrefix("/") only proves path *syntax*; it says nothing about
-            // whether the target exists or is safe to read. `shouldOpenAsDocument`
-            // still owns the actual safety gate (extension + codepoints).
-            return documentURL(forFileURL: fileURL(for: payload))
+            guard let fileURL = documentURL(forFileURL: fileURL(for: payload)) else {
+                return nil
+            }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+                !isDirectory.boolValue
+            else {
+                return nil
+            }
+            return fileURL
         }
 
         // `~otheruser/` (and any still-unexpanded tilde form) is pinned as
