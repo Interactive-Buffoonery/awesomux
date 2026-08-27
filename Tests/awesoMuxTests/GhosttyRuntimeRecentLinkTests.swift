@@ -39,9 +39,20 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
     }
 
-    @Test func absoluteAndTildeMarkdownUseExistingResolutionGate() async {
+    @Test func absoluteAndTildeMarkdownUseExistingResolutionGate() async throws {
         GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting()
         defer { GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting() }
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let absoluteFileURL = directory.appending(path: "readme.md")
+        try Data("# Test".utf8).write(to: absoluteFileURL)
+        let homeFileURL = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".awesomux-test-\(UUID().uuidString).md")
+        try Data("# Test".utf8).write(to: homeFileURL)
+        defer { try? FileManager.default.removeItem(at: homeFileURL) }
+
         let (store, session, pane) = makeStore(workingDirectory: "/tmp")
         var routed: [URL] = []
         var rejectedCount = 0
@@ -50,13 +61,13 @@ struct GhosttyRuntimeRecentLinkTests {
         defer { GhosttyRuntime.setOpenDocumentHandler(nil) }
 
         await GhosttyRuntime.openRecentLink(
-            "/tmp/readme.md",
+            absoluteFileURL.path,
             in: session.id,
             associatedWith: pane.id,
             sessionStore: store
         )
         await GhosttyRuntime.openRecentLink(
-            "~/readme.md",
+            "~/\(homeFileURL.lastPathComponent)",
             in: session.id,
             associatedWith: pane.id,
             sessionStore: store

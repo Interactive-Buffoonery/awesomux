@@ -29,6 +29,46 @@ struct GhosttyRuntimeTerminalLinkFeedbackTests {
         #expect(fixture.store.session(id: fixture.session.id)?.layout.firstDocumentGroup == nil)
     }
 
+    @Test("missing absolute Markdown click presents feedback and opens nothing")
+    func missingAbsoluteMarkdownClickPresentsFeedback() async {
+        GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting()
+        defer { GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting() }
+
+        let path = FileManager.default.temporaryDirectory
+            .appending(path: "missing-\(UUID().uuidString).md")
+            .path
+        #expect(OpenURLAction.resolve(path) == nil)
+
+        let fixture = makeSurfaceFixture(workingDirectory: "/tmp")
+        defer { fixture.runtime.discardAllSurfaces() }
+        var didPresent = false
+        GhosttyRuntime.terminalLinkOpenFailurePresenter = { _ in didPresent = true }
+
+        await GhosttyRuntime.openURLAction(OpenURLAction(path), from: fixture.view)
+
+        #expect(didPresent)
+        #expect(fixture.store.session(id: fixture.session.id)?.layout.firstDocumentGroup == nil)
+    }
+
+    @Test("missing home-relative Markdown click presents feedback and opens nothing")
+    func missingHomeRelativeMarkdownClickPresentsFeedback() async {
+        GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting()
+        defer { GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting() }
+
+        let path = "~/.awesomux-missing-\(UUID().uuidString).md"
+        #expect(OpenURLAction.resolve(path) == nil)
+
+        let fixture = makeSurfaceFixture(workingDirectory: "/tmp")
+        defer { fixture.runtime.discardAllSurfaces() }
+        var didPresent = false
+        GhosttyRuntime.terminalLinkOpenFailurePresenter = { _ in didPresent = true }
+
+        await GhosttyRuntime.openURLAction(OpenURLAction(path), from: fixture.view)
+
+        #expect(didPresent)
+        #expect(fixture.store.session(id: fixture.session.id)?.layout.firstDocumentGroup == nil)
+    }
+
     @Test("non-Markdown terminal click stays blocked and presents feedback")
     func nonMarkdownClickStaysBlockedAndPresentsFeedback() async throws {
         GhosttyRuntime.resetTerminalLinkOpenFailurePresenterForTesting()
