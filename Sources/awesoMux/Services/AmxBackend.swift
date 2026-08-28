@@ -1485,16 +1485,10 @@ enum AmxBackend {
     /// children", because an empty snapshot would make every daemon look idle
     /// and reap live work. A successful `ps` always has many rows.
     static func currentProcessSnapshot() async -> [ProcEntry]? {
-        let runner = BoundedCommandRunner(
-            executableCandidates: ["/bin/ps"],
-            timeout: .seconds(2),
-            maxOutputBytes: 4 * 1024 * 1024,
-            environment: [:]
-        )
         guard
-            let data = await runner.runDetailed(
+            let data = await runProcessQuery(
                 arguments: ["-axo", "pid=,ppid=,comm="],
-                inDirectory: "/"
+                maxOutputBytes: 4 * 1024 * 1024
             ).completeData, let output = String(data: data, encoding: .utf8)
         else { return nil }
         let snapshot = DaemonGCPlan.parseProcessSnapshot(output)
@@ -1506,16 +1500,10 @@ enum AmxBackend {
     /// while query or parse failures remain `nil` so reap callers fail closed.
     static func processSnapshot(forPIDs pids: [Int32]) async -> [ProcEntry]? {
         guard !pids.isEmpty else { return [] }
-        let runner = BoundedCommandRunner(
-            executableCandidates: ["/bin/ps"],
-            timeout: .seconds(2),
-            maxOutputBytes: 1024 * 1024,
-            environment: [:]
-        )
         let pidList = pids.map(String.init).joined(separator: ",")
-        let result = await runner.runDetailed(
+        let result = await runProcessQuery(
             arguments: ["-p", pidList, "-o", "pid=,ppid=,comm="],
-            inDirectory: "/"
+            maxOutputBytes: 1024 * 1024
         )
         switch result {
         case .success(let data):
@@ -1556,16 +1544,10 @@ enum AmxBackend {
     /// query failure (timeout, spawn failure, undrained/truncated output).
     static func attachProcessSamples(forPIDs pids: [Int32]) async -> [DaemonGCPlan.AttachProcessSample]? {
         guard !pids.isEmpty else { return [] }
-        let runner = BoundedCommandRunner(
-            executableCandidates: ["/bin/ps"],
-            timeout: .seconds(2),
-            maxOutputBytes: 1024 * 1024,
-            environment: [:]
-        )
         let pidList = pids.map(String.init).joined(separator: ",")
-        let result = await runner.runDetailed(
+        let result = await runProcessQuery(
             arguments: ["-p", pidList, "-o", "pid=,ppid=,etime=,args="],
-            inDirectory: "/"
+            maxOutputBytes: 1024 * 1024
         )
         switch result {
         case .success(let data):
@@ -1576,6 +1558,19 @@ enum AmxBackend {
         case .executableNotFound, .spawnFailure, .timedOut, .outputTruncated, .outputNotDrained:
             return nil
         }
+    }
+
+    private static func runProcessQuery(
+        arguments: [String],
+        maxOutputBytes: Int
+    ) async -> BoundedCommandResult {
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/ps"],
+            timeout: .seconds(2),
+            maxOutputBytes: maxOutputBytes,
+            environment: [:]
+        )
+        return await runner.runDetailed(arguments: arguments, inDirectory: "/")
     }
 
     nonisolated private static let killLog = Logger(subsystem: "awesomux.daemon", category: "kill")
