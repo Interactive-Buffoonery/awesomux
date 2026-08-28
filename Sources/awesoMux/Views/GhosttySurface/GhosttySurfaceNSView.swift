@@ -181,7 +181,9 @@ final class GhosttySurfaceNSView: NSView {
     }
 
     override var acceptsFirstResponder: Bool {
-        true
+        // A reconnect overlay covers this disposed surface. Reject focus at
+        // the AppKit boundary so every responder path honors the overlay.
+        pane.remoteReconnect == nil
     }
 
     // The panel chrome is movable-by-background; terminal drags are selection
@@ -382,6 +384,9 @@ final class GhosttySurfaceNSView: NSView {
         }
         self.pane = pane
         self.paneID = pane.id
+        if pane.remoteReconnect != nil, window?.firstResponder === self {
+            window?.makeFirstResponder(nil)
+        }
         self.enabledAgentRuntimeFileDropSources = enabledAgentRuntimeFileDropSources
         self.grokIconEnabled = grokIconEnabled
         applyTerminalBackstopBackgroundColor()
@@ -531,7 +536,7 @@ final class GhosttySurfaceNSView: NSView {
     // that makes a surface first responder MUST keep that coupling, or the
     // ungated per-mount reclaim will repeatedly steal focus mid-typing.
     func requestFocusIfWindowHasNoTarget() {
-        guard let window else {
+        guard acceptsFirstResponder, let window else {
             return
         }
 

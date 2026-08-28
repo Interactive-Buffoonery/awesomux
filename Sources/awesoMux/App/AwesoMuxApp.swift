@@ -1265,15 +1265,13 @@ struct AwesoMuxApp: App {
                 Divider()
 
                 Button("Previous Pane") {
-                    sessionStore.focusPane(.previous)
-                    announceActivePaneFocused()
+                    paneFocusCommandHandler.focusPane(.previous)
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.previousPane))
                 .disabled(!selectedSessionHasMultiplePanes)
 
                 Button("Next Pane") {
-                    sessionStore.focusPane(.next)
-                    announceActivePaneFocused()
+                    paneFocusCommandHandler.focusPane(.next)
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.nextPane))
                 .disabled(!selectedSessionHasMultiplePanes)
@@ -1291,9 +1289,7 @@ struct AwesoMuxApp: App {
                     // Compute it once rather than scatter `offset + 1`.
                     let paneIndex = offset + 1
                     Button(binding.action) {
-                        if sessionStore.focusPane(at: paneIndex) {
-                            announcePaneFocused(index: paneIndex)
-                        }
+                        paneFocusCommandHandler.focusPane(at: paneIndex)
                     }
                     .keyboardShortcut(binding)
                     // Gate on the real pane count, not just "has multiple":
@@ -2400,19 +2396,6 @@ struct AwesoMuxApp: App {
             comment: "VoiceOver announcement when the user jumps to a specific split pane by index."
         )
         postAccessibilityAnnouncement(announcement)
-    }
-
-    /// Announces the index of whatever pane is active *now*, for the directional
-    /// (prev/next) commands that move relative to the current pane rather than
-    /// to a known index. These buttons are gated on a multi-pane session and
-    /// always land on a different pane, so the announcement is always a real move.
-    private func announceActivePaneFocused() {
-        guard let session = sessionStore.selectedSession,
-            let index = session.layout.paneIDs.firstIndex(of: session.activePaneID)
-        else {
-            return
-        }
-        announcePaneFocused(index: index + 1)
     }
 
     private func canMoveActivePane(toWorkspaceEdge edge: PaneMoveEdge) -> Bool {
@@ -4290,12 +4273,10 @@ struct AwesoMuxApp: App {
                 sessionStore.resizeActiveSplit(by: -0.05)
             },
             previousPane: {
-                sessionStore.focusPane(.previous)
-                announceActivePaneFocused()
+                paneFocusCommandHandler.focusPane(.previous)
             },
             nextPane: {
-                sessionStore.focusPane(.next)
-                announceActivePaneFocused()
+                paneFocusCommandHandler.focusPane(.next)
             },
             previousDocumentTab: {
                 selectAdjacentDocumentTab(offset: -1)
@@ -4321,9 +4302,7 @@ struct AwesoMuxApp: App {
             movePaneToNewWorkspace: moveActivePaneToNewWorkspace,
             returnPaneToSourceWorkspace: returnActivePaneToSourceWorkspace,
             focusPane: { paneIndex in
-                if sessionStore.focusPane(at: paneIndex) {
-                    announcePaneFocused(index: paneIndex)
-                }
+                paneFocusCommandHandler.focusPane(at: paneIndex)
             },
             acknowledgeWorkspace: {
                 if let id = sessionStore.selectedSessionID {
@@ -5023,6 +5002,15 @@ struct AwesoMuxApp: App {
         paneID: TerminalPane.ID
     ) {
         DispatchQueue.main.async {
+            guard
+                PaneFocusCommandHandler.canRequestTerminalFocus(
+                    sessionID: sessionID,
+                    paneID: paneID,
+                    sessionStore: sessionStore
+                )
+            else {
+                return
+            }
             guard let window = NSApp.awesoMuxPrimaryContentWindow else {
                 return
             }
@@ -5037,6 +5025,34 @@ struct AwesoMuxApp: App {
                 return
             }
             window.makeFirstResponder(surface)
+        }
+    }
+
+    private var paneFocusCommandHandler: PaneFocusCommandHandler {
+        PaneFocusCommandHandler(
+            sessionStore: sessionStore,
+            requestTerminalFocus: requestTerminalFocus,
+            clearTerminalFocus: clearTerminalFocus,
+            announcePaneFocused: announcePaneFocused
+        )
+    }
+
+    private func clearTerminalFocus(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) {
+        DispatchQueue.main.async {
+            guard
+                PaneFocusCommandHandler.canClearTerminalFocus(
+                    sessionID: sessionID,
+                    paneID: paneID,
+                    sessionStore: sessionStore
+                ),
+                let window = NSApp.awesoMuxPrimaryContentWindow
+            else {
+                return
+            }
+            _ = PrimaryContentFocusRouter.clearTerminalFirstResponder(in: window)
         }
     }
 
