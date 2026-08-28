@@ -1381,7 +1381,7 @@ public final class SessionStore {
     /// same single removal point, deliberately without capture, so the
     /// workspace is unrecoverable by design. The caller owns daemon teardown;
     /// a live workspace never has a row in either reopen tier (reopen drains
-    /// its entry and mints a fresh session id), so skipping capture is the
+    /// its entry before restoring the session), so skipping capture is the
     /// whole "remove from the buffer" story.
     ///
     /// **Persistence-gate origin rule:** a deliberate user close always
@@ -1442,8 +1442,8 @@ public final class SessionStore {
     /// if the last pane's process exits while the clear-confirm dialog is up,
     /// the exit path soft-closes the session through `closeSession` and
     /// captures a reopen entry — coexisting with a confirmed "can't be
-    /// reopened" promise. `sessionID` is unique per close (reopen mints fresh
-    /// ids), so at most one entry per tier can match.
+    /// reopened" promise. At most one entry per tier matches a sessionID (reopen
+    /// drains before restore), so forget-by-sessionID clears the whole match.
     public func forgetRecentlyClosed(sessionID: TerminalSession.ID) {
         if lastClosedTransient?.sessionID == sessionID {
             lastClosedTransient = nil

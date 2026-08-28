@@ -180,10 +180,10 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         // Match on identity fields (sessionID + closedAt), not full-value `==`.
         // RecentlyClosedWorkspace equality walks TerminalPane ==, which excludes
         // per-pane backend daemon identity, so full-value matching can't tell two
-        // rows apart by daemon and could drain the wrong one. sessionID is unique
-        // per close (each close records the session's UUID; reopen mints new
-        // ones), so (sessionID, closedAt) picks exactly the chosen row in all
-        // real data. Removing a single row also keeps a twin's daemon reachable
+        // rows apart by daemon and could drain the wrong one. At most one reopen
+        // entry shares a sessionID at a time (reopen drains before restore; every
+        // re-close recaptures with a new closedAt), so (sessionID, closedAt)
+        // picks exactly the chosen row in all real data. Removing a single row also keeps a twin's daemon reachable
         // (DaemonGCPlan keys on terminalSessionID).
         //
         // ponytail: a corrupted snapshot with two rows sharing BOTH sessionID and
