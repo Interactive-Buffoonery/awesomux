@@ -79,6 +79,20 @@ enum AnnotationSaveRecovery {
         comment: "Annotation save recovery message when the document outgrew the size cap; the placeholder is the cap in whole megabytes"
     )
 
+    static func outcome(
+        afterReloading result: MarkdownDocumentCommitResult,
+        conflictOutcome: AnnotationSaveOutcome
+    ) -> AnnotationSaveOutcome? {
+        switch result {
+        case .observedConflict:
+            conflictOutcome
+        case .inputTooLarge:
+            .oversizeCopyOnly
+        case .committed, .unreadable, .invalidEdit, .outputTooLarge, .failed:
+            nil
+        }
+    }
+
     /// The parked outcome after the document's editability changes under an
     /// open sheet.
     ///
