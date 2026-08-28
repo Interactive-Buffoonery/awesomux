@@ -7,10 +7,13 @@ struct SessionPersistenceSerializationDomainTests {
     func temporarySupportDirectoryCallersShareSerializationDomain() throws {
         let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let helperCall = "SessionPersistence." + "withTemporarySupportDirectory"
-        let sourceFiles = try FileManager.default.contentsOfDirectory(
-            at: testDirectory,
-            includingPropertiesForKeys: nil
-        ).filter { $0.pathExtension == "swift" }
+        let enumerator = try #require(
+            FileManager.default.enumerator(at: testDirectory, includingPropertiesForKeys: nil)
+        )
+        let sourceFiles =
+            enumerator
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" }
 
         let callers = try sourceFiles.filter { file in
             try String(contentsOf: file, encoding: .utf8).contains(helperCall)
