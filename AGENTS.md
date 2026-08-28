@@ -77,15 +77,22 @@ tool usage.
 ### Pull request body
 
 CI fails the PR if the body does not match the template, so read the whole
-template before you write one:
+template before you write one. Read the file in full — most sections carry
+their instructions in an HTML comment that the headings alone do not show:
+
+```sh
+cat .github/pull_request_template.md
+```
+
+To check a draft against the required sections, list them with line numbers:
 
 ```sh
 grep -n '^## ' .github/pull_request_template.md
 ```
 
-Use `grep`, not `head` or `sed -n '1,40p'`. The last three sections start at
-line 42, so a 40-line read hides `Risk Notes`, `Review Notes`, and `Follow-ups`
-and looks complete.
+Never read the template with `head` or `sed -n '1,40p'`. The last three sections
+start at line 42, so a 40-line read hides `Risk Notes`, `Review Notes`, and
+`Follow-ups` and still looks complete.
 
 Rules the validator applies:
 
