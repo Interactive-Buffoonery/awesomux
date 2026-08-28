@@ -190,7 +190,7 @@ struct PublicSeedSourceScriptTests {
         process.currentDirectoryURL = root
         try process.run()
         try process.waitUntilExitEventually()
-        #expect(process.terminationStatus == 0)
+        try #require(process.terminationStatus == 0)
     }
 
     private static func packageRootURL() throws -> URL {
