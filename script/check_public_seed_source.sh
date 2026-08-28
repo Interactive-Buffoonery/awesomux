@@ -22,7 +22,10 @@ done
 private_globs=(
     --glob '!.git/**'
     --glob '!.git'
+    --glob '!.build/**'
     --glob '!.claude/**'
+    --glob '!vendor/ghostty/**'
+    --glob '!vendor/zmx/**'
     --glob '!script/internal-wording-patterns.txt'
     --glob '!script/check_public_seed_source.sh'
 )
@@ -32,7 +35,7 @@ failed=0
 check_pattern() {
     local message="$1"
     local pattern="$2"
-    if rg -n --hidden --text "${private_globs[@]}" "$pattern" .; then
+    if rg -n --hidden --no-ignore-vcs --text "${private_globs[@]}" "$pattern" .; then
         echo "error: $message" >&2
         failed=1
     else
@@ -47,7 +50,7 @@ check_pattern() {
 check_pcre2_pattern() {
     local message="$1"
     local pattern="$2"
-    if rg -n --hidden --text --pcre2 "${private_globs[@]}" "$pattern" .; then
+    if rg -n --hidden --no-ignore-vcs --text --pcre2 "${private_globs[@]}" "$pattern" .; then
         echo "error: $message" >&2
         failed=1
     else
