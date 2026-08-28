@@ -19,9 +19,16 @@ struct SessionPersistenceSerializationDomainTests {
             try String(contentsOf: file, encoding: .utf8).contains(helperCall)
         }
         #expect(!callers.isEmpty)
+        let extensionMarker = "extension SessionPersistenceSerializationDomainTests"
         for caller in callers {
             let source = try String(contentsOf: caller, encoding: .utf8)
-            #expect(source.contains("extension SessionPersistenceSerializationDomainTests"))
+            guard let extRange = source.range(of: extensionMarker),
+                  let callRange = source.range(of: helperCall)
+            else {
+                #expect(Bool(false), "file \(caller.lastPathComponent) must declare \(extensionMarker) before calling \(helperCall)")
+                continue
+            }
+            #expect(callRange.lowerBound > extRange.lowerBound, "\(caller.lastPathComponent): helper call must appear inside the serialized extension, not before it")
         }
     }
 }
