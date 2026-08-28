@@ -46,9 +46,28 @@ public enum OpenCodeTranscriptDatabase {
             return .failure(.databaseUnavailable)
         }
 
+        let walPath = openPath + "-wal"
+        let sharedMemoryPath = openPath + "-shm"
+        let hasWALSidecars =
+            FileManager.default.fileExists(atPath: walPath)
+            || FileManager.default.fileExists(atPath: sharedMemoryPath)
+        let sqlitePath: String
+        var flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW
+        if hasWALSidecars {
+            sqlitePath = openPath
+        } else {
+            var components = URLComponents(
+                url: URL(fileURLWithPath: openPath), resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "immutable", value: "1")]
+            guard let immutablePath = components?.string else {
+                return .failure(.databaseUnavailable)
+            }
+            sqlitePath = immutablePath
+            flags |= SQLITE_OPEN_URI
+        }
+
         var database: OpaquePointer?
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW
-        guard sqlite3_open_v2(openPath, &database, flags, nil) == SQLITE_OK,
+        guard sqlite3_open_v2(sqlitePath, &database, flags, nil) == SQLITE_OK,
             let database
         else {
             if let database { sqlite3_close(database) }

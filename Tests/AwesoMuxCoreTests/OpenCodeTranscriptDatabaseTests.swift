@@ -34,11 +34,11 @@ struct OpenCodeTranscriptDatabaseTests {
         #expect(snapshot.messages.map(\.id) == ["msg_1", "msg_2"])
         #expect(
             snapshot.messages.flatMap(\.parts).compactMap(\.data).contains {
-                String(decoding: $0, as: UTF8.self).contains("first")
+                String(data: $0, encoding: .utf8)?.contains("first") == true
             })
         #expect(
             !snapshot.messages.flatMap(\.parts).compactMap(\.data).contains {
-                String(decoding: $0, as: UTF8.self).contains("not ours")
+                String(data: $0, encoding: .utf8)?.contains("not ours") == true
             })
     }
 
@@ -106,6 +106,34 @@ struct OpenCodeTranscriptDatabaseTests {
         #expect(!FileManager.default.fileExists(atPath: databaseURL.path))
     }
 
+    @Test("a closed WAL database remains readable without sidecars or directory writes")
+    func readsClosedWALWithoutSidecarsInReadOnlyDirectory() throws {
+        let fixture = try Fixture()
+        try fixture.insertSession("ses_target")
+        try fixture.insertMessage(
+            id: "msg_1", sessionID: "ses_target", time: 1,
+            role: "user", partID: "part_1", part: ["type": "text", "text": "deployed"]
+        )
+        fixture.close()
+        try fixture.removeWALSidecars()
+        try fixture.makeDataHomeReadOnly()
+        defer { try? fixture.restoreDataHomePermissions() }
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.databaseURL.path + "-wal"))
+        #expect(!FileManager.default.fileExists(atPath: fixture.databaseURL.path + "-shm"))
+
+        let snapshot = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome,
+            sessionID: "ses_target"
+        ).get()
+
+        #expect(snapshot.messages.map(\.id) == ["msg_1"])
+        #expect(
+            snapshot.messages.flatMap(\.parts).compactMap(\.data).contains {
+                String(data: $0, encoding: .utf8)?.contains("deployed") == true
+            })
+    }
+
     @Test("a symlink cannot redirect the fixed database path")
     func finalSymlinkIsRefused() throws {
         let fixture = try Fixture()
@@ -150,11 +178,11 @@ struct OpenCodeTranscriptDatabaseTests {
         #expect(snapshot.messages.map(\.id) == ["msg_shared"])
         #expect(
             snapshot.messages.flatMap(\.parts).compactMap(\.data).contains {
-                String(decoding: $0, as: UTF8.self).contains("ours")
+                String(data: $0, encoding: .utf8)?.contains("ours") == true
             })
         #expect(
             !snapshot.messages.flatMap(\.parts).compactMap(\.data).contains {
-                String(decoding: $0, as: UTF8.self).contains("not ours")
+                String(data: $0, encoding: .utf8)?.contains("not ours") == true
             })
     }
 
@@ -245,12 +273,10 @@ private final class Fixture {
         partID: String,
         part: [String: Any]
     ) throws {
-        let messageData = try String(
-            decoding: JSONSerialization.data(withJSONObject: ["role": role]), as: UTF8.self
-        )
-        let partData = try String(
-            decoding: JSONSerialization.data(withJSONObject: part), as: UTF8.self
-        )
+        let messageJSON = try JSONSerialization.data(withJSONObject: ["role": role])
+        let messageData = try #require(String(data: messageJSON, encoding: .utf8))
+        let partJSON = try JSONSerialization.data(withJSONObject: part)
+        let partData = try #require(String(data: partJSON, encoding: .utf8))
         try execute(
             "INSERT INTO message(id, session_id, time_created, time_updated, data) VALUES ('\(id)', '\(sessionID)', \(time), \(time), '\(messageData)')"
         )
@@ -266,9 +292,8 @@ private final class Fixture {
         time: Int,
         part: [String: Any]
     ) throws {
-        let partData = try String(
-            decoding: JSONSerialization.data(withJSONObject: part), as: UTF8.self
-        )
+        let partJSON = try JSONSerialization.data(withJSONObject: part)
+        let partData = try #require(String(data: partJSON, encoding: .utf8))
         try execute(
             "INSERT INTO part(id, message_id, session_id, time_created, time_updated, data) VALUES ('\(id)', '\(messageID)', '\(sessionID)', \(time), \(time), '\(partData)')"
         )
@@ -279,6 +304,29 @@ private final class Fixture {
             sqlite3_close(database)
             self.database = nil
         }
+    }
+
+    func makeDataHomeReadOnly() throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555],
+            ofItemAtPath: dataHome.path
+        )
+    }
+
+    func removeWALSidecars() throws {
+        for suffix in ["-wal", "-shm"] {
+            let sidecarURL = URL(fileURLWithPath: databaseURL.path + suffix)
+            if FileManager.default.fileExists(atPath: sidecarURL.path) {
+                try FileManager.default.removeItem(at: sidecarURL)
+            }
+        }
+    }
+
+    func restoreDataHomePermissions() throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: dataHome.path
+        )
     }
 
     private func execute(_ sql: String) throws {

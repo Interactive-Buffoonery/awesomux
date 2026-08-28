@@ -82,7 +82,9 @@ import Testing
         #expect(rendered.contains("opencode answer"))
         #expect(rendered.contains("## assistant · thinking"))
         #expect(rendered.contains("Earlier turns are omitted"))
-        #expect(rendered.firstRange(of: "hello from opencode")!.lowerBound < rendered.firstRange(of: "opencode answer")!.lowerBound)
+        let userRange = try #require(rendered.firstRange(of: "hello from opencode"))
+        let assistantRange = try #require(rendered.firstRange(of: "opencode answer"))
+        #expect(userRange.lowerBound < assistantRange.lowerBound)
     }
 
     @Test("an oversized OpenCode part produces an explicit non-empty turn")

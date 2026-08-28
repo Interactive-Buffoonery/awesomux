@@ -76,9 +76,9 @@ public enum AgentTranscriptResumePolicy {
     /// a remote host, and a single gate deleted three refactors from now should
     /// not be the only thing standing between that and a shell.
     ///
-    /// - Returns: `nil` for a kind that can have no resume syntax.
-    ///   Unreachable through `AgentTranscriptIdentity`, whose initialisers and
-    ///   decoder both reject every kind without a resume command.
+    /// - Returns: `nil` for OpenCode, whose identity and transcript are supported
+    ///   but which does not provide resume syntax. Other kinds without resume
+    ///   syntax are rejected when their provider lacks transcript support.
     public static func command(for identity: AgentTranscriptIdentity) -> String? {
         let sessionID = NudgeComposer.shellSingleQuoted(identity.sessionID)
         switch identity.agentKind {

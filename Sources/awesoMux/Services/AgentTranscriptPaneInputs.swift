@@ -48,7 +48,7 @@ enum AgentTranscriptPaneInputs {
                 )
             ]
         }
-        guard agentKind == .claudeCode || agentKind == .codex || agentKind == .pi else {
+        guard AgentTranscriptIdentity.supports(agentKind: agentKind) else {
             return []
         }
         let setup = AgentConfigHome.setup(for: agentKind, in: integrations)
@@ -74,16 +74,13 @@ enum AgentTranscriptPaneInputs {
         lastEndedKind: AgentKind?
     ) -> AgentTranscriptUnavailable {
         if paneKind != .shell {
-            if paneKind == .claudeCode || paneKind == .codex || paneKind == .openCode
-                || paneKind == .pi
-            {
+            if AgentTranscriptIdentity.supports(agentKind: paneKind) {
                 return .noSessionIdentity
             }
             return .unsupportedAgent(paneKind)
         }
         if let lastEndedKind, lastEndedKind != .shell,
-            lastEndedKind != .claudeCode, lastEndedKind != .codex,
-            lastEndedKind != .openCode, lastEndedKind != .pi
+            !AgentTranscriptIdentity.supports(agentKind: lastEndedKind)
         {
             return .unsupportedAgent(lastEndedKind)
         }
