@@ -1,16 +1,15 @@
 name: Tint contrast
 
-# Cheap pure-Python WCAG gate for sidebar tint/status chrome (F44). Path-filtered
-# so token/sidebar edits still fail on the PR while native validation is advisory.
-
 on:
   pull_request:
     paths:
       - "Sources/DesignSystem/Tokens/AwColor.swift"
       - "Sources/awesoMux/Views/SidebarGroupView.swift"
+      - "Sources/awesoMux/Views/SidebarGroupHeaderView.swift"
       - "Sources/awesoMux/Views/SidebarPinnedSectionView.swift"
       - "Sources/awesoMux/Views/SidebarSessionTile.swift"
-      - "script/check_tint_contrast.py"
+      - "Tests/DesignSystemTests/AwColorTests.swift"
+      - "Tests/DesignSystemTests/SidebarTintContrastTests.swift"
       - ".github/workflows/tint-contrast.yml"
   workflow_dispatch:
 
@@ -19,10 +18,21 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
 
-      - name: Run sidebar tint/status contrast gate
-        run: python3 script/check_tint_contrast.py
+      - name: Prepare native build
+        uses: ./.github/actions/prepare-native
+        with:
+          save-cache: "false"
+
+      - name: Run sidebar tint contrast tests
+        run: ./script/swift-test.sh --filter SidebarTintContrastTests
