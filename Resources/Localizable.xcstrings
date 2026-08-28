@@ -241,6 +241,9 @@
         }
       }
     },
+    "%arg couldn't be refreshed." : {
+      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
+    },
     "%arg stopped refreshing." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
     },
@@ -1166,6 +1169,9 @@
     },
     "Couldn't fetch remote Markdown" : {
       "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
+    },
+    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
+      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
     },
     "Couldn't read your saved workspace file" : {
       "comment" : "Title for the session snapshot recovery warning raised mid-session"
@@ -4601,7 +4607,7 @@
       }
     },
     "showing a stale copy" : {
-      "comment" : "Document banner kicker when a remote snapshot stopped refreshing because the remote file is over the size cap"
+      "comment" : "Document banner kicker when a remote snapshot could not be refreshed"
     },
     "tab %arg of %arg" : {
       "comment" : "Position of a document tab within its tab strip",

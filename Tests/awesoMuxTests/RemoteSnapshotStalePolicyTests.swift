@@ -11,6 +11,10 @@ import Testing
 @MainActor
 @Suite("Remote snapshot stale policy")
 struct RemoteSnapshotStalePolicyTests {
+    private final class ChangeBox: @unchecked Sendable {
+        var values: [RemoteSnapshotStalePolicy.Change] = []
+    }
+
     private func snapshot(path: String) -> RemoteMarkdownSnapshot {
         RemoteMarkdownSnapshot(
             fileURL: URL(fileURLWithPath: path),
@@ -19,7 +23,7 @@ struct RemoteSnapshotStalePolicyTests {
     }
 
     private func clear(_ path: String) {
-        RemoteSnapshotStalePolicy.noteStale(false, path: path)
+        RemoteSnapshotStalePolicy.note(nil, path: path)
     }
 
     @Test func anOverCapCachedOutcomeMarksThePathStale() {
@@ -28,7 +32,8 @@ struct RemoteSnapshotStalePolicyTests {
 
         RemoteSnapshotStalePolicy.record(.cached(snapshot(path: path), staleReason: .oversize))
 
-        #expect(RemoteSnapshotStalePolicy.isStale(path: path))
+        #expect(
+            RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteStoppedRefreshing)
     }
 
     /// A fresh fetch is the only thing that proves the remote fits again, and
@@ -38,28 +43,30 @@ struct RemoteSnapshotStalePolicyTests {
         let path = "/tmp/awesomux-stale-\(UUID().uuidString).md"
         defer { clear(path) }
         RemoteSnapshotStalePolicy.record(.cached(snapshot(path: path), staleReason: .oversize))
-        #expect(RemoteSnapshotStalePolicy.isStale(path: path), "premise: the note must be set")
+        #expect(
+            RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteStoppedRefreshing,
+            "premise: the oversize note must be set")
 
         RemoteSnapshotStalePolicy.record(.fresh(snapshot(path: path)))
 
-        #expect(!RemoteSnapshotStalePolicy.isStale(path: path))
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
     }
 
-    /// Only the size reason raises this banner. A host that went unreachable
-    /// also serves a cached copy, but "too large" would be a false explanation
-    /// — and the honest surface for unreachability is different copy, not this
-    /// one. Both still CLEAR a prior note: a fetch that got far enough to fail
-    /// differently is no longer evidence the file is over cap.
+    /// A non-size refresh failure still serves stale content, but must replace
+    /// the oversize explanation with copy that is honest for either a missing
+    /// file or a failed connection.
     @Test(arguments: [RemoteMarkdownFailureReason.notFound, .connection])
-    func nonSizeStaleReasonsDoNotRaiseTheBanner(reason: RemoteMarkdownFailureReason) {
+    func nonSizeStaleReasonsRaiseTheRefreshFailedBanner(reason: RemoteMarkdownFailureReason) {
         let path = "/tmp/awesomux-stale-\(UUID().uuidString).md"
         defer { clear(path) }
         RemoteSnapshotStalePolicy.record(.cached(snapshot(path: path), staleReason: .oversize))
-        #expect(RemoteSnapshotStalePolicy.isStale(path: path), "premise: the note must be set")
+        #expect(
+            RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteStoppedRefreshing,
+            "premise: the oversize note must be set")
 
         RemoteSnapshotStalePolicy.record(.cached(snapshot(path: path), staleReason: reason))
 
-        #expect(!RemoteSnapshotStalePolicy.isStale(path: path))
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteRefreshFailed)
     }
 
     /// Keyed by standardized path, matching `DocumentOversizePolicy` — two
@@ -72,25 +79,52 @@ struct RemoteSnapshotStalePolicyTests {
         RemoteSnapshotStalePolicy.record(
             .cached(snapshot(path: "\(directory)/./doc.md"), staleReason: .oversize))
 
-        #expect(RemoteSnapshotStalePolicy.isStale(path: path))
+        #expect(
+            RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteStoppedRefreshing)
     }
 
     @Test func anUnrelatedPathIsNotStale() {
-        #expect(!RemoteSnapshotStalePolicy.isStale(path: "/tmp/awesomux-never-noted.md"))
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: "/tmp/awesomux-never-noted.md") == nil)
+    }
+
+    @Test func recordPublishesLiveFailureAndRecoveryChanges() throws {
+        let path = "/tmp/awesomux-stale-\(UUID().uuidString).md"
+        defer { clear(path) }
+        let box = ChangeBox()
+        let token = NotificationCenter.default.addObserver(
+            forName: RemoteSnapshotStalePolicy.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard let change = notification.object as? RemoteSnapshotStalePolicy.Change else {
+                return
+            }
+            box.values.append(change)
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        RemoteSnapshotStalePolicy.record(
+            .cached(snapshot(path: path), staleReason: .connection))
+        RemoteSnapshotStalePolicy.record(.fresh(snapshot(path: path)))
+
+        #expect(box.values.map(\.path) == [path, path])
+        #expect(box.values.map(\.kind) == [.remoteRefreshFailed, nil])
     }
 }
 
-/// The two banner variants must not drift into saying the same thing — if they
-/// did, the remote case would be telling users their local file grew.
+/// The banner variants must not drift into giving distinct failures the same
+/// explanation.
+@MainActor
 @Suite("Document oversize banner copy per kind")
 struct DocumentOversizeBannerKindTests {
-    @Test func theTwoKindsReadDifferently() {
-        #expect(
-            DocumentOversizeBanner.kicker(for: .localFileGrew)
-                != DocumentOversizeBanner.kicker(for: .remoteStoppedRefreshing))
-        #expect(
-            DocumentOversizeBanner.detail(for: .localFileGrew)
-                != DocumentOversizeBanner.detail(for: .remoteStoppedRefreshing))
+    @Test func everyKindHasDistinctDetail() {
+        let details = [
+            DocumentOversizeBanner.detail(for: .localFileGrew),
+            DocumentOversizeBanner.detail(for: .remoteStoppedRefreshing),
+            DocumentOversizeBanner.detail(for: .remoteRefreshFailed),
+        ]
+
+        #expect(Set(details).count == details.count)
     }
 
     /// Remote snapshots are already read-only, so there is no commenting change
@@ -115,6 +149,16 @@ struct DocumentOversizeBannerKindTests {
                 .contains("\(DocumentURLValidator.maxFileSizeMegabytes) MB"))
     }
 
+    @Test func refreshFailureCopyDoesNotInventTheCauseOrOrigin() {
+        let detail = DocumentOversizeBanner.detail(for: .remoteRefreshFailed)
+
+        #expect(detail.localizedCaseInsensitiveContains("couldn't refresh"))
+        #expect(detail.localizedCaseInsensitiveContains("last copy"))
+        #expect(!detail.localizedCaseInsensitiveContains("host"))
+        #expect(!detail.localizedCaseInsensitiveContains("not found"))
+        #expect(!detail.localizedCaseInsensitiveContains("MB"))
+    }
+
     /// The lead-in must not claim the document is too large to render — the
     /// copy on screen rendered fine and still does. Only the refresh failed.
     @Test func theRemoteAccessibilityLeadNamesTheRefreshNotTheRender() {
@@ -123,6 +167,15 @@ struct DocumentOversizeBannerKindTests {
 
         #expect(label.contains("plan.md"))
         #expect(label.contains("stopped refreshing"))
+        #expect(!label.contains("too large to render"), "\(label)")
+    }
+
+    @Test func refreshFailureAccessibilityNamesTheUnavailableRefresh() {
+        let label = DocumentOversizeBanner.accessibilityLabel(
+            fileName: "plan.md", kind: .remoteRefreshFailed)
+
+        #expect(label.contains("plan.md"))
+        #expect(label.localizedCaseInsensitiveContains("couldn't be refreshed"))
         #expect(!label.contains("too large to render"), "\(label)")
     }
 }
