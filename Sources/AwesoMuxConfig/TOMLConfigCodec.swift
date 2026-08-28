@@ -519,8 +519,34 @@ public struct TOMLConfigCodec: Sendable {
         guard trimmed.hasPrefix("[") && !trimmed.hasPrefix("[[") else {
             return nil
         }
-        // Everything after `]` is allowed to be a TOML comment.
-        guard let closeIndex = trimmed.firstIndex(of: "]") else { return nil }
+        var quote: Character?
+        var isEscaped = false
+        var index = trimmed.index(after: trimmed.startIndex)
+        var closeIndex: String.Index?
+        while index < trimmed.endIndex {
+            let character = trimmed[index]
+            if let activeQuote = quote {
+                if activeQuote == "\"" {
+                    if isEscaped {
+                        isEscaped = false
+                    } else if character == "\\" {
+                        isEscaped = true
+                    } else if character == activeQuote {
+                        quote = nil
+                    }
+                } else if character == activeQuote {
+                    quote = nil
+                }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "]" {
+                closeIndex = index
+                break
+            }
+            index = trimmed.index(after: index)
+        }
+        // Everything after the first unquoted `]` is allowed to be a TOML comment.
+        guard let closeIndex else { return nil }
         let afterClose = trimmed[trimmed.index(after: closeIndex)...]
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !afterClose.isEmpty && !afterClose.hasPrefix("#") {

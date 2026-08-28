@@ -711,6 +711,35 @@ struct TOMLConfigCodecTests {
         #expect(reDecoded.unknownTopLevelTables["external_tool"]?.contains("enabled = true") == true)
     }
 
+    @Test("quoted table keys containing brackets end the preceding unknown table")
+    func quotedTableKeysContainingBracketsEndPrecedingUnknownTable() throws {
+        let cases = [
+            (header: #"[workspaces.managed_ssh_always_managed."foo]bar"]"#, key: "foo]bar"),
+            (header: #"[workspaces.managed_ssh_always_managed.'foo]bar']"#, key: "foo]bar"),
+            (header: #"[workspaces.managed_ssh_always_managed."foo\"]bar"]"#, key: #"foo"]bar"#),
+        ]
+
+        for testCase in cases {
+            let toml =
+                Self.defaultTOML + """
+
+                    [external_tool]
+                    enabled = true
+
+                    \(testCase.header)
+                    session_name = "remote-session"
+                    """
+
+            let decoded = try codec.decode(toml)
+
+            #expect(decoded.unknownTopLevelTables["external_tool"] == "enabled = true")
+            #expect(
+                decoded.workspaces.managedSSHAlwaysManaged[testCase.key]?.sessionName
+                    == "remote-session"
+            )
+        }
+    }
+
     @Test("unknown terminal key survives load and save")
     func unknownTerminalKeySurvivesLoadAndSave() throws {
         let toml = Self.defaultTOML.replacing(
