@@ -283,9 +283,21 @@ public extension TerminalPane {
             return agentState
         }
 
-        switch agentExecutionState {
-        case .error:
+        if agentExecutionState == .error {
             return agentState
+        }
+        if let remote = freshRemoteForegroundLiveness() {
+            switch remote {
+            case .idleShell:
+                return .idle
+            case .busyShell, .liveCommand:
+                return .running
+            case .indeterminate, .sessionNotFound:
+                break
+            }
+        }
+
+        switch agentExecutionState {
         case .done:
             // A shell's `.done` can be stale after an exited agent returns to
             // the prompt; never project it as active chrome. The prompt marker
@@ -296,6 +308,8 @@ public extension TerminalPane {
             return .idle
         case .idle, .running, .waiting, .thinking, .output:
             return shellActivity == .busy ? .running : .idle
+        case .error:
+            return agentState  // handled above
         }
     }
 

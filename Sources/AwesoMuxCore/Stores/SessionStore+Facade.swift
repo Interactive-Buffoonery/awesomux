@@ -514,9 +514,13 @@ extension SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
     ) -> Bool {
-        mutatePane(sessionID: sessionID, paneID: paneID) { pane in
+        let changed = mutatePane(sessionID: sessionID, paneID: paneID) { pane in
             pane.remoteForegroundLivenessSnapshot = snapshot
         }
+        if changed {
+            commit(WorkspaceMutationEffect(riskSessionIDs: [sessionID]))
+        }
+        return changed
     }
 
     /// Flips a latched `.disconnected` pane to `.reconnecting`, keeping the
