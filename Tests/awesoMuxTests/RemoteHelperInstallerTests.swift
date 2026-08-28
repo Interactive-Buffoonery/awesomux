@@ -148,6 +148,22 @@ struct RemoteHelperInstallerTests {
         #expect(transportFailure == .probeFailed)
     }
 
+    @Test("bridge, handoff, and liveness capabilities are independent")
+    func featureCapabilitiesAreIndependent() {
+        let oldHelper = RemoteHelperInstaller.featureCapabilities(
+            helperVersionOutput: "awesomux-bridge-v1\nawesomux-handoff-v1\n"
+        )
+        #expect(oldHelper.bridge)
+        #expect(oldHelper.handoff)
+        #expect(!oldHelper.liveness)
+
+        let current = RemoteHelperInstaller.featureCapabilities(
+            helperVersionOutput:
+                "awesomux-bridge-v1\nawesomux-handoff-v1\nawesomux-liveness-v1\n"
+        )
+        #expect(current.bridge && current.handoff && current.liveness)
+    }
+
     @MainActor
     @Test("approved workflow preserves authority checks and confirmation inputs")
     func approvedWorkflowSequence() async throws {

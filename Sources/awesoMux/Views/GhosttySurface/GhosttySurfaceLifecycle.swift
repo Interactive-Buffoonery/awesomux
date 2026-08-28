@@ -436,7 +436,8 @@ extension GhosttySurfaceNSView {
                 expectedWorkspaceSessionID: expectedWorkspaceSessionID,
                 generation: generation,
                 preflight: preflight,
-                acknowledgeReady: dependencies.acknowledgeReady
+                acknowledgeReady: dependencies.acknowledgeReady,
+                helperPath: helperPath
             )
         }
         lifecycleState.bridgePreflightTask = task
@@ -543,7 +544,8 @@ extension GhosttySurfaceNSView {
         expectedWorkspaceSessionID: TerminalSession.ID,
         generation: UInt64,
         preflight: BridgeAttachPreflight,
-        acknowledgeReady: @MainActor (BridgeAttachPreflight, String) async -> Void
+        acknowledgeReady: @MainActor (BridgeAttachPreflight, String) async -> Void,
+        helperPath: String? = nil
     ) async {
         // Keep `bridgePreflightInFlight` true until this method returns so a
         // published live-coordinator Observation cannot re-enter
@@ -608,14 +610,15 @@ extension GhosttySurfaceNSView {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-cancelled")
             return
         }
-        if case .ready(let channel, _) = outcome {
+        if case .ready(let channel, _) = outcome, let helperPath {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-ready")
             if finishSurfaceCreation(launch: .bridgeAttach(command)) {
                 runtime.promoteBridgeGeneration(
                     session: expectedTerminalSessionID,
                     channel: channel,
                     controlPath: controlPath,
-                    remote: remote
+                    remote: remote,
+                    helperPath: helperPath
                 )
             } else {
                 await runtime.discardCommittedBridgeGeneration(

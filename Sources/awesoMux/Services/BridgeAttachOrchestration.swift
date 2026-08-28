@@ -425,7 +425,8 @@ extension GhosttyRuntime {
         session: TerminalSessionID,
         channel: BridgeChannel,
         controlPath: String,
-        remote: RemoteTarget
+        remote: RemoteTarget,
+        helperPath: String
     ) {
         guard let staged = bridgeCoordinatorStore.takeStaged(token: channel.token) else {
             return
@@ -436,9 +437,11 @@ extension GhosttyRuntime {
                 controlPath: controlPath,
                 remote: remote,
                 channel: channel,
-                shutdown: staged.teardown
+                shutdown: staged.teardown,
+                helperPath: helperPath
             ),
             for: session
         )
+        clearRemoteLivenessSnapshot(for: session)
     }
 }

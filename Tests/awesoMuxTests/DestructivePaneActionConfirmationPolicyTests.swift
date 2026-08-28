@@ -17,7 +17,7 @@ struct DestructivePaneActionConfirmationPolicyTests {
             path: path
         )
         let close = try SourceContract.declarationBody(
-            after: "private func closeActivePane()",
+            after: "private func performCloseActivePane()",
             in: source,
             path: path
         )

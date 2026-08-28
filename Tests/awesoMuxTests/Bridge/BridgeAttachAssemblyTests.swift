@@ -177,6 +177,11 @@ struct BridgeAttachAssemblyTests {
                 controlPath: "/tmp/c/%C", remote: Self.remote,
                 helperPath: "/home/ed/.awesomux/bin/awesomux-bridge-helper"
             ),
+            AmxBackend.bridgeHelperForegroundLivenessCommand(
+                controlPath: "/tmp/c/%C", remote: Self.remote,
+                helperPath: "/home/ed/a helper/awesomux-bridge-helper",
+                session: Self.sessionID
+            ),
             AmxBackend.bridgeHelperSelfCheckCommand(
                 controlPath: "/tmp/c/%C", remote: Self.remote,
                 helperPath: "/home/ed/.awesomux/bin/awesomux-bridge-helper",
