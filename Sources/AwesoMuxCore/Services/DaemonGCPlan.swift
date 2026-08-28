@@ -484,7 +484,7 @@ public enum DaemonGCPlan {
     /// negative, the safe direction — never a false-positive kill). Ceiling:
     /// resolve the executable path via `proc_pidpath()`/libproc instead of
     /// parsing `args` text if a space-containing install path is ever real.
-    public struct AttachProcessSample: Equatable {
+    public struct AttachProcessSample: Equatable, Sendable {
         public let pid: Int32
         public let ppid: Int32
         public let etimeSeconds: Int
@@ -597,7 +597,23 @@ public enum DaemonGCPlan {
         localSessionSockets: Set<String>,
         minAgeSeconds: Int = orphanAttachMinAgeSeconds
     ) -> [Int32] {
-        samples.compactMap { sample -> Int32? in
+        confirmedOrphanAttachSamples(
+            samples: samples,
+            daemonPIDs: daemonPIDs,
+            executableName: executableName,
+            localSessionSockets: localSessionSockets,
+            minAgeSeconds: minAgeSeconds
+        ).map(\.pid)
+    }
+
+    public static func confirmedOrphanAttachSamples(
+        samples: [AttachProcessSample],
+        daemonPIDs: Set<Int32>,
+        executableName: String,
+        localSessionSockets: Set<String>,
+        minAgeSeconds: Int = orphanAttachMinAgeSeconds
+    ) -> [AttachProcessSample] {
+        samples.compactMap { sample -> AttachProcessSample? in
             guard let sessionArgument = sample.sessionArgument, isUUIDShaped(sessionArgument),
                 sample.ppid == 1,
                 ShellRecognition.basename(sample.argv0) == executableName,
@@ -606,8 +622,23 @@ public enum DaemonGCPlan {
                 sample.etimeSeconds >= minAgeSeconds,
                 localSessionSockets.contains(sessionArgument)
             else { return nil }
-            return sample.pid
-        }.sorted()
+            return sample
+        }.sorted { $0.pid < $1.pid }
+    }
+
+    /// A targeted `ps` sample still describes the process confirmed earlier.
+    /// Elapsed time may advance, but every identity-bearing field must remain
+    /// stable. A lower elapsed time is evidence that the pid was reused.
+    public static func isSameAttachProcess(
+        _ current: AttachProcessSample,
+        as expected: AttachProcessSample
+    ) -> Bool {
+        current.pid == expected.pid
+            && current.ppid == expected.ppid
+            && current.etimeSeconds >= expected.etimeSeconds
+            && current.argv0 == expected.argv0
+            && current.subcommand == expected.subcommand
+            && current.sessionArgument == expected.sessionArgument
     }
 
 }

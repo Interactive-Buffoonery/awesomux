@@ -275,38 +275,61 @@ enum DaemonGarbageCollector {
                 "orphan attach GC: sparing \(foreignCandidates) candidate(s) with no session socket in this profile's directory"
             )
         }
-        let confirmed = DaemonGCPlan.confirmedOrphanAttachPIDs(
+        let confirmed = DaemonGCPlan.confirmedOrphanAttachSamples(
             samples: samples, daemonPIDs: freshDaemonPIDs, executableName: AmxBackend.executableName,
             localSessionSockets: localSessionSockets
         )
         guard !confirmed.isEmpty else { return }
 
-        var signaled = 0
-        for pid in confirmed {
-            guard Darwin.kill(pid, SIGTERM) == 0 else {
+        let signaled = await signalConfirmedOrphanAttachClients(confirmed)
+        log.info("daemon GC: signaled \(signaled)/\(confirmed.count) orphan attach client(s)")
+    }
+
+    /// Revalidates both liveness and the complete sampled process identity at
+    /// the last responsible moment before each signal. Keeping the original
+    /// sample closes the pid-reuse gaps after discovery and during the TERM
+    /// grace without weakening the existing fail-closed process query.
+    nonisolated static func signalConfirmedOrphanAttachClients(
+        _ confirmed: [DaemonGCPlan.AttachProcessSample],
+        sampleProcesses: @escaping @Sendable ([Int32]) async -> [DaemonGCPlan.AttachProcessSample]? = {
+            await AmxBackend.attachProcessSamples(forPIDs: $0)
+        },
+        processExists: @escaping @Sendable (Int32) -> Bool = { Darwin.kill($0, 0) == 0 },
+        signalProcess: @escaping @Sendable (Int32, Int32) async -> Int32 = { Darwin.kill($0, $1) },
+        waitForGrace: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        }
+    ) async -> Int {
+        var terminated: [DaemonGCPlan.AttachProcessSample] = []
+        for expected in confirmed {
+            guard processExists(expected.pid),
+                let samples = await sampleProcesses([expected.pid]),
+                let current = samples.first(where: { $0.pid == expected.pid }),
+                DaemonGCPlan.isSameAttachProcess(current, as: expected)
+            else { continue }
+            guard await signalProcess(expected.pid, SIGTERM) == 0 else {
                 let errnoValue = errno
-                log.error("orphan attach signal failed for pid=\(pid): errno=\(errnoValue)")
+                log.error("orphan attach signal failed for pid=\(expected.pid): errno=\(errnoValue)")
                 continue
             }
-            signaled += 1
-            // ponytail: SIGKILL escalation, not a live-process integration
-            // test, is the safety net for "does SIGTERM actually reach an
-            // orphaned attach client" — matches BoundedProcessRunner's own
-            // terminateThenKill grace. Re-checks liveness (not identity) before
-            // escalating: closing the residual pid-reuse window here too would
-            // need a third `ps` round-trip bridged back from this GCD timer for
-            // a compound-unlikely case (SIGTERM already fired; the target would
-            // need to both exit AND have its pid reused by another process
-            // within 1s). Add a real orphan-and-signal integration test, and
-            // revisit the identity re-check, if orphans are ever observed
-            // surviving both signals.
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
-                if Darwin.kill(pid, 0) == 0 {
-                    Darwin.kill(pid, SIGKILL)
-                }
-            }
+            terminated.append(expected)
         }
-        log.info("daemon GC: signaled \(signaled)/\(confirmed.count) orphan attach client(s)")
+
+        guard !terminated.isEmpty else { return 0 }
+        do {
+            try await waitForGrace(.seconds(1))
+        } catch {
+            return terminated.count
+        }
+        for expected in terminated {
+            guard processExists(expected.pid),
+                let samples = await sampleProcesses([expected.pid]),
+                let current = samples.first(where: { $0.pid == expected.pid }),
+                DaemonGCPlan.isSameAttachProcess(current, as: expected)
+            else { continue }
+            _ = await signalProcess(expected.pid, SIGKILL)
+        }
+        return terminated.count
     }
 
     /// Removes leaked per-attach `*.status.jsonl` files — anything not

@@ -624,7 +624,7 @@ struct SidebarSessionTile: View {
 
             if displayMode == .expanded {
                 // Reserve trailing space for the sibling close button (overlay).
-                Color.clear.frame(width: 20, height: 20)
+                Color.clear.frame(width: 24, height: 24)
             }
         }
         .frame(width: displayMode == .collapsed ? 40 : nil)
@@ -747,6 +747,7 @@ struct SidebarSessionTile: View {
     private var closeButton: some View {
         if displayMode == .expanded {
             SidebarCloseButton(onClose: onClose)
+                .padding(.trailing, 10)
         }
     }
 
@@ -1296,11 +1297,12 @@ struct SidebarCloseButton: View {
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 10, weight: .bold))
-                .frame(width: 20, height: 20)
+                // The label frame is the Button's pointer target. Padding
+                // outside the Button does not extend that hit shape.
+                .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
         .foregroundStyle(Color.aw.text)
-        .padding(.trailing, 10)
         .accessibilityLabel("Close Workspace")
         .help("Close Workspace")
     }

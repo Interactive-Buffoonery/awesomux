@@ -203,6 +203,11 @@ struct PrimaryContentFocusRouterTests {
             runtime.discardAllSurfaces()
         }
         #expect(window.makeFirstResponder(sentinel))
+        #expect(!surface.acceptsFirstResponder)
+        _ = window.makeFirstResponder(surface)
+        #expect(window.firstResponder !== surface)
+        #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
+        #expect(window.makeFirstResponder(sentinel))
         #expect(!surface.isAccessibilityElement())
         surface.setAccessibilityFocused(true)
         #expect(!surface.isAccessibilityFocused())
@@ -235,6 +240,7 @@ struct PrimaryContentFocusRouterTests {
             pane: reconnectedPane,
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false)
+        #expect(surface.acceptsFirstResponder)
         #expect(surface.isAccessibilityElement())
         let outcome = PrimaryContentFocusRouter.focus(
             request,
@@ -248,6 +254,13 @@ struct PrimaryContentFocusRouterTests {
             outcome?.accessibilityFocusSucceeded
                 == testCase.requiresAccessibilityFocus)
 
+        if testCase.requiresKeyboardFocus {
+            #expect(PrimaryContentFocusRouter.clearTerminalFirstResponder(in: window))
+            #expect(window.firstResponder !== surface)
+            #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
+            #expect(window.makeFirstResponder(surface))
+        }
+
         surface.setAccessibilityFocused(true)
         #expect(surface.isAccessibilityFocused())
         var coveredPane = reconnectedPane
@@ -258,6 +271,10 @@ struct PrimaryContentFocusRouterTests {
             pane: coveredPane,
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false)
+        #expect(!surface.acceptsFirstResponder)
+        _ = window.makeFirstResponder(surface)
+        #expect(window.firstResponder !== surface)
+        #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
         #expect(!surface.isAccessibilityElement())
         #expect(!surface.isAccessibilityFocused())
     }

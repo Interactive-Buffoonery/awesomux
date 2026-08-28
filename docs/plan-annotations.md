@@ -239,6 +239,8 @@ merging content, then coordinates the replacement with participating file writer
 Inside coordination it revalidates that render-time identity and performs one final
 bounded byte comparison before an atomic, metadata-preserving replacement. Any source,
 alias-target, or resolved-file change observed before that replacement refuses the write.
+If that final read finds the file has crossed the document size cap, the pane reloads to
+the retained-render banner and parks the open editor in its copy-only recovery state.
 
 This is not a universal filesystem compare-and-swap. `NSFileCoordinator` serializes
 writers that participate in coordination, but an unrelated process can ignore it and

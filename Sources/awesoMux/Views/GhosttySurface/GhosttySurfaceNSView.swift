@@ -188,7 +188,9 @@ final class GhosttySurfaceNSView: NSView {
     }
 
     override var acceptsFirstResponder: Bool {
-        true
+        // A reconnect overlay covers this disposed surface. Reject focus at
+        // the AppKit boundary so every responder path honors the overlay.
+        pane.remoteReconnect == nil
     }
 
     // The panel chrome is movable-by-background; terminal drags are selection
@@ -296,9 +298,9 @@ final class GhosttySurfaceNSView: NSView {
         terminalEventState.accessibilityValueChangeWorkItem = nil
         terminalEventState.progressReportExpiryWorkItem?.cancel()
         terminalEventState.progressReportExpiryWorkItem = nil
-        terminalEventState.progressReportThrottleWorkItem?.cancel()
+        terminalEventState.progressReportThrottleWorkItem?.item.cancel()
         terminalEventState.progressReportThrottleWorkItem = nil
-        terminalEventState.lastProgressReportStoreWriteAt = nil
+        terminalEventState.lastProgressReportStoreWrite = nil
         flushTerminalTitleThrottle()
         resetSearchStateForSurfaceTeardown()
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
@@ -389,6 +391,9 @@ final class GhosttySurfaceNSView: NSView {
         }
         self.pane = pane
         self.paneID = pane.id
+        if pane.remoteReconnect != nil, window?.firstResponder === self {
+            window?.makeFirstResponder(nil)
+        }
         self.enabledAgentRuntimeFileDropSources = enabledAgentRuntimeFileDropSources
         self.grokIconEnabled = grokIconEnabled
         applyTerminalBackstopBackgroundColor()
@@ -538,7 +543,7 @@ final class GhosttySurfaceNSView: NSView {
     // that makes a surface first responder MUST keep that coupling, or the
     // ungated per-mount reclaim will repeatedly steal focus mid-typing.
     func requestFocusIfWindowHasNoTarget() {
-        guard let window else {
+        guard acceptsFirstResponder, let window else {
             return
         }
 
@@ -571,7 +576,10 @@ final class GhosttySurfaceNSView: NSView {
     /// clipboard-read permission prompt, and a prompt that names a title the
     /// user can no longer see on screen is a prompt they cannot judge.
     var liveTitle: String {
-        sessionStore.liveTitleBox(for: sessionID).paneTitle(for: paneID) ?? pane.title
+        TerminalPaneLiveTitleResolver.title(
+            for: pane,
+            from: sessionStore.liveTitleBox(for: sessionID)
+        )
     }
 
     func accessibilityPaneLabel(isActive: Bool) -> String {

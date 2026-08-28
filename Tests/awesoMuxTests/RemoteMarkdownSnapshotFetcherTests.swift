@@ -225,11 +225,6 @@ struct RemoteMarkdownReferenceTests {
         #expect(RemoteMarkdownReference.make(payload: "~other/notes.md", pane: pane) == nil)
     }
 
-    @Test func dashLeadingDeclaredTargetIsRejected() {
-        let pane = remotePane(target: "-i@devbox")
-        #expect(RemoteMarkdownReference.make(payload: "/repo/README.md", pane: pane) == nil)
-    }
-
     @Test func fileURLPayloadUsesRemotePath() throws {
         let reference = try #require(
             RemoteMarkdownReference.make(

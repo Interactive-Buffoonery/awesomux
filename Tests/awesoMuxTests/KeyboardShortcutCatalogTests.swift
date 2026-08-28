@@ -192,6 +192,33 @@ struct KeyboardShortcutCatalogTests {
                 )) == "Shortcuts must include the Command key.")
     }
 
+    @Test("a multi-scalar grapheme cannot masquerade as one shortcut key")
+    func multiScalarGraphemeIsRejected() {
+        let storedKey = "a\u{0301}\u{0302}\u{0303}\u{0304}\u{0305}"
+        #expect(storedKey.count == 1)
+        #expect(storedKey.unicodeScalars.count == 6)
+
+        #expect(ShortcutKeyResolver.keyEquivalent(for: storedKey) == nil)
+        #expect(
+            KeyboardShortcutCatalog.validationMessage(
+                for: ShortcutBindingConfig(key: storedKey, modifiers: [.command])
+            ) == "That key can't be used as a shortcut."
+        )
+    }
+
+    @Test("a bidi override cannot become a shortcut key")
+    func bidiOverrideIsRejected() {
+        let storedKey = "\u{202E}"
+        #expect(storedKey.unicodeScalars.count == 1)
+
+        #expect(ShortcutKeyResolver.keyEquivalent(for: storedKey) == nil)
+        #expect(
+            KeyboardShortcutCatalog.validationMessage(
+                for: ShortcutBindingConfig(key: storedKey, modifiers: [.command])
+            ) == "That key can't be used as a shortcut."
+        )
+    }
+
     @Test("resetting an override restores the default binding")
     func resetOverrideRestoresDefaultBinding() throws {
         let overridden = KeyboardConfig(shortcuts: [
