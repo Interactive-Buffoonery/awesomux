@@ -172,6 +172,56 @@ struct SessionStoreMoveToWorkspaceTests {
         #expect(!store.returnPaneToSourceWorkspace(sessionID: movedID))
     }
 
+    @Test("reopening a closed source restores the pending return link")
+    func reopenSourceThenReturn() throws {
+        let first = pane("first")
+        let movedPane = pane("moved")
+        let original = split(
+            .pane(first),
+            .pane(movedPane),
+            orientation: .horizontal,
+            fraction: 0.37
+        )
+        let source = TerminalSession(
+            title: "source",
+            workingDirectory: "~",
+            layout: original,
+            activePaneID: movedPane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [source])])
+        let movedID = try #require(store.movePaneToNewWorkspace(id: movedPane.id, in: source.id))
+
+        store.closeSession(id: source.id)
+        #expect(!store.canReturnPaneToSourceWorkspace(sessionID: movedID))
+
+        let reopenedID = try #require(store.reopenMostRecentlyClosed())
+        #expect(reopenedID == source.id)
+        #expect(store.canReturnPaneToSourceWorkspace(sessionID: movedID))
+        #expect(store.returnPaneToSourceWorkspace(sessionID: movedID))
+        #expect(store.session(id: source.id)?.layout.isStructurallyEquivalent(to: original) == true)
+    }
+
+    @Test("reopening a moved row preserves its return origin")
+    func reopenMovedRowPreservesOrigin() throws {
+        let first = pane("first")
+        let movedPane = pane("moved")
+        let source = TerminalSession(
+            title: "source",
+            workingDirectory: "~",
+            layout: split(.pane(first), .pane(movedPane))
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [source])])
+        let movedID = try #require(store.movePaneToNewWorkspace(id: movedPane.id, in: source.id))
+        let origin = try #require(store.session(id: movedID)?.moveOrigin)
+
+        store.closeSession(id: movedID)
+        let reopenedID = try #require(store.reopenMostRecentlyClosed())
+
+        #expect(reopenedID == movedID)
+        #expect(store.session(id: reopenedID)?.moveOrigin == origin)
+        #expect(store.canReturnPaneToSourceWorkspace(sessionID: reopenedID))
+    }
+
     @Test("snapshot restore keeps valid origin and drops self-reference")
     func restoreOrigins() throws {
         let sibling = pane("sibling")

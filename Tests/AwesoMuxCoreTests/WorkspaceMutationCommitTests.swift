@@ -266,7 +266,7 @@ struct WorkspaceMutationCommitTests {
         assertDerivedCachesMatchOracle(replaced)
     }
 
-    @Test("reopen rebuilds caches for the newly minted workspace")
+    @Test("reopen rebuilds caches for the restored workspace")
     func reopenRebuildsCachesForNewWorkspace() throws {
         let session = makeSession("closed", agentKind: .codex, agentState: .thinking)
         let store = SessionStore(
@@ -277,7 +277,7 @@ struct WorkspaceMutationCommitTests {
         store.closeSession(id: session.id)
         let reopenedID = try #require(store.reopenMostRecentlyClosed())
 
-        #expect(reopenedID != session.id)
+        #expect(reopenedID == session.id)
         #expect(store.selectedSessionID == reopenedID)
         assertDerivedCachesMatchOracle(store)
     }

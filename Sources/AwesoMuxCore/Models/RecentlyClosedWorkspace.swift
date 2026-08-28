@@ -8,6 +8,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
     public let syntheticTitle: SyntheticSessionTitle?
     public let isTitleUserEdited: Bool
     public let agentKind: AgentKind
+    public let moveOrigin: PaneMoveOrigin?
     public let layout: TerminalPaneLayout
     public let activePaneID: TerminalPane.ID
     public let groupID: SessionGroup.ID
@@ -28,6 +29,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         syntheticTitle: SyntheticSessionTitle? = nil,
         isTitleUserEdited: Bool,
         agentKind: AgentKind,
+        moveOrigin: PaneMoveOrigin? = nil,
         layout: TerminalPaneLayout,
         activePaneID: TerminalPane.ID,
         groupID: SessionGroup.ID,
@@ -41,6 +43,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         self.syntheticTitle = isTitleUserEdited ? nil : syntheticTitle
         self.isTitleUserEdited = isTitleUserEdited
         self.agentKind = agentKind
+        self.moveOrigin = moveOrigin
         self.layout = layout
         self.activePaneID = activePaneID
         self.groupID = groupID
@@ -63,6 +66,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         case syntheticTitle
         case isTitleUserEdited
         case agentKind
+        case moveOrigin
         case layout
         case activePaneID
         case groupID
@@ -108,6 +112,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
             syntheticTitle: syntheticTitle,
             isTitleUserEdited: isTitleUserEdited,
             agentKind: agentKind,
+            moveOrigin: (try? container.decodeIfPresent(PaneMoveOrigin.self, forKey: .moveOrigin)) ?? nil,
             layout: layout,
             activePaneID: try container.decode(TerminalPane.ID.self, forKey: .activePaneID),
             groupID: try container.decode(SessionGroup.ID.self, forKey: .groupID),
