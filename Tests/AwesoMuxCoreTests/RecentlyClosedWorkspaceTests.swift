@@ -228,8 +228,8 @@ struct RecentlyClosedWorkspaceTests {
         #expect(store.groups[0].sessions.first?.id == reopenedID)
     }
 
-    @Test("reopen pops the head, mints a new session id, and steals focus")
-    func reopenMintsFreshIDAndStealsFocus() throws {
+    @Test("reopen pops the head, preserves its available session id, and steals focus")
+    func reopenPreservesAvailableIDAndStealsFocus() throws {
         let store = Self.makeStore(sessionCount: 2)
         let ids = store.groups[0].sessions.map(\.id)
 
@@ -237,9 +237,27 @@ struct RecentlyClosedWorkspaceTests {
         store.selectedSessionID = ids[1]
 
         let reopened = try #require(store.reopenMostRecentlyClosed())
-        #expect(reopened != ids[0])  // fresh id, not the original
+        #expect(reopened == ids[0])
         #expect(store.selectedSessionID == reopened)  // focus stolen
         #expect(store.recentlyClosed.isEmpty)
+        #expect(store.groups[0].sessions.contains(where: { $0.id == reopened }))
+    }
+
+    @Test("reopen mints a session id when the stored id is already live")
+    func reopenRemintsCollidingSessionID() throws {
+        let store = Self.makeStore(sessionCount: 1)
+        let closedID = try #require(store.selectedSessionID)
+        store.closeSession(id: closedID)
+        store.insertSession(
+            TerminalSession(id: closedID, title: "collision", workingDirectory: "~"),
+            groupName: "awesoMux",
+            select: false
+        )
+
+        let reopened = try #require(store.reopenMostRecentlyClosed())
+
+        #expect(reopened != closedID)
+        #expect(store.groups[0].sessions.filter { $0.id == closedID }.count == 1)
         #expect(store.groups[0].sessions.contains(where: { $0.id == reopened }))
     }
 
@@ -464,7 +482,7 @@ struct RecentlyClosedWorkspaceTests {
         #expect(store.lastClosedTransient != nil)
 
         let reopened = try #require(store.reopenMostRecentlyClosed())
-        #expect(reopened != bareShell.id)  // fresh id
+        #expect(reopened == bareShell.id)
         #expect(store.selectedSessionID == reopened)  // focus stolen
         #expect(store.lastClosedTransient == nil)  // transient consumed
     }
@@ -923,7 +941,7 @@ struct RecentlyClosedWorkspaceTests {
         #expect(store.recentlyClosed.count == 1)
 
         let reopenedID = try #require(store.reopenMostRecentlyClosed())
-        #expect(reopenedID != originalID)
+        #expect(reopenedID == originalID)
         #expect(store.selectedSessionID == reopenedID)
         #expect(store.groups[0].sessions.count == 1)
         #expect(store.recentlyClosed.isEmpty)
@@ -1029,11 +1047,20 @@ struct RecentlyClosedWorkspaceTests {
 
     @Test("non-empty recentlyClosed round-trips through Codable")
     func recentlyClosedRoundTrip() throws {
+        let moveOrigin = PaneMoveOrigin(
+            sourceSessionID: UUID(),
+            paneID: UUID(),
+            parentSplitID: UUID(),
+            sibling: .split(UUID()),
+            edge: .left,
+            fraction: 0.4
+        )
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "round",
             isTitleUserEdited: true,
             agentKind: .claudeCode,
+            moveOrigin: moveOrigin,
             layout: .pane(TerminalPane(title: "round", workingDirectory: NSHomeDirectory(), executionPlan: .local)),
             activePaneID: UUID(),
             groupID: UUID(),
@@ -1054,6 +1081,7 @@ struct RecentlyClosedWorkspaceTests {
         let round = try #require(decoded.recentlyClosed.first)
         #expect(round.title == "round")
         #expect(round.agentKind == .claudeCode)
+        #expect(round.moveOrigin == moveOrigin)
         #expect(round.indexInGroup == 3)
         #expect(round.closedAt == entry.closedAt)
     }

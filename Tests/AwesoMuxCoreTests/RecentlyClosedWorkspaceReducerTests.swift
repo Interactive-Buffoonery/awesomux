@@ -88,7 +88,7 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(Set(groups[0].sessions.compactMap(\.syntheticTitle)).count == 3)
     }
 
-    @Test("reopen picks newest tier, drains twins, mints a fresh session id, preserves the pane id")
+    @Test("reopen picks newest tier, drains twins, and preserves available ids")
     func reopenPicksNewestTierAndRemapsIDs() throws {
         let groupID = UUID()
         let pane = TerminalPane(title: "pane", workingDirectory: "/work", executionPlan: .local)
@@ -120,9 +120,9 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(recentlyClosed.isEmpty)
         #expect(transient == nil)
         #expect(reopened.id == reopenedID)
-        #expect(reopened.id != entry.sessionID)
-        // The session id is always fresh, but the pane id is preserved (no live
-        // collision here) so its daemon + agent event file reattach (INT-578).
+        #expect(reopened.id == entry.sessionID)
+        // Neither id collides here, so the workspace link, daemon, and agent
+        // event file identities all survive the reopen.
         #expect(reopened.activePaneID == pane.id)
         #expect(reopened.workingDirectory == "/work")
     }

@@ -24,6 +24,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             syntheticTitle: session.syntheticTitle,
             isTitleUserEdited: session.isTitleUserEdited,
             agentKind: session.activeAgentKind,
+            moveOrigin: session.moveOrigin,
             layout: session.layout,
             activePaneID: session.activePaneID,
             groupID: group.id,
@@ -234,7 +235,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             ? max(0, min(entry.indexInGroup, destinationCount))
             : destinationCount
 
-        // Seed both collision sets with every identity already live in the
+        // Seed the collision sets with every identity already live in the
         // window. The reopened panes keep their own `terminalSessionID` AND their
         // own `pane.id` so they reattach to the still-running daemon and keep
         // receiving its agent events (INT-578) — the agent runtime event file is
@@ -243,10 +244,12 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         // events. A stored id that duplicates a LIVE pane's is reassigned
         // instead, so a corrupted-snapshot twin can't alias a live daemon or its
         // event file (mirrors SessionRestoreReducer's restore path).
+        var seenSessionIDs = Set<TerminalSession.ID>()
         var seenTerminalSessionIDs = Set<TerminalSessionID>()
         var seenPaneIDs = Set<TerminalPane.ID>()
         for group in groups {
             for session in group.sessions {
+                seenSessionIDs.insert(session.id)
                 session.layout.forEachPane {
                     seenTerminalSessionIDs.insert($0.terminalSessionID)
                     seenPaneIDs.insert($0.id)
@@ -307,12 +310,21 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 ? WorkspaceTreeReducer.nextSyntheticSessionTitle(in: groups, for: candidate.agentKind)
                 : candidate
         }
+        // Preserve the workspace identity when it is still available. Pane
+        // move origins name their source workspace by this id, so reminting an
+        // uncontested id would strand a valid pending Return action.
+        let restoredSessionID =
+            seenSessionIDs.contains(entry.sessionID)
+            ? UUID()
+            : entry.sessionID
 
         let restored = TerminalSession(
+            id: restoredSessionID,
             title: restoredSyntheticTitle?.canonicalTitle ?? fallbackTitle,
             workingDirectory: activeCwd,
             syntheticTitle: restoredSyntheticTitle,
             isTitleUserEdited: entry.isTitleUserEdited,
+            moveOrigin: entry.moveOrigin,
             agentKind: entry.agentKind,
             // No session-level agentState: `reidentifiedLayout` already set each
             // pane's execution state per policy (.waiting round-trips with kept
