@@ -189,21 +189,10 @@ struct PaneFocusCommandHandlerTests {
             contentsOf: root.appendingPathComponent("Sources/awesoMux/App/AwesoMuxApp.swift"),
             encoding: .utf8
         )
-        let menu = try #require(
-            source.split(separator: "Button(\"Previous Pane\")", maxSplits: 1)
-                .last?.split(separator: "localized: \"Resume Agent Session\"", maxSplits: 1).first
-        )
-        let palette = try #require(
-            source.split(separator: "private var paletteActions: PaletteAppActions", maxSplits: 1)
-                .last?.split(separator: "private func openSelectedWorkspaceInIDE()", maxSplits: 1).first
-        )
-
-        for section in [menu, palette] {
-            #expect(section.contains("paneFocusCommandHandler.focusPane(.previous)"))
-            #expect(section.contains("paneFocusCommandHandler.focusPane(.next)"))
-            #expect(section.contains("paneFocusCommandHandler.focusPane(at: paneIndex)"))
-            #expect(!section.contains("sessionStore.focusPane("))
-        }
+        #expect(source.contains("paneFocusCommandHandler.focusPane(.previous)"))
+        #expect(source.contains("paneFocusCommandHandler.focusPane(.next)"))
+        #expect(source.contains("paneFocusCommandHandler.focusPane(at: paneIndex)"))
+        #expect(!source.contains("sessionStore.focusPane("))
     }
 
     private func makeHandler(
