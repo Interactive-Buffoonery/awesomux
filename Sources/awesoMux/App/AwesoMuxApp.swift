@@ -1072,8 +1072,8 @@ struct AwesoMuxApp: App {
                 .disabled(!sessionStore.canReopenClosedWorkspace)
 
                 // Non-most-recent reopen (INT-282). SwiftUI twin of the Dock
-                // "Recent Workspaces" submenu; identity by sessionID, which is
-                // unique per close (RecentlyClosedWorkspaceReducer.drain).
+                // "Recent Workspaces" submenu; identity by sessionID (at most
+                // one reopen entry per sessionID — drain before restore).
                 let recentWorkspaces = sessionStore.recentWorkspaces(
                     limit: SessionStore.maxRecentlyClosed
                 )
@@ -1761,9 +1761,8 @@ struct AwesoMuxApp: App {
     /// Group-scale variant of `confirmCloseIfNeeded(_:)` — one aggregate
     /// alert instead of N per-workspace alerts. Uses `isCloseRisk(at:)` —
     /// this flow destroys the sessions (soft-close orphans a bridged
-    /// daemon; reopen mints a fresh id and never reattaches), so bridged
-    /// panes are not safe here, unlike the `⌘Q` quit path which keeps
-    /// `isQuitRisk`. Shares the `isCloseConfirmAlertPresented` re-entry
+    /// daemon, unlike quit), so bridged panes are not safe here. The `⌘Q`
+    /// quit path keeps `isQuitRisk`. Shares the `isCloseConfirmAlertPresented` re-entry
     /// guard so a group confirm can't stack on top of a per-workspace one.
     @MainActor
     private func confirmCloseGroupIfNeeded(_ group: SessionGroup) -> CloseConfirmDecision {
@@ -1918,9 +1917,8 @@ struct AwesoMuxApp: App {
     /// because the agent happened to finish a moment later."
     ///
     /// Uses `isCloseRisk(at:)` — this flow destroys the session
-    /// (soft-close orphans a bridged daemon; reopen mints a fresh id and
-    /// never reattaches), so bridged panes are not safe here, unlike the
-    /// `⌘Q` quit path which keeps `isQuitRisk`. The per-pane check
+    /// (soft-close orphans a bridged daemon, unlike quit), so bridged panes
+    /// are not safe here. The `⌘Q` quit path keeps `isQuitRisk`. The per-pane check
     /// otherwise combines the pane's `agentExecutionState` (active states
     /// are risky), its prompt-marker quit state
     /// (`needsTerminalQuitConfirmation`), and 60-second staleness aging from
@@ -2194,9 +2192,9 @@ struct AwesoMuxApp: App {
         TerminalAccessibilityAnnouncer.announce(announcement)
     }
 
-    /// Pops the head of the recently-closed buffer and inserts a fresh
-    /// workspace rebuilt from its captured layout. The store path mints new
-    /// session/split/pane UUIDs and re-validates per-pane working directories
+    /// Pops the head of the recently-closed buffer and restores the
+    /// workspace from its captured layout. The store path preserves uncontested
+    /// session/split/pane ids (reminting only on live collision) and re-validates per-pane working directories
     /// (missing paths fall back to `~`); libghostty surfaces will be spawned
     /// lazily by `GhosttySurfaceView` on render, so no preemptive runtime
     /// wiring is needed here.
