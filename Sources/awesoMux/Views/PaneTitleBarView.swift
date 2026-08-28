@@ -123,12 +123,12 @@ struct PaneTitleBarView: View {
                     contextMenuItems: {
                         [
                             PaneContextMenuItem(
-                                title: "Rename…",
+                                title: PaneTitleBarStrings.rename,
                                 isEnabled: true,
                                 action: { beginEditing() }
                             ),
                             PaneContextMenuItem(
-                                title: "Reset to Terminal Title",
+                                title: PaneTitleBarStrings.resetToTerminalTitle,
                                 isEnabled: pane.isTitleUserEdited,
                                 action: {
                                     sessionStore.resetPaneTitle(
@@ -140,14 +140,14 @@ struct PaneTitleBarView: View {
                             // active pane — right-clicking a bar should act on
                             // the bar you clicked.
                             PaneContextMenuItem(
-                                title: "Move Pane to New Workspace",
+                                title: PaneTitleBarStrings.moveToNewWorkspace,
                                 isEnabled: sessionStore.canMovePaneToNewWorkspace(
                                     id: pane.id, in: session.id
                                 ),
                                 action: movePaneToNewWorkspace
                             ),
                             PaneContextMenuItem(
-                                title: "Color…",
+                                title: PaneTitleBarStrings.color,
                                 isEnabled: true,
                                 children: colorMenuItems()
                             ),
@@ -239,7 +239,7 @@ struct PaneTitleBarView: View {
         // the palette entries below — a missing image on "Default" creates a visible
         // indent gap that makes the submenu look mis-aligned (Fix 4).
         let defaultColor = PaneContextMenuItem(
-            title: "Default",
+            title: PaneTitleBarStrings.defaultColor,
             isEnabled: true,
             action: { sessionStore.setPaneColor(sessionID: session.id, paneID: pane.id, color: nil) },
             swatch: NSColor.tertiaryLabelColor,
@@ -374,12 +374,12 @@ struct PaneTitleBarView: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .accessibilityLabel(Self.accessibilityLabel(for: pane, title: title) + colorSuffix)
-            .accessibilityAction(named: "Rename") { beginEditing() }
+            .accessibilityAction(named: Text(PaneTitleBarStrings.rename)) { beginEditing() }
         if pane.isTitleUserEdited {
             moveAccessibilityAction(
                 to:
                     base
-                .accessibilityAction(named: "Reset to Terminal Title") {
+                    .accessibilityAction(named: Text(PaneTitleBarStrings.resetToTerminalTitle)) {
                     sessionStore.resetPaneTitle(sessionID: session.id, paneID: pane.id)
                 }
                 .accessibilityActions {
@@ -400,7 +400,7 @@ struct PaneTitleBarView: View {
     @ViewBuilder
     private func moveAccessibilityAction<Content: View>(to content: Content) -> some View {
         if sessionStore.canMovePaneToNewWorkspace(id: pane.id, in: session.id) {
-            content.accessibilityAction(named: "Move Pane to New Workspace") {
+            content.accessibilityAction(named: Text(PaneTitleBarStrings.moveToNewWorkspace)) {
                 movePaneToNewWorkspace()
             }
         } else {
