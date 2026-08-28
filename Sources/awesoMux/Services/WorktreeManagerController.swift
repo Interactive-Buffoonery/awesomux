@@ -8,6 +8,7 @@ import SwiftUI
 final class WorktreeManagerController {
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private var isDismissing = false
+    @ObservationIgnored private var isKeyWindow = false
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     // Cancellation is cooperative: a cancelled task's `await model?.refresh()`
     // keeps running until IT checks cancellation, which `refresh()` never
@@ -94,11 +95,33 @@ final class WorktreeManagerController {
         guard !isDismissing else { return }
         isDismissing = true
         isVisible = false
+        isKeyWindow = false
         refreshTask?.cancel()
         refreshTask = nil
         panel?.orderOut(nil)
         activeModel = nil
         isDismissing = false
+    }
+
+    func hideIfKeyWindow() -> Bool {
+        guard
+            let panel,
+            Self.shouldHandleCloseCommand(
+                isVisible: isVisible,
+                isKeyWindow: isKeyWindow,
+                hasAttachedSheet: panel.attachedSheet != nil
+            )
+        else { return false }
+        dismiss()
+        return true
+    }
+
+    static func shouldHandleCloseCommand(
+        isVisible: Bool,
+        isKeyWindow: Bool,
+        hasAttachedSheet: Bool
+    ) -> Bool {
+        isVisible && (isKeyWindow || hasAttachedSheet)
     }
 
     @ViewBuilder
@@ -126,6 +149,9 @@ final class WorktreeManagerController {
             String(localized: "Worktree Manager", comment: "Worktree Manager accessibility title."))
         panel.showsStandardWindowButtons = true
         panel.onDismiss = { [weak self] in self?.dismiss() }
+        panel.onKeyStateChanged = { [weak self] isKeyWindow in
+            self?.isKeyWindow = isKeyWindow
+        }
         panel.handlesKeyEvent = { [weak panel] event in
             if FloatingPanelEventPolicy.isDismissChord(
                 type: event.type,

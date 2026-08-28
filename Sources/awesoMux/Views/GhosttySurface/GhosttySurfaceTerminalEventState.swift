@@ -34,11 +34,10 @@ final class GhosttySurfaceTerminalEventState {
     /// originally carry over. See `updateProgressReport`.
     var progressReportExpiryWorkItem: DispatchWorkItem?
 
-    /// Backs the trailing-edge write throttle in `updateProgressReport` —
-    /// see `ObservableStoreWriteThrottle` for the decision logic and
-    /// `progressReportStoreWriteMinInterval` for the window.
-    var progressReportThrottleWorkItem: DispatchWorkItem?
-    var lastProgressReportStoreWriteAt: TimeInterval?
+    /// Both are keyed on the pane so a recycled view cannot carry one pane's
+    /// throttle window or pending write into another pane.
+    var progressReportThrottleWorkItem: (item: DispatchWorkItem, pane: PaneStoreWriteKey)?
+    var lastProgressReportStoreWrite: (pane: PaneStoreWriteKey, at: TimeInterval)?
 
     /// Both are keyed on the pane, not the view: views are recycled across
     /// panes, so a per-view window lets a recycled-in pane inherit the outgoing
