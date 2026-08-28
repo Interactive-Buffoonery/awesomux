@@ -296,8 +296,8 @@ enum DaemonGarbageCollector {
         },
         processExists: @escaping @Sendable (Int32) -> Bool = { Darwin.kill($0, 0) == 0 },
         signalProcess: @escaping @Sendable (Int32, Int32) async -> Int32 = { Darwin.kill($0, $1) },
-        waitForGrace: @escaping @Sendable (Duration) async -> Void = {
-            try? await ContinuousClock().sleep(for: $0)
+        waitForGrace: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
         }
     ) async -> Int {
         var terminated: [DaemonGCPlan.AttachProcessSample] = []
@@ -316,7 +316,11 @@ enum DaemonGarbageCollector {
         }
 
         guard !terminated.isEmpty else { return 0 }
-        await waitForGrace(.seconds(1))
+        do {
+            try await waitForGrace(.seconds(1))
+        } catch {
+            return terminated.count
+        }
         for expected in terminated {
             guard processExists(expected.pid),
                 let samples = await sampleProcesses([expected.pid]),
