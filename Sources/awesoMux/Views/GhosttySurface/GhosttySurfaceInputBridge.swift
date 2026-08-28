@@ -3,6 +3,7 @@ import GhosttyKit
 
 extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder else { return false }
         let didBecome = super.becomeFirstResponder()
 
         if didBecome {
