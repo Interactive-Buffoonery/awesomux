@@ -178,6 +178,34 @@ struct OpenCodeTranscriptDatabaseTests {
         #expect(part.data == nil)
         #expect(part.byteCount > OpenCodeTranscriptDatabase.maximumPartBytes)
     }
+
+    @Test("a cumulative source-byte budget keeps only the newest rows")
+    func boundsCumulativeSourceBytes() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        try fixture.insertSession("ses_target")
+        for index in 1...3 {
+            try fixture.insertMessage(
+                id: "msg_\(index)", sessionID: "ses_target", time: index,
+                role: "user", partID: "part_\(index)",
+                part: ["type": "text", "text": String(repeating: "x", count: 300)]
+            )
+        }
+
+        let snapshot = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome,
+            sessionID: "ses_target",
+            maximumSourceBytes: 500
+        ).get()
+
+        #expect(snapshot.messages.map(\.id) == ["msg_3"])
+        #expect(snapshot.isTruncated)
+        let retainedBytes = snapshot.messages.reduce(into: 0) { count, message in
+            count += message.data?.count ?? 0
+            count += message.parts.reduce(0) { $0 + ($1.data?.count ?? 0) }
+        }
+        #expect(retainedBytes <= 500)
+    }
 }
 
 private final class Fixture {

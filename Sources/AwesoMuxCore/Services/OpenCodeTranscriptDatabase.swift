@@ -8,6 +8,9 @@ public enum OpenCodeTranscriptDatabase {
     static let databaseFileName = "opencode.db"
     public static let maximumTurns = 256
     public static let maximumParts = 4_096
+    /// Leaves expansion room above the rendered-document budget while bounding
+    /// hostile SQLite payloads far below the independent row caps.
+    public static let maximumSourceBytes = 8 * 1_024 * 1_024
     static let maximumPartBytes = 256 * 1_024
     static let maximumMessageBytes = 64 * 1_024
 
@@ -16,6 +19,7 @@ public enum OpenCodeTranscriptDatabase {
         sessionID: String,
         maximumTurns: Int = maximumTurns,
         maximumParts: Int = maximumParts,
+        maximumSourceBytes: Int = maximumSourceBytes,
         effectiveUID: uid_t = geteuid()
     ) -> Result<OpenCodeTranscriptSnapshot, AgentTranscriptUnavailable> {
         let databaseURL = dataHome.resolvingSymlinksInPath().appending(path: databaseFileName)
@@ -64,6 +68,7 @@ public enum OpenCodeTranscriptDatabase {
 
         let turnLimit = min(max(1, maximumTurns), Int(Int32.max) - 1)
         let partLimit = min(max(1, maximumParts), Int(Int32.max) - 1)
+        let sourceByteLimit = max(1, maximumSourceBytes)
         let renderablePart = """
             CASE WHEN json_valid(p.data) THEN
                 CASE
@@ -130,6 +135,8 @@ public enum OpenCodeTranscriptDatabase {
         var descendingMessages: [OpenCodeTranscriptSnapshot.Message] = []
         var rowCount = 0
         var candidateCount = 0
+        var sourceByteCount = 0
+        var sourceBudgetExceeded = false
         while true {
             let step = sqlite3_step(statement)
             if step == SQLITE_DONE { break }
@@ -139,7 +146,16 @@ public enum OpenCodeTranscriptDatabase {
             guard rowCount <= partLimit else { continue }
 
             let id = string(at: 0, in: statement)
-            let messageData = data(at: 1, in: statement)
+            let isNewMessage = descendingMessages.last?.id != id
+            let retainedRowBytes =
+                Int(sqlite3_column_bytes(statement, 2))
+                + (isNewMessage ? Int(sqlite3_column_bytes(statement, 1)) : 0)
+            guard retainedRowBytes <= sourceByteLimit - sourceByteCount else {
+                sourceBudgetExceeded = true
+                break
+            }
+            sourceByteCount += retainedRowBytes
+
             let part = OpenCodeTranscriptSnapshot.Part(
                 data: data(at: 2, in: statement),
                 byteCount: Int(sqlite3_column_int64(statement, 3))
@@ -154,7 +170,11 @@ public enum OpenCodeTranscriptDatabase {
                 descendingMessages.append(message)
             } else {
                 descendingMessages.append(
-                    OpenCodeTranscriptSnapshot.Message(id: id, data: messageData, parts: [part])
+                    OpenCodeTranscriptSnapshot.Message(
+                        id: id,
+                        data: data(at: 1, in: statement),
+                        parts: [part]
+                    )
                 )
             }
         }
@@ -171,6 +191,7 @@ public enum OpenCodeTranscriptDatabase {
                 databaseURL: databaseURL,
                 messages: messages,
                 isTruncated: candidateCount > turnLimit || rowCount > partLimit
+                    || sourceBudgetExceeded
             )
         )
     }
