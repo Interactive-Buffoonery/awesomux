@@ -1271,7 +1271,7 @@
       "comment" : "Explanation in the Connect via SSH sheet"
     },
     "Creates a new workspace in the current group." : {
-
+      "comment" : "Accessibility help for the sidebar New Workspace action."
     },
     "Creating…" : {
       "comment" : "Worktree creation in progress accessibility label.\nWorktree creation in progress button label."
@@ -1664,11 +1664,11 @@
     "FreeType License" : {
       "comment" : "Button opening the FreeType License text"
     },
-    "Full URL: %arg" : {
-      "comment" : "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
-    },
     "From terminal output, awesoMux opens safe web and email links plus existing Markdown files. Other local files and unsafe links stay blocked." : {
       "comment" : "Explanation of the terminal link-opening security boundary"
+    },
+    "Full URL: %arg" : {
+      "comment" : "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
     },
     "GPL v2" : {
       "comment" : "Button opening the GPL version 2 text"
@@ -2162,7 +2162,7 @@
 
     },
     "New Workspace" : {
-      "comment" : "Dock right-click menu item that opens a new workspace.\nEmpty workspace primary action label.",
+      "comment" : "Dock right-click menu item that opens a new workspace.\nEmpty workspace primary action label.\nSidebar action to create a workspace.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2224,9 +2224,6 @@
     },
     "New command" : {
       "comment" : "Settings field label for the add-custom-command button"
-    },
-    "New workspace" : {
-
     },
     "New workspace in %arg" : {
       "comment" : "VoiceOver label for the row that creates a workspace in a sidebar group, naming the group so repeated rows are distinguishable."
