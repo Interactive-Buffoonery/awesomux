@@ -289,9 +289,9 @@ final class GhosttySurfaceNSView: NSView {
         terminalEventState.accessibilityValueChangeWorkItem = nil
         terminalEventState.progressReportExpiryWorkItem?.cancel()
         terminalEventState.progressReportExpiryWorkItem = nil
-        terminalEventState.progressReportThrottleWorkItem?.cancel()
+        terminalEventState.progressReportThrottleWorkItem?.item.cancel()
         terminalEventState.progressReportThrottleWorkItem = nil
-        terminalEventState.lastProgressReportStoreWriteAt = nil
+        terminalEventState.lastProgressReportStoreWrite = nil
         flushTerminalTitleThrottle()
         resetSearchStateForSurfaceTeardown()
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)

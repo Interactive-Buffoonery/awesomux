@@ -25,6 +25,26 @@ struct NewWorkspaceSplitButton: View, Equatable {
     /// `addSession(groupName:)`'s create-if-missing fallback.
     let onNewWorkspaceInGroup: (SessionGroup.ID) -> Void
     let onNewWorkspaceGroup: () -> Void
+    let primaryFocusRequestID: Int
+    let primaryFocusIsActive: Bool
+
+    init(
+        restFill: Color,
+        otherGroups: [(id: SessionGroup.ID, name: String)],
+        onNewWorkspace: @escaping () -> Void,
+        onNewWorkspaceInGroup: @escaping (SessionGroup.ID) -> Void,
+        onNewWorkspaceGroup: @escaping () -> Void,
+        primaryFocusRequestID: Int = 0,
+        primaryFocusIsActive: Bool = false
+    ) {
+        self.restFill = restFill
+        self.otherGroups = otherGroups
+        self.onNewWorkspace = onNewWorkspace
+        self.onNewWorkspaceInGroup = onNewWorkspaceInGroup
+        self.onNewWorkspaceGroup = onNewWorkspaceGroup
+        self.primaryFocusRequestID = primaryFocusRequestID
+        self.primaryFocusIsActive = primaryFocusIsActive
+    }
 
     /// Matches the search field chip's height so the two chips on the
     /// expanded header's row read as one size.
@@ -55,6 +75,8 @@ struct NewWorkspaceSplitButton: View, Equatable {
         lhs.restFill == rhs.restFill
             && lhs.otherGroups.count == rhs.otherGroups.count
             && zip(lhs.otherGroups, rhs.otherGroups).allSatisfy { $0.id == $1.id && $0.name == $1.name }
+            && lhs.primaryFocusRequestID == rhs.primaryFocusRequestID
+            && lhs.primaryFocusIsActive == rhs.primaryFocusIsActive
     }
 
     var body: some View {
@@ -100,23 +122,8 @@ struct NewWorkspaceSplitButton: View, Equatable {
                 topTrailingRadius: 0
             )
             .fill(isPrimaryHovering ? Color.aw.surface.hover : Color.clear)
-            Button(action: guardedNewWorkspace) {
-                Image(systemName: "plus")
-                    // Matches the expanded search icon's exact size/weight
-                    // (SidebarView.swift:697) — .semibold at a larger size
-                    // rasterizes with more opaque pixels than .medium, so it
-                    // read as a brighter color even at the identical RGB
-                    // value (diagnosed via Codex, not a color bug).
-                    .font(.system(size: 12.5, weight: .medium))
-                    // Applied directly on the glyph, not inherited from an
-                    // ancestor .foregroundStyle — Menu (below) doesn't
-                    // reliably pass that down to its label, so both glyphs
-                    // set their own color explicitly to actually match.
-                    .foregroundStyle(Color.aw.text3)
-                    .frame(width: primarySize, height: primarySize)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            .accessibilityHidden(true)
+            primaryAction
         }
         .frame(width: primarySize, height: primarySize)
         .onHover { isPrimaryHovering = $0 }
@@ -125,14 +132,38 @@ struct NewWorkspaceSplitButton: View, Equatable {
         // rebuild over the old frame doesn't keep a stale hover fill. Same
         // reasoning applies to the chevron segment below.
         .onDisappear { isPrimaryHovering = false }
-        // Without this, the decorative hover-fill shape can surface as its
-        // own unlabeled VoiceOver element alongside the Button — same class
-        // of bug already found and fixed for the divider between segments,
-        // and the established codebase fix (SidebarStatusFooter.swift).
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("New Workspace")
-        .accessibilityHint("Creates a new workspace in the current group.")
         .help("New Workspace")
+    }
+
+    private var primaryAction: some View {
+        Button(action: guardedNewWorkspace) {
+            Image(systemName: "plus")
+                // Matches the expanded search icon's exact size/weight
+                // (SidebarView.swift:697) — .semibold at a larger size
+                // rasterizes with more opaque pixels than .medium, so it
+                // read as a brighter color even at the identical RGB
+                // value (diagnosed via Codex, not a color bug).
+                .font(.system(size: 12.5, weight: .medium))
+                // Applied directly on the glyph, not inherited from an
+                // ancestor .foregroundStyle — Menu (below) doesn't
+                // reliably pass that down to its label, so both glyphs
+                // set their own color explicitly to actually match.
+                .foregroundStyle(Color.aw.text3)
+                .frame(width: primarySize, height: primarySize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .accessibilityHidden(true)
+        .overlay {
+            SidebarNewWorkspaceFocusTarget(
+                focusRequestID: primaryFocusRequestID,
+                focusIsActive: primaryFocusIsActive,
+                onActivate: guardedNewWorkspace
+            )
+            .frame(width: primarySize, height: primarySize)
+            .allowsHitTesting(false)
+        }
     }
 
     private var chevronButton: some View {
