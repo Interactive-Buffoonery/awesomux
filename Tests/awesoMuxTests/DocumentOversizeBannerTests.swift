@@ -271,6 +271,24 @@ struct DocumentOversizeReadOnlyTests {
 /// banner, and the user is invited to try again forever.
 @Suite("Over-cap annotation save outcome")
 struct OversizeAnnotationOutcomeTests {
+    @Test("a mid-save cap crossing becomes terminal after reload")
+    func midSaveCapCrossingBecomesTerminal() {
+        #expect(
+            AnnotationSaveRecovery.outcome(
+                afterReloading: .inputTooLarge,
+                conflictOutcome: .reloadAndRetry
+            ) == .oversizeCopyOnly)
+    }
+
+    @Test("an ordinary conflict keeps its caller-specific recovery")
+    func ordinaryConflictKeepsItsRecovery() {
+        #expect(
+            AnnotationSaveRecovery.outcome(
+                afterReloading: .observedConflict,
+                conflictOutcome: .copyAndReselect
+            ) == .copyAndReselect)
+    }
+
     /// `copyOnly` is terminal only for an existing annotation and
     /// `copyAndReselect` only for a new one, so neither could carry this case:
     /// an open compose popover would have kept a working Save.

@@ -16,6 +16,7 @@ public enum MarkdownDocumentCommitFailure: Equatable, Sendable {
 public enum MarkdownDocumentCommitResult: Equatable, Sendable {
     case committed(source: String)
     case observedConflict
+    case inputTooLarge
     case unreadable
     case invalidEdit
     case outputTooLarge
@@ -121,8 +122,25 @@ public enum MarkdownDocumentCommitter {
         let coordinationError = coordinate(observed.resolvedURL) { coordinatedURL in
             do {
                 try beforeRecheck()
-                guard coordinatedURL.standardizedFileURL == observed.resolvedURL.standardizedFileURL,
-                    let current = readBytes(at: inputURL),
+                guard coordinatedURL.standardizedFileURL == observed.resolvedURL.standardizedFileURL
+                else {
+                    result = .observedConflict
+                    return
+                }
+
+                let current: SecureFileContents
+                switch readBytesResult(at: inputURL) {
+                case .contents(let contents):
+                    current = contents
+                case .tooLarge:
+                    result = .inputTooLarge
+                    return
+                case .unreadable:
+                    result = .observedConflict
+                    return
+                }
+
+                guard
                     current.resolvedURL.standardizedFileURL
                         == observed.resolvedURL.standardizedFileURL,
                     current.identity == observed.identity,
@@ -147,6 +165,19 @@ public enum MarkdownDocumentCommitter {
     }
 
     private static func readBytes(at url: URL) -> SecureFileContents? {
+        guard case .contents(let contents) = readBytesResult(at: url) else {
+            return nil
+        }
+        return contents
+    }
+
+    private enum ReadBytesResult {
+        case contents(SecureFileContents)
+        case tooLarge
+        case unreadable
+    }
+
+    private static func readBytesResult(at url: URL) -> ReadBytesResult {
         do {
             let contents = try SecureFileReader.read(
                 at: url,
@@ -157,10 +188,12 @@ public enum MarkdownDocumentCommitter {
                     contents.resolvedURL,
                     fileSize: contents.data.count
                 ) == nil
-            else { return nil }
-            return contents
+            else { return .unreadable }
+            return .contents(contents)
+        } catch SecureFileReadError.tooLarge {
+            return .tooLarge
         } catch {
-            return nil
+            return .unreadable
         }
     }
 

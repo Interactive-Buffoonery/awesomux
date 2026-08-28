@@ -2063,12 +2063,17 @@ struct DocumentPaneView: View {
         case .committed(let newSource):
             Self.selfWriteRegistry.record(fileURL: fileURL, source: newSource)
             return .saved
-        case .observedConflict:
+        case .observedConflict, .inputTooLarge:
             guard !reloadCompletion.isInvalidated else { return .failed }
-            pendingScrollAnchor = nil
+            if result == .observedConflict {
+                pendingScrollAnchor = nil
+            }
             let generation = triggerReload()
             guard await reloadCompletion.wait(for: generation) else { return .failed }
-            return conflictOutcome
+            return AnnotationSaveRecovery.outcome(
+                afterReloading: result,
+                conflictOutcome: conflictOutcome
+            ) ?? .failed
         case .unreadable:
             showAlert(
                 title: saveFailureTitle,
