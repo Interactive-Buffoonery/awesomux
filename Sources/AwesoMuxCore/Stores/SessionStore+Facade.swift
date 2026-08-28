@@ -159,13 +159,16 @@ extension SessionStore {
         hasPending: Bool
     ) {
         guard let position = position(for: sessionID) else { return }
-        let change = WorkspaceAttentionReducer.updatePermissionPromptAttention(
-            &_groups[position.groupIndex].sessions[position.sessionIndex],
+        var session = _groups[position.groupIndex].sessions[position.sessionIndex]
+        let outcome = WorkspaceAttentionReducer.updatePermissionPromptAttention(
+            &session,
             paneID: paneID,
             countDelta: countDelta,
             hasPending: hasPending
         )
-        commit(WorkspaceMutationEffect(unreadChange: change))
+        guard outcome.didMutate else { return }
+        _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange))
     }
 
     /// The provider-native session id of the agent running in a pane right now,

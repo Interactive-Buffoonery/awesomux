@@ -160,6 +160,32 @@ struct WorkspaceMutationCommitTests {
         assertDerivedCachesMatchOracle(store)
     }
 
+    @Test("unchanged permission prompt attention does not publish groups")
+    func unchangedPermissionPromptAttentionDoesNotPublishGroups() {
+        let session = TerminalSession(
+            title: "remote",
+            workingDirectory: "~",
+            attentionReason: .permissionPrompt
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
+        let published = LockedFlag()
+
+        withObservationTracking {
+            _ = store.groups
+        } onChange: {
+            published.set()
+        }
+
+        store.updatePermissionPromptAttention(
+            sessionID: session.id,
+            paneID: session.activePaneID,
+            countDelta: 0,
+            hasPending: true
+        )
+
+        #expect(!published.value)
+    }
+
     // MARK: - Structural rebuild migration (PR2)
 
     @Test("addSession rebuilds index and selects the new session")
