@@ -370,6 +370,9 @@ artifact is published.
     pushes (see `docs/ci.md`), so Cheap guards is the real per-main-push gate.
   - Any transient `gh` error leaves `should_build` false; the next cron
     recovers. The gate never signs on uncertainty.
+- **Test gate (`release-tests`).** Once the gate opts in, the complete Swift
+  and zmx suites run on the exact nightly commit before signing. A red suite
+  blocks the nightly publish entirely — nightlies ship only on green tests.
 - **Version.** `CFBundleShortVersionString` is `0.0.<YYYYMMDD>` (numeric X.Y.Z;
   the string rejects suffixes). `CFBundleVersion` stays the commit count, which
   is monotonic along main. Because nightlies replace the stable app in place
@@ -403,7 +406,10 @@ successful relaunch, preserved terminal sessions, and the Homebrew path below.
 
 - [ ] Create release branch or use the protected release commit.
 - [ ] Confirm version and build number.
-- [ ] Run pre-release freeze checklist.
+- [ ] Run pre-release freeze checklist. (Manual belt-and-braces: the tag push
+      itself is gated — `release.yml`'s `release-tests` job runs the complete
+      suite before any signing step and blocks the release on failure. The
+      freeze checklist still catches breakage earlier, without a tag.)
 - [ ] Produce the draft GitHub Release:
   - [ ] Alternative (ad-hoc/pipeline testing): manually dispatch the Release
         workflow (Actions → Release → `version`, optionally

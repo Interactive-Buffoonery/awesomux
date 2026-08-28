@@ -202,6 +202,29 @@ pushes to `main`, or a recurring schedule.
 Making native CI automatic or a required merge check requires a separate
 reliability and cost review.
 
+## Release test gate
+
+The release pipeline is the one exception to the on-demand policy, and it is
+not advisory: `release.yml` runs the complete suite (zmx plus the `timing`,
+`sidebar`, and `nontiming` shards) in its `release-tests` job on every lane —
+`v*` tag push, manual dispatch, and nightly cron — and blocks the signing job
+until all four legs are green. This is safe to run automatically because those
+lanes execute only trusted, maintainer-owned refs: a tag points at a commit
+already on `main`, and the untrusted-pull-request trust boundary (see above)
+does not apply. `release-tests` holds no environment or signing secrets, runs
+before the `release` environment approval prompt, and reuses
+`.github/actions/prepare-native` with cache writes allowed, matching the
+release job's own cache posture.
+
+The nightly lane still applies `nightly-gate` first: when tonight is skipped as
+unchanged or main-red, `release-tests` and the release job skip along with it.
+A red `release-tests` leg on a nightly run publishes nothing; the next cron
+recovers on its own.
+
+This gate does not change pull-request or merge-time policy. Merged breakage
+that comment-triggered native CI misses is caught at tag/dispatch/nightly time
+instead of at merge time — an intentional trade per the policy above.
+
 ## Troubleshooting
 
 - No eyes reaction: confirm the comment is an exact supported command, the pull
@@ -215,6 +238,14 @@ reliability and cost review.
   unrelated branches.
 - Tests fail: download the short-lived xUnit and log artifact before rerunning.
   Do not add blanket retries or increase the timeout to hide a failure.
+- Tests crash in `swift_release_dealloc` with SIGBUS/SIGSEGV locally: this is
+  the classic stale incremental `.build` signature after a type's stored
+  payload layout changed (modules compiled against the old layout over-release
+  it), and it is indistinguishable from a genuine memory-safety bug. Rule it
+  out first with `swift package clean && ./script/swift-test.sh` before
+  investigating the code. CI never exhibits it because CI always builds clean
+  (including the release gate); there is intentionally no general `.build`
+  cache.
 - The staged build fails: reproduce with `./script/build_and_run.sh
   --stage-release` and verify `dist/awesoMux.app` with `codesign` locally.
 - A required check is missing: confirm its stable job name and the separate

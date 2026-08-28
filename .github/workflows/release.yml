@@ -14,6 +14,12 @@ name: Release
 # cache, keychain lifecycle, and fail-closed validation — and only differs in
 # how the version is resolved, a pre-flight gate (nightly-gate), and how the
 # artifact is published (a rolling prerelease instead of a per-version draft).
+#
+# Every lane (tag, dispatch, nightly) is gated on the full Swift and zmx test
+# suites via the release-tests job below: the tagged/dispatched/nightly commit
+# is trusted maintainer code, so there is no untrusted-code trust boundary to
+# protect — unlike pull requests, where native CI stays on demand (docs/ci.md).
+# A red suite blocks signing entirely; the release job never starts.
 
 on:
   push:
@@ -109,9 +115,10 @@ jobs:
           fi
 
           # Skip-if-main-red. Require the exact commit we would sign to have a
-          # COMPLETED, SUCCESSFUL push-triggered Cheap guards run. Native CI does
-          # not run on main pushes (issue_comment/dispatch only; canary not
-          # enabled — docs/ci.md), so Cheap guards is the real per-main-push gate.
+          # COMPLETED, SUCCESSFUL push-triggered Cheap guards run. Native CI still
+          # does not run on main pushes (docs/ci.md), so Cheap guards is the real
+          # per-main-push gate — release-tests backstops it per pipeline, testing
+          # this exact commit on macOS before any signing.
           # No completed run for this SHA (still running, or none) => not proven
           # green => skip and recover next cron.
           # jq --arg (not string interpolation) so the SHA can never be read as
@@ -159,19 +166,117 @@ jobs:
           path: dist/linux-helper/
           if-no-files-found: error
 
+  release-tests:
+    name: Release gate tests (${{ matrix.group }})
+    needs: [nightly-gate]
+    # Nightly still skips cheap when the gate says tonight is unchanged or
+    # main is not proven green; tag and dispatch lanes always run the suite.
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.nightly-gate.outputs.should_build == 'true') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same shard split as native CI's `all` scope (script/test.sh owns the
+        # shard patterns): blocking-OS-call suites and AppKit-heavy sidebar
+        # suites get their own processes instead of starving one shared Swift
+        # Concurrency pool on a hosted runner.
+        group: [zmx, timing, sidebar, nontiming]
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    timeout-minutes: 120
+    # No environment and no secrets: this job only tests trusted, maintainer-
+    # owned code, and running before the release environment approval keeps
+    # signing material out of its reach entirely.
+    permissions:
+      contents: read
+    env:
+      # Part of the Ghostty artifact cache key; matches the release job so all
+      # release-lane jobs share one artifact cache entry.
+      AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Initialize test results
+        run: mkdir -p .build/test-results
+
+      - name: Prepare native build
+        id: prepare
+        uses: ./.github/actions/prepare-native
+        with:
+          # Unlike pull-request native CI (restore-only, untrusted code), this
+          # lane executes trusted maintainer refs, so a cache miss may save —
+          # same cache posture as the release job itself.
+          save-cache: "true"
+          prepare-ghostty: ${{ matrix.group != 'zmx' }}
+
+      - name: Install zmx Zig toolchain
+        if: matrix.group == 'zmx'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+          ZMX_ZIG_FORMULA: ${{ steps.prepare.outputs.zmx-zig-formula }}
+        run: |
+          set -euo pipefail
+          brew install "$ZMX_ZIG_FORMULA"
+          echo "AWESOMUX_ZMX_ZIG=$(brew --prefix "$ZMX_ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
+
+      - name: Run test shard
+        id: execute
+        env:
+          GROUP: ${{ matrix.group }}
+          XUNIT_PATH: .build/test-results/release-tests.xml
+          LOG_PATH: .build/test-results/release-tests.log
+        run: |
+          set -euo pipefail
+          set +e
+          if [[ "$GROUP" == "zmx" ]]; then
+            ./script/test.sh zmx 2>&1 | tee "$LOG_PATH"
+          else
+            ./script/test.sh "$GROUP" --xunit-output "$XUNIT_PATH" 2>&1 | tee "$LOG_PATH"
+          fi
+          test_status=${PIPESTATUS[0]}
+          set -e
+
+          # Swift Testing writes its xUnit report beside the requested path for
+          # some runner versions; normalize so the artifact upload below always
+          # finds the report.
+          swift_testing_xunit_path="${XUNIT_PATH%.xml}-swift-testing.xml"
+          if [[ ! -s "$XUNIT_PATH" && -s "$swift_testing_xunit_path" ]]; then
+            mv "$swift_testing_xunit_path" "$XUNIT_PATH"
+          fi
+
+          echo "result=$([[ "$test_status" -eq 0 ]] && echo success || echo failure)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tests-${{ matrix.group }}-${{ github.sha }}
+          path: .build/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Enforce test result
+        if: always() && steps.execute.outputs.result != 'success'
+        run: exit 1
+
   release:
     name: Build, sign, and notarize
-    needs: [nightly-gate, linux-helper]
+    needs: [nightly-gate, linux-helper, release-tests]
     # Status-check functions (!cancelled/!failure) disable GitHub's default
     # "skip me if a needed job was skipped" behavior, so the if fully governs:
     #   - tag/dispatch: nightly-gate is skipped (not a failure), linux-helper
-    #     runs; event != schedule => release runs.
+    #     and the test gate run; event != schedule => release runs.
     #   - schedule + build: linux-helper is skipped (not a failure), gate says
-    #     true => release runs.
+    #     true and the test gate passed => release runs.
     #   - schedule + skip: gate says false => release is skipped (green run, no
     #     wasted signed build).
     # !failure() still lets a real linux-helper failure block a tag/dispatch
-    # release, since that job is required for those lanes' assets.
+    # release, since that job is required for those lanes' assets — and lets a
+    # release-tests failure block EVERY lane, which is the point of the gate:
+    # no red suite ever reaches signing, and the environment approval prompt
+    # only appears after the suite is already green.
     if: ${{ !cancelled() && !failure() && (github.event_name != 'schedule' || needs.nightly-gate.outputs.should_build == 'true') }}
     # macos-26, not macos-15: the app icon is an Icon Composer .icon that
     # needs Xcode 26's actool, and Xcode 26 IB tooling crashes (dyld symbol
