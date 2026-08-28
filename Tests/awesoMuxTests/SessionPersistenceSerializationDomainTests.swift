@@ -6,7 +6,8 @@ struct SessionPersistenceSerializationDomainTests {
     @Test("every temporary support-directory caller uses this serialized parent")
     func temporarySupportDirectoryCallersShareSerializationDomain() throws {
         let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        let helperCall = "SessionPersistence." + "withTemporarySupportDirectory"
+        // Split to avoid self-matching this file.
+        let helperCall = "with" + "TemporarySupportDirectory"
         let enumerator = try #require(
             FileManager.default.enumerator(at: testDirectory, includingPropertiesForKeys: nil)
         )
