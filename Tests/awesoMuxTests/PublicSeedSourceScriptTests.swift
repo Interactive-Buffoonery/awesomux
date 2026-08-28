@@ -44,7 +44,7 @@ struct PublicSeedSourceScriptTests {
         #expect(result.error.contains("remains in the public seed surface"))
     }
 
-    @Test("tracked files remain scanned when a VCS ignore rule covers their path")
+    @Test("gitignored files remain scanned with no-ignore-vcs")
     func trackedIgnoredFilesRemainScanned() throws {
         let result = try runGuard(
             publicText: "public",
@@ -139,6 +139,7 @@ struct PublicSeedSourceScriptTests {
             )
             try Data(trackedIgnoredText.utf8).write(to: ignoredDirectory.appending(path: "leak.md"))
             try runGit(["init"], at: root)
+            // Keep the fixture faithful to the tracked-but-ignored scenario.
             try runGit(["add", "-f", ".gitignore", "secret-dir/leak.md"], at: root)
         }
 
