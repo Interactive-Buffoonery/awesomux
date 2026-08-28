@@ -5,7 +5,9 @@ Linux destination receive file handoffs (one clipboard image or copied
 Markdown file per paste). The macOS app needs no configuration: it probes
 `~/.awesomux/bin/awesomux-bridge-helper --version` over SSH and uses the
 helper when both `awesomux-bridge-v1` and `awesomux-handoff-v1` are
-advertised.
+advertised. Newer helpers independently advertise `awesomux-liveness-v1` for
+remote foreground-process inspection; its absence does not affect bridge or
+handoff compatibility.
 
 ## Supported targets
 
@@ -34,7 +36,22 @@ destinations install manually:
    `~/.awesomux` MUST be mode `0700` and owned by the SSH user — the helper
    validates directory custody and refuses group/world-accessible paths.
 4. Check: `ssh <host> '~/.awesomux/bin/awesomux-bridge-helper --version'`
-   must print `awesomux-bridge-v1` and `awesomux-handoff-v1`.
+   must print `awesomux-bridge-v1` and `awesomux-handoff-v1`. A helper that also
+   prints `awesomux-liveness-v1` supports the optional foreground-liveness
+   probe.
+
+## Foreground liveness
+
+The optional probe reads the Linux process tree associated with one terminal
+session and writes one bounded JSON object:
+
+```sh
+~/.awesomux/bin/awesomux-bridge-helper foreground-liveness --session <terminalSessionID>
+```
+
+The report distinguishes an idle shell, a shell with background descendants,
+a foreground command, indeterminate evidence, and a session that is gone. The
+probe never treats incomplete or contradictory process evidence as idle.
 
 If the helper is missing when you paste, the app's install prompt reports
 the platform as unsupported — that alert is about automatic installation

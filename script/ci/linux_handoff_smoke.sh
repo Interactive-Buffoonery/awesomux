@@ -41,9 +41,9 @@ done
 "${SSH[@]}" 'cat > ~/.awesomux/bin/awesomux-bridge-helper' < "$HELPER"
 "${SSH[@]}" 'chmod 755 ~/.awesomux/bin/awesomux-bridge-helper'
 
-# --- acceptance: --version advertises both protocols ----------------------
+# --- acceptance: --version advertises each independent protocol -----------
 VERSION_OUT="$("${SSH[@]}" '~/.awesomux/bin/awesomux-bridge-helper --version')"
-[[ "$VERSION_OUT" == $'awesomux-bridge-v1\nawesomux-handoff-v1' ]] \
+[[ "$VERSION_OUT" == $'awesomux-bridge-v1\nawesomux-handoff-v1\nawesomux-liveness-v1' ]] \
   || fail "unexpected --version output: $VERSION_OUT"
 
 # --- acceptance: successful handoff ---------------------------------------
