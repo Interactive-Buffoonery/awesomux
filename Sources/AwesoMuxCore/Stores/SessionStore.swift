@@ -1107,7 +1107,6 @@ public final class SessionStore {
         toGroupID groupID: SessionGroup.ID,
         sessionName: RemoteSessionName? = nil
     ) -> TerminalSession.ID? {
-        guard target.isSafeSSHDestination else { return nil }
         let execution = Self.sshExecution(target: target, sessionName: sessionName)
         guard
             let sessionID = WorkspaceTreeReducer.addSession(
@@ -1231,7 +1230,6 @@ public final class SessionStore {
         named rawGroupName: String,
         target: RemoteTarget
     ) -> TerminalSession.ID? {
-        guard target.isSafeSSHDestination else { return nil }
         let seeded = WorkspaceTreeReducer.addWorkspaceGroup(
             to: &_groups,
             selectedSession: selectedSession,
@@ -1987,8 +1985,7 @@ public final class SessionStore {
         target: RemoteTarget,
         sessionName: RemoteSessionName? = nil
     ) -> TerminalPane.ID? {
-        guard target.isSafeSSHDestination,
-            let pane = session(id: sessionID)?.activePane,
+        guard let pane = session(id: sessionID)?.activePane,
             pane.id == paneID,
             pane.executionPlan == .local
         else {

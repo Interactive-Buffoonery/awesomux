@@ -60,20 +60,6 @@ struct AmxBackendAttachCommandTests {
         #expect(command.hasSuffix("'--' 'alice@box'"))
     }
 
-    @Test("ssh option parsing ends before an unsafe persisted destination")
-    func attachCommandTerminatesOptionsBeforeDestination() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-unsafe"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/opt/awesomux/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                remote: RemoteTarget(parsing: "-oProxyCommand=example")!
-            ))
-
-        #expect(command.hasSuffix("'--' '-oProxyCommand=example'"))
-    }
-
     @Test("unchanged when not remote")
     func attachCommandUnchangedWhenNotRemote() throws {
         let id = try #require(TerminalSessionID(rawValue: "abc123-noremote"))

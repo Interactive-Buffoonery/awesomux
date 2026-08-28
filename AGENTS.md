@@ -74,6 +74,50 @@ Before opening a PR, ask the contributor the AI assistance level for the PR
 template (`none`, `light`, `moderate`, or `substantial`). Do not infer it from
 tool usage.
 
+### Pull request body
+
+CI fails the PR if the body does not match the template, so read the whole
+template before you write one. Read the file in full — most sections carry
+their instructions in an HTML comment that the headings alone do not show:
+
+```sh
+cat .github/pull_request_template.md
+```
+
+To check a draft against the required sections, list them with line numbers:
+
+```sh
+grep -n '^## ' .github/pull_request_template.md
+```
+
+Never read the template with `head` or `sed -n '1,40p'`. The last three sections
+start at line 42, so a 40-line read hides `Risk Notes`, `Review Notes`, and
+`Follow-ups` and still looks complete.
+
+Rules the validator applies:
+
+- Code PRs need seven `##` sections, spelled exactly: `Why`, `What's Included`,
+  `UI / UX`, `Validation`, `AI Assistance`, `Risk Notes`, `Follow-ups`.
+- Docs-only PRs need five. They drop `UI / UX` and `Risk Notes`. Docs-only means
+  every changed file ends in `.md`, `.txt`, or `.rst`, sits under `docs/`, or is
+  LICENSE, NOTICE, AUTHORS, or CODE_OF_CONDUCT.md.
+- `Review Notes` is in the template, but the validator ignores it.
+- Each required section must have visible text after HTML comments, bullet
+  marks, and table rules are removed.
+- Delete the template placeholder comments. The validator matches their text, so
+  editing around one still fails.
+- `Validation` needs real evidence: a checked `- [x]` box, a backticked command
+  with a pass or run word, the word "manually", "tested", or "verified", or an
+  explicit statement that a check was not run and why.
+- `AI Assistance` must contain the literal string
+  `Assistance level: none|light|moderate|substantial`.
+- The `Validation` and `AI Assistance` content rules apply whenever those
+  sections are present, docs-only PRs included.
+
+The validator runs from the default branch, not from the PR branch. A PR that
+changes `.github/scripts/validate-pr-body.mjs` must still satisfy the copy on
+`main`.
+
 ## Stack & decisions (open)
 
 Unresolved choices until they land in code or an ADR.

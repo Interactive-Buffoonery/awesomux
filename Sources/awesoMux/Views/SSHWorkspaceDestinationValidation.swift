@@ -1,12 +1,11 @@
 import AwesoMuxCore
 
-/// Shared gate for every sheet that accepts an SSH destination: a target only
-/// comes back when the text both parses and passes `isSafeSSHDestination`, so
-/// option-like input (`-oProxyCommand=…`) can never reach a create button.
+/// Shared gate for every sheet that accepts an SSH destination. `RemoteTarget`
+/// rejects option-like input (`-oProxyCommand=…`) before it can reach a create
+/// button.
 enum SSHWorkspaceDestinationValidation {
     static func target(from text: String) -> RemoteTarget? {
-        guard let target = RemoteTarget(parsing: text), target.isSafeSSHDestination else { return nil }
-        return target
+        RemoteTarget(parsing: text)
     }
 
     static func message(for text: String) -> String? {

@@ -96,8 +96,49 @@ struct WorktreeManagerControllerTests {
         controller.dismiss()
     }
 
-    @Test("dismiss refuses to close during an in-flight create, then succeeds once it settles")
-    func dismissRefusedDuringInFlightCreateThenSucceeds() async {
+    @Test("Cmd-W dismisses the Worktree Manager when its panel is key")
+    func closeCommandDismissesKeyPanel() async throws {
+        _ = NSApplication.shared
+        let model = makeModel(service: CountingWorktreeListing())
+        var capturedPanel: FloatingSwiftUIPanelWindow?
+        let controller = makeController { panel in
+            capturedPanel = panel
+            panel.orderFront(nil)
+        }
+
+        controller.show(model: model, relativeTo: nil)
+        let panel = try #require(capturedPanel)
+        panel.onKeyStateChanged?(true)
+
+        #expect(controller.hideIfKeyWindow())
+        #expect(!controller.isVisible)
+        #expect(!panel.isVisible)
+    }
+
+    @Test("Cmd-W belongs to a visible Worktree Manager with an attached create sheet")
+    func closeCommandTargetsAttachedCreateSheet() {
+        #expect(
+            WorktreeManagerController.shouldHandleCloseCommand(
+                isVisible: true,
+                isKeyWindow: false,
+                hasAttachedSheet: true
+            ))
+        #expect(
+            !WorktreeManagerController.shouldHandleCloseCommand(
+                isVisible: false,
+                isKeyWindow: false,
+                hasAttachedSheet: true
+            ))
+        #expect(
+            !WorktreeManagerController.shouldHandleCloseCommand(
+                isVisible: true,
+                isKeyWindow: false,
+                hasAttachedSheet: false
+            ))
+    }
+
+    @Test("Cmd-W is consumed without dismissing during an in-flight create")
+    func closeCommandIsConsumedDuringInFlightCreate() async {
         _ = NSApplication.shared
         let createGate = ListEntryGate()
         let service = CountingWorktreeListing(createGate: createGate)
@@ -114,6 +155,7 @@ struct WorktreeManagerControllerTests {
             Issue.record("Expected the panel to be presented")
             return
         }
+        panel.onKeyStateChanged?(true)
 
         let createTask = Task { await model.create(request: createRequest()) }
         // Block until `create` has genuinely reached `service.create(_:)` and
@@ -123,7 +165,7 @@ struct WorktreeManagerControllerTests {
         await createGate.waitUntilEntered()
         #expect(model.createSubmissionState.isSubmitting)
 
-        controller.dismiss()
+        #expect(controller.hideIfKeyWindow())
         #expect(controller.isVisible)
         #expect(panel.isVisible)
 

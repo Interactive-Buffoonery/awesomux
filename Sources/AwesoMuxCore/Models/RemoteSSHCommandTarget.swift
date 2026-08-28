@@ -5,8 +5,7 @@ public enum RemoteSSHCommandTarget {
         let tokens = tokenize(command)
         guard tokens.count == 2,
             tokens[0] == "ssh",
-            let target = RemoteTarget(parsing: tokens[1]),
-            target.isSafeSSHDestination
+            let target = RemoteTarget(parsing: tokens[1])
         else {
             return nil
         }

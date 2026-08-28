@@ -2,6 +2,7 @@ import AwesoMuxConfig
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
+import UnicodeHygiene
 
 typealias ShortcutEventModifiers = SwiftUI.EventModifiers
 
@@ -847,7 +848,11 @@ enum ShortcutKeyResolver {
         case "\u{1b}", "escape":
             return (.escape, "Esc", "Escape")
         default:
-            guard let character = storedKey.first, storedKey.count == 1 else {
+            guard storedKey.unicodeScalars.count == 1,
+                let scalar = storedKey.unicodeScalars.first,
+                !UnicodeHygiene.isDisallowedScalar(scalar),
+                let character = storedKey.first
+            else {
                 return nil
             }
             let display = String(character).uppercased()
