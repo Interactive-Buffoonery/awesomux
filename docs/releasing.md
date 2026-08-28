@@ -417,6 +417,11 @@ successful relaunch, preserved terminal sessions, and the Homebrew path below.
   - [ ] Emergency only: dispatch with `skip_tests: true` to bypass the
         `release-tests` gate. Tag pushes and nightlies cannot skip it; keep
         skipping exceptional and record why in the release notes.
+  - [ ] Maintainer bypass (a tagged release without the suite): dispatch with
+        `version`, `create_draft_release: true`, and `skip_tests: true`, then
+        publish the draft. GitHub creates the `v*` tag at publish time, so the
+        result is a normal tagged release with assets and appcast — nothing in
+        the publish path depends on how the tag came to exist.
   - [ ] Normal path: create and push the annotated tag
         (`git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0`); the
         workflow builds, signs, notarizes, and drafts the release
