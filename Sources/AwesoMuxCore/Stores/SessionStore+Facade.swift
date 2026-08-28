@@ -914,8 +914,7 @@ extension SessionStore {
             pane.remoteConnectionHealth == .active,
             pane.remoteHost != nil,
             let rawTarget = pane.remoteSSHTarget,
-            let target = RemoteTarget(parsing: rawTarget),
-            target.isSafeSSHDestination
+            let target = RemoteTarget(parsing: rawTarget)
         else {
             return nil
         }

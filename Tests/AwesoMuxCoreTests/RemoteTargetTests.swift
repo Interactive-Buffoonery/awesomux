@@ -37,8 +37,9 @@ import Testing
     @Test func rejectsUnsafeRoutingScalarsAndDashLeadingDestinations() {
         #expect(RemoteTarget(user: "ed\u{202E}", host: "box") == nil)
         #expect(RemoteTarget(user: "ed", host: "bo\u{200B}x") == nil)
-        #expect(RemoteTarget(parsing: "-oProxyCommand=bad")?.isSafeSSHDestination == false)
-        #expect(RemoteTarget(parsing: "ed@-host")?.isSafeSSHDestination == true)
+        #expect(RemoteTarget(user: "", host: "-oProxyCommand=bad") == nil)
+        #expect(RemoteTarget(parsing: "-oProxyCommand=bad") == nil)
+        #expect(RemoteTarget(parsing: "ed@-host") == RemoteTarget(user: "ed", host: "-host"))
     }
 
     @Test func decodingRejectsUnsafeRoutingScalars() {
