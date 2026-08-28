@@ -299,6 +299,15 @@ public struct TOMLConfigCodec: Sendable {
         )
     }
 
+    // MARK: - Quote-aware raw-line scanners
+    //
+    // Three best-effort character walks share quote/escape semantics but serve
+    // different goals: value continuation (`advanceValueScan`), dotted-key
+    // splitting (`splitTOMLDottedKeySegments`), and table-header boundaries
+    // (`parseTableHeader`). They are intentionally separate — not a full TOML
+    // parser — but TOML string edge-case fixes should be applied consistently
+    // across all three.
+
     /// Line-scan value-continuation state: inside a multi-line string (and
     /// which delimiter closes it) or inside an unbalanced array/inline-table
     /// bracket run. While mid-value, subsequent physical lines are value
@@ -413,6 +422,9 @@ public struct TOMLConfigCodec: Sendable {
             .joined(separator: ".")
     }
 
+    /// Splits a dotted key on `.` outside quoted segments. See the quote-aware
+    /// raw-line scanners section for sibling scanners that share the same
+    /// quote/escape semantics.
     private func splitTOMLDottedKeySegments(_ text: String) -> [String] {
         var segments: [String] = []
         var current = ""
@@ -514,7 +526,9 @@ public struct TOMLConfigCodec: Sendable {
     /// Parses a stripped line as a standard (`[name]`) table header,
     /// tolerating a trailing `# comment`. Returns the inner name or
     /// `nil` for anything else (including the `[[name]]` array-of-tables
-    /// shape, which we deliberately skip).
+    /// shape, which we deliberately skip). Quote/escape tracking mirrors
+    /// `splitTOMLDottedKeySegments` and `advanceValueScan`; see the
+    /// quote-aware raw-line scanners section.
     private func parseTableHeader(_ trimmed: String) -> String? {
         guard trimmed.hasPrefix("[") && !trimmed.hasPrefix("[[") else {
             return nil
