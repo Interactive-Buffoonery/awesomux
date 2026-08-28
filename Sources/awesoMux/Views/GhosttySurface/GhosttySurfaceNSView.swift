@@ -60,6 +60,8 @@ final class GhosttySurfaceNSView: NSView {
     /// land on match 2 instead of match 1).
     var didAutoSelectCurrentSearch = false
     var commandExitCache = CommandExitCache()
+    /// Test seam for the dead-process last-pane close path. Fires after
+    /// workspace teardown; `Bool` is `exitedWithError`. Override in tests only.
     var announceWorkspaceClosedAfterProcessExit: (Bool) -> Void = {
         TerminalAccessibilityAnnouncer.announceWorkspaceClosedAfterProcessExit(
             exitedWithError: $0

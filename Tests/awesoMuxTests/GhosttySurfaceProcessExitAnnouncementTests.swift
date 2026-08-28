@@ -10,13 +10,15 @@ struct GhosttySurfaceProcessExitAnnouncementTests {
     func cleanExitAnnouncesWorkspaceClose() {
         let fixture = makeFixture()
         var exitedWithError: Bool?
+        var removedAtAnnouncement: Bool?
         fixture.view.announceWorkspaceClosedAfterProcessExit = {
             exitedWithError = $0
+            removedAtAnnouncement = fixture.store.session(id: fixture.sessionID) == nil
         }
 
         fixture.view.closeAfterProcessExit(processAlive: false)
 
-        #expect(fixture.store.session(id: fixture.sessionID) == nil)
+        #expect(removedAtAnnouncement == true)
         #expect(exitedWithError == false)
     }
 
@@ -24,8 +26,10 @@ struct GhosttySurfaceProcessExitAnnouncementTests {
     func errorExitAnnouncesWorkspaceClose() {
         let fixture = makeFixture()
         var exitedWithError: Bool?
+        var removedAtAnnouncement: Bool?
         fixture.view.announceWorkspaceClosedAfterProcessExit = {
             exitedWithError = $0
+            removedAtAnnouncement = fixture.store.session(id: fixture.sessionID) == nil
         }
         fixture.view.commandExitCache.record(
             exitCode: 1,
@@ -34,7 +38,7 @@ struct GhosttySurfaceProcessExitAnnouncementTests {
 
         fixture.view.closeAfterProcessExit(processAlive: false)
 
-        #expect(fixture.store.session(id: fixture.sessionID) == nil)
+        #expect(removedAtAnnouncement == true)
         #expect(exitedWithError == true)
     }
 
