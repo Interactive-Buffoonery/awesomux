@@ -421,7 +421,11 @@ successful relaunch, preserved terminal sessions, and the Homebrew path below.
         `version`, `create_draft_release: true`, and `skip_tests: true`, then
         publish the draft. GitHub creates the `v*` tag at publish time, so the
         result is a normal tagged release with assets and appcast — nothing in
-        the publish path depends on how the tag came to exist.
+        the publish path depends on how the tag came to exist. Publishing also
+        re-triggers `release.yml` on the tag lane (tests cannot be skipped
+        there): expect a second run that waits on the `release` environment
+        gate and then fails at the published-release collision check. Dismiss
+        it — the dispatch run already shipped the assets.
   - [ ] Normal path: create and push the annotated tag
         (`git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0`); the
         workflow builds, signs, notarizes, and drafts the release

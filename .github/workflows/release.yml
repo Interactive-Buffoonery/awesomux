@@ -195,8 +195,8 @@ jobs:
     permissions:
       contents: read
     env:
-      # Part of the Ghostty artifact cache key; matches the release job so all
-      # release-lane jobs share one artifact cache entry.
+      # Part of the Ghostty artifact cache key; matches the release job's
+      # ghostty-v1 namespace (see cache-namespace on prepare-native below).
       AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
     steps:
       - name: Checkout repository
@@ -208,14 +208,31 @@ jobs:
       - name: Initialize test results
         run: mkdir -p .build/test-results
 
+      - name: Select Xcode for Ghostty cache key
+        run: |
+          set -euo pipefail
+          # Match the release job's newest-Xcode selection so prepare-native
+          # computes the same xcode_id and warms the signing job's cache.
+          shopt -s nullglob
+          CANDIDATES=(/Applications/Xcode_*.app)
+          shopt -u nullglob
+          if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
+            echo "::error::no Xcode app bundle found under /Applications" >&2
+            exit 1
+          fi
+          NEWEST="$(printf '%s\n' "${CANDIDATES[@]}" | sort -V | tail -n1)"
+          echo "DEVELOPER_DIR=$NEWEST/Contents/Developer" >> "$GITHUB_ENV"
+
       - name: Prepare native build
         id: prepare
         uses: ./.github/actions/prepare-native
         with:
           # Unlike pull-request native CI (restore-only, untrusted code), this
-          # lane executes trusted maintainer refs, so a cache miss may save —
-          # same cache posture as the release job itself.
-          save-cache: "true"
+          # lane executes trusted maintainer refs, so a cache miss may save.
+          # Only one Ghostty leg saves: parallel matrix jobs share one cache key
+          # and actions/cache/save fails when losers race the winner.
+          save-cache: ${{ matrix.group == 'timing' && 'true' || 'false' }}
+          cache-namespace: ghostty-v1
           prepare-ghostty: ${{ matrix.group != 'zmx' }}
 
       - name: Install zmx Zig toolchain
@@ -495,12 +512,18 @@ jobs:
             exit 1
           fi
           ZMX_ZIG_FORMULA="zig@${ZMX_ZIG_VERSION%.*}"
+          SWIFT_PIN="$(tr -d '[:space:]' < .swift-version)"
+          if [[ -z "$SWIFT_PIN" ]]; then
+            echo "::error::.swift-version is empty" >&2
+            exit 1
+          fi
           {
             echo "ghostty_sha=$GHOSTTY_SHA"
             echo "zig_version=$ZIG_VERSION"
             echo "zig_formula=$ZIG_FORMULA"
             echo "zmx_zig_version=$ZMX_ZIG_VERSION"
             echo "zmx_zig_formula=$ZMX_ZIG_FORMULA"
+            echo "swift_pin=$SWIFT_PIN"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install native Zig toolchains
@@ -651,10 +674,10 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ghostty
-          # v1 prefix is the manual poison-cache invalidation lever. Xcode
-          # bumps deliberately change the key: Ghostty archives built under
-          # one toolchain shouldn't silently serve another.
-          key: ghostty-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }}-${{ steps.xcode.outputs.xcode_id }}
+          # v1 prefix is the manual poison-cache invalidation lever. Key shape
+          # matches prepare-native (release-tests warms this entry) so a green
+          # test gate avoids a cold Ghostty rebuild in signing.
+          key: ghostty-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }}-${{ steps.ghostty-pin.outputs.swift_pin }}-${{ steps.xcode.outputs.xcode_id }}
 
       - name: Build or validate Ghostty artifacts
         run: ./script/ensure_ghostty_artifacts.sh
