@@ -100,6 +100,20 @@ private func localTerminal() -> TerminalPane {
         )
     }
 
+    @Test func deniedWhenTranscriptProviderHasNoResumeSyntax() throws {
+        let identity = try #require(
+            AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC")
+        )
+        let terminal = localTerminal()
+        #expect(
+            AgentTranscriptResumePolicy.verdict(
+                target: .available(terminal),
+                observedForegroundCommand: "-zsh",
+                identity: identity
+            ) == .unavailable(.noResumeSyntax(.openCode))
+        )
+    }
+
     /// The whole reason Resume cannot reuse the Send gate, inverted: Send needs
     /// a live agent, Resume needs the agent GONE. Denied loudly and by name —
     /// a resume command staged at Claude's prompt is pasted as chat.

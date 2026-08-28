@@ -311,9 +311,7 @@ public enum AgentTranscriptRenderer {
             )
         case "tool":
             let state = object["state"] as? [String: Any]
-            let body =
-                jsonBody(state?["output"] ?? state?["input"])
-                ?? plainText(from: state?["output"] ?? state?["input"])
+            let body = openCodeToolBody(from: state)
             return turn(
                 role: role,
                 detail: toolDetail(object["tool"]),
@@ -856,6 +854,17 @@ public enum AgentTranscriptRenderer {
     /// `input_text` / `output_text` / `summary_text` uniformly. Elements without
     /// a `text` — Claude's `tool_reference` and `image` — contribute nothing,
     /// which is also what keeps base64 image payloads out of the budget.
+    private static func openCodeToolBody(from state: [String: Any]?) -> String? {
+        guard let state else { return nil }
+        for key in ["output", "input"] {
+            guard let value = state[key], !(value is NSNull) else { continue }
+            if let body = jsonBody(value) ?? plainText(from: value), !body.isEmpty {
+                return body
+            }
+        }
+        return nil
+    }
+
     private static func plainText(from content: Any?) -> String? {
         if let text = content as? String { return text }
         guard let items = content as? [Any] else { return nil }

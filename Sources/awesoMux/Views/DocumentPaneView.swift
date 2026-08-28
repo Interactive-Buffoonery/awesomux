@@ -408,7 +408,8 @@ struct DocumentPaneSendBar: View {
         }()
         return AgentTranscriptResumePolicy.verdict(
             target: target,
-            observedForegroundCommand: observedComm
+            observedForegroundCommand: observedComm,
+            identity: pane.agentTranscriptIdentity
         )
     }
 

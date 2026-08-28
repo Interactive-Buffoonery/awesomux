@@ -31,10 +31,9 @@ public enum AgentTranscriptResumeUnavailableReason: Hashable, Sendable {
     /// at click time, never per render: resolving a transcript is a directory
     /// walk, and the send bar re-renders on every foreground-state change.
     case transcriptMissing
-    /// `command(for:)` has no resume syntax for this provider. Unreachable
-    /// through `AgentTranscriptIdentity`, which accepts only the providers
-    /// that have one — but distinct from `.terminalUnavailable`, which is what
-    /// the branch used to report and which names the wrong thing entirely.
+    /// `command(for:)` has no resume syntax for this provider. Surfaced up
+    /// front when a transcript tab's stored identity names a provider awesoMux
+    /// can render but not resume (OpenCode today).
     case noResumeSyntax(AgentKind)
     /// The command ran with no transcript tab selected — from the menu, the
     /// palette, or the chord.
@@ -110,8 +109,12 @@ public enum AgentTranscriptResumePolicy {
     ///     process name (`p_comm`), or nil when no evidence is available.
     public static func verdict(
         target: DocumentNudgeTargetResolution,
-        observedForegroundCommand: String?
+        observedForegroundCommand: String?,
+        identity: AgentTranscriptIdentity? = nil
     ) -> AgentTranscriptResumeVerdict {
+        if let identity, command(for: identity) == nil {
+            return .unavailable(.noResumeSyntax(identity.agentKind))
+        }
         let pane: TerminalPane
         switch target {
         case .available(let resolved):

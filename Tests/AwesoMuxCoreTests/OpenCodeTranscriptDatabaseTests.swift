@@ -123,6 +123,61 @@ struct OpenCodeTranscriptDatabaseTests {
                 == .failure(.databaseUnavailable)
         )
     }
+
+    @Test("a corrupt part row cannot leak another session through a shared message id")
+    func mismatchedPartSessionIDIsIgnored() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        try fixture.insertSession("ses_target")
+        try fixture.insertSession("ses_other")
+        try fixture.insertMessage(
+            id: "msg_shared", sessionID: "ses_target", time: 1,
+            role: "user", partID: "part_target", part: ["type": "text", "text": "ours"]
+        )
+        try fixture.insertForeignPart(
+            id: "part_foreign",
+            messageID: "msg_shared",
+            sessionID: "ses_other",
+            time: 2,
+            part: ["type": "text", "text": "not ours"]
+        )
+
+        let snapshot = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome,
+            sessionID: "ses_target"
+        ).get()
+
+        #expect(snapshot.messages.map(\.id) == ["msg_shared"])
+        #expect(
+            snapshot.messages.flatMap(\.parts).compactMap(\.data).contains {
+                String(decoding: $0, as: UTF8.self).contains("ours")
+            })
+        #expect(
+            !snapshot.messages.flatMap(\.parts).compactMap(\.data).contains {
+                String(decoding: $0, as: UTF8.self).contains("not ours")
+            })
+    }
+
+    @Test("byte caps measure UTF-8 bytes, not Unicode characters")
+    func byteCapsUseOctetLength() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        try fixture.insertSession("ses_target")
+        let wideText = String(repeating: "\u{1F600}", count: 70_000)
+        try fixture.insertMessage(
+            id: "msg_wide", sessionID: "ses_target", time: 1,
+            role: "user", partID: "part_wide", part: ["type": "text", "text": wideText]
+        )
+
+        let snapshot = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome,
+            sessionID: "ses_target"
+        ).get()
+
+        let part = try #require(snapshot.messages.first?.parts.first)
+        #expect(part.data == nil)
+        #expect(part.byteCount > OpenCodeTranscriptDatabase.maximumPartBytes)
+    }
 }
 
 private final class Fixture {
@@ -173,6 +228,21 @@ private final class Fixture {
         )
         try execute(
             "INSERT INTO part(id, message_id, session_id, time_created, time_updated, data) VALUES ('\(partID)', '\(id)', '\(sessionID)', \(time), \(time), '\(partData)')"
+        )
+    }
+
+    func insertForeignPart(
+        id: String,
+        messageID: String,
+        sessionID: String,
+        time: Int,
+        part: [String: Any]
+    ) throws {
+        let partData = try String(
+            decoding: JSONSerialization.data(withJSONObject: part), as: UTF8.self
+        )
+        try execute(
+            "INSERT INTO part(id, message_id, session_id, time_created, time_updated, data) VALUES ('\(id)', '\(messageID)', '\(sessionID)', \(time), \(time), '\(partData)')"
         )
     }
 

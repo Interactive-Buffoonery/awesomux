@@ -110,6 +110,37 @@ import Testing
         #expect(!rendered.contains("No conversation turns could be rendered"))
     }
 
+    @Test("an input-only OpenCode tool turn still renders when output is null")
+    func openCodeToolInputRendersWhenOutputIsNull() {
+        let snapshot = OpenCodeTranscriptSnapshot(
+            databaseURL: URL(fileURLWithPath: "/tmp/opencode.db"),
+            messages: [
+                .init(
+                    id: "msg_1",
+                    data: Data(#"{"role":"assistant"}"#.utf8),
+                    parts: [
+                        .init(
+                            data: Data(
+                                #"{"type":"tool","tool":"Read","state":{"output":null,"input":{"path":"/tmp/a.txt"}}}"#
+                                    .utf8
+                            ),
+                            byteCount: 88
+                        )
+                    ]
+                )
+            ],
+            isTruncated: false
+        )
+
+        let rendered = AgentTranscriptRenderer.renderOpenCode(
+            snapshot,
+            sessionID: "ses_01JABC",
+            chrome: .unlocalizedFallback(agentKind: .openCode)
+        )
+
+        #expect(rendered.contains("a.txt"))
+    }
+
     @Test("Pi message entries render as conversation turns")
     func piMessagesRender() {
         let rendered = render(

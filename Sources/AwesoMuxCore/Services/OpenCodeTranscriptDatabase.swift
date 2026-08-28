@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import SecureFileIO
 import SQLite3
 
 /// Reads a bounded OpenCode session snapshot directly from its live SQLite store.
@@ -29,9 +30,21 @@ public enum OpenCodeTranscriptDatabase {
             return .failure(.databaseUnavailable)
         }
 
+        let openPath: String
+        do {
+            let handle = try SecureFileReader.open(
+                at: databaseURL,
+                effectiveUID: effectiveUID,
+                symlinkPolicy: .rejectFinalComponent
+            )
+            openPath = handle.resolvedURL.path
+        } catch {
+            return .failure(.databaseUnavailable)
+        }
+
         var database: OpaquePointer?
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
-        guard sqlite3_open_v2(path, &database, flags, nil) == SQLITE_OK,
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW
+        guard sqlite3_open_v2(openPath, &database, flags, nil) == SQLITE_OK,
             let database
         else {
             if let database { sqlite3_close(database) }
@@ -85,12 +98,12 @@ public enum OpenCodeTranscriptDatabase {
                 FROM candidate_messages
             )
             SELECT r.id,
-                   CASE WHEN length(r.data) <= ?4 THEN r.data ELSE NULL END,
-                   CASE WHEN length(p.data) <= ?5 THEN p.data ELSE NULL END,
-                   length(p.data),
+                   CASE WHEN octet_length(r.data) <= ?4 THEN r.data ELSE NULL END,
+                   CASE WHEN octet_length(p.data) <= ?5 THEN p.data ELSE NULL END,
+                   octet_length(p.data),
                    r.candidate_count
             FROM ranked_messages AS r
-            JOIN part AS p ON p.message_id = r.id
+            JOIN part AS p ON p.message_id = r.id AND p.session_id = ?1
             WHERE r.turn_rank <= ?3
               AND \(renderablePart) = 1
             ORDER BY r.time_created DESC, r.id DESC, p.time_created DESC, p.id DESC
