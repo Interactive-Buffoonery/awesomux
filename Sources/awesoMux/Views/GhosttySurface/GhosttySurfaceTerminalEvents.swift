@@ -447,14 +447,15 @@ extension GhosttySurfaceNSView {
     /// `ObservableStoreWriteThrottle`.
     private func writeProgressReportThrottled(_ progressReport: TerminalProgressReport) {
         let now = CACurrentMediaTime()
+        let pane = PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        let lastWrite = terminalEventState.lastProgressReportStoreWrite
         switch ObservableStoreWriteThrottle.decide(
             now: now,
-            lastWriteAt: terminalEventState.lastProgressReportStoreWriteAt,
+            lastWriteAt: lastWrite?.pane == pane ? lastWrite?.at : nil,
             minInterval: Self.progressReportStoreWriteMinInterval
         ) {
         case .writeNow:
-            terminalEventState.progressReportThrottleWorkItem?.cancel()
-            terminalEventState.progressReportThrottleWorkItem = nil
+            cancelPendingProgressReportWrite()
             commitProgressReport(progressReport, writtenAt: now)
         case .deferBy(let delay):
             scheduleThrottledProgressReportWrite(progressReport, after: delay)
@@ -468,10 +469,9 @@ extension GhosttySurfaceNSView {
         _ progressReport: TerminalProgressReport,
         after delay: TimeInterval
     ) {
-        terminalEventState.progressReportThrottleWorkItem?.cancel()
+        let pane = PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        cancelPendingProgressReportWrite()
 
-        let sessionID = sessionID
-        let paneID = paneID
         let workItem = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -479,8 +479,8 @@ extension GhosttySurfaceNSView {
                 // Same pane-recycle hazard as the expiry timer above.
                 guard
                     DeferredPaneEventDispatchGuard.shouldApply(
-                        capturedSessionID: sessionID,
-                        capturedPaneID: paneID,
+                        capturedSessionID: pane.sessionID,
+                        capturedPaneID: pane.paneID,
                         currentSessionID: self.sessionID,
                         currentPaneID: self.paneID
                     )
@@ -488,12 +488,19 @@ extension GhosttySurfaceNSView {
                 self.commitProgressReport(progressReport, writtenAt: CACurrentMediaTime())
             }
         }
-        terminalEventState.progressReportThrottleWorkItem = workItem
+        terminalEventState.progressReportThrottleWorkItem = (workItem, pane)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
+    private func cancelPendingProgressReportWrite() {
+        terminalEventState.progressReportThrottleWorkItem?.item.cancel()
+        terminalEventState.progressReportThrottleWorkItem = nil
+    }
+
     private func commitProgressReport(_ progressReport: TerminalProgressReport, writtenAt: TimeInterval) {
-        terminalEventState.lastProgressReportStoreWriteAt = writtenAt
+        terminalEventState.lastProgressReportStoreWrite = (
+            PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), writtenAt
+        )
         sessionStore.updatePane(
             sessionID: sessionID,
             paneID: paneID,
