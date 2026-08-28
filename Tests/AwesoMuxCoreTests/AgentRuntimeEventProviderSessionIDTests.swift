@@ -242,8 +242,8 @@ struct AgentRuntimeEventProviderSessionIDTests {
         )
     }
 
-    @Test("OpenCode sessionEnd keeps the kind for copy without forming a transcript identity")
-    func openCodeSessionEndKeepsKindWithoutIdentity() {
+    @Test("OpenCode sessionEnd preserves its exact transcript identity")
+    func openCodeSessionEndPreservesIdentity() {
         var context = Context(agentKind: .openCode)
         #expect(
             context.apply(
@@ -269,7 +269,10 @@ struct AgentRuntimeEventProviderSessionIDTests {
         #expect(decision?.update.agentKind == .shell)
         #expect(context.reducer.providerSessionID(for: context.paneID) == nil)
         #expect(context.reducer.lastEndedAgentKind(for: context.paneID) == .openCode)
-        #expect(context.reducer.lastEndedTranscriptIdentity(for: context.paneID) == nil)
+        #expect(
+            context.reducer.lastEndedTranscriptIdentity(for: context.paneID)
+                == AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC")
+        )
     }
 
     @Test("a dropped sessionEnd does not record a last-ended identity")

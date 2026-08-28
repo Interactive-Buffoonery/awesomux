@@ -228,6 +228,103 @@ public enum AgentTranscriptRenderer {
         }
     }
 
+    /// Renders the bounded rows selected by `OpenCodeTranscriptDatabase` into
+    /// the same newest-history document shape as the JSONL providers.
+    public static func renderOpenCode(
+        _ snapshot: OpenCodeTranscriptSnapshot,
+        sessionID: String,
+        chrome: Chrome,
+        budgetBytes: Int = budgetBytes
+    ) -> String {
+        let documentHeader = header(chrome: chrome, sessionID: sessionID)
+        let truncatedNotice = truncationNotice(chrome)
+        let noTurnsNotice = emptyWindowNotice(chrome)
+        let reserved =
+            documentHeader.utf8.count + truncatedNotice.utf8.count + noTurnsNotice.utf8.count
+        var remaining = max(0, budgetBytes - reserved)
+        var chunks: [String] = []
+        var isTruncated = snapshot.isTruncated
+
+        outer: for message in snapshot.messages.reversed() {
+            let role = openCodeRole(from: message.data)
+            for part in message.parts.reversed() {
+                guard let chunk = openCodeTurn(part: part, role: role, chrome: chrome) else {
+                    continue
+                }
+                guard chunk.utf8.count <= remaining else {
+                    isTruncated = true
+                    break outer
+                }
+                chunks.append(chunk)
+                remaining -= chunk.utf8.count
+            }
+        }
+
+        var text = documentHeader
+        if isTruncated { text += truncatedNotice }
+        if chunks.isEmpty { text += noTurnsNotice }
+        text += chunks.reversed().joined()
+        return text
+    }
+
+    private static func openCodeRole(from data: Data?) -> String {
+        guard let data,
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return "message" }
+        if let role = object["role"] as? String, !role.isEmpty { return role }
+        if let info = object["info"] as? [String: Any],
+            let role = info["role"] as? String,
+            !role.isEmpty
+        {
+            return role
+        }
+        return "message"
+    }
+
+    private static func openCodeTurn(
+        part: OpenCodeTranscriptSnapshot.Part,
+        role: String,
+        chrome: Chrome
+    ) -> String? {
+        guard let data = part.data else {
+            return turn(
+                role: role,
+                detail: chrome.oversizeRecordTitle,
+                isSidechain: false,
+                body: chrome.oversizeRecordNotice(formattedSize(part.byteCount))
+            )
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let type = object["type"] as? String
+        else { return nil }
+
+        switch type {
+        case "text":
+            return turn(
+                role: role, detail: nil, isSidechain: false, body: object["text"] as? String)
+        case "reasoning":
+            return turn(
+                role: role,
+                detail: "thinking",
+                isSidechain: false,
+                body: object["text"] as? String
+            )
+        case "tool":
+            let state = object["state"] as? [String: Any]
+            let body =
+                jsonBody(state?["output"] ?? state?["input"])
+                ?? plainText(from: state?["output"] ?? state?["input"])
+            return turn(
+                role: role,
+                detail: toolDetail(object["tool"]),
+                isSidechain: false,
+                body: body
+            )
+        default:
+            return nil
+        }
+    }
+
     /// The window bounds the read loop actually uses.
     ///
     /// Both arguments are public and defaulted, so a caller can pass zero — and

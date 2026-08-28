@@ -78,16 +78,12 @@ private func localTerminal() -> TerminalPane {
         #expect(RichInputStaging.stagedPayload(expected) == expected)
     }
 
-    /// A kind with no resume syntax is unreachable through
-    /// `AgentTranscriptIdentity`, but the mapping is asserted anyway so adding a
-    /// provider to the identity's allowlist without a resume syntax fails here
-    /// rather than staging Claude's flags at another CLI.
-    @Test func everyKindTheIdentityAcceptsHasAResumeSyntax() {
-        for kind in AgentKind.allCases {
-            guard let stored = AgentTranscriptIdentity(agentKind: kind, sessionID: claudeSession)
-            else { continue }
-            #expect(AgentTranscriptResumePolicy.command(for: stored) != nil)
-        }
+    @Test func transcriptViewingDoesNotInventOpenCodeResumeSyntax() throws {
+        let stored = try #require(
+            AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC")
+        )
+
+        #expect(AgentTranscriptResumePolicy.command(for: stored) == nil)
     }
 }
 
