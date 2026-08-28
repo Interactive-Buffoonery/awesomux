@@ -7,8 +7,8 @@ import Testing
 @MainActor
 struct PaneFocusCommandHandlerTests {
     @Test("numbered focus reclaims an already-active terminal")
-    func numberedFocusReclaimsActiveTerminal() {
-        let fixture = makeStore(activeIndex: 1)
+    func numberedFocusReclaimsActiveTerminal() throws {
+        let fixture = try makeStore(activeIndex: 1)
         var requests: [(TerminalSession.ID, TerminalPane.ID)] = []
         var announcements: [Int] = []
         let handler = makeHandler(
@@ -26,8 +26,8 @@ struct PaneFocusCommandHandlerTests {
     }
 
     @Test("numbered focus changes the model, responder target, and announcement together")
-    func numberedFocusChangesTarget() {
-        let fixture = makeStore(activeIndex: 0)
+    func numberedFocusChangesTarget() throws {
+        let fixture = try makeStore(activeIndex: 0)
         var requests: [(TerminalSession.ID, TerminalPane.ID)] = []
         var announcements: [Int] = []
         let handler = makeHandler(
@@ -46,8 +46,8 @@ struct PaneFocusCommandHandlerTests {
     }
 
     @Test(arguments: [PaneFocusDirection.previous, .next])
-    func directionalFocusRequestsPostMutationTarget(direction: PaneFocusDirection) {
-        let fixture = makeStore(activeIndex: 1)
+    func directionalFocusRequestsPostMutationTarget(direction: PaneFocusDirection) throws {
+        let fixture = try makeStore(activeIndex: 1)
         var requests: [(TerminalSession.ID, TerminalPane.ID)] = []
         var announcements: [Int] = []
         let handler = makeHandler(
@@ -67,8 +67,8 @@ struct PaneFocusCommandHandlerTests {
     }
 
     @Test("invalid or unavailable targets fail closed")
-    func unavailableTargetsDoNothing() {
-        let fixture = makeStore(activeIndex: 0)
+    func unavailableTargetsDoNothing() throws {
+        let fixture = try makeStore(activeIndex: 0)
         var requests: [(TerminalSession.ID, TerminalPane.ID)] = []
         var announcements: [Int] = []
         let handler = makeHandler(
@@ -90,8 +90,8 @@ struct PaneFocusCommandHandlerTests {
     }
 
     @Test("numbered focus never targets a reconnect-covered terminal")
-    func numberedFocusRejectsReconnectCoveredTerminal() {
-        let fixture = makeStore(activeIndex: 0, reconnectIndex: 1)
+    func numberedFocusRejectsReconnectCoveredTerminal() throws {
+        let fixture = try makeStore(activeIndex: 0, reconnectIndex: 1)
         var requests: [(TerminalSession.ID, TerminalPane.ID)] = []
         var clears: [(TerminalSession.ID, TerminalPane.ID)] = []
         var announcements: [Int] = []
@@ -113,8 +113,8 @@ struct PaneFocusCommandHandlerTests {
     }
 
     @Test("directional focus never targets a reconnect-covered terminal")
-    func directionalFocusRejectsReconnectCoveredTerminal() {
-        let fixture = makeStore(activeIndex: 0, reconnectIndex: 1)
+    func directionalFocusRejectsReconnectCoveredTerminal() throws {
+        let fixture = try makeStore(activeIndex: 0, reconnectIndex: 1)
         var requests: [(TerminalSession.ID, TerminalPane.ID)] = []
         var clears: [(TerminalSession.ID, TerminalPane.ID)] = []
         var announcements: [Int] = []
@@ -136,8 +136,8 @@ struct PaneFocusCommandHandlerTests {
     }
 
     @Test("deferred terminal focus eligibility follows live selection and reconnect state")
-    func deferredFocusEligibilityUsesLiveState() {
-        let live = makeStore(activeIndex: 0)
+    func deferredFocusEligibilityUsesLiveState() throws {
+        let live = try makeStore(activeIndex: 0)
         #expect(
             PaneFocusCommandHandler.canRequestTerminalFocus(
                 sessionID: live.sessionID,
@@ -159,7 +159,7 @@ struct PaneFocusCommandHandlerTests {
                 sessionStore: live.store
             ))
 
-        let covered = makeStore(activeIndex: 0, reconnectIndex: 0)
+        let covered = try makeStore(activeIndex: 0, reconnectIndex: 0)
         #expect(
             !PaneFocusCommandHandler.canRequestTerminalFocus(
                 sessionID: covered.sessionID,
@@ -191,10 +191,7 @@ struct PaneFocusCommandHandlerTests {
         )
         let menu = try #require(
             source.split(separator: "Button(\"Previous Pane\")", maxSplits: 1)
-                .last?.split(
-                    separator: "Button(\n                    String(\n                        localized: \"Resume Agent Session\"",
-                    maxSplits: 1
-                ).first
+                .last?.split(separator: "localized: \"Resume Agent Session\"", maxSplits: 1).first
         )
         let palette = try #require(
             source.split(separator: "private var paletteActions: PaletteAppActions", maxSplits: 1)
@@ -226,14 +223,17 @@ struct PaneFocusCommandHandlerTests {
     private func makeStore(
         activeIndex: Int,
         reconnectIndex: Int? = nil
-    ) -> (store: SessionStore, sessionID: TerminalSession.ID, paneIDs: [TerminalPane.ID]) {
+    ) throws -> (store: SessionStore, sessionID: TerminalSession.ID, paneIDs: [TerminalPane.ID]) {
         var panes = [
             TerminalPane(title: "first", workingDirectory: "/first", executionPlan: .local),
             TerminalPane(title: "second", workingDirectory: "/second", executionPlan: .local),
             TerminalPane(title: "third", workingDirectory: "/third", executionPlan: .local),
         ]
         if let reconnectIndex {
-            let target = RemoteTarget(user: "deploy", host: "prod.example")!
+            let target = try #require(
+                RemoteTarget(user: "deploy", host: "prod.example"),
+                "Reconnect fixture RemoteTarget should accept deploy@prod.example"
+            )
             panes[reconnectIndex].remoteReconnect = .disconnected(.init(target: target))
         }
         let layout = TerminalPaneLayout.split(
