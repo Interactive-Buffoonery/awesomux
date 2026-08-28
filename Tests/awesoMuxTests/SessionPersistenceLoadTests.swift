@@ -5,9 +5,10 @@ import Foundation
 import Testing
 @testable import awesoMux
 
-@MainActor
-@Suite("SessionPersistence load", .serialized)
-struct SessionPersistenceLoadTests {
+extension SessionPersistenceSerializationDomainTests {
+    @MainActor
+    @Suite("SessionPersistence load")
+    struct SessionPersistenceLoadTests {
     @Test("current valid snapshot loads unchanged")
     func currentValidSnapshotLoadsUnchanged() throws {
         try Self.withTemporarySupportDirectory { tempDir in
@@ -2061,5 +2062,6 @@ struct SessionPersistenceLoadTests {
             groups: [SessionGroup(name: groupName, sessions: [session])],
             selectedSessionID: session.id
         )
+    }
     }
 }

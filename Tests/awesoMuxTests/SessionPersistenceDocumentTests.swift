@@ -19,9 +19,10 @@ import Testing
 //  4. A v5 snapshot round-trips shape-stable and does NOT re-backfill a nil
 //     association (the migration gate is the literal `< 5`).
 
-@MainActor
-@Suite("SessionPersistence — schema migration")
-struct SessionPersistenceDocumentTests {
+extension SessionPersistenceSerializationDomainTests {
+    @MainActor
+    @Suite("SessionPersistence — schema migration")
+    struct SessionPersistenceDocumentTests {
 
     // MARK: - Schema version constant
 
@@ -546,6 +547,7 @@ struct SessionPersistenceDocumentTests {
         try SessionPersistence.withTemporarySupportDirectory(tempDir) {
             try operation(tempDir)
         }
+    }
     }
 }
 
