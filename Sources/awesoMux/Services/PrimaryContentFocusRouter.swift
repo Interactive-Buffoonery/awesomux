@@ -3,6 +3,11 @@ import AwesoMuxCore
 
 @MainActor
 enum PrimaryContentFocusRouter {
+    static func clearTerminalFirstResponder(in window: NSWindow) -> Bool {
+        guard window.firstResponder is GhosttySurfaceNSView else { return false }
+        return window.makeFirstResponder(nil)
+    }
+
     static func focus(
         _ request: SidebarFocusHandoffRequest,
         sessionStore: SessionStore,
