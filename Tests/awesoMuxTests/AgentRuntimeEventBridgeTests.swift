@@ -6,8 +6,9 @@ import Foundation
 import Testing
 @testable import awesoMux
 
-@Suite("Agent runtime event bridge", .serialized)
-struct AgentRuntimeEventBridgeTests {
+extension SessionPersistenceSerializationDomainTests {
+    @Suite("Agent runtime event bridge")
+    struct AgentRuntimeEventBridgeTests {
     @MainActor
     @Test("a new watch consumes a buffered terminal session end")
     func newWatchConsumesBufferedTerminalSessionEnd() throws {
@@ -607,5 +608,6 @@ struct AgentRuntimeEventBridgeTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try operation(directory)
+    }
     }
 }

@@ -241,6 +241,9 @@
         }
       }
     },
+    "%arg couldn't be refreshed." : {
+      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
+    },
     "%arg stopped refreshing." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
     },
@@ -988,7 +991,7 @@
 
     },
     "Color…" : {
-
+      "comment" : "Pane title-bar context-menu submenu for choosing a pane color."
     },
     "Command" : {
 
@@ -1167,6 +1170,9 @@
     "Couldn't fetch remote Markdown" : {
       "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
     },
+    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
+      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
+    },
     "Couldn't read your saved workspace file" : {
       "comment" : "Title for the session snapshot recovery warning raised mid-session"
     },
@@ -1295,7 +1301,7 @@
       "comment" : "Diagnostics process type"
     },
     "Default" : {
-
+      "comment" : "Pane title-bar color submenu item that clears a custom pane color."
     },
     "Default editor" : {
 
@@ -2058,7 +2064,7 @@
 
     },
     "Move Pane to New Workspace" : {
-      "comment" : "Pane menu command that moves the active pane out into a workspace of its own."
+      "comment" : "Pane title-bar context-menu and VoiceOver action that moves a pane into its own workspace."
     },
     "Move Workspace" : {
       "comment" : "Undo action for moving a workspace within or between groups."
@@ -3034,9 +3040,6 @@
     "Removing this group removes its SSH creation default %arg. No active remote panes are affected." : {
       "comment" : "SSH-default loss line for removing an empty workspace group."
     },
-    "Rename" : {
-
-    },
     "Rename '%arg'" : {
 
     },
@@ -3063,6 +3066,9 @@
     },
     "Rename Workspace…" : {
 
+    },
+    "Rename…" : {
+      "comment" : "Pane title-bar context-menu and VoiceOver action for renaming a pane."
     },
     "Rendered agent transcripts can't browse to other files" : {
       "comment" : "Help text for the Files toggle when the visible document is a rendered agent transcript"
@@ -3145,7 +3151,7 @@
       "comment" : "Settings field label for the reset-to-defaults button"
     },
     "Reset to Terminal Title" : {
-
+      "comment" : "Pane title-bar context-menu and VoiceOver action that restores the terminal title."
     },
     "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
@@ -4604,7 +4610,7 @@
       }
     },
     "showing a stale copy" : {
-      "comment" : "Document banner kicker when a remote snapshot stopped refreshing because the remote file is over the size cap"
+      "comment" : "Document banner kicker when a remote snapshot could not be refreshed"
     },
     "tab %arg of %arg" : {
       "comment" : "Position of a document tab within its tab strip",

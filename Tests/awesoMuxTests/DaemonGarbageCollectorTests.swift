@@ -386,4 +386,157 @@ struct DaemonGarbageCollectorTests {
             atPath: directory + "/" + linkUUID, withDestinationPath: "/tmp")
         #expect(!DaemonGarbageCollector.sessionSocketExists(named: linkUUID, in: directory))
     }
+
+    // MARK: - Orphan attach signaling
+
+    @Test("orphan signal: unavailable sample before TERM spares the process")
+    func orphanSignalFailsClosedWhenTermSampleIsUnavailable() async {
+        let expected = orphanSample(etimeSeconds: 3_600)
+        let samples = SampleSequence([])
+        let signals = SignalRecorder()
+
+        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+            [expected],
+            sampleProcesses: { _ in await samples.next() },
+            processExists: { _ in true },
+            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+            waitForGrace: { _ in }
+        )
+
+        #expect(signaled == 0)
+        #expect(await signals.events == [])
+    }
+
+    @Test("orphan signal: identity reuse before TERM is spared")
+    func orphanSignalRechecksIdentityBeforeTerm() async {
+        let expected = orphanSample(etimeSeconds: 3_600)
+        let replacement = DaemonGCPlan.AttachProcessSample(
+            pid: expected.pid, ppid: 1, etimeSeconds: 1,
+            argv0: "unrelated", subcommand: nil, sessionArgument: nil)
+        let samples = SampleSequence([[replacement]])
+        let signals = SignalRecorder()
+
+        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+            [expected],
+            sampleProcesses: { _ in await samples.next() },
+            processExists: { _ in true },
+            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+            waitForGrace: { _ in }
+        )
+
+        #expect(signaled == 0)
+        #expect(await signals.events == [])
+    }
+
+    @Test("orphan signal: identity reuse during TERM grace is spared from KILL")
+    func orphanSignalRechecksIdentityBeforeKill() async {
+        let expected = orphanSample(etimeSeconds: 3_600)
+        let stillExpected = orphanSample(etimeSeconds: 3_601)
+        let replacement = DaemonGCPlan.AttachProcessSample(
+            pid: expected.pid, ppid: 1, etimeSeconds: 1,
+            argv0: "unrelated", subcommand: nil, sessionArgument: nil)
+        let samples = SampleSequence([[stillExpected], [replacement]])
+        let signals = SignalRecorder()
+
+        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+            [expected],
+            sampleProcesses: { _ in await samples.next() },
+            processExists: { _ in true },
+            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+            waitForGrace: { _ in }
+        )
+
+        #expect(signaled == 1)
+        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
+    }
+
+    @Test("orphan signal: unavailable sample after TERM spares the process from KILL")
+    func orphanSignalFailsClosedWhenKillSampleIsUnavailable() async {
+        let expected = orphanSample(etimeSeconds: 3_600)
+        let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
+        let signals = SignalRecorder()
+
+        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+            [expected],
+            sampleProcesses: { _ in await samples.next() },
+            processExists: { _ in true },
+            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+            waitForGrace: { _ in }
+        )
+
+        #expect(signaled == 1)
+        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
+    }
+
+    @Test("orphan signal: cancellation during TERM grace skips KILL")
+    func orphanSignalSkipsEscalationWhenGraceWaitIsCancelled() async {
+        let expected = orphanSample(etimeSeconds: 3_600)
+        let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
+        let signals = SignalRecorder()
+
+        let task = Task {
+            await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+                [expected],
+                sampleProcesses: { _ in await samples.next() },
+                processExists: { _ in true },
+                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+                waitForGrace: { _ in
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    try Task.checkCancellation()
+                }
+            )
+        }
+
+        #expect(await task.value == 1)
+        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
+    }
+
+    @Test("orphan signal: stable identity receives TERM then KILL")
+    func orphanSignalEscalatesStableIdentity() async {
+        let expected = orphanSample(etimeSeconds: 3_600)
+        let samples = SampleSequence([
+            [orphanSample(etimeSeconds: 3_601)],
+            [orphanSample(etimeSeconds: 3_602)],
+        ])
+        let signals = SignalRecorder()
+
+        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+            [expected],
+            sampleProcesses: { _ in await samples.next() },
+            processExists: { _ in true },
+            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+            waitForGrace: { _ in }
+        )
+
+        #expect(signaled == 1)
+        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)", "\(expected.pid):\(SIGKILL)"])
+    }
+
+    private func orphanSample(etimeSeconds: Int) -> DaemonGCPlan.AttachProcessSample {
+        DaemonGCPlan.AttachProcessSample(
+            pid: 500, ppid: 1, etimeSeconds: etimeSeconds,
+            argv0: "/Applications/awesoMux.app/Contents/MacOS/amx", subcommand: "attach",
+            sessionArgument: Self.orphanUUID)
+    }
+
+    private actor SampleSequence {
+        private var values: [[DaemonGCPlan.AttachProcessSample]]
+
+        init(_ values: [[DaemonGCPlan.AttachProcessSample]]) {
+            self.values = values
+        }
+
+        func next() -> [DaemonGCPlan.AttachProcessSample]? {
+            values.isEmpty ? nil : values.removeFirst()
+        }
+    }
+
+    private actor SignalRecorder {
+        private(set) var events: [String] = []
+
+        func record(pid: Int32, signal: Int32) -> Int32 {
+            events.append("\(pid):\(signal)")
+            return 0
+        }
+    }
 }

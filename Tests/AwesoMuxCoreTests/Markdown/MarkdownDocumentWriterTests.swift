@@ -198,6 +198,32 @@ struct MarkdownDocumentWriterTests {
         #expect(try String(contentsOf: file, encoding: .utf8) == "external edit")
     }
 
+    @Test("reports when the input crosses the size cap during commit")
+    func reportsInputGrowingPastCap() throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
+        let file = directory.url.appending(path: "plan.md")
+        try Data("original".utf8).write(to: file)
+        var didWrite = false
+
+        let result = MarkdownDocumentCommitter.commitObserved(
+            at: file,
+            renderedSource: "original",
+            transform: { $0 + " annotation" },
+            beforeRecheck: {
+                let handle = try FileHandle(forWritingTo: file)
+                try handle.truncate(
+                    atOffset: UInt64(DocumentURLValidator.maxFileSizeBytes + 1)
+                )
+                try handle.close()
+            },
+            write: { _, _ in didWrite = true }
+        )
+
+        #expect(result == .inputTooLarge)
+        #expect(!didWrite)
+        #expect(try Data(contentsOf: file).count == DocumentURLValidator.maxFileSizeBytes + 1)
+    }
+
     @Test("refuses an unreadable input")
     func refusesUnreadableInput() throws {
         let directory = try TemporaryDirectory(prefix: "awesomux-markdown-write")
