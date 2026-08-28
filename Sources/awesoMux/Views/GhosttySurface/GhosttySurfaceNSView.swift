@@ -569,7 +569,10 @@ final class GhosttySurfaceNSView: NSView {
     /// clipboard-read permission prompt, and a prompt that names a title the
     /// user can no longer see on screen is a prompt they cannot judge.
     var liveTitle: String {
-        sessionStore.liveTitleBox(for: sessionID).paneTitle(for: paneID) ?? pane.title
+        TerminalPaneLiveTitleResolver.title(
+            for: pane,
+            from: sessionStore.liveTitleBox(for: sessionID)
+        )
     }
 
     func accessibilityPaneLabel(isActive: Bool) -> String {
