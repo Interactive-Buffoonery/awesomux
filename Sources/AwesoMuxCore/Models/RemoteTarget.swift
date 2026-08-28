@@ -10,7 +10,8 @@ public struct RemoteTarget: Equatable, Hashable, Sendable {
     public init?(user: String, host: String) {
         guard !host.trimmingCharacters(in: .whitespaces).isEmpty,
             !UnicodeHygiene.containsUnsafePathScalars(user),
-            !UnicodeHygiene.containsUnsafePathScalars(host)
+            !UnicodeHygiene.containsUnsafePathScalars(host),
+            !(user.isEmpty ? host : "\(user)@\(host)").hasPrefix("-")
         else {
             return nil
         }
@@ -19,9 +20,9 @@ public struct RemoteTarget: Equatable, Hashable, Sendable {
     }
 
     /// Parses `user@host` or a bare `host`. Splits on the LAST `@` so a username
-    /// is optional. Returns nil when the host is empty (there is nothing to ssh
-    /// to). Does not validate the host beyond non-emptiness — ssh + the user's
-    /// config are the authority on whether it resolves.
+    /// is optional. Returns nil when the host is empty or the complete
+    /// destination is option-like. OpenSSH and the user's config remain the
+    /// authority on whether the destination resolves.
     public init?(parsing raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
@@ -41,10 +42,6 @@ public struct RemoteTarget: Equatable, Hashable, Sendable {
     public var sshDestination: String {
         user.isEmpty ? host : "\(user)@\(host)"
     }
-
-    public var isSafeSSHDestination: Bool {
-        !sshDestination.hasPrefix("-")
-    }
 }
 
 extension RemoteTarget: Codable {
@@ -61,18 +58,7 @@ extension RemoteTarget: Codable {
             throw DecodingError.dataCorruptedError(
                 forKey: .host,
                 in: container,
-                debugDescription: "A remote target host cannot be empty."
-            )
-        }
-        // Every create path gates on `isSafeSSHDestination`, so a persisted
-        // destination that fails it was tampered with rather than typed. Reject
-        // it here too: without this, a restored snapshot is the one way a
-        // `-oProxyCommand=…` destination reaches `ssh`.
-        guard target.isSafeSSHDestination else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .host,
-                in: container,
-                debugDescription: "A remote target destination cannot start with “-”."
+                debugDescription: "A remote target must contain a safe, non-empty SSH destination."
             )
         }
         self = target

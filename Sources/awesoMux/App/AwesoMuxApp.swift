@@ -2720,6 +2720,10 @@ struct AwesoMuxApp: App {
             return
         }
 
+        if worktreeManagerController.hideIfKeyWindow() {
+            return
+        }
+
         if keyboardCheatsheetController.hideIfKeyWindow() {
             return
         }
