@@ -79,6 +79,39 @@
         }
       }
     },
+    "%@ is running in this pane. Closing the pane will stop it." : {
+      "comment" : "Confirmation body when closing a pane with a verified running agent.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is running in this pane. Closing the pane will stop it."
+          }
+        }
+      }
+    },
+    "%@ is running in this pane. Restarting the shell will stop it." : {
+      "comment" : "Confirmation body when restarting shell in a pane with a verified running agent.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is running in this pane. Restarting the shell will stop it."
+          }
+        }
+      }
+    },
+    "%@ is running in this workspace. Closing the workspace will stop it." : {
+      "comment" : "Confirmation body when closing a workspace with a verified running agent.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is running in this workspace. Closing the workspace will stop it."
+          }
+        }
+      }
+    },
     "%@ needs attention." : {
       "comment" : "Fallback VoiceOver announcement that a background workspace needs attention.",
       "localizations" : {
@@ -127,6 +160,9 @@
     },
     "%arg Transcript" : {
       "comment" : "Document tab title for a rendered agent transcript, e.g. 'Claude Code Transcript'"
+    },
+    "%arg couldn't be refreshed." : {
+      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
     },
     "%arg finished your turn" : {
       "comment" : "Notification title shown when a background agent finishes its turn and is waiting for the user's next message. Argument is the agent product name (e.g. Claude, Codex)."
@@ -240,9 +276,6 @@
           }
         }
       }
-    },
-    "%arg couldn't be refreshed." : {
-      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
     },
     "%arg stopped refreshing." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
@@ -1170,9 +1203,6 @@
     "Couldn't fetch remote Markdown" : {
       "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
     },
-    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
-      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
-    },
     "Couldn't read your saved workspace file" : {
       "comment" : "Title for the session snapshot recovery warning raised mid-session"
     },
@@ -1186,6 +1216,9 @@
           }
         }
       }
+    },
+    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
+      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
     },
     "Couldn't reopen your last workspaces" : {
       "comment" : "Title for the session snapshot recovery warning"
@@ -3186,8 +3219,16 @@
     "Restart shell in %arg?" : {
       "comment" : "Title of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
     },
-    "Restarting the shell in %arg ends the current session and starts a fresh one. Scrollback isn't kept." : {
-      "comment" : "Body of the restart-shell confirmation dialog when the active pane is idle. Argument is the bidi-isolated workspace title."
+    "Restarting the shell in %@ ends the current session and starts a fresh one. Scrollback isn’t kept." : {
+      "comment" : "Confirmation body when restarting shell in an idle session.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restarting the shell in %@ ends the current session and starts a fresh one. Scrollback isn’t kept."
+          }
+        }
+      }
     },
     "Restore" : {
       "comment" : "Diagnostics event category"
@@ -4026,6 +4067,28 @@
     "This link prefills the recipient, body, or subject. Verify before opening." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
     },
+    "This pane has running activity. Closing the pane will stop it." : {
+      "comment" : "Confirmation body when closing a pane with un-named running activity.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This pane has running activity. Closing the pane will stop it."
+          }
+        }
+      }
+    },
+    "This pane has running activity. Restarting the shell will stop it." : {
+      "comment" : "Confirmation body when restarting shell in a pane with un-named running activity.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This pane has running activity. Restarting the shell will stop it."
+          }
+        }
+      }
+    },
     "This pane reported a session id awesoMux won't use to look up a file. Start a new agent session and try again." : {
       "comment" : "Transcript failure when the reported provider session id failed validation"
     },
@@ -4053,8 +4116,30 @@
     "This transcript's terminal isn't available" : {
       "comment" : "Unavailable reason for resuming a session when its associated terminal is gone"
     },
+    "This workspace has activity running in multiple panes. Closing the workspace will stop it." : {
+      "comment" : "Confirmation body when closing a multi-pane workspace with running activity.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This workspace has activity running in multiple panes. Closing the workspace will stop it."
+          }
+        }
+      }
+    },
     "This workspace has no local terminal panes, so there is no layout to save as a preset." : {
       "comment" : "Alert text when the workspace has no preset-eligible panes."
+    },
+    "This workspace has running activity. Closing the workspace will stop it." : {
+      "comment" : "Confirmation body when closing a single-pane workspace with un-named running activity.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This workspace has running activity. Closing the workspace will stop it."
+          }
+        }
+      }
     },
     "This workspace now targets %arg." : {
       "comment" : "Second description line on the remote-disconnected overlay when the workspace moved to a different remote host than the one that dropped"
@@ -4428,6 +4513,39 @@
     },
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
+    },
+    "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process." : {
+      "comment" : "Confirmation body when closing a pane whose activity state cannot be verified.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process."
+          }
+        }
+      }
+    },
+    "awesoMux couldn’t verify whether this pane is busy. Restarting the shell may stop a running process." : {
+      "comment" : "Confirmation body when restarting shell in a pane whose activity state cannot be verified.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "awesoMux couldn’t verify whether this pane is busy. Restarting the shell may stop a running process."
+          }
+        }
+      }
+    },
+    "awesoMux couldn’t verify whether this workspace has running activity. Closing it may stop running processes." : {
+      "comment" : "Confirmation body when closing a workspace whose activity state cannot be verified.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "awesoMux couldn’t verify whether this workspace has running activity. Closing it may stop running processes."
+          }
+        }
+      }
     },
     "awesoMux doesn't know how to resume a %arg session" : {
       "comment" : "Unavailable reason for resuming a provider awesoMux has no resume command for"

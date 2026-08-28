@@ -1982,16 +1982,28 @@ struct AwesoMuxApp: App {
 
         let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
+        let riskyPanes = session.layout.panes.filter { $0.isCloseRisk(at: now) }
+        let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
+        let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+
+        let body = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closeWorkspace,
+            displayTitle: displayTitle,
+            agentKind: singlePane?.agentKind,
+            sampledComm: singlePane?.sampledComm,
+            riskReason: singlePane?.closeRiskReason(at: now)
+                ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
+                    ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil)),
+            riskyPaneCount: riskyPaneCount
+        )
+
         return NSAlert.confirmDestructive(
             title: String(
                 localized: "Close \(displayTitle)?",
                 comment:
                     "Title of the close-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
             ),
-            body: String(
-                localized: "\(displayTitle) has activity that will be interrupted. Closing will terminate the running process.",
-                comment: "Body of the close-workspace confirmation dialog. Argument is the bidi-isolated workspace title."
-            ),
+            body: body,
             keyboardHint: String(
                 localized: "Press ⌘Return to close workspace. Esc cancels.",
                 comment: "Keyboard hint line on the close-workspace confirmation dialog."
@@ -2034,35 +2046,45 @@ struct AwesoMuxApp: App {
                 comment:
                     "Title of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
             )
-            // One localized string per variant (not concatenated fragments) so
-            // translators control the full sentence — mirrors confirmClearWorkspace.
-            // The idle variant is honest about `recycleAndAnnounce` discarding the
-            // old surface: a restart mints a fresh libghostty surface, so scrollback
-            // does not carry over.
-            body =
-                riskReason != nil
-                ? String(
-                    localized:
-                        "\(displayTitle) has activity that will be interrupted. Restarting the shell will terminate the running process.",
-                    comment:
-                        "Body of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
-                )
-                : String(
-                    localized:
-                        "Restarting the shell in \(displayTitle) ends the current session and starts a fresh one. Scrollback isn't kept.",
-                    comment:
-                        "Body of the restart-shell confirmation dialog when the active pane is idle. Argument is the bidi-isolated workspace title."
-                )
+            body = DestructivePaneActionConfirmationPolicy.confirmationBody(
+                action: .restartShell,
+                displayTitle: displayTitle,
+                agentKind: session.activePane?.agentKind,
+                sampledComm: session.activePane?.sampledComm,
+                riskReason: riskReason
+            )
         case .closePane:
             title = String(
                 localized: "Close pane in \(displayTitle)?",
                 comment:
                     "Title of the close-pane confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
             )
-            body = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
+            body = DestructivePaneActionConfirmationPolicy.confirmationBody(
+                action: .closePane,
                 displayTitle: displayTitle,
                 agentKind: session.activePane?.agentKind,
+                sampledComm: session.activePane?.sampledComm,
                 riskReason: riskReason
+            )
+        case .closeWorkspace:
+            let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
+            let riskyPanes = session.layout.panes.filter { $0.isCloseRisk(at: now) }
+            let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
+            let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+            title = String(
+                localized: "Close \(displayTitle)?",
+                comment:
+                    "Title of the close-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
+            )
+            body = DestructivePaneActionConfirmationPolicy.confirmationBody(
+                action: .closeWorkspace,
+                displayTitle: displayTitle,
+                agentKind: singlePane?.agentKind,
+                sampledComm: singlePane?.sampledComm,
+                riskReason: singlePane?.closeRiskReason(at: now)
+                    ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
+                        ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil)),
+                riskyPaneCount: riskyPaneCount
             )
         }
 

@@ -31,9 +31,10 @@ extension GhosttySurfaceNSView {
         if commandBridgeSessionID != nil {
             guard
                 let rawPID = commandBridgeEnactor.respawnLedger.lastIncarnation?.pid,
-                let daemonPID = pid_t(exactly: rawPID)
+                let daemonPID = pid_t(exactly: rawPID),
+                ProcessLivenessProbe.processStartTime(pid: daemonPID) != nil
             else {
-                // No attach recorded yet → no daemon pid to walk. Still
+                // No attach recorded yet or dead daemon pid → no daemon pid to walk. Still
                 // quit-safe (daemon-backed), but close-risk stays unproven —
                 // `.bridged` here would read as "verified idle" (issue #190).
                 return (.bridgedIndeterminate, nil)
@@ -58,6 +59,18 @@ extension GhosttySurfaceNSView {
             ),
             sample
         )
+    }
+
+    /// Sampled foreground process command (`p_comm`), if available.
+    /// Used by the quit/close confirmation snapshot to pass `sampledComm` to `TerminalPane`.
+    @MainActor
+    func sampledForegroundComm(sample: ForegroundProcessSample? = nil) -> String? {
+        if commandBridgeSessionID != nil {
+            return commandBridgeEnactor.foregroundComm()
+        }
+        let sample = sample ?? foregroundProcessSample()
+        guard sample.hasLiveSurface, !sample.processExited else { return nil }
+        return sample.comm
     }
 
     /// Foreground evidence for the document-nudge prompt gate (INT-569).
