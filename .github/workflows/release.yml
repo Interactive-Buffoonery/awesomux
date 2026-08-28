@@ -14,6 +14,12 @@ name: Release
 # cache, keychain lifecycle, and fail-closed validation — and only differs in
 # how the version is resolved, a pre-flight gate (nightly-gate), and how the
 # artifact is published (a rolling prerelease instead of a per-version draft).
+#
+# Every lane (tag, dispatch, nightly) is gated on the full Swift and zmx test
+# suites via the release-tests job below: the tagged/dispatched/nightly commit
+# is trusted maintainer code, so there is no untrusted-code trust boundary to
+# protect — unlike pull requests, where native CI stays on demand (docs/ci.md).
+# A red suite blocks signing entirely; the release job never starts.
 
 on:
   push:
@@ -26,6 +32,11 @@ on:
         type: string
       create_draft_release:
         description: "Create a draft GitHub Release from this run (workflow artifacts are always produced either way)"
+        required: false
+        type: boolean
+        default: false
+      skip_tests:
+        description: "Emergency escape hatch: skip the release-tests gate. Only a maintainer dispatch can do this; tag pushes and nightlies always run the suite."
         required: false
         type: boolean
         default: false
@@ -109,9 +120,10 @@ jobs:
           fi
 
           # Skip-if-main-red. Require the exact commit we would sign to have a
-          # COMPLETED, SUCCESSFUL push-triggered Cheap guards run. Native CI does
-          # not run on main pushes (issue_comment/dispatch only; canary not
-          # enabled — docs/ci.md), so Cheap guards is the real per-main-push gate.
+          # COMPLETED, SUCCESSFUL push-triggered Cheap guards run. Native CI still
+          # does not run on main pushes (docs/ci.md), so Cheap guards is the real
+          # per-main-push gate — release-tests backstops it per pipeline, testing
+          # this exact commit on macOS before any signing.
           # No completed run for this SHA (still running, or none) => not proven
           # green => skip and recover next cron.
           # jq --arg (not string interpolation) so the SHA can never be read as
@@ -159,19 +171,136 @@ jobs:
           path: dist/linux-helper/
           if-no-files-found: error
 
+  release-tests:
+    name: Release gate tests (${{ matrix.group }})
+    needs: [nightly-gate]
+    # Nightly still skips cheap when the gate says tonight is unchanged or
+    # main is not proven green. Tag and nightly lanes always run the suite;
+    # only a manual maintainer dispatch may skip it via the skip_tests input
+    # (the tag lane cannot carry inputs, so the escape hatch is dispatch-only).
+    if: ${{ !cancelled() && !inputs.skip_tests && (github.event_name != 'schedule' || needs.nightly-gate.outputs.should_build == 'true') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same shard split as native CI's `all` scope (script/test.sh owns the
+        # shard patterns): blocking-OS-call suites and AppKit-heavy sidebar
+        # suites get their own processes instead of starving one shared Swift
+        # Concurrency pool on a hosted runner.
+        group: [zmx, timing, sidebar, nontiming]
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    timeout-minutes: 120
+    # No environment and no secrets: this job only tests trusted, maintainer-
+    # owned code, and running before the release environment approval keeps
+    # signing material out of its reach entirely.
+    permissions:
+      contents: read
+    env:
+      # Part of the Ghostty artifact cache key; matches the release job's
+      # ghostty-v1 namespace (see cache-namespace on prepare-native below).
+      AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Initialize test results
+        run: mkdir -p .build/test-results
+
+      - name: Select Xcode for Ghostty cache key
+        run: |
+          set -euo pipefail
+          # Match the release job's newest-Xcode selection so prepare-native
+          # computes the same xcode_id and warms the signing job's cache.
+          shopt -s nullglob
+          CANDIDATES=(/Applications/Xcode_*.app)
+          shopt -u nullglob
+          if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
+            echo "::error::no Xcode app bundle found under /Applications" >&2
+            exit 1
+          fi
+          NEWEST="$(printf '%s\n' "${CANDIDATES[@]}" | sort -V | tail -n1)"
+          echo "DEVELOPER_DIR=$NEWEST/Contents/Developer" >> "$GITHUB_ENV"
+
+      - name: Prepare native build
+        id: prepare
+        uses: ./.github/actions/prepare-native
+        with:
+          # Unlike pull-request native CI (restore-only, untrusted code), this
+          # lane executes trusted maintainer refs, so a cache miss may save.
+          # Only one Ghostty leg saves: parallel matrix jobs share one cache key
+          # and actions/cache/save fails when losers race the winner.
+          save-cache: ${{ matrix.group == 'timing' && 'true' || 'false' }}
+          cache-namespace: ghostty-v1
+          prepare-ghostty: ${{ matrix.group != 'zmx' }}
+
+      - name: Install zmx Zig toolchain
+        if: matrix.group == 'zmx'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+          ZMX_ZIG_FORMULA: ${{ steps.prepare.outputs.zmx-zig-formula }}
+        run: |
+          set -euo pipefail
+          brew install "$ZMX_ZIG_FORMULA"
+          echo "AWESOMUX_ZMX_ZIG=$(brew --prefix "$ZMX_ZIG_FORMULA")/bin/zig" >> "$GITHUB_ENV"
+
+      - name: Run test shard
+        id: execute
+        env:
+          GROUP: ${{ matrix.group }}
+          XUNIT_PATH: .build/test-results/release-tests.xml
+          LOG_PATH: .build/test-results/release-tests.log
+        run: |
+          set -euo pipefail
+          set +e
+          if [[ "$GROUP" == "zmx" ]]; then
+            ./script/test.sh zmx 2>&1 | tee "$LOG_PATH"
+          else
+            ./script/test.sh "$GROUP" --xunit-output "$XUNIT_PATH" 2>&1 | tee "$LOG_PATH"
+          fi
+          test_status=${PIPESTATUS[0]}
+          set -e
+
+          # Swift Testing writes its xUnit report beside the requested path for
+          # some runner versions; normalize so the artifact upload below always
+          # finds the report.
+          swift_testing_xunit_path="${XUNIT_PATH%.xml}-swift-testing.xml"
+          if [[ ! -s "$XUNIT_PATH" && -s "$swift_testing_xunit_path" ]]; then
+            mv "$swift_testing_xunit_path" "$XUNIT_PATH"
+          fi
+
+          echo "result=$([[ "$test_status" -eq 0 ]] && echo success || echo failure)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tests-${{ matrix.group }}-${{ github.sha }}
+          path: .build/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Enforce test result
+        if: always() && steps.execute.outputs.result != 'success'
+        run: exit 1
+
   release:
     name: Build, sign, and notarize
-    needs: [nightly-gate, linux-helper]
+    needs: [nightly-gate, linux-helper, release-tests]
     # Status-check functions (!cancelled/!failure) disable GitHub's default
     # "skip me if a needed job was skipped" behavior, so the if fully governs:
     #   - tag/dispatch: nightly-gate is skipped (not a failure), linux-helper
-    #     runs; event != schedule => release runs.
+    #     and the test gate run; event != schedule => release runs.
     #   - schedule + build: linux-helper is skipped (not a failure), gate says
-    #     true => release runs.
+    #     true and the test gate passed => release runs.
     #   - schedule + skip: gate says false => release is skipped (green run, no
     #     wasted signed build).
     # !failure() still lets a real linux-helper failure block a tag/dispatch
-    # release, since that job is required for those lanes' assets.
+    # release, since that job is required for those lanes' assets — and lets a
+    # release-tests failure block EVERY lane, which is the point of the gate:
+    # no red suite ever reaches signing, and the environment approval prompt
+    # only appears after the suite is already green.
     if: ${{ !cancelled() && !failure() && (github.event_name != 'schedule' || needs.nightly-gate.outputs.should_build == 'true') }}
     # macos-26, not macos-15: the app icon is an Icon Composer .icon that
     # needs Xcode 26's actool, and Xcode 26 IB tooling crashes (dyld symbol
@@ -205,6 +334,13 @@ jobs:
       # visible to ${{ }} expressions.
       AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
     steps:
+      - name: Warn when the test gate was bypassed
+        # inputs.* is unset on tag/schedule lanes (falsy), so this can only
+        # fire on a deliberate maintainer dispatch with skip_tests=true.
+        if: inputs.skip_tests
+        run: |
+          echo "::warning title=Test gate bypassed::release-tests was skipped by maintainer dispatch (skip_tests=true) — this build signs without a fresh suite run."
+
       - name: Validate ref and resolve release version
         env:
           VERSION_INPUT: ${{ inputs.version }}
@@ -376,12 +512,18 @@ jobs:
             exit 1
           fi
           ZMX_ZIG_FORMULA="zig@${ZMX_ZIG_VERSION%.*}"
+          SWIFT_PIN="$(tr -d '[:space:]' < .swift-version)"
+          if [[ -z "$SWIFT_PIN" ]]; then
+            echo "::error::.swift-version is empty" >&2
+            exit 1
+          fi
           {
             echo "ghostty_sha=$GHOSTTY_SHA"
             echo "zig_version=$ZIG_VERSION"
             echo "zig_formula=$ZIG_FORMULA"
             echo "zmx_zig_version=$ZMX_ZIG_VERSION"
             echo "zmx_zig_formula=$ZMX_ZIG_FORMULA"
+            echo "swift_pin=$SWIFT_PIN"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install native Zig toolchains
@@ -532,10 +674,10 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ghostty
-          # v1 prefix is the manual poison-cache invalidation lever. Xcode
-          # bumps deliberately change the key: Ghostty archives built under
-          # one toolchain shouldn't silently serve another.
-          key: ghostty-v1-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }}-${{ steps.xcode.outputs.xcode_id }}
+          # v1 prefix is the manual poison-cache invalidation lever. Key shape
+          # matches prepare-native (release-tests warms this entry) so a green
+          # test gate avoids a cold Ghostty rebuild in signing.
+          key: ghostty-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }}-${{ steps.ghostty-pin.outputs.swift_pin }}-${{ steps.xcode.outputs.xcode_id }}
 
       - name: Build or validate Ghostty artifacts
         run: ./script/ensure_ghostty_artifacts.sh
