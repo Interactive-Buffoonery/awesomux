@@ -48,6 +48,7 @@ struct PublicSeedSourceScriptTests {
     func trackedIgnoredFilesRemainScanned() throws {
         let result = try runGuard(
             publicText: "public",
+            // Split to avoid triggering the guard's own scan of this file.
             trackedIgnoredText: "/Users/" + "sarah/project"
         )
 
