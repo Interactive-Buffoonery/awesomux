@@ -1501,6 +1501,34 @@ enum AmxBackend {
         return snapshot.isEmpty ? nil : snapshot
     }
 
+    /// Process rows for a bounded PID shortlist. A non-zero `ps -p` exit means
+    /// every requested process disappeared between discovery and confirmation,
+    /// while query or parse failures remain `nil` so reap callers fail closed.
+    static func processSnapshot(forPIDs pids: [Int32]) async -> [ProcEntry]? {
+        guard !pids.isEmpty else { return [] }
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/ps"],
+            timeout: .seconds(2),
+            maxOutputBytes: 1024 * 1024,
+            environment: [:]
+        )
+        let pidList = pids.map(String.init).joined(separator: ",")
+        let result = await runner.runDetailed(
+            arguments: ["-p", pidList, "-o", "pid=,ppid=,comm="],
+            inDirectory: "/"
+        )
+        switch result {
+        case .success(let data):
+            guard let output = String(data: data, encoding: .utf8) else { return nil }
+            let snapshot = DaemonGCPlan.parseProcessSnapshot(output)
+            return snapshot.isEmpty ? nil : snapshot
+        case .nonZeroExit:
+            return []
+        case .executableNotFound, .spawnFailure, .timedOut, .outputTruncated, .outputNotDrained:
+            return nil
+        }
+    }
+
     /// `daemon.pid` is the forkpty SHELL CHILD, not the daemon, so it must be
     /// resolved before classification: passing the shell pid inspects the
     /// SHELL's children instead of the daemon's, and a shell that exec'd an
