@@ -991,8 +991,8 @@ enum PaletteCommandRegistry {
 
         // One targeted-reopen command per recently-closed entry (INT-282) —
         // the palette twin of the Dock "Recent Workspaces" submenu. Dot id
-        // matches the `daemonJump.` / `customCommand.` precedent; sessionID
-        // is unique per close (see RecentlyClosedWorkspaceReducer.drain).
+        // matches the `daemonJump.` / `customCommand.` precedent; at most one
+        // reopen entry per sessionID (drain before restore).
         commands.append(
             contentsOf: sessionStore.recentWorkspaces(
                 limit: SessionStore.maxRecentlyClosed

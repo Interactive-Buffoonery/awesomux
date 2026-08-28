@@ -165,6 +165,34 @@ struct RecentlyClosedWorkspaceCaptureTests {
         #expect(decision.entry.syntheticTitle == syntheticTitle)
     }
 
+    @Test("capture preserves pane move origin")
+    func capturePreservesPaneMoveOrigin() {
+        let pane = TerminalPane(title: "moved", workingDirectory: "~", executionPlan: .local)
+        let origin = PaneMoveOrigin(
+            sourceSessionID: UUID(),
+            paneID: pane.id,
+            parentSplitID: UUID(),
+            sibling: .pane(UUID()),
+            edge: .right,
+            fraction: 0.4
+        )
+        let session = TerminalSession(
+            title: "moved",
+            workingDirectory: "~",
+            moveOrigin: origin,
+            layout: .pane(pane)
+        )
+
+        let decision = RecentlyClosedWorkspaceReducer.captureDecision(
+            session: session,
+            group: SessionGroup(name: "main", sessions: []),
+            indexInGroup: 0,
+            now: Date()
+        )
+
+        #expect(decision.entry.moveOrigin == origin)
+    }
+
     @Test("recordPersisted caps at maxRecentlyClosed and prunes stale entries")
     func recordPersistedCapsAndPrunes() {
         var recentlyClosed: [RecentlyClosedWorkspace] = []
