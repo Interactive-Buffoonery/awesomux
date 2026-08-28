@@ -60,6 +60,11 @@ final class GhosttySurfaceNSView: NSView {
     /// land on match 2 instead of match 1).
     var didAutoSelectCurrentSearch = false
     var commandExitCache = CommandExitCache()
+    var announceWorkspaceClosedAfterProcessExit: (Bool) -> Void = {
+        TerminalAccessibilityAnnouncer.announceWorkspaceClosedAfterProcessExit(
+            exitedWithError: $0
+        )
+    }
     var shellCommandFinishedIdleLatched = false
     var terminalPromptObserved = false
     private var accessibilityFocusRequested = false
