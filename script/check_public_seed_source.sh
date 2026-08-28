@@ -23,9 +23,13 @@ private_globs=(
     --glob '!.git/**'
     --glob '!.git'
     --glob '!.build/**'
+    --glob '!.build'
     --glob '!.claude/**'
+    --glob '!.claude'
     --glob '!vendor/ghostty/**'
+    --glob '!vendor/ghostty'
     --glob '!vendor/zmx/**'
+    --glob '!vendor/zmx'
     --glob '!script/internal-wording-patterns.txt'
     --glob '!script/check_public_seed_source.sh'
 )
