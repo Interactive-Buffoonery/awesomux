@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip_tests:
+        description: "Emergency escape hatch: skip the release-tests gate. Only a maintainer dispatch can do this; tag pushes and nightlies always run the suite."
+        required: false
+        type: boolean
+        default: false
   schedule:
     # Daily 09:00 UTC nightly. nightly-gate exits early when main is unchanged
     # since the last nightly or has not passed Cheap guards, so most nights this
@@ -170,8 +175,10 @@ jobs:
     name: Release gate tests (${{ matrix.group }})
     needs: [nightly-gate]
     # Nightly still skips cheap when the gate says tonight is unchanged or
-    # main is not proven green; tag and dispatch lanes always run the suite.
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.nightly-gate.outputs.should_build == 'true') }}
+    # main is not proven green. Tag and nightly lanes always run the suite;
+    # only a manual maintainer dispatch may skip it via the skip_tests input
+    # (the tag lane cannot carry inputs, so the escape hatch is dispatch-only).
+    if: ${{ !cancelled() && !inputs.skip_tests && (github.event_name != 'schedule' || needs.nightly-gate.outputs.should_build == 'true') }}
     strategy:
       fail-fast: false
       matrix:
@@ -310,6 +317,13 @@ jobs:
       # visible to ${{ }} expressions.
       AWESOMUX_GHOSTTY_OPTIMIZE: ReleaseFast
     steps:
+      - name: Warn when the test gate was bypassed
+        # inputs.* is unset on tag/schedule lanes (falsy), so this can only
+        # fire on a deliberate maintainer dispatch with skip_tests=true.
+        if: inputs.skip_tests
+        run: |
+          echo "::warning title=Test gate bypassed::release-tests was skipped by maintainer dispatch (skip_tests=true) — this build signs without a fresh suite run."
+
       - name: Validate ref and resolve release version
         env:
           VERSION_INPUT: ${{ inputs.version }}

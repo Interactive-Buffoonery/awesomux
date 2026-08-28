@@ -414,6 +414,9 @@ successful relaunch, preserved terminal sessions, and the Homebrew path below.
   - [ ] Alternative (ad-hoc/pipeline testing): manually dispatch the Release
         workflow (Actions → Release → `version`, optionally
         `create_draft_release: true`) and approve the environment gate.
+  - [ ] Emergency only: dispatch with `skip_tests: true` to bypass the
+        `release-tests` gate. Tag pushes and nightlies cannot skip it; keep
+        skipping exceptional and record why in the release notes.
   - [ ] Normal path: create and push the annotated tag
         (`git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0`); the
         workflow builds, signs, notarizes, and drafts the release

@@ -221,6 +221,13 @@ unchanged or main-red, `release-tests` and the release job skip along with it.
 A red `release-tests` leg on a nightly run publishes nothing; the next cron
 recovers on its own.
 
+There is exactly one escape hatch: the `skip_tests` input on manual dispatch.
+A maintainer can bypass the gate for an emergency by dispatching with
+`skip_tests: true` (and `create_draft_release: true` to reach a draft). Tag
+pushes and nightlies cannot be skipped — tags carry no inputs, and the
+unattended lane keeps the gate precisely because nobody is watching. Bypassed
+runs emit a prominent warning annotation in the signing job's log.
+
 This gate does not change pull-request or merge-time policy. Merged breakage
 that comment-triggered native CI misses is caught at tag/dispatch/nightly time
 instead of at merge time — an intentional trade per the policy above.
