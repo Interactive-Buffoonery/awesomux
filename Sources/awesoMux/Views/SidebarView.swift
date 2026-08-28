@@ -81,7 +81,7 @@ struct SidebarView: View {
     @State private var isSearchFocused = false
     @State private var focusedSearchSessionID: TerminalSession.ID?
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
-    @FocusState private var isCollapsedEmptyActionFocused: Bool
+    @State private var emptyFocusRequestID = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.undoManager) private var undoManager
     @Environment(AppSettingsStore.self) private var appSettingsStore
@@ -251,7 +251,7 @@ struct SidebarView: View {
                         {
                             CollapsedEmptySidebarAction(
                                 onNewWorkspace: addWorkspaceInCurrentContext,
-                                focused: $isCollapsedEmptyActionFocused
+                                focusRequestID: emptyFocusRequestID
                             )
                         }
 
@@ -630,6 +630,7 @@ struct SidebarView: View {
             }
             collapsedGroupIDs.remove(group.id)
         }
+        .onChange(of: sessionStore.groups.isEmpty, focusNewWorkspaceAfterEmptyTransition)
         .onChange(of: sessionStore.pinnedSessionIDs) { oldIDs, newIDs in
             // Single all-paths hook for pin/unpin side effects (sidebar menu,
             // ⌥⌘P, command palette all mutate this array). A pure reorder
@@ -742,11 +743,10 @@ struct SidebarView: View {
                 if displayMode == .collapsed {
                     ShortcutDiagnostics.log("stage=sidebarView action=focusRail")
                     if let target = defaultSidebarFocusTarget(in: visibleRows) {
-                        isCollapsedEmptyActionFocused = false
                         focusKeyboardTarget(target)
                     } else {
                         focusedRowTarget = nil
-                        isCollapsedEmptyActionFocused = true
+                        emptyFocusRequestID += 1
                     }
                     return
                 }
@@ -780,6 +780,15 @@ struct SidebarView: View {
 
     private var searchFieldAppearsFocused: Bool {
         isSearchFocused && NSApp.keyWindow?.firstResponder is NSTextView
+    }
+
+    private func focusNewWorkspaceAfterEmptyTransition(_ wasEmpty: Bool, _ isEmpty: Bool) {
+        guard !wasEmpty, isEmpty else { return }
+        DispatchQueue.main.async {
+            guard sessionStore.groups.isEmpty else { return }
+            focusedRowTarget = nil
+            emptyFocusRequestID += 1
+        }
     }
 
     // The palette shortcut is user-rebindable; resolve the live binding so the
@@ -920,7 +929,9 @@ struct SidebarView: View {
                 otherGroups: sessionStore.groups.map { ($0.id, $0.name) },
                 onNewWorkspace: addWorkspaceInCurrentContext,
                 onNewWorkspaceInGroup: addWorkspace(inGroupID:),
-                onNewWorkspaceGroup: onNewWorkspaceGroup
+                onNewWorkspaceGroup: onNewWorkspaceGroup,
+                primaryFocusRequestID: emptyFocusRequestID,
+                primaryFocusIsActive: sessionStore.groups.isEmpty
             )
             .equatable()
         }
@@ -1567,7 +1578,7 @@ struct SidebarView: View {
 
 private struct CollapsedEmptySidebarAction: View {
     let onNewWorkspace: () -> Void
-    let focused: FocusState<Bool>.Binding
+    let focusRequestID: Int
 
     var body: some View {
         Button(action: onNewWorkspace) {
@@ -1588,9 +1599,18 @@ private struct CollapsedEmptySidebarAction: View {
                 }
         }
         .buttonStyle(.plain)
-        .focused(focused)
+        .focusable(false)
+        .accessibilityHidden(true)
+        .overlay {
+            SidebarNewWorkspaceFocusTarget(
+                focusRequestID: focusRequestID,
+                focusIsActive: true,
+                onActivate: onNewWorkspace
+            )
+            .frame(width: 40, height: 40)
+            .allowsHitTesting(false)
+        }
         .frame(maxWidth: .infinity)
-        .accessibilityLabel("New workspace")
         .help("New Workspace")
     }
 }

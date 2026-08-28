@@ -3,8 +3,8 @@ import Foundation
 import Testing
 @testable import awesoMux
 
-/// Regression coverage for the INT-587 pane-recycle race in
-/// `GhosttyRuntime.action`'s `GHOSTTY_ACTION_PROGRESS_REPORT` case.
+/// Regression coverage for progress-report pane-recycle races in the direct
+/// Ghostty callback dispatch and the trailing-edge store-write throttle.
 ///
 /// The bug two prior fix rounds shipped: dispatching the store write via
 /// `Task { @MainActor [weak view] in view?.updateProgressReport(report) }`
@@ -24,12 +24,8 @@ import Testing
 /// completion inline, with no suspension point for `update(session:pane:)` to
 /// interleave. Nothing about the DIRECT dispatch captures identity ahead of
 /// time anymore — `updateProgressReport` reads `self.sessionID`/`self.paneID`
-/// live, at call time. (The SEPARATE deferred-write paths inside
-/// `updateProgressReport` — the throttle's `.deferBy` branch and the 15s
-/// auto-expiry timer, both in `GhosttySurfaceTerminalEvents.swift` — still
-/// legitimately capture identity at schedule time and revalidate it on fire
-/// via `DeferredPaneEventDispatchGuard`; that guard is unrelated to this fix and
-/// already covered by `DeferredPaneEventDispatchGuardTests`.)
+/// live, at call time. Deferred callbacks still capture identity at schedule
+/// time and revalidate it on fire via `DeferredPaneEventDispatchGuard`.
 ///
 /// This test can't reconstruct the actual C callback (`GhosttyRuntime.action`
 /// needs a live `ghostty_target_s` wrapping a real `ghostty_surface_t`, which
@@ -111,6 +107,10 @@ struct ProgressReportPaneRecycleAtomicityTests {
             store.session(id: sessionA.id)?.layout.pane(id: sharedPaneID)?.progressReport
                 == TerminalProgressReport(state: .set, progress: 42)
         )
+        // Arm a trailing-edge write owned by session A. Session B's
+        // pane-keyed `.writeNow` must cancel this foreign pending item as it
+        // takes over the view's single throttle slot.
+        view.updateProgressReport(TerminalProgressReport(state: .set, progress: 43))
 
         // Simulate the recycle: the SAME `TerminalPane.id` gets re-pointed at
         // session B (e.g. the pane was moved to a different session/group).
@@ -125,15 +125,9 @@ struct ProgressReportPaneRecycleAtomicityTests {
         )
         #expect(recycledView === view)
 
-        // Clear the trailing-edge write throttle's window (`ObservableStoreWriteThrottle`,
-        // `progressReportStoreWriteMinInterval` = 0.1s) so this second call commits
-        // immediately via `.writeNow` instead of deferring through
-        // `scheduleThrottledProgressReportWrite`. A deferred write is a
-        // DIFFERENT, already-covered guard (`DeferredPaneEventDispatchGuardTests`)
-        // — this test is specifically about the direct/immediate path the
-        // fixed `onMainThreadSynchronously` dispatch site exercises.
-        try await Task.sleep(nanoseconds: 150_000_000)
-
+        // A recycled-in pane must not inherit session A's per-view throttle
+        // window. Its first write is a different `PaneStoreWriteKey`, so it
+        // must commit synchronously instead of waiting for the trailing edge.
         recycledView.updateProgressReport(TerminalProgressReport(state: .set, progress: 7))
 
         // The new write lands on session B — the view's CURRENT identity —
@@ -148,6 +142,27 @@ struct ProgressReportPaneRecycleAtomicityTests {
         #expect(
             store.session(id: sessionA.id)?.layout.pane(id: sharedPaneID)?.progressReport
                 == TerminalProgressReport(state: .set, progress: 42)
+        )
+
+        // Return to A without another progress event. If B's immediate write
+        // failed to cancel A's pending 43, that orphan could now pass the
+        // identity guard at its deadline and overwrite A's committed 42.
+        let returnedView = runtime.surfaceView(
+            sessionStore: store,
+            session: sessionA,
+            pane: paneInSessionA,
+            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+        )
+        #expect(returnedView === view)
+
+        try await Task.sleep(nanoseconds: 150_000_000)
+        #expect(
+            store.session(id: sessionA.id)?.layout.pane(id: sharedPaneID)?.progressReport
+                == TerminalProgressReport(state: .set, progress: 42)
+        )
+        #expect(
+            store.session(id: sessionB.id)?.layout.pane(id: sharedPaneID)?.progressReport
+                == TerminalProgressReport(state: .set, progress: 7)
         )
     }
 
