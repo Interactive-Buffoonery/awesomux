@@ -80,27 +80,46 @@ provider kind and session id forward. It deliberately does not take a free
 `(identity, URL)` pair: a pair lets a caller bind a validated session id to an
 unrelated file that passes the same checks, which is the identity/content
 decoupling this ADR exists to prevent, and the only way to hold an
-`AgentTranscript` is a successful discovery. A refresh never sweeps, never
-falls back to a working directory, and never re-enters discovery on its own.
-Remote transcripts stay unsupported; nothing here follows a file over SSH.
+`AgentTranscript` is a successful discovery.
 
-Failures route by kind. An owner or regular-file refusal stops the loop,
+`reopen` is therefore narrow by construction — it never sweeps, never falls
+back to a working directory, and can only succeed on the one path it was
+handed. The loop around it is what re-enters discovery, and only by the same
+exact-identity route the Decision describes: same validator, same adapter, same
+absence of a working-directory fallback. Remote transcripts stay unsupported;
+nothing here follows a file over SSH.
+
+Failures route by kind. An owner, regular-file, or size refusal stops the loop,
 because the same file fails the same way every time. A vanished or unreadable
-path falls back to the full exact-identity discovery above, at most three times
-per mount; past that the tab keeps its last good render, which is what a
-transcript tab did before it refreshed at all.
+path falls back to the full exact-identity discovery above, and so does a
+failed cache write: if the write that fails is the one for the session's last
+append, there is no later event to retry on and the tab would be stale for
+good.
 
-Re-validation also pins the inode. Re-opening compares the new handle's device
-and inode against the prior handle's and refuses a mismatch, routing it into
-the discovery fallback above instead of rendering. Without that comparison a
-same-uid writer could replace the file with another owner-owned regular file,
-pass every check, and have its contents render under the original session's
-identity. The one-shot ingress could be fooled the same way during its own
-resolution; what changes under a repeating ingress is that the opportunity
-recurs for as long as the tab refreshes rather than passing once, which is why
-the comparison earns its place here and did not before. Legitimate rotation
-fails the same check and takes the same fallback, so the guard costs nothing in
-the ordinary case.
+That fallback is charged against a budget of three *consecutive* failures. A
+render that lands clears the count, so a long session that recovers from three
+unrelated transient blips keeps refreshing rather than spending a lifetime
+allowance on them. The budget also belongs to one loop rather than to the tab:
+a window going inactive and active again ends one loop and starts another with
+a fresh count. "Three" bounds a run of failures within a loop generation, not a
+mount. Past three the loop stops and the tab keeps its last good render, which
+is what a transcript tab did before it refreshed at all.
+
+Re-validation also pins the inode, and it is worth being exact about what that
+buys. Re-opening compares the new handle's device and inode against the ones
+discovery bound the session id to; a mismatch reports `.notFound`, which routes
+into the discovery fallback above rather than rendering. The pin does not
+refuse substitution outright — the next pass rediscovers, and discovery may
+well accept the replacement, subject to the provider's exact-filename rule and
+the conversation-record check it applies to every candidate. What the pin
+forbids is the silent case: a replacement file rendering under a session id
+that was validated against a different inode, without re-passing the admission
+checks the first open had to pass. A one-shot ingress could be fooled during
+its own resolution too; what changes under a repeating one is that the
+opportunity recurs for as long as the tab refreshes, which is why the
+comparison earns its place here and did not before. Legitimate rotation takes
+the same route and is accepted the same way, so the pin costs a rediscovery in
+the ordinary case and nothing else.
 
 **The rendered artifact changes duration and completeness, not exposure
 class.** `AgentTranscriptStore` already states what it holds: a plaintext copy
@@ -115,6 +134,11 @@ Nothing else about the artifact moves: the same `0o600` file in the same
 `0o700` directory, the same atomic temp-and-rename into the same slot keyed by
 the validated session id, the same prune schedule and the same retention rule.
 The slot is replaced rather than appended to, so a tab that refreshes five
-hundred times still holds one render. A refresh whose rendered bytes match what
-this process last wrote to that path skips the write, so the rewrite rate
-follows the transcript's content rather than the filesystem's event rate.
+hundred times still holds one render. A refresh skips the write when the slot
+already *is* a `0o600` file whose current contents hash to the new render —
+read back through the same owner-only ingress the write uses, not compared
+against a record of what this process last wrote. Asking the file rather than a
+memo is what lets a prune between two refreshes be repaired instead of skipped
+past, and what keeps a slot left at a wider mode from being accepted as
+already-correct. The rewrite rate therefore follows the transcript's content
+rather than the filesystem's event rate.
