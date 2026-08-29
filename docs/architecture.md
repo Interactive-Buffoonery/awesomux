@@ -366,6 +366,9 @@ installation is a separate user action. See
 Agent transcript lookup and resume use the exact provider-native identity and
 the explicit adapters recorded in
 [ADR 0033](adr/0033-agent-transcripts-use-exact-provider-identities.md).
+A mounted transcript tab re-renders as its session appends, re-validating
+through the secure descriptor reader on every refresh; see that ADR's #494
+amendment.
 Opt-in Claude Code configuration and richer per-agent adapters remain follow-up
 work under INT-350, INT-351, and INT-352.
 
