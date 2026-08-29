@@ -81,38 +81,185 @@ struct DocumentPaneViewWatcherRevisionContextTests {
     /// records as impractical for this file. The behavioural half of the rule
     /// is `transcriptSuppressed` above; this half only asserts that nothing
     /// exits the block before the reload it depends on.
-    @Test("triggerWatcherReload has no exit between the two reload calls")
+    ///
+    /// The scan starts at the top of the declaration, not at the over-cap
+    /// branch's own reload. Anything that exits earlier — a guard added above
+    /// `readSnapshot`, a transcript check written into the cancellation guard —
+    /// skips *both* reloads and disables live refresh just as thoroughly,
+    /// while a window that opened at the first reload could not see it. It
+    /// pins the exits themselves rather than counting them, because a bare
+    /// `return` and a `return nil` are different statements in different
+    /// positions and "there are still three of them" is not the invariant.
+    @Test("triggerWatcherReload has no exit above the reload live refresh depends on")
     func triggerWatcherReloadHasNoExitAboveTheReload() throws {
         let body = try SourceContract.declarationBody(
             after: "private func triggerWatcherReload() {",
             in: try SourceContract.source(at: Self.panePath),
             path: Self.panePath
         )
-        // From the over-cap branch's own reload to the normal one: the only
-        // legitimate exit in between is that branch's single `return nil`.
-        let overCapReload = try #require(body.range(of: "triggerReload()\n"))
-        let reload = try #require(
-            body.range(of: "triggerReload(snapshot: onDisk)", range: overCapReload.upperBound..<body.endIndex)
-        )
+        let reload = try #require(body.range(of: "triggerReload(snapshot: onDisk)"))
 
         // Comment-stripped and token-matched, so `returns`/`returned` in prose
         // cannot stand in for a statement, and `guard … else { throw }` cannot
         // hide from a scan that only knows the word `return`.
-        let code = body[overCapReload.upperBound..<reload.lowerBound]
+        let code = body[body.startIndex..<reload.lowerBound]
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> Substring in
                 guard let comment = line.range(of: "//") else { return line }
                 return line[line.startIndex..<comment.lowerBound]
             }
             .joined(separator: "\n")
-        let exits = code.matches(of: /\b(return|throw)\b/)
+        let exits = code.matches(of: /\b(?:return|throw)\b[^\n]*/)
+            .map { $0.output.trimmingCharacters(in: CharacterSet(charactersIn: " \t}")) }
 
         #expect(
-            exits.count == 1,
+            exits == [
+                // The detached task, after its own read: nothing has been
+                // reloaded yet, so returning costs only this tick.
+                "return",
+                // A superseded generation, on the main actor.
+                "return nil",
+                // The over-cap branch, which reloads on its own line first.
+                "return nil",
+            ],
             """
-            triggerWatcherReload gained an early exit above \
-            triggerReload(snapshot:). Suppressing the revision indicator for a \
-            transcript must not skip the reload — that disables live refresh.
+            triggerWatcherReload gained or changed an exit above \
+            triggerReload(snapshot:), and the exits now read \(exits). \
+            Suppressing the revision indicator or the refresh announcement for \
+            a transcript must not skip the reload — that disables live refresh.
+            """
+        )
+    }
+
+    private static let panePath = "Sources/awesoMux/Views/DocumentPaneView.swift"
+}
+
+// MARK: - DocumentPaneView.consumeLiveTranscriptRefreshAnnouncement
+
+/// Suppressing the revision announcement (above) leaves a VoiceOver user with
+/// no signal that the document they are reading is being rewritten and their
+/// position may move. One announcement per mount restores the signal without
+/// restoring the noise.
+@Suite("DocumentPaneView live transcript refresh announcement")
+struct DocumentPaneViewLiveTranscriptAnnouncementTests {
+
+    /// Drives the seam the way the view does: one latch, reused across reloads.
+    private func announcements(
+        isAgentTranscript: Bool = true,
+        renderedSources: [String?],
+        onDiskSources: [String]
+    ) -> [Bool] {
+        var latch = false
+        return zip(renderedSources, onDiskSources).map { rendered, onDisk in
+            DocumentPaneView.consumeLiveTranscriptRefreshAnnouncement(
+                isAgentTranscript: isAgentTranscript,
+                alreadyAnnounced: &latch,
+                renderedSource: rendered,
+                onDiskSource: onDisk
+            )
+        }
+    }
+
+    @Test("the first content-changing refresh announces")
+    func firstChangeAnnounces() {
+        #expect(
+            announcements(renderedSources: ["# turn 1"], onDiskSources: ["# turn 1\n# turn 2"])
+                == [true]
+        )
+    }
+
+    @Test("later refreshes of the same mount stay silent")
+    func laterChangesStaySilent() {
+        #expect(
+            announcements(
+                renderedSources: ["# turn 1", "# turn 2", "# turn 3"],
+                onDiskSources: ["# turn 2", "# turn 3", "# turn 4"]
+            ) == [true, false, false]
+        )
+    }
+
+    /// A live-refreshing tab re-renders on every filesystem event, and most of
+    /// those events change nothing this document shows.
+    @Test("a refresh that changed nothing says nothing, and spends no latch")
+    func unchangedRefreshIsSilent() {
+        #expect(
+            announcements(
+                renderedSources: ["# turn 1", "# turn 1", "# turn 1"],
+                onDiskSources: ["# turn 1", "# turn 1", "# turn 1"]
+            ) == [false, false, false]
+        )
+        // The latch is spent by an announcement, never by a no-op reload: an
+        // idle session that ticks first must still be able to announce its
+        // first real append.
+        #expect(
+            announcements(
+                renderedSources: ["# turn 1", "# turn 1"],
+                onDiskSources: ["# turn 1", "# turn 1\n# turn 2"]
+            ) == [false, true]
+        )
+    }
+
+    @Test("an ordinary document never announces")
+    func ordinaryDocumentIsSilent() {
+        #expect(
+            announcements(
+                isAgentTranscript: false,
+                renderedSources: ["# turn 1", "# turn 2"],
+                onDiskSources: ["# turn 2", "# turn 3"]
+            ) == [false, false]
+        )
+    }
+
+    /// Opening the tab is not a live refresh, and the tab already announces
+    /// when it opens.
+    @Test("a reload with nothing rendered yet does not announce")
+    func initialLoadIsSilent() {
+        #expect(announcements(renderedSources: [nil], onDiskSources: ["# turn 1"]) == [false])
+    }
+
+    /// A remount resets the latch, so the announcement is per mount rather
+    /// than once per process.
+    @Test("a fresh mount can announce again")
+    func remountAnnouncesAgain() {
+        for _ in 0..<2 {
+            #expect(
+                announcements(renderedSources: ["# turn 1"], onDiskSources: ["# turn 2"]) == [true]
+            )
+        }
+    }
+
+    @Test("the announcement names the document as live and nothing else")
+    func announcementCopy() {
+        #expect(DocumentPaneView.liveTranscriptRefreshAnnouncement == "Transcript is updating live.")
+    }
+
+    /// A source contract for the same reason as
+    /// `triggerWatcherReloadHasNoExitAboveTheReload`: everything above is a
+    /// pure seam the tests call themselves, so all of it stays green if the
+    /// production call site is deleted, or merely moved *below*
+    /// `triggerReload(snapshot:)` — after which `renderedDoc?.source` is the
+    /// bytes that just landed, old never differs from new, and the
+    /// announcement silently never fires again. There is no seam to observe
+    /// that from without hosting the view.
+    @Test("triggerWatcherReload asks for the announcement before it reloads")
+    func announcementIsWiredAboveTheReload() throws {
+        let body = try SourceContract.declarationBody(
+            after: "private func triggerWatcherReload() {",
+            in: try SourceContract.source(at: Self.panePath),
+            path: Self.panePath
+        )
+        let call = try #require(
+            body.range(of: "consumeLiveTranscriptRefreshAnnouncement("),
+            "triggerWatcherReload no longer asks whether to announce a live transcript refresh."
+        )
+        let reload = try #require(body.range(of: "triggerReload(snapshot: onDisk)"))
+        #expect(
+            call.upperBound < reload.lowerBound,
+            """
+            The live-refresh announcement moved below triggerReload(snapshot:). \
+            It has to read the pre-reload rendered source, which that call \
+            replaces — below it, old always equals new and nothing is ever \
+            announced.
             """
         )
     }

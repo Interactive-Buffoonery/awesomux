@@ -982,6 +982,14 @@ struct DocumentPaneView: View {
     // `body` ever reads it; keep reads inside event closures.
     @State private var scrollAnchorCapture: (@MainActor () -> Int?)? = nil
     @State private var pendingScrollAnchor: Int? = nil
+    /// Latches the one live-refresh announcement this mount is allowed (#494).
+    /// `@State` behind the view's `.id(fileURL)` gives it exactly the lifetime
+    /// the rule needs: it resets on a remount and on a transcript-identity
+    /// change (the cache slot is keyed by agent kind and session id, so a
+    /// different session is a different path), and it does NOT reset on a
+    /// window-activation flip, which restarts the refresh loop but is not a new
+    /// document to warn the reader about.
+    @State private var announcedLiveTranscriptRefresh = false
 
     /// `cachedRender` seeds `loadResult`/`renderedDoc` so a tab the user
     /// switches back to shows its content immediately instead of a spinner —
@@ -1116,6 +1124,18 @@ struct DocumentPaneView: View {
             // first task after its detached load has launched — a duplicate
             // full read+parse per mount, on what tab switching has made the
             // hot path.
+            startWatcher()
+        }
+        .onChange(of: pane.agentTranscriptIdentity != nil) { _, _ in
+            // A tab can become a transcript after it mounts: the reducer
+            // backfills `agentTranscriptIdentity` onto the pane that already
+            // holds this file URL, and the URL is this view's identity, so
+            // nothing remounts and `onAppear` never fires again. The coalescing
+            // mode below is chosen once when the watcher starts, so without
+            // this restart such a tab keeps the debounced watcher it was given
+            // as an ordinary document — which is exactly the starvation live
+            // refresh exists to remove, on the one tab that just became
+            // eligible for it.
             startWatcher()
         }
         .onDisappear {
@@ -2175,6 +2195,42 @@ struct DocumentPaneView: View {
         return (selfWrite?.source ?? renderedSource, selfWrite?.isSelfWrite ?? false)
     }
 
+    /// Whether this reload is the one that tells a VoiceOver user the
+    /// transcript is being rewritten under them, latching `alreadyAnnounced`
+    /// when it is.
+    ///
+    /// `watcherRevisionContext` leaves a screen-reader user with no signal at
+    /// all that the document they are reading is changing and their position
+    /// may move. The answer is one announcement, not a restored per-refresh
+    /// one: the fact worth speaking is that this document is live, and it is
+    /// true from the first refresh onwards, so repeating it every render would
+    /// be the noise the suppression removed. `renderedSource == nil` is the
+    /// initial load rather than a refresh, and the tab already announces when
+    /// it opens.
+    ///
+    /// The latch is `inout` rather than a plain condition so the test that
+    /// pins "once" exercises the same statement that sets it — a separate
+    /// assignment at the call site is where this rule would drift.
+    static func consumeLiveTranscriptRefreshAnnouncement(
+        isAgentTranscript: Bool,
+        alreadyAnnounced: inout Bool,
+        renderedSource: String?,
+        onDiskSource: String
+    ) -> Bool {
+        guard isAgentTranscript, !alreadyAnnounced else { return false }
+        guard let renderedSource, renderedSource != onDiskSource else { return false }
+        alreadyAnnounced = true
+        return true
+    }
+
+    /// Static and non-private for the same reason as `readErrorMessage`: a test
+    /// can assert what the user actually hears.
+    static let liveTranscriptRefreshAnnouncement = String(
+        localized: "Transcript is updating live.",
+        comment:
+            "VoiceOver announcement the first time an open agent transcript is rewritten by its running session"
+    )
+
     private func triggerWatcherReload() {
         watcherReloadTask?.cancel()
         watcherReloadGeneration += 1
@@ -2222,6 +2278,19 @@ struct DocumentPaneView: View {
                     selfWrite: selfWrite,
                     renderedSource: renderedDoc?.source
                 )
+                // Reads `renderedDoc` for the same reason the line above does,
+                // and must stay above `triggerReload`: this is the last point
+                // where the pre-reload source is still what the user has seen.
+                if Self.consumeLiveTranscriptRefreshAnnouncement(
+                    isAgentTranscript: pane.agentTranscriptIdentity != nil,
+                    alreadyAnnounced: &announcedLiveTranscriptRefresh,
+                    renderedSource: renderedDoc?.source,
+                    onDiskSource: onDiskSource
+                ) {
+                    TerminalAccessibilityAnnouncer.announce(
+                        Self.liveTranscriptRefreshAnnouncement
+                    )
+                }
                 pendingScrollAnchor = anchor
                 triggerReload(snapshot: onDisk)
                 if context == nil { watcherReloadTask = nil }

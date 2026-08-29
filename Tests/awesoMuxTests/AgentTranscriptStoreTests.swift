@@ -209,6 +209,91 @@ struct AgentTranscriptStoreTests {
         }
     }
 
+    /// The skip is a read, and a read of this path is exactly as sensitive as
+    /// a write to it. `SecureFileReader`'s `.rejectFinalComponent` policy
+    /// deliberately resolves the PARENT with realpath, so it refuses only a
+    /// symlinked slot name and happily reads *through* a symlinked cache root —
+    /// which is the custody check the write path gets from
+    /// `validatedOwnerOnlyDirectory` and the skip would otherwise never reach.
+    @Test("a symlinked cache directory is refused before an unchanged slot can be skipped")
+    func symlinkedCacheDirectoryIsRefusedAheadOfTheSkip() throws {
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-agent-transcript")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let root = temporaryDirectory.url
+        let destination = root.appending(path: "destination", directoryHint: .isDirectory)
+        let link = root.appending(path: "agent-transcripts", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: destination)
+
+        // Land the slot through the real directory, so the symlinked store's
+        // skip has a byte-identical, correctly-permissioned file to find.
+        let honest = AgentTranscriptStore(cacheDirectoryURL: destination)
+        _ = try #require(
+            honest.write(
+                "# transcript",
+                agentKind: .claudeCode,
+                sessionID: Self.sessionID,
+                skippingUnchanged: true
+            )
+        )
+
+        let throughLink = AgentTranscriptStore(cacheDirectoryURL: link)
+        #expect(
+            throughLink.write(
+                "# transcript",
+                agentKind: .claudeCode,
+                sessionID: Self.sessionID,
+                skippingUnchanged: true
+            ) == nil,
+            "an unchanged slot was accepted through a symlinked cache root"
+        )
+    }
+
+    /// A slot holding the right bytes at the wrong mode is not a slot to skip.
+    /// This file is a plaintext copy of the session, so a `0o644` left by an
+    /// older build or by the user would otherwise stay world-readable for as
+    /// long as its content stopped changing — which, for a session that has
+    /// ended, is forever.
+    ///
+    /// Rewritten rather than refused: `writeOwnerOnlyFile` renames a fresh
+    /// `0o600` temp into place, so the ordinary path repairs the mode, whereas
+    /// refusing would fail the refresh and blank a tab over a permission bit
+    /// this process can fix.
+    @Test("an unchanged slot left group-readable is rewritten rather than skipped")
+    func skippingUnchangedRewritesALooseSlot() throws {
+        try Self.withCacheDirectory { store, _ in
+            let fileURL = try #require(
+                store.write(
+                    "# transcript",
+                    agentKind: .claudeCode,
+                    sessionID: Self.sessionID,
+                    skippingUnchanged: true
+                )
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o644],
+                ofItemAtPath: fileURL.path
+            )
+            let inode = try Self.inode(of: fileURL)
+
+            _ = try #require(
+                store.write(
+                    "# transcript",
+                    agentKind: .claudeCode,
+                    sessionID: Self.sessionID,
+                    skippingUnchanged: true
+                )
+            )
+
+            #expect(try Self.permissions(of: fileURL) == 0o600)
+            #expect(
+                try Self.inode(of: fileURL) != inode,
+                "the loose slot was skipped as unchanged instead of being rewritten"
+            )
+            #expect(try String(contentsOf: fileURL, encoding: .utf8) == "# transcript")
+        }
+    }
+
     // MARK: - Naming
 
     @Test("re-rendering the same session replaces the same path")

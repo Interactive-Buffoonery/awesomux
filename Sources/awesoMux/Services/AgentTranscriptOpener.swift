@@ -136,7 +136,8 @@ enum AgentTranscriptOpener {
                 markdown,
                 agentKind: transcript.agentKind,
                 sessionID: transcript.sessionID,
-                skippingUnchanged: skippingUnchanged
+                skippingUnchanged: skippingUnchanged,
+                shouldCommit: shouldCommit
             )
         else {
             return .failure(.cacheWriteFailed)

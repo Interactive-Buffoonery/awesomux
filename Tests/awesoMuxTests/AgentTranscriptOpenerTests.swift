@@ -221,6 +221,47 @@ struct AgentTranscriptOpenerTests {
         }
     }
 
+    /// The commit gate only orders anything if the production path hands it to
+    /// the store. `AgentTranscriptStore.write` defaults `shouldCommit` to
+    /// `{ true }`, so a `renderAndStore` that renders the gate and then drops
+    /// it leaves the authoritative in-lock check evaluating a constant — while
+    /// every store-level test still passes, because those call `write` directly
+    /// and supply the closure themselves.
+    ///
+    /// Answering `true` once and `false` afterwards is what separates the two
+    /// questions. The opener's own cheap early-out consumes the `true` and
+    /// proceeds to the store, so only a gate that was actually forwarded can
+    /// refuse the write from inside the cache lock. A dropped argument shows up
+    /// twice over: the gate is asked once instead of twice, and the sentinel
+    /// bytes are gone.
+    @Test("refresh forwards its commit gate into the cache write's critical section")
+    func refreshForwardsTheCommitGateToTheStore() throws {
+        try withFixture(lines: [Self.turnA]) { configHome, store in
+            let prior = try self.resolvedTranscript(configHome: configHome)
+            let slot = try #require(
+                store.write("sentinel", agentKind: .claudeCode, sessionID: Self.sessionID)
+            )
+
+            var answers = 0
+            let refreshed = try #require(
+                try? AgentTranscriptOpener.refresh(prior, store: store) {
+                    answers += 1
+                    return answers == 1
+                }.get()
+            )
+
+            #expect(refreshed == slot)
+            #expect(
+                answers == 2,
+                "the cache write never consulted the gate the opener was given"
+            )
+            #expect(
+                try String(contentsOf: slot, encoding: .utf8) == "sentinel",
+                "a refused render committed anyway: the store ran its own default gate"
+            )
+        }
+    }
+
     /// The security failures are not transients, and a refresh loop has to be
     /// able to tell them apart from "nothing there yet".
     @Test("a refresh reports the reopen failure rather than the last good render")

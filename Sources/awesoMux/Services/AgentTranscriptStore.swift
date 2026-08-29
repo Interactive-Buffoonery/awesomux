@@ -100,11 +100,12 @@ struct AgentTranscriptStore: @unchecked Sendable {
     /// file behind on every refresh.
     ///
     /// - Parameter skippingUnchanged: Return the existing path without writing
-    ///   when the slot already holds exactly these bytes. A live-refreshing
-    ///   session re-renders on every filesystem event, and most of those events
-    ///   change nothing this document shows; rewriting anyway costs an atomic
-    ///   rename, a watcher re-arm, a document reload, and a main-actor
-    ///   attributed-string rebuild to arrive at the bytes already on screen.
+    ///   when the slot is already a `0o600` file whose contents hash to this
+    ///   render's digest. A live-refreshing session re-renders on every
+    ///   filesystem event, and most of those events change nothing this
+    ///   document shows; rewriting anyway costs an atomic rename, a watcher
+    ///   re-arm, a document reload, and a main-actor attributed-string rebuild
+    ///   to arrive at the bytes already on screen.
     ///   The check reads the slot back through the same owner-only ingress the
     ///   write uses rather than trusting a record of the last write: a record
     ///   describes what this process *did*, and the question the skip actually
@@ -137,9 +138,14 @@ struct AgentTranscriptStore: @unchecked Sendable {
             // window the gate exists to close: check, get superseded, and land
             // on top of the newer render's bytes.
             guard shouldCommit() else { return fileURL }
-            if skippingUnchanged, Self.slotHolds(digest, at: fileURL) {
-                return fileURL
-            }
+            // Ahead of the skip, not just ahead of the write.
+            // `SecureFileReader`'s `.rejectFinalComponent` policy resolves the
+            // PARENT with realpath by design, so it alone would accept a read
+            // through a symlinked or group-writable cache root — and a skip is
+            // a read whose answer decides whether this session's plaintext ever
+            // gets rewritten into a directory this process owns. Validating
+            // first also re-clamps the root to `0o700` on the refresh path, not
+            // only when the bytes happen to have changed.
             guard
                 fileManager.validatedOwnerOnlyDirectory(
                     at: cacheDirectoryURL,
@@ -147,6 +153,9 @@ struct AgentTranscriptStore: @unchecked Sendable {
                 ) != nil
             else {
                 return nil
+            }
+            if skippingUnchanged, Self.slotHolds(digest, at: fileURL, fileManager: fileManager) {
+                return fileURL
             }
             do {
                 try fileManager.writeOwnerOnlyFile(at: fileURL, contents: Data(markdown.utf8))
@@ -160,7 +169,8 @@ struct AgentTranscriptStore: @unchecked Sendable {
         }
     }
 
-    /// Whether the slot currently holds exactly the bytes `digest` names.
+    /// Whether the slot is already a `0o600` file whose contents hash to
+    /// `digest`.
     ///
     /// Read through `SecureFileReader` rather than `Data(contentsOf:)` because
     /// this is a read of a path another local user could have swapped: the
@@ -169,9 +179,27 @@ struct AgentTranscriptStore: @unchecked Sendable {
     /// else — missing, replaced, over budget — answers `false`, and `false`
     /// only ever costs a rewrite.
     ///
+    /// The mode is part of the question rather than a separate repair step. A
+    /// slot left at `0o644` by an older build or by the user holds the right
+    /// bytes at the wrong exposure, and this file is a plaintext copy of the
+    /// session; answering `true` there would leave it world-readable for as
+    /// long as its content stopped changing, which for a finished session is
+    /// forever. Rewritten rather than refused, because `writeOwnerOnlyFile`
+    /// renames a fresh `0o600` temp into place and so repairs the mode as a
+    /// side effect of the ordinary path — refusing would instead fail the
+    /// refresh and blank a tab over a permission bit this process can fix.
+    ///
     /// Called under `cacheLock`.
-    nonisolated private static func slotHolds(_ digest: String, at fileURL: URL) -> Bool {
+    nonisolated private static func slotHolds(
+        _ digest: String,
+        at fileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
         guard
+            let mode = (try? fileManager.attributesOfItem(atPath: fileURL.path))?[
+                .posixPermissions
+            ] as? NSNumber,
+            mode.intValue & 0o777 == 0o600,
             let contents = try? SecureFileReader.read(
                 at: fileURL,
                 maximumBytes: AgentTranscriptRenderer.budgetBytes,
