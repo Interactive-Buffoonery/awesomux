@@ -231,14 +231,16 @@ enum DaemonGarbageCollector {
             log.error("orphan attach GC aborted: fresh daemon list unavailable or unparseable")
             return
         }
-        // `attachProcessSamples(forPIDs:)` below covers only the candidate
-        // attach pids, so it can never resolve the parents of the FRESH listed
-        // pids — and those parents are the daemons `liveDaemonPIDs` fences on.
-        // Hence a second full snapshot here rather than a reuse. Same
-        // fail-dangerous stance as the strict re-parse above: an unavailable
-        // snapshot means we cannot tell a daemon from a leaked client, so
-        // abort instead of falling open into a kill.
-        guard let freshSnapshot = await AmxBackend.currentProcessSnapshot() else {
+        // Resolve only the freshly listed shell-child pids. Their parent rows
+        // are the fallback daemon identities `liveDaemonPIDs` needs; querying
+        // the rest of the machine adds no evidence to this confirm pass.
+        // Same fail-dangerous stance as the strict re-parse above: an
+        // unavailable snapshot means we cannot tell a daemon from a leaked
+        // client, so abort instead of falling open into a kill.
+        guard
+            let freshSnapshot = await AmxBackend.processSnapshot(
+                forPIDs: freshDaemons.map(\.pid))
+        else {
             log.error("orphan attach GC aborted: fresh process snapshot unavailable")
             return
         }
