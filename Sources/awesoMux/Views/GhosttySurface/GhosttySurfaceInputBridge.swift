@@ -534,6 +534,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             inputState.armedLinkClickValue = inputState.mouseOverLink
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_LEFT, event: event)
+        markNeedsAttentionPromptAnswered()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -548,6 +549,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_LEFT, event: event)
+        markNeedsAttentionPromptAnswered()
 
         // INT-453: complete plain-click link activation (armed at press,
         // cancelled by drag). Routed through the same funnel as

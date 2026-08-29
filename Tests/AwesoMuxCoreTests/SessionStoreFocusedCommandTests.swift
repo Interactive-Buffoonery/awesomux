@@ -193,6 +193,37 @@ struct SessionStoreFocusedCommandTests {
         #expect(store.selectedSession?.agentState == .thinking)
     }
 
+    @Test("markNeedsAttentionPromptAnswered records an attempt before the hook lands")
+    func markNeedsAttentionPromptAnsweredRecordsAttemptBeforeHookLands() {
+        let session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            agentState: .thinking,
+            unreadNotificationCount: 0
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "main", sessions: [session])
+        ])
+
+        store.markNeedsAttentionPromptAnswered(id: session.id)
+
+        let applied = store.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "late-permission"
+            ),
+            to: session.id,
+            paneID: session.activePaneID,
+            terminalIsFocused: true
+        )
+        #expect(applied)
+        #expect(store.session(id: session.id)?.attentionReason == nil)
+        #expect(store.session(id: session.id)?.needsUserInput == false)
+    }
+
     @Test("markNeedsAttentionPromptAnswered no-ops outside needs attention")
     func markNeedsAttentionPromptAnsweredNoopsOutsideNeedsAttention() {
         let session = TerminalSession(

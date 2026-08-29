@@ -235,6 +235,14 @@ extension SessionStore {
         id: TerminalSession.ID,
         paneID: TerminalPane.ID? = nil
     ) {
+        if let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID),
+            session(id: id)?.layout.pane(id: targetPaneID)?.agentKind != .shell
+        {
+            runtimeEventReducer.recordPermissionAnswerAttempt(
+                paneID: targetPaneID,
+                now: Date()
+            )
+        }
         guard let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID),
             session(id: id)?.layout.pane(id: targetPaneID)?.agentState == .needsAttention
         else {
