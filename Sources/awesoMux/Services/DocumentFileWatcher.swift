@@ -14,7 +14,8 @@ import Foundation
 ///
 /// A brief ENOENT between unlink and the new inode's creation is tolerated via a
 /// short retry loop. Multiple rapid events in the same write cycle are debounced
-/// to one `onChange` callback delivered on the main actor.
+/// to one `onChange` callback delivered on the main actor, unless the caller
+/// asks for `coalescing: .immediate`.
 ///
 /// Usage (from a SwiftUI view's `.onAppear`/`.task`):
 /// ```swift
@@ -33,19 +34,55 @@ import Foundation
 @MainActor
 final class DocumentFileWatcher {
 
+    /// How the watcher treats several vnode events arriving in one write cycle.
+    ///
+    /// Cases, not a `Duration`: a window parameter that accepted
+    /// `.milliseconds(50)` and silently delivered at 100 ms would be an
+    /// argument that lies. See `scheduleOnChange` for why the window is a
+    /// literal.
+    enum Coalescing {
+        /// Trailing ~100 ms window. Every event restarts it.
+        ///
+        /// Right for a file a human edits, where the interesting moment is when
+        /// the writing *stops*. Wrong for a file a process appends to for
+        /// minutes: the restart is unconditional, so a stream of sub-window
+        /// writes postpones delivery for as long as the stream lasts.
+        case debounced
+        /// Deliver the first event at once, then suppress for ~100 ms and
+        /// deliver one trailing event if any arrived inside that window.
+        ///
+        /// A rate limit rather than a coalescer: bounded delivery with no
+        /// added latency on the first event and no starvation under a
+        /// continuous stream, which is what a running agent's session log is.
+        case leadingEdge
+        /// Deliver each event as it arrives, for a caller that coalesces
+        /// downstream. Bounds nothing on its own.
+        case immediate
+    }
+
     // MARK: - State (all @MainActor)
 
     private let url: URL
+    private let coalescing: Coalescing
     private let onChange: @MainActor () -> Void
 
     private var source: DispatchSourceFileSystemObject?
     private var debounceTask: Task<Void, Never>?
+    private var pendingTrailingEvent = false
     private var stopped = false
 
     // MARK: - Lifecycle
 
-    init(url: URL, onChange: @escaping @MainActor () -> Void) {
+    /// - Parameter coalescing: `.immediate` delivers every event as it
+    ///   arrives — see `scheduleOnChange` for why a stream of appends needs
+    ///   that.
+    init(
+        url: URL,
+        coalescing: Coalescing = .debounced,
+        onChange: @escaping @MainActor () -> Void
+    ) {
         self.url = url
+        self.coalescing = coalescing
         self.onChange = onChange
     }
 
@@ -76,6 +113,7 @@ final class DocumentFileWatcher {
         stopped = true
         debounceTask?.cancel()
         debounceTask = nil
+        pendingTrailingEvent = false
         source?.cancel()
         source = nil
     }
@@ -172,13 +210,60 @@ final class DocumentFileWatcher {
         }
     }
 
-    /// Schedule a debounced `onChange` call (~100 ms coalescence window).
+    /// Deliver `onChange` according to `coalescing` (~100 ms window).
+    ///
+    /// `.debounced` is purely trailing — every event cancels and restarts it —
+    /// so a continuous stream of sub-window writes, which is what a running
+    /// agent appending to its session log looks like, can postpone the callback
+    /// indefinitely. `.leadingEdge` is the same window run the other way round:
+    /// the first event is delivered before the window opens, so the stream that
+    /// starves a debounce is exactly the stream it serves best.
+    ///
+    /// The window stays a literal because `script/check_test_waits.sh` rejects
+    /// newly added sleeps under `Sources/`; that is also why `Coalescing` is
+    /// cases rather than a duration. If a second window is ever genuinely
+    /// needed, make it duration-driven and exempt this file there.
     private func scheduleOnChange() {
-        debounceTask?.cancel()
+        switch coalescing {
+        case .immediate:
+            debounceTask?.cancel()
+            debounceTask = nil
+            guard !stopped else { return }
+            onChange()
+        case .debounced:
+            debounceTask?.cancel()
+            debounceTask = nil
+            openWindow(deliveringOnExpiry: true)
+        case .leadingEdge:
+            // A live window means one delivery already happened inside it, so
+            // this event becomes the single trailing one — replacing any
+            // earlier pending event rather than queueing behind it.
+            guard debounceTask == nil else {
+                pendingTrailingEvent = true
+                return
+            }
+            guard !stopped else { return }
+            onChange()
+            openWindow(deliveringOnExpiry: false)
+        }
+    }
+
+    /// Runs the ~100 ms window, then either delivers (trailing debounce) or
+    /// releases the suppression, delivering once and re-opening if events
+    /// arrived while it was closed (leading edge).
+    private func openWindow(deliveringOnExpiry: Bool) {
         debounceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 100_000_000)  // 100 ms
             guard let self, !self.stopped, !Task.isCancelled else { return }
+            guard !deliveringOnExpiry else {
+                self.onChange()
+                return
+            }
+            self.debounceTask = nil
+            guard self.pendingTrailingEvent else { return }
+            self.pendingTrailingEvent = false
             self.onChange()
+            self.openWindow(deliveringOnExpiry: false)
         }
     }
 }

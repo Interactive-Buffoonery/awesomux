@@ -2139,10 +2139,40 @@ struct DocumentPaneView: View {
 
     private func startWatcher() {
         watcher?.stop()
-        watcher = DocumentFileWatcher(url: pane.fileURL) { [self] in
+        watcher = DocumentFileWatcher(
+            url: pane.fileURL,
+            // A transcript's file is rewritten by the live-refresh loop for as
+            // long as its agent runs, so this watcher receives writes at the
+            // rate that loop renders. A trailing debounce is purely trailing:
+            // it would stop updating the tab hardest exactly while the agent is
+            // most active. Every other document is a file a human edits, where
+            // waiting for the writing to stop is the right rule and today's
+            // behaviour is what to keep.
+            coalescing: pane.agentTranscriptIdentity == nil ? .debounced : .leadingEdge
+        ) { [self] in
             triggerWatcherReload()
         }
         watcher?.start()
+    }
+
+    /// What the detached diff half of a watcher reload should work from, or
+    /// `nil` for "reload, report nothing".
+    ///
+    /// A rendered agent transcript is regenerable cache (`isEditable == false`)
+    /// that the live-refresh loop rewrites for as long as its session runs. It
+    /// holds no user edits, so reporting one would pop the revision pill and
+    /// speak "N lines changed" on every refresh. The suppression is a *value*
+    /// the caller computes before it reloads rather than an early return, so it
+    /// structurally cannot skip the reload that live refresh depends on.
+    ///
+    /// Static and pure so the rule is checkable without hosting the view.
+    static func watcherRevisionContext(
+        isAgentTranscript: Bool,
+        selfWrite: MarkdownSelfWriteContext?,
+        renderedSource: String?
+    ) -> (old: String?, isSelfWrite: Bool)? {
+        guard !isAgentTranscript else { return nil }
+        return (selfWrite?.source ?? renderedSource, selfWrite?.isSelfWrite ?? false)
     }
 
     private func triggerWatcherReload() {
@@ -2187,10 +2217,15 @@ struct DocumentPaneView: View {
                 // Debounced watcher bursts intentionally diff from the last
                 // version the user saw — which is their own just-written
                 // source when a self-write and an external edit coalesced.
-                let old = selfWrite?.source ?? renderedDoc?.source
+                let context = Self.watcherRevisionContext(
+                    isAgentTranscript: pane.agentTranscriptIdentity != nil,
+                    selfWrite: selfWrite,
+                    renderedSource: renderedDoc?.source
+                )
                 pendingScrollAnchor = anchor
                 triggerReload(snapshot: onDisk)
-                return (old, selfWrite?.isSelfWrite ?? false)
+                if context == nil { watcherReloadTask = nil }
+                return context
             }
 
             guard !Task.isCancelled, let context, let onDisk, let onDiskSource = onDisk.source else { return }

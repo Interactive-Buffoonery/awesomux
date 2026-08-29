@@ -161,6 +161,81 @@ struct DocumentFileWatcherTests {
         }
     }
 
+    /// `.immediate` opts out of coalescing entirely.
+    ///
+    /// Three writes 60 ms apart sit inside one default 100 ms window, which is
+    /// purely trailing and restarts on every event — the default watcher
+    /// delivers those as a single callback. A caller that coalesces downstream
+    /// needs every event instead, because a continuous stream of sub-window
+    /// writes can otherwise postpone delivery indefinitely.
+    @Test("coalescing .immediate delivers every event")
+    func immediateCoalescingDeliversEveryEvent() async throws {
+        try await withTempFile { url in
+            let counter = Counter()
+
+            let watcher = DocumentFileWatcher(url: url, coalescing: .immediate) {
+                counter.increment()
+            }
+            watcher.start()
+
+            for i in 0..<3 {
+                try "content \(i)".write(to: url, atomically: false, encoding: .utf8)
+                try await Task.sleep(nanoseconds: 60_000_000)  // 60 ms — inside the default window
+            }
+
+            let delivered = await waitUntilEventually(deadline: .seconds(10)) { counter.value >= 3 }
+            watcher.stop()
+
+            #expect(
+                delivered,
+                "every write inside one default window must reach an .immediate watcher"
+            )
+        }
+    }
+
+    /// `.leadingEdge` is the mode a file that a *process* appends to needs.
+    ///
+    /// Two properties at once, and the second is the one the default mode
+    /// fails. Rate: a stream of writes far faster than the 100 ms window must
+    /// not produce one callback per write. No starvation: the callbacks have to
+    /// arrive *during* the stream, not after it stops — a trailing debounce
+    /// restarts unconditionally, so its first delivery lands only once the
+    /// writing has finished, which is precisely when a live transcript tab
+    /// stops needing to update.
+    @Test("coalescing .leadingEdge bounds the rate without waiting for the writing to stop")
+    func leadingEdgeCoalescingBoundsTheRate() async throws {
+        try await withTempFile { url in
+            let counter = Counter()
+
+            let watcher = DocumentFileWatcher(url: url, coalescing: .leadingEdge) {
+                counter.increment()
+            }
+            watcher.start()
+
+            // ~15 writes across ~450 ms: far more than the ~5 windows that fit.
+            var deliveredDuringTheStream = 0
+            for i in 0..<15 {
+                try "content \(i)".write(to: url, atomically: false, encoding: .utf8)
+                try await Task.sleep(nanoseconds: 30_000_000)  // 30 ms
+                if i == 7 { deliveredDuringTheStream = counter.value }
+            }
+            let duringStream = deliveredDuringTheStream
+            let delivered = await waitUntilEventually(deadline: .seconds(10)) { counter.value >= 2 }
+            let total = counter.value
+            watcher.stop()
+
+            #expect(
+                duringStream >= 1,
+                "the leading edge must deliver while the writing is still going on"
+            )
+            #expect(delivered)
+            #expect(
+                total < 15,
+                "a bounded rate must not degenerate into one callback per event"
+            )
+        }
+    }
+
     /// `stop()` is idempotent — calling it multiple times does not crash.
     @Test("stop() is idempotent")
     func stopIsIdempotent() async throws {

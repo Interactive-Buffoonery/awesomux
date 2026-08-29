@@ -168,6 +168,56 @@ public enum AgentTranscriptImporter {
         )
     }
 
+    /// Re-opens the transcript a previous discovery already resolved, so a
+    /// caller can see bytes the agent appended since.
+    ///
+    /// A fresh open is the only way to see them. `SecureFileReadHandle` anchors
+    /// every read to the length it validated at open, so the descriptor already
+    /// on `prior` can never grow. Re-opening is also the point: it re-runs the
+    /// owner, regular-file, and symlink checks against whatever inode the path
+    /// names *now*, which is what makes a repeating read a repeating ingress
+    /// rather than one validation trusted forever.
+    ///
+    /// Takes the typed `AgentTranscript` rather than a free `(identity, URL)`
+    /// pair on purpose: a pair lets a caller bind a validated session id to an
+    /// unrelated file that happens to pass the same checks, which is exactly
+    /// the identity/content decoupling the secure ingress exists to prevent.
+    /// Threading the value keeps the pairing honest, because the only way to
+    /// obtain an `AgentTranscript` is a successful discovery here.
+    ///
+    /// The type alone is not enough, though: a path is not an inode. Re-opening
+    /// resolves whatever the path names *now*, so carrying `prior.sessionID`
+    /// forward unconditionally would stamp a validated session id onto a
+    /// replacement file — the same decoupling, through a different door. The
+    /// device/inode pair is therefore compared against the one discovery bound
+    /// the id to, and a mismatch is reported as `.notFound` so the caller
+    /// re-runs discovery and re-establishes the binding properly rather than
+    /// reading a stranger's bytes under this session's name.
+    public static func reopen(
+        _ prior: AgentTranscript,
+        effectiveUID: uid_t = geteuid()
+    ) -> Result<AgentTranscript, AgentTranscriptUnavailable> {
+        do {
+            let handle = try SecureFileReader.open(
+                at: prior.resolvedURL,
+                effectiveUID: effectiveUID,
+                symlinkPolicy: .rejectFinalComponent
+            )
+            guard handle.identity == prior.handle.identity else {
+                return .failure(.notFound)
+            }
+            return .success(
+                AgentTranscript(
+                    agentKind: prior.agentKind,
+                    sessionID: prior.sessionID,
+                    handle: handle
+                )
+            )
+        } catch let error {
+            return .failure(.unreadable(error))
+        }
+    }
+
     struct CandidateSearch {
         var candidates: [(url: URL, modified: Date)]
         var reachedLimit: Bool

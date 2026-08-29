@@ -35,6 +35,11 @@ struct AgentTranscriptOpenerTests {
         try operation(configHome, store)
     }
 
+    private static func inode(of url: URL) throws -> UInt64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try #require(attributes[.systemFileNumber] as? NSNumber).uint64Value
+    }
+
     // MARK: - End to end
 
     @Test("a resolved transcript is rendered, stored, and returned with its provenance")
@@ -99,6 +104,136 @@ struct AgentTranscriptOpenerTests {
         #expect(
             AgentTranscriptOpener.localizedChrome(agentKind: .codex).title.contains("Codex")
         )
+    }
+
+    // MARK: - Refreshing a live session
+
+    private static let turnA =
+        #"{"type":"user","cwd":"/tmp/repo","message":{"content":"opening turn"}}"#
+    private static let turnB =
+        #"{"type":"assistant","cwd":"/tmp/repo","message":{"content":"later turn"}}"#
+
+    private func resolvedTranscript(configHome: URL) throws -> AgentTranscript {
+        try AgentTranscriptImporter.open(
+            agentKind: .claudeCode,
+            executionPlan: .local,
+            configHome: configHome,
+            reportedSessionID: Self.sessionID
+        ).get()
+    }
+
+    /// The acceptance criterion, asserted on the file the tab actually opens:
+    /// a turn appended after the first render reaches the cache document.
+    @Test("a refresh re-reads the source, so a later turn reaches the cache file")
+    func refreshPicksUpALaterTurn() throws {
+        try withFixture(lines: [Self.turnA]) { configHome, store in
+            let prior = try self.resolvedTranscript(configHome: configHome)
+
+            let cacheURL = try #require(try? AgentTranscriptOpener.refresh(prior, store: store).get())
+            let before = try String(contentsOf: cacheURL, encoding: .utf8)
+            #expect(before.contains("opening turn"))
+            #expect(!before.contains("later turn"))
+
+            let handle = try FileHandle(forWritingTo: prior.resolvedURL)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(("\n" + Self.turnB).utf8))
+            try handle.close()
+
+            let refreshed = try #require(
+                try? AgentTranscriptOpener.refresh(prior, store: store).get()
+            )
+
+            // Same slot, new bytes: the open tab follows in place.
+            #expect(refreshed == cacheURL)
+            let after = try String(contentsOf: refreshed, encoding: .utf8)
+            #expect(after.contains("opening turn"))
+            #expect(after.contains("later turn"))
+        }
+    }
+
+    /// A running agent's log fires filesystem events that change nothing this
+    /// document shows. Rewriting anyway costs a rename, a watcher re-arm, a
+    /// reload, and a main-actor attributed-string rebuild for identical bytes.
+    ///
+    /// The inode is the evidence: the store renames a fresh temp file into
+    /// place, so a second write cannot leave the first one's inode behind.
+    @Test("a refresh whose render is unchanged does not rewrite the cache slot")
+    func unchangedRenderSkipsTheWrite() throws {
+        try withFixture(lines: [Self.turnA]) { configHome, store in
+            let prior = try self.resolvedTranscript(configHome: configHome)
+            let cacheURL = try #require(try? AgentTranscriptOpener.refresh(prior, store: store).get())
+            let inode = try Self.inode(of: cacheURL)
+
+            let again = try #require(try? AgentTranscriptOpener.refresh(prior, store: store).get())
+
+            #expect(again == cacheURL)
+            #expect(
+                try Self.inode(of: again) == inode,
+                "an unchanged render must skip the write rather than repeat it"
+            )
+        }
+    }
+
+    /// The skip is a claim about the file, not about what this process
+    /// remembers writing. A prune between two refreshes leaves the tab pointing
+    /// at nothing, and a skip that trusted its own record would never put it
+    /// back for the rest of the session.
+    @Test("a refresh restores a cache slot that was pruned underneath it")
+    func refreshRestoresAPrunedCacheSlot() throws {
+        try withFixture(lines: [Self.turnA]) { configHome, store in
+            let prior = try self.resolvedTranscript(configHome: configHome)
+            let cacheURL = try #require(try? AgentTranscriptOpener.refresh(prior, store: store).get())
+            try FileManager.default.removeItem(at: cacheURL)
+
+            _ = try #require(try? AgentTranscriptOpener.refresh(prior, store: store).get())
+
+            #expect(
+                try String(contentsOf: cacheURL, encoding: .utf8).contains("opening turn"),
+                "the slot must be rewritten, not skipped as unchanged"
+            )
+        }
+    }
+
+    /// `open` passes `skippingUnchanged: false` because the user just asked for
+    /// the document: a slot something else pruned has to be put back rather
+    /// than assumed present.
+    @Test("opening restores a cache slot that was pruned, even with an unchanged source")
+    func openRewritesAPrunedCacheSlot() throws {
+        try withFixture(lines: [Self.turnA]) { configHome, store in
+            func open() -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
+                AgentTranscriptOpener.open(
+                    agentKind: .claudeCode,
+                    executionPlan: .local,
+                    configHome: configHome,
+                    reportedSessionID: Self.sessionID,
+                    store: store
+                )
+            }
+            let first = try #require(try? open().get())
+            try FileManager.default.removeItem(at: first.fileURL)
+
+            let second = try #require(try? open().get())
+
+            #expect(second.fileURL == first.fileURL)
+            #expect(
+                try String(contentsOf: second.fileURL, encoding: .utf8).contains("opening turn")
+            )
+        }
+    }
+
+    /// The security failures are not transients, and a refresh loop has to be
+    /// able to tell them apart from "nothing there yet".
+    @Test("a refresh reports the reopen failure rather than the last good render")
+    func refreshReportsAReopenFailure() throws {
+        try withFixture(lines: [Self.turnA]) { configHome, store in
+            let prior = try self.resolvedTranscript(configHome: configHome)
+            try FileManager.default.removeItem(at: prior.resolvedURL)
+
+            #expect(
+                AgentTranscriptOpener.refresh(prior, store: store)
+                    == .failure(.unavailable(.unreadable(.unreadable)))
+            )
+        }
     }
 
     // MARK: - Degrading with a reason
