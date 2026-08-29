@@ -91,19 +91,28 @@ nothing here follows a file over SSH.
 
 Failures route by kind. An owner, regular-file, or size refusal stops the loop,
 because the same file fails the same way every time. A vanished or unreadable
-path falls back to the full exact-identity discovery above, and so does a
-failed cache write: if the write that fails is the one for the session's last
-append, there is no later event to retry on and the tab would be stale for
-good.
+path enters event-driven recovery. The loop arms a vnode watcher on the prior
+session directory before one catch-up discovery, then authorizes at most one
+full exact-identity discovery per delivered directory event. This closes the
+recreation race without spending the whole budget synchronously or adding a
+timer. Before the first pin, the equivalent watcher is armed on the provider's
+transcript search root.
 
-That fallback is charged against a budget of three *consecutive* failures. A
-render that lands clears the count, so a long session that recovers from three
-unrelated transient blips keeps refreshing rather than spending a lifetime
-allowance on them. The budget also belongs to one loop rather than to the tab:
-a window going inactive and active again ends one loop and starts another with
-a fresh count. "Three" bounds a run of failures within a loop generation, not a
-mount. Past three the loop stops and the tab keeps its last good render, which
-is what a transcript tab did before it refreshed at all.
+A failed cache write takes a different path. The source is still pinned and
+the exact-file watcher stays armed, so the next source event retries the write
+without rediscovery. It neither charges nor resets the source-recovery budget.
+If the failed write follows the session's final append, there is no later event
+to retry it and the tab remains stale; recovery deliberately has no timer.
+
+Failed exact-identity recovery attempts are charged against a budget of three
+*consecutive* failures. Only a render that lands clears the count, so a long
+session that recovers from three unrelated transient blips keeps refreshing
+rather than spending a lifetime allowance on them. The budget also belongs to
+one loop rather than to the tab: a window going inactive and active again ends
+one loop and starts another with a fresh count. "Three" bounds a run of source
+recovery failures within a loop generation, not a mount. At three the loop
+stops and the tab keeps its last good render, which is what a transcript tab did
+before it refreshed at all.
 
 Re-validation also pins the inode, and it is worth being exact about what that
 buys. Re-opening compares the new handle's device and inode against the ones

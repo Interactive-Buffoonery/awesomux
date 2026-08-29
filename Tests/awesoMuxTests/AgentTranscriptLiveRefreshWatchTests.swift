@@ -77,4 +77,52 @@ struct AgentTranscriptLiveRefreshWatchTests {
         task.cancel()
         await task.value
     }
+
+    @Test("recreating a vanished source re-pins and resumes the cache")
+    func recreateSourceResumesTheCache() async throws {
+        let root = try TemporaryDirectory(prefix: "awesomux-live-refresh-recreate")
+        defer { withExtendedLifetime(root) {} }
+        let configHome = root.url.appending(path: "claude", directoryHint: .isDirectory)
+        let projects = configHome.appending(path: "projects/-tmp-repo", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let source = projects.appending(path: "\(Self.sessionID).jsonl")
+        try Data("\(Self.turnA)\n".utf8).write(to: source)
+
+        let store = AgentTranscriptStore(
+            cacheDirectoryURL: root.url.appending(path: "cache", directoryHint: .isDirectory)
+        )
+        let cacheURL = store.fileURL(agentKind: .claudeCode, sessionID: Self.sessionID)
+        let identity = try #require(
+            AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: Self.sessionID)
+        )
+        let loop = AgentTranscriptLiveRefresh(
+            identity: identity,
+            configHome: configHome,
+            gate: AgentTranscriptRenderGate(),
+            pinned: nil,
+            store: store,
+            onPin: { _ in }
+        )
+        let task = Task { await loop.run() }
+        defer { task.cancel() }
+
+        func cache() -> String? { try? String(contentsOf: cacheURL, encoding: .utf8) }
+        #expect(await waitUntilEventually { cache()?.contains("opening turn") == true })
+
+        try FileManager.default.removeItem(at: source)
+        // The exact-file watcher first completes its bounded missing-inode
+        // handling; recovery then watches this still-present session directory.
+        try await Task.sleep(for: .milliseconds(500))
+        try Data("\(Self.turnA)\n\(Self.turnB)\n".utf8).write(to: source)
+
+        #expect(
+            await waitUntilEventually(deadline: .seconds(10)) {
+                cache()?.contains("later turn") == true
+            },
+            "a directory vnode event must drive exact-identity discovery and resume rendering"
+        )
+
+        task.cancel()
+        await task.value
+    }
 }

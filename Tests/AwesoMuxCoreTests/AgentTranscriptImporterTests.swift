@@ -11,6 +11,34 @@ struct AgentTranscriptImporterTests {
     private static let sessionB = "9a8b7c6d-5e4f-4321-9876-543210fedcba"
 
     @Test
+    func transcriptSearchRootUsesTheProviderLayout() {
+        let configHome = URL(fileURLWithPath: "/tmp/provider-home", isDirectory: true)
+
+        #expect(
+            AgentTranscriptImporter.transcriptSearchRoot(
+                agentKind: .claudeCode,
+                configHome: configHome
+            ) == configHome.appending(path: "projects", directoryHint: .isDirectory)
+        )
+        for provider: AgentKind in [.codex, .pi] {
+            #expect(
+                AgentTranscriptImporter.transcriptSearchRoot(
+                    agentKind: provider,
+                    configHome: configHome
+                ) == configHome.appending(path: "sessions", directoryHint: .isDirectory)
+            )
+        }
+        for unsupported: AgentKind in [.openCode, .grok, .shell] {
+            #expect(
+                AgentTranscriptImporter.transcriptSearchRoot(
+                    agentKind: unsupported,
+                    configHome: configHome
+                ) == nil
+            )
+        }
+    }
+
+    @Test
     func opensClaudeTranscriptByExactSessionID() throws {
         let fixture = try Fixture(provider: .claudeCode)
         defer { fixture.remove() }
