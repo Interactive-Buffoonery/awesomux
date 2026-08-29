@@ -91,18 +91,24 @@ nothing here follows a file over SSH.
 
 Failures route by kind. An owner, regular-file, or size refusal stops the loop,
 because the same file fails the same way every time. A vanished or unreadable
-path enters event-driven recovery. The loop arms a vnode watcher on the prior
-session directory before one catch-up discovery, then authorizes at most one
-full exact-identity discovery per delivered directory event. This closes the
-recreation race without spending the whole budget synchronously or adding a
-timer. Before the first pin, the equivalent watcher is armed on the provider's
-transcript search root.
+path enters event-driven recovery. The loop arms one recursive FSEvents stream
+on the provider's transcript hierarchy before one catch-up discovery, then
+authorizes at most one full exact-identity discovery per delivered event batch.
+The same hierarchy watch covers initial no-pin recovery, a source recreated in
+an existing descendant directory, and a delayed move to another provider
+directory. `watchRoot` also reports changes along an initially absent provider
+root's path. This closes the recreation races without spending the whole budget
+synchronously or adding a retry timer.
 
 A failed cache write takes a different path. The source is still pinned and
 the exact-file watcher stays armed, so the next source event retries the write
 without rediscovery. It neither charges nor resets the source-recovery budget.
 If the failed write follows the session's final append, there is no later event
 to retry it and the tab remains stale; recovery deliberately has no timer.
+
+If discovery succeeds but the source vanishes again before its first render,
+the next discovery waits for another hierarchy event. Discovery success alone
+does not create an unpaced loop and does not reset the failure count.
 
 Failed exact-identity recovery attempts are charged against a budget of three
 *consecutive* failures. Only a render that lands clears the count, so a long

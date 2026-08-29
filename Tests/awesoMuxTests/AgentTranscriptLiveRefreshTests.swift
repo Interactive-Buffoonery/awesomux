@@ -151,6 +151,7 @@ struct AgentTranscriptLiveRefreshTests {
         let pinned = try transcript(in: directory)
         let cache = CacheRecorder()
         let scheduler = TestScheduler()
+        let watch = FakeWatch()
 
         let loop = AgentTranscriptLiveRefresh(
             gate: AgentTranscriptRenderGate(),
@@ -162,12 +163,17 @@ struct AgentTranscriptLiveRefreshTests {
                 if shouldCommit() { await cache.write("cancelled") }
                 return .success(renderedCacheURL)
             },
-            watch: FakeWatch().operation
+            watch: watch.operation
         )
         let task = Task { await loop.run() }
         #expect(await waitUntil { scheduler.sleeperCount == 1 })
 
         task.cancel()
+        await drainMainQueue()
+        #expect(
+            watch.stopCount == 1,
+            "cancellation must stop the exact watcher before detached rendering returns"
+        )
         scheduler.advanceOneCycle()
         await task.value
 
@@ -291,7 +297,7 @@ struct AgentTranscriptLiveRefreshTests {
         let discoveries = try await discoveryCount(
             whenRefreshFailsWith: .unavailable(.unreadable(.wrongOwner))
         )
-        #expect(discoveries == 1, "a security refusal is not a transient")
+        #expect(discoveries == 0, "a security refusal must not rediscover")
     }
 
     @Test("a discovery refusal gives up at once, without rendering or retrying")
@@ -425,6 +431,7 @@ struct AgentTranscriptLiveRefreshTests {
         }
         let old = try transcript(in: oldDirectory)
         let recovered = try transcript(in: newDirectory)
+        let providerRoot = oldDirectory.url.deletingLastPathComponent()
         let discoveries = DiscoveryScript([.failure(.notFound), .success(recovered)])
         let pins = RenderRecorder()
         let renders = RenderRecorder()
@@ -440,7 +447,8 @@ struct AgentTranscriptLiveRefreshTests {
                     ? .failure(.unavailable(.notFound))
                     : .success(renderedCacheURL)
             },
-            watch: watch.operation
+            watch: watch.operation,
+            recoveryWatchURL: providerRoot
         )
         let task = Task { await loop.run() }
 
@@ -455,13 +463,163 @@ struct AgentTranscriptLiveRefreshTests {
         #expect(
             watch.watchedURLs == [
                 old.resolvedURL,
-                old.resolvedURL.deletingLastPathComponent(),
+                providerRoot,
                 recovered.resolvedURL,
             ]
         )
 
         task.cancel()
         await task.value
+    }
+
+    @Test("a recovered pin that vanishes without an event waits for a directory event")
+    func recoveredPinFailureWithoutAnEventDoesNotSpinDiscovery() async throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-live-refresh")
+        defer { withExtendedLifetime(directory) {} }
+        let transcript = try transcript(in: directory)
+        let discoveries = RenderRecorder()
+        let scheduler = TestScheduler()
+        let watch = FakeWatch()
+        let loop = AgentTranscriptLiveRefresh(
+            gate: AgentTranscriptRenderGate(),
+            pinned: transcript,
+            onPin: { _ in },
+            discover: {
+                let count = await discoveries.beganAndCount()
+                if count > 1 { await scheduler.wait(for: .zero) }
+                return .success(transcript)
+            },
+            refresh: { _, _ in .failure(.unavailable(.notFound)) },
+            watch: watch.operation
+        )
+        let task = Task { await loop.run() }
+
+        #expect(await waitUntil { watch.watchedURLs.count == 3 })
+        await drainMainQueue()
+        #expect(
+            discoveries.startCount == 1,
+            "a rediscovered source that immediately vanishes must wait for a new event"
+        )
+
+        task.cancel()
+        scheduler.advanceOneCycle()
+        await task.value
+    }
+
+    @Test("an event delivered during a recovered pin's first render is not lost")
+    func recoveredPinPreservesBufferedReplacementEvent() async throws {
+        let oldDirectory = try TemporaryDirectory(prefix: "awesomux-live-refresh-old")
+        let newDirectory = try TemporaryDirectory(prefix: "awesomux-live-refresh-new")
+        defer {
+            withExtendedLifetime(oldDirectory) {}
+            withExtendedLifetime(newDirectory) {}
+        }
+        let old = try transcript(in: oldDirectory)
+        let recovered = try transcript(in: newDirectory)
+        let discoveries = DiscoveryScript([.success(recovered), .success(recovered)])
+        let scheduler = TestScheduler()
+        let renders = RenderRecorder()
+        let watch = FakeWatch()
+        let loop = AgentTranscriptLiveRefresh(
+            gate: AgentTranscriptRenderGate(),
+            pinned: old,
+            onPin: { _ in },
+            discover: { await discoveries.next() },
+            refresh: { transcript, _ in
+                let count = await renders.beganAndCount()
+                if transcript.resolvedURL == old.resolvedURL {
+                    return .failure(.unavailable(.notFound))
+                }
+                if count == 2 {
+                    await scheduler.wait(for: .zero)
+                    return .failure(.unavailable(.notFound))
+                }
+                return .success(renderedCacheURL)
+            },
+            watch: watch.operation
+        )
+        let task = Task { await loop.run() }
+
+        #expect(await waitUntil { scheduler.sleeperCount == 1 && watch.isWatching })
+        watch.tick()
+        scheduler.advanceOneCycle()
+        #expect(
+            await waitUntil { discoveries.callCount == 2 && renders.startCount == 3 },
+            "the buffered replacement event must authorize the next discovery"
+        )
+
+        task.cancel()
+        await task.value
+    }
+
+    @Test("one buffered hierarchy event cannot authorize discovery twice")
+    func recoveredPinConsumesBufferedReplacementEventOnce() async throws {
+        let oldDirectory = try TemporaryDirectory(prefix: "awesomux-live-refresh-old")
+        let newDirectory = try TemporaryDirectory(prefix: "awesomux-live-refresh-new")
+        defer {
+            withExtendedLifetime(oldDirectory) {}
+            withExtendedLifetime(newDirectory) {}
+        }
+        let old = try transcript(in: oldDirectory)
+        let recovered = try transcript(in: newDirectory)
+        let discoveries = DiscoveryScript([.success(recovered), .success(recovered)])
+        let scheduler = TestScheduler()
+        let renders = RenderRecorder()
+        let exactWatch = FakeWatch()
+        let recoveryWatch = FakeWatch()
+        let loop = AgentTranscriptLiveRefresh(
+            gate: AgentTranscriptRenderGate(),
+            pinned: old,
+            onPin: { _ in },
+            discover: { await discoveries.next() },
+            refresh: { transcript, _ in
+                let count = await renders.beganAndCount()
+                if transcript.resolvedURL == old.resolvedURL {
+                    return .failure(.unavailable(.notFound))
+                }
+                if count == 2 {
+                    await scheduler.wait(for: .zero)
+                }
+                return .failure(.unavailable(.notFound))
+            },
+            watch: exactWatch.operation,
+            recoveryWatch: recoveryWatch.operation
+        )
+        let task = Task { await loop.run() }
+
+        #expect(await waitUntil { scheduler.sleeperCount == 1 && recoveryWatch.isWatching })
+        recoveryWatch.tick()
+        scheduler.advanceOneCycle()
+        #expect(
+            await waitUntil { discoveries.callCount >= 2 && renders.startCount >= 3 },
+            "the buffered hierarchy event must authorize one replacement discovery"
+        )
+        await drainMainQueue()
+        #expect(discoveries.callCount == 2, "one event must not be consumed a second time")
+
+        task.cancel()
+        await task.value
+    }
+
+    @Test("an unarmed recovery watcher terminates without a discovery")
+    func unarmedRecoveryWatcherDoesNotPark() async {
+        let discoveries = RenderRecorder()
+        let loop = AgentTranscriptLiveRefresh(
+            gate: AgentTranscriptRenderGate(),
+            pinned: nil,
+            onPin: { _ in },
+            discover: {
+                await discoveries.began()
+                return .failure(.notFound)
+            },
+            refresh: { _, _ in .success(renderedCacheURL) },
+            watch: FakeWatch(arms: false).operation,
+            recoveryWatchURL: URL(fileURLWithPath: "/tmp/provider")
+        )
+
+        await loop.run()
+
+        #expect(discoveries.startCount == 0)
     }
 
     @Test("a security refusal during recovery gives up immediately")
@@ -521,6 +679,38 @@ struct AgentTranscriptLiveRefreshTests {
         #expect(watch.stopCount == 2)
     }
 
+    @Test("cancellation stops the recovery watcher while discovery is in flight")
+    func cancellationStopsRecoveryWatcherDuringDiscovery() async throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-live-refresh")
+        defer { withExtendedLifetime(directory) {} }
+        let pinned = try transcript(in: directory)
+        let scheduler = TestScheduler()
+        let watch = FakeWatch()
+        let loop = AgentTranscriptLiveRefresh(
+            gate: AgentTranscriptRenderGate(),
+            pinned: pinned,
+            onPin: { _ in },
+            discover: {
+                await scheduler.wait(for: .zero)
+                return .failure(.notFound)
+            },
+            refresh: { _, _ in .failure(.unavailable(.notFound)) },
+            watch: watch.operation
+        )
+        let task = Task { await loop.run() }
+        #expect(await waitUntil { scheduler.sleeperCount == 1 && watch.isWatching })
+
+        task.cancel()
+        await drainMainQueue()
+        #expect(
+            watch.stopCount == 2,
+            "cancellation must stop the recovery watcher before detached discovery returns"
+        )
+
+        scheduler.advanceOneCycle()
+        await task.value
+    }
+
     // MARK: - Cancellation during discovery
 
     @Test("the recovery directory is armed before catch-up discovery")
@@ -550,6 +740,70 @@ struct AgentTranscriptLiveRefreshTests {
         #expect(await observations.values == [true])
         #expect(watch.stopCount == 1)
         #expect(!watch.isWatching)
+    }
+
+    @Test("an initial missing source recovers on a provider-directory event")
+    func initialMissingSourceRecoversFromDirectoryEvent() async throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-live-refresh")
+        defer { withExtendedLifetime(directory) {} }
+        let discovered = try transcript(in: directory)
+        let discoveries = DiscoveryScript([.failure(.notFound), .success(discovered)])
+        let renders = RenderRecorder()
+        let watch = FakeWatch()
+        let loop = AgentTranscriptLiveRefresh(
+            gate: AgentTranscriptRenderGate(),
+            pinned: nil,
+            onPin: { _ in },
+            discover: { await discoveries.next() },
+            refresh: { _, _ in
+                await renders.began()
+                return .success(renderedCacheURL)
+            },
+            watch: watch.operation,
+            recoveryWatchURL: directory.url
+        )
+        let task = Task { await loop.run() }
+
+        #expect(await waitUntil { discoveries.callCount == 1 && watch.isWatching })
+        watch.tick()
+        #expect(await waitUntil { discoveries.callCount == 2 && renders.startCount == 1 })
+
+        task.cancel()
+        await task.value
+    }
+
+    @Test("a burst of recovery events buffers only one follow-up discovery")
+    func recoveryEventBurstCoalesces() async throws {
+        let directory = try TemporaryDirectory(prefix: "awesomux-live-refresh")
+        defer { withExtendedLifetime(directory) {} }
+        let pinned = try transcript(in: directory)
+        let discoveries = RenderRecorder()
+        let scheduler = TestScheduler()
+        let watch = FakeWatch()
+        let loop = AgentTranscriptLiveRefresh(
+            gate: AgentTranscriptRenderGate(),
+            pinned: pinned,
+            onPin: { _ in },
+            discover: {
+                await discoveries.began()
+                await scheduler.wait(for: .zero)
+                return .failure(.notFound)
+            },
+            refresh: { _, _ in .failure(.unavailable(.notFound)) },
+            watch: watch.operation
+        )
+        let task = Task { await loop.run() }
+        #expect(await waitUntil { scheduler.sleeperCount == 1 })
+
+        for _ in 0..<5 { watch.tick() }
+        scheduler.advanceOneCycle()
+        #expect(await waitUntil { scheduler.sleeperCount == 1 && discoveries.startCount == 2 })
+        scheduler.advanceOneCycle()
+        await drainMainQueue()
+
+        #expect(discoveries.startCount == 2, "five events must buffer one follow-up discovery")
+        task.cancel()
+        await task.value
     }
 
     /// `Task.detached` does not inherit cancellation, so discovery runs to
@@ -702,9 +956,9 @@ struct AgentTranscriptLiveRefreshTests {
         )
     }
 
-    /// Runs a loop whose refresh always fails with `failure` and whose
-    /// discovery always succeeds, and reports how many full discoveries it ran
-    /// before stopping. The loop terminates on its own — no cancellation.
+    /// Runs a pinned loop whose refresh always fails with `failure` and reports
+    /// how many full discoveries it attempted before stopping. The loop
+    /// terminates on its own — no cancellation.
     private func discoveryCount(
         whenRefreshFailsWith failure: AgentTranscriptOpenFailure
     ) async throws -> Int {
@@ -716,7 +970,7 @@ struct AgentTranscriptLiveRefreshTests {
 
         let loop = AgentTranscriptLiveRefresh(
             gate: AgentTranscriptRenderGate(),
-            pinned: nil,
+            pinned: discovered,
             onPin: { _ in pins.count() },
             discover: {
                 await discoveries.began()
@@ -737,24 +991,35 @@ struct AgentTranscriptLiveRefreshTests {
 /// without a filesystem.
 @MainActor
 private final class FakeWatch {
+    private let arms: Bool
     private(set) var watchedURLs: [URL] = []
     private(set) var stopCount = 0
-    private var onChange: (@MainActor () -> Void)?
+    private var nextRegistrationID = 0
+    private var callbacks: [Int: @MainActor () -> Void] = [:]
 
-    var isWatching: Bool { onChange != nil }
+    var isWatching: Bool { !callbacks.isEmpty }
+
+    init(arms: Bool = true) {
+        self.arms = arms
+    }
 
     var operation: AgentTranscriptLiveRefresh.WatchOperation {
         { url, callback in
             self.watchedURLs.append(url)
-            self.onChange = callback
+            guard self.arms else { return nil }
+            let registrationID = self.nextRegistrationID
+            self.nextRegistrationID += 1
+            self.callbacks[registrationID] = callback
             return {
                 self.stopCount += 1
-                self.onChange = nil
+                self.callbacks[registrationID] = nil
             }
         }
     }
 
-    func tick() { onChange?() }
+    func tick() {
+        for callback in callbacks.values { callback() }
+    }
 }
 
 /// Hands out one scripted refresh outcome per call, so a test can describe a

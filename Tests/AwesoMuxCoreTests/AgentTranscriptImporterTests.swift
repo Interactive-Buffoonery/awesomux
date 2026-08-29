@@ -39,6 +39,31 @@ struct AgentTranscriptImporterTests {
     }
 
     @Test
+    func recoveryFilenameMatchingRejectsUnrelatedSessions() {
+        #expect(
+            AgentTranscriptImporter.matchesTranscriptFileName(
+                agentKind: .claudeCode,
+                sessionID: Self.sessionA,
+                fileName: "\(Self.sessionA).jsonl"
+            )
+        )
+        #expect(
+            !AgentTranscriptImporter.matchesTranscriptFileName(
+                agentKind: .claudeCode,
+                sessionID: Self.sessionA,
+                fileName: "\(Self.sessionB).jsonl"
+            )
+        )
+        #expect(
+            AgentTranscriptImporter.matchesTranscriptFileName(
+                agentKind: .codex,
+                sessionID: Self.sessionA,
+                fileName: "rollout-2026-08-29-\(Self.sessionA).jsonl"
+            )
+        )
+    }
+
+    @Test
     func opensClaudeTranscriptByExactSessionID() throws {
         let fixture = try Fixture(provider: .claudeCode)
         defer { fixture.remove() }

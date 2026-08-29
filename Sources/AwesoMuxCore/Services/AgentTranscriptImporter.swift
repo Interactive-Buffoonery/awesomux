@@ -109,6 +109,17 @@ public enum AgentTranscriptImporter {
         Provider(agentKind: agentKind)?.transcriptRoot(configHome: configHome)
     }
 
+    /// Whether a provider-owned filename belongs to this exact session.
+    /// Recovery watchers use the same identity rule as discovery so unrelated
+    /// sessions cannot spend this session's bounded recovery budget.
+    public static func matchesTranscriptFileName(
+        agentKind: AgentKind,
+        sessionID: String,
+        fileName: String
+    ) -> Bool {
+        Provider(agentKind: agentKind)?.matches(sessionID: sessionID, fileName: fileName) ?? false
+    }
+
     public static func open(
         agentKind: AgentKind,
         executionPlan: PaneExecutionPlan,
