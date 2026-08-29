@@ -14,6 +14,8 @@ enum SurfaceSearchNavigationDirection {
 }
 
 extension GhosttySurfaceNSView {
+    private static let scrollbackDumpStabilityDelay: DispatchTimeInterval = .milliseconds(150)
+
     func presentSearch() {
         if !performBindingAction("start_search") {
             searchState.present()
@@ -141,16 +143,25 @@ extension GhosttySurfaceNSView {
     }
 
     func presentScrollbackDump() {
-        guard searchState.scrollbackDumpText == nil,
-            !runtime.isScrollbackDumpSheetPresented
+        guard !runtime.isScrollbackDumpSheetPresented,
+            let request = searchState.beginScrollbackDump()
         else {
             return
         }
-        searchState.presentScrollbackDump(fullScrollbackText())
         runtime.setScrollbackDumpSheetPresented(true, for: paneID)
+
+        let initial = scrollbackDumpPolicyInput(isGrowing: false)
+        switch ScrollbackDumpPolicy.decision(for: initial) {
+        case .allow:
+            scheduleScrollbackDumpRead(initial: initial, request: request)
+        case let .block(reason):
+            finishBlockedScrollbackDump(reason: reason, request: request)
+        }
     }
 
     func dismissScrollbackDump() {
+        scrollbackDumpWorkItem?.cancel()
+        scrollbackDumpWorkItem = nil
         searchState.dismissScrollbackDump()
         runtime.setScrollbackDumpSheetPresented(false, for: paneID)
     }
@@ -160,15 +171,119 @@ extension GhosttySurfaceNSView {
         searchNeedleWorkItem = nil
         lastSearchedNeedle = nil
         didAutoSelectCurrentSearch = false
-        if searchState.scrollbackDumpText != nil {
+        if searchState.scrollbackDump != nil {
             dismissScrollbackDump()
         }
         searchState.hide()
     }
 
-    func fullScrollbackText() -> String {
+    private func scheduleScrollbackDumpRead(
+        initial: ScrollbackDumpPolicy.Input,
+        request: UInt64
+    ) {
+        let expectedSurface = surface
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.scrollbackDumpWorkItem = nil
+                guard self.searchState.isCurrentScrollbackDumpRequest(request) else {
+                    return
+                }
+                guard self.surface == expectedSurface,
+                    self.runtime.cachedSurfaceView(for: self.paneID) === self
+                else {
+                    self.dismissScrollbackDump()
+                    return
+                }
+
+                let current = self.scrollbackDumpPolicyInput(
+                    isGrowing: initial.totalRows != self.scrollbar?.total
+                )
+                switch ScrollbackDumpPolicy.decision(for: current) {
+                case let .block(reason):
+                    self.finishBlockedScrollbackDump(reason: reason, request: request)
+                case .allow:
+                    switch self.fullScrollbackText() {
+                    case let .loaded(text):
+                        self.searchState.finishScrollbackDump(.loaded(text: text), request: request)
+                    case .tooLarge:
+                        Self.terminalDiagnosticsLogger.warning(
+                            "scrollback-dump native result exceeded the safety limit pane=\(self.paneID.uuidString.prefix(8), privacy: .public)"
+                        )
+                        self.finishBlockedScrollbackDump(
+                            reason: .nativeResultTooLarge,
+                            request: request
+                        )
+                    case .failed:
+                        self.searchState.finishScrollbackDump(.failed, request: request)
+                        TerminalAccessibilityAnnouncer.announce(
+                            String(
+                                localized: "Could not read this pane's scrollback.",
+                                comment: "VoiceOver announcement when Show Scrollback cannot read the terminal history"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        scrollbackDumpWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.scrollbackDumpStabilityDelay,
+            execute: workItem
+        )
+    }
+
+    private func scrollbackDumpPolicyInput(isGrowing: Bool) -> ScrollbackDumpPolicy.Input {
         guard let surface else {
-            return ""
+            return .init(
+                totalRows: nil,
+                currentColumns: 0,
+                widestObservedColumns: widestObservedScrollbackColumns,
+                isGrowing: isGrowing
+            )
+        }
+        let size = ghostty_surface_size(surface)
+        let columns = UInt64(size.columns)
+        widestObservedScrollbackColumns = max(widestObservedScrollbackColumns, columns)
+        return .init(
+            totalRows: scrollbar?.total,
+            currentColumns: columns,
+            widestObservedColumns: widestObservedScrollbackColumns,
+            isGrowing: isGrowing
+        )
+    }
+
+    private func finishBlockedScrollbackDump(
+        reason: ScrollbackDumpPolicy.BlockReason,
+        request: UInt64
+    ) {
+        let preview = visibleTerminalText()
+        searchState.finishScrollbackDump(
+            .blocked(preview: preview, reason: reason),
+            request: request
+        )
+        TerminalAccessibilityAnnouncer.announce(
+            preview?.isEmpty == false
+                ? String(
+                    localized: "Scrollback cannot be opened safely. Visible pane text is still available.",
+                    comment: "VoiceOver announcement when Show Scrollback is safely blocked with a visible-pane preview"
+                )
+                : String(
+                    localized: "Scrollback cannot be opened safely.",
+                    comment: "VoiceOver announcement when Show Scrollback is safely blocked without a preview"
+                )
+        )
+    }
+
+    private enum FullScrollbackReadResult {
+        case loaded(String)
+        case tooLarge
+        case failed
+    }
+
+    private func fullScrollbackText() -> FullScrollbackReadResult {
+        guard let surface else {
+            return .failed
         }
 
         var text = ghostty_text_s()
@@ -188,11 +303,25 @@ extension GhosttySurfaceNSView {
             rectangle: false
         )
         guard ghostty_surface_read_text(surface, selection, &text) else {
-            return ""
+            return .failed
         }
         defer { ghostty_surface_free_text(surface, &text) }
 
-        return String(cString: text.text)
+        let byteCount = UInt64(text.text_len)
+        guard ScrollbackDumpPolicy.acceptsNativeText(byteCount: byteCount) else {
+            return .tooLarge
+        }
+        guard byteCount > 0 else {
+            return .loaded("")
+        }
+        guard let bytes = text.text else {
+            return .failed
+        }
+        let buffer = UnsafeBufferPointer(
+            start: UnsafeRawPointer(bytes).assumingMemoryBound(to: UInt8.self),
+            count: Int(byteCount)
+        )
+        return .loaded(String(decoding: buffer, as: UTF8.self))
     }
 
     private func performSearchBinding(needle: String) {

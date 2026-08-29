@@ -44,7 +44,7 @@ private struct SurfaceSearchBar: View {
         // `body`, so it registers no dependency. The sheet presents anyway
         // because SwiftUI re-reads the binding from its own attribute node —
         // undocumented, and exactly the kind of thing an OS point release moves.
-        let dumpText = searchState.scrollbackDumpText
+        let scrollbackDump = searchState.scrollbackDump
         return ZStack {
             // SwiftUI will not present a sheet whose host renders nothing.
             // This sheet's only host was the find bar, so with the bar closed —
@@ -64,7 +64,7 @@ private struct SurfaceSearchBar: View {
         }
         .sheet(
             isPresented: Binding(
-                get: { dumpText != nil },
+                get: { scrollbackDump != nil },
                 set: { isPresented in
                     if !isPresented {
                         surfaceView.dismissScrollbackDump()
@@ -82,7 +82,7 @@ private struct SurfaceSearchBar: View {
             }
         ) {
             ScrollbackDumpSheet(
-                text: dumpText ?? "",
+                presentation: scrollbackDump ?? .loading,
                 onDismiss: { surfaceView.dismissScrollbackDump() }
             )
         }

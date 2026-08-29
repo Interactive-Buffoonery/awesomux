@@ -1201,7 +1201,7 @@
 
     },
     "Copy" : {
-      "comment" : "Terminal context menu item that copies the selection"
+      "comment" : "Button that copies the text shown in the scrollback sheet\nTerminal context menu item that copies the selection"
     },
     "Copy Branch" : {
 
@@ -1226,6 +1226,9 @@
     },
     "Copy URL" : {
 
+    },
+    "Copy Visible Text" : {
+      "comment" : "Button that copies only the visible-pane preview when full scrollback was blocked"
     },
     "Copy mode enabled. Selecting text will not create comments." : {
       "comment" : "VoiceOver announcement when a Markdown document enters copy mode"
@@ -1260,6 +1263,9 @@
     "Could not copy the scrollback." : {
       "comment" : "VoiceOver announcement when the scrollback sheet's Copy button failed to write to the clipboard"
     },
+    "Could not copy the visible pane text." : {
+      "comment" : "VoiceOver announcement when copying the blocked scrollback sheet's visible-pane preview fails"
+    },
     "Could not create a new tab for %arg." : {
       "comment" : "Accessibility announcement when opening a new tab for a palette command fails"
     },
@@ -1268,6 +1274,9 @@
     },
     "Could not reach %arg, or the session ended." : {
       "comment" : "Description under the remote-owned session overlay title, naming the remote host"
+    },
+    "Could not read this pane's scrollback." : {
+      "comment" : "VoiceOver announcement when Show Scrollback cannot read the terminal history"
     },
     "Could not turn off Open at Login. Open System Settings > General > Login Items and remove awesoMux, then try again. %arg" : {
       "comment" : "Error shown when unregistering awesoMux as a login item fails."
@@ -1324,6 +1333,9 @@
     },
     "Couldn't verify what's running in this transcript's terminal" : {
       "comment" : "Unavailable reason for resuming a session when foreground process evidence is unavailable"
+    },
+    "Couldn’t Read Scrollback" : {
+
     },
     "Couldn’t connect. The workspace is no longer available." : {
       "comment" : "Error shown when a managed SSH connection request targets a workspace that no longer exists"
@@ -2842,6 +2854,9 @@
     "Preparing remote file transfer" : {
       "comment" : "Remote handoff initial progress status"
     },
+    "Preparing scrollback…" : {
+
+    },
     "Preset Saved" : {
       "comment" : "Alert title confirming a layout preset was saved."
     },
@@ -3591,6 +3606,15 @@
     "Scrollback" : {
 
     },
+    "Scrollback Not Opened" : {
+
+    },
+    "Scrollback cannot be opened safely." : {
+      "comment" : "VoiceOver announcement when Show Scrollback is safely blocked without a preview"
+    },
+    "Scrollback cannot be opened safely. Visible pane text is still available." : {
+      "comment" : "VoiceOver announcement when Show Scrollback is safely blocked with a visible-pane preview"
+    },
     "Scrollback copied." : {
       "comment" : "VoiceOver announcement confirming the scrollback sheet's Copy button wrote to the clipboard"
     },
@@ -4324,6 +4348,9 @@
         }
       }
     },
+    "This pane is still producing output, so its scrollback can’t be opened safely yet. Wait for the output to stop, then try again." : {
+      "comment" : "Explanation shown when Show Scrollback blocks a terminal that is actively producing output"
+    },
     "This pane reported a session id awesoMux won't use to look up a file. Start a new agent session and try again." : {
       "comment" : "Transcript failure when the reported provider session id failed validation"
     },
@@ -4335,6 +4362,9 @@
     },
     "This pane's working directory isn't inside a git repository, so there is no branch to compare." : {
       "comment" : "Branch diff failure when the pane's directory is not in a repository"
+    },
+    "This pane’s scrollback is too large to open safely. Scroll in the terminal or use Find (⌘F) to search its history." : {
+      "comment" : "Explanation shown when Show Scrollback blocks a large terminal history"
     },
     "This paste could run a command before you finish pasting. Paste anyway?" : {
       "comment" : "Title of the unsafe-paste confirmation dialog."
@@ -4556,6 +4586,12 @@
     "Visibility" : {
       "comment" : "Menu bar visibility settings label"
     },
+    "Visible pane only" : {
+
+    },
+    "Visible pane text copied." : {
+      "comment" : "VoiceOver announcement confirming the blocked scrollback sheet copied its visible-pane preview"
+    },
     "Visible prefix: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated `user@` prefix that disguises the real host."
     },
@@ -4776,11 +4812,17 @@
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
+    "awesoMux couldn’t determine this pane’s scrollback size safely. Scroll in the terminal or use Find (⌘F) to search its history." : {
+      "comment" : "Explanation shown when Show Scrollback cannot safely estimate terminal history size"
+    },
     "awesoMux couldn’t make its install directory private" : {
       "comment" : "Agent integration private directory permission update error"
     },
     "awesoMux couldn’t make its rendered plugin directory private" : {
       "comment" : "Rendered agent plugin private directory permission update error"
+    },
+    "awesoMux couldn’t read this pane’s scrollback. The terminal itself is still available." : {
+
     },
     "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process." : {
       "comment" : "Body of the close-pane confirmation dialog when pane activity is unverifiable.",

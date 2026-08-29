@@ -50,6 +50,8 @@ final class GhosttySurfaceNSView: NSView {
     var grokIconEnabled: Bool
     let searchState = SurfaceSearchState()
     var searchNeedleWorkItem: DispatchWorkItem?
+    var scrollbackDumpWorkItem: DispatchWorkItem?
+    var widestObservedScrollbackColumns = UInt64.zero
     /// Dedupes `performSearchBinding` so a needle set programmatically
     /// (e.g. `search_selection`) and then echoed by the field's own
     /// `onChange` doesn't issue the same `search:<needle>` binding twice.
@@ -303,6 +305,8 @@ final class GhosttySurfaceNSView: NSView {
         terminalEventState.lastProgressReportStoreWrite = nil
         flushTerminalTitleThrottle()
         resetSearchStateForSurfaceTeardown()
+        scrollbar = nil
+        widestObservedScrollbackColumns = 0
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         // A VoiceOver accessor firing mid-heal (surface == nil) would
         // otherwise cache an empty read that outlives the surface it was
@@ -380,6 +384,8 @@ final class GhosttySurfaceNSView: NSView {
         }
         if terminalSessionRepointed {
             resetSearchStateForSurfaceTeardown()
+            scrollbar = nil
+            widestObservedScrollbackColumns = 0
             // A repointed session has a different (or no) process behind it;
             // a leftover trusted incarnation from the PRIOR pane must never be
             // read as evidence for this one. Not load-bearing for correctness
