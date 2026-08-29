@@ -150,7 +150,7 @@ extension GhosttySurfaceNSView {
         }
         runtime.setScrollbackDumpSheetPresented(true, for: paneID)
 
-        let initial = scrollbackDumpPolicyInput(isGrowing: false)
+        let initial = scrollbackDumpPolicyInput(didRowCountChange: false)
         switch ScrollbackDumpPolicy.decision(for: initial) {
         case .allow:
             scheduleScrollbackDumpRead(initial: initial, request: request)
@@ -159,11 +159,14 @@ extension GhosttySurfaceNSView {
         }
     }
 
-    func dismissScrollbackDump() {
+    func dismissScrollbackDump(restoringFocus: Bool = true) {
         scrollbackDumpWorkItem?.cancel()
         scrollbackDumpWorkItem = nil
         searchState.dismissScrollbackDump()
         runtime.setScrollbackDumpSheetPresented(false, for: paneID)
+        if restoringFocus {
+            window?.makeFirstResponder(self)
+        }
     }
 
     func resetSearchStateForSurfaceTeardown() {
@@ -172,7 +175,13 @@ extension GhosttySurfaceNSView {
         lastSearchedNeedle = nil
         didAutoSelectCurrentSearch = false
         if searchState.scrollbackDump != nil {
-            dismissScrollbackDump()
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "The pane changed, so Show Scrollback was canceled. Try again.",
+                    comment: "VoiceOver announcement when a terminal surface is replaced while Show Scrollback is loading"
+                )
+            )
+            dismissScrollbackDump(restoringFocus: false)
         }
         searchState.hide()
     }
@@ -197,7 +206,7 @@ extension GhosttySurfaceNSView {
                 }
 
                 let current = self.scrollbackDumpPolicyInput(
-                    isGrowing: initial.totalRows != self.scrollbar?.total
+                    didRowCountChange: initial.totalRows != self.scrollbar?.total
                 )
                 switch ScrollbackDumpPolicy.decision(for: current) {
                 case let .block(reason):
@@ -216,12 +225,6 @@ extension GhosttySurfaceNSView {
                         )
                     case .failed:
                         self.searchState.finishScrollbackDump(.failed, request: request)
-                        TerminalAccessibilityAnnouncer.announce(
-                            String(
-                                localized: "Could not read this pane's scrollback.",
-                                comment: "VoiceOver announcement when Show Scrollback cannot read the terminal history"
-                            )
-                        )
                     }
                 }
             }
@@ -233,13 +236,15 @@ extension GhosttySurfaceNSView {
         )
     }
 
-    private func scrollbackDumpPolicyInput(isGrowing: Bool) -> ScrollbackDumpPolicy.Input {
+    private func scrollbackDumpPolicyInput(
+        didRowCountChange: Bool
+    ) -> ScrollbackDumpPolicy.Input {
         guard let surface else {
             return .init(
                 totalRows: nil,
                 currentColumns: 0,
                 widestObservedColumns: widestObservedScrollbackColumns,
-                isGrowing: isGrowing
+                didRowCountChange: didRowCountChange
             )
         }
         let size = ghostty_surface_size(surface)
@@ -249,7 +254,7 @@ extension GhosttySurfaceNSView {
             totalRows: scrollbar?.total,
             currentColumns: columns,
             widestObservedColumns: widestObservedScrollbackColumns,
-            isGrowing: isGrowing
+            didRowCountChange: didRowCountChange
         )
     }
 
@@ -257,21 +262,9 @@ extension GhosttySurfaceNSView {
         reason: ScrollbackDumpPolicy.BlockReason,
         request: UInt64
     ) {
-        let preview = visibleTerminalText()
         searchState.finishScrollbackDump(
-            .blocked(preview: preview, reason: reason),
+            .blocked(reason: reason),
             request: request
-        )
-        TerminalAccessibilityAnnouncer.announce(
-            preview?.isEmpty == false
-                ? String(
-                    localized: "Scrollback cannot be opened safely. Visible pane text is still available.",
-                    comment: "VoiceOver announcement when Show Scrollback is safely blocked with a visible-pane preview"
-                )
-                : String(
-                    localized: "Scrollback cannot be opened safely.",
-                    comment: "VoiceOver announcement when Show Scrollback is safely blocked without a preview"
-                )
         )
     }
 

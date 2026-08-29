@@ -44,29 +44,17 @@ struct SurfaceSearchStateTests {
         #expect(state.scrollbackDump == nil)
     }
 
-    @Test("a blocked scrollback copies only its visible preview")
-    func blockedScrollbackCopiesOnlyPreview() throws {
+    @Test("a blocked scrollback cannot copy")
+    func blockedScrollbackCannotCopy() throws {
         let state = SurfaceSearchState()
         let request = try #require(state.beginScrollbackDump())
         state.finishScrollbackDump(
-            .blocked(preview: "visible", reason: .tooLarge),
-            request: request
-        )
-
-        #expect(state.scrollbackDump?.copyPayload == "visible")
-        #expect(state.scrollbackDump?.copyButtonTitle == "Copy Visible Text")
-    }
-
-    @Test("a blocked scrollback without a preview cannot copy")
-    func blockedScrollbackWithoutPreviewCannotCopy() throws {
-        let state = SurfaceSearchState()
-        let request = try #require(state.beginScrollbackDump())
-        state.finishScrollbackDump(
-            .blocked(preview: nil, reason: .unknownSize),
+            .blocked(reason: .tooLarge),
             request: request
         )
 
         #expect(state.scrollbackDump?.copyPayload == nil)
+        #expect(state.scrollbackDump?.copyButtonTitle == "Copy")
     }
 
     @Test("repeated scrollback commands do not create duplicate requests")

@@ -96,33 +96,23 @@ final class SurfaceSearchState {
 enum ScrollbackDumpPresentation: Equatable {
     case loading
     case loaded(text: String)
-    case blocked(preview: String?, reason: ScrollbackDumpPolicy.BlockReason)
+    case blocked(reason: ScrollbackDumpPolicy.BlockReason)
     case failed
 
     var copyPayload: String? {
         switch self {
-        case .loading, .failed:
+        case .loading, .blocked, .failed:
             nil
         case let .loaded(text):
             text.isEmpty ? nil : text
-        case let .blocked(preview, _):
-            preview.flatMap { $0.isEmpty ? nil : $0 }
         }
     }
 
     var copyButtonTitle: String {
-        switch self {
-        case .blocked:
-            String(
-                localized: "Copy Visible Text",
-                comment: "Button that copies only the visible-pane preview when full scrollback was blocked"
-            )
-        case .loading, .loaded, .failed:
-            String(
-                localized: "Copy",
-                comment: "Button that copies the text shown in the scrollback sheet"
-            )
-        }
+        String(
+            localized: "Copy",
+            comment: "Button that copies the text shown in the scrollback sheet"
+        )
     }
 }
 

@@ -17,7 +17,7 @@ struct ScrollbackDumpPolicyTests {
                 totalRows: 9,
                 currentColumns: 10,
                 widestObservedColumns: 10,
-                isGrowing: false
+                didRowCountChange: false
             ),
             limits: limits
         )
@@ -32,7 +32,7 @@ struct ScrollbackDumpPolicyTests {
                 totalRows: 10,
                 currentColumns: 10,
                 widestObservedColumns: 10,
-                isGrowing: false
+                didRowCountChange: false
             ),
             limits: limits
         )
@@ -47,7 +47,7 @@ struct ScrollbackDumpPolicyTests {
                 totalRows: 11,
                 currentColumns: 10,
                 widestObservedColumns: 10,
-                isGrowing: false
+                didRowCountChange: false
             ),
             limits: limits
         )
@@ -62,7 +62,7 @@ struct ScrollbackDumpPolicyTests {
                 totalRows: 101,
                 currentColumns: 1,
                 widestObservedColumns: 1,
-                isGrowing: false
+                didRowCountChange: false
             ),
             limits: limits
         )
@@ -77,7 +77,7 @@ struct ScrollbackDumpPolicyTests {
                 totalRows: 6,
                 currentColumns: 10,
                 widestObservedColumns: 20,
-                isGrowing: false
+                didRowCountChange: false
             ),
             limits: limits
         )
@@ -93,7 +93,7 @@ struct ScrollbackDumpPolicyTests {
                     totalRows: nil,
                     currentColumns: 10,
                     widestObservedColumns: 10,
-                    isGrowing: false
+                    didRowCountChange: false
                 ),
                 limits: limits
             ) == .block(.unknownSize)
@@ -104,7 +104,7 @@ struct ScrollbackDumpPolicyTests {
                     totalRows: 10,
                     currentColumns: 0,
                     widestObservedColumns: 0,
-                    isGrowing: false
+                    didRowCountChange: false
                 ),
                 limits: limits
             ) == .block(.unknownSize)
@@ -118,7 +118,7 @@ struct ScrollbackDumpPolicyTests {
                 totalRows: 0,
                 currentColumns: 10,
                 widestObservedColumns: 10,
-                isGrowing: false
+                didRowCountChange: false
             ),
             limits: limits
         )
@@ -126,19 +126,19 @@ struct ScrollbackDumpPolicyTests {
         #expect(decision == .allow)
     }
 
-    @Test("blocks a pane whose history is actively growing")
-    func blocksGrowingHistory() {
+    @Test("blocks a pane whose row count changed while preparing")
+    func blocksChangedRowCount() {
         let decision = ScrollbackDumpPolicy.decision(
             for: .init(
                 totalRows: 5,
                 currentColumns: 10,
                 widestObservedColumns: 10,
-                isGrowing: true
+                didRowCountChange: true
             ),
             limits: limits
         )
 
-        #expect(decision == .block(.growing))
+        #expect(decision == .block(.rowCountChanged))
     }
 
     @Test("overflow fails closed instead of trapping")
@@ -148,7 +148,7 @@ struct ScrollbackDumpPolicyTests {
                 totalRows: .max,
                 currentColumns: .max,
                 widestObservedColumns: .max,
-                isGrowing: false
+                didRowCountChange: false
             ),
             limits: .init(
                 maximumEstimatedBytes: .max,
