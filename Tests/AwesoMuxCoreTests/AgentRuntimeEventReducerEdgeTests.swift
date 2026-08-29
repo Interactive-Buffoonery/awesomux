@@ -471,6 +471,45 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.unreadNotificationCount == 1)
     }
 
+    @Test("permission replied authoritatively clears a pending permission prompt")
+    func permissionRepliedAuthoritativelyClearsPendingPermissionPrompt() throws {
+        var session = TerminalSession(title: "opencode", workingDirectory: "~", agentKind: .openCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+        var reducer = AgentRuntimeEventReducer()
+
+        let repliedResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                phase: .permissionReplied,
+                eventID: "permission-replied",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let replied = try #require(repliedResult)
+        #expect(replied.update.attentionClearIsAuthoritative)
+        #expect(replied.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: replied.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == nil)
+        #expect(session.unreadNotificationCount == 0)
+    }
+
     @Test("tool start does not clear a pending user-input-required reason")
     func toolStartDoesNotClearPendingUserInputRequired() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)

@@ -435,6 +435,8 @@ API v1.x; the keys are version-specific):
 | `event` type | `session.created` | `SessionStart` |
 | hook key | `chat.message` | `UserPromptSubmit` |
 | hook key | `permission.ask` | `PermissionRequest` |
+| `event` type | `permission.asked` | `PermissionRequest` |
+| `event` type | `permission.replied` | `PermissionReplied` |
 | hook key | `tool.execute.before` | `PreToolUse` |
 | hook key | `tool.execute.after` | `PostToolUse` |
 | `event` type | `session.idle` | `Stop` |

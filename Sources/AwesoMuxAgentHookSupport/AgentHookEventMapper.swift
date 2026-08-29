@@ -82,12 +82,14 @@ public enum AgentHookEventMapper {
         switch provider {
         case .claudeCode:
             claudeCodeMapping(hookEventName: hookEventName, notificationType: notificationType)
-        case .codex, .openCode, .pi:
+        case .codex, .pi:
             // Codex shares the local-agent map so its SessionEnd resets the tile
             // (agent gone, not a turn-end .waiting) the same way OpenCode/Pi do.
             // Without this a quit Codex session left a stuck glyph/state — the
             // passive idle-shell detector was its only, lossy, reset path.
             localAgentMapping[hookEventName]
+        case .openCode:
+            openCodeMapping(hookEventName: hookEventName)
         case .grok:
             grokMapping(hookEventName: hookEventName, reason: reason)
         }
@@ -198,6 +200,17 @@ public enum AgentHookEventMapper {
     // OpenCode/Pi add StopFailure and a flat-userInputRequired Notification: unlike Claude
     // Code these providers do not forward notification subtypes, so the event carries no
     // subtype to switch on. The additive keys never overlap base, so the combine never fires.
+    private static func openCodeMapping(hookEventName: String) -> EventMapping? {
+        switch hookEventName {
+        case "PermissionReplied":
+            // OpenCode's bus `permission.replied` — authoritative retract for a
+            // hook-raised `.permissionPrompt` (issue #404). Content-free on purpose.
+            EventMapping(phase: .permissionReplied)
+        default:
+            localAgentMapping[hookEventName]
+        }
+    }
+
     private static let localAgentMapping: [String: EventMapping] = baseMapping.merging([
         "Notification": EventMapping(
             attentionReason: .userInputRequired,
