@@ -298,6 +298,9 @@ struct BoundedCommandRunnerTests {
 
     @Test("cancellation escalates to SIGKILL after the grace period")
     func cancellationEscalatesAfterGrace() async {
+        let readyPath =
+            NSTemporaryDirectory() + "awesomux-cancellation-ready-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: readyPath) }
         let scheduler = TestScheduler()
         let completedDelays = EventRecorder<Duration>()
         let completedRuns = EventRecorder<Bool>()
@@ -312,7 +315,12 @@ struct BoundedCommandRunnerTests {
         )
         let run = Task {
             let result = await runner.run(
-                arguments: ["-c", "trap '' TERM; exec sleep 30"],
+                arguments: [
+                    "-c",
+                    "trap '' TERM; : > \"$1\"; exec sleep 30",
+                    "awesomux-cancellation-test",
+                    readyPath,
+                ],
                 inDirectory: NSTemporaryDirectory()
             )
             await completedRuns.record(true)
@@ -320,6 +328,7 @@ struct BoundedCommandRunnerTests {
         }
 
         #expect(await waitUntilEventually { scheduler.requestedDurations.first == .seconds(60) })
+        #expect(await waitUntilEventually { FileManager.default.fileExists(atPath: readyPath) })
         run.cancel()
         #expect(await waitUntilEventually { scheduler.requestedDurations.contains(.seconds(1)) })
         #expect(await completedRuns.values.isEmpty)
