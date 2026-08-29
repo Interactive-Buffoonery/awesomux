@@ -295,6 +295,87 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.unreadNotificationCount == 1)
     }
 
+    @Test("tool start authoritatively clears a pending permission prompt")
+    func toolStartAuthoritativelyClearsPendingPermissionPrompt() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+        #expect(session.attentionReason == .permissionPrompt)
+        var reducer = AgentRuntimeEventReducer()
+
+        let toolStartResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "tool-start",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let toolStart = try #require(toolStartResult)
+        #expect(toolStart.update.attentionClearIsAuthoritative)
+        #expect(toolStart.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: toolStart.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == nil)
+        #expect(session.unreadNotificationCount == 0)
+        #expect(session.needsUserInput == false)
+    }
+
+    @Test("tool start does not clear a pending user-input-required reason")
+    func toolStartDoesNotClearPendingUserInputRequired() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .userInputRequired,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+        var reducer = AgentRuntimeEventReducer()
+
+        let toolStartResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "tool-start",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let toolStart = try #require(toolStartResult)
+        #expect(!toolStart.update.attentionClearIsAuthoritative)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: toolStart.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == .userInputRequired)
+        #expect(session.unreadNotificationCount == 1)
+    }
+
     @Test("only prompt submits claim the authoritative notification clear")
     func onlyPromptSubmitClaimsAuthoritativeClear() throws {
         let session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .openCode)
