@@ -387,6 +387,25 @@ struct DaemonGarbageCollectorTests {
         #expect(!DaemonGarbageCollector.sessionSocketExists(named: linkUUID, in: directory))
     }
 
+    // MARK: - Targeted process snapshot
+
+    @Test("targeted process snapshot returns only requested processes")
+    func targetedProcessSnapshotRestrictsTheQuery() async {
+        let requestedPIDs = [getpid(), getppid()]
+
+        guard let snapshot = await AmxBackend.processSnapshot(forPIDs: requestedPIDs) else {
+            Issue.record("targeted ps query failed")
+            return
+        }
+
+        #expect(Set(snapshot.map(\.pid)) == Set(requestedPIDs))
+    }
+
+    @Test("targeted process snapshot accepts an empty shortlist")
+    func targetedProcessSnapshotAcceptsNoPIDs() async {
+        #expect(await AmxBackend.processSnapshot(forPIDs: []) == [])
+    }
+
     // MARK: - Orphan attach signaling
 
     @Test("orphan signal: unavailable sample before TERM spares the process")

@@ -58,7 +58,7 @@ extension RemoteTarget: Codable {
             throw DecodingError.dataCorruptedError(
                 forKey: .host,
                 in: container,
-                debugDescription: "A remote target must contain a safe, non-empty SSH destination."
+                debugDescription: "A remote target host cannot be empty or start with '-'."
             )
         }
         self = target

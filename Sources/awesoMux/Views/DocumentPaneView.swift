@@ -947,13 +947,13 @@ struct DocumentPaneView: View {
     /// during a non-atomic rewrite would otherwise remount into a banner-free
     /// state and apply — and cache — the writer's half-finished prefix.
     @State private var showsOversizeBanner: Bool
-    /// A remote snapshot whose last refresh failed because the REMOTE file is
-    /// over the cap. Deliberately separate from `showsOversizeBanner`, not a
+    /// The banner established by the last failed refresh of a remote snapshot.
+    /// Deliberately separate from `showsOversizeBanner`, not a
     /// second way to set it: the load task clears that one on every successful
     /// local read, and this pane's local cache file always reads fine — it is
     /// only written when the payload fits. Sharing one flag would have the
     /// first reload erase the banner.
-    @State private var showsRemoteStaleBanner: Bool
+    @State private var remoteStaleBannerKind: DocumentOversizeBanner.Kind?
     @State private var selectedSourceSpan: Range<Int>? = nil
     // INT-580 annotation surface state is per-pane and deliberately unpersisted.
     @State private var hideResolved = false
@@ -1027,8 +1027,8 @@ struct DocumentPaneView: View {
         _showsOversizeBanner = State(
             initialValue: DocumentOversizePolicy.isOversize(
                 path: pane.fileURL.standardizedFileURL.path))
-        _showsRemoteStaleBanner = State(
-            initialValue: RemoteSnapshotStalePolicy.isStale(
+        _remoteStaleBannerKind = State(
+            initialValue: RemoteSnapshotStalePolicy.bannerKind(
                 path: pane.fileURL.standardizedFileURL.path))
     }
 
@@ -1116,6 +1116,15 @@ struct DocumentPaneView: View {
                     .accessibilityLabel("Loading document")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: RemoteSnapshotStalePolicy.didChangeNotification)
+        ) { notification in
+            guard let change = notification.object as? RemoteSnapshotStalePolicy.Change,
+                change.path == pane.fileURL.standardizedFileURL.path
+            else { return }
+            remoteStaleBannerKind = change.kind
         }
         .onAppear {
             reloadCompletion = DocumentReloadCompletion()
@@ -1341,9 +1350,8 @@ struct DocumentPaneView: View {
                     // an editing consequence to announce.
                     if showsOversizeBanner {
                         DocumentOversizeBanner(fileName: pane.title)
-                    } else if showsRemoteStaleBanner {
-                        DocumentOversizeBanner(
-                            fileName: pane.title, kind: .remoteStoppedRefreshing)
+                    } else if let remoteStaleBannerKind {
+                        DocumentOversizeBanner(fileName: pane.title, kind: remoteStaleBannerKind)
                     }
                     // Editable documents always expose the single document-note
                     // action; snapshots show it only when a note exists.
