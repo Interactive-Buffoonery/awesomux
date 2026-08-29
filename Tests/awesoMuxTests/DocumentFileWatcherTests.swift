@@ -161,38 +161,6 @@ struct DocumentFileWatcherTests {
         }
     }
 
-    /// `.immediate` opts out of coalescing entirely.
-    ///
-    /// Three writes 60 ms apart sit inside one default 100 ms window, which is
-    /// purely trailing and restarts on every event — the default watcher
-    /// delivers those as a single callback. A caller that coalesces downstream
-    /// needs every event instead, because a continuous stream of sub-window
-    /// writes can otherwise postpone delivery indefinitely.
-    @Test("coalescing .immediate delivers every event")
-    func immediateCoalescingDeliversEveryEvent() async throws {
-        try await withTempFile { url in
-            let counter = Counter()
-
-            let watcher = DocumentFileWatcher(url: url, coalescing: .immediate) {
-                counter.increment()
-            }
-            watcher.start()
-
-            for i in 0..<3 {
-                try "content \(i)".write(to: url, atomically: false, encoding: .utf8)
-                try await Task.sleep(nanoseconds: 60_000_000)  // 60 ms — inside the default window
-            }
-
-            let delivered = await waitUntilEventually(deadline: .seconds(10)) { counter.value >= 3 }
-            watcher.stop()
-
-            #expect(
-                delivered,
-                "every write inside one default window must reach an .immediate watcher"
-            )
-        }
-    }
-
     /// `.leadingEdge` is the mode a file that a *process* appends to needs.
     ///
     /// Two properties at once, and the second is the one the default mode

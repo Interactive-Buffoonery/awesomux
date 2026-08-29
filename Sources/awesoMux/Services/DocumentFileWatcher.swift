@@ -15,7 +15,7 @@ import Foundation
 /// A brief ENOENT between unlink and the new inode's creation is tolerated via a
 /// short retry loop. Multiple rapid events in the same write cycle are debounced
 /// to one `onChange` callback delivered on the main actor, unless the caller
-/// asks for `coalescing: .immediate`.
+/// asks for `coalescing: .leadingEdge`.
 ///
 /// Usage (from a SwiftUI view's `.onAppear`/`.task`):
 /// ```swift
@@ -55,9 +55,6 @@ final class DocumentFileWatcher {
         /// added latency on the first event and no starvation under a
         /// continuous stream, which is what a running agent's session log is.
         case leadingEdge
-        /// Deliver each event as it arrives, for a caller that coalesces
-        /// downstream. Bounds nothing on its own.
-        case immediate
     }
 
     // MARK: - State (all @MainActor)
@@ -73,9 +70,9 @@ final class DocumentFileWatcher {
 
     // MARK: - Lifecycle
 
-    /// - Parameter coalescing: `.immediate` delivers every event as it
-    ///   arrives — see `scheduleOnChange` for why a stream of appends needs
-    ///   that.
+    /// - Parameter coalescing: `.leadingEdge` bounds the delivery rate without
+    ///   adding latency to the first event — see `scheduleOnChange` for why a
+    ///   stream of appends needs that rather than a trailing debounce.
     init(
         url: URL,
         coalescing: Coalescing = .debounced,
@@ -225,11 +222,6 @@ final class DocumentFileWatcher {
     /// needed, make it duration-driven and exempt this file there.
     private func scheduleOnChange() {
         switch coalescing {
-        case .immediate:
-            debounceTask?.cancel()
-            debounceTask = nil
-            guard !stopped else { return }
-            onChange()
         case .debounced:
             debounceTask?.cancel()
             debounceTask = nil
