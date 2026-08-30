@@ -16,6 +16,24 @@ struct PaneTitleBarDisplayTests {
         #expect(PaneTitleBarView.displayTitle(for: pane) == "awesomux")
     }
 
+    @Test("rename focus retries through a real edge when focus state is stale")
+    func staleRenameFocusUsesASuppressedFalseToTrueEdge() {
+        let request = PaneTitleBarView.renameFocusRequest(isCurrentlyFocused: true)
+
+        #expect(request.suppressesBlurCommit)
+        #expect(!request.immediateFocus)
+        #expect(request.deferredFocus)
+    }
+
+    @Test("rename focus does not suppress a blur when focus state is fresh")
+    func freshRenameFocusDoesNotSuppressBlur() {
+        let request = PaneTitleBarView.renameFocusRequest(isCurrentlyFocused: false)
+
+        #expect(!request.suppressesBlurCommit)
+        #expect(!request.immediateFocus)
+        #expect(request.deferredFocus)
+    }
+
     @Test("declared SSH pane accessibility names its submitted target")
     func declaredSSHAccessibilityNamesSubmittedTarget() {
         let target = RemoteTarget(user: "alice", host: "buildbox-alias")!

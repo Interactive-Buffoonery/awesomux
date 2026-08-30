@@ -33,6 +33,7 @@ struct PaneTitleBarView: View {
 
     @State private var isEditing = false
     @State private var draft = ""
+    @State private var isSuppressingFieldBlurCommit = false
     @FocusState private var isFieldFocused: Bool
 
     /// Fixed band height. The terminal surface gets the remaining space; this
@@ -87,11 +88,27 @@ struct PaneTitleBarView: View {
                     // (Codex). `commit()` guards on isEditing so the focus loss
                     // triggered by ⏎/esc themselves doesn't double-fire.
                     .onChange(of: isFieldFocused) { _, focused in
-                        if !focused { commit() }
+                        guard !focused else { return }
+                        if isSuppressingFieldBlurCommit {
+                            isSuppressingFieldBlurCommit = false
+                            return
+                        }
+                        commit()
                     }
                     .onAppear {
                         draft = pane.isTitleUserEdited ? pane.title : ""
-                        isFieldFocused = true
+                        let request = Self.renameFocusRequest(isCurrentlyFocused: isFieldFocused)
+                        if request.suppressesBlurCommit {
+                            isSuppressingFieldBlurCommit = true
+                        }
+                        // A reused title bar can retain a true FocusState value.
+                        // Recreate the false-to-true edge so SwiftUI asks AppKit
+                        // for first responder again without treating that reset
+                        // as a click-away commit.
+                        isFieldFocused = request.immediateFocus
+                        DispatchQueue.main.async {
+                            isFieldFocused = request.deferredFocus
+                        }
                     }
             } else {
                 titleLabel(title)
@@ -312,6 +329,19 @@ struct PaneTitleBarView: View {
     // against chrome — no terminal-background contrast tuning needed.
     private var titleColor: Color {
         Color.aw.text
+    }
+
+    /// The focus transition needed when inline rename appears. A retained true
+    /// FocusState still needs a real edge before SwiftUI asks AppKit to focus
+    /// the newly inserted field.
+    nonisolated static func renameFocusRequest(
+        isCurrentlyFocused: Bool
+    ) -> (suppressesBlurCommit: Bool, immediateFocus: Bool, deferredFocus: Bool) {
+        (
+            suppressesBlurCommit: isCurrentlyFocused,
+            immediateFocus: false,
+            deferredFocus: true
+        )
     }
 
     /// Shared pane display title for the title bar and sidebar peek row: the
