@@ -1,5 +1,4 @@
 import AwesoMuxBridgeProtocol
-import Foundation
 
 public struct ProcessSnapshot: Hashable, Sendable {
     public let pid: Int32

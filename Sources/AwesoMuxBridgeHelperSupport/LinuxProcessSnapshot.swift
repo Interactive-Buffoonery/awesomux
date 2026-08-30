@@ -39,6 +39,9 @@
                 let environPath = entry.appendingPathComponent("environ").path
                 guard let firstStat = Self.readStat(path: statPath, pid: pid) else { continue }
                 guard let environment = try? Data(contentsOf: URL(fileURLWithPath: environPath)) else {
+                    // Without the environment, this PID cannot be associated with the
+                    // requested session. Treating every unreadable same-UID process as
+                    // matching would make unrelated protected processes poison all panes.
                     continue
                 }
                 let marked = Self.environment(environment, containsSessionID: sessionID)

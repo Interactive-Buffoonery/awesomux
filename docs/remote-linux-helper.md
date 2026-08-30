@@ -49,6 +49,13 @@ session and writes one bounded JSON object:
 ~/.awesomux/bin/awesomux-bridge-helper foreground-liveness --session <terminalSessionID>
 ```
 
+The helper can associate a process with the requested session only after reading
+its `AWESOMUX_BRIDGE_SESSION` environment entry. If Linux denies that read, the
+process is ignored because marking every unreadable same-user process as a match
+would make unrelated protected processes contaminate every pane's result.
+Evidence already associated with the requested session still fails closed as
+`indeterminate` if the process changes or disappears while it is sampled.
+
 The report distinguishes an idle shell, a shell with background descendants,
 a foreground command, indeterminate evidence, and a session that is gone. The
 probe never treats incomplete or contradictory process evidence as idle.
