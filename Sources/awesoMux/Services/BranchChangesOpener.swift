@@ -88,6 +88,31 @@ enum BranchChangesInvocations {
         paneTickets[paneID] == ticket
     }
 
+    private static var registeredTickets: [URL: Int] = [:]
+
+    /// Whether `ticket` may register bytes for `fileURL` with the self-write
+    /// registry, recording it as the path's newest registrant if so.
+    ///
+    /// Completions arrive on the main actor in any order. Without this gate, a
+    /// stale successful completion landing AFTER the current one would
+    /// re-register the path with older bytes, and the watcher would then read
+    /// the newer on-disk content as somebody else's edit — the mirror image of
+    /// the unregistered-write bug this gate's caller exists to prevent. The
+    /// slot claim guarantees disk holds the highest-claiming ticket's bytes,
+    /// so accepting only monotonically increasing tickets per path converges
+    /// the registry on what is actually on disk.
+    ///
+    /// ponytail: a stale completion arriving BEFORE the current one still
+    /// registers its (already overwritten) bytes for a moment; the registry's
+    /// short validity window and byte comparison bound the exposure to one
+    /// transient indicator. Registering inside the write's critical section
+    /// would close it, at the cost of a main-actor hop under the cache lock.
+    static func shouldRegister(_ ticket: Int, for fileURL: URL) -> Bool {
+        guard (registeredTickets[fileURL] ?? 0) < ticket else { return false }
+        registeredTickets[fileURL] = ticket
+        return true
+    }
+
     // MARK: Cache slots
 
     // `nonisolated(unsafe)` promise: accessed only under `slotLock`. Not on the

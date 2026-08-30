@@ -102,6 +102,58 @@ struct BranchChangesCompletionTests {
         #expect(context?.isSelfWrite == true)
     }
 
+    @Test("a stale completion arriving after the current one cannot roll the registry back")
+    func staleLateCompletionCannotRollBackRegistration() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let stale = BranchChangesInvocations.begin(paneID: terminal.id)
+        let current = BranchChangesInvocations.begin(paneID: terminal.id)
+
+        // One shared path: both runs rendered the same slot. Disk holds the
+        // current run's bytes (the slot claim guarantees it); the completions
+        // arrive in reverse order.
+        let currentRender = try render(markdown: "# current\n")
+        let staleRender = OpenedBranchChanges(
+            fileURL: currentRender.fileURL,
+            identity: currentRender.identity,
+            markdown: "# stale\n"
+        )
+
+        BranchChangesCompletion.apply(
+            .success(currentRender),
+            paneID: terminal.id,
+            ticket: current,
+            store: store,
+            alert: { _ in }
+        )
+        BranchChangesCompletion.apply(
+            .success(staleRender),
+            paneID: terminal.id,
+            ticket: stale,
+            store: store,
+            alert: { _ in }
+        )
+
+        // The registry must still describe what is on disk — the current
+        // run's bytes — not the stale run's.
+        let context = DocumentPaneView.selfWriteRegistry.context(
+            fileURL: currentRender.fileURL,
+            onDiskSource: currentRender.markdown
+        )
+        #expect(context?.isSelfWrite == true)
+        let staleContext = DocumentPaneView.selfWriteRegistry.context(
+            fileURL: currentRender.fileURL,
+            onDiskSource: staleRender.markdown
+        )
+        #expect(staleContext?.isSelfWrite != true)
+    }
+
     @Test("a superseded render registers nothing, because it wrote nothing")
     func supersededFailureRegistersNothing() throws {
         let terminal = pane("zsh")

@@ -29,7 +29,13 @@ enum BranchChangesCompletion {
         // watcher on whatever tab already holds that file report awesoMux's own
         // rewrite as somebody else's edit, announced aloud to the one user who
         // has no way to check.
-        if case .success(let opened) = result {
+        // Gated by ticket so a stale completion arriving AFTER the current one
+        // cannot re-register the path with older bytes than disk holds — the
+        // mirror image of the unregistered-write bug the unconditional record
+        // would reintroduce.
+        if case .success(let opened) = result,
+            BranchChangesInvocations.shouldRegister(ticket, for: opened.fileURL)
+        {
             DocumentPaneView.selfWriteRegistry.record(
                 fileURL: opened.fileURL,
                 source: opened.markdown
