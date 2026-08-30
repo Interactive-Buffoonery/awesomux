@@ -35,4 +35,10 @@ jobs:
           save-cache: "false"
 
       - name: Run sidebar tint contrast tests
-        run: ./script/swift-test.sh --filter SidebarTintContrastTests
+        run: |
+          output="$RUNNER_TEMP/sidebar-tint-contrast.log"
+          ./script/swift-test.sh --filter SidebarTintContrastTests 2>&1 | tee "$output"
+          if ! grep -Eq 'Test run with [1-9][0-9]* tests passed' "$output"; then
+            echo "Sidebar tint contrast filter ran no tests" >&2
+            exit 1
+          fi

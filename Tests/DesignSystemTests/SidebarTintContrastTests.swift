@@ -21,7 +21,8 @@ struct SidebarTintContrastTests {
             let text = try resolve(Color.aw.text, appearance: appearance)
             let tile = try resolve(Color.aw.surface.elevated, appearance: appearance)
             let hover = try composited(
-                Color.aw.surface.hover,
+                Color.aw.text,
+                opacity: 0.06,
                 over: Color.aw.surface.elevated,
                 appearance: appearance
             )
@@ -32,6 +33,20 @@ struct SidebarTintContrastTests {
             expectContrast(text, hover, floor: 4.5, label: "hovered tile text", appearance: appearance)
             expectContrast(railText, sidebar, floor: 4.5, label: "rail text", appearance: appearance)
         }
+    }
+
+    @Test("standard appearance resolution ignores host Increase Contrast")
+    func standardAppearanceResolutionIgnoresHostIncreaseContrast() throws {
+        let color = Color(
+            nsColor: NSColor.awDynamic(
+                mocha: "#010101",
+                latte: "#020202",
+                mochaHC: "#030303",
+                latteHC: "#040404"
+            ))
+
+        #expect(contrastRatio(try resolve(color, appearance: .aqua), NSColor.awHex("#020202")) == 1)
+        #expect(contrastRatio(try resolve(color, appearance: .darkAqua), NSColor.awHex("#010101")) == 1)
     }
 
     @Test("workspace borders clear the non-text floor")
@@ -68,7 +83,8 @@ struct SidebarTintContrastTests {
         ] {
             let tile = try resolve(Color.aw.surface.elevated, appearance: appearance)
             let hover = try composited(
-                Color.aw.surface.hover,
+                Color.aw.text,
+                opacity: 0.06,
                 over: Color.aw.surface.elevated,
                 appearance: appearance
             )
@@ -110,7 +126,8 @@ struct SidebarTintContrastTests {
         for appearance in allAppearances {
             let tile = try resolve(Color.aw.surface.elevated, appearance: appearance)
             let hover = try composited(
-                Color.aw.surface.hover,
+                Color.aw.text,
+                opacity: 0.06,
                 over: Color.aw.surface.elevated,
                 appearance: appearance
             )
@@ -176,15 +193,37 @@ struct SidebarTintContrastTests {
     }
 
     private func resolve(_ color: Color, appearance: NSAppearance.Name) throws -> NSColor {
-        try #require(NSColor(color).withAppearance(appearance))
+        let dynamicColor = NSColor(color)
+        let prefix = "awDynamic-"
+        let name = dynamicColor.colorNameComponent
+        guard name.hasPrefix(prefix) else {
+            Issue.record("Expected an awDynamic color, got `\(name)`")
+            return try #require(dynamicColor.usingColorSpace(.sRGB))
+        }
+
+        let components = name.dropFirst(prefix.count).split(separator: "-").map(String.init)
+        guard components.count == 4 else {
+            Issue.record("Malformed awDynamic color name `\(name)`")
+            return try #require(dynamicColor.usingColorSpace(.sRGB))
+        }
+
+        return NSColor.awHex(
+            NSColor.awDynamicHex(
+                for: appearance,
+                mocha: components[0],
+                latte: components[1],
+                mochaHC: components[2],
+                latteHC: components[3]
+            ))
     }
 
     private func composited(
         _ overlay: Color,
+        opacity: CGFloat,
         over background: Color,
         appearance: NSAppearance.Name
     ) throws -> NSColor {
-        let foreground = try resolve(overlay, appearance: appearance)
+        let foreground = try resolve(overlay, appearance: appearance).withAlphaComponent(opacity)
         let background = try resolve(background, appearance: appearance)
         return foreground.composited(over: background)
     }
@@ -220,15 +259,6 @@ private func relativeLuminance(_ color: NSColor) -> Double {
 }
 
 private extension NSColor {
-    func withAppearance(_ appearanceName: NSAppearance.Name) -> NSColor? {
-        guard let appearance = NSAppearance(named: appearanceName) else { return nil }
-        var resolved: CGColor?
-        appearance.performAsCurrentDrawingAppearance {
-            resolved = cgColor
-        }
-        return resolved.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB)
-    }
-
     func composited(over background: NSColor) -> NSColor {
         guard alphaComponent < 1 else { return self }
         let alpha = alphaComponent
