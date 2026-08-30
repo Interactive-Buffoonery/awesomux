@@ -11,8 +11,8 @@ The `Require fast CI` repository ruleset requires these stable check names:
 
 - `Fast deterministic guards` runs the Linux source-policy, review-automation,
   localization, test-wait, toolchain, and changed-line formatting checks.
-- `CodeQL interpreted complete` aggregates the automatic Actions and Python
-  CodeQL analyses.
+- `CodeQL interpreted complete` aggregates the automatic Actions CodeQL
+  analysis.
 - `Validate PR metadata` validates the pull-request template and metadata from
   trusted default-branch workflow code. Dependabot pull requests skip this
   human-authored description check because GitHub owns their generated bodies.
@@ -184,8 +184,8 @@ classified as product/test, runner, or workflow infrastructure failures.
 
 ## CodeQL policy
 
-Actions and Python CodeQL run automatically on pull requests and `main`. Their
-aggregate `CodeQL interpreted complete` check does not wait for Swift.
+Actions CodeQL runs automatically on pull requests and `main`. Its aggregate
+`CodeQL interpreted complete` check does not wait for Swift.
 
 Swift CodeQL runs on `macos-26` (or `NATIVE_CI_RUNNER`) every Tuesday at
 `17 8 * * 2` and through manual dispatch. It retains manual-build analysis and
@@ -194,13 +194,19 @@ or every `main` push.
 
 ## Native CI policy
 
-Native Swift CI is intentionally advisory and on demand. It runs only after an
-allowlisted maintainer posts an exact `/ci` command on an eligible pull request
-or starts a manual dispatch. It does not run automatically on pull requests,
-pushes to `main`, or a recurring schedule.
+General native Swift CI is intentionally advisory and on demand. It runs only
+after an allowlisted maintainer posts an exact `/ci` command on an eligible pull
+request or starts a manual dispatch. It does not run automatically on pull
+requests, pushes to `main`, or a recurring schedule.
 
-Making native CI automatic or a required merge check requires a separate
-reliability and cost review.
+The path-filtered `Tint contrast` workflow is the narrow exception: relevant
+design-system and sidebar changes automatically run the focused
+`SidebarTintContrastTests` suite on the GitHub-hosted `macos-26` runner. It has
+read-only permissions, does not use the configurable native-runner label, and
+remains advisory.
+
+Making broader native CI automatic, or making any native check required for
+merge, requires a separate reliability and cost review.
 
 ## Release test gate
 

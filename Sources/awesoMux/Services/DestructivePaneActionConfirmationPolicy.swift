@@ -13,6 +13,7 @@ enum DestructivePaneActionConfirmationPolicy {
     enum Action: Equatable {
         case closePane
         case restartShell
+        case closeWorkspace
 
         var destructiveButtonTitle: String {
             switch self {
@@ -25,6 +26,11 @@ enum DestructivePaneActionConfirmationPolicy {
                 String(
                     localized: "Restart Shell",
                     comment: "Destructive button on the restart-shell confirmation dialog."
+                )
+            case .closeWorkspace:
+                String(
+                    localized: "Close Workspace",
+                    comment: "Destructive button on the close-workspace confirmation dialog."
                 )
             }
         }
@@ -40,6 +46,11 @@ enum DestructivePaneActionConfirmationPolicy {
                 String(
                     localized: "Press ⌘Return to restart shell. Esc cancels.",
                     comment: "Keyboard hint line on the restart-shell confirmation dialog."
+                )
+            case .closeWorkspace:
+                String(
+                    localized: "Press ⌘Return to close workspace. Esc cancels.",
+                    comment: "Keyboard hint line on the close-workspace confirmation dialog."
                 )
             }
         }
@@ -78,31 +89,121 @@ enum DestructivePaneActionConfirmationPolicy {
         return .prompt(action)
     }
 
-    /// Body copy for the close-pane confirmation. When the risk is the pane's
-    /// own live agent process, name it — "activity that will be interrupted"
-    /// oversells an agent TUI idling at its input box (issue #190, mechanism 1).
-    /// Every other risk reason keeps the generic phrasing: for those the live
-    /// process is either not an agent or not actually verified.
+    /// Centralized body copy for destructive pane/workspace confirmations.
+    ///
+    /// - When activity is verified and the live foreground command matches the
+    ///   tagged agent, names the agent and says the action will stop it.
+    /// - When the state is unknown (.indeterminate), says awesoMux couldn't verify
+    ///   activity and the action may stop a process.
+    /// - Otherwise, gives action-specific generic activity warnings.
+    static func confirmationBody(
+        action: Action,
+        displayTitle: String,
+        agentKind: AgentKind?,
+        sampledComm: String?,
+        riskReason: QuitRiskReason?,
+        riskyPaneCount: Int = 1
+    ) -> String {
+        let isVerifiedAgent: Bool = {
+            guard let agentKind, agentKind != .shell, let sampledComm else {
+                return false
+            }
+            return (riskReason == .liveAgentProcess || riskReason == .activeAgentExecution)
+                && AgentPromptGate.foregroundCommandMatches(agentKind, observedCommand: sampledComm)
+        }()
+
+        if isVerifiedAgent, let agentKind {
+            switch action {
+            case .closePane:
+                return String(
+                    localized: "\(agentKind.rawValue) is running in this pane. Closing the pane will stop it.",
+                    comment:
+                        "Body of the close-pane confirmation dialog when a live agent process is verified. Argument is the agent name (e.g. Claude Code)."
+                )
+            case .restartShell:
+                return String(
+                    localized: "\(agentKind.rawValue) is running in this pane. Restarting the shell will stop it.",
+                    comment:
+                        "Body of the restart-shell confirmation dialog when a live agent process is verified. Argument is the agent name (e.g. Claude Code)."
+                )
+            case .closeWorkspace:
+                return String(
+                    localized: "\(agentKind.rawValue) is running in this workspace. Closing the workspace will stop it.",
+                    comment:
+                        "Body of the close-workspace confirmation dialog when a live agent process is verified in the workspace. Argument is the agent name (e.g. Claude Code)."
+                )
+            }
+        }
+
+        if riskReason == .indeterminate {
+            switch action {
+            case .closePane:
+                return String(
+                    localized: "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process.",
+                    comment: "Body of the close-pane confirmation dialog when pane activity is unverifiable."
+                )
+            case .restartShell:
+                return String(
+                    localized: "awesoMux couldn’t verify whether this pane is busy. Restarting the shell may stop a running process.",
+                    comment: "Body of the restart-shell confirmation dialog when pane activity is unverifiable."
+                )
+            case .closeWorkspace:
+                return String(
+                    localized:
+                        "awesoMux couldn’t verify whether this workspace has running activity. Closing it may stop running processes.",
+                    comment: "Body of the close-workspace confirmation dialog when workspace activity is unverifiable."
+                )
+            }
+        }
+
+        switch action {
+        case .closePane:
+            return String(
+                localized: "This pane has running activity. Closing the pane will stop it.",
+                comment: "Body of the close-pane confirmation dialog when generic activity is running."
+            )
+        case .restartShell:
+            if riskReason != nil {
+                return String(
+                    localized: "This pane has running activity. Restarting the shell will stop it.",
+                    comment: "Body of the restart-shell confirmation dialog when generic activity is running."
+                )
+            } else {
+                return String(
+                    localized:
+                        "Restarting the shell in \(displayTitle) ends the current session and starts a fresh one. Scrollback isn't kept.",
+                    comment:
+                        "Body of the restart-shell confirmation dialog when the active pane is idle. Argument is the bidi-isolated workspace title."
+                )
+            }
+        case .closeWorkspace:
+            if riskyPaneCount > 1 {
+                return String(
+                    localized: "This workspace has activity running in multiple panes. Closing the workspace will stop it.",
+                    comment: "Body of the close-workspace confirmation dialog when multiple panes have running activity."
+                )
+            } else {
+                return String(
+                    localized: "This workspace has running activity. Closing the workspace will stop it.",
+                    comment: "Body of the close-workspace confirmation dialog when generic activity is running."
+                )
+            }
+        }
+    }
+
+    /// Legacy / convenience close-pane confirmation body helper.
     static func closePaneConfirmationBody(
         displayTitle: String,
         agentKind: AgentKind?,
+        sampledComm: String? = nil,
         riskReason: QuitRiskReason?
     ) -> String {
-        // ponytail: names the pane's *tagged* agent, which can lag reality —
-        // an exited agent whose tag hasn't reset yet makes this claim about
-        // whatever runs now. Gate on a live comm match if that bites in the field.
-        if riskReason == .liveAgentProcess, let agentKind, agentKind != .shell {
-            return String(
-                localized:
-                    "\(agentKind.rawValue) is running in the active pane in \(displayTitle). Closing the pane will terminate \(agentKind.rawValue).",
-                comment:
-                    "Body of the close-pane confirmation dialog when a live agent process is the risk. First and third arguments are the agent name (e.g. Claude Code), second is the bidi-isolated workspace title."
-            )
-        }
-        return String(
-            localized:
-                "The active pane in \(displayTitle) has activity that will be interrupted. Closing the pane will terminate the running process.",
-            comment: "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
+        confirmationBody(
+            action: .closePane,
+            displayTitle: displayTitle,
+            agentKind: agentKind,
+            sampledComm: sampledComm,
+            riskReason: riskReason
         )
     }
 

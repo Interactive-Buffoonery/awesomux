@@ -104,6 +104,11 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// runtime-only fields). Default `.unsampled` = no live local process, the
     /// safe default for un-mounted panes (lazy-mount invariant).
     public var foregroundProcessLiveness: ForegroundProcessLiveness
+    /// Runtime-only sampled foreground process name (`p_comm`), if available.
+    /// Used to match against tagged `agentKind` before naming the agent in
+    /// confirmation dialogs (issue #198). Deliberately excluded from
+    /// Codable/equality/hash like other runtime-only fields.
+    public var sampledComm: String?
     /// Runtime-only OSC 9;4 progress report. A restored pane starts absent until
     /// the live terminal process announces its current operation again.
     public var progressReport: TerminalProgressReport?
@@ -143,6 +148,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         needsTerminalQuitConfirmation: Bool = false,
         terminalPromptObserved: Bool? = nil,
         foregroundProcessLiveness: ForegroundProcessLiveness = .unsampled,
+        sampledComm: String? = nil,
         progressReport: TerminalProgressReport? = nil,
         unreadNotificationCount: Int = 0,
         executionPlan: PaneExecutionPlan
@@ -176,6 +182,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.needsTerminalQuitConfirmation = needsTerminalQuitConfirmation
         self.terminalPromptObserved = terminalPromptObserved ?? needsTerminalQuitConfirmation
         self.foregroundProcessLiveness = foregroundProcessLiveness
+        self.sampledComm = sampledComm
         self.progressReport = progressReport
         self.unreadNotificationCount = unreadNotificationCount
     }

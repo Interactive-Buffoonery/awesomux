@@ -183,7 +183,7 @@ public enum AgentPromptGate {
     /// reads as impossible until you check `p_comm` itself.) Stripping the
     /// suffix widens nothing: the stripped name still has to clear the same
     /// per-provider allowlist and the same shell/interpreter deny-list.
-    static func foregroundCommandMatches(
+    public static func foregroundCommandMatches(
         _ kind: AgentKind,
         observedCommand: String,
         configuredBinaryCandidate: () -> String? = { nil }

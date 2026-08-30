@@ -48,6 +48,19 @@ enum ProcessLivenessProbe {
         return Int(info.pbi_start_tvsec) * 1_000_000 + Int(info.pbi_start_tvusec)
     }
 
+    /// Verifies that an attached daemon record still names the same process,
+    /// rather than a later process that reused its pid. AMX records creation
+    /// time in epoch seconds; libproc supplies microseconds for the live pid.
+    static func matchesDaemonIncarnation(
+        _ incarnation: AmxDaemonIncarnation,
+        processStartTime: (pid_t) -> Int? = { ProcessLivenessProbe.processStartTime(pid: $0) }
+    ) -> Bool {
+        guard let pid = pid_t(exactly: incarnation.pid),
+            let observedStartTime = processStartTime(pid)
+        else { return false }
+        return observedStartTime / 1_000_000 == incarnation.createdAt
+    }
+
     /// Whether `pid` has at least one child process, or nil if the child list
     /// cannot be resolved. Uses `proc_listpids(PROC_PPID_ONLY, …)`. Returns nil
     /// (not false) when the pid is gone — the sizing call may return a non-zero
