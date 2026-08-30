@@ -91,7 +91,8 @@ struct FirstRunTourCopyTests {
                     onBack: {},
                     onNext: {},
                     onDismiss: {},
-                    onOpenAgentSettings: {})
+                    onOpenAgentSettings: {},
+                    onDiscoverFeatures: {})
             ).fittingSize.height
         }
         #expect(heights.allSatisfy { $0 > 0 })

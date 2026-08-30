@@ -124,6 +124,9 @@ final class FirstRunTourController {
     /// Supplied by the app so beat three's button can open the agent settings
     /// section. A no-op default keeps the tour usable before that wiring exists.
     @ObservationIgnored var onOpenAgentSettings: () -> Void = {}
+    /// Supplied by the app so the optional closing-page action can complete
+    /// onboarding before handing off to the separate Feature Atlas panel.
+    @ObservationIgnored var onOpenFeatureAtlas: () -> Void = {}
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -182,6 +185,15 @@ final class FirstRunTourController {
     func resumeAfterAgentSettingsClose() {
         guard consumeAgentSettingsHandoff() else { return }
         show()
+    }
+
+    /// The atlas is an explicit branch from the closing beat, not a side effect
+    /// of ordinary dismissal. The visibility guard also makes repeated button
+    /// or accessibility activation idempotent.
+    func discoverFeatures() {
+        guard isVisible else { return }
+        dismissByUser()
+        onOpenFeatureAtlas()
     }
 
     /// Esc, Cmd-W, the close control, or finishing beat five. Only this path
@@ -263,7 +275,8 @@ final class FirstRunTourController {
             onBack: {},
             onNext: {},
             onDismiss: {},
-            onOpenAgentSettings: {}
+            onOpenAgentSettings: {},
+            onDiscoverFeatures: {}
         )
         if let appSettingsStore {
             page.appearanceBridge(appSettingsStore)

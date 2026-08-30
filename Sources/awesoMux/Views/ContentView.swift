@@ -86,6 +86,7 @@ struct ContentView: View {
     let onRetrySessionSave: () -> Void
     let onOpenQuickSettings: () -> Void
     let onShowWelcomeTour: () -> Void
+    let onShowFeatureAtlas: () -> Void
     let onToggleCommandPalette: () -> Void
     let onOpenSelectedWorkspaceInIDE: () -> Void
     let onOpenSelectedWorkspaceInIDEWithApp: (URL, InstalledIDE) -> Void
@@ -398,6 +399,7 @@ struct ContentView: View {
                         onMakeWorkspaceManaged: onMakeWorkspaceManaged,
                         onOpenQuickSettings: onOpenQuickSettings,
                         onShowWelcomeTour: onShowWelcomeTour,
+                        onShowFeatureAtlas: onShowFeatureAtlas,
                         onToggleCommandPalette: onToggleCommandPalette,
                         onFocusPane: onFocusAgentPane,
                         focusRequestID: deliveredSidebarFocusRequestID,

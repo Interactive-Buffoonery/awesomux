@@ -247,4 +247,38 @@ struct FirstRunTourControllerTests {
         #expect(controller.isDeferringNotificationPrime == false)
         #expect(NotificationPrimePolicy.shouldPrime(inputs()) == true)
     }
+
+    // MARK: - Feature Atlas handoff
+
+    @Test("The closing-page discovery action completes the tour and opens the atlas once")
+    func discoveryActionHandsOffOnce() {
+        let defaults = UserDefaults(suiteName: "tour.ctrl.atlas")!
+        defaults.removePersistentDomain(forName: "tour.ctrl.atlas")
+        let controller = FirstRunTourController(defaults: defaults)
+        var openCount = 0
+        controller.onOpenFeatureAtlas = { openCount += 1 }
+        controller.showForTesting()
+        for _ in 1..<FirstRunTourController.beatCount { controller.advance() }
+
+        controller.discoverFeatures()
+        controller.discoverFeatures()
+
+        #expect(openCount == 1)
+        #expect(controller.isVisible == false)
+        #expect(controller.currentBeat == 0)
+        #expect(defaults.bool(forKey: SettingsKey.hasSeenFirstRunTour) == true)
+    }
+
+    @Test("Ordinary tour dismissal never opens the atlas")
+    func dismissalDoesNotOpenAtlas() {
+        let controller = FirstRunTourController(
+            defaults: UserDefaults(suiteName: "tour.ctrl.noatlas")!)
+        var openCount = 0
+        controller.onOpenFeatureAtlas = { openCount += 1 }
+        controller.showForTesting()
+
+        controller.dismissByUser()
+
+        #expect(openCount == 0)
+    }
 }

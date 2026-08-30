@@ -571,6 +571,9 @@
     "Agent permission posture" : {
 
     },
+    "Agent status" : {
+      "comment" : "Feature Atlas card title"
+    },
     "Agent transcripts are rendered from the session's log and cannot be edited." : {
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
     },
@@ -827,7 +830,7 @@
 
     },
     "Check for Updates…" : {
-      "comment" : "App menu command that explicitly checks for awesoMux updates"
+      "comment" : "App menu command that explicitly checks for awesoMux updates\nFeature Atlas card action"
     },
     "Check status" : {
 
@@ -1005,6 +1008,18 @@
     "Close pane in %arg?" : {
       "comment" : "Title of the close-pane confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
     },
+    "Close the current sheet before opening Worktree Manager." : {
+      "comment" : "Feature Atlas unavailable reason for Worktree Manager"
+    },
+    "Close the current sheet before opening a Markdown file." : {
+      "comment" : "Feature Atlas unavailable reason for Markdown file opening"
+    },
+    "Close the current sheet before opening the Command Palette." : {
+      "comment" : "Feature Atlas unavailable reason for the Command Palette"
+    },
+    "Close the current sheet before setting up a remote workspace." : {
+      "comment" : "Feature Atlas unavailable reason for remote workspace setup"
+    },
     "Closed %arg" : {
       "comment" : "VoiceOver announcement after closing a document tab"
     },
@@ -1039,7 +1054,7 @@
 
     },
     "Command Palette" : {
-
+      "comment" : "Feature Atlas card title"
     },
     "Command W minimizes the Terminal Companion" : {
       "comment" : "Accessibility label for the Terminal Companion minimize shortcut hint."
@@ -1118,6 +1133,9 @@
     },
     "Connect" : {
       "comment" : "Button that creates a managed SSH workspace"
+    },
+    "Connect over SSH and keep your remote work organized too!" : {
+      "comment" : "Feature Atlas description of remote workspaces"
     },
     "Connect via SSH" : {
       "comment" : "Title of the Connect via SSH sheet"
@@ -1324,6 +1342,9 @@
         }
       }
     },
+    "Create and open Git worktrees without having to remember the right Git commands off the top of your head." : {
+      "comment" : "Feature Atlas description of Worktree Manager"
+    },
     "Creates a managed SSH workspace in “%arg.”\nOpenSSH will use your existing config and credentials." : {
       "comment" : "Explanation in the Connect via SSH sheet"
     },
@@ -1346,6 +1367,12 @@
       "comment" : "Toast headline placeholder when the deleted custom command's text is unknown"
     },
     "Custom command name" : {
+
+    },
+    "D.A.V.E. is still learning new tricks. Check for updates and he'll let you know when there's something new to try." : {
+      "comment" : "Feature Atlas description of future awesoMux updates"
+    },
+    "D.A.V.E. the goose is ready to help you discover everything awesoMux offers!" : {
 
     },
     "Daemon" : {
@@ -1447,6 +1474,12 @@
     },
     "Disconnected from %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane is blocked because background terminal sessions are disabled"
+    },
+    "Discover awesoMux" : {
+      "comment" : "Announced to VoiceOver when the D.A.V.E. feature atlas opens"
+    },
+    "Discover more with D.A.V.E.…" : {
+      "comment" : "Welcome tour button opening the optional Feature Atlas"
     },
     "Dismiss revision indicator" : {
       "comment" : "Tooltip and accessibility label for the button that hides the document revision indicator"
@@ -1745,6 +1778,9 @@
     "Ghostty" : {
 
     },
+    "Git worktrees" : {
+      "comment" : "Feature Atlas card title"
+    },
     "GitHub" : {
       "comment" : "About window link to the project repository"
     },
@@ -1937,11 +1973,17 @@
     "Keep Asking" : {
 
     },
+    "Keep READMEs, plans, and notes open next to your shell - no extra editor window required." : {
+      "comment" : "Feature Atlas description of Markdown document panes"
+    },
     "Keep Saved File" : {
       "comment" : "Safe action after a failed session recovery replacement\nSafe action after an oversized session recovery replacement\nSafe action that leaves conflicted session snapshot data untouched"
     },
     "Keep awesoMux quiet" : {
 
+    },
+    "Keep docs close" : {
+      "comment" : "Feature Atlas card title"
     },
     "Keep terminal sessions running in the background" : {
 
@@ -2113,6 +2155,9 @@
     },
     "Mono font" : {
       "comment" : "Accessibility label for the terminal font picker\nSettings field label for the terminal font picker"
+    },
+    "More features coming soon!" : {
+      "comment" : "Feature Atlas card title"
     },
     "More settings…" : {
 
@@ -2399,6 +2444,9 @@
     "Not checked yet" : {
       "comment" : "Diagnostics freshness"
     },
+    "Not interested in agent features? Switch to the terminal-only guide below." : {
+      "comment" : "Feature Atlas note pointing to the terminal-only guidance preference"
+    },
     "Not requested yet" : {
       "comment" : "Settings label when macOS notification permission has not been requested."
     },
@@ -2453,6 +2501,9 @@
     "Open Agent Transcript" : {
       "comment" : "Workspace menu item that opens the active pane's agent session as a document"
     },
+    "Open Command Palette" : {
+      "comment" : "Feature Atlas card action"
+    },
     "Open Markdown File…" : {
 
     },
@@ -2477,8 +2528,20 @@
     "Open URL with non-standard scheme?" : {
       "comment" : "OSC 8 confirmation dialog title segment when the URL's scheme is outside http/https/mailto."
     },
+    "Open Worktree Manager" : {
+      "comment" : "Feature Atlas card action"
+    },
     "Open Worktree…" : {
       "comment" : "Command palette action that opens Worktree Manager for worktree selection."
+    },
+    "Open a Markdown file" : {
+      "comment" : "Feature Atlas card action"
+    },
+    "Open a local Git repository to use Worktree Manager." : {
+      "comment" : "Feature Atlas unavailable reason for Worktree Manager"
+    },
+    "Open a workspace before opening a Markdown file." : {
+      "comment" : "Feature Atlas unavailable reason for Markdown file opening"
     },
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
@@ -3088,6 +3151,9 @@
     "Remote terminal works; rich agent features are off." : {
       "comment" : "Bridge doctor degradation banner when the bridge is down"
     },
+    "Remote workspaces" : {
+      "comment" : "Feature Atlas card title"
+    },
     "Remove" : {
       "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
     },
@@ -3563,11 +3629,20 @@
     "Set Workspace Group Color to %arg" : {
 
     },
+    "Set up a remote workspace" : {
+      "comment" : "Feature Atlas card action"
+    },
+    "Set up agent tools" : {
+      "comment" : "Feature Atlas card action"
+    },
     "Set up agents…" : {
       "comment" : "Welcome tour button opening the agent settings section"
     },
     "Settings" : {
 
+    },
+    "Settings isn't available yet." : {
+      "comment" : "Feature Atlas unavailable reason for agent Settings"
     },
     "Settings…" : {
       "comment" : "Dock right-click menu item that opens the Settings window."
@@ -3854,11 +3929,17 @@
     "That custom command no longer exists." : {
       "comment" : "Feedback when a palette custom command was deleted before it ran"
     },
+    "That feature isn't available right now." : {
+      "comment" : "Fallback announcement when a Feature Atlas action cannot run"
+    },
     "That workspace is no longer available to reopen" : {
       "comment" : "VoiceOver announcement when a Recently Closed entry was already reopened or expired before the user selected it."
     },
     "The .awesomux/layouts folder is missing or is not a plain folder. Symbolic links are not followed." : {
       "comment" : "Failure reason when the layout preset folder is unusable."
+    },
+    "The Command Palette gives you every awesoMux command in one searchable list, because you probably have better things to remember than random terminal commands (we sure do)." : {
+      "comment" : "Feature Atlas description of the Command Palette"
     },
     "The Git repository changed. Reopen Worktree Manager from the active workspace." : {
       "comment" : "Worktree Manager open error when the captured repository is no longer current.\nWorktree Manager refresh error when the captured repository is no longer current."
@@ -4335,6 +4416,9 @@
     "Update awesoMux Remote Helper?" : {
       "comment" : "Remote helper update title"
     },
+    "Update checks are available in release builds." : {
+      "comment" : "Feature Atlas unavailable reason for update checking"
+    },
     "Update clipboard from terminal escape sequence" : {
       "comment" : "VoiceOver label for approving an OSC 52 clipboard write."
     },
@@ -4547,6 +4631,9 @@
     },
     "awesoMux Settings" : {
 
+    },
+    "awesoMux can tell when an agent is working, waiting for you, or finished - even when you're in another workspace." : {
+      "comment" : "Feature Atlas description of agent status"
     },
     "awesoMux checked the saved workspace file and couldn't read it, and couldn't archive a copy either, so it was left untouched. Your open workspaces are unaffected. Automatic session saving is paused. Keep that file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown mid-session when unreadable workspace data could not be archived"

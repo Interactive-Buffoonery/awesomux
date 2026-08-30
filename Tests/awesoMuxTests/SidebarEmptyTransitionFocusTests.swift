@@ -114,6 +114,7 @@ private struct SidebarEmptyTransitionFocusFixture {
             onMakeWorkspaceManaged: { _ in },
             onOpenQuickSettings: {},
             onShowWelcomeTour: {},
+            onShowFeatureAtlas: {},
             onToggleCommandPalette: {},
             onFocusPane: { _, _ in },
             focusRequestID: nil,

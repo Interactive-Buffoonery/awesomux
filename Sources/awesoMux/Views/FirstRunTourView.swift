@@ -181,7 +181,8 @@ struct FirstRunTourView: View {
             onBack: { controller.retreat() },
             onNext: { controller.advance() },
             onDismiss: { controller.dismissByUser() },
-            onOpenAgentSettings: onOpenAgentSettings
+            onOpenAgentSettings: onOpenAgentSettings,
+            onDiscoverFeatures: { controller.discoverFeatures() }
         )
     }
 }
@@ -197,6 +198,7 @@ struct FirstRunTourPage: View {
     let onNext: () -> Void
     let onDismiss: () -> Void
     let onOpenAgentSettings: () -> Void
+    let onDiscoverFeatures: () -> Void
 
     @Environment(\.awAccent) private var accentResolver
     @AccessibilityFocusState private var beatFocused: Bool
@@ -241,6 +243,17 @@ struct FirstRunTourPage: View {
                             localized: "Set up agents…",
                             comment: "Welcome tour button opening the agent settings section"),
                         action: onOpenAgentSettings
+                    )
+                    .buttonStyle(.bordered)
+                    .padding(.top, 2)
+                }
+
+                if isLastBeat {
+                    Button(
+                        String(
+                            localized: "Discover more with D.A.V.E.…",
+                            comment: "Welcome tour button opening the optional Feature Atlas"),
+                        action: onDiscoverFeatures
                     )
                     .buttonStyle(.bordered)
                     .padding(.top, 2)
@@ -369,7 +382,7 @@ struct FirstRunTourPage: View {
 
 // MARK: - D.A.V.E.
 
-private struct DaveMark: View {
+struct DaveMark: View {
     @Environment(\.awAccent) private var accentResolver
 
     // Art, not copy — deliberately outside the string catalog. Monospaced so

@@ -143,6 +143,7 @@ struct PaletteAppActions {
     let createWorktree: @MainActor () -> Void
     let openWorktree: @MainActor () -> Void
     let showWelcomeTour: @MainActor () -> Void
+    let showFeatureAtlas: @MainActor () -> Void
 
     static var noop: PaletteAppActions {
         noop()
@@ -218,7 +219,8 @@ struct PaletteAppActions {
             openWorktreeManager: action,
             createWorktree: action,
             openWorktree: action,
-            showWelcomeTour: action
+            showWelcomeTour: action,
+            showFeatureAtlas: action
         )
     }
 }
@@ -884,6 +886,16 @@ enum PaletteCommandRegistry {
                 isEnabled: true,
                 selectionScope: .none,
                 run: actions.showWelcomeTour
+            ),
+            PaletteCommand(
+                id: "discoverAwesoMux",
+                title: "Discover awesoMux",
+                subtitle: nil,
+                keywords: ["features", "help", "guide", "dave"],
+                shortcut: nil,
+                isEnabled: true,
+                selectionScope: .none,
+                run: actions.showFeatureAtlas
             ),
             PaletteCommand(
                 id: "openInIDE",

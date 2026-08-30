@@ -35,6 +35,11 @@ enum SettingsKey {
     /// entry would make that read non-nil forever (the registration domain is
     /// process-wide, so it would also leak across suites in tests).
     static let hasSeenFirstRunTour = "settings.hasSeenFirstRunTour"
+    /// Atlas-only content preference. This never enables or disables an agent
+    /// integration; it only controls whether D.A.V.E. includes the agent card.
+    /// Deliberately unregistered so an absent or invalid value falls back to
+    /// `true` inside `FeatureAtlasController`, including isolated test suites.
+    static let featureAtlasShowsAgentFeatures = "settings.featureAtlasShowsAgentFeatures"
 }
 
 enum SettingsDefault {

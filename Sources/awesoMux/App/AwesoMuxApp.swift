@@ -197,6 +197,7 @@ struct AwesoMuxApp: App {
     @State private var keyboardCheatsheetController = KeyboardCheatsheetController()
     @State private var aboutPanelController = AboutPanelController()
     @State private var firstRunTourController = FirstRunTourController()
+    @State private var featureAtlasController = FeatureAtlasController()
     @State private var sessionManagerController = SessionManagerController()
     @State private var sessionManagerModel: SessionManagerModel
     @State private var worktreeManagerController = WorktreeManagerController()
@@ -415,6 +416,7 @@ struct AwesoMuxApp: App {
                 onRetrySessionSave: saveSessionIfRestoreEnabled,
                 onOpenQuickSettings: requestQuickSettings,
                 onShowWelcomeTour: { firstRunTourController.show() },
+                onShowFeatureAtlas: { featureAtlasController.show() },
                 onToggleCommandPalette: toggleCommandPalette,
                 onOpenSelectedWorkspaceInIDE: { openSelectedWorkspaceInIDE() },
                 onOpenSelectedWorkspaceInIDEWithApp: open,
@@ -622,6 +624,9 @@ struct AwesoMuxApp: App {
                 aboutPanelController.appSettingsStore = appSettingsStore
                     firstRunTourController.appSettingsStore = appSettingsStore
                     firstRunTourController.onOpenAgentSettings = { openSettingsWindow(section: .agents) }
+                    firstRunTourController.onOpenFeatureAtlas = { featureAtlasController.show() }
+                    featureAtlasController.appSettingsStore = appSettingsStore
+                    configureFeatureAtlas()
                 sessionManagerController.appSettingsStore = appSettingsStore
                 worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
@@ -2840,6 +2845,10 @@ struct AwesoMuxApp: App {
             return
         }
 
+        if featureAtlasController.hideIfKeyWindow() {
+            return
+        }
+
         let orderedWindows = NSApp.orderedWindows
         let popUpWindow = popUpTerminalController.ownedWindow
         let floatingWindow = floatingPanelController.ownedWindow
@@ -4591,8 +4600,85 @@ struct AwesoMuxApp: App {
             openWorktreeManager: showWorktreeManager,
             createWorktree: presentWorktreeCreateForm,
             openWorktree: showWorktreeManager,
-            showWelcomeTour: { firstRunTourController.show() }
+            showWelcomeTour: { firstRunTourController.show() },
+            showFeatureAtlas: { featureAtlasController.show() }
         )
+    }
+
+    private func configureFeatureAtlas() {
+        featureAtlasController.configure(routes: [
+            .commandPalette: FeatureAtlasRoute(
+                isAvailable: { [self] in !isAnySheetPresented },
+                unavailableReason: {
+                    String(
+                        localized: "Close the current sheet before opening the Command Palette.",
+                        comment: "Feature Atlas unavailable reason for the Command Palette")
+                },
+                run: { [self] in
+                    commandPaletteController.show(
+                        relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
+                        presenter: makeCommandPalettePresenter()
+                    )
+                }
+            ),
+            .worktrees: FeatureAtlasRoute(
+                isAvailable: { [self] in worktreeManagerModel != nil && !isAnySheetPresented },
+                unavailableReason: { [self] in
+                    if isAnySheetPresented {
+                        return String(
+                            localized: "Close the current sheet before opening Worktree Manager.",
+                            comment: "Feature Atlas unavailable reason for Worktree Manager")
+                    }
+                    return String(
+                        localized: "Open a local Git repository to use Worktree Manager.",
+                        comment: "Feature Atlas unavailable reason for Worktree Manager")
+                },
+                run: { [self] in showWorktreeManager() }
+            ),
+            .agentStatus: FeatureAtlasRoute(
+                isAvailable: { [self] in openWindowAction != nil },
+                unavailableReason: {
+                    String(
+                        localized: "Settings isn't available yet.",
+                        comment: "Feature Atlas unavailable reason for agent Settings")
+                },
+                run: { [self] in openSettingsWindow(section: .agents) }
+            ),
+            .remoteWorkspaces: FeatureAtlasRoute(
+                isAvailable: { [self] in !isAnySheetPresented },
+                unavailableReason: {
+                    String(
+                        localized: "Close the current sheet before setting up a remote workspace.",
+                        comment: "Feature Atlas unavailable reason for remote workspace setup")
+                },
+                run: { [self] in requestNewRemoteWorkspaceGroup() }
+            ),
+            .markdown: FeatureAtlasRoute(
+                isAvailable: { [self] in
+                    sessionStore.selectedSession != nil && !isAnySheetPresented
+                },
+                unavailableReason: { [self] in
+                    if isAnySheetPresented {
+                        return String(
+                            localized: "Close the current sheet before opening a Markdown file.",
+                            comment: "Feature Atlas unavailable reason for Markdown file opening")
+                    }
+                    return String(
+                        localized: "Open a workspace before opening a Markdown file.",
+                        comment: "Feature Atlas unavailable reason for Markdown file opening")
+                },
+                run: { [self] in openMarkdownFilePanel() }
+            ),
+            .updates: FeatureAtlasRoute(
+                isAvailable: { [self] in updateController.canCheckForUpdates },
+                unavailableReason: {
+                    String(
+                        localized: "Update checks are available in release builds.",
+                        comment: "Feature Atlas unavailable reason for update checking")
+                },
+                run: { [self] in updateController.checkForUpdates() }
+            ),
+        ])
     }
 
     private func openSelectedWorkspaceInIDE() {

@@ -180,6 +180,7 @@ struct PaletteCommandRegistryTests {
                 "recenterPalette",
                 "openSettings",
                 "showWelcomeTour",
+                "discoverAwesoMux",
                 "openInIDE",
                 KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
                 KeyboardShortcutCatalog.openMarkdownFile.id,

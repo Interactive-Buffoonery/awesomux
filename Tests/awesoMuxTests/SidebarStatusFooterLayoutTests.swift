@@ -20,6 +20,7 @@ struct SidebarStatusFooterLayoutTests {
             displayMode: .expanded,
             onOpenQuickSettings: {},
             onShowWelcomeTour: {},
+            onShowFeatureAtlas: {},
             onSelectNextMatchingState: { _ in },
             onToggleActivityPanel: { _ in },
             activityPanelOpen: false
