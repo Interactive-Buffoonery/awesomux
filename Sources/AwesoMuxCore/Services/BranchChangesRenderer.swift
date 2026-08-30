@@ -159,16 +159,19 @@ public enum BranchChangesRenderer {
         let reserved = header.utf8.count + 2 * notice.utf8.count + fenceReserveBytes
         let available = max(0, budgetBytes - reserved)
 
-        // Cut back to a whole line only when the budget actually bites. A diff
-        // whose last line has no trailing newline is complete, and dropping it
-        // unconditionally would silently lose a real hunk line.
-        let body: [UInt8]
-        if sanitized.bytes.count > available {
-            truncated = true
-            body = wholeLines(sanitized.bytes.prefix(available))
-        } else {
-            body = sanitized.bytes
-        }
+        // Cut back to a whole line whenever the diff is incomplete for ANY
+        // reason, not only when this budget bites. The runner's output cap is
+        // well below this budget, so the ordinary truncation is the upstream
+        // one, and its final line is torn mid-content — a notice saying "this
+        // diff is incomplete" does not make a half-line honest as a line. A cut
+        // that landed on a newline keeps its last line, because `wholeLines`
+        // cuts after the final newline rather than before it.
+        //
+        // The cut stays conditional because a *complete* diff's last line may
+        // legitimately have no trailing newline, and dropping it there would
+        // silently lose a real hunk line.
+        if sanitized.bytes.count > available { truncated = true }
+        let body = truncated ? wholeLines(sanitized.bytes.prefix(available)) : sanitized.bytes
 
         var text = header
         // An empty diff is an answer, not a failure: the branch agrees with its

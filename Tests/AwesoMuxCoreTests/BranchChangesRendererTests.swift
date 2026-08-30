@@ -112,6 +112,29 @@ struct BranchChangesRendererTests {
         #expect(text.hasSuffix("\(Self.truncationNotice)\n\n"))
     }
 
+    @Test("an upstream cut drops its torn last line, not just the budget's")
+    func upstreamTruncationCutsOnALineBoundary() throws {
+        // The runner's cap is below the render budget, so this is the ordinary
+        // truncation: the body fits, and its final line is still half a line.
+        let text = render("+kept line\n+torn line that git nev", isTruncated: true)
+        let body = try fencedBody(of: text)
+        #expect(body == "+kept line\n")
+        #expect(!text.contains("git nev"))
+        let fenceStart = try #require(text.range(of: "\n```diff\n"))
+        #expect(text[..<fenceStart.lowerBound].contains(Self.truncationNotice))
+        #expect(text.hasSuffix("\(Self.truncationNotice)\n\n"))
+    }
+
+    @Test("an upstream cut that landed on a newline keeps its complete last line")
+    func upstreamTruncationOnALineBoundaryKeepsTheFinalLine() throws {
+        let text = render("+first\n+second\n", isTruncated: true)
+        let body = try fencedBody(of: text)
+        #expect(body == "+first\n+second\n")
+        let fenceStart = try #require(text.range(of: "\n```diff\n"))
+        #expect(text[..<fenceStart.lowerBound].contains(Self.truncationNotice))
+        #expect(text.hasSuffix("\(Self.truncationNotice)\n\n"))
+    }
+
     @Test("a complete diff never carries the incomplete notice")
     func completeDiffIsNotMarkedIncomplete() {
         let text = render("+one\n+two\n")

@@ -161,7 +161,7 @@ struct BranchChangesOpenerTests {
             "refs/heads/main": "",
         ]
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: true)
+            BranchChangesOpener.selectBaseRef(rows: rows)
                 == "refs/remotes/origin/develop"
         )
     }
@@ -173,7 +173,7 @@ struct BranchChangesOpenerTests {
             "refs/remotes/origin/master": "",
         ]
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: true)
+            BranchChangesOpener.selectBaseRef(rows: rows)
                 == "refs/remotes/origin/master"
         )
     }
@@ -195,23 +195,23 @@ struct BranchChangesOpenerTests {
             "-x": "",
         ]
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: true) == "refs/heads/main"
+            BranchChangesOpener.selectBaseRef(rows: rows) == "refs/heads/main"
         )
     }
 
     @Test("the ladder order is origin/main, origin/master, main, master")
     func ladderOrderIsStable() {
         var rows = ["refs/heads/master": ""]
-        #expect(BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: true) == "refs/heads/master")
+        #expect(BranchChangesOpener.selectBaseRef(rows: rows) == "refs/heads/master")
         rows["refs/heads/main"] = ""
-        #expect(BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: true) == "refs/heads/main")
+        #expect(BranchChangesOpener.selectBaseRef(rows: rows) == "refs/heads/main")
         rows["refs/remotes/origin/master"] = ""
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: true)
+            BranchChangesOpener.selectBaseRef(rows: rows)
                 == "refs/remotes/origin/master")
         rows["refs/remotes/origin/main"] = ""
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: true)
+            BranchChangesOpener.selectBaseRef(rows: rows)
                 == "refs/remotes/origin/main")
     }
 
@@ -237,11 +237,11 @@ struct BranchChangesOpenerTests {
         )
         #expect(forwards == backwards)
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: forwards, allowsSymref: true)
+            BranchChangesOpener.selectBaseRef(rows: forwards)
                 == "refs/remotes/origin/develop")
     }
 
-    @Test("a truncated listing drops the symref step and its partial last row")
+    @Test("a truncated listing drops its partial last row and a symref left dangling by the cut")
     func truncatedListingFallsBackToTheLadder() {
         let rows = BranchChangesOpener.parseRefRows(
             Data(
@@ -255,7 +255,7 @@ struct BranchChangesOpenerTests {
         )
         #expect(rows["refs/remotes/origin/ma"] == nil)
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: false) == "refs/heads/main")
+            BranchChangesOpener.selectBaseRef(rows: rows) == "refs/heads/main")
     }
 
     @Test("a truncation that landed on a newline keeps its complete last row")
@@ -268,8 +268,43 @@ struct BranchChangesOpenerTests {
         )
         #expect(rows["refs/remotes/origin/main"] == "")
         #expect(
-            BranchChangesOpener.selectBaseRef(rows: rows, allowsSymref: false)
+            BranchChangesOpener.selectBaseRef(rows: rows)
                 == "refs/remotes/origin/main")
+    }
+
+    @Test("a truncated listing still takes the symref base when both its rows arrived whole")
+    func truncatedListingKeepsACompleteSymrefPair() {
+        // The cut fell after origin/HEAD and its target, so the retained prefix
+        // answers the symref question itself. Refusing it would send the user
+        // to origin/main over the repository's own stated default.
+        let rows = BranchChangesOpener.parseRefRows(
+            Data(
+                """
+                refs/remotes/origin/HEAD\trefs/remotes/origin/develop
+                refs/remotes/origin/develop\t
+                refs/remotes/origin/main\t
+                refs/remotes/origin/fea
+                """.utf8
+            ),
+            dropsLastLine: true
+        )
+        #expect(BranchChangesOpener.selectBaseRef(rows: rows) == "refs/remotes/origin/develop")
+    }
+
+    @Test("a truncated listing that matched no rung is not called a missing default branch")
+    func truncatedListingWithNoMatchIsNotAMissingDefaultBranch() async throws {
+        let repository = try ValidatedRepository()
+        defer { repository.remove() }
+        // main and master may well be in this repository — they were simply
+        // past the cap. Reporting "no default branch" would assert their absence.
+        let runner = SpyGitRunner(outcomes: [
+            .outputTruncated(Data("refs/heads/aardvark\t\nrefs/heads/badge".utf8))
+        ])
+        let result = await opener(runner, cacheDirectory: repository.cacheDirectory).open(
+            session: session(workingDirectory: repository.root.path),
+            chrome: Self.chrome
+        )
+        #expect(result == .failure(.baseResolutionFailed))
     }
 
     @Test("a repository with no remote and no main or master has no base")

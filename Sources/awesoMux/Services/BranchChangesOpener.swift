@@ -365,28 +365,33 @@ struct BranchChangesOpener: Sendable {
             inDirectory: directory
         )
         let data: Data
-        // A truncated listing is still usable for the non-symref ladder: those
-        // entries are exact refnames, and a row that parsed is a row that
-        // exists. Only the symref step is dropped, because the row confirming
-        // its target may be the one that got cut.
-        var allowsSymref = true
+        // A truncated listing is still usable, symref step included: every row
+        // that arrived whole names a ref that exists, and `selectBaseRef`
+        // already demands the symref's *target* row be present before trusting
+        // it. A retained prefix holding both rows answers the question for
+        // itself, so a listing-wide veto would only discard the repository's
+        // own answer over refs that were never in doubt.
+        var wasTruncated = false
         switch result {
         case .success(let output):
             data = output
         case .outputTruncated(let output):
             data = output
-            allowsSymref = false
+            wasTruncated = true
         case .executableNotFound:
             return .failure(.gitUnavailable)
         case .nonZeroExit, .spawnFailure, .timedOut, .outputNotDrained:
             return .failure(.baseResolutionFailed)
         }
 
-        let rows = Self.parseRefRows(data, dropsLastLine: !allowsSymref)
-        guard
-            let base = Self.selectBaseRef(rows: rows, allowsSymref: allowsSymref)
-        else {
-            return .failure(.noDefaultBranch)
+        let rows = Self.parseRefRows(data, dropsLastLine: wasTruncated)
+        guard let base = Self.selectBaseRef(rows: rows) else {
+            // What a truncated listing did NOT contain is not evidence of
+            // absence: the rows past the cap were never read. "This repository
+            // has no default branch" asserts something about refs awesoMux
+            // never saw, so an unmatched truncated listing is reported as the
+            // failed lookup it is.
+            return .failure(wasTruncated ? .baseResolutionFailed : .noDefaultBranch)
         }
         return .success(base)
     }
@@ -415,8 +420,8 @@ struct BranchChangesOpener: Sendable {
     }
 
     /// The first ladder rung that names a ref actually present in `rows`.
-    static func selectBaseRef(rows: [String: String], allowsSymref: Bool) -> String? {
-        if allowsSymref, let target = rows[originHeadRef] {
+    static func selectBaseRef(rows: [String: String]) -> String? {
+        if let target = rows[originHeadRef] {
             // Accepted only if it points inside `origin`, is not `origin/HEAD`
             // itself, and names a ref this same listing saw. The prefix check
             // is what stops a hostile checkout's `refs/remotes/origin/HEAD`
