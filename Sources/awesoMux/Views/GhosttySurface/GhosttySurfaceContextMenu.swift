@@ -33,6 +33,17 @@ import GhosttyKit
 ///    that carries its own `isEnabled`, with no validator to consult.
 extension GhosttySurfaceNSView {
     override func menu(for event: NSEvent) -> NSMenu? {
+        // `rightMouseDown(with:)` already routed this gesture and pre-armed
+        // the release before calling `super`. Its decision is authoritative:
+        // capture state can flip on another thread between its read and this
+        // one, and recomputing here could return nil AFTER the release was
+        // pre-armed — no menu, no press, a silently swallowed gesture. It
+        // also makes the capture read below unnecessary on this path, so the
+        // armed check comes first. Do not arm again.
+        if event.type == .rightMouseDown, inputState.rightClickMenuRouteArmed {
+            return Self.makeContextMenu()
+        }
+
         let currentSurface = surface
         let mouseCaptured = currentSurface.map { ghostty_surface_mouse_captured($0) } ?? false
 
@@ -65,18 +76,10 @@ extension GhosttySurfaceNSView {
             }
 
         case .rightMouseDown:
-            // `rightMouseDown(with:)` already routed this gesture and
-            // pre-armed the release before calling `super`. Its decision is
-            // authoritative: capture state can flip on another thread between
-            // its read and this one, and recomputing here could return nil
-            // AFTER the release was pre-armed — no menu, no press, a silently
-            // swallowed gesture. Do not arm again.
-            if inputState.rightClickMenuRouteArmed {
-                return Self.makeContextMenu()
-            }
-            // Only reachable for a direct or synthesized `menu(for:)` caller
-            // that skipped `rightMouseDown(with:)` — no press was pre-armed,
-            // and there is no physical press to pair, so route defensively.
+            // The armed physical route already returned above. Only reachable
+            // for a direct or synthesized `menu(for:)` caller that skipped
+            // `rightMouseDown(with:)` — no press was pre-armed, and there is
+            // no physical press to pair, so route defensively.
             switch GhosttySurfaceContextMenuPolicy.rightClickRoute(
                 hasSurface: currentSurface != nil,
                 mouseCaptured: mouseCaptured
