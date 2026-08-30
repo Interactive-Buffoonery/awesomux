@@ -353,7 +353,10 @@ test("interpreted CodeQL stays automatic without waiting for Swift", () => {
 test("tint contrast fails closed when the Swift filter selects no tests", () => {
   const workflow = workflows.tintContrast;
   assert.match(workflow, /swift-test\.sh --filter SidebarTintContrastTests 2>&1 \| tee/);
-  assert.match(workflow, /grep -Eq 'Test run with \[1-9\]\[0-9\]\* tests passed'/);
+  assert.match(
+    workflow,
+    /grep -Eq 'Test run with \[1-9\]\[0-9\]\* tests\( in \[1-9\]\[0-9\]\* suites\?\)\? passed'/
+  );
   assert.match(workflow, /Sidebar tint contrast filter ran no tests/);
   assert.match(workflow, /exit 1/);
 });
