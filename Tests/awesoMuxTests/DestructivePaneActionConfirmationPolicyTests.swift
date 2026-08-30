@@ -216,38 +216,182 @@ struct DestructivePaneActionConfirmationPolicyTests {
         )
     }
 
+    @Test("confirmationBody names verified agent when sampledComm matches agentKind")
+    func confirmationBodyNamesVerifiedAgentWhenCommandMatches() {
+        let closePaneBody = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closePane,
+            displayTitle: "Workspace",
+            agentKind: .claudeCode,
+            sampledComm: "claude",
+            riskReason: .liveAgentProcess,
+            riskyPaneCount: 1
+        )
+        #expect(closePaneBody == "Claude Code is running in this pane. Closing the pane will stop it.")
+
+        let restartShellBody = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .restartShell,
+            displayTitle: "Workspace",
+            agentKind: .claudeCode,
+            sampledComm: "claude",
+            riskReason: .activeAgentExecution,
+            riskyPaneCount: 1
+        )
+        #expect(restartShellBody == "Claude Code is running in this pane. Restarting the shell will stop it.")
+
+        let closeWorkspaceBody = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closeWorkspace,
+            displayTitle: "Workspace",
+            agentKind: .claudeCode,
+            sampledComm: "claude",
+            riskReason: .liveAgentProcess,
+            riskyPaneCount: 1
+        )
+        #expect(closeWorkspaceBody == "Claude Code is running in this workspace. Closing the workspace will stop it.")
+    }
+
+    @Test("confirmationBody suppresses agent name when sampledComm does not match agentKind")
+    func confirmationBodySuppressesAgentNameWhenCommandMismatches() {
+        let bodyMismatchedComm = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closePane,
+            displayTitle: "Workspace",
+            agentKind: .claudeCode,
+            sampledComm: "top",
+            riskReason: .liveAgentProcess,
+            riskyPaneCount: 1
+        )
+        #expect(bodyMismatchedComm == "This pane has running activity. Closing the pane will stop it.")
+
+        let bodyNilComm = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closePane,
+            displayTitle: "Workspace",
+            agentKind: .claudeCode,
+            sampledComm: nil,
+            riskReason: .liveAgentProcess,
+            riskyPaneCount: 1
+        )
+        #expect(bodyNilComm == "This pane has running activity. Closing the pane will stop it.")
+    }
+
+    @Test("confirmationBody uses honest copy for indeterminate state across all actions")
+    func confirmationBodyHonestCopyForIndeterminateState() {
+        let closePaneIndeterminate = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closePane,
+            displayTitle: "Workspace",
+            agentKind: .claudeCode,
+            sampledComm: "claude",
+            riskReason: .indeterminate,
+            riskyPaneCount: 1
+        )
+        #expect(closePaneIndeterminate == "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process.")
+
+        let restartShellIndeterminate = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .restartShell,
+            displayTitle: "Workspace",
+            agentKind: .shell,
+            sampledComm: nil,
+            riskReason: .indeterminate,
+            riskyPaneCount: 1
+        )
+        #expect(
+            restartShellIndeterminate
+                == "awesoMux couldn’t verify whether this pane is busy. Restarting the shell may stop a running process.")
+
+        let closeWorkspaceIndeterminate = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closeWorkspace,
+            displayTitle: "Workspace",
+            agentKind: .shell,
+            sampledComm: nil,
+            riskReason: .indeterminate,
+            riskyPaneCount: 1
+        )
+        #expect(
+            closeWorkspaceIndeterminate
+                == "awesoMux couldn’t verify whether this workspace has running activity. Closing it may stop running processes.")
+    }
+
+    @Test("confirmationBody handles single vs multi pane workspace close copy and restart shell copy")
+    func confirmationBodyHandlesSingleVsMultiPaneWorkspaceAndRestartShell() {
+        let multiPaneWorkspaceBody = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closeWorkspace,
+            displayTitle: "Workspace",
+            agentKind: .shell,
+            sampledComm: "make",
+            riskReason: .liveForegroundProcess,
+            riskyPaneCount: 2
+        )
+        #expect(multiPaneWorkspaceBody == "This workspace has activity running in multiple panes. Closing the workspace will stop it.")
+
+        let singlePaneWorkspaceBody = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .closeWorkspace,
+            displayTitle: "Workspace",
+            agentKind: .shell,
+            sampledComm: "make",
+            riskReason: .liveForegroundProcess,
+            riskyPaneCount: 1
+        )
+        #expect(singlePaneWorkspaceBody == "This workspace has running activity. Closing the workspace will stop it.")
+
+        let restartShellBusy = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .restartShell,
+            displayTitle: "Workspace",
+            agentKind: .shell,
+            sampledComm: "make",
+            riskReason: .liveForegroundProcess,
+            riskyPaneCount: 1
+        )
+        #expect(restartShellBusy == "This pane has running activity. Restarting the shell will stop it.")
+
+        let restartShellIdle = DestructivePaneActionConfirmationPolicy.confirmationBody(
+            action: .restartShell,
+            displayTitle: "My Tab",
+            agentKind: .shell,
+            sampledComm: nil,
+            riskReason: nil,
+            riskyPaneCount: 0
+        )
+        #expect(
+            restartShellIdle == "Restarting the shell in My Tab ends the current session and starts a fresh one. Scrollback isn't kept.")
+    }
+
     @Test("close-pane body names the live agent when that is the risk (#190)")
     func closePaneBodyNamesLiveAgent() {
         let body = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
             displayTitle: "Workspace",
             agentKind: .claudeCode,
+            sampledComm: "claude",
             riskReason: .liveAgentProcess
         )
         #expect(body.contains("Claude Code"))
-        // The title must survive too — with three positional placeholders
-        // (agent, title, agent), a mis-mapped middle argument would otherwise
-        // slip past an agent-name-only assertion.
-        #expect(body.contains("Workspace"))
+        #expect(body.contains("Closing the pane will stop it."))
         #expect(!body.contains("has activity"))
     }
 
     @Test("close-pane body stays generic for non-agent risks")
     func closePaneBodyGenericForOtherRisks() {
-        for reason in [QuitRiskReason.liveForegroundProcess, .terminalAwayFromPrompt, .indeterminate] {
+        for reason in [QuitRiskReason.liveForegroundProcess, .terminalAwayFromPrompt] {
             let body = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
                 displayTitle: "Workspace",
                 agentKind: .shell,
                 riskReason: reason
             )
-            #expect(body.contains("has activity"))
+            #expect(body.contains("has running activity"))
         }
-        // Agent pane, but the risk isn't its live process — don't claim it is.
+        // Indeterminate risk gives honest unverified copy
+        let indeterminateBody = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
+            displayTitle: "Workspace",
+            agentKind: .shell,
+            riskReason: .indeterminate
+        )
+        #expect(indeterminateBody.contains("couldn’t verify"))
+
+        // Agent pane, but the risk isn't verified live process — don't claim it is.
         #expect(
             DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
                 displayTitle: "Workspace",
                 agentKind: .claudeCode,
+                sampledComm: "top",
                 riskReason: .indeterminate
-            ).contains("has activity")
+            ).contains("couldn’t verify")
         )
     }
 

@@ -1007,6 +1007,7 @@ public final class SessionStore {
             risksByPaneID: TerminalQuitConfirmationReducer.risks(from: snapshots),
             promptObservedByPaneID: TerminalQuitConfirmationReducer.promptObserved(from: snapshots),
             livenessByPaneID: TerminalQuitConfirmationReducer.liveness(from: snapshots),
+            sampledCommByPaneID: TerminalQuitConfirmationReducer.sampledComm(from: snapshots),
             to: &_groups
         )
         guard !changedSessionIDs.isEmpty else { return }
