@@ -1982,7 +1982,7 @@ struct AwesoMuxApp: App {
 
         let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
-        let riskyPanes = session.layout.panes.filter { $0.isCloseRisk(at: now) }
+        let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
         let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
         let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
 
@@ -2068,7 +2068,7 @@ struct AwesoMuxApp: App {
             )
         case .closeWorkspace:
             let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
-            let riskyPanes = session.layout.panes.filter { $0.isCloseRisk(at: now) }
+            let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
             let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
             let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
             title = String(
@@ -2926,6 +2926,8 @@ struct AwesoMuxApp: App {
                 ghosttyRuntime.discardSurface(for: closedPaneID)
                 announcePaneClosed()
             }
+        case .closeWorkspace:
+            assertionFailure("workspace close does not route through the pane action policy")
         }
     }
 
@@ -2997,6 +2999,9 @@ struct AwesoMuxApp: App {
                 localized: "Close pane cancelled",
                 comment: "VoiceOver announcement after cancelling a close-pane confirmation dialog."
             )
+        case .closeWorkspace:
+            assertionFailure("workspace close cancellation uses the workspace close path")
+            return
         }
         postAccessibilityAnnouncement(announcement)
     }

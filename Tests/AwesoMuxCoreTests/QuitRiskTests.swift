@@ -322,14 +322,17 @@ struct QuitRiskTests {
                 sessionID: busy.id,
                 paneID: busy.activePaneID,
                 needsConfirmation: false,
-                liveness: .busyShell
+                liveness: .busyShell,
+                sampledComm: "make"
             )
         ])
         #expect(Set(store.sessionsAtRiskOnQuit.map(\.id)) == Set([busy.id]))
+        #expect(store.session(id: busy.id)?.activePane?.sampledComm == "make")
 
         // Absent from the next batch → reset to .unsampled (safe).
         store.updateTerminalQuitConfirmationRisks([])
         #expect(store.sessionsAtRiskOnQuit.isEmpty)
+        #expect(store.session(id: busy.id)?.activePane?.sampledComm == nil)
     }
 
     @Test("a live foreground process makes an idle-exec pane a quit risk")

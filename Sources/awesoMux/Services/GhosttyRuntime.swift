@@ -734,9 +734,8 @@ final class GhosttyRuntime {
     /// its own full re-sample of this same shared dictionary.
     func currentTerminalQuitConfirmationSnapshots() -> [TerminalQuitConfirmationSnapshot] {
         surfaceViews.values.map { surfaceView in
-            let (liveness, sample) = surfaceView.foregroundProcessLivenessAndSample()
+            let (liveness, sampledComm) = surfaceView.terminalQuitConfirmationLivenessAndComm()
             let needsConfirmation = surfaceView.promptMarkerIsAwayFromPrompt() ?? false
-            let sampledComm = surfaceView.sampledForegroundComm(sample: sample)
             return TerminalQuitConfirmationSnapshot(
                 sessionID: surfaceView.sessionID,
                 paneID: surfaceView.paneID,

@@ -21,6 +21,21 @@ extension GhosttySurfaceNSView {
         foregroundProcessLivenessAndSample().liveness
     }
 
+    /// One sampling pass for the close-confirmation snapshot, keeping the
+    /// private libproc sample inside this file while returning its two public
+    /// facts together.
+    @MainActor
+    func terminalQuitConfirmationLivenessAndComm() -> (
+        liveness: ForegroundProcessLiveness,
+        sampledComm: String?
+    ) {
+        let result = foregroundProcessLivenessAndSample()
+        return (
+            result.liveness,
+            sampledForegroundComm(sample: result.sample)
+        )
+    }
+
     @MainActor
     private func foregroundProcessLivenessAndSample(
         includeLibprocSample: Bool = true
@@ -30,12 +45,12 @@ extension GhosttySurfaceNSView {
     ) {
         if commandBridgeSessionID != nil {
             guard
-                let rawPID = commandBridgeEnactor.respawnLedger.lastIncarnation?.pid,
-                let daemonPID = pid_t(exactly: rawPID),
-                ProcessLivenessProbe.processStartTime(pid: daemonPID) != nil
+                let incarnation = commandBridgeEnactor.respawnLedger.lastIncarnation,
+                let daemonPID = pid_t(exactly: incarnation.pid),
+                ProcessLivenessProbe.matchesDaemonIncarnation(incarnation)
             else {
-                // No attach recorded yet or dead daemon pid → no daemon pid to walk. Still
-                // quit-safe (daemon-backed), but close-risk stays unproven —
+                // No current daemon incarnation means there is no trusted pid
+                // to walk. Still quit-safe (daemon-backed), but close-risk stays unproven —
                 // `.bridged` here would read as "verified idle" (issue #190).
                 return (.bridgedIndeterminate, nil)
             }
@@ -64,7 +79,7 @@ extension GhosttySurfaceNSView {
     /// Sampled foreground process command (`p_comm`), if available.
     /// Used by the quit/close confirmation snapshot to pass `sampledComm` to `TerminalPane`.
     @MainActor
-    func sampledForegroundComm(sample: ForegroundProcessSample? = nil) -> String? {
+    private func sampledForegroundComm(sample: ForegroundProcessSample? = nil) -> String? {
         if commandBridgeSessionID != nil {
             return commandBridgeEnactor.foregroundComm()
         }

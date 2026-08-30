@@ -81,6 +81,7 @@
     },
     "%@ is running in this pane. Closing the pane will stop it." : {
       "comment" : "Confirmation body when closing a pane with a verified running agent.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -92,6 +93,7 @@
     },
     "%@ is running in this pane. Restarting the shell will stop it." : {
       "comment" : "Confirmation body when restarting shell in a pane with a verified running agent.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -103,6 +105,7 @@
     },
     "%@ is running in this workspace. Closing the workspace will stop it." : {
       "comment" : "Confirmation body when closing a workspace with a verified running agent.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -167,12 +170,6 @@
     "%arg finished your turn" : {
       "comment" : "Notification title shown when a background agent finishes its turn and is waiting for the user's next message. Argument is the agent product name (e.g. Claude, Codex)."
     },
-    "%arg has activity that will be interrupted. Closing will terminate the running process." : {
-      "comment" : "Body of the close-workspace confirmation dialog. Argument is the bidi-isolated workspace title."
-    },
-    "%arg has activity that will be interrupted. Restarting the shell will terminate the running process." : {
-      "comment" : "Body of the restart-shell confirmation dialog when the active pane has running activity. Argument is the bidi-isolated workspace title."
-    },
     "%arg has activity that will be interrupted. The workspace will be closed permanently and can't be reopened." : {
       "comment" : "Opening line of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
     },
@@ -185,8 +182,14 @@
     "%arg is now too large to render." : {
       "comment" : "Accessibility lead-in for the document oversize banner; the placeholder is the file name"
     },
-    "%arg is running in the active pane in %arg. Closing the pane will terminate %arg." : {
-      "comment" : "Body of the close-pane confirmation dialog when a live agent process is the risk. First and third arguments are the agent name (e.g. Claude Code), second is the bidi-isolated workspace title."
+    "%arg is running in this pane. Closing the pane will stop it." : {
+      "comment" : "Body of the close-pane confirmation dialog when a live agent process is verified. Argument is the agent name (e.g. Claude Code)."
+    },
+    "%arg is running in this pane. Restarting the shell will stop it." : {
+      "comment" : "Body of the restart-shell confirmation dialog when a live agent process is verified. Argument is the agent name (e.g. Claude Code)."
+    },
+    "%arg is running in this workspace. Closing the workspace will stop it." : {
+      "comment" : "Body of the close-workspace confirmation dialog when a live agent process is verified in the workspace. Argument is the agent name (e.g. Claude Code)."
     },
     "%arg is still waiting for a reply, moved to Needs Input" : {
       "comment" : "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Input section; the placeholder is the workspace title"
@@ -3221,6 +3224,7 @@
     },
     "Restarting the shell in %@ ends the current session and starts a fresh one. Scrollback isn’t kept." : {
       "comment" : "Confirmation body when restarting shell in an idle session.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3229,6 +3233,9 @@
           }
         }
       }
+    },
+    "Restarting the shell in %arg ends the current session and starts a fresh one. Scrollback isn't kept." : {
+      "comment" : "Body of the restart-shell confirmation dialog when the active pane is idle. Argument is the bidi-isolated workspace title."
     },
     "Restore" : {
       "comment" : "Diagnostics event category"
@@ -3799,9 +3806,6 @@
     "The Git repository changed. Reopen Worktree Manager from the active workspace." : {
       "comment" : "Worktree Manager open error when the captured repository is no longer current.\nWorktree Manager refresh error when the captured repository is no longer current."
     },
-    "The active pane in %arg has activity that will be interrupted. Closing the pane will terminate the running process." : {
-      "comment" : "Body of the close-pane confirmation dialog. Argument is the bidi-isolated workspace title."
-    },
     "The annotation changed or was removed." : {
       "comment" : "Annotation save recovery message when no draft can be recovered\nSave recovery announcement when an annotation no longer exists"
     },
@@ -4068,7 +4072,7 @@
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
     },
     "This pane has running activity. Closing the pane will stop it." : {
-      "comment" : "Confirmation body when closing a pane with un-named running activity.",
+      "comment" : "Body of the close-pane confirmation dialog when generic activity is running.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4079,7 +4083,7 @@
       }
     },
     "This pane has running activity. Restarting the shell will stop it." : {
-      "comment" : "Confirmation body when restarting shell in a pane with un-named running activity.",
+      "comment" : "Body of the restart-shell confirmation dialog when generic activity is running.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4117,7 +4121,7 @@
       "comment" : "Unavailable reason for resuming a session when its associated terminal is gone"
     },
     "This workspace has activity running in multiple panes. Closing the workspace will stop it." : {
-      "comment" : "Confirmation body when closing a multi-pane workspace with running activity.",
+      "comment" : "Body of the close-workspace confirmation dialog when multiple panes have running activity.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4131,7 +4135,7 @@
       "comment" : "Alert text when the workspace has no preset-eligible panes."
     },
     "This workspace has running activity. Closing the workspace will stop it." : {
-      "comment" : "Confirmation body when closing a single-pane workspace with un-named running activity.",
+      "comment" : "Body of the close-workspace confirmation dialog when generic activity is running.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4515,7 +4519,7 @@
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
     "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process." : {
-      "comment" : "Confirmation body when closing a pane whose activity state cannot be verified.",
+      "comment" : "Body of the close-pane confirmation dialog when pane activity is unverifiable.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4526,7 +4530,7 @@
       }
     },
     "awesoMux couldn’t verify whether this pane is busy. Restarting the shell may stop a running process." : {
-      "comment" : "Confirmation body when restarting shell in a pane whose activity state cannot be verified.",
+      "comment" : "Body of the restart-shell confirmation dialog when pane activity is unverifiable.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4537,7 +4541,7 @@
       }
     },
     "awesoMux couldn’t verify whether this workspace has running activity. Closing it may stop running processes." : {
-      "comment" : "Confirmation body when closing a workspace whose activity state cannot be verified.",
+      "comment" : "Body of the close-workspace confirmation dialog when workspace activity is unverifiable.",
       "localizations" : {
         "en" : {
           "stringUnit" : {

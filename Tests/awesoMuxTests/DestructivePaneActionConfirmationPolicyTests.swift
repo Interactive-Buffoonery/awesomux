@@ -374,7 +374,7 @@ struct DestructivePaneActionConfirmationPolicyTests {
                 agentKind: .shell,
                 riskReason: reason
             )
-            #expect(body.contains("has activity"))
+            #expect(body.contains("has running activity"))
         }
         // Indeterminate risk gives honest unverified copy
         let indeterminateBody = DestructivePaneActionConfirmationPolicy.closePaneConfirmationBody(
