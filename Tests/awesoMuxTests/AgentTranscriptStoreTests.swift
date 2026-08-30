@@ -6,9 +6,10 @@ import Testing
 @testable import AwesoMuxCore
 @testable import awesoMux
 
-@MainActor
-@Suite("AgentTranscriptStore", .serialized)
-struct AgentTranscriptStoreTests {
+extension SessionPersistenceSerializationDomainTests {
+    @MainActor
+    @Suite("AgentTranscriptStore")
+    struct AgentTranscriptStoreTests {
     private static let sessionID = "9F1B2C3D-4E5F-4A6B-8C9D-0E1F2A3B4C5D"
 
     // MARK: - Custody
@@ -372,5 +373,6 @@ struct AgentTranscriptStoreTests {
             directoryHint: .isDirectory
         )
         try operation(AgentTranscriptStore(cacheDirectoryURL: cacheDirectory), cacheDirectory)
+    }
     }
 }

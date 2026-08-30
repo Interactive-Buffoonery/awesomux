@@ -376,13 +376,15 @@ Glyphs and colors below are drawn to match the app exactly — both Catppuccin <
 <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px;">
   <tbody style="color:#bac2de;">
     <tr><td style="padding:6px 10px;border:1px solid #313244;width:38%;"><code>AWESOMUX_AGENT_EVENT_PROTOCOL</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Protocol name (<code>awesomux-agent-v1</code>)</td></tr>
-    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_SESSION_ID</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">awesoMux session UUID</td></tr>
-    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_PANE_ID</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">awesoMux pane UUID</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_SESSION_ID</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Launch workspace UUID. It stays unchanged if the live pane moves to another workspace.</td></tr>
+    <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_PANE_ID</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Stable pane UUID for routing and correlation</td></tr>
     <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_AGENT_EVENT_FILE</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">JSONL event file for this pane</td></tr>
     <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_AGENT_HOOK</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Absolute path to the bundled helper</td></tr>
     <tr><td style="padding:6px 10px;border:1px solid #313244;"><code>AWESOMUX_AGENT_ENABLED_SOURCES</code></td><td style="padding:6px 10px;border:1px solid #313244;color:#a6adc8;">Comma-separated enabled OpenCode/Pi sources</td></tr>
   </tbody>
 </table>
+
+<p style="font-size:13px;color:#a6adc8;margin:0 0 14px;">A pane's process environment cannot change after launch. Treat <code>AWESOMUX_SESSION_ID</code> as launch provenance, not current workspace membership. Use <code>AWESOMUX_PANE_ID</code> as the durable identity. awesoMux does not currently provide a dynamic workspace lookup; a future lookup, if a concrete consumer needs one, belongs to the app and should be keyed by pane ID rather than added to <code>amx</code>.</p>
 
 <p style="font-size:14px;color:#bac2de;margin:0 0 8px;">A runtime event carries a <code>phase</code> — the lifecycle moment, independent of the resolved state:</p>
 <div style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px;">

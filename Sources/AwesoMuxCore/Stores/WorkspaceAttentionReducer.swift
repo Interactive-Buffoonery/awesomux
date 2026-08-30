@@ -134,23 +134,14 @@ struct WorkspaceAttentionReducer: Sendable {
             didMutate = true
         }
 
-        // ponytail: `mappingPanes` reboxes the whole indirect-enum layout tree
-        // on every call, even for the untouched panes and even on a quiet
-        // same-state repeat that ends up mutating nothing — O(panes)
-        // allocations per event, discarded the moment `didMutate` stays
-        // false. Fine at today's pane counts; if a many-split session makes
-        // this show up in a trace, the upgrade path is a read-only pre-peek
-        // of the target pane (skip the rebox entirely when nothing about it
-        // would change) before falling back to this mapping pass.
-        session.layout = session.layout.mappingPanes { pane in
-            guard pane.id == paneID else { return pane }
-            var pane = pane
+        if var pane = session.layout.pane(id: paneID) {
+            var paneDidMutate = false
 
             if let agentKind = update.agentKind {
                 let kindChanged = agentKind != pane.agentKind
                 if kindChanged {
                     pane.agentKind = agentKind
-                    didMutate = true
+                    paneDidMutate = true
                 }
                 // Kind provenance: a runtime event proves (or re-proves) the
                 // kind no matter whether it changed it; a text-detected claim
@@ -161,12 +152,12 @@ struct WorkspaceAttentionReducer: Sendable {
                 case .some(true):
                     if !pane.agentKindIsRuntimeEstablished {
                         pane.agentKindIsRuntimeEstablished = true
-                        didMutate = true
+                        paneDidMutate = true
                     }
                 case .some(false):
                     if kindChanged, pane.agentKindIsRuntimeEstablished {
                         pane.agentKindIsRuntimeEstablished = false
-                        didMutate = true
+                        paneDidMutate = true
                     }
                 case nil:
                     break
@@ -179,7 +170,7 @@ struct WorkspaceAttentionReducer: Sendable {
                     pane.agentExecutionState = agentExecutionState
                 }
                 if refreshHeartbeatIfDue(&pane, now: now, changed: changed) {
-                    didMutate = true
+                    paneDidMutate = true
                 }
             }
 
@@ -198,7 +189,7 @@ struct WorkspaceAttentionReducer: Sendable {
                     pane.agentExecutionState != beforeExecutionState
                     || pane.attentionReason != beforeAttentionReason
                 if refreshHeartbeatIfDue(&pane, now: now, changed: stateChanged) {
-                    didMutate = true
+                    paneDidMutate = true
                 }
             }
 
@@ -209,7 +200,7 @@ struct WorkspaceAttentionReducer: Sendable {
                 // INFERRED clear cannot take back a reason that
                 // `awaitsExplicitAnswer` — only an authoritative one can.
                 if pane.applyAttentionReasonWithoutDowngrade(attentionReason) {
-                    didMutate = true
+                    paneDidMutate = true
                 }
             } else if update.clearsAttention, let current = pane.attentionReason,
                 update.attentionClearIsAuthoritative || !current.awaitsExplicitAnswer
@@ -223,23 +214,28 @@ struct WorkspaceAttentionReducer: Sendable {
                 // bridge's scoped `updatePermissionPromptAttention` assign `nil`
                 // directly and never reach this branch.
                 pane.attentionReason = nil
-                didMutate = true
+                paneDidMutate = true
             }
 
             if update.clearsUnreadNotifications {
                 if pane.unreadNotificationCount != 0 {
                     pane.unreadNotificationCount = 0
-                    didMutate = true
+                    paneDidMutate = true
                 }
             } else if update.unreadNotificationDelta != 0 {
                 let newCount = max(0, pane.unreadNotificationCount + update.unreadNotificationDelta)
                 if newCount != pane.unreadNotificationCount {
                     pane.unreadNotificationCount = newCount
-                    didMutate = true
+                    paneDidMutate = true
                 }
             }
 
-            return pane
+            if paneDidMutate {
+                session.layout =
+                    session.layout.replacingPane(id: paneID, with: .pane(pane))
+                    ?? session.layout
+                didMutate = true
+            }
         }
 
         return PaneUpdateOutcome(
@@ -276,20 +272,37 @@ struct WorkspaceAttentionReducer: Sendable {
         paneID: TerminalPane.ID,
         countDelta: Int,
         hasPending: Bool
-    ) -> UnreadChange? {
+    ) -> PaneUpdateOutcome {
         let oldUnreadCount = session.unreadNotificationCount
-        session.layout = session.layout.mappingPanes { pane in
-            guard pane.id == paneID else { return pane }
-            var pane = pane
-            pane.unreadNotificationCount = max(0, pane.unreadNotificationCount + countDelta)
-            if hasPending {
-                pane.attentionReason = .permissionPrompt
-            } else if pane.attentionReason == .permissionPrompt {
-                pane.attentionReason = nil
-            }
-            return pane
+        guard var pane = session.layout.pane(id: paneID) else {
+            return PaneUpdateOutcome(unreadChange: nil, didMutate: false)
         }
-        return unreadChange(from: oldUnreadCount, to: session.unreadNotificationCount)
+        var didMutate = false
+
+        let unreadNotificationCount = max(0, pane.unreadNotificationCount + countDelta)
+        if pane.unreadNotificationCount != unreadNotificationCount {
+            pane.unreadNotificationCount = unreadNotificationCount
+            didMutate = true
+        }
+        if hasPending {
+            if pane.attentionReason != .permissionPrompt {
+                pane.attentionReason = .permissionPrompt
+                didMutate = true
+            }
+        } else if pane.attentionReason == .permissionPrompt {
+            pane.attentionReason = nil
+            didMutate = true
+        }
+
+        if didMutate {
+            session.layout =
+                session.layout.replacingPane(id: paneID, with: .pane(pane))
+                ?? session.layout
+        }
+        return PaneUpdateOutcome(
+            unreadChange: unreadChange(from: oldUnreadCount, to: session.unreadNotificationCount),
+            didMutate: didMutate
+        )
     }
 
     /// Acknowledges every pane in ONE workspace — the ⌘⇧K "Acknowledge Workspace"
