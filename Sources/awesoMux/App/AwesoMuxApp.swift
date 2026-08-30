@@ -3705,7 +3705,6 @@ struct AwesoMuxApp: App {
             showBranchChangesFailureAlert(.remotePane)
             return
         }
-        let sessionID = session.id
         let paneID = pane.id
         // Latest-wins, on one ticket that orders both the pane's reaction below
         // and the write to the shared cache slot. Invocations resolve in
@@ -3729,61 +3728,13 @@ struct AwesoMuxApp: App {
                 )
             }.value
 
-            guard BranchChangesInvocations.isCurrent(ticket, paneID: paneID) else { return }
-
-            switch result {
-            case .failure(.superseded):
-                // A newer invocation owns the slot and wrote it. Silent by
-                // design: this run has no bytes on disk to open a tab onto, and
-                // the run that does is the one the user is waiting for.
-                return
-            case .success(let opened):
-                // The pane the diff was taken from has to still be there: the
-                // tab's send/stage target is that pane, and the document's
-                // whole claim is "these are the changes in THAT terminal".
-                guard sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil else {
-                    showBranchChangesFailureAlert(.paneClosed)
-                    return
-                }
-                // Register before the open, so the document pane's watcher and
-                // the background revision monitor both see this write as
-                // awesoMux's own. A refresh that lands under an already-open
-                // tab is a re-render of the same command, not somebody editing
-                // the file — surfacing it as an external edit would announce a
-                // change the user just asked for.
-                DocumentPaneView.selfWriteRegistry.record(
-                    fileURL: opened.fileURL,
-                    source: opened.markdown
-                )
-                guard
-                    sessionStore.openDocumentPane(
-                        fileURL: opened.fileURL,
-                        in: sessionID,
-                        associatedWith: paneID,
-                        branchChangesIdentity: opened.identity
-                    ) != nil
-                else {
-                    // The workspace went away while the diff ran. No alert —
-                    // there is nothing left to act on, and the user closed it
-                    // themselves — but silence would read as a dead command to
-                    // anyone listening.
-                    TerminalAccessibilityAnnouncer.announce(
-                        String(
-                            localized: "The workspace closed before the changes could open.",
-                            comment: "VoiceOver announcement when a rendered branch diff has no workspace left to open into"
-                        )
-                    )
-                    return
-                }
-                TerminalAccessibilityAnnouncer.announce(
-                    String(
-                        localized: "Branch changes opened.",
-                        comment: "VoiceOver announcement after a rendered branch diff opens in a document tab"
-                    )
-                )
-            case .failure(let failure):
-                showBranchChangesFailureAlert(failure)
-            }
+            BranchChangesCompletion.apply(
+                result,
+                paneID: paneID,
+                ticket: ticket,
+                store: sessionStore,
+                alert: showBranchChangesFailureAlert
+            )
         }
     }
 

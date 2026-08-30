@@ -421,6 +421,7 @@ struct BranchChangesOpenerTests {
         let repository = try ValidatedRepository(
             head: "3f0c2c9b1d0a7e5b4c3d2e1f00112233445566aa\n"
         )
+        defer { repository.remove() }
         let cacheDirectory = repository.cacheDirectory
         let runner = SpyGitRunner(outcomes: [
             Self.refListing([("refs/remotes/origin/main", "")]),
