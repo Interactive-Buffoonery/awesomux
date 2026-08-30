@@ -795,7 +795,7 @@ private final class GitFixture {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
-        process.waitUntilExit()
+        try process.waitUntilExitEventually()
         guard process.terminationStatus == 0 else {
             throw GitFixtureError(command: arguments, status: process.terminationStatus)
         }
