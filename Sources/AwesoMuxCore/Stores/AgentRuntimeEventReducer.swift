@@ -607,6 +607,9 @@ struct AgentRuntimeEventReducer: Sendable {
         let resolvesPendingPermissionPrompt =
             event.phase == .toolStart
             && currentPane.attentionReason == .permissionPrompt
+            && (normalizedProviderSessionID(event.providerSessionID).map {
+                $0 == state.providerSessionID
+            } ?? true)
 
         let resolvedKind: AgentKind?
         if state.lifecycle.isEnded {

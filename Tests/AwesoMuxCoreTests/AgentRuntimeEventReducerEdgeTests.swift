@@ -337,6 +337,64 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.needsUserInput == false)
     }
 
+    @Test("child tool start preserves a parent permission prompt")
+    func childToolStartPreservesParentPermissionPrompt() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        _ = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                kind: .codex,
+                executionState: .thinking,
+                phase: .sessionStart,
+                eventID: "parent-session-start",
+                providerSessionID: "parent",
+                timestamp: Date(timeIntervalSince1970: 2)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+
+        let childToolStartResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                kind: .codex,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "child-tool-start",
+                providerSessionID: "child",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let childToolStart = try #require(childToolStartResult)
+        #expect(!childToolStart.update.attentionClearIsAuthoritative)
+        #expect(!childToolStart.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: childToolStart.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == .permissionPrompt)
+        #expect(session.unreadNotificationCount == 1)
+    }
+
     @Test("tool start does not clear a pending user-input-required reason")
     func toolStartDoesNotClearPendingUserInputRequired() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
