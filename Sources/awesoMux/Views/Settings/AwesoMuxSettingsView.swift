@@ -4,6 +4,8 @@ import DesignSystem
 import SwiftUI
 
 struct AwesoMuxSettingsView: View {
+    var onClose: () -> Void = {}
+
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(SettingsSectionRequest.self) private var sectionRequest
     @State private var selection: SettingsSectionID = .general
@@ -23,7 +25,10 @@ struct AwesoMuxSettingsView: View {
         // acting only on the window captured by the accessor below.
         .background(WindowAccessor { escapeMonitor.window = $0 })
         .onAppear { escapeMonitor.start() }
-        .onDisappear { escapeMonitor.stop() }
+        .onDisappear {
+            escapeMonitor.stop()
+            onClose()
+        }
         // Two paths, both required: onAppear covers "Settings was closed",
         // onChange covers "Settings already open on another section".
         //

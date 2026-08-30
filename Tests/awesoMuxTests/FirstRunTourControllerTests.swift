@@ -99,6 +99,66 @@ struct FirstRunTourControllerTests {
         #expect(controller.currentBeat == 1)
     }
 
+    // MARK: - Agent Settings handoff
+
+    @Test("Closing agent Settings resumes the same tour beat")
+    func agentSettingsCloseResumesSameBeat() {
+        let controller = FirstRunTourController(
+            defaults: UserDefaults(suiteName: "tour.ctrl.settingsresume")!)
+        var settingsOpenCount = 0
+        controller.onOpenAgentSettings = { settingsOpenCount += 1 }
+        controller.showForTesting()
+        controller.advance()
+        controller.advance()
+        let presentationBeforeSettings = controller.presentationToken
+
+        controller.openAgentSettingsFromTour()
+        let didResume = controller.resumeAfterAgentSettingsCloseForTesting()
+
+        #expect(settingsOpenCount == 1)
+        #expect(didResume == true)
+        #expect(controller.currentBeat == FirstRunTourController.notificationBeatIndex)
+        #expect(controller.presentationToken != presentationBeforeSettings)
+        #expect(controller.isVisible == true)
+    }
+
+    @Test("An ordinary Settings close does not present the tour")
+    func ordinarySettingsCloseIsInert() {
+        let controller = FirstRunTourController(
+            defaults: UserDefaults(suiteName: "tour.ctrl.settingsordinary")!)
+
+        #expect(controller.resumeAfterAgentSettingsCloseForTesting() == false)
+        #expect(controller.isVisible == false)
+        #expect(controller.presentationToken == 0)
+    }
+
+    @Test("The agent Settings handoff is consumed once")
+    func agentSettingsCloseIsOneShot() {
+        let controller = FirstRunTourController(
+            defaults: UserDefaults(suiteName: "tour.ctrl.settingsoneshot")!)
+        controller.openAgentSettingsFromTour()
+
+        #expect(controller.resumeAfterAgentSettingsCloseForTesting() == true)
+        let presentationAfterResume = controller.presentationToken
+        #expect(controller.resumeAfterAgentSettingsCloseForTesting() == false)
+        #expect(controller.presentationToken == presentationAfterResume)
+    }
+
+    @Test("Explicit dismissal cancels the agent Settings handoff")
+    func dismissalCancelsAgentSettingsResume() {
+        let defaults = UserDefaults(suiteName: "tour.ctrl.settingsdismiss")!
+        defaults.removePersistentDomain(forName: "tour.ctrl.settingsdismiss")
+        let controller = FirstRunTourController(defaults: defaults)
+        controller.showForTesting()
+        controller.openAgentSettingsFromTour()
+
+        controller.dismissByUser()
+
+        #expect(controller.resumeAfterAgentSettingsCloseForTesting() == false)
+        #expect(controller.isVisible == false)
+        #expect(defaults.bool(forKey: SettingsKey.hasSeenFirstRunTour) == true)
+    }
+
     // MARK: - Cmd-W routing
 
     @Test("Cmd-W dismisses the tour when it is the key window")

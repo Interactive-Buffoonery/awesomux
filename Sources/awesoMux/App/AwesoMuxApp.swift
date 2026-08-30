@@ -1412,7 +1412,9 @@ struct AwesoMuxApp: App {
         }
 
         Window("Settings", id: AwesoMuxSceneID.settings) {
-            AwesoMuxSettingsView()
+            AwesoMuxSettingsView(
+                onClose: { firstRunTourController.resumeAfterAgentSettingsClose() }
+            )
                 .environment(appSettingsStore)
                 .environment(settingsSectionRequest)
                 // Keys pane manages custom command shortcuts (INT-755).
