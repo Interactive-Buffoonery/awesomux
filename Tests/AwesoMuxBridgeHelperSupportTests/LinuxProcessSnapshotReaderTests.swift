@@ -41,6 +41,24 @@
                 .read(sessionID: "session-1")
             #expect(snapshot.processes.first?.hasSessionMarker == false)
         }
+
+        @Test func unreadableUnrelatedEnvironmentDoesNotContaminateSessionEvidence() throws {
+            let fixture = try ProcFixture()
+            defer { fixture.remove() }
+            let stat = "42 (zsh) S 1 42 42 34817 42 0 0 0 0 0 0 0 0 0 0 0 0 0 777"
+            try fixture.add(
+                pid: 42,
+                stat: stat,
+                environment: "AWESOMUX_BRIDGE_SESSION=session-1\0"
+            )
+            try fixture.add(pid: 99, stat: stat.replacingOccurrences(of: "42", with: "99"))
+
+            let snapshot = LinuxProcessSnapshotReader(procPath: fixture.path)
+                .read(sessionID: "session-1")
+
+            #expect(snapshot.processes.map(\.pid) == [42])
+            #expect(!snapshot.markerSeenButUnreadable)
+        }
     }
 
     private struct ProcFixture {
@@ -53,11 +71,13 @@
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
 
-        func add(pid: Int, stat: String, environment: String) throws {
+        func add(pid: Int, stat: String, environment: String? = nil) throws {
             let processURL = url.appendingPathComponent(String(pid), isDirectory: true)
             try FileManager.default.createDirectory(at: processURL, withIntermediateDirectories: true)
             try Data(stat.utf8).write(to: processURL.appendingPathComponent("stat"))
-            try Data(environment.utf8).write(to: processURL.appendingPathComponent("environ"))
+            if let environment {
+                try Data(environment.utf8).write(to: processURL.appendingPathComponent("environ"))
+            }
         }
 
         func remove() {

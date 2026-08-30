@@ -39,7 +39,6 @@
                 let environPath = entry.appendingPathComponent("environ").path
                 guard let firstStat = Self.readStat(path: statPath, pid: pid) else { continue }
                 guard let environment = try? Data(contentsOf: URL(fileURLWithPath: environPath), options: [.mappedIfSafe]) else {
-                    markerSeenButUnreadable = true
                     continue
                 }
                 let marked = Self.environment(environment, containsSessionID: sessionID)
