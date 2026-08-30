@@ -15,9 +15,12 @@ struct RemoteProcessLivenessClassifierTests {
         #expect(report.state == .indeterminate)
     }
 
-    @Test func idleShell() {
-        let report = classify([process(10, command: "zsh", marked: true)])
-        #expect(report == .init(state: .idleShell, comm: "zsh", hasChildren: false))
+    @Test(arguments: [
+        "zsh", "bash", "fish", "sh", "dash", "ksh", "csh", "tcsh", "nu", "pwsh", "xonsh", "elvish",
+    ])
+    func idleSupportedShell(command: String) {
+        let report = classify([process(10, command: command, marked: true)])
+        #expect(report == .init(state: .idleShell, comm: command, hasChildren: false))
     }
 
     @Test func foregroundCommand() {

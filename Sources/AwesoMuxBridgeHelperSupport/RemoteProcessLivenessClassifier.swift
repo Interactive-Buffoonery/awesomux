@@ -63,6 +63,14 @@ public struct ProcessTableSnapshot: Sendable {
 }
 
 public enum RemoteProcessLivenessClassifier {
+    // Keep this set aligned with AwesoMuxCore's ShellRecognition. The Linux
+    // helper cannot import the app-core target, but remote and local panes must
+    // agree on which foreground processes can prove an idle shell.
+    private static let recognizedShells: Set<String> = [
+        "zsh", "bash", "fish", "sh", "dash", "ksh", "csh", "tcsh", "nu",
+        "pwsh", "xonsh", "elvish",
+    ]
+
     public static func classify(_ snapshot: ProcessTableSnapshot) -> RemoteForegroundLivenessReport {
         let live = snapshot.processes.filter { $0.state != "Z" }
         let byPID = Dictionary(uniqueKeysWithValues: live.map { ($0.pid, $0) })
@@ -147,6 +155,6 @@ public enum RemoteProcessLivenessClassifier {
     private static func isRecognizedShell(_ command: String) -> Bool {
         let basename = command.split(separator: "/").last.map(String.init) ?? command
         let normalized = basename.hasPrefix("-") ? String(basename.dropFirst()) : basename
-        return ["bash", "dash", "fish", "ksh", "sh", "tcsh", "zsh"].contains(normalized)
+        return recognizedShells.contains(normalized)
     }
 }
