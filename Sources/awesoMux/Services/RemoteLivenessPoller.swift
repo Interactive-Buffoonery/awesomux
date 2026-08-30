@@ -32,8 +32,9 @@ actor RemoteLivenessPoller {
         let limiter = limiter
         let probe = probe
         let task = Task<RemoteForegroundLiveness?, Never> {
-            await limiter.acquire()
+            guard await limiter.acquire() else { return nil }
             defer { Task { await limiter.release() } }
+            guard !Task.isCancelled else { return nil }
             return await probe(command)
         }
         active[key] = Active(nonce: nonce, task: task)
@@ -42,32 +43,59 @@ actor RemoteLivenessPoller {
         return result
     }
 
-    func cancel(key: Key) {
-        active.removeValue(forKey: key)?.task.cancel()
+    @discardableResult
+    func cancel(key: Key) -> Bool {
+        guard let task = active.removeValue(forKey: key)?.task else { return false }
+        task.cancel()
+        return true
     }
 }
 
 private actor RemoteProbeConcurrencyLimiter {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let limit: Int
     private var running = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [Waiter] = []
 
     init(limit: Int) { self.limit = max(1, limit) }
 
-    func acquire() async {
+    func acquire() async -> Bool {
+        guard !Task.isCancelled else { return false }
         if running < limit {
             running += 1
-            return
+            return true
         }
-        await withCheckedContinuation { waiters.append($0) }
+
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                waiters.append(Waiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
     }
 
     func release() {
         if let waiter = waiters.first {
             waiters.removeFirst()
-            waiter.resume()
+            waiter.continuation.resume(returning: true)
         } else {
             running -= 1
         }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
     }
 }
