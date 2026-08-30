@@ -51,13 +51,29 @@ final class AgentTranscriptRenderGate: Sendable {
     }
 }
 
+@MainActor
+private final class AgentTranscriptWatcherTeardown {
+    private var stopOperation: (@MainActor () -> Void)?
+
+    init(_ stopOperation: @MainActor @escaping () -> Void) {
+        self.stopOperation = stopOperation
+    }
+
+    func stop() {
+        let operation = stopOperation
+        stopOperation = nil
+        operation?()
+    }
+}
+
 // MARK: - AgentTranscriptLiveRefresh
 
 /// Keeps one mounted agent-transcript tab current while its session keeps
 /// appending to the provider's JSONL.
 ///
-/// Full discovery runs once; the resolved `AgentTranscript` is then pinned and
-/// every subsequent pass re-opens *that* file. Re-opening is not incidental —
+/// Full discovery resolves an `AgentTranscript`, which is then pinned until a
+/// source failure requires exact-identity recovery. Every ordinary pass
+/// re-opens *that* file. Re-opening is not incidental —
 /// a `SecureFileReadHandle` can only vouch for the length it validated, so
 /// appended bytes are invisible until the path is opened again, and opening it
 /// again re-runs the owner, regular-file, and symlink checks against the
@@ -87,18 +103,18 @@ final class AgentTranscriptLiveRefresh {
     /// event, and returns the teardown.
     typealias WatchOperation =
         @MainActor (URL, @MainActor @escaping () -> Void) ->
-        @MainActor () ->
-        Void
+        (@MainActor () -> Void)?
 
     // MARK: Failure policy
 
     enum FailureResponse: Equatable {
+        case continueFollowing
         case rediscover
         case giveUp
     }
 
-    /// Each attempt re-runs full discovery, so this is not the same input three
-    /// times. Past it the loop stops and the tab keeps its last good render —
+    /// Each failed attempt re-runs full discovery after a delivered provider
+    /// hierarchy event. Past it the loop stops and the tab keeps its last good render —
     /// the behaviour a transcript tab had before it refreshed at all.
     ///
     /// Three failures *in a row*, not three in a lifetime: a successful render
@@ -112,9 +128,7 @@ final class AgentTranscriptLiveRefresh {
     static func response(to failure: AgentTranscriptOpenFailure) -> FailureResponse {
         switch failure {
         case .cacheWriteFailed:
-            // Not "continue, the next append retries": if the *final* append's
-            // write fails there is no next event, and the tab is stale for good.
-            return .rediscover
+            return .continueFollowing
         case .unavailable(let reason):
             switch reason {
             case .notFound:
@@ -138,8 +152,9 @@ final class AgentTranscriptLiveRefresh {
 
     private enum Outcome {
         case cancelled
+        case continueFollowing
         case giveUp
-        case rediscover
+        case recover(catchUp: Bool)
     }
 
     private let gate: AgentTranscriptRenderGate
@@ -147,12 +162,13 @@ final class AgentTranscriptLiveRefresh {
     private let discover: DiscoverOperation
     private let refresh: RefreshOperation
     private let watch: WatchOperation
+    private let recoveryWatch: WatchOperation
+    private let recoveryWatchURL: URL?
     private var pinned: AgentTranscript?
     /// Consecutive failures, reset by any successful render (see
     /// `maximumRediscoveries`). An instance property rather than a `run()`
     /// local so `render` can reset it where the success actually happens.
-    private var rediscoveries = 0
-
+    private var sourceRecoveryFailures = 0
     // MARK: Lifecycle
 
     init(
@@ -161,7 +177,9 @@ final class AgentTranscriptLiveRefresh {
         onPin: @MainActor @escaping (AgentTranscript) -> Void,
         discover: @escaping DiscoverOperation,
         refresh: @escaping RefreshOperation,
-        watch: @escaping WatchOperation
+        watch: @escaping WatchOperation,
+        recoveryWatch: WatchOperation? = nil,
+        recoveryWatchURL: URL? = nil
     ) {
         self.gate = gate
         self.pinned = pinned
@@ -169,6 +187,8 @@ final class AgentTranscriptLiveRefresh {
         self.discover = discover
         self.refresh = refresh
         self.watch = watch
+        self.recoveryWatch = recoveryWatch ?? watch
+        self.recoveryWatchURL = recoveryWatchURL
     }
 
     /// The production loop for one document tab.
@@ -214,7 +234,26 @@ final class AgentTranscriptLiveRefresh {
                 )
                 watcher.start()
                 return { watcher.stop() }
-            }
+            },
+            recoveryWatch: { url, onChange in
+                let watcher = AgentTranscriptDirectoryWatcher(
+                    rootURL: url,
+                    matchesPath: { path in
+                        AgentTranscriptImporter.matchesTranscriptFileName(
+                            agentKind: identity.agentKind,
+                            sessionID: identity.sessionID,
+                            fileName: URL(fileURLWithPath: path).lastPathComponent
+                        )
+                    },
+                    onChange: onChange
+                )
+                guard watcher.start() else { return nil }
+                return { watcher.stop() }
+            },
+            recoveryWatchURL: AgentTranscriptImporter.transcriptSearchRoot(
+                agentKind: identity.agentKind,
+                configHome: configHome
+            )
         )
     }
 
@@ -224,46 +263,111 @@ final class AgentTranscriptLiveRefresh {
     /// `.task` is cancelled.
     func run() async {
         while !Task.isCancelled {
-            let transcript: AgentTranscript
-            if let pinned {
-                transcript = pinned
-            } else {
-                switch await discoverDetached() {
-                case .success(let discovered):
-                    // `Task.detached` does not inherit cancellation, so nothing
-                    // above stopped discovery when the enclosing `.task(id:)`
-                    // went away. Without this the loop still pins, still writes
-                    // the view's `@State` through `onPin`, and still arms a
-                    // watcher, for a generation that no longer exists.
-                    guard !Task.isCancelled else { return }
-                    pinned = discovered
-                    onPin(discovered)
-                    transcript = discovered
-                case .failure(let reason):
-                    guard consumeRediscovery(after: .unavailable(reason)) else { return }
-                    continue
+            guard let transcript = pinned else {
+                guard let recoveryWatchURL else {
+                    _ = await recoveryAttempt()
+                    return
                 }
+                await recover(watching: recoveryWatchURL)
+                return
             }
 
             switch await follow(transcript) {
-            case .cancelled, .giveUp:
+            case .cancelled, .continueFollowing, .giveUp:
                 return
-            case .rediscover:
-                guard consumeRediscovery(after: nil) else { return }
-                pinned = nil
+            case .recover(let catchUp):
+                let directory =
+                    recoveryWatchURL
+                    ?? transcript.resolvedURL.deletingLastPathComponent()
+                await recover(watching: directory, catchUp: catchUp)
+                return
             }
         }
     }
 
-    /// Charges one attempt against the consecutive-failure budget, answering
-    /// whether the loop may go round again.
-    ///
-    /// - Parameter failure: The discovery failure to classify, or `nil` when
-    ///   the caller has already classified one as `.rediscover`.
-    private func consumeRediscovery(after failure: AgentTranscriptOpenFailure?) -> Bool {
-        if let failure, Self.response(to: failure) == .giveUp { return false }
-        rediscoveries += 1
-        return rediscoveries <= Self.maximumRediscoveries
+    /// Arms the provider hierarchy before probing, then authorizes at most one
+    /// full exact-identity discovery per delivered filesystem event batch.
+    private func recover(
+        watching directoryURL: URL,
+        catchUp: Bool = true
+    ) async {
+        let (ticks, continuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        var eventGeneration = 0
+        guard
+            let stop = recoveryWatch(
+                directoryURL,
+                {
+                    eventGeneration += 1
+                    continuation.yield(())
+                })
+        else { return }
+        let teardown = AgentTranscriptWatcherTeardown(stop)
+        defer { teardown.stop() }
+
+        let gate = self.gate
+        await withTaskCancellationHandler {
+            var shouldAttempt = catchUp
+            var consumedEventGeneration = 0
+            var iterator = ticks.makeAsyncIterator()
+            while !Task.isCancelled {
+                if !shouldAttempt {
+                    repeat {
+                        guard await iterator.next() != nil else { return }
+                    } while eventGeneration <= consumedEventGeneration
+                }
+                shouldAttempt = false
+                consumedEventGeneration = eventGeneration
+                switch await recoveryAttempt() {
+                case .none:
+                    continue
+                case .some(.cancelled), .some(.giveUp):
+                    return
+                case .some(.recover):
+                    shouldAttempt = true
+                case .some(.continueFollowing):
+                    guard let transcript = pinned else { return }
+                    switch await follow(transcript, firstSourceFailureCatchUp: false) {
+                    case .cancelled, .continueFollowing, .giveUp:
+                        return
+                    case .recover(let catchUp):
+                        shouldAttempt = catchUp || eventGeneration > consumedEventGeneration
+                    }
+                }
+            }
+        } onCancel: {
+            continuation.finish()
+            gate.invalidate()
+            Task { @MainActor in teardown.stop() }
+        }
+    }
+
+    /// One exact-identity discovery. `nil` means the recovery watcher remains
+    /// armed for a later directory event.
+    private func recoveryAttempt() async -> Outcome? {
+        guard !Task.isCancelled else { return .cancelled }
+        guard sourceRecoveryFailures < Self.maximumRediscoveries else { return .giveUp }
+        switch await discoverDetached() {
+        case .success(let discovered):
+            guard !Task.isCancelled else { return .cancelled }
+            pinned = discovered
+            onPin(discovered)
+            return .continueFollowing
+        case .failure(let reason):
+            guard !Task.isCancelled else { return .cancelled }
+            switch Self.response(to: .unavailable(reason)) {
+            case .continueFollowing:
+                assertionFailure("discovery cannot fail with a cache-write failure")
+                return .giveUp
+            case .giveUp:
+                return .giveUp
+            case .rediscover:
+                sourceRecoveryFailures += 1
+                return sourceRecoveryFailures >= Self.maximumRediscoveries ? .giveUp : nil
+            }
+        }
     }
 
     private func discoverDetached() async -> Result<AgentTranscript, AgentTranscriptUnavailable> {
@@ -277,7 +381,10 @@ final class AgentTranscriptLiveRefresh {
 
     /// Watches one pinned transcript and renders it on every event, one at a
     /// time.
-    private func follow(_ transcript: AgentTranscript) async -> Outcome {
+    private func follow(
+        _ transcript: AgentTranscript,
+        firstSourceFailureCatchUp: Bool = true
+    ) async -> Outcome {
         // `.bufferingNewest(1)` bounds concurrency, not frequency: a burst
         // collapses to one follow-up and the *last* append is never dropped,
         // which a "skip while a render is in flight" policy would strand. The
@@ -286,14 +393,30 @@ final class AgentTranscriptLiveRefresh {
             of: Void.self,
             bufferingPolicy: .bufferingNewest(1)
         )
-        let stop = watch(transcript.resolvedURL) { continuation.yield(()) }
-        defer { stop() }
+        var deliveredEventCount = 0
+        guard
+            let stop = watch(
+                transcript.resolvedURL,
+                {
+                    deliveredEventCount += 1
+                    continuation.yield(())
+                })
+        else {
+            return .giveUp
+        }
+        let teardown = AgentTranscriptWatcherTeardown(stop)
+        defer { teardown.stop() }
 
         let gate = self.gate
         return await withTaskCancellationHandler {
             // Catch-up render: the file can grow between discovery and the
             // watch being armed, and those bytes get no event of their own.
-            if let outcome = await render(transcript) { return outcome }
+            if let outcome = await render(transcript) {
+                if case .recover = outcome, !firstSourceFailureCatchUp {
+                    return .recover(catchUp: deliveredEventCount > 0)
+                }
+                return outcome
+            }
             // Sequential by construction — the body is awaited before the next
             // tick is consumed, so two renders never overlap.
             for await _ in ticks {
@@ -309,6 +432,7 @@ final class AgentTranscriptLiveRefresh {
             // Nothing can cancel a detached render that is already running;
             // superseding its stamp is what stops it writing.
             gate.invalidate()
+            Task { @MainActor in teardown.stop() }
         }
     }
 
@@ -332,11 +456,14 @@ final class AgentTranscriptLiveRefresh {
         case .success:
             // The budget counts consecutive failures, so a render that landed
             // clears whatever transient preceded it.
-            rediscoveries = 0
+            sourceRecoveryFailures = 0
             return nil
         case .failure(let failure):
             switch Self.response(to: failure) {
-            case .rediscover: return .rediscover
+            case .continueFollowing:
+                return nil
+            case .rediscover:
+                return .recover(catchUp: true)
             case .giveUp: return .giveUp
             }
         }

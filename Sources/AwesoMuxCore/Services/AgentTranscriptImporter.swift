@@ -103,6 +103,23 @@ public enum AgentTranscriptImporter {
     static let maximumMatchingCandidates = 32
     static let headByteCount = 256 * 1024
 
+    /// The provider-owned root whose directory events can make an exact
+    /// session discovery succeed after a source disappears.
+    public static func transcriptSearchRoot(agentKind: AgentKind, configHome: URL) -> URL? {
+        Provider(agentKind: agentKind)?.transcriptRoot(configHome: configHome)
+    }
+
+    /// Whether a provider-owned filename belongs to this exact session.
+    /// Recovery watchers use the same identity rule as discovery so unrelated
+    /// sessions cannot spend this session's bounded recovery budget.
+    public static func matchesTranscriptFileName(
+        agentKind: AgentKind,
+        sessionID: String,
+        fileName: String
+    ) -> Bool {
+        Provider(agentKind: agentKind)?.matches(sessionID: sessionID, fileName: fileName) ?? false
+    }
+
     public static func open(
         agentKind: AgentKind,
         executionPlan: PaneExecutionPlan,
