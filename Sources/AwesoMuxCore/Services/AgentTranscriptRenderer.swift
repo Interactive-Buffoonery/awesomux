@@ -27,11 +27,31 @@ public enum AgentTranscriptRenderer {
 
     // MARK: Budgets
 
-    /// The rendered document's hard ceiling, at three quarters of the viewer's
-    /// own cap. Derived rather than restated so the two can never drift, and the
-    /// remaining quarter is headroom the arithmetic below never has to reason
-    /// about precisely.
-    public static let budgetBytes = DocumentURLValidator.maxFileSizeBytes * 3 / 4
+    /// The rendered document's hard ceiling.
+    ///
+    /// The binding constraint is layout, not file size. `DocumentURLValidator`
+    /// records that whole-document TextKit 2 layout costs roughly 138 MB per
+    /// MiB of document, so a transcript rendered up to the viewer's own file cap
+    /// asks for a couple of hundred megabytes of layout on its own. At that size
+    /// the pane has been seen to paint blank until a tab switch forces it to
+    /// rebuild — a static document, no refresh in flight, and nothing logged.
+    ///
+    /// It cannot go much below this. The never-empty guarantee needs the newest
+    /// record to render whole even in the renderer's worst branch, which
+    /// amplifies about 3.6x — so a record at `maximumRecordBytes` renders to
+    /// roughly 926 KiB, and `theNewestRecordAlwaysFits` fails the moment the
+    /// budget stops clearing that. One MiB keeps a working margin while cutting
+    /// layout by a third; going lower means lowering `maximumRecordBytes` too,
+    /// which would elide records that measurement says are worth keeping.
+    ///
+    /// Deliberately NOT derived from `maxFileSizeBytes`: that number governs
+    /// what the viewer will open, and tying the two together encodes a
+    /// relationship that was never the binding one.
+    ///
+    /// ponytail: a flat cap that only takes the easy third. The real fix for a
+    /// transcript that wants more history is a large-document mode that does not
+    /// hold whole-document layout (see `DocumentURLValidator.maxFileSizeBytes`).
+    public static let budgetBytes = 1024 * 1024
 
     /// The largest JSONL record the renderer will parse. Anything longer is
     /// elided by its measured length alone, so a 57 MB line is never decoded.
