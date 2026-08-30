@@ -352,6 +352,11 @@ test("interpreted CodeQL stays automatic without waiting for Swift", () => {
 
 test("tint contrast fails closed when the Swift filter selects no tests", () => {
   const workflow = workflows.tintContrast;
+  assert.match(
+    workflow,
+    /concurrency:\n\s+group: tint-contrast-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/,
+  );
+  assert.match(workflow, /cancel-in-progress: true/);
   assert.match(workflow, /swift-test\.sh --filter SidebarTintContrastTests 2>&1 \| tee/);
   assert.match(
     workflow,
