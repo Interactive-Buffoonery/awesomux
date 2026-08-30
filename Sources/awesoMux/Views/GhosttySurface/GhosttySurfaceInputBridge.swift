@@ -637,6 +637,13 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             // may not deliver `rightMouseUp` afterwards, and the terminal must
             // not see a release for a press it never got.
             _ = inputState.mouseButtonPolicy.mouseDown(button: .right, surfaceIdentity: nil)
+            // This decision is authoritative across the `super` handoff:
+            // `menu(for:)` must not re-read capture state, which can flip on
+            // another thread between here and there (adversarial review,
+            // round 1). Cleared by `defer`, so the flag cannot outlive the
+            // gesture that set it.
+            inputState.rightClickMenuRouteArmed = true
+            defer { inputState.rightClickMenuRouteArmed = false }
             // AppKit consults `menu(for:)` from here and pops the menu.
             super.rightMouseDown(with: event)
             return

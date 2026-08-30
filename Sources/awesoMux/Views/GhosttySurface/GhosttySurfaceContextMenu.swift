@@ -65,17 +65,24 @@ extension GhosttySurfaceNSView {
             }
 
         case .rightMouseDown:
+            // `rightMouseDown(with:)` already routed this gesture and
+            // pre-armed the release before calling `super`. Its decision is
+            // authoritative: capture state can flip on another thread between
+            // its read and this one, and recomputing here could return nil
+            // AFTER the release was pre-armed — no menu, no press, a silently
+            // swallowed gesture. Do not arm again.
+            if inputState.rightClickMenuRouteArmed {
+                return Self.makeContextMenu()
+            }
+            // Only reachable for a direct or synthesized `menu(for:)` caller
+            // that skipped `rightMouseDown(with:)` — no press was pre-armed,
+            // and there is no physical press to pair, so route defensively.
             switch GhosttySurfaceContextMenuPolicy.rightClickRoute(
                 hasSurface: currentSurface != nil,
                 mouseCaptured: mouseCaptured
             ) {
-            // `rightMouseDown(with:)` already pre-armed the button before
-            // calling `super`, which is what got us here. Do not arm again.
             case .presentMenu:
                 return Self.makeContextMenu()
-            // Unreachable from a physical right-click — `rightMouseDown(with:)`
-            // only calls `super` on `.presentMenu` — so these are defensive for
-            // any direct or synthesized `menu(for:)` caller.
             case .forwardToTerminal:
                 return nil
             case .ignore:

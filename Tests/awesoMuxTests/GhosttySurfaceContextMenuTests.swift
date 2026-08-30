@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxCore
 import Testing
 @testable import awesoMux
 
@@ -102,5 +103,70 @@ struct GhosttySurfaceContextMenuTests {
     @Test("menu autoenables so items resolve through the shared edit-action validator")
     func menuAutoenables() {
         #expect(GhosttySurfaceNSView.makeContextMenu().autoenablesItems)
+    }
+
+    // MARK: - Authoritative route across the super handoff
+
+    @Test("menu(for:) honors the pre-armed right-click route instead of recomputing")
+    func armedRightClickRouteIsAuthoritative() {
+        // Headless mount: no native surface spawns, so a recomputed route
+        // would be .ignore (no menu). With the gesture pre-armed by
+        // rightMouseDown, menu(for:) must return the menu anyway — capture
+        // state can flip on another thread between the two reads, and a
+        // disagreeing second read would swallow the gesture after the
+        // release was already suppressed.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+
+        let pane = TerminalPane(title: "terminal", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "session",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "awesoMux", sessions: [session])],
+            selectedSessionID: session.id
+        )
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+        )
+        window.contentView?.addSubview(view)
+
+        guard
+            let event = NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: NSPoint(x: 10, y: 10),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        else {
+            Issue.record("could not synthesize a right-mouse-down event")
+            return
+        }
+
+        // Unarmed, the headless (dead-surface) route shows no menu.
+        #expect(view.menu(for: event) == nil)
+
+        view.inputState.rightClickMenuRouteArmed = true
+        defer { view.inputState.rightClickMenuRouteArmed = false }
+        #expect(view.menu(for: event) != nil)
     }
 }
