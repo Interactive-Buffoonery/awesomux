@@ -69,9 +69,12 @@ enum BranchChangesFailure: Error, Equatable, Sendable {
 /// pane gate uses, and the two gates disagreeing is the same bug wearing a
 /// different hat.
 ///
-/// Neither map is pruned: an entry is two words, and a pane or slot that will
-/// never be seen again also never costs anything again. `ponytail: unbounded
-/// maps; prune on pane close if a session ever churns panes in the millions.`
+/// None of the three maps (pane tickets, slot tickets, registered tickets) is
+/// pruned: an entry is a few words, a pane, slot, or path that will never be
+/// seen again also never costs anything again, and the registration high-water
+/// mark MUST survive to reject arbitrarily late completions. `ponytail:
+/// unbounded maps; prune on pane close if a session ever churns panes in the
+/// millions.`
 @MainActor
 enum BranchChangesInvocations {
     private static var nextTicket = 0
