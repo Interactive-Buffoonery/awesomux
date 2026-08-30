@@ -174,7 +174,11 @@ final class GhosttyRuntime {
             session: terminalSessionID
         )
         let liveness = await remoteLivenessPoller.sample(
-            key: .init(workspaceID: workspaceID, paneID: paneID),
+            key: .init(
+                workspaceID: workspaceID,
+                paneID: paneID,
+                generation: context.generation
+            ),
             command: command
         )
 
@@ -697,7 +701,8 @@ final class GhosttyRuntime {
         if let workspaceID = surfaceViews[paneID]?.sessionID {
             Task {
                 await remoteLivenessPoller.cancel(
-                    key: .init(workspaceID: workspaceID, paneID: paneID)
+                    workspaceID: workspaceID,
+                    paneID: paneID
                 )
             }
         }

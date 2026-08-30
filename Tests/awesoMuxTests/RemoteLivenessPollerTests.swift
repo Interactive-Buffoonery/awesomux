@@ -45,7 +45,11 @@ struct RemoteLivenessPollerTests {
             try? await Task.sleep(for: .milliseconds(30))
             return .idleShell
         }
-        let key = RemoteLivenessPoller.Key(workspaceID: UUID(), paneID: UUID())
+        let key = RemoteLivenessPoller.Key(
+            workspaceID: UUID(),
+            paneID: UUID(),
+            generation: "generation-a"
+        )
 
         async let first = poller.sample(key: key, command: "first")
         async let second = poller.sample(key: key, command: "second")
@@ -61,9 +65,21 @@ struct RemoteLivenessPollerTests {
             await gate.run(command: command)
         }
         let workspaceID = UUID()
-        let firstKey = RemoteLivenessPoller.Key(workspaceID: workspaceID, paneID: UUID())
-        let cancelledKey = RemoteLivenessPoller.Key(workspaceID: workspaceID, paneID: UUID())
-        let finalKey = RemoteLivenessPoller.Key(workspaceID: workspaceID, paneID: UUID())
+        let firstKey = RemoteLivenessPoller.Key(
+            workspaceID: workspaceID,
+            paneID: UUID(),
+            generation: "generation-a"
+        )
+        let cancelledKey = RemoteLivenessPoller.Key(
+            workspaceID: workspaceID,
+            paneID: UUID(),
+            generation: "generation-a"
+        )
+        let finalKey = RemoteLivenessPoller.Key(
+            workspaceID: workspaceID,
+            paneID: UUID(),
+            generation: "generation-a"
+        )
 
         let first = Task { await poller.sample(key: firstKey, command: "first") }
         await gate.waitForFirstProbe()
@@ -78,5 +94,34 @@ struct RemoteLivenessPollerTests {
         #expect(await cancelled.value == nil)
         #expect(await final.value == .idleShell)
         #expect(await gate.receivedCommands() == ["first", "final"])
+    }
+
+    @Test("a new bridge generation starts its own probe")
+    func newGenerationDoesNotJoinActiveProbe() async {
+        let gate = ProbeGate()
+        let poller = RemoteLivenessPoller { command in
+            await gate.run(command: command)
+        }
+        let workspaceID = UUID()
+        let paneID = UUID()
+        let firstKey = RemoteLivenessPoller.Key(
+            workspaceID: workspaceID,
+            paneID: paneID,
+            generation: "generation-a"
+        )
+        let replacementKey = RemoteLivenessPoller.Key(
+            workspaceID: workspaceID,
+            paneID: paneID,
+            generation: "generation-b"
+        )
+
+        let first = Task { await poller.sample(key: firstKey, command: "first") }
+        await gate.waitForFirstProbe()
+        let replacement = await poller.sample(key: replacementKey, command: "replacement")
+
+        #expect(replacement == .idleShell)
+        #expect(await gate.receivedCommands() == ["first", "replacement"])
+        await gate.releaseFirstProbe()
+        #expect(await first.value == .idleShell)
     }
 }

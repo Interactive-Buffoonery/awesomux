@@ -3015,12 +3015,17 @@ struct AwesoMuxApp: App {
                 targets.append((workspaceID, pane.id))
             }
         }
-        for (workspaceID, paneID) in targets {
-            await ghosttyRuntime.refreshRemoteForegroundLiveness(
-                workspaceID: workspaceID,
-                paneID: paneID,
-                in: sessionStore
-            )
+        let refreshes = targets.map { workspaceID, paneID in
+            Task { @MainActor in
+                await ghosttyRuntime.refreshRemoteForegroundLiveness(
+                    workspaceID: workspaceID,
+                    paneID: paneID,
+                    in: sessionStore
+                )
+            }
+        }
+        for refresh in refreshes {
+            await refresh.value
         }
     }
 

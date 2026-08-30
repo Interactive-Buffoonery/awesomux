@@ -5,6 +5,7 @@ actor RemoteLivenessPoller {
     struct Key: Hashable, Sendable {
         let workspaceID: UUID
         let paneID: UUID
+        let generation: String
     }
 
     private struct Active {
@@ -48,6 +49,15 @@ actor RemoteLivenessPoller {
         guard let task = active.removeValue(forKey: key)?.task else { return false }
         task.cancel()
         return true
+    }
+
+    func cancel(workspaceID: UUID, paneID: UUID) {
+        let keys = active.keys.filter {
+            $0.workspaceID == workspaceID && $0.paneID == paneID
+        }
+        for key in keys {
+            active.removeValue(forKey: key)?.task.cancel()
+        }
     }
 }
 
