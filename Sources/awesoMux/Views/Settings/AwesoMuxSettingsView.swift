@@ -4,12 +4,16 @@ import DesignSystem
 import SwiftUI
 
 struct AwesoMuxSettingsView: View {
-    var onClose: () -> Void = {}
-
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(SettingsSectionRequest.self) private var sectionRequest
     @State private var selection: SettingsSectionID = .general
-    @State private var escapeMonitor = SettingsEscapeMonitor()
+    @State private var escapeMonitor: SettingsEscapeMonitor
+    @State private var closeMonitor: SettingsWindowCloseMonitor
+
+    init(onClose: @escaping () -> Void = {}) {
+        _escapeMonitor = State(initialValue: SettingsEscapeMonitor(onClose: onClose))
+        _closeMonitor = State(initialValue: SettingsWindowCloseMonitor(onClose: onClose))
+    }
 
     var body: some View {
         SettingsShell(
@@ -23,12 +27,14 @@ struct AwesoMuxSettingsView: View {
         // responder chain when no control is focused, so Escape falls through to
         // the system beep. A scoped local key-down monitor catches it instead,
         // acting only on the window captured by the accessor below.
-        .background(WindowAccessor { escapeMonitor.window = $0 })
+        .background(
+            WindowAccessor { window in
+                escapeMonitor.window = window
+                closeMonitor.observe(window)
+            }
+        )
         .onAppear { escapeMonitor.start() }
-        .onDisappear {
-            escapeMonitor.stop()
-            onClose()
-        }
+        .onDisappear { escapeMonitor.stop() }
         // Two paths, both required: onAppear covers "Settings was closed",
         // onChange covers "Settings already open on another section".
         //
