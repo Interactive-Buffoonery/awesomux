@@ -34,6 +34,9 @@ struct ScrollbackDumpSheet: View {
                 return
             }
             await Task.yield()
+            guard !Task.isCancelled else {
+                return
+            }
             TerminalAccessibilityAnnouncer.announce(announcement)
         }
         // Escape needs its own control. Two `.keyboardShortcut` modifiers do not

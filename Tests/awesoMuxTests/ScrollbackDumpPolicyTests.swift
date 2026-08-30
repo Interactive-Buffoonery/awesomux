@@ -161,6 +161,26 @@ struct ScrollbackDumpPolicyTests {
         #expect(decision == .block(.tooLarge))
     }
 
+    @Test("estimated-byte overflow fails closed independently of cell count")
+    func estimatedBytesOverflowFailsClosed() {
+        let decision = ScrollbackDumpPolicy.decision(
+            for: .init(
+                totalRows: UInt64.max / 2,
+                currentColumns: 1,
+                widestObservedColumns: 1,
+                didRowCountChange: false
+            ),
+            limits: .init(
+                maximumEstimatedBytes: .max,
+                maximumRows: .max,
+                estimatedBytesPerCell: 4,
+                maximumNativeTextBytes: .max
+            )
+        )
+
+        #expect(decision == .block(.tooLarge))
+    }
+
     @Test("native text is rejected before Swift and TextKit when it overruns")
     func rejectsNativeTextOverrun() {
         #expect(ScrollbackDumpPolicy.acceptsNativeText(byteCount: 250, limits: limits))

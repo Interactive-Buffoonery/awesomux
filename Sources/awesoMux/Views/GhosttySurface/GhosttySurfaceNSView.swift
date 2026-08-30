@@ -306,6 +306,7 @@ final class GhosttySurfaceNSView: NSView {
         flushTerminalTitleThrottle()
         resetSearchStateForSurfaceTeardown()
         scrollbar = nil
+        scrollContainer?.surfaceMetricsDidChange()
         widestObservedScrollbackColumns = 0
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         // A VoiceOver accessor firing mid-heal (surface == nil) would
@@ -385,6 +386,7 @@ final class GhosttySurfaceNSView: NSView {
         if terminalSessionRepointed {
             resetSearchStateForSurfaceTeardown()
             scrollbar = nil
+            scrollContainer?.surfaceMetricsDidChange()
             widestObservedScrollbackColumns = 0
             // A repointed session has a different (or no) process behind it;
             // a leftover trusted incarnation from the PRIOR pane must never be
