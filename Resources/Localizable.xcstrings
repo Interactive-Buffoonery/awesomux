@@ -128,6 +128,9 @@
     "%arg Transcript" : {
       "comment" : "Document tab title for a rendered agent transcript, e.g. 'Claude Code Transcript'"
     },
+    "%arg couldn't be refreshed." : {
+      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
+    },
     "%arg finished your turn" : {
       "comment" : "Notification title shown when a background agent finishes its turn and is waiting for the user's next message. Argument is the agent product name (e.g. Claude, Codex)."
     },
@@ -240,9 +243,6 @@
           }
         }
       }
-    },
-    "%arg couldn't be refreshed." : {
-      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
     },
     "%arg stopped refreshing." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
@@ -1090,7 +1090,7 @@
 
     },
     "Copy" : {
-
+      "comment" : "Terminal context menu item that copies the selection"
     },
     "Copy Branch" : {
 
@@ -1170,9 +1170,6 @@
     "Couldn't fetch remote Markdown" : {
       "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
     },
-    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
-      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
-    },
     "Couldn't read your saved workspace file" : {
       "comment" : "Title for the session snapshot recovery warning raised mid-session"
     },
@@ -1186,6 +1183,9 @@
           }
         }
       }
+    },
+    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
+      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
     },
     "Couldn't reopen your last workspaces" : {
       "comment" : "Title for the session snapshot recovery warning"
@@ -2536,6 +2536,9 @@
     "Parent folder" : {
 
     },
+    "Paste" : {
+      "comment" : "Terminal context menu item that pastes the clipboard into the terminal"
+    },
     "Paste Anyway" : {
       "comment" : "Button on the unsafe-paste confirmation dialog. Allows the paste."
     },
@@ -3381,6 +3384,9 @@
     "Search Markdown files" : {
 
     },
+    "Search Selection" : {
+      "comment" : "Terminal context menu item that searches the terminal for the current selection"
+    },
     "Search sessions" : {
 
     },
@@ -3392,6 +3398,9 @@
     },
     "Security warning: %arg" : {
       "comment" : "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
+    },
+    "Select All" : {
+      "comment" : "Terminal context menu item that selects the whole terminal buffer"
     },
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
@@ -3660,6 +3669,9 @@
     },
     "Terminal" : {
       "comment" : "Diagnostics event category"
+    },
+    "Terminal Actions" : {
+      "comment" : "Title of the terminal surface right-click context menu"
     },
     "Terminal Companion" : {
       "comment" : "Window title and accessibility label for the Terminal Companion."

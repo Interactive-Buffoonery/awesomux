@@ -877,3 +877,63 @@ struct GhosttyClipboardReadRoutingTests {
         #expect(refused.available.isEmpty)
     }
 }
+
+/// `declaresSupportedContent` gates the context menu's Paste item without
+/// reading the pasteboard, so its type list must stay in step with the
+/// `content(from:)` ladder it stands in for.
+@MainActor
+@Suite("Terminal pasteboard supported-content metadata")
+struct TerminalPasteboardSupportedContentTests {
+    private func scratchPasteboard() -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: .init(UUID().uuidString))
+        pasteboard.clearContents()
+        return pasteboard
+    }
+
+    @Test("text, URLs, file URLs, and images all declare supported content")
+    func supportedTypesAreDetected() throws {
+        let directory = try TemporaryDirectory(prefix: "supported-content")
+        let file = directory.url.appendingPathComponent("notes.md")
+        try Data("x".utf8).write(to: file)
+
+        let text = scratchPasteboard()
+        text.setString("hello", forType: .string)
+        #expect(TerminalPasteboardString.declaresSupportedContent(text))
+
+        let fileURL = scratchPasteboard()
+        fileURL.writeObjects([file as NSURL])
+        #expect(TerminalPasteboardString.declaresSupportedContent(fileURL))
+
+        let url = scratchPasteboard()
+        url.writeObjects([NSURL(string: "https://example.com")!])
+        #expect(TerminalPasteboardString.declaresSupportedContent(url))
+
+        let png = scratchPasteboard()
+        png.setData(Data([1, 2, 3]), forType: .png)
+        #expect(TerminalPasteboardString.declaresSupportedContent(png))
+
+        let tiff = scratchPasteboard()
+        tiff.setData(Data([1, 2, 3]), forType: .tiff)
+        #expect(TerminalPasteboardString.declaresSupportedContent(tiff))
+    }
+
+    @Test("an empty or unsupported-only pasteboard declares nothing")
+    func unsupportedTypesAreRejected() {
+        #expect(!TerminalPasteboardString.declaresSupportedContent(scratchPasteboard()))
+
+        let unsupported = scratchPasteboard()
+        unsupported.setData(Data([1, 2, 3]), forType: .init("com.example.private-blob"))
+        #expect(!TerminalPasteboardString.declaresSupportedContent(unsupported))
+    }
+
+    /// Declared-but-empty text still enables Paste. `content(from:)` rejects
+    /// it and the action no-ops; metadata cannot see emptiness and reading to
+    /// find out would trip the macOS paste-permission alert.
+    @Test("a declared-but-empty string still counts as supported content")
+    func emptyDeclaredStringStillCounts() {
+        let pasteboard = scratchPasteboard()
+        pasteboard.setString("", forType: .string)
+        #expect(TerminalPasteboardString.declaresSupportedContent(pasteboard))
+        #expect(TerminalPasteboardString.content(from: pasteboard) == nil)
+    }
+}
