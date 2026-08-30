@@ -100,6 +100,7 @@ struct PaletteAppActions {
     let find: @MainActor () -> Void
     let scrollbackDump: @MainActor () -> Void
     let openAgentTranscript: @MainActor () -> Void
+    let showBranchChanges: @MainActor () -> Void
     let reconnectRemotePane: @MainActor () -> Void
     let growActivePane: @MainActor () -> Void
     let shrinkActivePane: @MainActor () -> Void
@@ -176,6 +177,7 @@ struct PaletteAppActions {
             find: action,
             scrollbackDump: action,
             openAgentTranscript: action,
+            showBranchChanges: action,
             reconnectRemotePane: action,
             growActivePane: action,
             shrinkActivePane: action,
@@ -490,6 +492,20 @@ enum PaletteCommandRegistry {
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
                 run: actions.openAgentTranscript
+            ),
+            PaletteCommand(
+                // Stable raw id, and no shortcut: same posture as Reconnect
+                // Remote Pane below. The chord space that reads as "changes"
+                // is taken, and a command whose cost is a subprocess does not
+                // want to be one keystroke away from a repeat.
+                id: "showBranchChanges",
+                title: "Show Branch Changes",
+                subtitle: selected?.activePane?.title,
+                keywords: ["git", "diff", "branch", "changes", "review", "compare"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
+                run: actions.showBranchChanges
             ),
             PaletteCommand(
                 id: "reconnectRemotePane",

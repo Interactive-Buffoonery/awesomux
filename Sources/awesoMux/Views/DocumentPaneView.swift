@@ -2025,6 +2025,16 @@ struct DocumentPaneView: View {
                             "Agent transcripts are rendered from the session's log and cannot be edited.",
                         comment: "Alert body explaining why a generated agent transcript rejects an edit")
                 )
+            } else if pane.branchChangesIdentity != nil {
+                showAlert(
+                    title: String(
+                        localized: "Read-Only Diff",
+                        comment: "Alert title when the user tries to annotate a generated branch diff"),
+                    message: String(
+                        localized:
+                            "Branch changes are rendered from the repository and cannot be edited.",
+                        comment: "Alert body explaining why a generated branch diff rejects an edit")
+                )
             } else {
                 showAlert(
                     title: String(

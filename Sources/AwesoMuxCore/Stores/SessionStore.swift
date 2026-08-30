@@ -1755,6 +1755,7 @@ public final class SessionStore {
         associatedWith associatedTerminalPaneID: TerminalPane.ID? = nil,
         remoteResourceIdentity: ResourceIdentity? = nil,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
+        branchChangesIdentity: BranchChangesIdentity? = nil,
         associationPolicy: DocumentPaneAssociationPolicy = .captureActivePaneWhenNil
     ) -> DocumentPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
@@ -1772,6 +1773,7 @@ public final class SessionStore {
                 associatedTerminalPaneID: resolvedAssociation,
                 remoteResourceIdentity: remoteResourceIdentity,
                 agentTranscriptIdentity: agentTranscriptIdentity,
+                branchChangesIdentity: branchChangesIdentity,
                 in: session,
                 now: Date(),
                 // A selection swap remounts the document view; while a comment

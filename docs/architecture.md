@@ -66,6 +66,7 @@ Native UI work should follow the shipped SwiftUI/AppKit patterns and shared toke
   remote Markdown path. Its `fileURL` points only to the local rendering cache;
   identity and read-only behavior survive disconnect, offline restore, and a
   missing runtime attachment.
+- **Branch changes document** — a read-only `DocumentPane` whose `BranchChangesIdentity` records the branch, base ref, and repository the diff was taken from. Its `fileURL` points only to the owner-only render cache under `branch-changes/`, so re-running Show Branch Changes replaces the same file and refreshes the open tab in place. Every git invocation runs against `TerminalPathBarModel.validatedRepoRootPath` and nothing else.
 - **Workspace tree** — `SessionGroup -> TerminalSession -> TerminalPaneLayout`: the hierarchy that backs sidebar groups, workspace rows, and split panes.
 - **Snapshot** — `SessionSnapshot`: Codable aggregate written to disk for restore (groups + selection + layout); see Persistence.
 

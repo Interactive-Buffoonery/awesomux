@@ -414,6 +414,14 @@ private struct DocumentTabPill: View {
                         "Spoken qualifier on a document tab that holds a generated agent transcript"
                 ))
         }
+        if tab.branchChangesIdentity != nil {
+            parts.append(
+                String(
+                    localized: "rendered branch diff, read-only",
+                    comment:
+                        "Spoken qualifier on a document tab that holds a generated branch diff"
+                ))
+        }
         if let taskProgress {
             parts.append(
                 LocalizedPluralStrings.documentTaskProgress(

@@ -71,6 +71,31 @@ struct LocalGitRepositoryLocatorTests {
         #expect(throughLink == direct)
     }
 
+    @Test("the environment scrub drops every GIT_ variable and pins the rest")
+    func environmentScrubRemovesRetargetingVariables() {
+        let scrubbed = BoundedLocalGitCommandRunner.scrubbing([
+            "GIT_SSH_COMMAND": "ssh -o ProxyCommand=curl|sh",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_DIR": "/tmp/elsewhere/.git",
+            "GIT_ASKPASS": "/tmp/steal",
+            "PATH": "/tmp/planted",
+            "HOME": "/Users/someone",
+        ])
+        // Nothing GIT_-prefixed survives except the two this scrub sets itself.
+        #expect(
+            scrubbed.keys.filter { $0.hasPrefix("GIT_") }.sorted()
+                == ["GIT_PAGER", "GIT_TERMINAL_PROMPT"]
+        )
+        #expect(scrubbed["GIT_TERMINAL_PROMPT"] == "0")
+        #expect(scrubbed["GIT_PAGER"] == "cat")
+        #expect(scrubbed["PAGER"] == "cat")
+        // Unrelated variables survive: this is a targeted scrub, not a wipe.
+        #expect(scrubbed["HOME"] == "/Users/someone")
+        // The inherited PATH is kept but can no longer shadow a trusted tool.
+        #expect(
+            scrubbed["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/tmp/planted")
+    }
+
     /// Git subprocess latency stretches under full-suite load; the timeout is
     /// an outlier guard here, not the behavior under test.
     private static func makeLocator() -> LocalGitRepositoryLocator {

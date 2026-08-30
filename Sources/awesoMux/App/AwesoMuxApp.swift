@@ -1248,6 +1248,21 @@ struct AwesoMuxApp: App {
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.openAgentTranscript))
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                // Gated exactly like its neighbours and no further, for the
+                // same reason: whether this pane HAS a branch diff to show has
+                // several answers, most of which the user can act on, so the
+                // command stays live and explains. No shortcut — the
+                // Reconnect Remote Pane precedent.
+                Button(
+                    String(
+                        localized: "Show Branch Changes",
+                        comment: "Workspace menu item that opens the active pane's branch diff as a document"
+                    )
+                ) {
+                    showBranchChangesForActivePane()
+                }
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
                 Divider()
 
                 Button("Grow Active Pane") {
@@ -3666,6 +3681,124 @@ struct AwesoMuxApp: App {
         }
     }
 
+    /// Renders the active pane's branch diff to Markdown and opens it beside
+    /// the terminal.
+    ///
+    /// The work is a detached task because it is two subprocesses and a render:
+    /// everything it needs is copied out of the pane first, so a pane closing
+    /// mid-render cannot be observed half-way, and the open is re-gated on the
+    /// pane still existing when the result lands.
+    private func showBranchChangesForActivePane() {
+        // Same first line as its neighbours: this command is gated on
+        // `isAnySheetPresented`, so a stale wedge would leave it silently dead.
+        healSheetWedgeBeforeGatedCommand()
+        guard !isAnySheetPresented,
+            let session = sessionStore.selectedSession,
+            let pane = session.layout.pane(id: session.activePaneID)
+        else {
+            return
+        }
+        // The remote gate runs HERE, on the main actor, before any work is
+        // spawned. The opener re-asserts it, but a remote pane must not cost a
+        // detached task and a path-bar filesystem walk to be told no.
+        guard case .local = pane.executionPlan else {
+            showBranchChangesFailureAlert(.remotePane)
+            return
+        }
+        let sessionID = session.id
+        let paneID = pane.id
+        // Latest-wins, on one ticket that orders both the pane's reaction below
+        // and the write to the shared cache slot. Invocations resolve in
+        // whatever order git finishes; without this the slower one's result
+        // lands last, and the tab shows — or reloads from disk — the older diff.
+        let ticket = BranchChangesInvocations.begin(paneID: paneID)
+        let chrome = BranchChangesOpener.localizedChrome()
+
+        Task { @MainActor in
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Reading branch changes.",
+                    comment: "VoiceOver announcement when rendering a pane's branch diff starts"
+                )
+            )
+            let result = await Task.detached(priority: .userInitiated) {
+                await BranchChangesOpener().open(
+                    session: session,
+                    chrome: chrome,
+                    claimingSlot: { BranchChangesInvocations.claimSlot($0, ticket: ticket) }
+                )
+            }.value
+
+            guard BranchChangesInvocations.isCurrent(ticket, paneID: paneID) else { return }
+
+            switch result {
+            case .failure(.superseded):
+                // A newer invocation owns the slot and wrote it. Silent by
+                // design: this run has no bytes on disk to open a tab onto, and
+                // the run that does is the one the user is waiting for.
+                return
+            case .success(let opened):
+                // The pane the diff was taken from has to still be there: the
+                // tab's send/stage target is that pane, and the document's
+                // whole claim is "these are the changes in THAT terminal".
+                guard sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil else {
+                    showBranchChangesFailureAlert(.paneClosed)
+                    return
+                }
+                // Register before the open, so the document pane's watcher and
+                // the background revision monitor both see this write as
+                // awesoMux's own. A refresh that lands under an already-open
+                // tab is a re-render of the same command, not somebody editing
+                // the file — surfacing it as an external edit would announce a
+                // change the user just asked for.
+                DocumentPaneView.selfWriteRegistry.record(
+                    fileURL: opened.fileURL,
+                    source: opened.markdown
+                )
+                guard
+                    sessionStore.openDocumentPane(
+                        fileURL: opened.fileURL,
+                        in: sessionID,
+                        associatedWith: paneID,
+                        branchChangesIdentity: opened.identity
+                    ) != nil
+                else {
+                    // The workspace went away while the diff ran. No alert —
+                    // there is nothing left to act on, and the user closed it
+                    // themselves — but silence would read as a dead command to
+                    // anyone listening.
+                    TerminalAccessibilityAnnouncer.announce(
+                        String(
+                            localized: "The workspace closed before the changes could open.",
+                            comment: "VoiceOver announcement when a rendered branch diff has no workspace left to open into"
+                        )
+                    )
+                    return
+                }
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Branch changes opened.",
+                        comment: "VoiceOver announcement after a rendered branch diff opens in a document tab"
+                    )
+                )
+            case .failure(let failure):
+                showBranchChangesFailureAlert(failure)
+            }
+        }
+    }
+
+    private func showBranchChangesFailureAlert(_ failure: BranchChangesFailure) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "Can't Show Branch Changes",
+            comment: "Alert title shown when awesoMux cannot open a pane's branch diff.")
+        alert.informativeText = BranchChangesOpener.failureDescription(for: failure)
+        alert.alertStyle = .warning
+        alert.addButton(
+            withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
+        alert.runModal()
+    }
+
     /// Stages the selected transcript's resume command into its terminal.
     ///
     /// The keyboard route to `DocumentPaneSendBar`'s Resume button, which
@@ -4267,6 +4400,7 @@ struct AwesoMuxApp: App {
             find: presentFindInActivePane,
             scrollbackDump: presentScrollbackDumpForActivePane,
             openAgentTranscript: openAgentTranscriptForActivePane,
+            showBranchChanges: showBranchChangesForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,
             growActivePane: {
                 sessionStore.resizeActiveSplit(by: 0.05)

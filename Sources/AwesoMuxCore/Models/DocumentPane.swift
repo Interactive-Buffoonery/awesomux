@@ -16,6 +16,10 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
     /// `remoteResourceIdentity`, the typed identity is the provenance and the
     /// cache URL is only implementation storage.
     public internal(set) var agentTranscriptIdentity: AgentTranscriptIdentity?
+    /// Non-nil when `fileURL` is an awesoMux-rendered branch diff. Same shape
+    /// as the two above: the typed identity is the provenance and the cache URL
+    /// is only implementation storage.
+    public internal(set) var branchChangesIdentity: BranchChangesIdentity?
 
     /// Remote provenance, and nothing else.
     ///
@@ -33,12 +37,14 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
     /// Whether the user may change what this tab shows — write annotations into
     /// its file, or navigate it to a different file.
     ///
-    /// False for both kinds of documents awesoMux owns rather than the user: a
-    /// remote snapshot (whose edits could never reach the real file) and a
-    /// rendered agent transcript (whose file is regenerable cache, so an
-    /// annotation written there is silently lost at the next render or prune).
+    /// False for every kind of document awesoMux owns rather than the user: a
+    /// remote snapshot (whose edits could never reach the real file), a
+    /// rendered agent transcript, and a rendered branch diff (both of whose
+    /// files are regenerable cache, so an annotation written there is silently
+    /// lost at the next render or prune).
     public var isEditable: Bool {
         remoteResourceIdentity == nil && agentTranscriptIdentity == nil
+            && branchChangesIdentity == nil
     }
 
     public var remoteSnapshotOrigin: String? {
@@ -51,13 +57,15 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
         title: String,
         associatedTerminalPaneID: TerminalPane.ID? = nil,
         remoteResourceIdentity: ResourceIdentity? = nil,
-        agentTranscriptIdentity: AgentTranscriptIdentity? = nil
+        agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
+        branchChangesIdentity: BranchChangesIdentity? = nil
     ) {
         self.id = id
         self.fileURL = fileURL
         self.title = title
         self.associatedTerminalPaneID = associatedTerminalPaneID
         self.agentTranscriptIdentity = agentTranscriptIdentity
+        self.branchChangesIdentity = branchChangesIdentity
         // Runtime construction is a trusted programming boundary. Persisted
         // identities use the throwing Codable path before reaching this invariant.
         precondition(
@@ -77,6 +85,7 @@ extension DocumentPane: Codable {
         case remoteResourceIdentity
         case remoteSnapshotOrigin
         case agentTranscriptIdentity
+        case branchChangesIdentity
     }
 
     public init(from decoder: Decoder) throws {
@@ -142,7 +151,8 @@ extension DocumentPane: Codable {
                 forKey: .associatedTerminalPaneID
             ),
             remoteResourceIdentity: identity,
-            agentTranscriptIdentity: Self.decodeTolerantTranscriptIdentity(from: container)
+            agentTranscriptIdentity: Self.decodeTolerantTranscriptIdentity(from: container),
+            branchChangesIdentity: Self.decodeTolerantBranchChangesIdentity(from: container)
         )
     }
 
@@ -164,6 +174,22 @@ extension DocumentPane: Codable {
         (try? container.decodeIfPresent(
             AgentTranscriptIdentity.self,
             forKey: .agentTranscriptIdentity
+        )) ?? nil
+    }
+
+    /// Same tolerance, same trade, as `decodeTolerantTranscriptIdentity`: a
+    /// branch-changes identity a newer build wrote in a shape this one rejects
+    /// drops the *field*, not the tab. The residual is identical — the tab
+    /// becomes editable and an annotation written into it is lost at the next
+    /// prune — and losing a real tab pointing at a real file is the worse trade.
+    private static func decodeTolerantBranchChangesIdentity(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> BranchChangesIdentity? {
+        // `(try? …) ?? nil` flattens the double optional `try?` wraps around an
+        // optional-returning decode. Load-bearing.
+        (try? container.decodeIfPresent(
+            BranchChangesIdentity.self,
+            forKey: .branchChangesIdentity
         )) ?? nil
     }
 
@@ -189,6 +215,10 @@ extension DocumentPane: Codable {
         // `AgentTranscriptIdentity` cannot be constructed or decoded invalid,
         // and it has no mutable members to invalidate afterwards.
         try container.encodeIfPresent(agentTranscriptIdentity, forKey: .agentTranscriptIdentity)
+        // No validity guard, for the same reason as the transcript identity: a
+        // `BranchChangesIdentity` cannot be constructed or decoded invalid, and
+        // it has no mutable members to invalidate afterwards.
+        try container.encodeIfPresent(branchChangesIdentity, forKey: .branchChangesIdentity)
     }
 
     private static func migrateLegacyRemoteOrigin(

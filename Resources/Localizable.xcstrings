@@ -128,6 +128,9 @@
     "%arg Transcript" : {
       "comment" : "Document tab title for a rendered agent transcript, e.g. 'Claude Code Transcript'"
     },
+    "%arg couldn't be refreshed." : {
+      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
+    },
     "%arg finished your turn" : {
       "comment" : "Notification title shown when a background agent finishes its turn and is waiting for the user's next message. Argument is the agent product name (e.g. Claude, Codex)."
     },
@@ -240,9 +243,6 @@
           }
         }
       }
-    },
-    "%arg couldn't be refreshed." : {
-      "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
     },
     "%arg stopped refreshing." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
@@ -456,6 +456,9 @@
     },
     "A native terminal for agents" : {
       "comment" : "About window tagline shown under the app name"
+    },
+    "A newer run of Show Branch Changes replaced this one." : {
+      "comment" : "Branch diff outcome when a newer invocation superseded this one"
     },
     "A preset named “%arg” already exists in this project." : {
       "comment" : "Alert text when saving over an existing layout preset."
@@ -691,10 +694,19 @@
 
     },
     "Branch" : {
-      "comment" : "Accessibility state for a branch worktree.\nExisting local branch picker label."
+      "comment" : "Accessibility state for a branch worktree.\nExisting local branch picker label.\nLabel before the branch name in a rendered branch diff"
     },
     "Branch %arg was created, but the worktree was not." : {
       "comment" : "Branch-only partial worktree creation announcement.\nBranch-only partial worktree creation result."
+    },
+    "Branch changes" : {
+      "comment" : "Heading of a rendered branch diff document"
+    },
+    "Branch changes are rendered from the repository and cannot be edited." : {
+      "comment" : "Alert body explaining why a generated branch diff rejects an edit"
+    },
+    "Branch changes opened." : {
+      "comment" : "VoiceOver announcement after a rendered branch diff opens in a document tab"
     },
     "Branch filtering is unavailable for this window — every Pi entry is shown, including any from abandoned turns." : {
       "comment" : "Notice in a Pi agent transcript when no entry ids could be found to filter to the active branch, so all entries render"
@@ -731,6 +743,9 @@
     },
     "Can't Resume This Session" : {
       "comment" : "Alert title shown when a transcript's resume command cannot be staged."
+    },
+    "Can't Show Branch Changes" : {
+      "comment" : "Alert title shown when awesoMux cannot open a pane's branch diff."
     },
     "Can't open %arg: file exceeds the %arg MB size limit." : {
       "comment" : "Document pane error; first placeholder is the quoted file name, second is the cap in whole megabytes",
@@ -783,6 +798,17 @@
     },
     "Catppuccin" : {
 
+    },
+    "Changes: %arg vs %arg — %arg" : {
+      "comment" : "Document tab title for a rendered branch diff, e.g. 'Changes: feature/x vs origin/main — awesomux'",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Changes: %1$arg vs %2$arg — %3$arg"
+          }
+        }
+      }
     },
     "Chart metric" : {
 
@@ -1047,8 +1073,14 @@
     "Comment annotation intent" : {
       "comment" : "Accessibility label for the comment annotation intent option"
     },
+    "Committed and uncommitted work on this branch is included. Untracked files are not." : {
+      "comment" : "Notice in a rendered branch diff explaining which changes the comparison covers"
+    },
     "Compact mode" : {
       "comment" : "Settings field label for the sidebar compact mode toggle"
+    },
+    "Compared with" : {
+      "comment" : "Label before the base ref in a rendered branch diff"
     },
     "Configuration" : {
       "comment" : "Diagnostics event category"
@@ -1170,9 +1202,6 @@
     "Couldn't fetch remote Markdown" : {
       "comment" : "Heading of the generated page shown when a remote Markdown fetch fails"
     },
-    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
-      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
-    },
     "Couldn't read your saved workspace file" : {
       "comment" : "Title for the session snapshot recovery warning raised mid-session"
     },
@@ -1186,6 +1215,9 @@
           }
         }
       }
+    },
+    "Couldn't refresh the remote file. Showing the last copy that arrived." : {
+      "comment" : "Document banner when a remote snapshot refresh fails and the last cached copy remains visible"
     },
     "Couldn't reopen your last workspaces" : {
       "comment" : "Title for the session snapshot recovery warning"
@@ -1684,6 +1716,12 @@
     },
     "Ghostty" : {
 
+    },
+    "Git couldn't produce the diff. It exited with status %arg." : {
+      "comment" : "Branch diff failure naming the exit status git returned"
+    },
+    "Git took too long to produce the diff and awesoMux stopped waiting. Try again, or run git diff in the terminal." : {
+      "comment" : "Branch diff failure when the git subprocess hit its deadline"
     },
     "GitHub" : {
       "comment" : "About window link to the project repository"
@@ -2783,6 +2821,9 @@
     "RESOLVED" : {
 
     },
+    "Read-Only Diff" : {
+      "comment" : "Alert title when the user tries to annotate a generated branch diff"
+    },
     "Read-Only Snapshot" : {
       "comment" : "Alert title when the user tries to annotate a remote Markdown snapshot"
     },
@@ -2794,6 +2835,9 @@
     },
     "Read-only snapshot from %arg" : {
 
+    },
+    "Reading branch changes." : {
+      "comment" : "VoiceOver announcement when rendering a pane's branch diff starts"
     },
     "Reap" : {
 
@@ -3073,6 +3117,9 @@
     "Rendered agent transcripts can't browse to other files" : {
       "comment" : "Help text for the Files toggle when the visible document is a rendered agent transcript"
     },
+    "Rendered branch changes can't browse to other files" : {
+      "comment" : "Help text for the Files toggle when the visible document is a rendered branch diff"
+    },
     "Reopen Closed Workspace" : {
       "localizations" : {
         "en" : {
@@ -3140,6 +3187,9 @@
     },
     "Report a bug…" : {
 
+    },
+    "Repository" : {
+      "comment" : "Label before the repository name in a rendered branch diff"
     },
     "Reset" : {
       "comment" : "Appearance settings section title"
@@ -3490,6 +3540,9 @@
     "Show Agent Activity" : {
       "comment" : "Tooltip for the footer total button while the agent activity panel is closed"
     },
+    "Show Branch Changes" : {
+      "comment" : "Workspace menu item that opens the active pane's branch diff as a document"
+    },
     "Show Cheatsheet" : {
 
     },
@@ -3563,6 +3616,9 @@
           }
         }
       }
+    },
+    "Snapshot taken at %arg. Run Show Branch Changes again to refresh it." : {
+      "comment" : "Notice in a rendered branch diff naming when it was taken and how to refresh it"
     },
     "Some characters or spacing will be adjusted. This name will be saved as “{savedName}”." : {
       "comment" : "Visual or spoken feedback in workspace group create and rename sheets. Preserve {savedName}; visual callers replace it with the exact saved name wrapped in bidi isolates."
@@ -3883,6 +3939,9 @@
     "The live saved file changed while awesoMux was reopening it, and awesoMux could not preserve the version it had already read. Automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes could not be archived"
     },
+    "The pane closed while awesoMux was preparing the changes." : {
+      "comment" : "Branch diff failure when the originating pane went away mid-render"
+    },
     "The preset file could not be read as a layout preset." : {
       "comment" : "Failure reason for a malformed layout preset file."
     },
@@ -3928,6 +3987,9 @@
     "The remote helper returned an unsafe response" : {
       "comment" : "Remote handoff unsafe response error title"
     },
+    "The repository changed while awesoMux was reading it, so the diff wouldn't have matched the branch it names. Try again." : {
+      "comment" : "Branch diff failure when HEAD moved between the start and end of the read"
+    },
     "The selection changed. Copy the draft and select the text again." : {
       "comment" : "Save recovery announcement for a stale text selection"
     },
@@ -3951,6 +4013,9 @@
     },
     "The target path already exists." : {
       "comment" : "Existing worktree target validation."
+    },
+    "The workspace closed before the changes could open." : {
+      "comment" : "VoiceOver announcement when a rendered branch diff has no workspace left to open into"
     },
     "The workspace closed before the transcript could open." : {
       "comment" : "VoiceOver announcement when a rendered transcript has no workspace left to open into"
@@ -3993,6 +4058,12 @@
     "This agent doesn't support review annotations" : {
       "comment" : "Disabled annotation handoff reason when the document's agent has no annotation protocol mapping"
     },
+    "This branch matches %arg. There is nothing to show." : {
+      "comment" : "Notice in a rendered branch diff when the branch and its base are identical"
+    },
+    "This branch's diff is larger than awesoMux can render. Compare a narrower range in the terminal instead." : {
+      "comment" : "Branch diff failure when the diff exceeded both the size cap and the deadline"
+    },
     "This can't be undone." : {
       "comment" : "Message of the confirmation dialog before deleting a custom command"
     },
@@ -4004,6 +4075,9 @@
     },
     "This destination is set to be managed automatically. Adding it here will stop that." : {
       "comment" : "Warning when adding an SSH destination to the don’t-ask list removes it from the always-manage list"
+    },
+    "This diff is incomplete." : {
+      "comment" : "Notice shown above and below a branch diff that was cut short"
     },
     "This document is empty." : {
 
@@ -4029,8 +4103,14 @@
     "This pane reported a session id awesoMux won't use to look up a file. Start a new agent session and try again." : {
       "comment" : "Transcript failure when the reported provider session id failed validation"
     },
+    "This pane runs over SSH, and its repository is on the remote host. Show the changes from a local pane." : {
+      "comment" : "Branch diff failure when the pane runs over SSH"
+    },
     "This pane runs over SSH, and its session log stays on the remote host. Open the transcript from a local pane." : {
       "comment" : "Transcript failure when the pane runs over SSH"
+    },
+    "This pane's working directory isn't inside a git repository, so there is no branch to compare." : {
+      "comment" : "Branch diff failure when the pane's directory is not in a repository"
     },
     "This paste could run a command before you finish pasting. Paste anyway?" : {
       "comment" : "Title of the unsafe-paste confirmation dialog."
@@ -4423,8 +4503,20 @@
     "awesoMux could not read %arg using SSH." : {
       "comment" : "Body of the failed remote Markdown fetch page; the placeholder is the remote origin"
     },
+    "awesoMux couldn't find a branch to compare against. It looks for origin's default branch, then main or master — a repository with no remote, no commits, or differently named branches has none of them." : {
+      "comment" : "Branch diff failure when no default base branch could be resolved, including the no-remote and empty-repository cases"
+    },
+    "awesoMux couldn't find git. Install the Xcode command line tools, or git through Homebrew, and try again." : {
+      "comment" : "Branch diff failure when no git executable was found"
+    },
+    "awesoMux couldn't read this repository's branches. Git didn't finish the lookup." : {
+      "comment" : "Branch diff failure when the ref listing could not be run or did not complete"
+    },
     "awesoMux couldn't replace the saved workspace file. The existing file was kept and automatic session saving remains paused." : {
       "comment" : "Recovery replacement failure shown after an owner-only snapshot write fails"
+    },
+    "awesoMux couldn't save the rendered diff to its cache." : {
+      "comment" : "Branch diff failure when writing the rendered Markdown to the app cache fails"
     },
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
@@ -4434,6 +4526,9 @@
     },
     "awesoMux doesn't know which session this pane belongs to. If an agent is running, send it a prompt, then try again." : {
       "comment" : "Transcript failure when no provider session id has been reported"
+    },
+    "awesoMux found a .git here but wouldn't run git against it — it may be a symlink, or point somewhere outside the repository." : {
+      "comment" : "Branch diff failure when the repository's .git failed admin-directory validation"
     },
     "awesoMux found this session's log but refused to read it. It may be a symlink, or owned by another user." : {
       "comment" : "Transcript failure when the secure file reader declined to open the resolved session log"
@@ -4571,6 +4666,9 @@
     },
     "remote on %arg" : {
       "comment" : "VoiceOver action fragment naming the remote host for a pane."
+    },
+    "rendered branch diff, read-only" : {
+      "comment" : "Spoken qualifier on a document tab that holds a generated branch diff"
     },
     "rendered transcript, read-only" : {
       "comment" : "Spoken qualifier on a document tab that holds a generated agent transcript"

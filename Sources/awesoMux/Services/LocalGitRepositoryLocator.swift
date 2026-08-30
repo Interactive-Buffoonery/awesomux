@@ -26,6 +26,52 @@ protocol LocalGitCommandRunning: Sendable {
 struct BoundedLocalGitCommandRunner: LocalGitCommandRunning {
     private let runner: BoundedCommandRunner
 
+    /// The environment every git invocation from awesoMux runs under.
+    ///
+    /// **Trust contract, stated rather than implied.** This is the same
+    /// boundary the Path Bar's existing `git status` already stands on: the
+    /// repository is the user's own, and its root was validated
+    /// (`TerminalPathBarModel.validatedRepoRootPath`) before any subprocess was
+    /// spawned against it. What this scrub removes is the set of variables that
+    /// *retarget* git — a different repository, a different config file, a
+    /// different helper binary — because those can be exported into a shell by
+    /// something other than the user and would silently redirect a command the
+    /// user believes is reading the repository in front of them. `GIT_DIR`,
+    /// `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, `GIT_CONFIG*`,
+    /// `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_SSH*`, `GIT_ASKPASS`, and every
+    /// other `GIT_`-prefixed variable go, and the two that make a non-interactive
+    /// run behave are set explicitly afterwards.
+    ///
+    /// What this deliberately does NOT do is neutralize the repository's own
+    /// configured `clean`/`smudge` filters or `diff.textconv` entries. Those
+    /// live in the checkout's config, they already run for the Path Bar's
+    /// `git status`, and disabling them here would make the diff disagree with
+    /// what the user's own `git diff` shows. The individual commands still pass
+    /// `--no-ext-diff` / `--no-textconv` where a diff would otherwise shell out
+    /// per file. This is a boundary awesoMux inherits, not one it widens.
+    private static let scrubbedEnvironment = scrubbing(ProcessInfo.processInfo.environment)
+
+    /// The scrub itself, as a pure function of `inherited` so it can be
+    /// exercised without the process's own environment.
+    ///
+    /// Every command awesoMux runs through this type is a local read. A future
+    /// caller that reaches the network — `fetch`, `push`, `clone` — has to
+    /// revisit the `GIT_SSH_COMMAND` / `GIT_ASKPASS` removal, because those
+    /// carry the user's own credential and agent wiring and a network command
+    /// stripped of them fails or prompts instead of authenticating.
+    static func scrubbing(_ inherited: [String: String]) -> [String: String] {
+        var environment = inherited.filter { !$0.key.hasPrefix("GIT_") }
+        // Trusted absolute dirs go FIRST so a relative or repo-local inherited
+        // entry can't shadow a tool with an attacker-planted binary. A launched
+        // `.app` inherits launchd's minimal PATH, not the user's shell PATH.
+        let toolPaths = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        environment["PATH"] = environment["PATH"].map { "\(toolPaths):\($0)" } ?? toolPaths
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_PAGER"] = "cat"
+        environment["PAGER"] = "cat"
+        return environment
+    }
+
     init(
         executableCandidates: [String] = ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"],
         timeout: Duration = .seconds(5),
@@ -34,7 +80,8 @@ struct BoundedLocalGitCommandRunner: LocalGitCommandRunning {
         runner = BoundedCommandRunner(
             executableCandidates: executableCandidates,
             timeout: timeout,
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            environment: Self.scrubbedEnvironment
         )
     }
 

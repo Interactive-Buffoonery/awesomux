@@ -119,6 +119,7 @@ struct PaneLayoutReducer: Sendable {
         associatedTerminalPaneID: TerminalPane.ID?,
         remoteResourceIdentity: ResourceIdentity? = nil,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
+        branchChangesIdentity: BranchChangesIdentity? = nil,
         in session: TerminalSession,
         now: Date,
         selectingNewTab: Bool = true
@@ -130,7 +131,8 @@ struct PaneLayoutReducer: Sendable {
         let title = documentTabTitle(
             fileURL: normalizedURL,
             remoteResourceIdentity: remoteResourceIdentity,
-            agentTranscriptIdentity: agentTranscriptIdentity
+            agentTranscriptIdentity: agentTranscriptIdentity,
+            branchChangesIdentity: branchChangesIdentity
         )
         var session = session
 
@@ -175,10 +177,17 @@ struct PaneLayoutReducer: Sendable {
                 let effectiveTranscriptIdentity =
                     existing.agentTranscriptIdentity
                     ?? agentTranscriptIdentity
+                // Same direction again. Re-rendering a branch diff writes the
+                // same cache path, so a matching tab is the same comparison by
+                // construction.
+                let effectiveBranchChangesIdentity =
+                    existing.branchChangesIdentity
+                    ?? branchChangesIdentity
                 let effectiveTitle = documentTabTitle(
                     fileURL: normalizedURL,
                     remoteResourceIdentity: effectiveIdentity,
-                    agentTranscriptIdentity: effectiveTranscriptIdentity
+                    agentTranscriptIdentity: effectiveTranscriptIdentity,
+                    branchChangesIdentity: effectiveBranchChangesIdentity
                 )
                 if existing.remoteResourceIdentity != effectiveIdentity {
                     existing.remoteResourceIdentity = effectiveIdentity
@@ -189,6 +198,13 @@ struct PaneLayoutReducer: Sendable {
                 }
                 if existing.agentTranscriptIdentity != effectiveTranscriptIdentity {
                     existing.agentTranscriptIdentity = effectiveTranscriptIdentity
+                    if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
+                        group.tabs[index] = existing
+                    }
+                    changed = true
+                }
+                if existing.branchChangesIdentity != effectiveBranchChangesIdentity {
+                    existing.branchChangesIdentity = effectiveBranchChangesIdentity
                     if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
                         group.tabs[index] = existing
                     }
@@ -229,7 +245,8 @@ struct PaneLayoutReducer: Sendable {
                 title: title,
                 associatedTerminalPaneID: liveIncomingAssociation,
                 remoteResourceIdentity: remoteResourceIdentity,
-                agentTranscriptIdentity: agentTranscriptIdentity
+                agentTranscriptIdentity: agentTranscriptIdentity,
+                branchChangesIdentity: branchChangesIdentity
             )
             group.tabs.append(tab)
             if selectingNewTab {
@@ -247,7 +264,8 @@ struct PaneLayoutReducer: Sendable {
             title: title,
             associatedTerminalPaneID: liveIncomingAssociation,
             remoteResourceIdentity: remoteResourceIdentity,
-            agentTranscriptIdentity: agentTranscriptIdentity
+            agentTranscriptIdentity: agentTranscriptIdentity,
+            branchChangesIdentity: branchChangesIdentity
         )
         session.layout = .split(
             TerminalSplit(
@@ -262,12 +280,18 @@ struct PaneLayoutReducer: Sendable {
     static func documentTabTitle(
         fileURL: URL,
         remoteResourceIdentity: ResourceIdentity?,
-        agentTranscriptIdentity: AgentTranscriptIdentity? = nil
+        agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
+        branchChangesIdentity: BranchChangesIdentity? = nil
     ) -> String {
         // A transcript's file is named after a hash, so the filename fallback
         // below would put `8f3c…c0e1.transcript.md` on the tab pill.
         if let agentTranscriptIdentity {
             return agentTranscriptIdentity.documentTitle
+        }
+        // Same reason, and the identity is also the only thing that says WHICH
+        // comparison the tab holds.
+        if let branchChangesIdentity {
+            return branchChangesIdentity.documentTitle
         }
         guard let path = remoteResourceIdentity?.path.rawValue else {
             return fileURL.lastPathComponent
@@ -366,6 +390,11 @@ struct PaneLayoutReducer: Sendable {
         tab.title = normalizedURL.lastPathComponent
         tab.remoteResourceIdentity = nil
         tab.agentTranscriptIdentity = nil
+        // Unreachable while `isEditable` gates this function — a tab with any
+        // provenance is refused above. Cleared anyway, beside its siblings, so
+        // the invariant "a navigated tab carries no stale provenance" is
+        // visible here rather than inferred from a guard forty lines up.
+        tab.branchChangesIdentity = nil
         group.tabs[index] = tab
         guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group) else {
             return nil

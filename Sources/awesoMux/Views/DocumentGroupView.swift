@@ -509,6 +509,12 @@ struct DocumentGroupView: View {
                 comment: "Help text for the Files toggle when the visible document is a rendered agent transcript"
             )
         }
+        if document.branchChangesIdentity != nil {
+            return String(
+                localized: "Rendered branch changes can't browse to other files",
+                comment: "Help text for the Files toggle when the visible document is a rendered branch diff"
+            )
+        }
         if let origin = document.remoteSnapshotOrigin {
             return String(
                 localized: "Remote snapshot from \(origin)",

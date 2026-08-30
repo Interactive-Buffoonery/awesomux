@@ -204,3 +204,169 @@ import Testing
         )
     }
 }
+
+// MARK: - Branch changes provenance
+
+@Suite("Branch changes document tabs")
+struct BranchChangesDocumentTabTests {
+    private static let cacheURL = URL(fileURLWithPath: "/tmp/cache/a1b2.branch-changes.md")
+
+    private func identity(branch: String? = "feature/x") -> BranchChangesIdentity {
+        BranchChangesIdentity(
+            gitBranch: branch,
+            baseRef: "refs/remotes/origin/main",
+            repositoryName: "awesomux"
+        )!
+    }
+
+    private func session() -> (TerminalSession, TerminalPane) {
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
+        var session = TerminalSession(title: "s", workingDirectory: "/tmp", layout: .pane(terminal))
+        session.activePaneID = terminal.id
+        return (session, terminal)
+    }
+
+    @Test func opensAssociatedWithThePassedPaneAndTitledFromTheIdentity() throws {
+        let (session, terminal) = session()
+        let opened = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        let group = try #require(opened.session.layout.firstDocumentGroup)
+        let tab = try #require(group.tab(id: opened.newTabID))
+        #expect(tab.associatedTerminalPaneID == terminal.id)
+        #expect(tab.branchChangesIdentity == identity())
+        // Never the hashed filename.
+        #expect(tab.title == identity().documentTitle)
+        #expect(tab.title.contains("feature/x"))
+        #expect(!tab.isEditable)
+    }
+
+    @Test func aSecondOpenRefreshesTheSameTabInPlace() throws {
+        let (session, terminal) = session()
+        let first = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        let second = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: first.session,
+                now: Date()
+            ))
+        #expect(second.newTabID == first.newTabID)
+        let group = try #require(second.session.layout.firstDocumentGroup)
+        #expect(group.tabs.count == 1)
+    }
+
+    @Test func aTabThatAlreadyHasProvenanceIsNeverRetargeted() throws {
+        let (session, terminal) = session()
+        let first = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        // The same cache path with a different identity cannot happen — the slot
+        // is keyed on the identity — but if it did, the stored provenance wins.
+        let second = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(branch: "other"),
+                in: first.session,
+                now: Date()
+            ))
+        let group = try #require(second.session.layout.firstDocumentGroup)
+        let tab = try #require(group.tab(id: second.newTabID))
+        #expect(tab.branchChangesIdentity == identity())
+    }
+
+    /// Pinned behavior, not endorsed behavior. Two live panes on the same branch
+    /// of the same checkout render into ONE cache slot, so the second pane's
+    /// invocation reuses the first pane's tab, and the never-retarget-live rule
+    /// keeps send/stage pointed at the first pane. The alternative — a tab per
+    /// pane — needs a product decision about what a second pane's Show Branch
+    /// Changes should even mean, and that is queued on the pull request. This
+    /// test exists so the decision is a decision rather than a silent drift.
+    @Test func twoLivePanesSharingASlotKeepTheFirstPanesAssociation() throws {
+        let first = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
+        let second = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
+        var session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .split(
+                TerminalSplit(orientation: .vertical, first: .pane(first), second: .pane(second))
+            )
+        )
+        session.activePaneID = first.id
+
+        let opened = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: first.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        let reopened = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: second.id,
+                branchChangesIdentity: identity(),
+                in: opened.session,
+                now: Date()
+            ))
+        #expect(reopened.newTabID == opened.newTabID)
+        let group = try #require(reopened.session.layout.firstDocumentGroup)
+        #expect(group.tabs.count == 1)
+        #expect(try #require(group.tab(id: reopened.newTabID)).associatedTerminalPaneID == first.id)
+    }
+
+    @Test func aDeadPaneAssociationIsNotInvented() throws {
+        let (session, _) = session()
+        let opened = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: UUID(),
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        let group = try #require(opened.session.layout.firstDocumentGroup)
+        // The reducer stores nil rather than silently retargeting to whichever
+        // terminal happens to be active. The command's own guard is what stops
+        // a tab from being opened at all once its pane is gone.
+        #expect(try #require(group.tab(id: opened.newTabID)).associatedTerminalPaneID == nil)
+    }
+
+    @Test func aBranchChangesTabCannotBeNavigatedElsewhere() throws {
+        let (session, terminal) = session()
+        let opened = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        #expect(
+            PaneLayoutReducer.replaceDocumentTab(
+                tabID: opened.newTabID,
+                fileURL: URL(fileURLWithPath: "/tmp/other.md"),
+                in: opened.session
+            ) == nil)
+    }
+}
