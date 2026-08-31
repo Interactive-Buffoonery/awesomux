@@ -90,6 +90,7 @@ final class FirstRunTourController {
 
     @ObservationIgnored private var panel: FloatingSwiftUIPanelWindow?
     @ObservationIgnored private var isKeyWindow = false
+    @ObservationIgnored private var isAwaitingAgentSettingsClose = false
     @ObservationIgnored private let defaults: UserDefaults
     // Set by the app so this floating-panel root carries the appearance
     // bridge (accent, glow, UI font, text scale) — same contract as the
@@ -167,12 +168,31 @@ final class FirstRunTourController {
     func advance() { currentBeat = min(currentBeat + 1, Self.beatCount - 1) }
     func retreat() { currentBeat = max(currentBeat - 1, 0) }
 
+    /// Records that Settings belongs to the tour's beat-three handoff before
+    /// opening it. A normal Settings visit never sets this marker, so closing
+    /// that window keeps its existing behavior.
+    func openAgentSettingsFromTour() {
+        isAwaitingAgentSettingsClose = true
+        onOpenAgentSettings()
+    }
+
+    /// Called by the singleton Settings scene when its content disappears.
+    /// Consuming first makes duplicate lifecycle callbacks inert and lets
+    /// `show()` return the existing panel to the front on its current beat.
+    func resumeAfterAgentSettingsClose() {
+        guard consumeAgentSettingsHandoff() else { return }
+        show()
+    }
+
     /// Esc, Cmd-W, the close control, or finishing beat five. Only this path
     /// silences the tour — a tour that marked itself seen because the user
     /// clicked its own "Set up agents" button would end onboarding at beat
     /// three, permanently.
     func dismissByUser() {
         defaults.set(true, forKey: SettingsKey.hasSeenFirstRunTour)
+        // Explicit dismissal wins even if Settings is still open from the
+        // tour's handoff. Its later close must not resurrect onboarding.
+        isAwaitingAgentSettingsClose = false
         // Reaching the closing beat *is* completing the tour, whichever control
         // ends it there. Leaving `currentBeat` on the last beat would make the
         // "?" button that beat five advertises reopen on a screen whose only
@@ -201,7 +221,7 @@ final class FirstRunTourController {
             controller: self,
             appSettingsStore: appSettingsStore,
             presentationToken: presentationToken,
-            onOpenAgentSettings: { [weak self] in self?.onOpenAgentSettings() }
+            onOpenAgentSettings: { [weak self] in self?.openAgentSettingsFromTour() }
         )
         if let appSettingsStore {
             root.appearanceBridge(appSettingsStore)
@@ -325,5 +345,21 @@ final class FirstRunTourController {
     /// `becomeKey()`/`resignKey()` overrides call, without constructing one.
     func handleKeyStateChangedForTesting(_ isKey: Bool) {
         handleKeyStateChanged(isKey)
+    }
+
+    /// Headless counterpart to `resumeAfterAgentSettingsClose()`. The real
+    /// method must create/focus an NSWindow, which the Swift test runner cannot
+    /// do reliably without an app bundle and window server.
+    @discardableResult
+    func resumeAfterAgentSettingsCloseForTesting() -> Bool {
+        guard consumeAgentSettingsHandoff() else { return false }
+        showForTesting()
+        return true
+    }
+
+    private func consumeAgentSettingsHandoff() -> Bool {
+        guard isAwaitingAgentSettingsClose else { return false }
+        isAwaitingAgentSettingsClose = false
+        return true
     }
 }
