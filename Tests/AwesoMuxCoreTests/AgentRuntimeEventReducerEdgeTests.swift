@@ -372,6 +372,134 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(decision.update.clearsUnreadNotifications)
     }
 
+    @Test("tool end clears the permission prompt that followed its start")
+    func toolEndClearsPermissionPromptThatFollowedItsStart() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        _ = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "prompted-tool",
+                timestamp: Date(timeIntervalSince1970: 1)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        let promptResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "prompted-tool",
+                timestamp: Date(timeIntervalSince1970: 2)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let prompt = try #require(promptResult)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: prompt.update, now: Date(timeIntervalSince1970: 2)
+        )
+
+        let decisionResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "prompted-tool",
+                timestamp: Date(timeIntervalSince1970: 3)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 3)
+        )
+        let decision = try #require(decisionResult)
+        #expect(decision.update.attentionClearIsAuthoritative)
+        #expect(decision.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: decision.update, now: Date(timeIntervalSince1970: 3)
+        )
+        #expect(session.attentionReason == nil)
+        #expect(session.unreadNotificationCount == 0)
+    }
+
+    @Test("an older tool end preserves a newer permission prompt")
+    func olderToolEndPreservesNewerPermissionPrompt() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+
+        for (eventID, timestamp) in [("background-tool", 1.0), ("prompted-tool", 2.0)] {
+            _ = reducer.decision(
+                for: AgentRuntimeEvent(
+                    source: .codex,
+                    executionState: .thinking,
+                    phase: .toolStart,
+                    eventID: eventID,
+                    timestamp: Date(timeIntervalSince1970: timestamp)
+                ),
+                currentSession: session,
+                paneID: paneID,
+                terminalIsFocused: false,
+                now: Date(timeIntervalSince1970: timestamp)
+            )
+        }
+
+        let promptResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "prompted-tool",
+                timestamp: Date(timeIntervalSince1970: 3)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 3)
+        )
+        let prompt = try #require(promptResult)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: prompt.update, now: Date(timeIntervalSince1970: 3)
+        )
+
+        let backgroundEndResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "background-tool",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 4)
+        )
+        let backgroundEnd = try #require(backgroundEndResult)
+        #expect(!backgroundEnd.update.attentionClearIsAuthoritative)
+        #expect(!backgroundEnd.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: backgroundEnd.update, now: Date(timeIntervalSince1970: 4)
+        )
+        #expect(session.attentionReason == .permissionPrompt)
+        #expect(session.unreadNotificationCount == 1)
+    }
+
     @Test("tool start carrying attention preserves the blocking prompt")
     func toolStartCarryingAttentionPreservesBlockingPrompt() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)

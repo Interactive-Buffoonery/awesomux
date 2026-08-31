@@ -209,6 +209,15 @@ extension SessionStore {
         else {
             return false
         }
+        // Codex reports PreToolUse before PermissionRequest and has no matching
+        // permission-resolved hook. Once its permission screen has disappeared,
+        // a focused viewport showing live work is the first evidence that the
+        // command resumed. The text detector checks attention cues before work
+        // cues, so a still-visible prompt cannot take this path.
+        let resolvesPendingPermissionPrompt =
+            clearsAttention
+            && detectedState?.refreshesAgentActivity == true
+            && session(id: id)?.layout.pane(id: targetPaneID)?.attentionReason == .permissionPrompt
         return applyPaneUpdate(
             sessionID: id,
             paneID: targetPaneID,
@@ -219,6 +228,7 @@ extension SessionStore {
                 agentKindIsRuntimeEstablished: agentKind != nil ? false : nil,
                 agentState: detectedState,
                 clearsAttention: clearsAttention,
+                attentionClearIsAuthoritative: resolvesPendingPermissionPrompt,
                 clearsUnreadNotifications: clearsUnreadNotifications,
                 unreadNotificationDelta: normalizedPublicUnreadDelta(unreadNotificationDelta)
             )
@@ -230,8 +240,9 @@ extension SessionStore {
     /// Active agent panes record a short-lived permission-answer attempt so an
     /// input delivered just before its hook cannot leave a stale badge. Visible
     /// state changes only when the pane is currently `.needsAttention`: it moves
-    /// to `.thinking`, clears attention, and clears its unread badge because the
-    /// user acted on that prompt. `paneID` defaults to the session's active pane.
+    /// to `.thinking` and clears attention. Any terminal input clears the pane's
+    /// unread badge because the user is actively responding in that pane.
+    /// `paneID` defaults to the session's active pane.
     public func markNeedsAttentionPromptAnswered(
         id: TerminalSession.ID,
         paneID: TerminalPane.ID? = nil
@@ -249,18 +260,19 @@ extension SessionStore {
                 now: Date()
             )
         }
-        guard pane.agentState == .needsAttention else {
+        let clearsPrompt = pane.agentState == .needsAttention
+        guard clearsPrompt || pane.unreadNotificationCount > 0 else {
             return
         }
         applyPaneUpdate(
             sessionID: id,
             paneID: targetPaneID,
             update: WorkspaceAttentionReducer.SessionUpdate(
-                agentState: .thinking,
-                clearsAttention: true,
+                agentState: clearsPrompt ? .thinking : nil,
+                clearsAttention: clearsPrompt,
                 // The user typed the answer into this pane, so this is the one
                 // clear allowed to retract a still-pending prompt.
-                attentionClearIsAuthoritative: true,
+                attentionClearIsAuthoritative: clearsPrompt,
                 clearsUnreadNotifications: true
             )
         )

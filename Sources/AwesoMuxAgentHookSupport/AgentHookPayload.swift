@@ -5,6 +5,10 @@ struct AgentHookPayload: Decodable {
     private var grokHookEventName: String?
     var notificationType: String?
     var providerSessionID: String?
+    /// Stable identity shared by hooks for the same tool invocation. This lets
+    /// the reducer distinguish the prompted tool from concurrent work without
+    /// forwarding tool input or output.
+    var toolUseID: String?
     var reason: String?
     /// Native tool identity from a PostToolUse payload (`Write`/`Edit`/…). Used
     /// only to gate touched-path forwarding for file-mutating tools (issue #175);
@@ -20,6 +24,8 @@ struct AgentHookPayload: Decodable {
         case notificationType = "notification_type"
         case sessionID = "session_id"
         case legacySessionID = "sessionId"
+        case toolUseID = "tool_use_id"
+        case legacyToolUseID = "toolUseId"
         case reason
         case toolName = "tool_name"
         case toolInput = "tool_input"
@@ -46,6 +52,11 @@ struct AgentHookPayload: Decodable {
         let legacyReportedSessionID =
             (try? container.decodeIfPresent(String.self, forKey: .legacySessionID)) ?? nil
         providerSessionID = reportedSessionID ?? legacyReportedSessionID
+        let reportedToolUseID =
+            (try? container.decodeIfPresent(String.self, forKey: .toolUseID)) ?? nil
+        let legacyReportedToolUseID =
+            (try? container.decodeIfPresent(String.self, forKey: .legacyToolUseID)) ?? nil
+        toolUseID = reportedToolUseID ?? legacyReportedToolUseID
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
         // `try?`, not `try`: a present-but-wrong-type `tool_name` must not throw
         // out of the whole decode and drop the event's lifecycle transition —

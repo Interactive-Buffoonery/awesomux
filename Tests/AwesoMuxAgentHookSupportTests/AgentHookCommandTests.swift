@@ -31,6 +31,26 @@ struct AgentHookCommandTests {
         #expect(event.timestamp != nil)
     }
 
+    @Test("tool hooks keep their native tool identity")
+    func toolHooksKeepNativeToolIdentity() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "codex"],
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
+            stdin: Data(
+                #"{"hook_event_name":"PostToolUse","tool_use_id":"tool-123"}"#.utf8
+            )
+        )
+
+        #expect(status == 0)
+        let parsedEvent = try Self.readSingleEvent(from: temp.file)
+        let event = try #require(parsedEvent)
+        #expect(event.phase == .toolEnd)
+        #expect(event.eventID == "tool-123")
+    }
+
     @Test
     func openDocumentWritesParseableRuntimeEvent() throws {
         let temp = try Self.temporaryEventFile()

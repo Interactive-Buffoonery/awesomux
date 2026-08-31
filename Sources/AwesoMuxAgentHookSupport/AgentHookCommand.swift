@@ -80,7 +80,12 @@ public enum AgentHookCommand {
                     ),
                     reason: payload.reason,
                     toolName: payload.toolName,
-                    toolFilePath: payload.toolFilePath
+                    toolFilePath: payload.toolFilePath,
+                    // Tool-related hooks share this native id. Keep it as the
+                    // event id so the reducer can correlate the matching
+                    // start, permission request, and end; timestamps still
+                    // distinguish the individual events for dedupe.
+                    eventID: payload.toolUseID ?? UUID().uuidString
                 )
             else {
                 log(provider: provider, eventName: hookEventName, category: "unknown-event")
