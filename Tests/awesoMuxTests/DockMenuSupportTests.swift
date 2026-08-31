@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import awesoMux
@@ -5,6 +6,16 @@ import Testing
 
 @Suite("Dock recent-workspace menu labels (INT-633)")
 struct DockMenuSupportTests {
+
+    @MainActor
+    @Test("menu shortcut uses the binding key and modifiers")
+    func menuShortcutUsesBinding() {
+        let item = NSMenuItem()
+        DockMenuShortcut.apply(KeyboardShortcutCatalog.togglePopUpTerminal, to: item)
+
+        #expect(item.keyEquivalent == "'")
+        #expect(item.keyEquivalentModifierMask == [.command, .shift])
+    }
 
     private static func entry(title: String) -> RecentlyClosedWorkspace {
         let pane = TerminalPane(title: title, workingDirectory: NSHomeDirectory(), executionPlan: .local)

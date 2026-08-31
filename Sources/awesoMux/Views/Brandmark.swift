@@ -2,6 +2,8 @@ import DesignSystem
 import SwiftUI
 
 struct Brandmark: View {
+    static let glyph = "\u{30C4}"
+
     let size: CGFloat
     let showsText: Bool
     @Environment(\.awAccent) private var accentResolver
@@ -50,7 +52,7 @@ private struct ShrugMark: View {
         // katakana, so the system substitutes its CJK face to draw it: the
         // .monospaced/.bold below only seed that substitution. Sized to 0.9em so
         // the full-width advance (~1em) sits inside the size×size box.
-        Text("\u{30C4}")
+        Text(Brandmark.glyph)
             .font(.system(size: size * 0.9, weight: .bold, design: .monospaced))
             .foregroundStyle(accentColor)
             .frame(width: size, height: size)

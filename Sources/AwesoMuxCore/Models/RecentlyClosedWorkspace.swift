@@ -57,7 +57,23 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         bundle: Bundle = .main,
         locale: Locale = .current
     ) -> String {
-        syntheticTitle?.localizedTitle(bundle: bundle, locale: locale) ?? title
+        if let syntheticTitle {
+            return syntheticTitle.localizedTitle(bundle: bundle, locale: locale)
+        }
+        return RecentlyClosedWorkspaceTitleResolver.resolvedTitle(
+            title: title,
+            isTitleUserEdited: isTitleUserEdited,
+            agentKind: agentKind,
+            workingDirectory: activeWorkingDirectory,
+            bundle: bundle,
+            locale: locale
+        )
+    }
+
+    private var activeWorkingDirectory: String {
+        layout.pane(id: activePaneID)?.workingDirectory
+            ?? layout.firstPane?.workingDirectory
+            ?? "~"
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -125,5 +141,56 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
             indexInGroup: try container.decode(Int.self, forKey: .indexInGroup),
             closedAt: try container.decode(Date.self, forKey: .closedAt)
         )
+    }
+}
+
+enum RecentlyClosedWorkspaceTitleResolver {
+    static func resolvedTitle(
+        title: String,
+        isTitleUserEdited: Bool,
+        agentKind: AgentKind,
+        workingDirectory: String,
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        guard
+            !isTitleUserEdited,
+            agentKind == .shell,
+            isShellShutdownTitle(title)
+        else {
+            return title
+        }
+        if let directoryName = meaningfulDirectoryName(from: workingDirectory) {
+            return directoryName
+        }
+        return String(
+            localized: "Shell workspace",
+            bundle: bundle,
+            locale: locale,
+            comment: "Fallback title for a recently closed shell workspace whose final terminal title was exit or logout."
+        )
+    }
+
+    private static func isShellShutdownTitle(_ title: String) -> Bool {
+        switch title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "exit", "logout":
+            true
+        default:
+            false
+        }
+    }
+
+    private static func meaningfulDirectoryName(from workingDirectory: String) -> String? {
+        let path = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !path.isEmpty,
+            path != "~",
+            path != WorkingDirectoryValidator.canonicalHomeDirectory
+        else {
+            return nil
+        }
+        let name = URL(fileURLWithPath: path, isDirectory: true).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 }

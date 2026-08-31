@@ -26,6 +26,13 @@ final class DockOpenWorkspaceToken: NSObject {
     }
 }
 
+enum DockMenuShortcut {
+    static func apply(_ binding: KeyBinding, to item: NSMenuItem) {
+        item.keyEquivalent = String(binding.key.character)
+        item.keyEquivalentModifierMask = binding.modifiers.eventFlags
+    }
+}
+
 enum DockRecentWorkspaceMenu {
     /// Menu label for a recently-closed workspace. Falls back to a generic label
     /// when the captured title is blank so the row is never an empty click
