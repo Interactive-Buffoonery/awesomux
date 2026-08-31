@@ -505,6 +505,9 @@
     "Accent color" : {
       "comment" : "Settings field label for the accent color swatches"
     },
+    "Accurate remote close warnings" : {
+      "comment" : "Benefit listed in the additional SSH features prompt"
+    },
     "Acknowledge" : {
 
     },
@@ -856,6 +859,9 @@
     "Check the SSH connection and try the installation again." : {
       "comment" : "Remote platform probe failure recovery"
     },
+    "Check your internet connection and try again." : {
+      "comment" : "Remote helper release download failure recovery"
+    },
     "Checked %arg" : {
       "comment" : "Diagnostics freshness using a localized relative time"
     },
@@ -1038,6 +1044,9 @@
     "Command W minimizes the Terminal Companion" : {
       "comment" : "Accessibility label for the Terminal Companion minimize shortcut hint."
     },
+    "Command activity visible in the sidebar" : {
+      "comment" : "Benefit listed in the additional SSH features prompt"
+    },
     "Command name" : {
 
     },
@@ -1122,6 +1131,9 @@
     "Connection to %arg may be stale." : {
       "comment" : "VoiceOver announcement when a remote pane connection may be stale"
     },
+    "Continue Without Helper" : {
+      "comment" : "Decline remote helper setup while continuing the SSH connection"
+    },
     "Controls whether terminal programs and escape sequences can replace the macOS clipboard." : {
 
     },
@@ -1181,6 +1193,9 @@
     },
     "Could not create a new tab for %arg." : {
       "comment" : "Accessibility announcement when opening a new tab for a palette command fails"
+    },
+    "Could not download the remote helper" : {
+      "comment" : "Remote helper release download failure title"
     },
     "Could not reach %arg, or the session ended." : {
       "comment" : "Description under the remote-owned session overlay title, naming the remote host"
@@ -1364,7 +1379,7 @@
       "comment" : "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
     },
     "Destination" : {
-
+      "comment" : "Remote helper detail label"
     },
     "Detached" : {
       "comment" : "Accessibility state for a detached worktree."
@@ -1483,6 +1498,9 @@
         }
       }
     },
+    "Downloading, verifying, and installing the version matched to this copy of awesoMux." : {
+      "comment" : "Remote helper installation progress explanation"
+    },
     "Draft copied" : {
       "comment" : "Draft copy success announcement"
     },
@@ -1524,6 +1542,9 @@
     },
     "Enable Dock bouncing" : {
 
+    },
+    "Enable additional SSH features on %arg?" : {
+      "comment" : "Remote helper setup title. Argument is the declared SSH destination."
     },
     "Enable and Connect" : {
       "comment" : "Button that enables background sessions and creates a managed SSH workspace"
@@ -1639,6 +1660,9 @@
           }
         }
       }
+    },
+    "File transfers via copy and paste" : {
+      "comment" : "Benefit listed in the additional SSH features prompt"
     },
     "File watcher" : {
       "comment" : "Diagnostics configuration reload trigger"
@@ -1868,6 +1892,18 @@
     "Installed, but the install record could not be saved. Disable and Remove may target your current settings instead of where this was installed." : {
       "comment" : "CLI agent plugin install record persistence failure warning"
     },
+    "Installing helper on %arg…" : {
+      "comment" : "Remote helper installation progress title. Argument is the SSH destination."
+    },
+    "Installing the **awesoMux helper** adds:" : {
+
+    },
+    "Installing…" : {
+      "comment" : "Remote helper installation progress button"
+    },
+    "Installs to" : {
+      "comment" : "Remote helper detail label"
+    },
     "Interface font" : {
       "comment" : "Accessibility label for the app UI font picker\nSettings field label for the app UI font picker"
     },
@@ -1932,6 +1968,9 @@
     },
     "Layout preset" : {
       "comment" : "Accessibility label for the layout preset picker popup."
+    },
+    "Learn more" : {
+      "comment" : "Remote helper setup documentation link"
     },
     "Left" : {
 
@@ -2686,6 +2725,9 @@
     "Pinned, from %arg" : {
       "comment" : "Spoken on a pinned sidebar workspace — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
     },
+    "Platform" : {
+      "comment" : "Remote helper detail label"
+    },
     "Position" : {
       "comment" : "Settings field label for the sidebar position picker"
     },
@@ -3331,6 +3373,9 @@
         }
       }
     },
+    "Runs as your user · No administrator access" : {
+      "comment" : "Remote helper setup trust note"
+    },
     "Runtime" : {
       "comment" : "Diagnostics event category"
     },
@@ -3881,6 +3926,9 @@
     "The document note changed or was removed. Copy your draft before closing." : {
       "comment" : "Document note editor recovery message when a draft can be copied\nDocument note recovery message when a draft can be copied"
     },
+    "The downloaded file was not installed." : {
+      "comment" : "Remote helper release checksum failure recovery"
+    },
     "The draft was not saved." : {
       "comment" : "Annotation save failure message\nDocument note editor save failure message\nNew annotation save failure message\nSave failure announcement"
     },
@@ -3978,6 +4026,9 @@
     },
     "The remote helper cannot read the bridge state file under its custody rules." : {
       "comment" : "Bridge doctor failure reason"
+    },
+    "The remote helper download could not be verified" : {
+      "comment" : "Remote helper release checksum failure title"
     },
     "The remote helper folder is not private" : {
       "comment" : "Unsafe remote helper layout title"

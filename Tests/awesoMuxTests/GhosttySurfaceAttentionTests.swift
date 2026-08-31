@@ -4,6 +4,47 @@ import Testing
 
 @Suite("Ghostty surface attention decisions")
 struct GhosttySurfaceAttentionTests {
+    @Test("surface input records an answer attempt before attention arrives")
+    @MainActor
+    func surfaceInputRecordsAnswerAttemptBeforeAttentionArrives() throws {
+        let pane = TerminalPane(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            agentExecutionState: .thinking,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "agent",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "awesoMux", sessions: [session])
+        ])
+        let view = GhosttyRuntime().surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+
+        view.markNeedsAttentionPromptAnswered()
+        view.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "late-permission"
+            ))
+
+        let updatedPane = try #require(store.session(id: session.id)?.layout.pane(id: pane.id))
+        #expect(updatedPane.attentionReason == nil)
+        #expect(updatedPane.agentState == .thinking)
+    }
+
     @Test("agent-exit probe eligibility excludes only idle unobserved shells")
     func agentExitProbeEligibility() {
         #expect(

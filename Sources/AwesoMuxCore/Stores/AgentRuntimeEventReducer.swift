@@ -79,7 +79,17 @@ struct AgentRuntimeEventReducer: Sendable {
         // this only for copy: it must still name the agent after the pane is a
         // shell, not claim the session is unknown.
         var lastEndedAgentKind: AgentKind?
+        /// A recent user-input attempt that may have answered a permission
+        /// prompt before its hook arrived. Runtime-only; used to suppress a
+        /// stale `PermissionRequest` raise (issue #404).
+        var lastPermissionAnswerAttemptAt: Date?
     }
+
+    /// How long a permission-answer attempt remains evidence against a late
+    /// `PermissionRequest` hook. Kept separate from
+    /// `VisibleTextAgentStateReducer.runtimeEventSuppressionWindow` — that gate
+    /// is about viewport inference, not user-input ordering.
+    static let permissionAnswerAttemptFreshnessWindow: TimeInterval = 1.0
 
     /// A pane-title mutation a `.rename` event resolves to, applied by the store
     /// alongside the `update`. Routing rename through the reducer (rather than
@@ -151,6 +161,15 @@ struct AgentRuntimeEventReducer: Sendable {
     /// pane as an unknown shell session.
     func lastEndedAgentKind(for paneID: TerminalPane.ID) -> AgentKind? {
         stateByPaneID[paneID]?.lastEndedAgentKind
+    }
+
+    mutating func recordPermissionAnswerAttempt(
+        paneID: TerminalPane.ID,
+        now: Date
+    ) {
+        var state = stateByPaneID[paneID] ?? RuntimeEventState()
+        state.lastPermissionAnswerAttemptAt = now
+        stateByPaneID[paneID] = state
     }
 
     mutating func decision(
@@ -491,7 +510,7 @@ struct AgentRuntimeEventReducer: Sendable {
                 state.isBetweenTurns || event.assertsWaitingExecutionState
         case .sessionStart, .promptSubmit, .toolStart:
             state.isBetweenTurns = false
-        case .toolEnd, .sessionEnd, .rename, .openDocument, nil:
+        case .toolEnd, .sessionEnd, .rename, .openDocument, .permissionReplied, nil:
             break
         }
 
@@ -544,6 +563,20 @@ struct AgentRuntimeEventReducer: Sendable {
             rawAttentionReason == .processError
             ? .unknown
             : rawAttentionReason
+        let effectiveAttentionReason: AttentionReason?
+        if eventAttentionReason == .permissionPrompt,
+            let attemptAt = state.lastPermissionAnswerAttemptAt,
+            now >= attemptAt,
+            now.timeIntervalSince(attemptAt) <= Self.permissionAnswerAttemptFreshnessWindow
+        {
+            // The user already answered in the TUI before this hook landed.
+            effectiveAttentionReason = nil
+        } else {
+            effectiveAttentionReason = eventAttentionReason
+        }
+        if eventAttentionReason == .permissionPrompt {
+            state.lastPermissionAnswerAttemptAt = nil
+        }
         // Legacy `state` was a full display-state replacement, so an execution
         // update clears prior attention. Modern `executionState` is independent
         // and must not erase an explicit attention reason.
@@ -560,9 +593,9 @@ struct AgentRuntimeEventReducer: Sendable {
         // though the pane was already loud (INT-506). Same/lower-priority
         // repeats stay silent.
         let enteringNeedsAttention: Bool
-        if let eventAttentionReason {
+        if let effectiveAttentionReason {
             if let currentReason = currentPane.attentionReason {
-                enteringNeedsAttention = eventAttentionReason.priority > currentReason.priority
+                enteringNeedsAttention = effectiveAttentionReason.priority > currentReason.priority
             } else {
                 enteringNeedsAttention = true
             }
@@ -577,7 +610,7 @@ struct AgentRuntimeEventReducer: Sendable {
         let enteringUnseenTurnCompletion =
             event.phase == .stop
             && eventExecutionState == .waiting
-            && eventAttentionReason == nil
+            && effectiveAttentionReason == nil
         let unreadDelta =
             !terminalIsFocused
                 && (enteringNeedsAttention || enteringUnseenTurnCompletion) ? 1 : 0
@@ -599,6 +632,27 @@ struct AgentRuntimeEventReducer: Sendable {
             && (normalizedProviderSessionID(event.providerSessionID).map {
                 $0 == state.providerSessionID
             } ?? true)
+        // A permission reply directly proves that the gate resolved. For
+        // providers without that event, the first plain tool start afterward is
+        // equivalent proof even when the answer went through the agent TUI
+        // (mouse click) instead of awesoMux's keystroke path. A tool start that
+        // carries its own attention reason is a new blocking claim, not a
+        // retraction. Scoped to `.permissionPrompt` only — `.userInputRequired`
+        // can still be live while background tool phases run (issue #404).
+        //
+        // Provider session IDs reject identifiable child sessions. Same-session
+        // background producers remain indistinguishable on the v1 wire format,
+        // so they retain the accepted false-clear window documented above.
+        let eventMatchesProviderSession =
+            !idsProveAnotherSession(event.providerSessionID, latched: state.providerSessionID)
+        let resolvesPendingPermissionPrompt =
+            currentPane.attentionReason == .permissionPrompt
+            && eventMatchesProviderSession
+            && (event.phase == .permissionReplied
+                || (event.phase == .toolStart && eventAttentionReason == nil))
+        if resolvesPendingPermissionPrompt {
+            state.lastPermissionAnswerAttemptAt = nil
+        }
 
         let resolvedKind: AgentKind?
         if state.lifecycle.isEnded {
@@ -636,7 +690,9 @@ struct AgentRuntimeEventReducer: Sendable {
         //   inversions were measured at 0.6% of real events.
         //
         // The second is the direction this gate exists to prevent, so it loses.
-        let contributedNothing = ignoresTrailingToolEnd
+        let contributedNothing =
+            ignoresTrailingToolEnd
+            || (event.phase == .permissionReplied && !resolvesPendingPermissionPrompt)
         recordApplied(
             dedupeKey: dedupeKey,
             timestamp: contributedNothing ? nil : event.timestamp,
@@ -665,10 +721,17 @@ struct AgentRuntimeEventReducer: Sendable {
                 // viewport scrape had mislabeled.
                 agentKindIsRuntimeEstablished: resolvedKind != nil ? true : nil,
                 agentExecutionState: eventExecutionState,
-                attentionReason: eventAttentionReason,
-                clearsAttention: clearsAttention || answersPendingNotifications,
-                attentionClearIsAuthoritative: answersPendingNotifications,
-                clearsUnreadNotifications: answersPendingNotifications,
+                attentionReason: effectiveAttentionReason,
+                clearsAttention:
+                    clearsAttention
+                    || answersPendingNotifications
+                    || resolvesPendingPermissionPrompt,
+                attentionClearIsAuthoritative:
+                    answersPendingNotifications
+                    || resolvesPendingPermissionPrompt,
+                clearsUnreadNotifications:
+                    answersPendingNotifications
+                    || resolvesPendingPermissionPrompt,
                 unreadNotificationDelta: unreadDelta
             ),
             recentLinkAction: recentLinkAction)

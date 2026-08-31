@@ -359,7 +359,6 @@ final class GhosttySurfaceNSView: NSView {
             && !BridgeAttachDecision.shouldRunPreflight(
                 bridgeEnabled: runtime.isCommandBridgeEnabled,
                 executionPlan: pane.executionPlan,
-                agentChromeEnabled: runtime.isBridgeChromeEnabled,
                 attachCommandAvailable: true,
                 errorLatched: commandBridgeEnactor.errorLatched
             )
