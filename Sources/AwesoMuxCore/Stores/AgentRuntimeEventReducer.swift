@@ -633,10 +633,10 @@ struct AgentRuntimeEventReducer: Sendable {
                 $0 == state.providerSessionID
             } ?? true)
         // A permission reply directly proves that the gate resolved. For
-        // providers without that event, the first plain tool start afterward is
-        // equivalent proof even when the answer went through the agent TUI
-        // (mouse click) instead of awesoMux's keystroke path. A tool start that
-        // carries its own attention reason is a new blocking claim, not a
+        // providers without that event, a later plain tool start is equivalent
+        // proof. Codex reports its start before PermissionRequest, so the
+        // matching tool end is its first authoritative lifecycle proof. An event
+        // that carries its own attention reason is a new blocking claim, not a
         // retraction. Scoped to `.permissionPrompt` only — `.userInputRequired`
         // can still be live while background tool phases run (issue #404).
         //
@@ -649,7 +649,8 @@ struct AgentRuntimeEventReducer: Sendable {
             currentPane.attentionReason == .permissionPrompt
             && eventMatchesProviderSession
             && (event.phase == .permissionReplied
-                || (event.phase == .toolStart && eventAttentionReason == nil))
+                || ((event.phase == .toolStart || event.phase == .toolEnd)
+                    && eventAttentionReason == nil))
         if resolvesPendingPermissionPrompt {
             state.lastPermissionAnswerAttemptAt = nil
         }

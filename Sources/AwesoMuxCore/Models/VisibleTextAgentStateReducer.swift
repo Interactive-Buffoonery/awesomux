@@ -221,19 +221,15 @@ public struct VisibleTextAgentStateReducer: Sendable {
         guard let detectedAgentKind, detectedAgentKind != liveAgentKind else {
             return nil
         }
-        // Text may claim an unidentified shell for any agent. It may also
-        // correct a stale hook-set `.codex` — but ONLY from confident Claude
-        // cues (the original stale-identity case). Grok's prompt signature is
-        // fragile, so it must never override an already hook-identified agent
-        // (that mislabelled starting Codex sessions as Grok); it can still
-        // light up a bare shell before the first Grok hook lands.
+        // Text may claim an unidentified shell for any agent, but it cannot
+        // replace an identified agent. Agent transcripts freely mention other
+        // providers, so even a seemingly confident text signature can be prose.
+        // Live foreground-process samples and runtime hooks remain authoritative
+        // and can correct a genuinely stale identity.
         if liveAgentKind == .shell {
             return detectedAgentKind
         }
         if detectedKindIsAuthoritative, detectedAgentKind.usesReliableHooks {
-            return detectedAgentKind
-        }
-        if liveAgentKind == .codex, detectedAgentKind == .claudeCode {
             return detectedAgentKind
         }
         return nil

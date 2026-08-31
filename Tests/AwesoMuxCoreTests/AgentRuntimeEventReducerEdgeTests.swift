@@ -372,6 +372,46 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(decision.update.clearsUnreadNotifications)
     }
 
+    @Test("tool end clears the permission prompt that followed its start")
+    func toolEndClearsPermissionPromptThatFollowedItsStart() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+        var reducer = AgentRuntimeEventReducer()
+
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                phase: .toolEnd,
+                eventID: "tool-end-after-permission",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let decision = try #require(result)
+        #expect(decision.update.attentionClearIsAuthoritative)
+        #expect(decision.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: decision.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == nil)
+        #expect(session.unreadNotificationCount == 0)
+    }
+
     @Test("tool start carrying attention preserves the blocking prompt")
     func toolStartCarryingAttentionPreservesBlockingPrompt() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)

@@ -329,7 +329,9 @@ waiting for your next turn" semantic. If the turn completed while the terminal
 was not focused, the pane can still receive unread / notification treatment, but
 that event does not project to the peach `needsAttention` badge. Selection-based
 acknowledgement uses a **dwell** so keyboard cycling does not accidentally clear
-attention or unread state — see [ADR 0003](adr/0003-acknowledge-on-selection-dwell.md).
+attention or unread state. Direct terminal input acknowledges the active pane
+immediately because it proves the user is interacting with that pane. See
+[ADR 0003](adr/0003-acknowledge-on-selection-dwell.md).
 
 Transition diagram (target contract; not necessarily a single enforced state machine in code yet):
 

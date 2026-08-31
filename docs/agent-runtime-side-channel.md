@@ -337,6 +337,11 @@ Codex mapping:
 | `StopFailure` | `kind=Codex`, `execution=error`, `phase=stop` |
 | `Notification` | `kind=Codex`, `attentionReason=userInputRequired`, `phase=notification` |
 
+Codex currently emits `PreToolUse` before `PermissionRequest`, with no separate
+permission-resolved hook when an approved command begins running. awesoMux keeps
+the permission state while the prompt remains visible, then lets focused,
+visible active-work evidence retract it once the prompt screen is gone.
+
 `SessionEnd` resets the tile the way it does for every other provider: Codex
 now shares the local-agent mapping, so a quit Codex session drops its glyph and
 state back to shell instead of leaving a stuck agent tile that only the passive
