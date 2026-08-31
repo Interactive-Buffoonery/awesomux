@@ -64,7 +64,9 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
             title: title,
             isTitleUserEdited: isTitleUserEdited,
             agentKind: agentKind,
-            workingDirectory: activeWorkingDirectory
+            workingDirectory: activeWorkingDirectory,
+            bundle: bundle,
+            locale: locale
         )
     }
 
@@ -147,17 +149,26 @@ enum RecentlyClosedWorkspaceTitleResolver {
         title: String,
         isTitleUserEdited: Bool,
         agentKind: AgentKind,
-        workingDirectory: String
+        workingDirectory: String,
+        bundle: Bundle = .main,
+        locale: Locale = .current
     ) -> String {
         guard
             !isTitleUserEdited,
             agentKind == .shell,
-            isShellShutdownTitle(title),
-            let directoryName = meaningfulDirectoryName(from: workingDirectory)
+            isShellShutdownTitle(title)
         else {
             return title
         }
-        return directoryName
+        if let directoryName = meaningfulDirectoryName(from: workingDirectory) {
+            return directoryName
+        }
+        return String(
+            localized: "Shell workspace",
+            bundle: bundle,
+            locale: locale,
+            comment: "Fallback title for a recently closed shell workspace whose final terminal title was exit or logout."
+        )
     }
 
     private static func isShellShutdownTitle(_ title: String) -> Bool {

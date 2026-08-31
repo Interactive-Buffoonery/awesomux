@@ -25,6 +25,7 @@ final class MenuBarMiniStatusItemController: NSObject {
     private let menuProvider: () -> NSMenu?
     private var statusItem: NSStatusItem?
     private var attentionBadgeView: MenuBarAttentionBadgeView?
+    private var lastShowsAttentionBadge: Bool?
 
     init(
         statusBar: NSStatusBar = .system,
@@ -46,25 +47,27 @@ final class MenuBarMiniStatusItemController: NSObject {
             return
         }
 
-        configureStatusItem(
+        updateStatusItem(
             ensureStatusItem(),
             showsAttentionBadge: hasWorkspaceNeedingInput
         )
+    }
+
+    func accentDidChange() {
+        attentionBadgeView?.needsDisplay = true
     }
 
     private func ensureStatusItem() -> NSStatusItem {
         if let statusItem {
             return statusItem
         }
-        let item = statusBar.statusItem(withLength: 20)
+        let item = statusBar.statusItem(withLength: Self.statusItemLength)
         statusItem = item
+        configureStatusItem(item)
         return item
     }
 
-    private func configureStatusItem(
-        _ item: NSStatusItem,
-        showsAttentionBadge: Bool
-    ) {
+    private func configureStatusItem(_ item: NSStatusItem) {
         guard let button = item.button else { return }
         button.image = nil
         button.title = Self.statusTitle
@@ -73,6 +76,15 @@ final class MenuBarMiniStatusItemController: NSObject {
         button.target = self
         button.action = #selector(showStatusItemMenu(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    private func updateStatusItem(
+        _ item: NSStatusItem,
+        showsAttentionBadge: Bool
+    ) {
+        guard lastShowsAttentionBadge != showsAttentionBadge else { return }
+        guard let button = item.button else { return }
+        lastShowsAttentionBadge = showsAttentionBadge
         updateAttentionBadge(on: button, isVisible: showsAttentionBadge)
         let label =
             showsAttentionBadge
@@ -91,6 +103,7 @@ final class MenuBarMiniStatusItemController: NSObject {
         attentionBadgeView = nil
         statusBar.removeStatusItem(statusItem)
         self.statusItem = nil
+        lastShowsAttentionBadge = nil
     }
 
     private func updateAttentionBadge(
@@ -142,11 +155,12 @@ final class MenuBarMiniStatusItemController: NSObject {
     }
 
     static let statusTitle = Brandmark.glyph
+    static let statusItemLength: CGFloat = 24
 }
 
 private final class MenuBarAttentionBadgeView: NSView {
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(Color.aw.accent).setFill()
+        NSColor(Color.aw.accentOnChrome).setFill()
         NSBezierPath(ovalIn: bounds).fill()
     }
 

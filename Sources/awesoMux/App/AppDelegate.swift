@@ -230,6 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    func menuBarAccentDidChange() {
+        menuBarMiniStatusItemController.accentDidChange()
+    }
+
     /// Live workspaces in sidebar order (groups in order, sessions within),
     /// each selecting its workspace and surfacing the window on click. The
     /// currently-selected workspace carries a checkmark. Empty when the store
@@ -1572,9 +1576,20 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
 extension SessionStore {
     var hasWorkspaceNeedingInputForMenuBar: Bool {
+        Self.hasWorkspaceNeedingInputForMenuBar(
+            groups: groups,
+            unansweredTurnPaneIDs: unansweredTurnPaneIDs
+        )
+    }
+
+    static func hasWorkspaceNeedingInputForMenuBar(
+        groups: [SessionGroup],
+        unansweredTurnPaneIDs: Set<TerminalPane.ID>
+    ) -> Bool {
         groups.contains { group in
             group.sessions.contains {
-                $0.needsAcknowledgement || $0.unreadNotificationCount > 0
+                $0.needsAcknowledgement
+                    || $0.hasUnansweredTurn(in: unansweredTurnPaneIDs)
             }
         }
     }

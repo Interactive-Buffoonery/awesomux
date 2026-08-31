@@ -613,6 +613,9 @@
     "Already checking this session's log." : {
       "comment" : "VoiceOver announcement when Resume is invoked while a session-log probe is already in flight"
     },
+    "Always" : {
+      "comment" : "Menu bar visibility choice"
+    },
     "Always Manage Any Destination" : {
 
     },
@@ -904,6 +907,9 @@
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
     },
+    "Choose when the awesoMux smile appears in the macOS menu bar." : {
+      "comment" : "General settings menu bar section description"
+    },
     "Choose whether to keep the protected saved file or replace it with current workspaces" : {
 
     },
@@ -1140,8 +1146,8 @@
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
     },
-    "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need attention." : {
-
+    "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need acknowledgement or have an unanswered turn." : {
+      "comment" : "Accessibility hint for menu bar visibility choices"
     },
     "Controls whether terminal programs and escape sequences can replace the macOS clipboard." : {
 
@@ -2108,8 +2114,11 @@
     "Memory" : {
       "comment" : "Diagnostics process table column\nDiagnostics resource metric"
     },
+    "Menu bar" : {
+      "comment" : "General settings section title"
+    },
     "Menu bar visibility" : {
-
+      "comment" : "Accessibility label for menu bar visibility choices"
     },
     "Minimize Terminal Companion" : {
       "comment" : "Accessibility label for the Terminal Companion minimize button.\nTooltip on the Terminal Companion minimize button."
@@ -2220,7 +2229,7 @@
       "comment" : "Settings label when Open at Login requires approval in System Settings."
     },
     "Needs input" : {
-      "comment" : "Agent state label",
+      "comment" : "Agent state label\nMenu bar visibility choice",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2235,6 +2244,9 @@
     },
     "Needs input, from %arg" : {
       "comment" : "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
+    },
+    "Never" : {
+      "comment" : "Menu bar visibility choice"
     },
     "Never Ask for Any Destination" : {
 
@@ -3589,6 +3601,9 @@
     "Shell command" : {
 
     },
+    "Shell workspace" : {
+      "comment" : "Fallback title for a recently closed shell workspace whose final terminal title was exit or logout."
+    },
     "Shortcut groups" : {
 
     },
@@ -3880,6 +3895,9 @@
     },
     "The awesoMux remote helper is missing or reports an incompatible protocol version." : {
       "comment" : "Bridge doctor failure reason"
+    },
+    "The badge uses your accent color when a workspace needs acknowledgement or has an unanswered turn." : {
+      "comment" : "Menu bar attention badge settings hint"
     },
     "The bridge handshake did not complete." : {
       "comment" : "Bridge doctor failure reason"
@@ -4378,6 +4396,9 @@
     },
     "View license" : {
       "comment" : "Button that opens the bundled Geist Sans license"
+    },
+    "Visibility" : {
+      "comment" : "Menu bar visibility settings label"
     },
     "Visible prefix: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated `user@` prefix that disguises the real host."

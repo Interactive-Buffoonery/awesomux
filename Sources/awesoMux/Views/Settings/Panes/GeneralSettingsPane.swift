@@ -72,21 +72,36 @@ struct GeneralSettingsPane: View {
 
             SettingsSection(
                 index: 2,
-                title: "Menu bar",
-                subtitle: "Choose when the awesoMux smile appears in the macOS menu bar."
+                title: String(localized: "Menu bar", comment: "General settings section title"),
+                subtitle: String(
+                    localized: "Choose when the awesoMux smile appears in the macOS menu bar.",
+                    comment: "General settings menu bar section description"
+                )
             ) {
                 SettingsField(
-                    label: "Visibility",
-                    hint: "The badge uses your accent color whenever a workspace needs attention.",
+                    label: String(localized: "Visibility", comment: "Menu bar visibility settings label"),
+                    hint: String(
+                        localized: "The badge uses your accent color when a workspace needs acknowledgement or has an unanswered turn.",
+                        comment: "Menu bar attention badge settings hint"
+                    ),
                     isFirst: true
                 ) {
                     SettingsSegmented(
                         options: menuBarVisibilityOptions,
                         selection: appSettingsStore.general.binding(\.menuBarVisibility)
                     )
-                    .accessibilityLabel("Menu bar visibility")
+                    .accessibilityLabel(
+                        String(
+                            localized: "Menu bar visibility",
+                            comment: "Accessibility label for menu bar visibility choices"
+                        )
+                    )
                     .accessibilityHint(
-                        "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need attention.")
+                        String(
+                            localized:
+                                "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need acknowledgement or have an unanswered turn.",
+                            comment: "Accessibility hint for menu bar visibility choices"
+                        ))
                 }
             }
         }
@@ -102,9 +117,9 @@ struct GeneralSettingsPane: View {
 
     private var menuBarVisibilityOptions: [SettingsSegmented<GeneralConfig.MenuBarVisibility>.Option] {
         [
-            .init(value: .never, label: "Never"),
-            .init(value: .needsInput, label: "Needs input"),
-            .init(value: .always, label: "Always"),
+            .init(value: .never, label: String(localized: "Never", comment: "Menu bar visibility choice")),
+            .init(value: .needsInput, label: String(localized: "Needs input", comment: "Menu bar visibility choice")),
+            .init(value: .always, label: String(localized: "Always", comment: "Menu bar visibility choice")),
         ]
     }
 }

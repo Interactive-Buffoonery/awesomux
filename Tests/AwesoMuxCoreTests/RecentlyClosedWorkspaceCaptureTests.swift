@@ -182,6 +182,65 @@ struct RecentlyClosedWorkspaceCaptureTests {
         #expect(decision.entry.title == "Development")
     }
 
+    @Test("capture uses the active pane directory for a shell shutdown title")
+    func captureUsesActivePaneDirectoryForShutdownTitle() {
+        let first = TerminalPane(
+            title: "first",
+            workingDirectory: "/Users/example/First",
+            agentKind: .shell,
+            executionPlan: .local
+        )
+        let active = TerminalPane(
+            title: "exit",
+            workingDirectory: "/Users/example/Active",
+            agentKind: .shell,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "exit",
+            workingDirectory: first.workingDirectory,
+            agentKind: .shell,
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(first),
+                    second: .pane(active)
+                )),
+            activePaneID: active.id
+        )
+        let decision = RecentlyClosedWorkspaceReducer.captureDecision(
+            session: session,
+            group: SessionGroup(name: "main", sessions: []),
+            indexInGroup: 0,
+            now: Date()
+        )
+
+        #expect(decision.entry.title == "Active")
+    }
+
+    @Test("capture replaces a home shell shutdown title with a safe fallback")
+    func captureReplacesHomeShutdownTitle() {
+        let session = TerminalSession(
+            title: "exit",
+            workingDirectory: "~",
+            agentKind: .shell,
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(TerminalPane(title: "first", workingDirectory: "~", executionPlan: .local)),
+                    second: .pane(TerminalPane(title: "second", workingDirectory: "~", executionPlan: .local))
+                ))
+        )
+        let decision = RecentlyClosedWorkspaceReducer.captureDecision(
+            session: session,
+            group: SessionGroup(name: "main", sessions: []),
+            indexInGroup: 0,
+            now: Date()
+        )
+
+        #expect(decision.entry.title == "Shell workspace")
+    }
+
     @Test("capture preserves an explicitly edited shell shutdown title")
     func capturePreservesEditedShellShutdownTitle() {
         let session = TerminalSession(
@@ -223,6 +282,43 @@ struct RecentlyClosedWorkspaceCaptureTests {
         )
 
         #expect(entry.localizedTitle() == "Development")
+    }
+
+    @Test("legacy shell shutdown titles keep their resolved title after reopen")
+    func legacyShellShutdownTitleStaysResolvedAfterReopen() throws {
+        let groupID = UUID()
+        let pane = TerminalPane(
+            title: "exit",
+            workingDirectory: "/Users/example/Development",
+            agentKind: .shell,
+            executionPlan: .local
+        )
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(),
+            title: "exit",
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            layout: .pane(pane),
+            activePaneID: pane.id,
+            groupID: groupID,
+            groupName: "main",
+            groupRemote: nil,
+            indexInGroup: 0,
+            closedAt: Date()
+        )
+        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
+        var recentlyClosed = [entry]
+        var transient: RecentlyClosedWorkspace?
+
+        _ = RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
+            in: &groups,
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &transient,
+            now: Date()
+        )
+
+        let reopened = try #require(groups.first?.sessions.first)
+        #expect(reopened.title == "Development")
     }
 
     @Test("capture preserves pane move origin")

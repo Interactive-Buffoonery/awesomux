@@ -14,6 +14,7 @@ struct SettingsSegmented<Value: Hashable>: View {
     // segments, no dead space) opt in explicitly.
     var expandsToFill: Bool = false
     @Environment(\.awAccent) private var accentResolver
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     struct Option: Identifiable {
         let value: Value
@@ -59,6 +60,11 @@ struct SettingsSegmented<Value: Hashable>: View {
                 }
                 Text(option.label)
                     .awFont(AwFont.UI.meta)
+                if isSelected, differentiateWithoutColor {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
             }
             .foregroundStyle(isSelected ? Color.aw.text : Color.aw.text2)
             .padding(.horizontal, 10)

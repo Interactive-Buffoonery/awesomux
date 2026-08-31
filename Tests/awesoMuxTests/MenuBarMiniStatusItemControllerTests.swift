@@ -68,8 +68,8 @@ struct MenuBarMiniStatusItemControllerTests {
     }
 
     @MainActor
-    @Test("unread workspace activity requests the menu bar badge")
-    func unreadActivityRequestsBadge() {
+    @Test("unread workspace activity alone does not request the menu bar badge")
+    func unreadActivityDoesNotRequestBadge() {
         let pane = TerminalPane(
             title: "claude",
             workingDirectory: "~",
@@ -86,6 +86,38 @@ struct MenuBarMiniStatusItemControllerTests {
         let store = SessionStore(groups: [SessionGroup(name: "agents", sessions: [session])])
 
         #expect(!session.needsAcknowledgement)
-        #expect(store.hasWorkspaceNeedingInputForMenuBar)
+        #expect(!store.hasWorkspaceNeedingInputForMenuBar)
+    }
+
+    @MainActor
+    @Test("an unanswered turn requests the menu bar badge")
+    func unansweredTurnRequestsBadge() {
+        let pane = TerminalPane(
+            title: "claude",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "claude",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "agents", sessions: [session])])
+
+        #expect(!session.needsAcknowledgement)
+        #expect(session.unreadNotificationCount == 0)
+        #expect(
+            SessionStore.hasWorkspaceNeedingInputForMenuBar(
+                groups: store.groups,
+                unansweredTurnPaneIDs: [pane.id]
+            ))
+    }
+
+    @MainActor
+    @Test("menu bar item meets the minimum pointer target width")
+    func menuBarItemMeetsMinimumPointerTargetWidth() {
+        #expect(MenuBarMiniStatusItemController.statusItemLength >= 24)
     }
 }

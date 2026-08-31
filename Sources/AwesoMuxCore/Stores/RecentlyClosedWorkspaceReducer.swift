@@ -18,13 +18,16 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         indexInGroup: Int,
         now: Date
     ) -> CaptureDecision {
+        let activeWorkingDirectory =
+            session.activePane?.workingDirectory
+            ?? session.workingDirectory
         let title =
             session.syntheticTitle?.canonicalTitle
             ?? RecentlyClosedWorkspaceTitleResolver.resolvedTitle(
                 title: session.title,
                 isTitleUserEdited: session.isTitleUserEdited,
                 agentKind: session.activeAgentKind,
-                workingDirectory: session.workingDirectory
+                workingDirectory: activeWorkingDirectory
             )
         let entry = RecentlyClosedWorkspace(
             sessionID: session.id,
@@ -301,8 +304,14 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         let activeCwd = restoredLayout.pane(id: restoredActivePaneID)?.workingDirectory
             ?? restoredLayout.firstPane?.workingDirectory
             ?? "~"
+        let resolvedEntryTitle = RecentlyClosedWorkspaceTitleResolver.resolvedTitle(
+            title: entry.title,
+            isTitleUserEdited: entry.isTitleUserEdited,
+            agentKind: entry.agentKind,
+            workingDirectory: activeCwd
+        )
         let fallbackTitle = SessionStoreText.restoredTitle(
-            entry.title,
+            resolvedEntryTitle,
             fallbackForAgent: entry.agentKind,
             index: insertionIndex + 1
         )
