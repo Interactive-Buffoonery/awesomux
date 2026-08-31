@@ -46,7 +46,7 @@ done
 # --- manual install, per docs/remote-linux-helper.md ----------------------
 # Piped over ssh rather than scp: scp's -p means preserve-times (its port
 # flag is -P), so reusing SSH_OPTS with scp silently targets port 22.
-"${SSH[@]}" 'install -d -m 700 ~/.awesomux && install -d -m 755 ~/.awesomux/bin'
+"${SSH[@]}" 'install -d -m 700 ~/.awesomux && install -d -m 700 ~/.awesomux/bin'
 "${SSH[@]}" 'cat > ~/.awesomux/bin/awesomux-bridge-helper' < "$HELPER"
 "${SSH[@]}" 'chmod 755 ~/.awesomux/bin/awesomux-bridge-helper'
 

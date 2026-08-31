@@ -24,11 +24,11 @@ struct BridgeAttachDecisionTests {
             sessionName: RemoteSessionName(rawValue: "dev")!
         )!)
 
-    @Test("gate on only when remote AND agent chrome AND a base attach command, un-latched")
+    @Test("gate on when local-amx remote has a base attach command and is unlatched")
     func gateAllPreconditions() {
         #expect(
             BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan,
                 attachCommandAvailable: true, errorLatched: false
             ))
     }
@@ -37,16 +37,16 @@ struct BridgeAttachDecisionTests {
     func gateOffLocal() {
         #expect(
             !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: .local, agentChromeEnabled: true,
+                bridgeEnabled: true, executionPlan: .local,
                 attachCommandAvailable: true, errorLatched: false
             ))
     }
 
-    @Test("gate off when the agent-integrations master switch is off")
-    func gateOffAgentChromeDisabled() {
+    @Test("gate remains on when the agent-integrations master switch is off")
+    func gateOnAgentChromeDisabled() {
         #expect(
-            !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: false,
+            BridgeAttachDecision.shouldRunPreflight(
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan,
                 attachCommandAvailable: true, errorLatched: false
             ))
     }
@@ -55,17 +55,17 @@ struct BridgeAttachDecisionTests {
     func gateOffOtherPreconditions() {
         #expect(
             !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: false, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                bridgeEnabled: false, executionPlan: Self.localAmxPlan,
                 attachCommandAvailable: true, errorLatched: false
             ))
         #expect(
             !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan,
                 attachCommandAvailable: false, errorLatched: false
             ))
         #expect(
             !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan,
                 attachCommandAvailable: true, errorLatched: true
             ))
     }
@@ -78,12 +78,12 @@ struct BridgeAttachDecisionTests {
         // them. Same inputs, same target, only the persistence owner differs.
         #expect(
             BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: Self.localAmxPlan, agentChromeEnabled: true,
+                bridgeEnabled: true, executionPlan: Self.localAmxPlan,
                 attachCommandAvailable: true, errorLatched: false
             ))
         #expect(
             !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: Self.remoteOwnedPlan, agentChromeEnabled: true,
+                bridgeEnabled: true, executionPlan: Self.remoteOwnedPlan,
                 attachCommandAvailable: true, errorLatched: false
             ))
         // Both call-site input shapes: `createSurfaceIfNeeded`'s invalidation
@@ -91,12 +91,12 @@ struct BridgeAttachDecisionTests {
         // the real `bridgeCommand != nil`. Neither may re-open the gate.
         #expect(
             !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: true, executionPlan: Self.remoteOwnedPlan, agentChromeEnabled: true,
+                bridgeEnabled: true, executionPlan: Self.remoteOwnedPlan,
                 attachCommandAvailable: false, errorLatched: false
             ))
         #expect(
             !BridgeAttachDecision.shouldRunPreflight(
-                bridgeEnabled: false, executionPlan: Self.remoteOwnedPlan, agentChromeEnabled: false,
+                bridgeEnabled: false, executionPlan: Self.remoteOwnedPlan,
                 attachCommandAvailable: true, errorLatched: true
             ))
     }

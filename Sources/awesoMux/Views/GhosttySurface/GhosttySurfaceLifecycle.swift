@@ -141,7 +141,6 @@ extension GhosttySurfaceNSView {
             !BridgeAttachDecision.shouldRunPreflight(
                 bridgeEnabled: commandBridgeEnabled,
                 executionPlan: pane.executionPlan,
-                agentChromeEnabled: runtime.isBridgeChromeEnabled,
                 attachCommandAvailable: true,
                 errorLatched: commandBridgeEnactor.errorLatched
             )
@@ -208,18 +207,18 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // INT-698 D4: a local-amx remote pane with agent chrome on takes the
+        // INT-698 D4: a local-amx remote pane takes the
         // async make-before-break bridge preflight instead of the synchronous
         // spawn. Every other pane (local, remote-owned, or bridge chrome off) is
         // byte-identical to today — the sync `finishSurfaceCreation` below is
         // the untouched path.
-        if BridgeAttachDecision.shouldRunPreflight(
+        let shouldRunBridgePreflight = BridgeAttachDecision.shouldRunPreflight(
             bridgeEnabled: commandBridgeEnabled,
             executionPlan: pane.executionPlan,
-            agentChromeEnabled: runtime.isBridgeChromeEnabled,
             attachCommandAvailable: launch.command != nil,
             errorLatched: commandBridgeEnactor.errorLatched
-        ), case .bridgeAttach(let baseCommand) = launch {
+        )
+        if shouldRunBridgePreflight, case .bridgeAttach(let baseCommand) = launch {
             beginBridgePreflight(baseCommand: baseCommand)
             return
         }
@@ -373,11 +372,29 @@ extension GhosttySurfaceNSView {
                 return
             }
             let helperPath = BridgeAttachDecision.helperPath(remoteHome: home)
-            let helperSupportsBridge = await dependencies.helperSupportsBridge(
+            var helperSupportsBridge = await dependencies.helperSupportsBridge(
                 controlPath,
                 remote,
                 helperPath
             )
+            guard !Task.isCancelled else { return }
+            if !helperSupportsBridge {
+                helperSupportsBridge = await dependencies.offerHelperSetup(
+                    controlPath,
+                    remote,
+                    home,
+                    helperPath,
+                    self?.window,
+                    {
+                        guard let self else { return false }
+                        return self.lifecycleState.bridgePreflightGeneration == generation
+                            && self.paneID == expectedPaneID
+                            && self.sessionID == expectedWorkspaceSessionID
+                            && self.pane.terminalSessionID == terminalSessionID
+                            && self.pane.executionPlan.remoteTarget == remote
+                    }
+                )
+            }
             guard !Task.isCancelled else { return }
             guard helperSupportsBridge else {
                 // Missing/incompatible helper identifies the unmanaged or
@@ -524,10 +541,10 @@ extension GhosttySurfaceNSView {
         guard let data = try? await BridgeExecChannel.run(command: command, stdin: nil) else {
             return false
         }
-        return !BridgeDoctorSignals.compatibleProtocols(
-            helperVersionOutput: String(decoding: data, as: UTF8.self),
-            appSupported: Set(BridgeConnectionSupervisor.supportedProtocols)
-        ).isEmpty
+        let features = RemoteHelperInstaller.featureCapabilities(
+            helperVersionOutput: String(decoding: data, as: UTF8.self)
+        )
+        return features.bridge && features.handoff && features.liveness
     }
 
     /// The async preflight's MainActor completion. Clears the in-flight latch,
@@ -572,7 +589,6 @@ extension GhosttySurfaceNSView {
             || pane.terminalSessionID != expectedTerminalSessionID
             || pane.executionPlan.remoteTarget != remote
             || !runtime.isCommandBridgeEnabled
-            || !runtime.isBridgeChromeEnabled
         let canCreate =
             surface == nil
             && runtime.isReady

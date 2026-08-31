@@ -8,7 +8,7 @@ import UnicodeHygiene
 enum RemoteHelperInstaller {
     static let helperName = "awesoMuxBridgeHelper"
     static let remoteRelativePath = BridgeAttachDecision.helperPath(remoteHome: "~")
-    static let maximumHelperByteCount = 50 * 1024 * 1024
+    static let maximumHelperByteCount = 200 * 1024 * 1024
     static let maximumOutputByteCount = 4 * 1024
     static let successToken = "AWESOMUX_HELPER_INSTALLED"
     static let unsafeRemoteLayoutToken = "AWESOMUX_HELPER_UNSAFE_REMOTE_LAYOUT"
@@ -26,6 +26,8 @@ enum RemoteHelperInstaller {
         case installationFailed
         case verificationFailed
         case installedHelperIncompatible
+        case releaseArtifactUnavailable
+        case releaseArtifactChecksumMismatch
     }
 
     enum Capability: Equatable, Sendable {
@@ -49,6 +51,16 @@ enum RemoteHelperInstaller {
     enum ApprovalAction: Equatable, Sendable {
         case install
         case update
+    }
+
+    enum Platform: Equatable, Sendable {
+        case macOSArm64
+        case linux(LinuxArchitecture)
+    }
+
+    enum LinuxArchitecture: String, Equatable, Sendable {
+        case aarch64
+        case x86_64
     }
 
     struct FeatureCapabilities: Equatable, Sendable {
@@ -97,6 +109,165 @@ enum RemoteHelperInstaller {
             }
             return descriptor
         }
+    }
+
+    struct AcquiredHelper: Sendable {
+        let prepared: PreparedHelper
+        let cleanupDirectory: URL?
+
+        func cleanup(fileManager: FileManager = .default) {
+            guard let cleanupDirectory else { return }
+            try? fileManager.removeItem(at: cleanupDirectory)
+        }
+    }
+
+    struct ReleaseArtifact: Equatable, Sendable {
+        let binaryURL: URL
+        let checksumURL: URL
+        let filename: String
+    }
+
+    typealias DataDownload = @Sendable (URL) async throws -> Data
+    typealias FileDownload = @Sendable (URL) async throws -> URL
+
+    static func releaseArtifact(
+        version: String,
+        architecture: LinuxArchitecture
+    ) -> ReleaseArtifact? {
+        let components = version.split(separator: ".", omittingEmptySubsequences: false)
+        guard components.count == 3,
+            components.allSatisfy({
+                !$0.isEmpty && $0.utf8.allSatisfy { (0x30...0x39).contains($0) }
+            })
+        else {
+            return nil
+        }
+        let filename = "awesomux-bridge-helper-linux-\(architecture.rawValue)"
+        guard
+            let binaryURL = URL(
+                string: "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v\(version)/\(filename)"
+            )
+        else {
+            return nil
+        }
+        return ReleaseArtifact(
+            binaryURL: binaryURL,
+            checksumURL: binaryURL.appendingPathExtension("sha256"),
+            filename: filename
+        )
+    }
+
+    static func parseReleaseChecksum(_ data: Data, expectedFilename: String) -> String? {
+        guard data.count <= 4 * 1024,
+            let line = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !line.contains("\n"),
+            !line.contains("\r")
+        else {
+            return nil
+        }
+        let fields = line.split(whereSeparator: \.isWhitespace)
+        guard fields.count == 2 else { return nil }
+        let digest = String(fields[0])
+        let filename = String(fields[1]).trimmingPrefix("*")
+        guard filename == expectedFilename,
+            digest.count == 64,
+            digest.unicodeScalars.allSatisfy({
+                (0x30...0x39).contains($0.value) || (0x61...0x66).contains($0.value)
+            })
+        else {
+            return nil
+        }
+        return digest
+    }
+
+    static func acquireHelper(
+        for platform: Platform,
+        version: String,
+        executableURL: URL? = Bundle.main.executableURL,
+        dataDownload: @escaping DataDownload = downloadData,
+        fileDownload: @escaping FileDownload = downloadFile,
+        fileManager: FileManager = .default
+    ) async throws -> AcquiredHelper {
+        switch platform {
+        case .macOSArm64:
+            guard let url = bundledHelperURL(executableURL: executableURL) else {
+                throw Failure.bundledHelperUnavailable
+            }
+            return AcquiredHelper(
+                prepared: try await prepareBundledHelper(at: url),
+                cleanupDirectory: nil
+            )
+        case .linux(let architecture):
+            guard let artifact = releaseArtifact(version: version, architecture: architecture) else {
+                throw Failure.releaseArtifactUnavailable
+            }
+            let checksumData: Data
+            let downloadedURL: URL
+            do {
+                async let checksum = dataDownload(artifact.checksumURL)
+                async let binary = fileDownload(artifact.binaryURL)
+                (checksumData, downloadedURL) = try await (checksum, binary)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw Failure.releaseArtifactUnavailable
+            }
+            guard
+                let expectedDigest = parseReleaseChecksum(
+                    checksumData,
+                    expectedFilename: artifact.filename
+                )
+            else {
+                try? fileManager.removeItem(at: downloadedURL)
+                throw Failure.releaseArtifactChecksumMismatch
+            }
+
+            let directory = fileManager.temporaryDirectory
+                .appendingPathComponent("awesomux-linux-helper-\(UUID().uuidString)", isDirectory: true)
+            do {
+                try fileManager.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: false,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                let localURL = directory.appendingPathComponent(artifact.filename)
+                try fileManager.moveItem(at: downloadedURL, to: localURL)
+                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: localURL.path)
+                let prepared = try await prepareBundledHelper(at: localURL)
+                guard prepared.sha256 == expectedDigest else {
+                    throw Failure.releaseArtifactChecksumMismatch
+                }
+                return AcquiredHelper(prepared: prepared, cleanupDirectory: directory)
+            } catch is CancellationError {
+                try? fileManager.removeItem(at: directory)
+                try? fileManager.removeItem(at: downloadedURL)
+                throw CancellationError()
+            } catch let failure as Failure {
+                try? fileManager.removeItem(at: directory)
+                try? fileManager.removeItem(at: downloadedURL)
+                throw failure
+            } catch {
+                try? fileManager.removeItem(at: directory)
+                try? fileManager.removeItem(at: downloadedURL)
+                throw Failure.releaseArtifactUnavailable
+            }
+        }
+    }
+
+    private static func downloadData(from url: URL) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw Failure.releaseArtifactUnavailable
+        }
+        return data
+    }
+
+    private static func downloadFile(from url: URL) async throws -> URL {
+        let (temporaryURL, response) = try await URLSession.shared.download(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw Failure.releaseArtifactUnavailable
+        }
+        return temporaryURL
     }
 
     static func bundledHelperURL(
@@ -166,6 +337,7 @@ enum RemoteHelperInstaller {
         remote: RemoteTarget,
         controlPath: String,
         helperPath: String,
+        requiredProtocols: [String] = requiredProtocols,
         execChannel: @escaping BridgeDoctorSignals.ExecChannel = { command, stdin in
             try await BridgeExecChannel.run(command: command, stdin: stdin)
         }
@@ -194,8 +366,28 @@ enum RemoteHelperInstaller {
         }
 
         let output = String(decoding: data, as: UTF8.self)
-        let features = featureCapabilities(helperVersionOutput: output)
-        return features.bridge && features.handoff ? .supported : .incompatible
+        let compatible = BridgeDoctorSignals.compatibleProtocols(
+            helperVersionOutput: output,
+            appSupported: Set(Self.requiredProtocols + livenessRequiredProtocols)
+        )
+        return Set(requiredProtocols).isSubset(of: compatible) ? .supported : .incompatible
+    }
+
+    static func additionalSSHCapability(
+        remote: RemoteTarget,
+        controlPath: String,
+        helperPath: String,
+        execChannel: @escaping BridgeDoctorSignals.ExecChannel = { command, stdin in
+            try await BridgeExecChannel.run(command: command, stdin: stdin)
+        }
+    ) async throws -> Capability {
+        try await capability(
+            remote: remote,
+            controlPath: controlPath,
+            helperPath: helperPath,
+            requiredProtocols: requiredProtocols + livenessRequiredProtocols,
+            execChannel: execChannel
+        )
     }
 
     static func probePlatform(
@@ -203,7 +395,7 @@ enum RemoteHelperInstaller {
         controlPath: String,
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
         timeout: Duration = .seconds(15)
-    ) async throws {
+    ) async throws -> Platform {
         let output: Data
         do {
             output = try await BoundedProcessRunner.run(
@@ -227,24 +419,36 @@ enum RemoteHelperInstaller {
         } catch {
             throw Failure.platformProbeFailed
         }
-        guard isSupportedPlatform(output) else {
+        guard let platform = supportedPlatform(output) else {
             throw Failure.unsupportedPlatform
         }
+        return platform
     }
 
     static func isSupportedPlatform(_ output: Data) -> Bool {
+        supportedPlatform(output) != nil
+    }
+
+    static func supportedPlatform(_ output: Data) -> Platform? {
         let lines = String(decoding: output, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-        guard lines.count == 3,
-            lines[0] == "Darwin",
-            let major = Int(lines[1].split(separator: ".", maxSplits: 1).first ?? ""),
-            major >= 15,
-            lines[2] == "arm64"
-        else {
-            return false
+        guard lines.count == 3 else { return nil }
+        switch lines[0] {
+        case "Darwin":
+            guard let major = Int(lines[1].split(separator: ".", maxSplits: 1).first ?? ""),
+                major >= 15,
+                lines[2] == "arm64"
+            else {
+                return nil
+            }
+            return .macOSArm64
+        case "Linux":
+            guard let architecture = LinuxArchitecture(rawValue: lines[2]) else { return nil }
+            return .linux(architecture)
+        default:
+            return nil
         }
-        return true
     }
 
     static func install(
@@ -252,6 +456,7 @@ enum RemoteHelperInstaller {
         remote: RemoteTarget,
         controlPath: String,
         remoteHome: String,
+        requiredProtocols: [String] = requiredProtocols,
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
         timeout: Duration = .seconds(90)
     ) async throws {
@@ -279,7 +484,8 @@ enum RemoteHelperInstaller {
                     remoteCommand: bootstrapCommand(
                         remoteHome: remoteHome,
                         expectedBytes: helper.byteCount,
-                        sha256: helper.sha256
+                        sha256: helper.sha256,
+                        requiredProtocols: requiredProtocols
                     )
                 ),
                 input: .descriptor(descriptor, byteCount: helper.byteCount),
@@ -305,20 +511,22 @@ enum RemoteHelperInstaller {
     static let platformProbeCommand =
         "/bin/sh -c "
         + shellQuote(
-            "/usr/bin/uname -s && /usr/bin/sw_vers -productVersion && /usr/bin/uname -m"
+            "kernel=$(/usr/bin/uname -s) || exit 1; printf '%s\\n' \"$kernel\"; if [ \"$kernel\" = Darwin ]; then /usr/bin/sw_vers -productVersion; else /usr/bin/uname -r; fi; /usr/bin/uname -m"
         )
 
     static func bootstrapCommand(
         remoteHome: String,
         expectedBytes: Int,
-        sha256: String
+        sha256: String,
+        requiredProtocols: [String] = requiredProtocols
     ) -> String {
         "/bin/sh -c "
             + shellQuote(
                 bootstrapScript(
                     remoteHome: remoteHome,
                     expectedBytes: expectedBytes,
-                    sha256: sha256
+                    sha256: sha256,
+                    requiredProtocols: requiredProtocols
                 )
             )
     }
@@ -326,7 +534,8 @@ enum RemoteHelperInstaller {
     static func bootstrapScript(
         remoteHome: String,
         expectedBytes: Int,
-        sha256: String
+        sha256: String,
+        requiredProtocols: [String] = requiredProtocols
     ) -> String {
         let destinationPath = BridgeAttachDecision.helperPath(remoteHome: remoteHome)
         let binDirectoryPath = (destinationPath as NSString).deletingLastPathComponent
@@ -344,19 +553,22 @@ enum RemoteHelperInstaller {
             "destination=\(destination)",
             "fail_unsafe_layout() { /bin/cat >/dev/null; printf '%s\\n' \(shellQuote(unsafeRemoteLayoutToken)); exit 0; }",
             "uid=$(/usr/bin/id -u) || exit 1",
+            "stat_owner() { /usr/bin/stat -f '%u' \"$1\" 2>/dev/null || /usr/bin/stat -c '%u' \"$1\" 2>/dev/null; }",
+            "stat_mode() { /usr/bin/stat -f '%Lp' \"$1\" 2>/dev/null || /usr/bin/stat -c '%a' \"$1\" 2>/dev/null; }",
+            "stat_size() { /usr/bin/stat -f '%z' \"$1\" 2>/dev/null || /usr/bin/stat -c '%s' \"$1\" 2>/dev/null; }",
             "[ -d \"$home\" ] && [ ! -L \"$home\" ] || fail_unsafe_layout",
-            "[ \"$(/usr/bin/stat -f '%u' \"$home\")\" = \"$uid\" ] || fail_unsafe_layout",
-            "ensure_private_dir() { dir=$1; if [ -e \"$dir\" ] || [ -L \"$dir\" ]; then [ ! -L \"$dir\" ] && [ -d \"$dir\" ] || fail_unsafe_layout; else /bin/mkdir -m 700 \"$dir\" || exit 1; fi; [ \"$(/usr/bin/stat -f '%u' \"$dir\")\" = \"$uid\" ] && [ \"$(/usr/bin/stat -f '%Lp' \"$dir\")\" = 700 ] || fail_unsafe_layout; }",
+            "[ \"$(stat_owner \"$home\")\" = \"$uid\" ] || fail_unsafe_layout",
+            "ensure_private_dir() { dir=$1; if [ -e \"$dir\" ] || [ -L \"$dir\" ]; then [ ! -L \"$dir\" ] && [ -d \"$dir\" ] || fail_unsafe_layout; else /bin/mkdir -m 700 \"$dir\" || exit 1; fi; [ \"$(stat_owner \"$dir\")\" = \"$uid\" ] && [ \"$(stat_mode \"$dir\")\" = 700 ] || fail_unsafe_layout; }",
             "ensure_private_dir \"$awesomux_dir\"",
             "ensure_private_dir \"$bin_dir\"",
-            "if [ -e \"$destination\" ] || [ -L \"$destination\" ]; then [ ! -L \"$destination\" ] && [ -f \"$destination\" ] && [ \"$(/usr/bin/stat -f '%u' \"$destination\")\" = \"$uid\" ] || fail_unsafe_layout; fi",
+            "if [ -e \"$destination\" ] || [ -L \"$destination\" ]; then [ ! -L \"$destination\" ] && [ -f \"$destination\" ] && [ \"$(stat_owner \"$destination\")\" = \"$uid\" ] || fail_unsafe_layout; fi",
             "tmp=$(/usr/bin/mktemp \(temporaryTemplate)) || exit 1",
             "trap '/bin/rm -f \"$tmp\"' EXIT",
             "trap 'exit 1' HUP INT TERM",
             "/bin/chmod 700 \"$tmp\" || exit 1",
             "/bin/cat > \"$tmp\" || exit 1",
-            "[ \"$(/usr/bin/stat -f '%z' \"$tmp\")\" = \(expectedBytes) ] || exit 1",
-            "actual=$(/usr/bin/shasum -a 256 \"$tmp\") || exit 1",
+            "[ \"$(stat_size \"$tmp\")\" = \(expectedBytes) ] || exit 1",
+            "if [ -x /usr/bin/shasum ]; then actual=$(/usr/bin/shasum -a 256 \"$tmp\"); elif [ -x /usr/bin/sha256sum ]; then actual=$(/usr/bin/sha256sum \"$tmp\"); else exit 1; fi",
             "[ \"${actual%% *}\" = \(shellQuote(sha256)) ] || exit 1",
             "version=$(\"$tmp\" --version 2>/dev/null) || exit 1",
         ]
@@ -433,6 +645,151 @@ enum RemoteHelperInstaller {
         }
         successPresentation(window)
         return .installed
+    }
+
+    @MainActor
+    static func offerAdditionalSSHFeatures(
+        remote: RemoteTarget,
+        controlPath: String,
+        remoteHome: String,
+        helperPath: String,
+        window: NSWindow?,
+        authorityIsCurrent: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        guard let window,
+            await waitForSheetAvailability(
+                authorityIsCurrent: authorityIsCurrent,
+                hasAttachedSheet: { window.attachedSheet != nil }
+            )
+        else {
+            return false
+        }
+        do {
+            let capability = try await additionalSSHCapability(
+                remote: remote,
+                controlPath: controlPath,
+                helperPath: helperPath
+            )
+            guard let action = capability.approvalAction else {
+                return capability == .supported
+            }
+            let platform = try await probePlatform(remote: remote, controlPath: controlPath)
+            guard authorityIsCurrent(),
+                await presentAdditionalSSHConfirmation(
+                    action: action,
+                    remote: remote,
+                    platform: platform
+                )
+            else {
+                return false
+            }
+            try Task.checkCancellation()
+            guard authorityIsCurrent() else { return false }
+
+            let progress = presentInstallProgress(remote: remote, window: window)
+            defer { progress.dismiss() }
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+            let acquired = try await acquireHelper(for: platform, version: version)
+            defer { acquired.cleanup() }
+            try await install(
+                helper: acquired.prepared,
+                remote: remote,
+                controlPath: controlPath,
+                remoteHome: remoteHome,
+                requiredProtocols: requiredProtocols + livenessRequiredProtocols
+            )
+            try Task.checkCancellation()
+            guard authorityIsCurrent() else { return false }
+            guard
+                try await additionalSSHCapability(
+                    remote: remote,
+                    controlPath: controlPath,
+                    helperPath: helperPath
+                ) == .supported
+            else {
+                throw Failure.installedHelperIncompatible
+            }
+            return true
+        } catch is CancellationError {
+            return false
+        } catch let failure as Failure {
+            presentFailure(failure, window: window)
+            return false
+        } catch {
+            presentFailure(.installationFailed, window: window)
+            return false
+        }
+    }
+
+    @MainActor
+    static func waitForSheetAvailability(
+        authorityIsCurrent: @escaping @MainActor () -> Bool,
+        hasAttachedSheet: @escaping @MainActor () -> Bool,
+        pause: @escaping @MainActor () async throws -> Void = {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    ) async -> Bool {
+        for _ in 0..<40 {
+            guard authorityIsCurrent() else {
+                return false
+            }
+            guard hasAttachedSheet() else {
+                return true
+            }
+            do {
+                try await pause()
+            } catch {
+                return false
+            }
+        }
+        return false
+    }
+
+    @MainActor
+    private static func presentAdditionalSSHConfirmation(
+        action: ApprovalAction,
+        remote: RemoteTarget,
+        platform: Platform
+    ) async -> Bool {
+        let platformName =
+            switch platform {
+            case .macOSArm64:
+                "macOS · arm64"
+            case .linux(let architecture):
+                "Linux · \(architecture.rawValue)"
+            }
+        return await RemoteAdditionalSSHFeaturesSheetPresenter.shared.present(
+            action: action == .install ? .install : .update,
+            destination: remote.sshDestination,
+            platform: platformName,
+            installPath: remoteRelativePath
+        )
+    }
+
+    @MainActor
+    private static func presentInstallProgress(
+        remote: RemoteTarget,
+        window: NSWindow
+    ) -> RemoteHelperInstallProgress {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "Installing helper on \(remote.sshDestination)…",
+            comment: "Remote helper installation progress title. Argument is the SSH destination."
+        )
+        alert.informativeText = String(
+            localized: "Downloading, verifying, and installing the version matched to this copy of awesoMux.",
+            comment: "Remote helper installation progress explanation")
+        let indicator = NSProgressIndicator()
+        indicator.style = .spinning
+        indicator.controlSize = .small
+        indicator.startAnimation(nil)
+        alert.accessoryView = indicator
+        let progressButton = alert.addButton(
+            withTitle: String(localized: "Installing…", comment: "Remote helper installation progress button")
+        )
+        progressButton.isEnabled = false
+        alert.beginSheetModal(for: window)
+        return RemoteHelperInstallProgress(alert: alert, window: window)
     }
 
     @MainActor
@@ -514,6 +871,19 @@ enum RemoteHelperInstaller {
         case .installedHelperIncompatible:
             alert.messageText = String(
                 localized: "The installed remote helper is incompatible", comment: "Installed helper verification failure title")
+        case .releaseArtifactUnavailable:
+            alert.messageText = String(
+                localized: "Could not download the remote helper", comment: "Remote helper release download failure title")
+            alert.informativeText = String(
+                localized: "Check your internet connection and try again.",
+                comment: "Remote helper release download failure recovery")
+        case .releaseArtifactChecksumMismatch:
+            alert.messageText = String(
+                localized: "The remote helper download could not be verified",
+                comment: "Remote helper release checksum failure title")
+            alert.informativeText = String(
+                localized: "The downloaded file was not installed.",
+                comment: "Remote helper release checksum failure recovery")
         }
         alert.addButton(withTitle: String(localized: "OK", comment: "Dismiss remote helper installation result"))
         if let window {
@@ -542,5 +912,21 @@ enum RemoteHelperInstaller {
 
     private static func shellQuote(_ value: String) -> String {
         value.isEmpty ? "''" : "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+@MainActor
+private final class RemoteHelperInstallProgress {
+    private let alert: NSAlert
+    private weak var window: NSWindow?
+
+    init(alert: NSAlert, window: NSWindow) {
+        self.alert = alert
+        self.window = window
+    }
+
+    func dismiss() {
+        guard let window, window.attachedSheet === alert.window else { return }
+        window.endSheet(alert.window)
     }
 }

@@ -121,10 +121,13 @@ transport abstraction for hypothetical implementations are non-goals.
 - The remaining handoff supports one confirmed clipboard item, not a general
   remote filesystem workflow.
 
-## Amendment (#87, 2026-07-22): Linux destinations supported via a manual static helper
+## Amendment (#87, 2026-07-22): Linux destinations supported via a static helper
 
-Linux destinations are supported via a manually installed static helper; see
-[`docs/remote-linux-helper.md`](../remote-linux-helper.md).
+Linux destinations are supported via a static helper. Managed workspaces offer
+user-approved installation from the version-matched, checksum-verified release
+asset and preserve ordinary SSH when setup is declined or unavailable. Manual
+installation remains available for development builds and operators who prefer
+it; see [`docs/remote-linux-helper.md`](../remote-linux-helper.md).
 
 ## Amendment (#214, 2026-07-24): a pane may opt into remote-owned zmx persistence
 
