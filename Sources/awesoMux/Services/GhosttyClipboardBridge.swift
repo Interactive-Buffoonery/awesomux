@@ -1131,6 +1131,27 @@ enum TerminalPasteboardString {
         return nil
     }
 
+    /// The types `content(from:)` above actually consumes. `.fileURL` and
+    /// `.URL` are `NSURL`'s readable types, which is what the `urls(from:)`
+    /// `readObjects(forClasses:)` call resolves. Keep this list physically
+    /// next to the ladder so the two cannot drift.
+    private static let supportedTypes: [NSPasteboard.PasteboardType] = [
+        .fileURL, .URL, .string, .png, .tiff,
+    ]
+
+    /// Metadata-only "is there anything here we could paste?", for menu-item
+    /// validation. Deliberately never reads contents: on macOS 15 that counts
+    /// as a paste and raises the permission alert, and validation runs every
+    /// time a menu opens.
+    ///
+    /// A pasteboard that declares `.string` but holds an empty one still
+    /// enables Paste — `content(from:)` rejects empty text, so the action is a
+    /// benign no-op. Metadata cannot see emptiness, and looking would cost the
+    /// exact alert this helper exists to avoid.
+    static func declaresSupportedContent(_ pasteboard: NSPasteboard) -> Bool {
+        pasteboard.availableType(from: supportedTypes) != nil
+    }
+
     static func string(from content: Content) -> String? {
         switch content {
         case .fileURLs(let urls):

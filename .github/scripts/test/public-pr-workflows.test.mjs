@@ -25,6 +25,7 @@ const workflows = {
   size: read(".github/workflows/pr-size.yml"),
   swiftCodeql: read(".github/workflows/swift-codeql.yml"),
   template: read(".github/workflows/pr-template.yml"),
+  tintContrast: read(".github/workflows/tint-contrast.yml"),
 };
 const ensureRepositoryLabel = join(repoRoot, ".github/scripts/ensure-repository-label.sh");
 
@@ -344,8 +345,27 @@ test("interpreted CodeQL stays automatic without waiting for Swift", () => {
   assertMatchingCodeQLActionPins("interpreted CodeQL", workflow);
   assert.match(workflow, /push:\n\s+branches: \[main\]/);
   assert.match(workflow, /pull_request:\n\s+branches: \[main\]/);
-  assert.match(workflow, /matrix:\n\s+language: \[actions, python\]/);
+  assert.match(workflow, /matrix:\n\s+language: \[actions\]/);
+  assert.doesNotMatch(workflow, /python/);
   assert.doesNotMatch(workflow, /schedule:|workflow_dispatch:|Analyze \(swift\)|needs: \[[^\]]*swift/);
+});
+
+test("tint contrast fails closed when the Swift filter selects no tests", () => {
+  const workflow = workflows.tintContrast;
+  assert.match(workflow, /runs-on: macos-26/);
+  assert.doesNotMatch(workflow, /NATIVE_CI_RUNNER/);
+  assert.match(
+    workflow,
+    /concurrency:\n\s+group: tint-contrast-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/,
+  );
+  assert.match(workflow, /cancel-in-progress: true/);
+  assert.match(workflow, /swift-test\.sh --filter SidebarTintContrastTests 2>&1 \| tee/);
+  assert.match(
+    workflow,
+    /grep -Eq 'Test run with \[1-9\]\[0-9\]\* tests\( in \[1-9\]\[0-9\]\* suites\?\)\? passed'/
+  );
+  assert.match(workflow, /Sidebar tint contrast filter ran no tests/);
+  assert.match(workflow, /exit 1/);
 });
 
 test("Swift CodeQL is weekly and manual only", () => {

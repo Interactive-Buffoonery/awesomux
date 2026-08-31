@@ -40,6 +40,14 @@ enum AgentTranscriptOpener {
         reportedSessionID: String?,
         store: AgentTranscriptStore = AgentTranscriptStore()
     ) -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
+        if agentKind == .openCode {
+            return openOpenCode(
+                executionPlan: executionPlan,
+                dataHome: configHome,
+                reportedSessionID: reportedSessionID,
+                store: store
+            )
+        }
         let opened = AgentTranscriptImporter.open(
             agentKind: agentKind,
             executionPlan: executionPlan,
@@ -86,6 +94,43 @@ enum AgentTranscriptOpener {
         )
     }
 
+    private static func openOpenCode(
+        executionPlan: PaneExecutionPlan,
+        dataHome: URL,
+        reportedSessionID: String?,
+        store: AgentTranscriptStore
+    ) -> Result<OpenedAgentTranscript, AgentTranscriptOpenFailure> {
+        let opened = AgentTranscriptImporter.openOpenCode(
+            executionPlan: executionPlan,
+            dataHome: dataHome,
+            reportedSessionID: reportedSessionID
+        )
+        let snapshot: OpenCodeTranscriptSnapshot
+        switch opened {
+        case .success(let resolved): snapshot = resolved
+        case .failure(let reason): return .failure(.unavailable(reason))
+        }
+        guard let reportedSessionID,
+            let identity = AgentTranscriptIdentity(
+                agentKind: .openCode, sessionID: reportedSessionID)
+        else {
+            return .failure(.unavailable(.invalidSessionID))
+        }
+        let markdown = AgentTranscriptRenderer.renderOpenCode(
+            snapshot,
+            sessionID: identity.sessionID,
+            chrome: localizedChrome(agentKind: .openCode)
+        )
+        guard
+            let fileURL = store.write(
+                markdown,
+                agentKind: .openCode,
+                sessionID: identity.sessionID
+            )
+        else { return .failure(.cacheWriteFailed) }
+        return .success(OpenedAgentTranscript(fileURL: fileURL, identity: identity))
+    }
+
     /// Whether the provider's own log for `identity` is still on disk.
     ///
     /// The liveness probe Resume needs, and deliberately not a process check:
@@ -100,6 +145,16 @@ enum AgentTranscriptOpener {
         executionPlan: PaneExecutionPlan,
         configHome: URL
     ) -> Bool {
+        if identity.agentKind == .openCode {
+            switch AgentTranscriptImporter.openOpenCode(
+                executionPlan: executionPlan,
+                dataHome: configHome,
+                reportedSessionID: identity.sessionID
+            ) {
+            case .success: return true
+            case .failure: return false
+            }
+        }
         switch AgentTranscriptImporter.open(
             agentKind: identity.agentKind,
             executionPlan: executionPlan,
@@ -187,7 +242,7 @@ enum AgentTranscriptOpener {
         case .unsupportedAgent(let kind):
             return String(
                 localized:
-                    "\(kind.displayName)'s transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, and Pi.",
+                    "\(kind.displayName)'s transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, and Pi.",
                 comment: "Transcript failure when the pane's agent has no transcript adapter"
             )
         case .remoteExecution:
@@ -225,6 +280,12 @@ enum AgentTranscriptOpener {
                 localized:
                     "awesoMux found this session's log but refused to read it. It may be a symlink, or owned by another user.",
                 comment: "Transcript failure when the secure file reader declined to open the resolved session log"
+            )
+        case .databaseUnavailable:
+            return String(
+                localized:
+                    "awesoMux couldn't safely read OpenCode's session database. Check that it still exists and is owned by your user.",
+                comment: "Transcript failure when OpenCode's SQLite session store cannot be read safely"
             )
         }
     }

@@ -111,7 +111,8 @@ import PackageDescription
                     "SecureFileIO",
                     "UnicodeHygiene",
                     .product(name: "Markdown", package: "swift-markdown"),
-                ]
+                ],
+                linkerSettings: [.linkedLibrary("sqlite3")]
             ),
             .target(
                 name: "AwesoMuxBridgeProtocol",

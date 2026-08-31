@@ -152,6 +152,30 @@ struct AgentHookEventMapperTests {
         #expect(event.phase == .notification)
     }
 
+    @Test
+    func openCodePermissionRepliedMapsToPermissionRepliedPhase() throws {
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .openCode,
+                hookEventName: "PermissionReplied"
+            ))
+
+        #expect(event.source == .openCode)
+        #expect(event.kind == .openCode)
+        #expect(event.executionState == nil)
+        #expect(event.attentionReason == nil)
+        #expect(event.phase == .permissionReplied)
+    }
+
+    @Test
+    func codexPermissionRepliedIsSilent() {
+        #expect(
+            AgentHookEventMapper.event(
+                provider: .codex,
+                hookEventName: "PermissionReplied"
+            ) == nil)
+    }
+
     @Test(arguments: [
         "PreCompact",
         "PostCompact",

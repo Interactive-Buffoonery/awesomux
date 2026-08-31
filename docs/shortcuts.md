@@ -42,7 +42,7 @@ Everything scoped to a pane inside the selected workspace: splits, close/rename,
 | ⌥⌘R | Rename Pane… | Requires multiple panes |
 | ⌘F | Find in Pane | |
 | ⇧⌘F | Show Scrollback | Opens the active pane's scrollback dump sheet |
-| ⌥⌘T | Open Agent Transcript | Opens the active pane's exact Claude Code, Codex, or Pi session as a read-only document |
+| ⌥⌘T | Open Agent Transcript | Opens the active pane's exact Claude Code, Codex, OpenCode, or Pi session as a read-only document |
 | ⌥⌘= | Grow Active Pane | Requires multiple panes |
 | ⌥⌘- | Shrink Active Pane | Requires multiple panes |
 | ⌥⌘[ | Previous Pane | Requires multiple panes |

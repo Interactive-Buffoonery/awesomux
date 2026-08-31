@@ -534,6 +534,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             inputState.armedLinkClickValue = inputState.mouseOverLink
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_LEFT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -548,6 +549,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_LEFT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
 
         // INT-453: complete plain-click link activation (armed at press,
         // cancelled by drag). Routed through the same funnel as
@@ -624,6 +626,31 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
     override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+
+        let currentSurface = surface
+        let route = GhosttySurfaceContextMenuPolicy.rightClickRoute(
+            hasSurface: currentSurface != nil,
+            mouseCaptured: currentSurface.map { ghostty_surface_mouse_captured($0) } ?? false
+        )
+
+        if route == .presentMenu {
+            // Nothing reaches libghostty on this path, so pre-arm the release
+            // suppression before AppKit's menu tracking loop starts: it may or
+            // may not deliver `rightMouseUp` afterwards, and the terminal must
+            // not see a release for a press it never got.
+            _ = inputState.mouseButtonPolicy.mouseDown(button: .right, surfaceIdentity: nil)
+            // This decision is authoritative across the `super` handoff:
+            // `menu(for:)` must not re-read capture state, which can flip on
+            // another thread between here and there (adversarial review,
+            // round 1). Cleared by `defer`, so the flag cannot outlive the
+            // gesture that set it.
+            inputState.rightClickMenuRouteArmed = true
+            defer { inputState.rightClickMenuRouteArmed = false }
+            // AppKit consults `menu(for:)` from here and pops the menu.
+            super.rightMouseDown(with: event)
+            return
+        }
+
         // Same cold-start/respawn race as the left button (INT-607 follow-up,
         // caught by adversarial review): don't allow a release through if the
         // press itself never reached a live surface.
@@ -636,6 +663,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_RIGHT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func rightMouseUp(with event: NSEvent) {
@@ -649,6 +677,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_RIGHT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -669,6 +698,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             button: GhosttyInputMapper.mouseButton(event.buttonNumber),
             event: event
         )
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -686,6 +716,14 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             button: GhosttyInputMapper.mouseButton(event.buttonNumber),
             event: event
         )
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
+    }
+
+    private func markNeedsAttentionPromptAnsweredFromCapturedMouse() {
+        guard let surface, ghostty_surface_mouse_captured(surface) else {
+            return
+        }
+        markNeedsAttentionPromptAnswered()
     }
 
     // A held button always produces `mouseDragged`/`rightMouseDragged`/
@@ -895,10 +933,23 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     /// child is focused), the `isFirstResponder` gate disables the terminal
     /// edit actions — that fallthrough is intentional, not a gap.
     func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        // Both trailing arguments are `@autoclosure`: AppKit revalidates every
+        // Edit-menu item on every Cmd-modified keystroke, and neither the
+        // render-mutex lock behind `ghostty_surface_has_selection` nor the
+        // pasteboard IPC behind `declaresSupportedContent` may run for an
+        // action that does not consult it.
+        //
+        // The pasteboard check reads metadata only — see
+        // `declaresSupportedContent`. Reading its contents here would trip
+        // macOS 15's paste-permission alert every time a menu opens.
         Self.terminalEditActionValidation(
             action: item.action,
             hasSurface: surface != nil,
-            isFirstResponder: window?.firstResponder === self
+            isFirstResponder: window?.firstResponder === self,
+            hasSelection: surface.map { ghostty_surface_has_selection($0) } ?? false,
+            pasteboardHasSupportedContent:
+                TerminalPasteboardString
+                .declaresSupportedContent(NSPasteboard.general)
         ) ?? true
     }
 
@@ -906,21 +957,35 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     /// the gated terminal edit actions" — the caller falls back to AppKit's
     /// default of auto-enabling any action the target responds to, so a dead
     /// surface only disables the gated actions, not everything else routed at
-    /// this view. All five paste/copy variants are gated identically: they
-    /// all funnel into `performBindingAction`, which silently no-ops on a
-    /// dead surface, and a menu item that can't do anything should say so.
+    /// this view. Every gated action funnels into `performBindingAction`,
+    /// which silently no-ops on a dead surface, and a menu item that can't do
+    /// anything should say so.
+    ///
+    /// `hasSelection` and `pasteboardHasSupportedContent` have no defaults on
+    /// purpose. There is exactly one production call site, and a default that
+    /// preserved the old answer would leave the added gates dead there while
+    /// tests still passed. They are `@autoclosure` so each `case` forces only
+    /// the one it needs — both are expensive at the call site, and this runs
+    /// per Edit-menu item on every Cmd-modified keystroke. `&&` already
+    /// short-circuits, so the cheap gates still come first.
     static func terminalEditActionValidation(
         action: Selector?,
         hasSurface: Bool,
-        isFirstResponder: Bool
+        isFirstResponder: Bool,
+        hasSelection: @autoclosure () -> Bool,
+        pasteboardHasSupportedContent: @autoclosure () -> Bool
     ) -> Bool? {
         switch action {
         case #selector(GhosttySurfaceNSView.copy(_:)),
-             #selector(GhosttySurfaceNSView.paste(_:)),
-             #selector(GhosttySurfaceNSView.selectAll(_:)),
-             #selector(GhosttySurfaceNSView.pasteAsPlainText(_:)),
-             #selector(GhosttySurfaceNSView.pasteSelection(_:)),
              #selector(GhosttySurfaceNSView.selectionForFind(_:)):
+            return hasSurface && isFirstResponder && hasSelection()
+        case #selector(GhosttySurfaceNSView.paste(_:)),
+            #selector(GhosttySurfaceNSView.pasteAsPlainText(_:)):
+            return hasSurface && isFirstResponder && pasteboardHasSupportedContent()
+        // `pasteSelection` reads the terminal's own selection clipboard, not
+        // the general pasteboard, and `selectAll` needs neither input.
+        case #selector(GhosttySurfaceNSView.selectAll(_:)),
+            #selector(GhosttySurfaceNSView.pasteSelection(_:)):
             return hasSurface && isFirstResponder
         default:
             return nil

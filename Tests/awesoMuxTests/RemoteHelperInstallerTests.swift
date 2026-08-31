@@ -8,6 +8,25 @@ import Testing
 
 @Suite("Remote helper installer", .serialized)
 struct RemoteHelperInstallerTests {
+    @Test("helper setup waits for the workspace creation sheet to dismiss")
+    @MainActor
+    func helperSetupWaitsForSheetDismissal() async {
+        var sheetAttached = true
+        var dismissalWaitCount = 0
+
+        let available = await RemoteHelperInstaller.waitForSheetAvailability(
+            authorityIsCurrent: { true },
+            hasAttachedSheet: { sheetAttached },
+            waitForSheetDismissal: {
+                dismissalWaitCount += 1
+                sheetAttached = false
+            }
+        )
+
+        #expect(available)
+        #expect(dismissalWaitCount == 1)
+    }
+
     @Test("bundled helper resolves beside the app executable")
     func bundledHelperResolution() {
         let executable = URL(fileURLWithPath: "/Applications/awesoMux.app/Contents/MacOS/awesoMux")
@@ -33,6 +52,84 @@ struct RemoteHelperInstallerTests {
             })
         let descriptor = try prepared.openValidated()
         close(descriptor)
+    }
+
+    @Test("release artifact URLs are version-matched and architecture-specific")
+    func releaseArtifactURL() throws {
+        let artifact = try #require(
+            RemoteHelperInstaller.releaseArtifact(version: "1.2.3", architecture: .aarch64)
+        )
+        #expect(
+            artifact.binaryURL.absoluteString
+                == "https://github.com/Interactive-Buffoonery/awesomux/releases/download/v1.2.3/awesomux-bridge-helper-linux-aarch64"
+        )
+        #expect(artifact.checksumURL.absoluteString == artifact.binaryURL.absoluteString + ".sha256")
+        #expect(RemoteHelperInstaller.releaseArtifact(version: "1.2", architecture: .aarch64) == nil)
+        #expect(RemoteHelperInstaller.releaseArtifact(version: "1.2.3-dev", architecture: .aarch64) == nil)
+    }
+
+    @Test("release checksum parser binds the digest to the expected filename")
+    func releaseChecksumParser() {
+        let digest = String(repeating: "a", count: 64)
+        let filename = "awesomux-bridge-helper-linux-aarch64"
+        #expect(
+            RemoteHelperInstaller.parseReleaseChecksum(
+                Data("\(digest)  \(filename)\n".utf8),
+                expectedFilename: filename
+            ) == digest
+        )
+        #expect(
+            RemoteHelperInstaller.parseReleaseChecksum(
+                Data("\(digest)  another-file\n".utf8),
+                expectedFilename: filename
+            ) == nil
+        )
+        #expect(
+            RemoteHelperInstaller.parseReleaseChecksum(
+                Data("\(digest)  \(filename)\nsecond line".utf8),
+                expectedFilename: filename
+            ) == nil
+        )
+    }
+
+    @Test("Linux acquisition verifies the release checksum and yields private executable bytes")
+    func linuxHelperAcquisition() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-release-acquisition")
+        let sourceURL = try helper(in: directory, payload: Data("linux helper".utf8))
+        let preparedSource = try await RemoteHelperInstaller.prepareBundledHelper(at: sourceURL)
+        let filename = "awesomux-bridge-helper-linux-aarch64"
+        let checksum = Data("\(preparedSource.sha256)  \(filename)\n".utf8)
+
+        let acquired = try await RemoteHelperInstaller.acquireHelper(
+            for: .linux(.aarch64),
+            version: "1.2.3",
+            dataDownload: { _ in checksum },
+            fileDownload: { _ in sourceURL }
+        )
+        defer { acquired.cleanup() }
+
+        #expect(acquired.prepared.sha256 == preparedSource.sha256)
+        #expect(acquired.prepared.byteCount == preparedSource.byteCount)
+        var status = stat()
+        #expect(lstat(acquired.prepared.url.path, &status) == 0)
+        #expect(status.st_mode & 0o777 == 0o700)
+    }
+
+    @Test("Linux acquisition rejects a checksum mismatch")
+    func linuxHelperAcquisitionRejectsMismatch() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-release-mismatch")
+        let sourceURL = try helper(in: directory, payload: Data("linux helper".utf8))
+        let filename = "awesomux-bridge-helper-linux-aarch64"
+        let checksum = Data("\(String(repeating: "0", count: 64))  \(filename)\n".utf8)
+
+        await #expect(throws: RemoteHelperInstaller.Failure.releaseArtifactChecksumMismatch) {
+            _ = try await RemoteHelperInstaller.acquireHelper(
+                for: .linux(.aarch64),
+                version: "1.2.3",
+                dataDownload: { _ in checksum },
+                fileDownload: { _ in sourceURL }
+            )
+        }
     }
 
     @Test("bundled helper preparation rejects unsafe source types")
@@ -69,20 +166,26 @@ struct RemoteHelperInstallerTests {
         }
     }
 
-    @Test(
-        "platform gate accepts only supported Apple Silicon macOS",
-        arguments: [
-            ("Darwin\n15.0\narm64\n", true),
-            ("Darwin\n26.4.1\narm64\n", true),
-            ("Darwin\n14.7\narm64\n", false),
-            ("Darwin\n26.0\nx86_64\n", false),
-            ("Linux\n6.8\nx86_64\n", false),
-            ("Darwin\n26.0\narm64\nextra\n", false),
-            ("malformed", false),
-        ]
-    )
-    func platformGate(output: String, accepted: Bool) {
-        #expect(RemoteHelperInstaller.isSupportedPlatform(Data(output.utf8)) == accepted)
+    @Test("platform gate identifies supported remote helper builds")
+    func platformGate() {
+        #expect(
+            RemoteHelperInstaller.supportedPlatform(Data("Darwin\n15.0\narm64\n".utf8))
+                == .macOSArm64)
+        #expect(
+            RemoteHelperInstaller.supportedPlatform(Data("Linux\n6.8\naarch64\n".utf8))
+                == .linux(.aarch64))
+        #expect(
+            RemoteHelperInstaller.supportedPlatform(Data("Linux\n6.8\nx86_64\n".utf8))
+                == .linux(.x86_64))
+        for unsupported in [
+            "Darwin\n14.7\narm64\n",
+            "Darwin\n26.0\nx86_64\n",
+            "Linux\n6.8\narmv7l\n",
+            "Darwin\n26.0\narm64\nextra\n",
+            "malformed",
+        ] {
+            #expect(RemoteHelperInstaller.supportedPlatform(Data(unsupported.utf8)) == nil)
+        }
     }
 
     @Test("platform probe separates unsupported hosts from transport failure")
@@ -139,6 +242,14 @@ struct RemoteHelperInstallerTests {
             helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
             execChannel: { _, _ in throw BoundedProcessRunner.ExecError.nonzeroExit(255) }
         )
+        let missingLiveness = try await RemoteHelperInstaller.additionalSSHCapability(
+            remote: remote,
+            controlPath: "/tmp/control/%C",
+            helperPath: "/Users/me/.awesomux/bin/awesomux-bridge-helper",
+            execChannel: { _, _ in
+                Data("awesomux-handoff-v1\nawesomux-bridge-v1\n".utf8)
+            }
+        )
 
         #expect(supported == .supported)
         #expect(incompatible == .incompatible)
@@ -146,6 +257,24 @@ struct RemoteHelperInstallerTests {
         #expect(missing == .missing)
         #expect(missing.approvalAction == .install)
         #expect(transportFailure == .probeFailed)
+        #expect(missingLiveness == .incompatible)
+        #expect(missingLiveness.approvalAction == .update)
+    }
+
+    @Test("bridge, handoff, and liveness capabilities are independent")
+    func featureCapabilitiesAreIndependent() {
+        let oldHelper = RemoteHelperInstaller.featureCapabilities(
+            helperVersionOutput: "awesomux-bridge-v1\nawesomux-handoff-v1\n"
+        )
+        #expect(oldHelper.bridge)
+        #expect(oldHelper.handoff)
+        #expect(!oldHelper.liveness)
+
+        let current = RemoteHelperInstaller.featureCapabilities(
+            helperVersionOutput:
+                "awesomux-bridge-v1\nawesomux-handoff-v1\nawesomux-liveness-v1\n"
+        )
+        #expect(current.bridge && current.handoff && current.liveness)
     }
 
     @MainActor
@@ -298,6 +427,7 @@ struct RemoteHelperInstallerTests {
         #expect(command.contains("/Users/remote user/.awesomux/bin/awesomux-bridge-helper"))
         #expect(command.contains("mktemp"))
         #expect(command.contains("stat -f '%z'"))
+        #expect(command.contains("stat -c '%s'"))
         #expect(command.contains("= 123"))
         #expect(command.contains(digest))
         #expect(command.contains("awesomux-bridge-v1"))
@@ -308,6 +438,15 @@ struct RemoteHelperInstallerTests {
         #expect(!command.contains("curl"))
         #expect(!command.contains("scp"))
         #expect(!command.contains("/Users/local/private"))
+
+        let additionalFeaturesCommand = RemoteHelperInstaller.bootstrapScript(
+            remoteHome: "/Users/remote user",
+            expectedBytes: 123,
+            sha256: digest,
+            requiredProtocols: RemoteHelperInstaller.requiredProtocols
+                + RemoteHelperInstaller.livenessRequiredProtocols
+        )
+        #expect(additionalFeaturesCommand.contains("awesomux-liveness-v1"))
     }
 
     @Test("installation streams only verified helper bytes and accepts the fixed success token")

@@ -141,7 +141,6 @@ extension GhosttySurfaceNSView {
             !BridgeAttachDecision.shouldRunPreflight(
                 bridgeEnabled: commandBridgeEnabled,
                 executionPlan: pane.executionPlan,
-                agentChromeEnabled: runtime.isBridgeChromeEnabled,
                 attachCommandAvailable: true,
                 errorLatched: commandBridgeEnactor.errorLatched
             )
@@ -208,18 +207,18 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // INT-698 D4: a local-amx remote pane with agent chrome on takes the
+        // INT-698 D4: a local-amx remote pane takes the
         // async make-before-break bridge preflight instead of the synchronous
         // spawn. Every other pane (local, remote-owned, or bridge chrome off) is
         // byte-identical to today — the sync `finishSurfaceCreation` below is
         // the untouched path.
-        if BridgeAttachDecision.shouldRunPreflight(
+        let shouldRunBridgePreflight = BridgeAttachDecision.shouldRunPreflight(
             bridgeEnabled: commandBridgeEnabled,
             executionPlan: pane.executionPlan,
-            agentChromeEnabled: runtime.isBridgeChromeEnabled,
             attachCommandAvailable: launch.command != nil,
             errorLatched: commandBridgeEnactor.errorLatched
-        ), case .bridgeAttach(let baseCommand) = launch {
+        )
+        if shouldRunBridgePreflight, case .bridgeAttach(let baseCommand) = launch {
             beginBridgePreflight(baseCommand: baseCommand)
             return
         }
@@ -373,11 +372,29 @@ extension GhosttySurfaceNSView {
                 return
             }
             let helperPath = BridgeAttachDecision.helperPath(remoteHome: home)
-            let helperSupportsBridge = await dependencies.helperSupportsBridge(
+            var helperSupportsBridge = await dependencies.helperSupportsBridge(
                 controlPath,
                 remote,
                 helperPath
             )
+            guard !Task.isCancelled else { return }
+            if !helperSupportsBridge {
+                helperSupportsBridge = await dependencies.offerHelperSetup(
+                    controlPath,
+                    remote,
+                    home,
+                    helperPath,
+                    self?.window,
+                    {
+                        guard let self else { return false }
+                        return self.lifecycleState.bridgePreflightGeneration == generation
+                            && self.paneID == expectedPaneID
+                            && self.sessionID == expectedWorkspaceSessionID
+                            && self.pane.terminalSessionID == terminalSessionID
+                            && self.pane.executionPlan.remoteTarget == remote
+                    }
+                )
+            }
             guard !Task.isCancelled else { return }
             guard helperSupportsBridge else {
                 // Missing/incompatible helper identifies the unmanaged or
@@ -436,7 +453,8 @@ extension GhosttySurfaceNSView {
                 expectedWorkspaceSessionID: expectedWorkspaceSessionID,
                 generation: generation,
                 preflight: preflight,
-                acknowledgeReady: dependencies.acknowledgeReady
+                acknowledgeReady: dependencies.acknowledgeReady,
+                helperPath: helperPath
             )
         }
         lifecycleState.bridgePreflightTask = task
@@ -523,10 +541,10 @@ extension GhosttySurfaceNSView {
         guard let data = try? await BridgeExecChannel.run(command: command, stdin: nil) else {
             return false
         }
-        return !BridgeDoctorSignals.compatibleProtocols(
-            helperVersionOutput: String(decoding: data, as: UTF8.self),
-            appSupported: Set(BridgeConnectionSupervisor.supportedProtocols)
-        ).isEmpty
+        let features = RemoteHelperInstaller.featureCapabilities(
+            helperVersionOutput: String(decoding: data, as: UTF8.self)
+        )
+        return features.bridge && features.handoff && features.liveness
     }
 
     /// The async preflight's MainActor completion. Clears the in-flight latch,
@@ -543,7 +561,8 @@ extension GhosttySurfaceNSView {
         expectedWorkspaceSessionID: TerminalSession.ID,
         generation: UInt64,
         preflight: BridgeAttachPreflight,
-        acknowledgeReady: @MainActor (BridgeAttachPreflight, String) async -> Void
+        acknowledgeReady: @MainActor (BridgeAttachPreflight, String) async -> Void,
+        helperPath: String? = nil
     ) async {
         // Keep `bridgePreflightInFlight` true until this method returns so a
         // published live-coordinator Observation cannot re-enter
@@ -570,7 +589,6 @@ extension GhosttySurfaceNSView {
             || pane.terminalSessionID != expectedTerminalSessionID
             || pane.executionPlan.remoteTarget != remote
             || !runtime.isCommandBridgeEnabled
-            || !runtime.isBridgeChromeEnabled
         let canCreate =
             surface == nil
             && runtime.isReady
@@ -608,14 +626,15 @@ extension GhosttySurfaceNSView {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-cancelled")
             return
         }
-        if case .ready(let channel, _) = outcome {
+        if case .ready(let channel, _) = outcome, let helperPath {
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-ready")
             if finishSurfaceCreation(launch: .bridgeAttach(command)) {
                 runtime.promoteBridgeGeneration(
                     session: expectedTerminalSessionID,
                     channel: channel,
                     controlPath: controlPath,
-                    remote: remote
+                    remote: remote,
+                    helperPath: helperPath
                 )
             } else {
                 await runtime.discardCommittedBridgeGeneration(

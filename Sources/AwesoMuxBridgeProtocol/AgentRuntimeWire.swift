@@ -111,4 +111,7 @@ public enum AgentRuntimePhase: String, Codable, Sendable {
     case sessionEnd
     case rename
     case openDocument = "open-document"
+    /// OpenCode's bus `permission.replied` event, mapped to a synthetic hook so
+    /// Core can authoritatively retract a hook-raised permission prompt.
+    case permissionReplied = "permission-replied"
 }

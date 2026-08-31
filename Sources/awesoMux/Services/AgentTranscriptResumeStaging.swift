@@ -81,7 +81,8 @@ enum AgentTranscriptResumeStaging {
                 observedForegroundCommand: {
                     guard case .available(let resolved) = target else { return nil }
                     return foregroundComm(resolved.id)
-                }()
+                }(),
+                identity: identity
             )
         }
 

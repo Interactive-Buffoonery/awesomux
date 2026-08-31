@@ -48,6 +48,24 @@ struct ProcessLivenessProbeTests {
         #expect(ProcessLivenessProbe.processStartTime(pid: reaped.processIdentifier) == nil)
     }
 
+    @Test("daemon incarnation rejects gone and pid-reused processes")
+    func daemonIncarnationRequiresMatchingStartTime() {
+        let incarnation = AmxDaemonIncarnation(pid: 42, createdAt: 1_700_000_000)
+
+        var sampledPID: pid_t?
+        let matching = ProcessLivenessProbe.matchesDaemonIncarnation(incarnation) { pid in
+            sampledPID = pid
+            return 1_700_000_000_123_456
+        }
+        #expect(sampledPID == 42)
+        #expect(matching)
+        #expect(
+            !ProcessLivenessProbe.matchesDaemonIncarnation(incarnation) { _ in
+                1_700_000_001_000_000
+            })
+        #expect(!ProcessLivenessProbe.matchesDaemonIncarnation(incarnation) { _ in nil })
+    }
+
     @Test("terminal foreground group is nil for invalid and reaped pids")
     func terminalForegroundGroupFailsClosed() throws {
         #expect(ProcessLivenessProbe.terminalForegroundProcessGroup(pid: -1) == nil)

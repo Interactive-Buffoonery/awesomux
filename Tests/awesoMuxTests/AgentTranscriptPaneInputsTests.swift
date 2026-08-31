@@ -25,6 +25,7 @@ struct AgentTranscriptPaneInputsTests {
     func supportedPaneResolvesOnlyItsProvider() {
         #expect(attempts(for: .claudeCode).map(\.kind) == [.claudeCode])
         #expect(attempts(for: .codex).map(\.kind) == [.codex])
+        #expect(attempts(for: .openCode).map(\.kind) == [.openCode])
     }
 
     @Test("a shell pane never guesses which provider owned a session")
@@ -107,7 +108,10 @@ struct AgentTranscriptPaneInputsTests {
     @Test("Pi resolves only its own provider root")
     func additionalProvidersResolveTheirOwnRoots() {
         #expect(attempts(for: .pi).first?.configHome.path == "/Users/tester/.pi/agent")
-        #expect(attempts(for: .openCode).isEmpty)
+        #expect(
+            attempts(for: .openCode).first?.configHome.path
+                == "/Users/tester/.local/share/opencode"
+        )
         #expect(attempts(for: .grok).isEmpty)
     }
 
@@ -123,26 +127,34 @@ struct AgentTranscriptPaneInputsTests {
         )
     }
 
-    @Test("a live OpenCode pane names itself rather than claiming an unknown session")
-    func liveUnsupportedPaneNamesTheAgent() {
+    @Test("a live supported pane without an identity reports the missing identity")
+    func liveSupportedPaneNeedsIdentity() {
         #expect(
             AgentTranscriptPaneInputs.emptyLookupReason(paneKind: .openCode, lastEndedKind: nil)
-                == .unsupportedAgent(.openCode)
+                == .noSessionIdentity
         )
+    }
+
+    @Test("a live unsupported pane names itself rather than claiming an unknown session")
+    func liveUnsupportedPaneNamesTheAgent() {
         #expect(
             AgentTranscriptPaneInputs.emptyLookupReason(paneKind: .grok, lastEndedKind: nil)
                 == .unsupportedAgent(.grok)
         )
     }
 
-    @Test("an ended OpenCode pane still names itself after becoming a shell")
-    func endedUnsupportedPaneKeepsItsName() {
+    @Test("an ended supported OpenCode pane reports a missing identity")
+    func endedOpenCodePaneNeedsIdentity() {
         #expect(
             AgentTranscriptPaneInputs.emptyLookupReason(
                 paneKind: .shell,
                 lastEndedKind: .openCode
-            ) == .unsupportedAgent(.openCode)
+            ) == .noSessionIdentity
         )
+    }
+
+    @Test("an ended unsupported pane still names itself after becoming a shell")
+    func endedUnsupportedPaneKeepsItsName() {
         #expect(
             AgentTranscriptPaneInputs.emptyLookupReason(
                 paneKind: .shell,

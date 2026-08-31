@@ -31,18 +31,79 @@ struct GhosttySurfaceEditActionValidationTests {
     @Test("gated actions enable only with a live surface AND first responder")
     func gatedActionsRequireSurfaceAndFirstResponder() {
         for action in editSelectors {
-            #expect(GhosttySurfaceNSView.terminalEditActionValidation(
-                action: action, hasSurface: true, isFirstResponder: true
-            ) == true)
-            #expect(GhosttySurfaceNSView.terminalEditActionValidation(
-                action: action, hasSurface: false, isFirstResponder: true
-            ) == false)
-            #expect(GhosttySurfaceNSView.terminalEditActionValidation(
-                action: action, hasSurface: true, isFirstResponder: false
-            ) == false)
-            #expect(GhosttySurfaceNSView.terminalEditActionValidation(
-                action: action, hasSurface: false, isFirstResponder: false
-            ) == false)
+            #expect(
+                GhosttySurfaceNSView.terminalEditActionValidation(
+                    action: action, hasSurface: true, isFirstResponder: true,
+                    hasSelection: true, pasteboardHasSupportedContent: true
+                ) == true)
+            #expect(
+                GhosttySurfaceNSView.terminalEditActionValidation(
+                    action: action, hasSurface: false, isFirstResponder: true,
+                    hasSelection: true, pasteboardHasSupportedContent: true
+                ) == false)
+            #expect(
+                GhosttySurfaceNSView.terminalEditActionValidation(
+                    action: action, hasSurface: true, isFirstResponder: false,
+                    hasSelection: true, pasteboardHasSupportedContent: true
+                ) == false)
+            #expect(
+                GhosttySurfaceNSView.terminalEditActionValidation(
+                    action: action, hasSurface: false, isFirstResponder: false,
+                    hasSelection: true, pasteboardHasSupportedContent: true
+                ) == false)
+        }
+    }
+
+    /// The context menu (#497) shows Copy/Paste/Select All/Search Selection
+    /// unconditionally, so an action that would visibly no-op has to disable
+    /// itself. Copy and Search Selection need something selected; the two
+    /// general-pasteboard pastes need something pasteable.
+    @Test("selection-dependent actions need a selection")
+    func selectionDependentActions() {
+        for action in [
+            #selector(GhosttySurfaceNSView.copy(_:)),
+            #selector(GhosttySurfaceNSView.selectionForFind(_:)),
+        ] {
+            #expect(
+                GhosttySurfaceNSView.terminalEditActionValidation(
+                    action: action, hasSurface: true, isFirstResponder: true,
+                    hasSelection: false, pasteboardHasSupportedContent: true
+                ) == false)
+        }
+    }
+
+    @Test("general-pasteboard pastes need supported pasteboard content")
+    func pasteActionsNeedPasteboardContent() {
+        for action in [
+            #selector(GhosttySurfaceNSView.paste(_:)),
+            #selector(GhosttySurfaceNSView.pasteAsPlainText(_:)),
+        ] {
+            #expect(
+                GhosttySurfaceNSView.terminalEditActionValidation(
+                    action: action, hasSurface: true, isFirstResponder: true,
+                    hasSelection: true, pasteboardHasSupportedContent: false
+                ) == false)
+        }
+    }
+
+    /// `selectAll` needs no input, and `pasteSelection` reads the terminal's
+    /// own selection clipboard rather than the general pasteboard.
+    @Test("selectAll and pasteSelection ignore selection and pasteboard state")
+    func selectionAndPasteboardIndependentActions() {
+        for action in [
+            #selector(GhosttySurfaceNSView.selectAll(_:)),
+            #selector(GhosttySurfaceNSView.pasteSelection(_:)),
+        ] {
+            for hasSelection in [true, false] {
+                for pasteboardHasSupportedContent in [true, false] {
+                    #expect(
+                        GhosttySurfaceNSView.terminalEditActionValidation(
+                            action: action, hasSurface: true, isFirstResponder: true,
+                            hasSelection: hasSelection,
+                            pasteboardHasSupportedContent: pasteboardHasSupportedContent
+                        ) == true)
+                }
+            }
         }
     }
 
@@ -76,11 +137,22 @@ struct GhosttySurfaceEditActionValidationTests {
         for action in deferred {
             for hasSurface in [true, false] {
                 for isFirstResponder in [true, false] {
-                    #expect(GhosttySurfaceNSView.terminalEditActionValidation(
-                        action: action,
-                        hasSurface: hasSurface,
-                        isFirstResponder: isFirstResponder
-                    ) == nil)
+                    #expect(
+                        GhosttySurfaceNSView.terminalEditActionValidation(
+                            action: action,
+                            hasSurface: hasSurface,
+                            isFirstResponder: isFirstResponder,
+                            hasSelection: true,
+                            pasteboardHasSupportedContent: true
+                        ) == nil)
+                    #expect(
+                        GhosttySurfaceNSView.terminalEditActionValidation(
+                            action: action,
+                            hasSurface: hasSurface,
+                            isFirstResponder: isFirstResponder,
+                            hasSelection: false,
+                            pasteboardHasSupportedContent: false
+                        ) == nil)
                 }
             }
         }

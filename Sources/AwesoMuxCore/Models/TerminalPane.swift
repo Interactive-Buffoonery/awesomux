@@ -104,6 +104,16 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// runtime-only fields). Default `.unsampled` = no live local process, the
     /// safe default for un-mounted panes (lazy-mount invariant).
     public var foregroundProcessLiveness: ForegroundProcessLiveness
+    /// Runtime-only sampled foreground process name (`p_comm`), if available.
+    /// Used to match against tagged `agentKind` before naming the agent in
+    /// confirmation dialogs (issue #198). Deliberately excluded from
+    /// Codable/equality/hash like other runtime-only fields.
+    public var sampledComm: String?
+    /// Runtime-only remote process evidence. This is deliberately separate
+    /// from OSC-133 and local process-tree liveness: neither signal is rewritten
+    /// to pretend it observed the other.
+    public var remoteConnectionGeneration: String?
+    public var remoteForegroundLivenessSnapshot: RemoteForegroundLivenessSnapshot?
     /// Runtime-only OSC 9;4 progress report. A restored pane starts absent until
     /// the live terminal process announces its current operation again.
     public var progressReport: TerminalProgressReport?
@@ -143,6 +153,9 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         needsTerminalQuitConfirmation: Bool = false,
         terminalPromptObserved: Bool? = nil,
         foregroundProcessLiveness: ForegroundProcessLiveness = .unsampled,
+        sampledComm: String? = nil,
+        remoteConnectionGeneration: String? = nil,
+        remoteForegroundLivenessSnapshot: RemoteForegroundLivenessSnapshot? = nil,
         progressReport: TerminalProgressReport? = nil,
         unreadNotificationCount: Int = 0,
         executionPlan: PaneExecutionPlan
@@ -176,6 +189,9 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.needsTerminalQuitConfirmation = needsTerminalQuitConfirmation
         self.terminalPromptObserved = terminalPromptObserved ?? needsTerminalQuitConfirmation
         self.foregroundProcessLiveness = foregroundProcessLiveness
+        self.sampledComm = sampledComm
+        self.remoteConnectionGeneration = remoteConnectionGeneration
+        self.remoteForegroundLivenessSnapshot = remoteForegroundLivenessSnapshot
         self.progressReport = progressReport
         self.unreadNotificationCount = unreadNotificationCount
     }
@@ -270,9 +286,21 @@ public extension TerminalPane {
             return agentState
         }
 
-        switch agentExecutionState {
-        case .error:
+        if agentExecutionState == .error {
             return agentState
+        }
+        if let remote = freshRemoteForegroundLiveness() {
+            switch remote {
+            case .idleShell:
+                return .idle
+            case .busyShell, .liveCommand:
+                return .running
+            case .indeterminate, .sessionNotFound:
+                break
+            }
+        }
+
+        switch agentExecutionState {
         case .done:
             // A shell's `.done` can be stale after an exited agent returns to
             // the prompt; never project it as active chrome. The prompt marker
@@ -283,6 +311,8 @@ public extension TerminalPane {
             return .idle
         case .idle, .running, .waiting, .thinking, .output:
             return shellActivity == .busy ? .running : .idle
+        case .error:
+            return agentState  // handled above
         }
     }
 
@@ -290,6 +320,7 @@ public extension TerminalPane {
     /// is trusted before quit-risk checks treat it as stale and ignore it.
     /// Guards against `AgentState` drifting from process reality — see INT-217.
     static let staleAgentActivityThreshold: TimeInterval = 60
+    static let remoteLivenessFreshnessThreshold: TimeInterval = 8
 
     /// Whether this pane would lose work if the app quit right now. Delegates to
     /// the pure `QuitRiskPolicy`: process liveness is primary, OSC-133
@@ -308,7 +339,28 @@ public extension TerminalPane {
     /// The full close-risk decision — used to log both the warn branch and the
     /// bridged silent-close branch (issue #190, mechanism 3).
     func closeRiskDecision(at now: Date = Date()) -> QuitRiskDecision {
-        QuitRiskPolicy.closeDecision(quitRiskInputs, at: now)
+        if let remote = freshRemoteForegroundLiveness(at: now) {
+            return QuitRiskPolicy.remoteCloseDecision(
+                quitRiskInputs,
+                remoteLiveness: remote,
+                at: now
+            )
+        }
+        return QuitRiskPolicy.closeDecision(quitRiskInputs, at: now)
+    }
+
+    func freshRemoteForegroundLiveness(at now: Date = Date()) -> RemoteForegroundLiveness? {
+        guard case .ssh(let execution) = executionPlan,
+            execution.persistenceOwner == .localAmx,
+            remoteConnectionHealth == .active,
+            let snapshot = remoteForegroundLivenessSnapshot,
+            snapshot.paneID == id,
+            snapshot.terminalSessionID == terminalSessionID,
+            snapshot.connectionGeneration == remoteConnectionGeneration,
+            now.timeIntervalSince(snapshot.sampledAt) >= 0,
+            now.timeIntervalSince(snapshot.sampledAt) <= Self.remoteLivenessFreshnessThreshold
+        else { return nil }
+        return snapshot.liveness
     }
 
     /// The close-risk reason when `isCloseRisk` is true, nil when safe. Lets

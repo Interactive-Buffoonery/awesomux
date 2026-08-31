@@ -49,6 +49,100 @@ import Testing
         return try #require(String(data: data, encoding: .utf8))
     }
 
+    @Test("OpenCode SQLite rows render in the shared bounded document shape")
+    func openCodeRowsRender() throws {
+        let snapshot = OpenCodeTranscriptSnapshot(
+            databaseURL: URL(fileURLWithPath: "/tmp/opencode.db"),
+            messages: [
+                .init(
+                    id: "msg_1",
+                    data: Data(#"{"role":"user"}"#.utf8),
+                    parts: [.init(data: Data(#"{"type":"text","text":"hello from opencode"}"#.utf8), byteCount: 48)]
+                ),
+                .init(
+                    id: "msg_2",
+                    data: Data(#"{"role":"assistant"}"#.utf8),
+                    parts: [
+                        .init(data: Data(#"{"type":"reasoning","text":"thinking"}"#.utf8), byteCount: 38),
+                        .init(data: Data(#"{"type":"text","text":"opencode answer"}"#.utf8), byteCount: 44),
+                    ]
+                ),
+            ],
+            isTruncated: true
+        )
+
+        let rendered = AgentTranscriptRenderer.renderOpenCode(
+            snapshot,
+            sessionID: "ses_01JABC",
+            chrome: .unlocalizedFallback(agentKind: .openCode)
+        )
+
+        #expect(rendered.contains("# OpenCode transcript"))
+        #expect(rendered.contains("hello from opencode"))
+        #expect(rendered.contains("opencode answer"))
+        #expect(rendered.contains("## assistant · thinking"))
+        #expect(rendered.contains("Earlier turns are omitted"))
+        let userRange = try #require(rendered.firstRange(of: "hello from opencode"))
+        let assistantRange = try #require(rendered.firstRange(of: "opencode answer"))
+        #expect(userRange.lowerBound < assistantRange.lowerBound)
+    }
+
+    @Test("an oversized OpenCode part produces an explicit non-empty turn")
+    func openCodeOversizedPartNeverReturnsEmpty() {
+        let snapshot = OpenCodeTranscriptSnapshot(
+            databaseURL: URL(fileURLWithPath: "/tmp/opencode.db"),
+            messages: [
+                .init(
+                    id: "msg_1",
+                    data: Data(#"{"role":"assistant"}"#.utf8),
+                    parts: [.init(data: nil, byteCount: 2_000_000)]
+                )
+            ],
+            isTruncated: false
+        )
+
+        let rendered = AgentTranscriptRenderer.renderOpenCode(
+            snapshot,
+            sessionID: "ses_01JABC",
+            chrome: .unlocalizedFallback(agentKind: .openCode)
+        )
+
+        #expect(rendered.contains("## assistant · omitted"))
+        #expect(rendered.contains("too large to display"))
+        #expect(!rendered.contains("No conversation turns could be rendered"))
+    }
+
+    @Test("an input-only OpenCode tool turn still renders when output is null")
+    func openCodeToolInputRendersWhenOutputIsNull() {
+        let snapshot = OpenCodeTranscriptSnapshot(
+            databaseURL: URL(fileURLWithPath: "/tmp/opencode.db"),
+            messages: [
+                .init(
+                    id: "msg_1",
+                    data: Data(#"{"role":"assistant"}"#.utf8),
+                    parts: [
+                        .init(
+                            data: Data(
+                                #"{"type":"tool","tool":"Read","state":{"output":null,"input":{"path":"/tmp/a.txt"}}}"#
+                                    .utf8
+                            ),
+                            byteCount: 88
+                        )
+                    ]
+                )
+            ],
+            isTruncated: false
+        )
+
+        let rendered = AgentTranscriptRenderer.renderOpenCode(
+            snapshot,
+            sessionID: "ses_01JABC",
+            chrome: .unlocalizedFallback(agentKind: .openCode)
+        )
+
+        #expect(rendered.contains("a.txt"))
+    }
+
     @Test("Pi message entries render as conversation turns")
     func piMessagesRender() {
         let rendered = render(

@@ -1299,6 +1299,25 @@ enum AmxBackend {
         return tokens.joined(separator: " ")
     }
 
+    /// Samples remote foreground-process liveness over the pane's existing SSH
+    /// ControlMaster. The helper and session are each quoted as one remote-shell
+    /// word; stdout is consumed by `RemoteLivenessProbe` under a 512-byte bound.
+    static func bridgeHelperForegroundLivenessCommand(
+        controlPath: String,
+        remote: RemoteTarget,
+        helperPath: String,
+        session: TerminalSessionID
+    ) -> String {
+        let remoteScript =
+            shellQuote(helperPath) + " foreground-liveness --session "
+            + shellQuote(session.rawValue)
+        let tokens =
+            ["ssh", "-S", shellQuote(controlPath)] + bridgeExecMasterOptionTokens + [
+                "--", shellQuote(remote.sshDestination), shellQuote(remoteScript),
+            ]
+        return tokens.joined(separator: " ")
+    }
+
     /// Runs the remote helper's `--self-check` over the shared master (INT-698
     /// F1). The helper reads the bridge state file under its custody rules and
     /// attempts one handshake, so its exit code reports both the state-file

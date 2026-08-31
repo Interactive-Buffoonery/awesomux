@@ -89,8 +89,8 @@ struct BridgePreflightLifecycleTests {
         await fixture.preflight.waitForCompletionCount(1)
     }
 
-    @Test("disabling agent chrome replaces a suspended preflight exactly once")
-    func chromeDisableReplacesSuspendedPreflightOnce() async throws {
+    @Test("disabling agent chrome preserves a suspended remote preflight")
+    func chromeDisablePreservesSuspendedPreflight() async throws {
         let fixture = try makeFixture()
         fixture.view.createSurfaceIfNeeded()
         await fixture.preflight.waitForRequestCount(1)
@@ -106,11 +106,12 @@ struct BridgePreflightLifecycleTests {
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false
         )
-        await fixture.surfaceCommands.waitForCount(1)
-        #expect(fixture.view.lifecycleState.bridgePreflightGeneration > originalGeneration)
+        #expect(fixture.view.lifecycleState.bridgePreflightGeneration == originalGeneration)
+        #expect(fixture.surfaceCommands.values.isEmpty)
 
         await fixture.preflight.resumeRequest(0, returning: .degraded(.forwardFailed))
         await fixture.preflight.waitForCompletionCount(1)
+        await fixture.surfaceCommands.waitForCount(1)
         await drainMainQueue()
 
         #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
@@ -243,6 +244,67 @@ struct BridgePreflightLifecycleTests {
         )
     }
 
+    @Test("promoting a replacement generation clears prior remote liveness")
+    func replacementGenerationClearsPriorRemoteLiveness() throws {
+        let fixture = try makeFixture()
+        let oldSnapshot = RemoteForegroundLivenessSnapshot(
+            workspaceID: fixture.session.id,
+            paneID: fixture.pane.id,
+            terminalSessionID: fixture.pane.terminalSessionID,
+            connectionGeneration: "generation-1",
+            liveness: .busyShell,
+            sampledAt: Date()
+        )
+        #expect(
+            fixture.store.setRemoteForegroundLivenessSnapshot(
+                oldSnapshot,
+                sessionID: fixture.session.id,
+                paneID: fixture.pane.id
+            )
+        )
+
+        let channel = BridgeChannel(
+            token: "generation-2",
+            gen: 2,
+            localSocketPath: "/tmp/replacement-local.sock",
+            remoteSocketPath: "/tmp/replacement-remote.sock",
+            stateFilePath: "/Users/alice/.awesomux/bridge/replacement.json",
+            session: fixture.pane.terminalSessionID
+        )
+        fixture.runtime.bridgeCoordinatorStore.stage(
+            token: channel.token,
+            BridgeCoordinatorStore.StagedBridgeRuntime(
+                coordinator: BridgePermissionCoordinator(
+                    expectedToken: channel.token,
+                    expectedSession: fixture.pane.terminalSessionID.rawValue,
+                    paneTitle: { "bridge" },
+                    sendDecision: { _, _ in },
+                    announce: { _, _ in }
+                ),
+                teardown: {}
+            )
+        )
+
+        fixture.runtime.promoteBridgeGeneration(
+            session: fixture.pane.terminalSessionID,
+            channel: channel,
+            controlPath: "/tmp/control",
+            remote: try #require(fixture.pane.executionPlan.remoteTarget),
+            helperPath: "/Users/alice/.awesomux/bin/awesomux-bridge-helper"
+        )
+
+        #expect(
+            fixture.store.session(id: fixture.session.id)?
+                .layout.pane(id: fixture.pane.id)?
+                .remoteForegroundLivenessSnapshot == nil
+        )
+        #expect(
+            fixture.store.session(id: fixture.session.id)?
+                .layout.pane(id: fixture.pane.id)?
+                .remoteConnectionGeneration == "generation-2"
+        )
+    }
+
     @Test("ready acknowledgment cannot replay an old command after repoint")
     func readyAcknowledgmentCannotReplayOldCommandAfterRepoint() async throws {
         let fixture = try makeFixture()
@@ -344,7 +406,7 @@ struct BridgePreflightLifecycleTests {
 
         fixture.view.createSurfaceIfNeeded()
         await home.waitUntilSuspended()
-        fixture.policy.chromeEnabled = false
+        fixture.policy.bridgeEnabled = false
         fixture.view.update(
             sessionStore: fixture.store,
             session: fixture.session,
@@ -375,7 +437,7 @@ struct BridgePreflightLifecycleTests {
 
         fixture.view.createSurfaceIfNeeded()
         await helper.waitUntilSuspended()
-        fixture.policy.chromeEnabled = false
+        fixture.policy.bridgeEnabled = false
         fixture.view.update(
             sessionStore: fixture.store,
             session: fixture.session,
@@ -406,6 +468,34 @@ struct BridgePreflightLifecycleTests {
         fixture.view.createSurfaceIfNeeded()
         await fixture.surfaceCommands.waitForCount(1)
 
+        #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
+    }
+
+    @Test("approved helper setup retries the managed bridge attach")
+    func approvedHelperSetupRetriesAttach() async throws {
+        let fixture = try makeFixture()
+        var setupOffers = 0
+        fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
+            resolveRemoteHome: { _, _ in "/home/alice" },
+            helperSupportsBridge: { _, _, _ in false },
+            offerHelperSetup: { controlPath, remote, home, helperPath, _, authorityIsCurrent in
+                setupOffers += 1
+                #expect(controlPath.contains("%C"))
+                #expect(remote == fixture.pane.executionPlan.remoteTarget)
+                #expect(home == "/home/alice")
+                #expect(helperPath == "/home/alice/.awesomux/bin/awesomux-bridge-helper")
+                #expect(authorityIsCurrent())
+                return true
+            },
+            attach: { _, request in await fixture.preflight.attach(request) }
+        )
+
+        fixture.view.createSurfaceIfNeeded()
+        await fixture.preflight.waitForRequestCount(1)
+        await fixture.preflight.resumeRequest(0, returning: .degraded(.admissionRejected))
+        await fixture.surfaceCommands.waitForCount(1)
+
+        #expect(setupOffers == 1)
         #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
     }
 

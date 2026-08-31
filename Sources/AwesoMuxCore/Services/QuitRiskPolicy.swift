@@ -52,6 +52,29 @@ public struct QuitRiskDecision: Sendable, Hashable {
 /// OSC-133 away-from-prompt corroborates; agent-execution freshness is the
 /// fallback when no live foreground is sampled. Testable without SwiftUI.
 public enum QuitRiskPolicy {
+    /// Destructive-close decision for a local-amx SSH pane when a fresh helper
+    /// sample exists. Remote evidence replaces the misleading local `ssh`
+    /// process tree and OSC-133 state; fresh agent activity remains additive.
+    public static func remoteCloseDecision(
+        _ inputs: QuitRiskInputs,
+        remoteLiveness: RemoteForegroundLiveness,
+        at now: Date
+    ) -> QuitRiskDecision {
+        switch remoteLiveness {
+        case .busyShell:
+            return .risk(.backgroundJob)
+        case .liveCommand:
+            return .risk(inputs.agentKind == .shell ? .liveForegroundProcess : .liveAgentProcess)
+        case .indeterminate, .sessionNotFound:
+            return .risk(.indeterminate)
+        case .idleShell:
+            if isFreshAgentExecution(inputs, at: now) {
+                return .risk(.activeAgentExecution)
+            }
+            return .safe(.shellAtPrompt)
+        }
+    }
+
     public static func decision(_ inputs: QuitRiskInputs, at now: Date) -> QuitRiskDecision {
         // Authoritative-safe: bridged work survives quit; an exited child is gone.
         switch inputs.liveness {

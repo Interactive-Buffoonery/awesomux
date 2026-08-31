@@ -11,8 +11,17 @@ KEYDIR="$(mktemp -d)"
 SSH_OPTS=(-p "$PORT" -i "$KEYDIR/id" -o StrictHostKeyChecking=no \
   -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
 SSH=(ssh "${SSH_OPTS[@]}" handoff@127.0.0.1)
+SSH_TTY=(ssh -tt "${SSH_OPTS[@]}" handoff@127.0.0.1)
+LIVENESS_SSH_PID=""
 
-cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -rf "$KEYDIR"; }
+cleanup() {
+  if [[ -n "$LIVENESS_SSH_PID" ]]; then
+    kill "$LIVENESS_SSH_PID" >/dev/null 2>&1 || true
+    wait "$LIVENESS_SSH_PID" >/dev/null 2>&1 || true
+  fi
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  rm -rf "$KEYDIR"
+}
 trap cleanup EXIT
 
 fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
@@ -37,14 +46,34 @@ done
 # --- manual install, per docs/remote-linux-helper.md ----------------------
 # Piped over ssh rather than scp: scp's -p means preserve-times (its port
 # flag is -P), so reusing SSH_OPTS with scp silently targets port 22.
-"${SSH[@]}" 'install -d -m 700 ~/.awesomux && install -d -m 755 ~/.awesomux/bin'
+"${SSH[@]}" 'install -d -m 700 ~/.awesomux && install -d -m 700 ~/.awesomux/bin'
 "${SSH[@]}" 'cat > ~/.awesomux/bin/awesomux-bridge-helper' < "$HELPER"
 "${SSH[@]}" 'chmod 755 ~/.awesomux/bin/awesomux-bridge-helper'
 
-# --- acceptance: --version advertises both protocols ----------------------
+# --- acceptance: --version advertises each independent protocol -----------
 VERSION_OUT="$("${SSH[@]}" '~/.awesomux/bin/awesomux-bridge-helper --version')"
-[[ "$VERSION_OUT" == $'awesomux-bridge-v1\nawesomux-handoff-v1' ]] \
+[[ "$VERSION_OUT" == $'awesomux-bridge-v1\nawesomux-handoff-v1\nawesomux-liveness-v1' ]] \
   || fail "unexpected --version output: $VERSION_OUT"
+
+# --- acceptance: live /proc liveness classification ----------------------
+LIVENESS_SID="2b3c4d5e-0000-4000-8000-000000000003"
+(sleep 30) | "${SSH_TTY[@]}" \
+  "AWESOMUX_BRIDGE_SESSION=$LIVENESS_SID exec bash --noprofile --norc" \
+  >/dev/null 2>&1 &
+LIVENESS_SSH_PID=$!
+LIVENESS_STATE=""
+for _ in $(seq 1 30); do
+  LIVENESS_REPORT="$("${SSH[@]}" \
+    "~/.awesomux/bin/awesomux-bridge-helper foreground-liveness --session $LIVENESS_SID")"
+  LIVENESS_STATE="$(printf '%s' "$LIVENESS_REPORT" | jq -r .state)"
+  [[ "$LIVENESS_STATE" == "idle-shell" ]] && break
+  sleep 1
+done
+[[ "$LIVENESS_STATE" == "idle-shell" ]] \
+  || fail "live marked shell classified as $LIVENESS_STATE"
+kill "$LIVENESS_SSH_PID" >/dev/null 2>&1 || true
+wait "$LIVENESS_SSH_PID" >/dev/null 2>&1 || true
+LIVENESS_SSH_PID=""
 
 # --- acceptance: successful handoff ---------------------------------------
 SID="0f0e6c56-9d1f-4c7e-9b1a-3d6f2a54e7c1"

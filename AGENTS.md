@@ -134,7 +134,9 @@ Unresolved choices until they land in code or an ADR.
 - Run the app with `./script/build_and_run.sh`.
 - Run the complete test suite with `./script/test.sh all`. Use
   `./script/swift-test.sh --filter ...` only for focused selections.
-- Before opening a non-docs PR, run `./script/preflight.sh`.
+- Before opening a non-docs PR, run `./script/preflight.sh`. Run it directly and
+  read its own exit code — never `preflight.sh | tail` or a trailing `echo`,
+  which report the last command's status instead and turn a red preflight green.
 - First Ghostty builds need the `vendor/ghostty` submodule and a compatible Zig
   toolchain. Let the Ghostty scripts own how that build is staged.
 - Local builds stay ad-hoc signed. Public macOS distribution follows ADR-0019

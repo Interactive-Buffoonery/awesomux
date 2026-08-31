@@ -6,6 +6,11 @@ const sessionHookNames = {
     "session.error": "StopFailure",
 }
 
+const permissionEventNames = {
+    "permission.asked": "PermissionRequest",
+    "permission.replied": "PermissionReplied",
+}
+
 async function emitAwesoMuxHook($, hookEventName, sessionID) {
     if (!hookEventName || typeof $ !== "function") {
         return
@@ -52,6 +57,14 @@ export const AwesoMuxOpenCodeStatus = async ({ $ }) => {
     return {
         event: async ({ event }) => {
             const info = event?.properties?.info
+            if (permissionEventNames[event?.type]) {
+                const sessionID = event?.properties?.sessionID
+                if (typeof sessionID !== "string" || !rootSessionIDs.has(sessionID)) {
+                    return
+                }
+                await emitAwesoMuxHook($, permissionEventNames[event.type], sessionID)
+                return
+            }
             if (event?.type === "session.created") {
                 if (typeof info?.id !== "string") {
                     return

@@ -33,6 +33,7 @@ final class BridgeGenerationRegistry {
     struct Generation: Sendable {
         let controlPath: String
         let remote: RemoteTarget
+        let helperPath: String?
         /// The exact per-attach channel. Its `remoteSocketPath` is byte-for-byte
         /// the value the ledger committed for this generation (both come from the
         /// same mint), and `localSocketPath` — which the ledger does not store —
@@ -51,10 +52,12 @@ final class BridgeGenerationRegistry {
             remote: RemoteTarget,
             channel: BridgeChannel,
             shutdown: @escaping @Sendable () async -> Void,
-            terminationBarrier: BridgePreflightTerminationBarrier? = nil
+            terminationBarrier: BridgePreflightTerminationBarrier? = nil,
+            helperPath: String? = nil
         ) {
             self.controlPath = controlPath
             self.remote = remote
+            self.helperPath = helperPath
             self.channel = channel
             self.shutdown = shutdown
             self.terminationBarrier = terminationBarrier
@@ -154,6 +157,25 @@ final class BridgeGenerationRegistry {
     /// `BridgeSocketLedger.forget(_:ifMatches:)`.
     func currentToken(for session: TerminalSessionID) -> String? {
         generations[session]?.channel.token
+    }
+
+    struct ProbeContext: Sendable {
+        let generation: String
+        let controlPath: String
+        let remote: RemoteTarget
+        let helperPath: String
+    }
+
+    func probeContext(for session: TerminalSessionID) -> ProbeContext? {
+        guard let generation = generations[session], let helperPath = generation.helperPath else {
+            return nil
+        }
+        return ProbeContext(
+            generation: generation.channel.token,
+            controlPath: generation.controlPath,
+            remote: generation.remote,
+            helperPath: helperPath
+        )
     }
 
     /// Atomically moves and returns the currently registered generation so a

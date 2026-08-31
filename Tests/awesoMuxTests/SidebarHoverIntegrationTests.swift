@@ -307,10 +307,16 @@ struct SidebarHoverIntegrationTests {
         let sidebar = try String(
             contentsOf: root.appendingPathComponent("Sources/awesoMux/Views/SidebarView.swift"),
             encoding: .utf8)
+        let emptyAction = try #require(
+            sidebar.split(separator: "private struct CollapsedEmptySidebarAction", maxSplits: 1)
+                .last?.split(separator: "struct SidebarActivityInvalidationKey", maxSplits: 1)
+                .first)
 
-        #expect(sidebar.contains("@FocusState private var isCollapsedEmptyActionFocused"))
-        #expect(sidebar.contains("focused: $isCollapsedEmptyActionFocused"))
-        #expect(sidebar.contains("isCollapsedEmptyActionFocused = true"))
+        #expect(sidebar.contains("focusRequestID: emptyFocusRequestID"))
+        #expect(emptyAction.contains("SidebarNewWorkspaceFocusTarget("))
+        #expect(emptyAction.contains("focusRequestID: focusRequestID"))
+        #expect(emptyAction.contains("focusIsActive: true"))
+        #expect(emptyAction.contains("onActivate: onNewWorkspace"))
     }
 
     @Test("empty detail focus rejects a missing or hidden AppKit target")

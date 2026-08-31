@@ -18,6 +18,70 @@ struct BridgeHelperCommandTests {
         #expect(lines == BridgeHelperCommand.supportedProtocols)
         #expect(lines.contains("awesomux-bridge-v1"))
         #expect(lines.contains("awesomux-handoff-v1"))
+        #expect(lines.contains("awesomux-liveness-v1"))
+    }
+
+    @Test("foreground-liveness validates arguments and writes one bounded JSON object")
+    func foregroundLivenessSuccess() throws {
+        var probedSession: String?
+        var lines: [String] = []
+        let status = BridgeHelperCommand.run(
+            arguments: ["foreground-liveness", "--session", "session-1"],
+            probeLiveness: { session in
+                probedSession = session
+                return .init(state: .idleShell, comm: "zsh", hasChildren: false)
+            },
+            output: { lines.append($0) },
+            errorOutput: { _ in Issue.record("unexpected stderr write") }
+        )
+        #expect(status == 0)
+        #expect(probedSession == "session-1")
+        #expect(lines.count == 1)
+        let line = try #require(lines.first)
+        #expect(line.utf8.count <= RemoteForegroundLivenessReport.maximumEncodedByteCount)
+        let report = try JSONDecoder().decode(
+            RemoteForegroundLivenessReport.self,
+            from: Data(line.utf8)
+        )
+        #expect(report == .init(state: .idleShell, comm: "zsh", hasChildren: false))
+    }
+
+    @Test(
+        "foreground-liveness rejects malformed arguments",
+        arguments: [
+            ["foreground-liveness"],
+            ["foreground-liveness", "--session", "Session-1"],
+            ["foreground-liveness", "--sessions", "session-1"],
+            ["foreground-liveness", "--session", "session-1", "extra"],
+        ]
+    )
+    func foregroundLivenessRejectsArguments(arguments: [String]) {
+        var errors: [String] = []
+        let status = BridgeHelperCommand.run(
+            arguments: arguments,
+            probeLiveness: { _ in
+                Issue.record("invalid arguments must not reach probe")
+                return .init(state: .gone)
+            },
+            output: { _ in Issue.record("unexpected stdout write") },
+            errorOutput: { errors.append($0) }
+        )
+        #expect(status == 64)
+        #expect(errors == ["awesoMuxBridgeHelper: invalid liveness arguments"])
+    }
+
+    @Test("foreground-liveness probe failure writes only stderr")
+    func foregroundLivenessFailure() {
+        struct ProbeFailure: Error {}
+        var errors: [String] = []
+        let status = BridgeHelperCommand.run(
+            arguments: ["foreground-liveness", "--session", "session-1"],
+            probeLiveness: { _ in throw ProbeFailure() },
+            output: { _ in Issue.record("unexpected stdout write") },
+            errorOutput: { errors.append($0) }
+        )
+        #expect(status == 1)
+        #expect(errors == ["awesoMuxBridgeHelper: liveness probe failed"])
     }
 
     @Test
