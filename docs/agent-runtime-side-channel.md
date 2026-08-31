@@ -47,7 +47,7 @@ Payload fields:
 | `title` | No | Pane title for a `phase=rename` event. A non-empty value pins the pane's title; an empty string resets it to the live terminal title; an absent `title` on a rename event is dropped. Only consumed for `phase=rename`. |
 | `documentPath` | No | Absolute local Markdown path for a `phase=open-document` event. Only `.md` and `.markdown` paths are accepted. Relative paths, paths containing NUL, and events over the 4 KB line cap are dropped. |
 | `touchedPath` | No | Absolute local Markdown file a Claude Code tool just wrote/edited, forwarded so it can be recorded into the pane's recent links (issue #175). Retained only on a `source=claude-code`, `phase=toolEnd` event; the parser strips it on any other source or phase, and on relative, non-Markdown, NUL-bearing, or bidi/RTL-scalar paths. Unlike `documentPath` it does not open a pane — it records a link the user can open from the palette. |
-| `eventID` | No | Adapter-defined identifier, paired with `timestamp` for dedupe |
+| `eventID` | No | Adapter-defined identifier, paired with `timestamp` for dedupe. Bundled hooks use the provider's tool-use id for tool-related events so starts, permission prompts, and ends can be correlated. |
 | `providerSessionID` | No | Validated provider-native session id used to distinguish lifecycle events and identify the active provider session |
 | `timestamp` | No | ISO-8601 string or numeric Unix seconds (integer or float). Helper-generated timestamps are numeric Unix seconds with fractional precision; consumers should not require nanosecond precision. |
 
