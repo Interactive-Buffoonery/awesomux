@@ -442,6 +442,6 @@ extension GhosttyRuntime {
             ),
             for: session
         )
-        clearRemoteLivenessSnapshot(for: session)
+        setRemoteLivenessGeneration(channel.token, for: session)
     }
 }

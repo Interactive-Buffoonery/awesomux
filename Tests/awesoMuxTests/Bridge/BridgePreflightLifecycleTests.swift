@@ -298,6 +298,11 @@ struct BridgePreflightLifecycleTests {
                 .layout.pane(id: fixture.pane.id)?
                 .remoteForegroundLivenessSnapshot == nil
         )
+        #expect(
+            fixture.store.session(id: fixture.session.id)?
+                .layout.pane(id: fixture.pane.id)?
+                .remoteConnectionGeneration == "generation-2"
+        )
     }
 
     @Test("ready acknowledgment cannot replay an old command after repoint")

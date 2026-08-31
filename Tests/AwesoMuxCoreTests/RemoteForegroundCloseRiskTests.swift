@@ -80,6 +80,7 @@ struct RemoteForegroundCloseRiskTests {
             executionPlan: .ssh(SSHExecution(target: target))
         )
         pane.remoteForegroundLivenessSnapshot = snapshot(for: pane, now: now, liveness: liveness)
+        pane.remoteConnectionGeneration = "generation"
         return pane
     }
 

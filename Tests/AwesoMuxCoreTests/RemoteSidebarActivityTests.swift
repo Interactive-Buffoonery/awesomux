@@ -44,6 +44,16 @@ struct RemoteSidebarActivityTests {
         #expect(disconnected.effectiveChromeState == .idle)
     }
 
+    @Test("fresh evidence from an old connection generation falls back")
+    func oldGenerationEvidenceFallsBack() throws {
+        var pane = try remotePane(liveness: .idleShell, sampledAt: Date())
+        pane.remoteConnectionGeneration = "generation-2"
+        pane.shellActivity = .busy
+
+        #expect(pane.freshRemoteForegroundLiveness() == nil)
+        #expect(pane.effectiveChromeState == .running)
+    }
+
     @Test("local shell activity remains unchanged")
     func localShellIsUnchanged() {
         var pane = TerminalPane(
@@ -96,6 +106,7 @@ struct RemoteSidebarActivityTests {
             liveness: liveness,
             sampledAt: sampledAt
         )
+        pane.remoteConnectionGeneration = "generation"
         return pane
     }
 }
