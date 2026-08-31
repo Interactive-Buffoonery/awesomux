@@ -67,9 +67,13 @@ session-log probe before writing to the terminal.
 
 ## Amendment (#494, 2026-08-28): the ingress repeats, and so does the cache write
 
-A mounted transcript tab re-renders itself as its session appends. The ingress
-above is therefore a repeating one rather than a single resolve, validate,
-render pass, and the decision holds per refresh rather than per open.
+A mounted JSONL transcript tab re-renders itself as its session appends. The
+ingress above is therefore a repeating one rather than a single resolve,
+validate, render pass, and the decision holds per refresh rather than per open.
+This repeating ingress currently covers Claude Code, Codex, and Pi. OpenCode's
+SQLite-backed transcript remains the point-in-time snapshot opened by the user;
+it must not enter the JSONL file-watcher loop and needs a database/WAL-specific
+refresh adapter before it can join this amendment's live-refresh contract.
 
 **Every refresh re-validates.** A refresh is a fresh `SecureFileReader.open`,
 not a second read on the descriptor the first open returned. The mechanism

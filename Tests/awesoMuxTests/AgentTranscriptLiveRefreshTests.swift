@@ -17,6 +17,16 @@ private let renderedCacheURL = URL(fileURLWithPath: "/tmp/awesomux-test-cache.tr
 @MainActor
 @Suite("Agent transcript live refresh")
 struct AgentTranscriptLiveRefreshTests {
+    @Test("only JSONL transcript adapters support live refresh")
+    func supportedProviders() {
+        for provider: AgentKind in [.claudeCode, .codex, .pi] {
+            #expect(AgentTranscriptLiveRefresh.supports(agentKind: provider))
+        }
+        for unsupported: AgentKind in [.openCode, .grok, .shell] {
+            #expect(!AgentTranscriptLiveRefresh.supports(agentKind: unsupported))
+        }
+    }
+
     private static let sessionID = "9f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d"
 
     // MARK: - Fixtures
@@ -237,6 +247,7 @@ struct AgentTranscriptLiveRefreshTests {
             .unavailable(.invalidSessionID),
             .unavailable(.noSessionIdentity),
             .unavailable(.searchLimitReached),
+            .unavailable(.databaseUnavailable),
         ]
         for failure in rediscover {
             #expect(

@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import Foundation
 
@@ -81,6 +82,21 @@ private final class AgentTranscriptWatcherTeardown {
 @MainActor
 final class AgentTranscriptLiveRefresh {
 
+    /// Whether this loop can follow the provider's transcript representation.
+    ///
+    /// This loop reopens one securely resolved JSONL file and watches its
+    /// provider hierarchy. OpenCode is a supported transcript provider, but its
+    /// transcript is a SQLite snapshot and needs a separate database/WAL refresh
+    /// adapter rather than being routed through this file-based loop.
+    static func supports(agentKind: AgentKind) -> Bool {
+        switch agentKind {
+        case .claudeCode, .codex, .pi:
+            return true
+        case .openCode, .grok, .shell:
+            return false
+        }
+    }
+
     // MARK: Seams
 
     /// Full discovery, reporting its typed failure rather than an erased `nil`.
@@ -142,7 +158,7 @@ final class AgentTranscriptLiveRefresh {
                 // fails the same way every time.
                 return .giveUp
             case .remoteExecution, .unsupportedAgent, .invalidSessionID, .noSessionIdentity,
-                .searchLimitReached:
+                .searchLimitReached, .databaseUnavailable:
                 return .giveUp
             }
         }

@@ -503,9 +503,15 @@ struct DocumentGroupView: View {
     }
 
     /// Nil `identity` for every non-transcript tab, which is what makes the
-    /// task above a no-op for them.
+    /// task above a no-op for them. OpenCode is also nil here: its transcript
+    /// comes from SQLite, while `AgentTranscriptLiveRefresh` follows one JSONL
+    /// file and cannot safely refresh a database snapshot.
     private var transcriptRefreshTaskID: TranscriptRefreshTaskID {
-        let identity = document.agentTranscriptIdentity
+        let identity = document.agentTranscriptIdentity.flatMap { identity in
+            AgentTranscriptLiveRefresh.supports(agentKind: identity.agentKind)
+                ? identity
+                : nil
+        }
         let configHome = identity.flatMap { identity in
             AgentConfigHome.url(
                 for: identity.agentKind,
