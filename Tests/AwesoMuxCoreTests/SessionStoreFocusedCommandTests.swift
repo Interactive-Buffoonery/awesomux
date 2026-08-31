@@ -255,8 +255,8 @@ struct SessionStoreFocusedCommandTests {
         #expect(store.session(id: session.id)?.needsUserInput == true)
     }
 
-    @Test("markNeedsAttentionPromptAnswered no-ops outside needs attention")
-    func markNeedsAttentionPromptAnsweredNoopsOutsideNeedsAttention() {
+    @Test("markNeedsAttentionPromptAnswered preserves visible state outside needs attention")
+    func markNeedsAttentionPromptAnsweredPreservesVisibleStateOutsideNeedsAttention() {
         let session = TerminalSession(
             title: "codex",
             workingDirectory: "~",
