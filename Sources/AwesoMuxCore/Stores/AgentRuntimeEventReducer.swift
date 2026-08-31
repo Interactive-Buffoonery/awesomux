@@ -599,6 +599,24 @@ struct AgentRuntimeEventReducer: Sendable {
             && (normalizedProviderSessionID(event.providerSessionID).map {
                 $0 == state.providerSessionID
             } ?? true)
+        // A permission gate blocks until the user answers; the first plain tool
+        // start afterward proves the prompt was resolved even when the answer
+        // went through the agent TUI (mouse click) instead of awesoMux's
+        // keystroke path. A tool start that carries its own attention reason is
+        // a new blocking claim, not a retraction. Scoped to `.permissionPrompt`
+        // only — `.userInputRequired` can still be live while background tool
+        // phases run (issue #404).
+        //
+        // Provider session IDs reject identifiable child sessions. Same-session
+        // background producers remain indistinguishable on the v1 wire format,
+        // so they retain the accepted false-clear window documented above.
+        let resolvesPendingPermissionPrompt =
+            event.phase == .toolStart
+            && eventAttentionReason == nil
+            && currentPane.attentionReason == .permissionPrompt
+            && (normalizedProviderSessionID(event.providerSessionID).map { eventID in
+                state.providerSessionID.map { $0 == eventID } ?? true
+            } ?? true)
 
         let resolvedKind: AgentKind?
         if state.lifecycle.isEnded {
@@ -666,9 +684,16 @@ struct AgentRuntimeEventReducer: Sendable {
                 agentKindIsRuntimeEstablished: resolvedKind != nil ? true : nil,
                 agentExecutionState: eventExecutionState,
                 attentionReason: eventAttentionReason,
-                clearsAttention: clearsAttention || answersPendingNotifications,
-                attentionClearIsAuthoritative: answersPendingNotifications,
-                clearsUnreadNotifications: answersPendingNotifications,
+                clearsAttention:
+                    clearsAttention
+                    || answersPendingNotifications
+                    || resolvesPendingPermissionPrompt,
+                attentionClearIsAuthoritative:
+                    answersPendingNotifications
+                    || resolvesPendingPermissionPrompt,
+                clearsUnreadNotifications:
+                    answersPendingNotifications
+                    || resolvesPendingPermissionPrompt,
                 unreadNotificationDelta: unreadDelta
             ),
             recentLinkAction: recentLinkAction)
