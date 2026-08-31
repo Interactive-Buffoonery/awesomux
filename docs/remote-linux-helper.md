@@ -14,6 +14,9 @@ The helper only works in a managed SSH workspace. It doesn't work when you type
 **Remote session name**, because that session connects straight to `amx` or
 `zmx` on the Linux host.
 
+See [Remote session persistence](remote-session-persistence.md) to install that
+backend and recover a named session. It is separate from this helper.
+
 ## Install the helper
 
 1. Use **Connect via SSH** to start a new connection. To convert an open SSH
