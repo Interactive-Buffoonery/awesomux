@@ -1126,7 +1126,7 @@
 
     },
     "Copy" : {
-
+      "comment" : "Terminal context menu item that copies the selection"
     },
     "Copy Branch" : {
 
@@ -2572,6 +2572,9 @@
     "Parent folder" : {
 
     },
+    "Paste" : {
+      "comment" : "Terminal context menu item that pastes the clipboard into the terminal"
+    },
     "Paste Anyway" : {
       "comment" : "Button on the unsafe-paste confirmation dialog. Allows the paste."
     },
@@ -3429,6 +3432,9 @@
     "Search Markdown files" : {
 
     },
+    "Search Selection" : {
+      "comment" : "Terminal context menu item that searches the terminal for the current selection"
+    },
     "Search sessions" : {
 
     },
@@ -3440,6 +3446,9 @@
     },
     "Security warning: %arg" : {
       "comment" : "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
+    },
+    "Select All" : {
+      "comment" : "Terminal context menu item that selects the whole terminal buffer"
     },
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
@@ -3708,6 +3717,9 @@
     },
     "Terminal" : {
       "comment" : "Diagnostics event category"
+    },
+    "Terminal Actions" : {
+      "comment" : "Title of the terminal surface right-click context menu"
     },
     "Terminal Companion" : {
       "comment" : "Window title and accessibility label for the Terminal Companion."
