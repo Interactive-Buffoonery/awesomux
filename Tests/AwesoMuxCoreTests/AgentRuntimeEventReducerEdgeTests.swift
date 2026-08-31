@@ -337,6 +337,41 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.needsUserInput == false)
     }
 
+    @Test("tool start clears a restored permission prompt before the session latch rebuilds")
+    func toolStartClearsRestoredPermissionPromptWithoutSessionLatch() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+        var reducer = AgentRuntimeEventReducer()
+
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "tool-start-after-restore",
+                providerSessionID: "restored-session",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let decision = try #require(result)
+        #expect(decision.update.attentionClearIsAuthoritative)
+        #expect(decision.update.clearsUnreadNotifications)
+    }
+
     @Test("tool start carrying attention preserves the blocking prompt")
     func toolStartCarryingAttentionPreservesBlockingPrompt() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)

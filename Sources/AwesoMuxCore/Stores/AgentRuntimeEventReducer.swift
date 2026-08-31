@@ -614,8 +614,8 @@ struct AgentRuntimeEventReducer: Sendable {
             event.phase == .toolStart
             && eventAttentionReason == nil
             && currentPane.attentionReason == .permissionPrompt
-            && (normalizedProviderSessionID(event.providerSessionID).map {
-                $0 == state.providerSessionID
+            && (normalizedProviderSessionID(event.providerSessionID).map { eventID in
+                state.providerSessionID.map { $0 == eventID } ?? true
             } ?? true)
 
         let resolvedKind: AgentKind?
