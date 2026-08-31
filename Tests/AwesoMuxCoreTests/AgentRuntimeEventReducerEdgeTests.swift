@@ -471,6 +471,111 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.unreadNotificationCount == 1)
     }
 
+    @Test("permission replied authoritatively clears a pending permission prompt")
+    func permissionRepliedAuthoritativelyClearsPendingPermissionPrompt() throws {
+        var session = TerminalSession(title: "opencode", workingDirectory: "~", agentKind: .openCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+        var reducer = AgentRuntimeEventReducer()
+
+        let repliedResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                phase: .permissionReplied,
+                eventID: "permission-replied",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let replied = try #require(repliedResult)
+        #expect(replied.update.attentionClearIsAuthoritative)
+        #expect(replied.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: replied.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == nil)
+        #expect(session.unreadNotificationCount == 0)
+    }
+
+    @Test("permission reply from another provider session preserves the pending prompt")
+    func permissionRepliedFromAnotherSessionPreservesPendingPrompt() throws {
+        var session = TerminalSession(title: "opencode", workingDirectory: "~", agentKind: .openCode)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+        _ = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                executionState: .thinking,
+                phase: .sessionStart,
+                eventID: "parent-session-start",
+                providerSessionID: "parent",
+                timestamp: Date(timeIntervalSince1970: 2)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                phase: .permissionReplied,
+                eventID: "child-permission-replied",
+                providerSessionID: "child",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let decision = try #require(result)
+        #expect(!decision.update.attentionClearIsAuthoritative)
+        #expect(!decision.update.clearsUnreadNotifications)
+
+        let toolStart = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "parent-tool-start",
+                providerSessionID: "parent",
+                timestamp: Date(timeIntervalSince1970: 3.999_999)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let toolStartDecision = try #require(toolStart)
+        #expect(toolStartDecision.update.attentionClearIsAuthoritative)
+        #expect(toolStartDecision.update.clearsUnreadNotifications)
+    }
+
     @Test("tool start does not clear a pending user-input-required reason")
     func toolStartDoesNotClearPendingUserInputRequired() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)

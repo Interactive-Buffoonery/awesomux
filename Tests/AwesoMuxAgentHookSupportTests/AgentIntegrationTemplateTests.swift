@@ -54,6 +54,8 @@ struct AgentIntegrationTemplateTests {
                 "missing ID lifecycle",
                 "out-of-order child lifecycle",
                 "child lifecycle after tracking pressure",
+                "root permission bus events",
+                "child permission bus events",
             ])
 
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-opencode-routing")
@@ -85,15 +87,18 @@ struct AgentIntegrationTemplateTests {
     }
 
     @Test
-    func openCodeTemplateAvoidsInvalidOpenCodeHookKeys() throws {
+    func openCodeTemplateSeparatesPermissionBusEventsFromPluginHookKeys() throws {
         let template = try Self.contents(
             of: "Resources/AgentIntegrations/open_code/awesomux-opencode-status.js.template"
         )
 
-        // `permission.asked` is an event-bus type, not a plugin hook key, and
-        // `session.status` is a state snapshot rather than a turn-start signal.
-        // Neither should ever reappear in the template.
-        #expect(!template.contains("permission.asked"))
+        // `permission.asked` / `permission.replied` are event-bus types, not plugin
+        // hook keys, and `session.status` is a state snapshot rather than a
+        // turn-start signal. Neither should ever reappear as hook keys.
+        #expect(!template.contains("\"permission.asked\": async"))
+        #expect(!template.contains("\"permission.replied\": async"))
+        #expect(template.contains("\"permission.asked\": \"PermissionRequest\""))
+        #expect(template.contains("\"permission.replied\": \"PermissionReplied\""))
         #expect(!template.contains("session.status"))
     }
 
@@ -285,6 +290,7 @@ struct AgentIntegrationTemplateTests {
         const fixtures = JSON.parse(readFileSync(process.argv[2], "utf8"))
         const outputs = []
         const lifecycleEventTypes = new Set(["session.created", "session.idle", "session.error"])
+        const permissionEventTypes = new Set(["permission.asked", "permission.replied"])
 
         for (const fixture of fixtures) {
             if (!Array.isArray(fixture.steps) || fixture.steps.length === 0) {
@@ -328,18 +334,24 @@ struct AgentIntegrationTemplateTests {
                         throw new Error(`routing fixture ${fixture.name} has unknown event fields`)
                     }
                     if (!lifecycleEventTypes.has(step.input?.type)
+                        && !permissionEventTypes.has(step.input?.type)
                         || typeof step.input.properties !== "object"
                         || step.input.properties === null
                         || Array.isArray(step.input.properties)) {
                         throw new Error(`routing fixture ${fixture.name} has an invalid lifecycle event`)
                     }
-                    const sessionID = step.input.properties.info?.id ?? step.input.properties.sessionID
+                    const sessionID = step.input.properties.info?.id
+                        ?? step.input.properties.sessionID
                     if (step.allowMissingSessionID !== true && typeof sessionID !== "string") {
                         throw new Error(`routing fixture ${fixture.name} has a lifecycle event without an ID`)
                     }
                     if (step.allowMissingSessionID === true
                         && (step.input.type === "session.created" || sessionID !== undefined)) {
                         throw new Error(`routing fixture ${fixture.name} expected a missing lifecycle ID`)
+                    }
+                    if (permissionEventTypes.has(step.input.type)
+                        && typeof step.input.properties.sessionID !== "string") {
+                        throw new Error(`routing fixture ${fixture.name} has a permission event without sessionID`)
                     }
                     await handlers.event({ event: step.input })
                     continue
