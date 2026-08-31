@@ -55,6 +55,7 @@ struct AgentIntegrationTemplateTests {
                 "out-of-order child lifecycle",
                 "child lifecycle after tracking pressure",
                 "root permission bus events",
+                "child permission bus events",
             ])
 
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-opencode-routing")

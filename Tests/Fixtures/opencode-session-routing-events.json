@@ -241,5 +241,57 @@
         "session_id": "root-session"
       }
     ]
+  },
+  {
+    "name": "child permission bus events",
+    "steps": [
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.created",
+          "properties": {
+            "info": {
+              "id": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "session.created",
+          "properties": {
+            "info": {
+              "id": "child-session",
+              "parentID": "root-session"
+            }
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "permission.asked",
+          "properties": {
+            "sessionID": "child-session"
+          }
+        }
+      },
+      {
+        "handler": "event",
+        "input": {
+          "type": "permission.replied",
+          "properties": {
+            "sessionID": "child-session"
+          }
+        }
+      }
+    ],
+    "expected": [
+      {
+        "hook_event_name": "SessionStart",
+        "session_id": "root-session"
+      }
+    ]
   }
 ]

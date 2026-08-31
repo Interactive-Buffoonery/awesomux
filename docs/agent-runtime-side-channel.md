@@ -43,7 +43,7 @@ Payload fields:
 | `execution` | No | Existing `AgentExecutionState` raw values, such as `thinking` or `waiting` |
 | `attentionReason` | No | Existing `AttentionReason` raw values, such as `permissionPrompt` or `userInputRequired` |
 | `state` | No | Existing `AgentState` raw values, such as `thinking` or `waiting` |
-| `phase` | No | `sessionStart`, `promptSubmit`, `toolStart`, `toolEnd`, `notification`, `stop`, `sessionEnd`, `rename`, `open-document` |
+| `phase` | No | `sessionStart`, `promptSubmit`, `toolStart`, `toolEnd`, `notification`, `permission-replied`, `stop`, `sessionEnd`, `rename`, `open-document` |
 | `title` | No | Pane title for a `phase=rename` event. A non-empty value pins the pane's title; an empty string resets it to the live terminal title; an absent `title` on a rename event is dropped. Only consumed for `phase=rename`. |
 | `documentPath` | No | Absolute local Markdown path for a `phase=open-document` event. Only `.md` and `.markdown` paths are accepted. Relative paths, paths containing NUL, and events over the 4 KB line cap are dropped. |
 | `touchedPath` | No | Absolute local Markdown file a Claude Code tool just wrote/edited, forwarded so it can be recorded into the pane's recent links (issue #175). Retained only on a `source=claude-code`, `phase=toolEnd` event; the parser strips it on any other source or phase, and on relative, non-Markdown, NUL-bearing, or bidi/RTL-scalar paths. Unlike `documentPath` it does not open a pane — it records a link the user can open from the palette. |
