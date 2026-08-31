@@ -574,7 +574,7 @@ struct AgentRuntimeEventReducer: Sendable {
         } else {
             effectiveAttentionReason = eventAttentionReason
         }
-        if effectiveAttentionReason == .permissionPrompt {
+        if eventAttentionReason == .permissionPrompt {
             state.lastPermissionAnswerAttemptAt = nil
         }
         // Legacy `state` was a full display-state replacement, so an execution

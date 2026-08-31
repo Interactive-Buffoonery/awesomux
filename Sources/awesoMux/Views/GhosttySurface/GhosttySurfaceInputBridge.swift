@@ -663,6 +663,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_RIGHT, event: event)
+        markNeedsAttentionPromptAnswered()
     }
 
     override func rightMouseUp(with event: NSEvent) {
@@ -676,6 +677,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_RIGHT, event: event)
+        markNeedsAttentionPromptAnswered()
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -696,6 +698,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             button: GhosttyInputMapper.mouseButton(event.buttonNumber),
             event: event
         )
+        markNeedsAttentionPromptAnswered()
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -713,6 +716,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             button: GhosttyInputMapper.mouseButton(event.buttonNumber),
             event: event
         )
+        markNeedsAttentionPromptAnswered()
     }
 
     // A held button always produces `mouseDragged`/`rightMouseDragged`/

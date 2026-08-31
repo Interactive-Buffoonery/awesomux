@@ -648,6 +648,23 @@ struct AgentRuntimeEventReducerEdgeTests {
         )
         #expect(session.attentionReason == nil)
         #expect(session.needsUserInput == false)
+
+        let nextPermissionResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "next-permission",
+                timestamp: Date(timeIntervalSince1970: 6.5)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 6.5)
+        )
+        let nextPermission = try #require(nextPermissionResult)
+        #expect(nextPermission.update.attentionReason == .permissionPrompt)
+        #expect(nextPermission.update.unreadNotificationDelta == 1)
     }
 
     @Test("permission request after the answer-attempt window is preserved")
