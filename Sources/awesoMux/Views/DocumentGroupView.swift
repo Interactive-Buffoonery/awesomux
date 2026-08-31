@@ -57,6 +57,15 @@ struct DocumentGroupView: View {
     // safe ONLY while no `body` ever reads it; keep reads inside event and
     // onChange closures.
     @State private var scrollAnchorCapture: (tabID: DocumentPane.ID, capture: @MainActor () -> Int?)?
+    // Live transcript refresh (#494). The gate outlives the `.task(id:)` it
+    // serves, deliberately: an activation flip or a config-home change cancels
+    // the loop while its detached render is still in flight, and the
+    // replacement loop has to be able to supersede that render rather than let
+    // it land on top of newer bytes. The pinned transcript is cached under the
+    // same id so a flip costs a re-arm and one catch-up render instead of
+    // another directory walk.
+    @State private var transcriptRenderGate = AgentTranscriptRenderGate()
+    @State private var pinnedTranscript: PinnedTranscript?
 
     // Read in this ungated body and handed to the strip by value — the strip's
     // .equatable() gate can't be trusted to pass env invalidation through.
@@ -72,6 +81,25 @@ struct DocumentGroupView: View {
     private struct RevisionAutoCollapseTaskID: Equatable {
         let generation: Int?
         let canRun: Bool
+    }
+
+    private struct TranscriptRefreshTaskID: Equatable {
+        let identity: AgentTranscriptIdentity?
+        /// The standardized path, not the URL. `config_home` is a mutable
+        /// setting and the resolver has to agree with it, so leaving it out of
+        /// the id would leave the loop watching the old root indefinitely.
+        let configHome: String?
+        let active: Bool
+    }
+
+    /// Keyed on what the pin is actually *of* — never on activation, which is
+    /// part of the task id. Keying on the whole id would discard the pin on
+    /// every window-activation flip and re-run full discovery, which is the one
+    /// thing caching it is here to avoid.
+    private struct PinnedTranscript {
+        let identity: AgentTranscriptIdentity
+        let configHome: String
+        let transcript: AgentTranscript
     }
 
     var body: some View {
@@ -442,6 +470,64 @@ struct DocumentGroupView: View {
             }
             revisionMonitor.collapse(for: document)
         }
+        // Only the selected tab of a group is ever mounted as a
+        // `DocumentGroupView` (see `TerminalPaneView`), so an unselected
+        // transcript tab never refreshes — structurally, not by a check here.
+        .task(id: transcriptRefreshTaskID) {
+            let taskID = transcriptRefreshTaskID
+            guard let identity = taskID.identity, let configHome = taskID.configHome else {
+                // A pin holds an open descriptor on the provider's log. A tab
+                // that is no longer a transcript must not keep one alive for
+                // the life of the group view.
+                pinnedTranscript = nil
+                return
+            }
+            if pinnedTranscript?.identity != identity || pinnedTranscript?.configHome != configHome {
+                pinnedTranscript = nil
+            }
+            guard taskID.active else { return }
+            await AgentTranscriptLiveRefresh(
+                identity: identity,
+                configHome: URL(fileURLWithPath: configHome, isDirectory: true),
+                gate: transcriptRenderGate,
+                pinned: pinnedTranscript?.transcript,
+                onPin: {
+                    pinnedTranscript = PinnedTranscript(
+                        identity: identity,
+                        configHome: configHome,
+                        transcript: $0
+                    )
+                }
+            ).run()
+        }
+    }
+
+    /// Nil `identity` for every non-transcript tab, which is what makes the
+    /// task above a no-op for them. OpenCode is also nil here: its transcript
+    /// comes from SQLite, while `AgentTranscriptLiveRefresh` follows one JSONL
+    /// file and cannot safely refresh a database snapshot.
+    private var transcriptRefreshTaskID: TranscriptRefreshTaskID {
+        let identity = document.agentTranscriptIdentity.flatMap { identity in
+            AgentTranscriptLiveRefresh.supports(agentKind: identity.agentKind)
+                ? identity
+                : nil
+        }
+        let configHome = identity.flatMap { identity in
+            AgentConfigHome.url(
+                for: identity.agentKind,
+                setup: AgentConfigHome.setup(
+                    for: identity.agentKind,
+                    in: appSettingsStore.agentIntegrations.value
+                )
+            )
+        }
+        return TranscriptRefreshTaskID(
+            identity: identity,
+            configHome: configHome?.standardizedFileURL.path,
+            // Without this gate a 20-minute background agent run re-renders for
+            // its whole duration behind an inactive window.
+            active: controlActiveState != .inactive
+        )
     }
 
     private var liveDocumentGroupIDs: Set<AwesoMuxCore.DocumentGroup.ID> {

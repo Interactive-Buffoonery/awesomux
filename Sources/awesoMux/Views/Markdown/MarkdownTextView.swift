@@ -33,6 +33,48 @@ final class SelectionAwareTextView: NSTextView {
     }
 }
 
+enum TextStorageSelectionPreservation {
+    static func canPreserve(
+        selection: NSRange,
+        current: NSAttributedString,
+        replacement: NSAttributedString
+    ) -> Bool {
+        guard selection.location != NSNotFound,
+            selection.length > 0,
+            NSMaxRange(selection) <= current.length,
+            NSMaxRange(selection) <= replacement.length
+        else { return false }
+
+        let currentString = current.string as NSString
+        let replacementString = replacement.string as NSString
+        let chunkCapacity = min(selection.length, 4_096)
+        var currentBuffer = [unichar](repeating: 0, count: chunkCapacity)
+        var replacementBuffer = [unichar](repeating: 0, count: chunkCapacity)
+        var comparedLength = 0
+
+        while comparedLength < selection.length {
+            let chunkLength = min(chunkCapacity, selection.length - comparedLength)
+            let range = NSRange(
+                location: selection.location + comparedLength,
+                length: chunkLength
+            )
+            currentBuffer.withUnsafeMutableBufferPointer {
+                currentString.getCharacters($0.baseAddress!, range: range)
+            }
+            replacementBuffer.withUnsafeMutableBufferPointer {
+                replacementString.getCharacters($0.baseAddress!, range: range)
+            }
+            guard
+                currentBuffer.prefix(chunkLength)
+                    .elementsEqual(replacementBuffer.prefix(chunkLength))
+            else { return false }
+            comparedLength += chunkLength
+        }
+
+        return true
+    }
+}
+
 // MARK: - MarkdownTextView
 
 /// NSViewRepresentable wrapper over a selectable, non-editable `NSTextView`
@@ -92,6 +134,18 @@ struct MarkdownTextView: NSViewRepresentable {
     /// glyph rect in text-view coords, the text view itself (for NSPopover anchoring).
     /// The parent uses this to auto-present the compose popover without a pill-click step.
     var onSelectionFinalized: ((Range<Int>, NSRect, NSTextView) -> Void)? = nil
+
+    /// Reports whether the text view has any selected characters. Unlike
+    /// `selectedSourceSpan`, this also covers selections that cross Markdown
+    /// blocks and cannot map to one annotation span, but are still valid copy
+    /// selections that a live transcript reload must not discard.
+    var onSelectionChanged: ((Bool) -> Void)? = nil
+
+    /// Transcript source updates preserve an unchanged selected substring. If
+    /// the selected characters changed, the replacement is deferred instead
+    /// of destroying the user's selection.
+    var protectsSelectionDuringSourceUpdates = false
+    var onSourceUpdateDeferred: (() -> Void)? = nil
 
     var scrollAnchorOffset: Int? = nil
 
@@ -167,6 +221,8 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = []
         textView.delegate = context.coordinator
+        context.coordinator.onSelectionChanged = onSelectionChanged
+        context.coordinator.onSourceUpdateDeferred = onSourceUpdateDeferred
 
         // Wire the mouseDown-tracking-loop callback into the coordinator.
         textView.onSelectionFinished = { [weak coordinator = context.coordinator] tv in
@@ -260,6 +316,8 @@ struct MarkdownTextView: NSViewRepresentable {
             docSourceChanged || textColorChanged || linkBaseChanged || documentLinkPolicyChanged
         let highlightChanged = context.coordinator.lastHighlightColor != highlightColor
         let hiddenChanged = context.coordinator.lastHiddenAnnotationIDs != hiddenAnnotationIDs
+        var didReplaceTextStorage = false
+        var didDeferSourceUpdate = false
         if sourceChanged {
             let attr = attributedString(for: doc)
             // Task 5: apply highlight backgrounds BEFORE setting on the text storage.
@@ -269,21 +327,48 @@ struct MarkdownTextView: NSViewRepresentable {
             let mutableAttr = NSMutableAttributedString(attributedString: attr)
             MarkdownAttributedStringBuilder.applyHighlights(
                 mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
-            textView.textStorage?.setAttributedString(mutableAttr)
-            // INT-687: a fresh storage carries no tailIndent — rewrap + resize now.
-            context.coordinator.noteStorageReplaced()
-            context.coordinator.lastSource = doc.source
-            context.coordinator.lastTextColor = textColor
-            context.coordinator.lastRelativeLinkBaseURL = relativeLinkBaseURL
-            context.coordinator.lastAllowsDocumentLinks = allowsDocumentLinks
-            context.coordinator.lastDoc = doc
-            context.coordinator.currentAttr = mutableAttr
+            let selectedRange = textView.selectedRange()
+            let canPreserveSelection = TextStorageSelectionPreservation.canPreserve(
+                selection: selectedRange,
+                current: textView.textStorage ?? NSAttributedString(),
+                replacement: mutableAttr
+            )
+            let shouldDeferSourceUpdate =
+                docSourceChanged && protectsSelectionDuringSourceUpdates
+                && selectedRange.length > 0 && !canPreserveSelection
 
-            // Task 7: source-anchored scroll — only on a real content reload, never on
-            // a textColor-only restyle (which would re-apply a stale anchor).
-            if docSourceChanged, let anchor = scrollAnchorOffset {
-                DispatchQueue.main.async {
-                    context.coordinator.scrollToSourceOffset(anchor)
+            if shouldDeferSourceUpdate {
+                didDeferSourceUpdate = true
+                context.coordinator.publishSourceUpdateDeferred()
+            } else {
+                let preservedRange =
+                    selectedRange.length > 0
+                        && (!docSourceChanged || protectsSelectionDuringSourceUpdates)
+                        && canPreserveSelection
+                    ? selectedRange : nil
+                context.coordinator.replaceTextStorage(
+                    mutableAttr,
+                    in: textView,
+                    preserving: preservedRange
+                )
+                didReplaceTextStorage = true
+                // INT-687: a fresh storage carries no tailIndent — rewrap + resize now.
+                context.coordinator.noteStorageReplaced()
+                context.coordinator.lastSource = doc.source
+                context.coordinator.lastTextColor = textColor
+                context.coordinator.lastRelativeLinkBaseURL = relativeLinkBaseURL
+                context.coordinator.lastAllowsDocumentLinks = allowsDocumentLinks
+                context.coordinator.lastDoc = doc
+                context.coordinator.currentAttr = mutableAttr
+                context.coordinator.sourceUpdateDidApply()
+                context.coordinator.publishSelectionState(in: textView)
+
+                // Task 7: source-anchored scroll — only on a real content reload, never on
+                // a textColor-only restyle (which would re-apply a stale anchor).
+                if docSourceChanged, let anchor = scrollAnchorOffset {
+                    DispatchQueue.main.async {
+                        context.coordinator.scrollToSourceOffset(anchor)
+                    }
                 }
             }
         } else if highlightChanged || hiddenChanged {
@@ -292,17 +377,28 @@ struct MarkdownTextView: NSViewRepresentable {
             if let mutableAttr = context.coordinator.currentAttr {
                 MarkdownAttributedStringBuilder.applyHighlights(
                     mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
-                textView.textStorage?.setAttributedString(mutableAttr)
+                let selectedRange = textView.selectedRange()
+                context.coordinator.replaceTextStorage(
+                    mutableAttr,
+                    in: textView,
+                    preserving: selectedRange.length > 0 ? selectedRange : nil
+                )
+                didReplaceTextStorage = true
+                context.coordinator.publishSelectionState(in: textView)
                 // INT-687: this branch replaces the storage too (currentAttr has
                 // no tailIndent baked in), so the prose would silently unwrap on
                 // a highlight/filter toggle without a fresh rewrap pass here.
                 context.coordinator.noteStorageReplaced()
             }
         }
-        context.coordinator.lastHighlightColor = highlightColor
-        context.coordinator.lastHiddenAnnotationIDs = hiddenAnnotationIDs
+        if !didDeferSourceUpdate {
+            context.coordinator.lastHighlightColor = highlightColor
+            context.coordinator.lastHiddenAnnotationIDs = hiddenAnnotationIDs
+        }
         // Fix 3: push finalization callback + mark-touch guard to coordinator every update.
         context.coordinator.onSelectionFinalized = onSelectionFinalized
+        context.coordinator.onSelectionChanged = onSelectionChanged
+        context.coordinator.onSourceUpdateDeferred = onSourceUpdateDeferred
         context.coordinator.selectionTouchesMark = selectionTouchesMark
         context.coordinator.annotationsInteractive = annotationsInteractive
         context.coordinator.onOpenDocumentLink = onOpenDocumentLink
@@ -330,7 +426,7 @@ struct MarkdownTextView: NSViewRepresentable {
             // which depends on finalized layout — if called too early it returns .zero and
             // the pill is skipped. Force a layout pass first so the pill positions are
             // correct, then dispatch an async recompute for layout that settles afterward.
-            if (sourceChanged || highlightChanged || hiddenChanged), let attr = context.coordinator.currentAttr {
+            if didReplaceTextStorage, let attr = context.coordinator.currentAttr {
                 // Guard the layout-manager unwrap: a `!` in the argument is evaluated
                 // before `?.` can short-circuit, so a TextKit-1 fallback (nil layout
                 // manager) would crash. Bind it once instead.
@@ -344,8 +440,8 @@ struct MarkdownTextView: NSViewRepresentable {
                 overlay.updateBadges(
                     attr: attr,
                     textView: textView,
-                    displayNumbers: Self.spanDisplayNumbers(in: doc),
-                    hiddenIDs: hiddenAnnotationIDs
+                    displayNumbers: Self.spanDisplayNumbers(in: context.coordinator.lastDoc),
+                    hiddenIDs: context.coordinator.lastHiddenAnnotationIDs
                 )
 
                 // Async pass: catches layout that completes after this SwiftUI update
@@ -435,6 +531,8 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
 
     // Fix 3 (INT-562): auto-present compose popover on finalized selection.
     var onSelectionFinalized: ((Range<Int>, NSRect, NSTextView) -> Void)? = nil
+    var onSelectionChanged: ((Bool) -> Void)? = nil
+    var onSourceUpdateDeferred: (() -> Void)? = nil
     var selectionTouchesMark: Bool = false
     var annotationsInteractive = true
 
@@ -452,6 +550,38 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// paragraph styles carry no `tailIndent`.
     private var lastProseWrapWidth: CGFloat? = nil
     private var geometryPassScheduled = false
+
+    private var isReplacingTextStorage = false
+    private var hasPublishedDeferredSourceUpdate = false
+    private var pendingSelectionPublication: (sourceSpan: Range<Int>?, hasSelection: Bool)? = nil
+    private var selectionPublicationScheduled = false
+    private var lastPublishedSelectionState: Bool? = nil
+
+    func replaceTextStorage(
+        _ replacement: NSAttributedString,
+        in textView: NSTextView,
+        preserving selectedRange: NSRange?
+    ) {
+        isReplacingTextStorage = true
+        textView.textStorage?.setAttributedString(replacement)
+        if let selectedRange {
+            textView.setSelectedRange(selectedRange)
+        }
+        isReplacingTextStorage = false
+    }
+
+    func publishSourceUpdateDeferred() {
+        guard !hasPublishedDeferredSourceUpdate else { return }
+        hasPublishedDeferredSourceUpdate = true
+        let callback = onSourceUpdateDeferred
+        DispatchQueue.main.async {
+            callback?()
+        }
+    }
+
+    func sourceUpdateDidApply() {
+        hasPublishedDeferredSourceUpdate = false
+    }
 
     /// Call after every `textStorage.setAttributedString`: rewraps prose and
     /// resizes the text view for the new content.
@@ -641,13 +771,29 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     @MainActor
     func textViewDidChangeSelection(_ notification: Notification) {
         guard let textView = notification.object as? NSTextView else { return }
+        guard !isReplacingTextStorage else { return }
+        publishSelectionState(in: textView)
+    }
+
+    func publishSelectionState(in textView: NSTextView) {
         let range = textView.selectedRange()
-        guard range.length > 0, let doc = lastDoc else {
-            selectedSourceSpan = nil
-            return
+        let sourceSpan: Range<Int>? = {
+            guard range.length > 0, let doc = lastDoc else { return nil }
+            let utf16Range = range.location..<(range.location + range.length)
+            return SelectionSourceMapping.sourceSpan(forSelectedUTF16: utf16Range, in: doc)
+        }()
+        pendingSelectionPublication = (sourceSpan, range.length > 0)
+        guard !selectionPublicationScheduled else { return }
+        selectionPublicationScheduled = true
+        DispatchQueue.main.async {
+            self.selectionPublicationScheduled = false
+            guard let publication = self.pendingSelectionPublication else { return }
+            self.pendingSelectionPublication = nil
+            self.selectedSourceSpan = publication.sourceSpan
+            guard publication.hasSelection != self.lastPublishedSelectionState else { return }
+            self.lastPublishedSelectionState = publication.hasSelection
+            self.onSelectionChanged?(publication.hasSelection)
         }
-        let utf16Range = range.location..<(range.location + range.length)
-        selectedSourceSpan = SelectionSourceMapping.sourceSpan(forSelectedUTF16: utf16Range, in: doc)
     }
 
     // MARK: - Link clicks

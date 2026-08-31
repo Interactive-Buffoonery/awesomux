@@ -74,7 +74,228 @@ extension SessionPersistenceSerializationDomainTests {
         )
     }
 
-    // MARK: - Naming
+        // MARK: - Commit ordering
+
+        /// The backwards-movement bug, asserted where it actually lives.
+        ///
+        /// A caller that evaluates its supersession gate and *then* calls `write`
+        /// has evaluated it under a different lock — or none — so the sequence
+        /// "old render checks, old render is superseded, new render writes, old
+        /// render writes" is representable and the tab moves backwards. Pinning it
+        /// requires forcing exactly that interleaving: the superseded write's gate
+        /// blocks until a competing write has had its chance.
+        ///
+        /// If the gate runs inside `cacheLock`, the competitor cannot run at all
+        /// while it blocks, so it lands *after* and the newest bytes win. If the
+        /// gate runs outside, the competitor lands first and is then overwritten.
+        /// The two orderings produce different final bytes, which is the assertion.
+        @Test("the commit gate is evaluated inside the write's own critical section")
+        func commitGateIsEvaluatedUnderTheCacheLock() throws {
+            try Self.withCacheDirectory { store, _ in
+                let sessionID = Self.sessionID
+                let gateEntered = DispatchSemaphore(value: 0)
+                let competitorFinished = DispatchSemaphore(value: 0)
+                let superseded = DispatchGroup()
+                let competitor = DispatchGroup()
+
+                DispatchQueue.global().async(group: superseded) {
+                    _ = store.write(
+                        "old",
+                        agentKind: .claudeCode,
+                        sessionID: sessionID,
+                        shouldCommit: {
+                            gateEntered.signal()
+                            // Bounded: under the fixed ordering this wait can only
+                            // time out, because the competitor is blocked on the
+                            // very lock this closure is running under.
+                            _ = competitorFinished.wait(timeout: .now() + .milliseconds(500))
+                            return true
+                        }
+                    )
+                }
+                // Bounded. An unbounded wait here would hang the whole suite
+                // rather than fail it if `write` ever stopped consulting the gate,
+                // which is the exact regression this test exists to catch.
+                let consulted = gateEntered.wait(timeout: .now() + .seconds(5))
+                #expect(consulted == .success, "write never consulted its commit gate")
+
+                DispatchQueue.global().async(group: competitor) {
+                    _ = store.write("new", agentKind: .claudeCode, sessionID: sessionID)
+                    competitorFinished.signal()
+                }
+
+                superseded.wait()
+                competitor.wait()
+
+                let contents = try String(
+                    contentsOf: store.fileURL(agentKind: .claudeCode, sessionID: sessionID),
+                    encoding: .utf8
+                )
+                #expect(contents == "new", "a superseded render committed on top of a newer one")
+            }
+        }
+
+        /// A refused commit is not a failure: the slot still exists and is still
+        /// reported, because the render that superseded this one owns its bytes.
+        @Test("a refused commit leaves the slot alone and still reports it")
+        func refusedCommitLeavesTheSlotAlone() throws {
+            try Self.withCacheDirectory { store, _ in
+                let first = try #require(
+                    store.write("first", agentKind: .claudeCode, sessionID: Self.sessionID)
+                )
+                let refused = store.write(
+                    "second",
+                    agentKind: .claudeCode,
+                    sessionID: Self.sessionID,
+                    shouldCommit: { false }
+                )
+
+                #expect(refused == first)
+                #expect(try String(contentsOf: first, encoding: .utf8) == "first")
+            }
+        }
+
+        // MARK: - Skipping an unchanged render
+
+        /// The skip has to be a statement about the file, not about this process's
+        /// memory of it. An external prune between two refreshes would otherwise
+        /// leave the tab pointing at nothing for the rest of the session.
+        @Test("an unchanged render still rewrites a slot that was pruned underneath it")
+        func skippingUnchangedRestoresAPrunedSlot() throws {
+            try Self.withCacheDirectory { store, _ in
+                let fileURL = try #require(
+                    store.write(
+                        "# transcript",
+                        agentKind: .claudeCode,
+                        sessionID: Self.sessionID,
+                        skippingUnchanged: true
+                    )
+                )
+                try FileManager.default.removeItem(at: fileURL)
+
+                _ = store.write(
+                    "# transcript",
+                    agentKind: .claudeCode,
+                    sessionID: Self.sessionID,
+                    skippingUnchanged: true
+                )
+
+                #expect(try String(contentsOf: fileURL, encoding: .utf8) == "# transcript")
+            }
+        }
+
+        @Test("an unchanged render whose bytes are still on disk skips the write")
+        func skippingUnchangedSkipsWhenTheSlotAgrees() throws {
+            try Self.withCacheDirectory { store, _ in
+                let fileURL = try #require(
+                    store.write(
+                        "# transcript",
+                        agentKind: .claudeCode,
+                        sessionID: Self.sessionID,
+                        skippingUnchanged: true
+                    )
+                )
+                // The atomic write renames a fresh temp file into place, so the
+                // inode is the evidence a second write happened.
+                let inode = try Self.inode(of: fileURL)
+
+                _ = store.write(
+                    "# transcript",
+                    agentKind: .claudeCode,
+                    sessionID: Self.sessionID,
+                    skippingUnchanged: true
+                )
+
+                #expect(try Self.inode(of: fileURL) == inode)
+            }
+        }
+
+        /// The skip is a read, and a read of this path is exactly as sensitive as
+        /// a write to it. `SecureFileReader`'s `.rejectFinalComponent` policy
+        /// deliberately resolves the PARENT with realpath, so it refuses only a
+        /// symlinked slot name and happily reads *through* a symlinked cache root —
+        /// which is the custody check the write path gets from
+        /// `validatedOwnerOnlyDirectory` and the skip would otherwise never reach.
+        @Test("a symlinked cache directory is refused before an unchanged slot can be skipped")
+        func symlinkedCacheDirectoryIsRefusedAheadOfTheSkip() throws {
+            let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-agent-transcript")
+            defer { withExtendedLifetime(temporaryDirectory) {} }
+            let root = temporaryDirectory.url
+            let destination = root.appending(path: "destination", directoryHint: .isDirectory)
+            let link = root.appending(path: "agent-transcripts", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: destination)
+
+            // Land the slot through the real directory, so the symlinked store's
+            // skip has a byte-identical, correctly-permissioned file to find.
+            let honest = AgentTranscriptStore(cacheDirectoryURL: destination)
+            _ = try #require(
+                honest.write(
+                    "# transcript",
+                    agentKind: .claudeCode,
+                    sessionID: Self.sessionID,
+                    skippingUnchanged: true
+                )
+            )
+
+            let throughLink = AgentTranscriptStore(cacheDirectoryURL: link)
+            #expect(
+                throughLink.write(
+                    "# transcript",
+                    agentKind: .claudeCode,
+                    sessionID: Self.sessionID,
+                    skippingUnchanged: true
+                ) == nil,
+                "an unchanged slot was accepted through a symlinked cache root"
+            )
+        }
+
+        /// A slot holding the right bytes at the wrong mode is not a slot to skip.
+        /// This file is a plaintext copy of the session, so a `0o644` left by an
+        /// older build or by the user would otherwise stay world-readable for as
+        /// long as its content stopped changing — which, for a session that has
+        /// ended, is forever.
+        ///
+        /// Rewritten rather than refused: `writeOwnerOnlyFile` renames a fresh
+        /// `0o600` temp into place, so the ordinary path repairs the mode, whereas
+        /// refusing would fail the refresh and blank a tab over a permission bit
+        /// this process can fix.
+        @Test("an unchanged slot left group-readable is rewritten rather than skipped")
+        func skippingUnchangedRewritesALooseSlot() throws {
+            try Self.withCacheDirectory { store, _ in
+                let fileURL = try #require(
+                    store.write(
+                        "# transcript",
+                        agentKind: .claudeCode,
+                        sessionID: Self.sessionID,
+                        skippingUnchanged: true
+                    )
+                )
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o644],
+                    ofItemAtPath: fileURL.path
+                )
+                let inode = try Self.inode(of: fileURL)
+
+                _ = try #require(
+                    store.write(
+                        "# transcript",
+                        agentKind: .claudeCode,
+                        sessionID: Self.sessionID,
+                        skippingUnchanged: true
+                    )
+                )
+
+                #expect(try Self.permissions(of: fileURL) == 0o600)
+                #expect(
+                    try Self.inode(of: fileURL) != inode,
+                    "the loose slot was skipped as unchanged instead of being rewritten"
+                )
+                #expect(try String(contentsOf: fileURL, encoding: .utf8) == "# transcript")
+            }
+        }
+
+        // MARK: - Naming
 
     @Test("re-rendering the same session replaces the same path")
     func reRenderingSameSessionReusesThePath() throws {
@@ -363,7 +584,12 @@ extension SessionPersistenceSerializationDomainTests {
         return try #require(attributes[.posixPermissions] as? NSNumber).intValue
     }
 
-    private static func withCacheDirectory(
+        private static func inode(of url: URL) throws -> UInt64 {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            return try #require(attributes[.systemFileNumber] as? NSNumber).uint64Value
+        }
+
+        private static func withCacheDirectory(
         _ operation: (AgentTranscriptStore, URL) throws -> Void
     ) throws {
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-agent-transcript")
