@@ -11,6 +11,7 @@ public enum AgentTranscriptUnavailable: Error, Equatable, Sendable {
     case notFound
     case searchLimitReached
     case unreadable(SecureFileReadError)
+    case databaseUnavailable
 }
 
 /// An exact provider session resolved to an already-open, validated transcript.
@@ -102,6 +103,27 @@ public enum AgentTranscriptImporter {
     static let maximumEntriesInspected = 8_192
     static let maximumMatchingCandidates = 32
     static let headByteCount = 256 * 1024
+
+    /// Resolves an exact OpenCode session from its fixed SQLite data store.
+    public static func openOpenCode(
+        executionPlan: PaneExecutionPlan,
+        dataHome: URL,
+        reportedSessionID: String?,
+        effectiveUID: uid_t = geteuid()
+    ) -> Result<OpenCodeTranscriptSnapshot, AgentTranscriptUnavailable> {
+        guard case .local = executionPlan else { return .failure(.remoteExecution) }
+        guard let reportedSessionID else { return .failure(.noSessionIdentity) }
+        guard
+            let sessionID = AgentRuntimeSource.openCode.validatedProviderSessionID(
+                reportedSessionID
+            )
+        else { return .failure(.invalidSessionID) }
+        return OpenCodeTranscriptDatabase.read(
+            dataHome: dataHome,
+            sessionID: sessionID,
+            effectiveUID: effectiveUID
+        )
+    }
 
     public static func open(
         agentKind: AgentKind,

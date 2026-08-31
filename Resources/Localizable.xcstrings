@@ -349,7 +349,7 @@
         }
       }
     },
-    "%arg's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, and Pi." : {
+    "%arg's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, and Pi." : {
       "comment" : "Transcript failure when the pane's agent has no transcript adapter"
     },
     "%arg, %arg" : {
@@ -4514,6 +4514,9 @@
     },
     "awesoMux couldn't replace the saved workspace file. The existing file was kept and automatic session saving remains paused." : {
       "comment" : "Recovery replacement failure shown after an owner-only snapshot write fails"
+    },
+    "awesoMux couldn't safely read OpenCode's session database. Check that it still exists and is owned by your user." : {
+      "comment" : "Transcript failure when OpenCode's SQLite session store cannot be read safely"
     },
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"

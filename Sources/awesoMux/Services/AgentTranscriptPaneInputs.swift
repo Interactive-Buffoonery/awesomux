@@ -3,7 +3,7 @@ import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 
-/// Resolves the one provider config home an exact-identity transcript lookup
+/// Resolves the one provider storage root an exact-identity transcript lookup
 /// may inspect. The pane's provider selects the root; awesoMux never sweeps
 /// other providers or guesses from a working directory.
 enum AgentTranscriptPaneInputs {
@@ -30,7 +30,7 @@ enum AgentTranscriptPaneInputs {
         return lastEnded
     }
 
-    /// The provider config homes to try for a pane whose agent is `agentKind`,
+    /// The provider storage homes to try for a pane whose agent is `agentKind`,
     /// in order.
     ///
     /// Returns empty for providers without a supported transcript adapter.
@@ -39,7 +39,16 @@ enum AgentTranscriptPaneInputs {
         integrations: AgentIntegrationsConfig,
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [(kind: AgentKind, configHome: URL)] {
-        guard agentKind == .claudeCode || agentKind == .codex || agentKind == .pi else {
+        if agentKind == .openCode {
+            return [
+                (
+                    kind: .openCode,
+                    configHome: homeDirectoryURL.appending(
+                        path: ".local/share/opencode", directoryHint: .isDirectory)
+                )
+            ]
+        }
+        guard AgentTranscriptIdentity.supports(agentKind: agentKind) else {
             return []
         }
         let setup = AgentConfigHome.setup(for: agentKind, in: integrations)
@@ -57,7 +66,7 @@ enum AgentTranscriptPaneInputs {
     /// Why Open Agent Transcript has nothing to resolve.
     ///
     /// A live unsupported pane names itself. After sessionEnd the pane is a
-    /// shell, so the ended kind is what keeps OpenCode and Grok from reading as
+    /// shell, so the ended kind is what keeps Grok from reading as
     /// "unknown session". Kinds that do have an adapter still report missing
     /// identity — they write logs; we just don't know which file.
     static func emptyLookupReason(
@@ -65,10 +74,13 @@ enum AgentTranscriptPaneInputs {
         lastEndedKind: AgentKind?
     ) -> AgentTranscriptUnavailable {
         if paneKind != .shell {
+            if AgentTranscriptIdentity.supports(agentKind: paneKind) {
+                return .noSessionIdentity
+            }
             return .unsupportedAgent(paneKind)
         }
         if let lastEndedKind, lastEndedKind != .shell,
-            lastEndedKind != .claudeCode, lastEndedKind != .codex, lastEndedKind != .pi
+            !AgentTranscriptIdentity.supports(agentKind: lastEndedKind)
         {
             return .unsupportedAgent(lastEndedKind)
         }

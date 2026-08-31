@@ -18,10 +18,10 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         #expect(AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: sessionA) != nil)
         #expect(AgentTranscriptIdentity(agentKind: .codex, sessionID: sessionA) != nil)
         #expect(AgentTranscriptIdentity(agentKind: .pi, sessionID: "pi-session-1") != nil)
-        for kind in [AgentKind.openCode, .grok, .shell] {
+        #expect(AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC") != nil)
+        for kind in [AgentKind.grok, .shell] {
             #expect(AgentTranscriptIdentity(agentKind: kind, sessionID: sessionA) == nil)
         }
-        #expect(AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC") == nil)
     }
 
     @Test func rejectsSessionIDsThatAreNotUUIDs() {
@@ -67,7 +67,7 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
     @Test func decodeRevalidatesPersistedValues() {
         for json in [
             #"{"agentKind":"Claude Code","sessionID":"not-a-uuid"}"#,
-            #"{"agentKind":"OpenCode","sessionID":"ses_01JABC"}"#,
+            #"{"agentKind":"OpenCode","sessionID":"not-an-opencode-id"}"#,
             #"{"agentKind":"Grok","sessionID":"\#(sessionA)"}"#,
             #"{"agentKind":"Shell","sessionID":"\#(sessionA)"}"#,
         ] {
