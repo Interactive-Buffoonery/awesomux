@@ -243,6 +243,62 @@ struct BridgePreflightLifecycleTests {
         )
     }
 
+    @Test("promoting a replacement generation clears prior remote liveness")
+    func replacementGenerationClearsPriorRemoteLiveness() throws {
+        let fixture = try makeFixture()
+        let oldSnapshot = RemoteForegroundLivenessSnapshot(
+            workspaceID: fixture.session.id,
+            paneID: fixture.pane.id,
+            terminalSessionID: fixture.pane.terminalSessionID,
+            connectionGeneration: "generation-1",
+            liveness: .busyShell,
+            sampledAt: Date()
+        )
+        #expect(
+            fixture.store.setRemoteForegroundLivenessSnapshot(
+                oldSnapshot,
+                sessionID: fixture.session.id,
+                paneID: fixture.pane.id
+            )
+        )
+
+        let channel = BridgeChannel(
+            token: "generation-2",
+            gen: 2,
+            localSocketPath: "/tmp/replacement-local.sock",
+            remoteSocketPath: "/tmp/replacement-remote.sock",
+            stateFilePath: "/Users/alice/.awesomux/bridge/replacement.json",
+            session: fixture.pane.terminalSessionID
+        )
+        fixture.runtime.bridgeCoordinatorStore.stage(
+            token: channel.token,
+            BridgeCoordinatorStore.StagedBridgeRuntime(
+                coordinator: BridgePermissionCoordinator(
+                    expectedToken: channel.token,
+                    expectedSession: fixture.pane.terminalSessionID.rawValue,
+                    paneTitle: { "bridge" },
+                    sendDecision: { _, _ in },
+                    announce: { _, _ in }
+                ),
+                teardown: {}
+            )
+        )
+
+        fixture.runtime.promoteBridgeGeneration(
+            session: fixture.pane.terminalSessionID,
+            channel: channel,
+            controlPath: "/tmp/control",
+            remote: try #require(fixture.pane.executionPlan.remoteTarget),
+            helperPath: "/Users/alice/.awesomux/bin/awesomux-bridge-helper"
+        )
+
+        #expect(
+            fixture.store.session(id: fixture.session.id)?
+                .layout.pane(id: fixture.pane.id)?
+                .remoteForegroundLivenessSnapshot == nil
+        )
+    }
+
     @Test("ready acknowledgment cannot replay an old command after repoint")
     func readyAcknowledgmentCannotReplayOldCommandAfterRepoint() async throws {
         let fixture = try makeFixture()
