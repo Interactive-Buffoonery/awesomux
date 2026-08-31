@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-required_commands=(rg)
+required_commands=(git rg)
 for command_name in "${required_commands[@]}"; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "error: required command is missing: $command_name" >&2
@@ -12,34 +12,32 @@ for command_name in "${required_commands[@]}"; do
     fi
 done
 
-# Exclusions must name a path that actually exists in this repo. An exclusion
-# for a path that is absent (or that some other tool is assumed to strip before
-# publication) is a blind spot waiting for that path to be recreated: until
-# 2026-07-27 this list excluded docs/plans and docs/superpowers on the
-# assumption a prepare_public_seed.sh would remove them, that script never
-# existed, and those two directories were the only place in the tree where the
-# patterns below actually matched.
-private_globs=(
-    --glob '!.git/**'
-    --glob '!.git'
-    --glob '!.build/**'
-    --glob '!.build'
-    --glob '!.claude/**'
-    --glob '!.claude'
-    --glob '!vendor/ghostty/**'
-    --glob '!vendor/ghostty'
-    --glob '!vendor/zmx/**'
-    --glob '!vendor/zmx'
-    --glob '!script/internal-wording-patterns.txt'
-    --glob '!script/check_public_seed_source.sh'
-)
+# Scan tracked files plus untracked files Git does not ignore. Local-only files
+# must not affect whether the public source is safe to publish. The explicit
+# exclusions match paths intentionally omitted from the public seed.
+public_surface_paths=()
+while IFS= read -r -d '' public_surface_path; do
+    case "$public_surface_path" in
+        .git | .git/* | .build | .build/* | .claude | .claude/* | \
+            vendor/ghostty | vendor/ghostty/* | vendor/zmx | vendor/zmx/* | \
+            script/internal-wording-patterns.txt | script/check_public_seed_source.sh)
+            continue
+            ;;
+    esac
+    public_surface_paths+=("$public_surface_path")
+done < <(git ls-files --cached --others --exclude-standard -z)
+
+if [[ "${#public_surface_paths[@]}" -eq 0 ]]; then
+    echo "error: public seed source scan found no candidate files" >&2
+    exit 1
+fi
 
 failed=0
 
 check_pattern() {
     local message="$1"
     local pattern="$2"
-    if rg -n --hidden --no-ignore-vcs --text "${private_globs[@]}" "$pattern" .; then
+    if rg -n --hidden --text "$pattern" "${public_surface_paths[@]}"; then
         echo "error: $message" >&2
         failed=1
     else
@@ -54,7 +52,7 @@ check_pattern() {
 check_pcre2_pattern() {
     local message="$1"
     local pattern="$2"
-    if rg -n --hidden --no-ignore-vcs --text --pcre2 "${private_globs[@]}" "$pattern" .; then
+    if rg -n --hidden --text --pcre2 "$pattern" "${public_surface_paths[@]}"; then
         echo "error: $message" >&2
         failed=1
     else
