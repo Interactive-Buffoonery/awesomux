@@ -337,6 +337,47 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.needsUserInput == false)
     }
 
+    @Test("tool start carrying attention preserves the blocking prompt")
+    func toolStartCarryingAttentionPreservesBlockingPrompt() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                attentionReason: .permissionPrompt,
+                unreadNotificationDelta: 1
+            ),
+            now: Date(timeIntervalSince1970: 3)
+        )
+        var reducer = AgentRuntimeEventReducer()
+
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                executionState: .thinking,
+                attentionReason: .permissionPrompt,
+                phase: .toolStart,
+                eventID: "tool-start-with-attention",
+                timestamp: Date(timeIntervalSince1970: 4)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let decision = try #require(result)
+        #expect(!decision.update.attentionClearIsAuthoritative)
+        #expect(!decision.update.clearsUnreadNotifications)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: decision.update, now: Date(timeIntervalSince1970: 5)
+        )
+        #expect(session.attentionReason == .permissionPrompt)
+        #expect(session.unreadNotificationCount == 1)
+    }
+
     @Test("child tool start preserves a parent permission prompt")
     func childToolStartPreservesParentPermissionPrompt() throws {
         var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
