@@ -869,6 +869,34 @@ private struct SendToAgentButton: NSViewRepresentable {
     }
 }
 
+// MARK: - TranscriptReloadSelectionDeferral
+
+struct TranscriptReloadSelectionDeferral {
+    private(set) var hasPendingReload = false
+
+    /// Repeated source replacements that cannot preserve the selected
+    /// characters collapse into one pending catch-up.
+    mutating func deferReload() {
+        hasPendingReload = true
+    }
+
+    /// Avoids repeating cache reads and renders after an incompatible source
+    /// replacement has already been deferred for the current selection.
+    mutating func shouldStartWatcherReload(hasSelection: Bool) -> Bool {
+        guard hasPendingReload else { return true }
+        guard !hasSelection else { return false }
+        hasPendingReload = false
+        return true
+    }
+
+    /// Consumes the one pending catch-up when selection becomes empty.
+    mutating func resumeAfterSelectionChange(hasSelection: Bool) -> Bool {
+        guard !hasSelection, hasPendingReload else { return false }
+        hasPendingReload = false
+        return true
+    }
+}
+
 // MARK: - DocumentPaneView
 
 /// Renders a `DocumentPane` — validates the URL, loads the markdown file, and
@@ -979,6 +1007,7 @@ struct DocumentPaneView: View {
     @State private var watcher: DocumentFileWatcher? = nil
     @State private var watcherReloadTask: Task<Void, Never>? = nil
     @State private var watcherReloadGeneration = 0
+    @State private var transcriptReloadSelectionDeferral = TranscriptReloadSelectionDeferral()
     // Written during MarkdownTextView's update pass — safe ONLY while no
     // `body` ever reads it; keep reads inside event closures.
     @State private var scrollAnchorCapture: (@MainActor () -> Int?)? = nil
@@ -1418,6 +1447,22 @@ struct DocumentPaneView: View {
                                     doc: doc,
                                     snapshot: snapshot
                                 )
+                            },
+                            onSelectionChanged: { hasSelection in
+                                guard
+                                    transcriptReloadSelectionDeferral.resumeAfterSelectionChange(
+                                        hasSelection: hasSelection
+                                    )
+                                else { return }
+                                triggerWatcherReload()
+                            },
+                            protectsSelectionDuringSourceUpdates: pane.agentTranscriptIdentity != nil,
+                            onSourceUpdateDeferred: {
+                                if markdownNSTextView?.selectedRange().length ?? 0 > 0 {
+                                    transcriptReloadSelectionDeferral.deferReload()
+                                } else {
+                                    triggerWatcherReload()
+                                }
                             },
                             scrollAnchorOffset: pendingScrollAnchor,
                             onRegisterScrollAnchorCapture: { capture in
@@ -2241,6 +2286,12 @@ struct DocumentPaneView: View {
     )
 
     private func triggerWatcherReload() {
+        guard
+            transcriptReloadSelectionDeferral.shouldStartWatcherReload(
+                hasSelection: markdownNSTextView?.selectedRange().length ?? 0 > 0
+            )
+        else { return }
+
         watcherReloadTask?.cancel()
         watcherReloadGeneration += 1
         let generation = watcherReloadGeneration

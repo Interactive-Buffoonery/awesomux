@@ -72,15 +72,18 @@ struct DocumentPaneViewWatcherRevisionContextTests {
     /// written as an early return there would silently disable live refresh
     /// while every behavioural test still passed. The suppression is a returned
     /// value for exactly that reason, and this pins the shape that makes it
-    /// safe.
+    /// safe. Selection preservation lives at the later TextKit replacement
+    /// boundary. Once that boundary has rejected an incompatible replacement,
+    /// one intentional early exit coalesces further viewer reloads until the
+    /// selection clears.
     ///
     /// **This is a source contract, not a behavioural test, and it is named to
     /// say so.** `triggerWatcherReload` is private, it drives private `@State`,
     /// and its effect is a SwiftUI reload — there is no seam to observe it
     /// from without hosting the view, which the oversize-banner suite already
     /// records as impractical for this file. The behavioural half of the rule
-    /// is `transcriptSuppressed` above; this half only asserts that nothing
-    /// exits the block before the reload it depends on.
+    /// is `transcriptSuppressed` above; this half asserts that no unrelated
+    /// exit was added above the reload.
     ///
     /// The scan starts at the top of the declaration, not at the over-cap
     /// branch's own reload. Anything that exits earlier — a guard added above
@@ -90,8 +93,8 @@ struct DocumentPaneViewWatcherRevisionContextTests {
     /// pins the exits themselves rather than counting them, because a bare
     /// `return` and a `return nil` are different statements in different
     /// positions and "there are still three of them" is not the invariant.
-    @Test("triggerWatcherReload has no exit above the reload live refresh depends on")
-    func triggerWatcherReloadHasNoExitAboveTheReload() throws {
+    @Test("triggerWatcherReload has only intentional exits above its reload")
+    func triggerWatcherReloadHasOnlyIntentionalExits() throws {
         let body = try SourceContract.declarationBody(
             after: "private func triggerWatcherReload() {",
             in: try SourceContract.source(at: Self.panePath),
@@ -114,6 +117,9 @@ struct DocumentPaneViewWatcherRevisionContextTests {
 
         #expect(
             exits == [
+                // A prior incompatible replacement already recorded the one
+                // pending catch-up, so this watcher tick has no new work.
+                "return",
                 // The detached task, after its own read: nothing has been
                 // reloaded yet, so returning costs only this tick.
                 "return",
@@ -125,8 +131,8 @@ struct DocumentPaneViewWatcherRevisionContextTests {
             """
             triggerWatcherReload gained or changed an exit above \
             triggerReload(snapshot:), and the exits now read \(exits). \
-            Suppressing the revision indicator or the refresh announcement for \
-            a transcript must not skip the reload — that disables live refresh.
+            Only deferred-selection coalescing, cancellation, and the over-cap branch may \
+            skip this reload. Any other exit disables live refresh.
             """
         )
     }

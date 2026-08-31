@@ -65,3 +65,46 @@ struct DocumentPaneViewTranscriptWatcherTests {
         )
     }
 }
+
+@Suite("Transcript reload selection deferral")
+struct TranscriptReloadSelectionDeferralTests {
+    @Test("source replacements that cannot preserve selection coalesce")
+    func deferredSourceReplacementsCoalesce() {
+        var deferral = TranscriptReloadSelectionDeferral()
+
+        deferral.deferReload()
+        deferral.deferReload()
+        #expect(deferral.hasPendingReload)
+        let repeatedWatcherTick = deferral.shouldStartWatcherReload(hasSelection: true)
+        #expect(!repeatedWatcherTick)
+        let stillSelected = deferral.resumeAfterSelectionChange(hasSelection: true)
+        let selectionCleared = deferral.resumeAfterSelectionChange(hasSelection: false)
+        #expect(!stillSelected)
+        #expect(selectionCleared)
+        #expect(!deferral.hasPendingReload)
+        let alreadyConsumed = deferral.resumeAfterSelectionChange(hasSelection: false)
+        #expect(!alreadyConsumed)
+    }
+
+    @Test("cleared selection permits the latest watcher catch-up")
+    func clearedSelectionPermitsWatcherCatchUp() {
+        var deferral = TranscriptReloadSelectionDeferral()
+        deferral.deferReload()
+
+        let shouldStart = deferral.shouldStartWatcherReload(hasSelection: false)
+
+        #expect(shouldStart)
+        #expect(!deferral.hasPendingReload)
+    }
+
+    @Test("selection changes without a deferred replacement do nothing")
+    func selectionChangesWithoutDeferralDoNothing() {
+        var deferral = TranscriptReloadSelectionDeferral()
+
+        let selected = deferral.resumeAfterSelectionChange(hasSelection: true)
+        let cleared = deferral.resumeAfterSelectionChange(hasSelection: false)
+        #expect(!selected)
+        #expect(!cleared)
+        #expect(!deferral.hasPendingReload)
+    }
+}
