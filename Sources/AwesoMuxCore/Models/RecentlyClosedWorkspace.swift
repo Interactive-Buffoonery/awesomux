@@ -57,7 +57,21 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         bundle: Bundle = .main,
         locale: Locale = .current
     ) -> String {
-        syntheticTitle?.localizedTitle(bundle: bundle, locale: locale) ?? title
+        if let syntheticTitle {
+            return syntheticTitle.localizedTitle(bundle: bundle, locale: locale)
+        }
+        return RecentlyClosedWorkspaceTitleResolver.resolvedTitle(
+            title: title,
+            isTitleUserEdited: isTitleUserEdited,
+            agentKind: agentKind,
+            workingDirectory: activeWorkingDirectory
+        )
+    }
+
+    private var activeWorkingDirectory: String {
+        layout.pane(id: activePaneID)?.workingDirectory
+            ?? layout.firstPane?.workingDirectory
+            ?? "~"
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -125,5 +139,47 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
             indexInGroup: try container.decode(Int.self, forKey: .indexInGroup),
             closedAt: try container.decode(Date.self, forKey: .closedAt)
         )
+    }
+}
+
+enum RecentlyClosedWorkspaceTitleResolver {
+    static func resolvedTitle(
+        title: String,
+        isTitleUserEdited: Bool,
+        agentKind: AgentKind,
+        workingDirectory: String
+    ) -> String {
+        guard
+            !isTitleUserEdited,
+            agentKind == .shell,
+            isShellShutdownTitle(title),
+            let directoryName = meaningfulDirectoryName(from: workingDirectory)
+        else {
+            return title
+        }
+        return directoryName
+    }
+
+    private static func isShellShutdownTitle(_ title: String) -> Bool {
+        switch title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "exit", "logout":
+            true
+        default:
+            false
+        }
+    }
+
+    private static func meaningfulDirectoryName(from workingDirectory: String) -> String? {
+        let path = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !path.isEmpty,
+            path != "~",
+            path != WorkingDirectoryValidator.canonicalHomeDirectory
+        else {
+            return nil
+        }
+        let name = URL(fileURLWithPath: path, isDirectory: true).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 }

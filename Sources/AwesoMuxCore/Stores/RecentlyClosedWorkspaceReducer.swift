@@ -18,9 +18,17 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         indexInGroup: Int,
         now: Date
     ) -> CaptureDecision {
+        let title =
+            session.syntheticTitle?.canonicalTitle
+            ?? RecentlyClosedWorkspaceTitleResolver.resolvedTitle(
+                title: session.title,
+                isTitleUserEdited: session.isTitleUserEdited,
+                agentKind: session.activeAgentKind,
+                workingDirectory: session.workingDirectory
+            )
         let entry = RecentlyClosedWorkspace(
             sessionID: session.id,
-            title: session.syntheticTitle?.canonicalTitle ?? session.title,
+            title: title,
             syntheticTitle: session.syntheticTitle,
             isTitleUserEdited: session.isTitleUserEdited,
             agentKind: session.activeAgentKind,

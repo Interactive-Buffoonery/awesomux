@@ -165,6 +165,66 @@ struct RecentlyClosedWorkspaceCaptureTests {
         #expect(decision.entry.syntheticTitle == syntheticTitle)
     }
 
+    @Test("capture replaces a shell shutdown title with the directory name", arguments: ["exit", "logout"])
+    func captureReplacesShellShutdownTitle(title: String) {
+        let session = TerminalSession(
+            title: title,
+            workingDirectory: "/Users/example/Development",
+            agentKind: .shell
+        )
+        let decision = RecentlyClosedWorkspaceReducer.captureDecision(
+            session: session,
+            group: SessionGroup(name: "main", sessions: []),
+            indexInGroup: 0,
+            now: Date()
+        )
+
+        #expect(decision.entry.title == "Development")
+    }
+
+    @Test("capture preserves an explicitly edited shell shutdown title")
+    func capturePreservesEditedShellShutdownTitle() {
+        let session = TerminalSession(
+            title: "exit",
+            workingDirectory: "/Users/example/Development",
+            isTitleUserEdited: true,
+            agentKind: .shell
+        )
+        let decision = RecentlyClosedWorkspaceReducer.captureDecision(
+            session: session,
+            group: SessionGroup(name: "main", sessions: []),
+            indexInGroup: 0,
+            now: Date()
+        )
+
+        #expect(decision.entry.title == "exit")
+    }
+
+    @Test("legacy shell shutdown titles display the directory name")
+    func legacyShellShutdownTitleUsesDirectoryName() {
+        let pane = TerminalPane(
+            title: "exit",
+            workingDirectory: "/Users/example/Development",
+            agentKind: .shell,
+            executionPlan: .local
+        )
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(),
+            title: "exit",
+            isTitleUserEdited: false,
+            agentKind: .shell,
+            layout: .pane(pane),
+            activePaneID: pane.id,
+            groupID: UUID(),
+            groupName: "main",
+            groupRemote: nil,
+            indexInGroup: 0,
+            closedAt: Date()
+        )
+
+        #expect(entry.localizedTitle() == "Development")
+    }
+
     @Test("capture preserves pane move origin")
     func capturePreservesPaneMoveOrigin() {
         let pane = TerminalPane(title: "moved", workingDirectory: "~", executionPlan: .local)
