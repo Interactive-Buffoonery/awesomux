@@ -556,6 +556,24 @@ struct AgentRuntimeEventReducerEdgeTests {
         let decision = try #require(result)
         #expect(!decision.update.attentionClearIsAuthoritative)
         #expect(!decision.update.clearsUnreadNotifications)
+
+        let toolStart = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .openCode,
+                executionState: .thinking,
+                phase: .toolStart,
+                eventID: "parent-tool-start",
+                providerSessionID: "parent",
+                timestamp: Date(timeIntervalSince1970: 3.999_999)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: true,
+            now: Date(timeIntervalSince1970: 5)
+        )
+        let toolStartDecision = try #require(toolStart)
+        #expect(toolStartDecision.update.attentionClearIsAuthoritative)
+        #expect(toolStartDecision.update.clearsUnreadNotifications)
     }
 
     @Test("tool start does not clear a pending user-input-required reason")

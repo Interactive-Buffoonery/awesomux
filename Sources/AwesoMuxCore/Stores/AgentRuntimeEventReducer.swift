@@ -611,9 +611,7 @@ struct AgentRuntimeEventReducer: Sendable {
         // background producers remain indistinguishable on the v1 wire format,
         // so they retain the accepted false-clear window documented above.
         let eventMatchesProviderSession =
-            normalizedProviderSessionID(event.providerSessionID).map { eventID in
-                state.providerSessionID.map { $0 == eventID } ?? true
-            } ?? true
+            !idsProveAnotherSession(event.providerSessionID, latched: state.providerSessionID)
         let resolvesPendingPermissionPrompt =
             currentPane.attentionReason == .permissionPrompt
             && eventMatchesProviderSession
@@ -656,7 +654,9 @@ struct AgentRuntimeEventReducer: Sendable {
         //   inversions were measured at 0.6% of real events.
         //
         // The second is the direction this gate exists to prevent, so it loses.
-        let contributedNothing = ignoresTrailingToolEnd
+        let contributedNothing =
+            ignoresTrailingToolEnd
+            || (event.phase == .permissionReplied && !resolvesPendingPermissionPrompt)
         recordApplied(
             dedupeKey: dedupeKey,
             timestamp: contributedNothing ? nil : event.timestamp,
