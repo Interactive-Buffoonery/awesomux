@@ -44,7 +44,7 @@ struct PublicSeedSourceScriptTests {
         #expect(result.error.contains("remains in the public seed surface"))
     }
 
-    @Test("gitignored files remain scanned with no-ignore-vcs")
+    @Test("tracked gitignored files remain scanned")
     func trackedIgnoredFilesRemainScanned() throws {
         let result = try runGuard(
             publicText: "public",
@@ -54,6 +54,17 @@ struct PublicSeedSourceScriptTests {
 
         #expect(result.status == 1)
         #expect(result.error.contains("real maintainer fixture path or host"))
+    }
+
+    @Test("untracked gitignored files are outside the public seed surface")
+    func untrackedIgnoredFilesAreNotScanned() throws {
+        let result = try runGuard(
+            publicText: "public",
+            ignoredUntrackedText: "/Users/" + "sarah/project"
+        )
+
+        #expect(result.status == 0)
+        #expect(result.output.contains("check_public_seed_source: clean."))
     }
 
     @Test("ripgrep execution errors fail the guard")
@@ -113,6 +124,7 @@ struct PublicSeedSourceScriptTests {
     private func runGuard(
         publicText: String,
         failingRipgrep: Bool = false,
+        ignoredUntrackedText: String? = nil,
         trackedIgnoredText: String? = nil,
         purgedDirectory: String? = nil,
         purgedFileText: String = "",
@@ -129,18 +141,21 @@ struct PublicSeedSourceScriptTests {
         let copiedScript = scriptDirectory.appending(path: "check_public_seed_source.sh")
         try Data(contentsOf: sourceScript).write(to: copiedScript)
         try Data(publicText.utf8).write(to: root.appending(path: "PUBLIC.md"))
+        try runGit(["init"], at: root)
 
-        if let trackedIgnoredText {
+        if ignoredUntrackedText != nil || trackedIgnoredText != nil {
             try Data("secret-dir/\n".utf8).write(to: root.appending(path: ".gitignore"))
             let ignoredDirectory = root.appending(path: "secret-dir", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(
                 at: ignoredDirectory,
                 withIntermediateDirectories: true
             )
-            try Data(trackedIgnoredText.utf8).write(to: ignoredDirectory.appending(path: "leak.md"))
-            try runGit(["init"], at: root)
-            // Keep the fixture faithful to the tracked-but-ignored scenario.
-            try runGit(["add", "-f", ".gitignore", "secret-dir/leak.md"], at: root)
+            let ignoredText = try #require(ignoredUntrackedText ?? trackedIgnoredText)
+            try Data(ignoredText.utf8).write(to: ignoredDirectory.appending(path: "leak.md"))
+            if trackedIgnoredText != nil {
+                // Keep the fixture faithful to the tracked-but-ignored scenario.
+                try runGit(["add", "-f", ".gitignore", "secret-dir/leak.md"], at: root)
+            }
         }
 
         if let purgedDirectory {
