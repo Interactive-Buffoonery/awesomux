@@ -165,6 +165,8 @@ struct AwesoMuxApp: App {
     @State private var sshWorkspaceConnectRequest: SSHWorkspaceConnectRequest?
     @State private var workspaceGroupRenameRequest: WorkspaceGroupRenameRequest?
     @State private var quickSettingsRequest: QuickSettingsRequest?
+    @State private var remoteAdditionalSSHFeaturesSheetPresenter =
+        RemoteAdditionalSSHFeaturesSheetPresenter.shared
     // True only after a request sheet's content actually appeared. Guards the
     // shared onDismiss replay: onDismiss semantics for an item that never
     // mounted are unverified, and a wedge-heal that nils a request must never
@@ -373,6 +375,12 @@ struct AwesoMuxApp: App {
     }
 
     var body: some Scene {
+        let remoteAdditionalSSHFeaturesRequest = remoteAdditionalSSHFeaturesSheetPresenter.request
+        let remoteAdditionalSSHFeaturesRequestBinding = Binding(
+            get: { remoteAdditionalSSHFeaturesRequest },
+            set: { remoteAdditionalSSHFeaturesSheetPresenter.request = $0 }
+        )
+
         Window("awesoMux", id: AwesoMuxSceneID.primary) {
             // Split into chained `let` sub-expressions: this modifier chain
             // was already at the type-checker's budget, and the extra
@@ -577,6 +585,30 @@ struct AwesoMuxApp: App {
                     .environment(appSettingsStore)
                     .appearanceBridge(appSettingsStore)
                     .onAppear { activeSheetDidPresent = true }
+            }
+            .sheet(
+                item: remoteAdditionalSSHFeaturesRequestBinding,
+                onDismiss: {
+                    remoteAdditionalSSHFeaturesSheetPresenter.presentationDidDismiss()
+                    handleRequestSheetDismiss()
+                }
+            ) { request in
+                RemoteAdditionalSSHFeaturesSheet(
+                    request: request,
+                    onContinue: {
+                        remoteAdditionalSSHFeaturesSheetPresenter.choose(
+                            requestID: request.id,
+                            install: false
+                        )
+                    },
+                    onInstall: {
+                        remoteAdditionalSSHFeaturesSheetPresenter.choose(
+                            requestID: request.id,
+                            install: true
+                        )
+                    }
+                )
+                .onAppear { activeSheetDidPresent = true }
             }
 
             let rootContentAfterAppear =
@@ -2749,6 +2781,7 @@ struct AwesoMuxApp: App {
             || sshWorkspaceConnectRequest != nil
             || workspaceGroupRenameRequest != nil
             || quickSettingsRequest != nil
+            || remoteAdditionalSSHFeaturesSheetPresenter.request != nil
             || ghosttyRuntime.isScrollbackDumpSheetPresented
     }
 

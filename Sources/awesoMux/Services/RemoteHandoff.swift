@@ -500,10 +500,13 @@ extension GhosttySurfaceNSView {
                 case .probeFailed:
                     throw RemoteHelperInstaller.Failure.helperProbeFailed
                 case .missing, .incompatible:
-                    try await RemoteHelperInstaller.probePlatform(
+                    let platform = try await RemoteHelperInstaller.probePlatform(
                         remote: authority.remote,
                         controlPath: controlPath
                     )
+                    guard platform == .macOSArm64 else {
+                        throw RemoteHelperInstaller.Failure.unsupportedPlatform
+                    }
                     guard let bundledHelperURL = RemoteHelperInstaller.bundledHelperURL() else {
                         throw RemoteHelperInstaller.Failure.bundledHelperUnavailable
                     }

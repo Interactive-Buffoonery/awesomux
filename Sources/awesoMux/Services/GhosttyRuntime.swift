@@ -160,6 +160,7 @@ final class GhosttyRuntime {
             execution.persistenceOwner == .localAmx,
             pane.remoteConnectionHealth == .active,
             let context = bridgeGenerationRegistry?.probeContext(for: pane.terminalSessionID),
+            pane.remoteConnectionGeneration == context.generation,
             context.remote == execution.target
         else {
             store.setRemoteForegroundLivenessSnapshot(nil, sessionID: workspaceID, paneID: paneID)
@@ -186,6 +187,7 @@ final class GhosttyRuntime {
             current.terminalSessionID == terminalSessionID,
             current.executionPlan.remoteTarget == context.remote,
             current.remoteConnectionHealth == .active,
+            current.remoteConnectionGeneration == context.generation,
             bridgeGenerationRegistry?.currentToken(for: terminalSessionID) == context.generation
         else { return }
 
@@ -391,14 +393,17 @@ final class GhosttyRuntime {
         surfaceViews[paneID]
     }
 
-    func clearRemoteLivenessSnapshot(for terminalSessionID: TerminalSessionID) {
+    func setRemoteLivenessGeneration(
+        _ connectionGeneration: String,
+        for terminalSessionID: TerminalSessionID
+    ) {
         guard
             let surface = surfaceViews.values.first(where: {
                 $0.pane.terminalSessionID == terminalSessionID
             })
         else { return }
-        surface.sessionStore.setRemoteForegroundLivenessSnapshot(
-            nil,
+        surface.sessionStore.setRemoteForegroundLivenessGeneration(
+            connectionGeneration,
             sessionID: surface.sessionID,
             paneID: surface.paneID
         )

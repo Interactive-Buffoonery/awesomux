@@ -112,6 +112,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// Runtime-only remote process evidence. This is deliberately separate
     /// from OSC-133 and local process-tree liveness: neither signal is rewritten
     /// to pretend it observed the other.
+    public var remoteConnectionGeneration: String?
     public var remoteForegroundLivenessSnapshot: RemoteForegroundLivenessSnapshot?
     /// Runtime-only OSC 9;4 progress report. A restored pane starts absent until
     /// the live terminal process announces its current operation again.
@@ -153,6 +154,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         terminalPromptObserved: Bool? = nil,
         foregroundProcessLiveness: ForegroundProcessLiveness = .unsampled,
         sampledComm: String? = nil,
+        remoteConnectionGeneration: String? = nil,
         remoteForegroundLivenessSnapshot: RemoteForegroundLivenessSnapshot? = nil,
         progressReport: TerminalProgressReport? = nil,
         unreadNotificationCount: Int = 0,
@@ -188,6 +190,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.terminalPromptObserved = terminalPromptObserved ?? needsTerminalQuitConfirmation
         self.foregroundProcessLiveness = foregroundProcessLiveness
         self.sampledComm = sampledComm
+        self.remoteConnectionGeneration = remoteConnectionGeneration
         self.remoteForegroundLivenessSnapshot = remoteForegroundLivenessSnapshot
         self.progressReport = progressReport
         self.unreadNotificationCount = unreadNotificationCount
@@ -283,9 +286,21 @@ public extension TerminalPane {
             return agentState
         }
 
-        switch agentExecutionState {
-        case .error:
+        if agentExecutionState == .error {
             return agentState
+        }
+        if let remote = freshRemoteForegroundLiveness() {
+            switch remote {
+            case .idleShell:
+                return .idle
+            case .busyShell, .liveCommand:
+                return .running
+            case .indeterminate, .sessionNotFound:
+                break
+            }
+        }
+
+        switch agentExecutionState {
         case .done:
             // A shell's `.done` can be stale after an exited agent returns to
             // the prompt; never project it as active chrome. The prompt marker
@@ -296,6 +311,8 @@ public extension TerminalPane {
             return .idle
         case .idle, .running, .waiting, .thinking, .output:
             return shellActivity == .busy ? .running : .idle
+        case .error:
+            return agentState  // handled above
         }
     }
 
@@ -339,6 +356,7 @@ public extension TerminalPane {
             let snapshot = remoteForegroundLivenessSnapshot,
             snapshot.paneID == id,
             snapshot.terminalSessionID == terminalSessionID,
+            snapshot.connectionGeneration == remoteConnectionGeneration,
             now.timeIntervalSince(snapshot.sampledAt) >= 0,
             now.timeIntervalSince(snapshot.sampledAt) <= Self.remoteLivenessFreshnessThreshold
         else { return nil }

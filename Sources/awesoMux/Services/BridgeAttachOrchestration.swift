@@ -17,12 +17,13 @@ enum BridgeAttachDecision {
     /// surface creation, instead of taking today's synchronous
     /// `prepareAttach` → `createSurface` path.
     ///
-    /// The gate (contributor ruling): the pane is remote AND the agent-integrations
-    /// master switch is on. `bridgeEnabled` (the command-bridge master toggle)
-    /// and `attachCommandAvailable`/`!errorLatched` are the same preconditions
+    /// The gate requires a local-amx remote pane. `bridgeEnabled` (the
+    /// command-bridge master toggle) and
+    /// `attachCommandAvailable`/`!errorLatched` are the same preconditions
     /// today's attach already requires — a preflight over a pane that has no
     /// attach command, or one already latched to error, would have nothing to
-    /// wrap.
+    /// wrap. Agent-integration enablement is deliberately not a precondition:
+    /// shell activity, liveness, and file handoff all use this channel too.
     ///
     /// Takes the whole execution plan rather than an `isRemote` flag because
     /// "remote" alone is no longer the gate: a `.remoteZmx` pane's session lives
@@ -33,7 +34,6 @@ enum BridgeAttachDecision {
     static func shouldRunPreflight(
         bridgeEnabled: Bool,
         executionPlan: PaneExecutionPlan,
-        agentChromeEnabled: Bool,
         attachCommandAvailable: Bool,
         errorLatched: Bool
     ) -> Bool {
@@ -42,7 +42,7 @@ enum BridgeAttachDecision {
         else {
             return false
         }
-        return bridgeEnabled && agentChromeEnabled && attachCommandAvailable && !errorLatched
+        return bridgeEnabled && attachCommandAvailable && !errorLatched
     }
 
     /// The command the pane is actually spawned with, given a preflight outcome
@@ -442,6 +442,6 @@ extension GhosttyRuntime {
             ),
             for: session
         )
-        clearRemoteLivenessSnapshot(for: session)
+        setRemoteLivenessGeneration(channel.token, for: session)
     }
 }

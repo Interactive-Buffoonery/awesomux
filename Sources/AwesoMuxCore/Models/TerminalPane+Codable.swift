@@ -5,7 +5,7 @@ extension TerminalPane {
     // CodingKeys omits runtime-only state (`remoteHost`, `remoteSSHTarget`,
     // `hasConsumedManagedSSHWorkspaceOffer`, `pendingRemoteSSHTarget`,
     // `remoteConnectionHealth`, `remoteWorkingDirectory`,
-    // `liveTerminalTitle`, and the four runtime-only agent fields
+    // `liveTerminalTitle`, `remoteConnectionGeneration`, and the runtime-only agent fields
     // `lastAgentStateChangeAt` / `shellActivity` / `needsTerminalQuitConfirmation` /
     // `terminalPromptObserved` / `foregroundProcessLiveness`, plus
     // `progressReport`, `remoteReconnect`, and `recentLinks`) so

@@ -1,8 +1,18 @@
+import AppKit
 import AwesoMuxCore
 
 struct BridgePreflightDependencies {
     let resolveRemoteHome: @MainActor (String, RemoteTarget) async -> String?
     let helperSupportsBridge: @MainActor (String, RemoteTarget, String) async -> Bool
+    let offerHelperSetup:
+        @MainActor (
+            String,
+            RemoteTarget,
+            String,
+            String,
+            NSWindow?,
+            @escaping @MainActor () -> Bool
+        ) async -> Bool
     let attach:
         @MainActor (
             BridgeAttachPreflight,
@@ -13,6 +23,15 @@ struct BridgePreflightDependencies {
     init(
         resolveRemoteHome: @escaping @MainActor (String, RemoteTarget) async -> String?,
         helperSupportsBridge: @escaping @MainActor (String, RemoteTarget, String) async -> Bool,
+        offerHelperSetup:
+            @escaping @MainActor (
+                String,
+                RemoteTarget,
+                String,
+                String,
+                NSWindow?,
+                @escaping @MainActor () -> Bool
+            ) async -> Bool = { _, _, _, _, _, _ in false },
         attach:
             @escaping @MainActor (
                 BridgeAttachPreflight,
@@ -26,6 +45,7 @@ struct BridgePreflightDependencies {
     ) {
         self.resolveRemoteHome = resolveRemoteHome
         self.helperSupportsBridge = helperSupportsBridge
+        self.offerHelperSetup = offerHelperSetup
         self.attach = attach
         self.acknowledgeReady = acknowledgeReady
     }
@@ -42,6 +62,16 @@ struct BridgePreflightDependencies {
                 controlPath: controlPath,
                 remote: remote,
                 helperPath: helperPath
+            )
+        },
+        offerHelperSetup: { controlPath, remote, remoteHome, helperPath, window, authorityIsCurrent in
+            await RemoteHelperInstaller.offerAdditionalSSHFeatures(
+                remote: remote,
+                controlPath: controlPath,
+                remoteHome: remoteHome,
+                helperPath: helperPath,
+                window: window,
+                authorityIsCurrent: authorityIsCurrent
             )
         },
         attach: { preflight, request in
