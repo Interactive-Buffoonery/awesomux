@@ -31,7 +31,7 @@ struct TOMLConfigCodecTests {
         #expect(decoded.appearance.monoFont == "system-monospace")
         #expect(decoded.appearance.fontSize == 13.0)
         #expect(decoded.appearance.glowStrength == 0.65)
-        #expect(!decoded.general.showMenuBarMiniStatus)
+        #expect(decoded.general.menuBarVisibility == .never)
         #expect(decoded.notifications.respectDoNotDisturb)
         #expect(decoded.agents.permissionPosture == .askEveryTime)
         #expect(decoded.agents.rememberToolTrust)
@@ -78,7 +78,8 @@ struct TOMLConfigCodecTests {
 
         #expect(reEncoded.contains("config_schema_version = 2"))
         #expect(reEncoded.contains("[general]"))
-        #expect(reEncoded.contains("show_menu_bar_mini_status = false"))
+        #expect(reEncoded.contains(#"menu_bar_visibility = "never""#))
+        #expect(!reEncoded.contains("show_menu_bar_mini_status"))
         #expect(reEncoded.contains("crt_scanlines = false"))
         #expect(reEncoded.contains("cursor_glow = false"))
         #expect(!reEncoded.contains("terminal_theme_id"))
@@ -99,7 +100,7 @@ struct TOMLConfigCodecTests {
             general: GeneralConfig(
                 restoreWorkspaces: false,
                 sidebarCompactMode: true,
-                showMenuBarMiniStatus: true
+                menuBarVisibility: .always
             ),
             appearance: AppearanceConfig(
                 theme: .dark,
@@ -127,7 +128,34 @@ struct TOMLConfigCodecTests {
         let decoded = try codec.decode(encoded)
 
         #expect(decoded == config)
-        #expect(encoded.contains("show_menu_bar_mini_status = true"))
+        #expect(encoded.contains(#"menu_bar_visibility = "always""#))
+    }
+
+    @Test("legacy enabled menu bar setting migrates to needs input")
+    func legacyEnabledMenuBarSettingMigratesToNeedsInput() throws {
+        let decoded = try codec.decode(
+            """
+            [general]
+            show_menu_bar_mini_status = true
+            """
+        )
+        let encoded = try codec.encodeString(decoded)
+
+        #expect(decoded.general.menuBarVisibility == .needsInput)
+        #expect(encoded.contains(#"menu_bar_visibility = "needs_input""#))
+        #expect(!encoded.contains("show_menu_bar_mini_status"))
+    }
+
+    @Test("legacy disabled menu bar setting migrates to never")
+    func legacyDisabledMenuBarSettingMigratesToNever() throws {
+        let decoded = try codec.decode(
+            """
+            [general]
+            show_menu_bar_mini_status = false
+            """
+        )
+
+        #expect(decoded.general.menuBarVisibility == .never)
     }
 
     @Test("terminal_theme_id round-trips through appearance table")
@@ -392,7 +420,7 @@ struct TOMLConfigCodecTests {
             """
             restore_workspaces = true
             sidebar_compact_mode = false
-            show_menu_bar_mini_status = false
+            menu_bar_visibility = "never"
             """,
             with: "# intentionally empty general table"
         )
@@ -1761,7 +1789,7 @@ struct TOMLConfigCodecTests {
         [general]
         restore_workspaces = true
         sidebar_compact_mode = false
-        show_menu_bar_mini_status = false
+        menu_bar_visibility = "never"
 
         [appearance]
         theme = "system"

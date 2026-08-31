@@ -73,17 +73,20 @@ struct GeneralSettingsPane: View {
             SettingsSection(
                 index: 2,
                 title: "Menu bar",
-                subtitle: "Show a tiny attention dot in the macOS menu bar when a workspace needs input."
+                subtitle: "Choose when the awesoMux smile appears in the macOS menu bar."
             ) {
                 SettingsField(
-                    label: "Show in menu bar",
-                    hint: "The dot only appears while a workspace needs input; idle workspaces keep the menu bar clear.",
-                    isFirst: true,
-                    forwardsAccessibilityToControl: true
+                    label: "Visibility",
+                    hint: "The badge uses your accent color whenever a workspace needs attention.",
+                    isFirst: true
                 ) {
-                    Toggle("Show in menu bar", isOn: appSettingsStore.general.binding(\.showMenuBarMiniStatus))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                    SettingsSegmented(
+                        options: menuBarVisibilityOptions,
+                        selection: appSettingsStore.general.binding(\.menuBarVisibility)
+                    )
+                    .accessibilityLabel("Menu bar visibility")
+                    .accessibilityHint(
+                        "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need attention.")
                 }
             }
         }
@@ -95,5 +98,13 @@ struct GeneralSettingsPane: View {
         ) { _ in
             loginItemModel.refresh()
         }
+    }
+
+    private var menuBarVisibilityOptions: [SettingsSegmented<GeneralConfig.MenuBarVisibility>.Option] {
+        [
+            .init(value: .never, label: "Never"),
+            .init(value: .needsInput, label: "Needs input"),
+            .init(value: .always, label: "Always"),
+        ]
     }
 }

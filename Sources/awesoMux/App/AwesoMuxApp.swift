@@ -745,7 +745,7 @@ struct AwesoMuxApp: App {
             // Both general-config reactions share one modifier: this chain is
             // already at the type-checker's limit and one more tips it over.
             .onChange(of: appSettingsStore.general.value) { previous, current in
-                if previous.showMenuBarMiniStatus != current.showMenuBarMiniStatus {
+                    if previous.menuBarVisibility != current.menuBarVisibility {
                     appDelegate.syncMenuBarMiniStatusItem()
                 }
                 if previous.restoreWorkspaces != current.restoreWorkspaces {
@@ -777,6 +777,7 @@ struct AwesoMuxApp: App {
                 // the write to the primary scene root guarantees exactly
                 // one update per accent change.
                 AwAccentRuntime.current = AwAccent(configAccent: newAccent)
+                    appDelegate.syncMenuBarMiniStatusItem()
             }
             .onChange(of: appSettingsStore.appearance.value.uiFont) { _, newFamily in
                 AwUIFontRuntime.current = AwUIFontResolver.resolvedForSystem(

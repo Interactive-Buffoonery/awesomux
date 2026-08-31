@@ -1140,6 +1140,9 @@
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
     },
+    "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need attention." : {
+
+    },
     "Controls whether terminal programs and escape sequences can replace the macOS clipboard." : {
 
     },
@@ -2104,6 +2107,9 @@
     },
     "Memory" : {
       "comment" : "Diagnostics process table column\nDiagnostics resource metric"
+    },
+    "Menu bar visibility" : {
+
     },
     "Minimize Terminal Companion" : {
       "comment" : "Accessibility label for the Terminal Companion minimize button.\nTooltip on the Terminal Companion minimize button."
@@ -3619,9 +3625,6 @@
     "Show in Finder" : {
       "comment" : "Action that reveals a session snapshot recovery archive"
     },
-    "Show in menu bar" : {
-
-    },
     "Show revision details" : {
       "comment" : "Accessibility hint for a compact document revision indicator"
     },
@@ -4543,7 +4546,7 @@
 
     },
     "awesoMux" : {
-
+      "comment" : "Tooltip and accessibility label for the idle menu bar item."
     },
     "awesoMux Settings" : {
 
@@ -4645,7 +4648,7 @@
       "comment" : "Transcript failure when bounded session-log discovery reaches its safety limit"
     },
     "awesoMux workspace needs input" : {
-      "comment" : "Accessibility label for the menu bar mini-status item when any workspace needs input.\nTooltip for the menu bar mini-status item when any workspace needs input."
+      "comment" : "Tooltip and accessibility label for the menu bar item when any workspace needs input."
     },
     "awesoMux's terminal engine has stopped responding. Restarting it will reload all open panes." : {
       "comment" : "Body text for the alert offering to recover from a wedged terminal event loop"
@@ -4854,9 +4857,6 @@
     },
     "⟨branch name⟩" : {
       "comment" : "Placeholder leaf directory in the worktree target path hint before a branch name is chosen or typed."
-    },
-    "ツ" : {
-
     }
   },
   "version" : "1.0"

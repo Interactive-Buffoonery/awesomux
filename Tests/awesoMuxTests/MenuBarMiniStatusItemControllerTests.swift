@@ -1,54 +1,91 @@
 import AppKit
+import AwesoMuxConfig
+import AwesoMuxCore
 import Testing
 @testable import awesoMux
 
 @Suite("Menu bar mini-status item")
 struct MenuBarMiniStatusItemControllerTests {
-    @Test("disabled setting keeps the menu bar item hidden even during attention")
-    func disabledSettingKeepsItemHidden() {
+    @Test("never keeps the menu bar item hidden even during attention")
+    func neverKeepsItemHidden() {
         #expect(!MenuBarMiniStatusPresentation.shouldShow(
-            isEnabled: false,
+                visibility: .never,
             hasWorkspaceNeedingInput: true
         ))
     }
 
-    @Test("enabled setting stays visually hidden while no workspace needs input")
-    func enabledIdleStateStaysHidden() {
+    @Test("needs input stays hidden while no workspace needs input")
+    func needsInputIdleStateStaysHidden() {
         #expect(!MenuBarMiniStatusPresentation.shouldShow(
-            isEnabled: true,
+                visibility: .needsInput,
             hasWorkspaceNeedingInput: false
         ))
     }
 
-    @Test("enabled setting shows the item only while a workspace needs input")
-    func enabledAttentionStateShowsItem() {
+    @Test("needs input shows the item while a workspace needs input")
+    func needsInputAttentionStateShowsItem() {
         #expect(MenuBarMiniStatusPresentation.shouldShow(
-            isEnabled: true,
+                visibility: .needsInput,
             hasWorkspaceNeedingInput: true
         ))
     }
 
-    @Test("right mouse up opens the command menu")
-    func rightMouseUpResolvesToSecondaryClick() {
-        #expect(MenuBarMiniStatusClick.resolve(
-            eventType: .rightMouseUp,
-            modifierFlags: []
-        ) == .secondary)
+    @Test("always shows the item while workspaces are idle")
+    func alwaysShowsIdleItem() {
+        #expect(
+            MenuBarMiniStatusPresentation.shouldShow(
+                visibility: .always,
+                hasWorkspaceNeedingInput: false
+            ))
     }
 
-    @Test("control click mirrors the secondary menu path")
-    func controlClickResolvesToSecondaryClick() {
-        #expect(MenuBarMiniStatusClick.resolve(
-            eventType: .leftMouseUp,
-            modifierFlags: .control
-        ) == .secondary)
+    @MainActor
+    @Test("menu bar uses the shared awesoMux smile")
+    func menuBarUsesSharedSmile() {
+        #expect(MenuBarMiniStatusItemController.statusTitle == Brandmark.glyph)
     }
 
-    @Test("ordinary left click opens the floating panel")
-    func leftMouseUpResolvesToPrimaryClick() {
-        #expect(MenuBarMiniStatusClick.resolve(
-            eventType: .leftMouseUp,
-            modifierFlags: []
-        ) == .primary)
+    @MainActor
+    @Test("a workspace needing acknowledgement requests the menu bar badge")
+    func needsAcknowledgementRequestsBadge() {
+        let pane = TerminalPane(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "agents", sessions: [session])])
+
+        #expect(session.needsAcknowledgement)
+        #expect(store.hasWorkspaceNeedingInputForMenuBar)
+    }
+
+    @MainActor
+    @Test("unread workspace activity requests the menu bar badge")
+    func unreadActivityRequestsBadge() {
+        let pane = TerminalPane(
+            title: "claude",
+            workingDirectory: "~",
+            agentKind: .claudeCode,
+            unreadNotificationCount: 1,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "claude",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "agents", sessions: [session])])
+
+        #expect(!session.needsAcknowledgement)
+        #expect(store.hasWorkspaceNeedingInputForMenuBar)
     }
 }
