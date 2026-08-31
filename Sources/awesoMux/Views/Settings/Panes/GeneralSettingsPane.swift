@@ -90,18 +90,6 @@ struct GeneralSettingsPane: View {
                         options: menuBarVisibilityOptions,
                         selection: appSettingsStore.general.binding(\.menuBarVisibility)
                     )
-                    .accessibilityLabel(
-                        String(
-                            localized: "Menu bar visibility",
-                            comment: "Accessibility label for menu bar visibility choices"
-                        )
-                    )
-                    .accessibilityHint(
-                        String(
-                            localized:
-                                "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need acknowledgement or have an unanswered turn.",
-                            comment: "Accessibility hint for menu bar visibility choices"
-                        ))
                 }
             }
         }
@@ -117,9 +105,30 @@ struct GeneralSettingsPane: View {
 
     private var menuBarVisibilityOptions: [SettingsSegmented<GeneralConfig.MenuBarVisibility>.Option] {
         [
-            .init(value: .never, label: String(localized: "Never", comment: "Menu bar visibility choice")),
-            .init(value: .needsInput, label: String(localized: "Needs input", comment: "Menu bar visibility choice")),
-            .init(value: .always, label: String(localized: "Always", comment: "Menu bar visibility choice")),
+            .init(
+                value: .never,
+                label: String(localized: "Never", comment: "Menu bar visibility choice"),
+                accessibilityLabel: String(
+                    localized: "Never show awesoMux in the menu bar",
+                    comment: "Accessibility label for the never-visible menu bar choice"
+                )
+            ),
+            .init(
+                value: .needsInput,
+                label: String(localized: "Needs input", comment: "Menu bar visibility choice"),
+                accessibilityLabel: String(
+                    localized: "Show awesoMux in the menu bar when a workspace needs input",
+                    comment: "Accessibility label for the needs-input menu bar choice"
+                )
+            ),
+            .init(
+                value: .always,
+                label: String(localized: "Always", comment: "Menu bar visibility choice"),
+                accessibilityLabel: String(
+                    localized: "Always show awesoMux in the menu bar",
+                    comment: "Accessibility label for the always-visible menu bar choice"
+                )
+            ),
         ]
     }
 }

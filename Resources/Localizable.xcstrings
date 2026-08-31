@@ -568,9 +568,6 @@
     "Agent activity panel opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
     },
-    "Agent permission posture" : {
-
-    },
     "Agent transcripts are rendered from the session's log and cannot be edited." : {
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
     },
@@ -627,6 +624,9 @@
     },
     "Always make SSH managed without asking" : {
 
+    },
+    "Always show awesoMux in the menu bar" : {
+      "comment" : "Accessibility label for the always-visible menu bar choice"
     },
     "Always show jump numbers" : {
       "comment" : "Settings field label for the sidebar jump numbers toggle"
@@ -1145,12 +1145,6 @@
     },
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
-    },
-    "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need acknowledgement or have an unanswered turn." : {
-      "comment" : "Accessibility hint for menu bar visibility choices"
-    },
-    "Controls whether terminal programs and escape sequences can replace the macOS clipboard." : {
-
     },
     "Copy" : {
       "comment" : "Terminal context menu item that copies the selection"
@@ -1836,9 +1830,6 @@
     "Hides the agent activity panel" : {
       "comment" : "Accessibility hint for the footer total button while the panel is open"
     },
-    "Highlight to copy" : {
-
-    },
     "History is collecting" : {
 
     },
@@ -1850,9 +1841,6 @@
     },
     "Host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated host of a URL flagged for path-content issues."
-    },
-    "How awesoMux handles tool-use permission prompts. Applies to new agent sessions." : {
-
     },
     "IDE" : {
       "comment" : "Accessibility label for the IDE picker popup."
@@ -2117,9 +2105,6 @@
     "Menu bar" : {
       "comment" : "General settings section title"
     },
-    "Menu bar visibility" : {
-      "comment" : "Accessibility label for menu bar visibility choices"
-    },
     "Minimize Terminal Companion" : {
       "comment" : "Accessibility label for the Terminal Companion minimize button.\nTooltip on the Terminal Companion minimize button."
     },
@@ -2259,6 +2244,9 @@
     },
     "Never ask to make SSH managed" : {
 
+    },
+    "Never show awesoMux in the menu bar" : {
+      "comment" : "Accessibility label for the never-visible menu bar choice"
     },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
@@ -3637,6 +3625,9 @@
     "Show Welcome Tour" : {
 
     },
+    "Show awesoMux in the menu bar when a workspace needs input" : {
+      "comment" : "Accessibility label for the needs-input menu bar choice"
+    },
     "Show in Finder" : {
       "comment" : "Action that reveals a session snapshot recovery archive"
     },
@@ -3844,9 +3835,6 @@
           }
         }
       }
-    },
-    "Terminal program clipboard writes" : {
-
     },
     "Terminal runtime failed to initialize" : {
       "comment" : "Diagnostics event summary"
@@ -4455,9 +4443,6 @@
     },
     "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘." : {
       "comment" : "Settings field hint for the sidebar jump numbers toggle"
-    },
-    "Whether selecting terminal text automatically copies it to the macOS clipboard." : {
-
     },
     "Why remove? (optional)" : {
       "comment" : "Placeholder for an optional deletion rationale"

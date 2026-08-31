@@ -1,15 +1,15 @@
 import DesignSystem
 import SwiftUI
 
-/// Three- or four-option picker rendered as a horizontal capsule of segments
-/// with the selected segment filled in `accentSoft(...)`. Used for the
-/// "subtle / medium / loud" style choices the handoff calls for (notification
-/// posture, agent posture, etc).
+/// Three- or four-option picker rendered as a horizontal capsule of segments.
+/// Each option remains an independent accessibility element with a
+/// self-contained name; the enclosing `SettingsField` supplies the row label
+/// and hint.
 struct SettingsSegmented<Value: Hashable>: View {
     let options: [Option]
     @Binding var selection: Value
-    // Off by default: Settings' three existing call sites size to content and
-    // sit beside a label, so stretching them would be a visual regression.
+    // Off by default: settings call sites size to content and sit beside a
+    // label, so stretching them would be a visual regression.
     // Callers that need the control to span its container (equal-width
     // segments, no dead space) opt in explicitly.
     var expandsToFill: Bool = false
@@ -20,6 +20,8 @@ struct SettingsSegmented<Value: Hashable>: View {
         let value: Value
         let label: String
         var systemImage: String?
+        /// Use when the short visual label is ambiguous outside the row's
+        /// reading order, such as when navigating with VoiceOver's controls rotor.
         var accessibilityLabel: String? = nil
         var accessibilityHint: String? = nil
 
@@ -44,6 +46,8 @@ struct SettingsSegmented<Value: Hashable>: View {
             RoundedRectangle(cornerRadius: AwRadius.button)
                 .stroke(Color.aw.border, lineWidth: 0.5)
         }
+        // Preserve per-option navigation instead of flattening the buttons
+        // into one combined element.
         .accessibilityElement(children: .contain)
     }
 

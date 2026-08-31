@@ -6,12 +6,10 @@ import Testing
 /// it as a nameless "switch"/"text field" (WCAG 4.1.2).
 ///
 /// No SwiftUI accessibility-introspection dependency exists in this repo, so
-/// this is a source scan: every `.labelsHidden()`, `TextField(`, or
-/// `SettingsSegmented(` call site under Views/Settings must either sit inside
-/// a `SettingsField` that forwards accessibility, or carry an explicit
-/// `.accessibilityLabel` nearby. The before-scan stops at the nearest
-/// enclosing `SettingsField(` so one row's forwarding can't vouch for its
-/// neighbor. Comment lines never count as evidence. Window sizes are
+/// this is a source scan. Bare controls with hidden labels must receive an
+/// explicit name. `SettingsSegmented` is different: its buttons carry their
+/// own names and selected traits, while the enclosing `SettingsField` supplies
+/// row-level context. Comment lines never count as evidence. Window sizes are
 /// generous heuristics — if this fires falsely on a new layout, widen the
 /// window rather than deleting the check.
 @Suite("Settings accessibility guard")
@@ -39,23 +37,33 @@ struct SettingsAccessibilityGuardTests {
         line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
     }
 
+    private static func nearestSettingsFieldIndex(in lines: [String], before index: Int) -> Int? {
+        stride(from: index, through: max(0, index - 40), by: -1)
+            .first { lines[$0].contains("SettingsField(") && !isComment(lines[$0]) }
+    }
+
     /// Non-comment lines from the nearest preceding `SettingsField(` (or a
     /// fixed fallback window when the control isn't in one, e.g. card views)
     /// through `after` lines past the trigger.
     private static func evidenceWindow(in lines: [String], around index: Int, before: Int = 15, after: Int = 13) -> String {
-        var start = max(0, index - before)
-        for candidate in stride(from: index, through: max(0, index - 40), by: -1)
-            where lines[candidate].contains("SettingsField(") && !isComment(lines[candidate]) {
-            start = candidate
-            break
-        }
+        let start = nearestSettingsFieldIndex(in: lines, before: index) ?? max(0, index - before)
         let end = min(lines.count, index + after)
         return lines[start..<end].filter { !isComment($0) }.joined(separator: "\n")
     }
 
+    private static func settingsRowWindow(in lines: [String], fieldIndex: Int, from index: Int) -> String {
+        let fieldIndent = lines[fieldIndex].prefix(while: \.isWhitespace).count
+        let end =
+            lines.indices.dropFirst(index + 1).first {
+                lines[$0].trimmingCharacters(in: .whitespaces) == "}"
+                    && lines[$0].prefix(while: \.isWhitespace).count == fieldIndent
+            } ?? lines.count
+        return lines[index..<end].filter { !isComment($0) }.joined(separator: "\n")
+    }
+
     @Test("Bare settings controls have a VoiceOver name")
     func bareSettingsControlsHaveVoiceOverNames() throws {
-        let triggers = [".labelsHidden()", "TextField(", "SettingsSegmented("]
+        let triggers = [".labelsHidden()", "TextField("]
         var violations: [String] = []
 
         for (name, lines) in try Self.settingsSourceFiles() {
@@ -76,6 +84,44 @@ struct SettingsAccessibilityGuardTests {
             Settings controls with no VoiceOver name. Give the enclosing \
             SettingsField `forwardsAccessibilityToControl: true`, or put an \
             explicit `.accessibilityLabel` on the control:
+            \(violations.joined(separator: "\n"))
+            """
+        )
+    }
+
+    @Test("Segmented controls use labeled field context")
+    func segmentedControlsUseLabeledFieldContext() throws {
+        var violations: [String] = []
+
+        for (name, lines) in try Self.settingsSourceFiles() {
+            for (index, line) in lines.enumerated() {
+                guard line.contains("SettingsSegmented("), !Self.isComment(line) else { continue }
+                guard let fieldIndex = Self.nearestSettingsFieldIndex(in: lines, before: index) else {
+                    violations.append("\(name):\(index + 1) — missing enclosing SettingsField")
+                    continue
+                }
+
+                let fieldHeader = lines[fieldIndex...index]
+                    .filter { !Self.isComment($0) }
+                    .joined(separator: "\n")
+                if !fieldHeader.contains("label:") {
+                    violations.append("\(name):\(index + 1) — SettingsField has no label")
+                }
+
+                let row = Self.settingsRowWindow(in: lines, fieldIndex: fieldIndex, from: index)
+                if row.contains(".accessibilityLabel") || row.contains(".accessibilityHint") {
+                    violations.append("\(name):\(index + 1) — redundant container accessibility metadata")
+                }
+            }
+        }
+
+        #expect(
+            violations.isEmpty,
+            """
+            Segmented controls use their SettingsField label and hint for row \
+            context; their child buttons already carry the option names and \
+            selected traits. Remove container accessibility metadata or add a \
+            labeled SettingsField:
             \(violations.joined(separator: "\n"))
             """
         )
