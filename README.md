@@ -27,7 +27,7 @@ native app.
 - **Agent surface**: We currently support Claude Code, Codex, OpenCode, Pi, and Grok. Don't see your agent? Feel free to open a request or a PR. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - **License**: MIT.
 
-Full target diagram, persistence, and agent/notification model: [`docs/architecture.md`](docs/architecture.md). Keyboard reference: [`docs/shortcuts.md`](docs/shortcuts.md). Managed Linux SSH destinations offer to install a static helper for activity and file handoffs: [`docs/remote-linux-helper.md`](docs/remote-linux-helper.md).
+Full target diagram, persistence, and agent/notification model: [`docs/architecture.md`](docs/architecture.md). Keyboard reference: [`docs/shortcuts.md`](docs/shortcuts.md). Managed Linux SSH destinations offer to install a static helper for activity and file handoffs: [`docs/remote-linux-helper.md`](docs/remote-linux-helper.md). Named remote sessions need `amx` or `zmx` on the remote host: [`docs/remote-session-persistence.md`](docs/remote-session-persistence.md).
 
 ## Markdown document panes
 
