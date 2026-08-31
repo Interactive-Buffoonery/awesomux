@@ -80,7 +80,11 @@ version=RELEASE_VERSION
 arch=REMOTE_ARCHITECTURE
 archive="zmx-${version}-linux-${arch}.tar.gz"
 expected="$(awk '{print $1}' "$archive.sha256")"
-printf '%s  %s\n' "$expected" "$archive" | sha256sum -c -
+if command -v sha256sum >/dev/null 2>&1; then
+  printf '%s  %s\n' "$expected" "$archive" | sha256sum -c -
+else
+  printf '%s  %s\n' "$expected" "$archive" | shasum -a 256 -c -
+fi
 tar -xzf "$archive"
 ```
 
