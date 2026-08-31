@@ -650,6 +650,35 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.needsUserInput == false)
     }
 
+    @Test("permission request after the answer-attempt window is preserved")
+    func permissionRequestAfterAnswerAttemptWindowIsPreserved() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+        reducer.recordPermissionAnswerAttempt(
+            paneID: paneID,
+            now: Date(timeIntervalSince1970: 5)
+        )
+
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "later-permission",
+                timestamp: Date(timeIntervalSince1970: 7)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 7)
+        )
+        let decision = try #require(result)
+        #expect(decision.update.attentionReason == .permissionPrompt)
+        #expect(decision.update.unreadNotificationDelta == 1)
+    }
+
     @Test("only prompt submits claim the authoritative notification clear")
     func onlyPromptSubmitClaimsAuthoritativeClear() throws {
         let session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .openCode)

@@ -89,7 +89,7 @@ struct AgentRuntimeEventReducer: Sendable {
     /// `PermissionRequest` hook. Kept separate from
     /// `VisibleTextAgentStateReducer.runtimeEventSuppressionWindow` — that gate
     /// is about viewport inference, not user-input ordering.
-    static let permissionAnswerAttemptFreshnessWindow: TimeInterval = 5.0
+    static let permissionAnswerAttemptFreshnessWindow: TimeInterval = 1.0
 
     /// A pane-title mutation a `.rename` event resolves to, applied by the store
     /// alongside the `update`. Routing rename through the reducer (rather than
@@ -566,6 +566,7 @@ struct AgentRuntimeEventReducer: Sendable {
         let effectiveAttentionReason: AttentionReason?
         if eventAttentionReason == .permissionPrompt,
             let attemptAt = state.lastPermissionAnswerAttemptAt,
+            now >= attemptAt,
             now.timeIntervalSince(attemptAt) <= Self.permissionAnswerAttemptFreshnessWindow
         {
             // The user already answered in the TUI before this hook landed.
