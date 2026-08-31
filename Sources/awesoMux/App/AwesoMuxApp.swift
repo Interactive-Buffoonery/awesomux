@@ -172,6 +172,7 @@ struct AwesoMuxApp: App {
     @State private var activeSheetDidPresent = false
     @State private var sheetWedgeReconciliationWorkItem: DispatchWorkItem?
     @State private var recoveryWarning: SessionPersistence.SessionRecoveryWarning?
+    @State private var remoteCloseRefreshesInFlight: Set<String> = []
     @State private var didPresentRecoveryWarning = false
     /// The alerts are worded for launch, which is where the gate used to be
     /// only reachable from. Turning "Restore workspaces" on now validates the
@@ -1466,6 +1467,28 @@ struct AwesoMuxApp: App {
     ///   routing must still see it.
     @MainActor
     private func closeWorkspace(_ session: TerminalSession, alsoGateOnPaneActionConfirm: Bool) {
+        let key = "workspace:\(session.id.uuidString)"
+        guard remoteCloseRefreshesInFlight.insert(key).inserted else { return }
+        let capturedIdentity = remoteCloseIdentity(for: [session.id])
+        Task { @MainActor in
+            defer { remoteCloseRefreshesInFlight.remove(key) }
+            await refreshRemoteCloseEvidence(in: [session.id])
+            guard remoteCloseIdentity(for: [session.id]) == capturedIdentity else { return }
+            guard let current = sessionStore.session(id: session.id) else { return }
+            var displayed = current
+            displayed.title = session.title
+            performCloseWorkspace(
+                displayed,
+                alsoGateOnPaneActionConfirm: alsoGateOnPaneActionConfirm
+            )
+        }
+    }
+
+    @MainActor
+    private func performCloseWorkspace(
+        _ session: TerminalSession,
+        alsoGateOnPaneActionConfirm: Bool
+    ) {
         guard let live = sessionStore.session(id: session.id) else { return }
         // `session.title` is the title visible when the action was invoked.
         // Mutable state and destructive ownership still come from `live` and
@@ -1661,6 +1684,28 @@ struct AwesoMuxApp: App {
     /// confirm only when removal loses an SSH creation default.
     @MainActor
     private func closeWorkspaceGroup(_ group: SessionGroup) {
+        let key = "group:\(group.id.uuidString)"
+        guard remoteCloseRefreshesInFlight.insert(key).inserted else { return }
+        let capturedWorkspaceIDs = group.sessions.map(\.id)
+        let capturedIdentity = remoteCloseIdentity(for: capturedWorkspaceIDs)
+        Task { @MainActor in
+            defer { remoteCloseRefreshesInFlight.remove(key) }
+            guard sessionStore.groups.contains(where: { $0.id == group.id }) else {
+                return
+            }
+            await refreshRemoteCloseEvidence(in: capturedWorkspaceIDs)
+            guard let refreshed = sessionStore.groups.first(where: { $0.id == group.id }) else {
+                return
+            }
+            guard refreshed.sessions.map(\.id) == capturedWorkspaceIDs,
+                remoteCloseIdentity(for: capturedWorkspaceIDs) == capturedIdentity
+            else { return }
+            performCloseWorkspaceGroup(refreshed)
+        }
+    }
+
+    @MainActor
+    private func performCloseWorkspaceGroup(_ group: SessionGroup) {
         guard let live = sessionStore.groups.first(where: { $0.id == group.id }) else { return }
         let voName = Self.compactTitle(live.name)
 
@@ -2841,6 +2886,26 @@ struct AwesoMuxApp: App {
     }
 
     private func closeActivePane() {
+        guard let sessionID = sessionStore.selectedSessionID,
+            let session = sessionStore.session(id: sessionID)
+        else { return }
+        let paneID = session.activePaneID
+        let key = "pane:\(paneID.uuidString)"
+        guard remoteCloseRefreshesInFlight.insert(key).inserted else { return }
+        let capturedIdentity = remoteCloseIdentity(for: [sessionID])
+        Task { @MainActor in
+            defer { remoteCloseRefreshesInFlight.remove(key) }
+            await refreshRemoteCloseEvidence(in: [sessionID], paneIDs: [paneID])
+            guard sessionStore.selectedSessionID == sessionID,
+                sessionStore.session(id: sessionID)?.activePaneID == paneID,
+                remoteCloseIdentity(for: [sessionID]) == capturedIdentity
+            else { return }
+            performCloseActivePane()
+        }
+    }
+
+    @MainActor
+    private func performCloseActivePane() {
         guard let sessionID = sessionStore.selectedSessionID else { return }
 
         guard let source = sessionStore.session(id: sessionID) else { return }
@@ -2931,6 +2996,73 @@ struct AwesoMuxApp: App {
         case .closeWorkspace:
             assertionFailure("workspace close does not route through the pane action policy")
         }
+    }
+
+    @MainActor
+    private func refreshRemoteCloseEvidence(
+        in workspaceIDs: [TerminalSession.ID],
+        paneIDs: Set<TerminalPane.ID>? = nil
+    ) async {
+        var targets: [(TerminalSession.ID, TerminalPane.ID)] = []
+        let now = Date()
+        for workspaceID in workspaceIDs {
+            guard let session = sessionStore.session(id: workspaceID) else { continue }
+            for pane in session.panes where paneIDs?.contains(pane.id) ?? true {
+                guard case .ssh(let execution) = pane.executionPlan,
+                    execution.persistenceOwner == .localAmx,
+                    pane.freshRemoteForegroundLiveness(at: now) == nil
+                else { continue }
+                targets.append((workspaceID, pane.id))
+            }
+        }
+        let refreshes = targets.map { workspaceID, paneID in
+            Task { @MainActor in
+                await ghosttyRuntime.refreshRemoteForegroundLiveness(
+                    workspaceID: workspaceID,
+                    paneID: paneID,
+                    in: sessionStore
+                )
+            }
+        }
+        for refresh in refreshes {
+            await refresh.value
+        }
+    }
+
+    private struct RemoteCloseIdentity: Equatable {
+        struct Pane: Equatable {
+            let paneID: TerminalPane.ID
+            let terminalSessionID: TerminalSessionID
+            let executionPlan: PaneExecutionPlan
+        }
+
+        let workspaces: [(TerminalSession.ID, [Pane])]
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.workspaces.elementsEqual(rhs.workspaces) { left, right in
+                left.0 == right.0 && left.1 == right.1
+            }
+        }
+    }
+
+    private func remoteCloseIdentity(
+        for workspaceIDs: [TerminalSession.ID]
+    ) -> RemoteCloseIdentity {
+        RemoteCloseIdentity(
+            workspaces: workspaceIDs.compactMap { workspaceID in
+                guard let session = sessionStore.session(id: workspaceID) else { return nil }
+                return (
+                    workspaceID,
+                    session.panes.map {
+                        .init(
+                            paneID: $0.id,
+                            terminalSessionID: $0.terminalSessionID,
+                            executionPlan: $0.executionPlan
+                        )
+                    }
+                )
+            }
+        )
     }
 
     /// Explicit "Restart Shell" command (command palette): recycles the

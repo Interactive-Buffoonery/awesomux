@@ -37,6 +37,7 @@ struct PaneLayoutReducer: Sendable {
             || new.pendingRemoteSSHTarget != old.pendingRemoteSSHTarget
             || new.remoteWorkingDirectory != old.remoteWorkingDirectory
             || new.remoteConnectionHealth != old.remoteConnectionHealth
+            || new.remoteForegroundLivenessSnapshot != old.remoteForegroundLivenessSnapshot
             || new.progressReport != old.progressReport
         {
             return .durable
@@ -769,6 +770,9 @@ struct PaneLayoutReducer: Sendable {
                         pane.remoteSSHTarget = nil
                         pane.hasConsumedManagedSSHWorkspaceOffer = false
                     }
+                    if pane.remoteConnectionHealth != .active {
+                        pane.remoteForegroundLivenessSnapshot = nil
+                    }
                     pane.remoteConnectionHealth = .active
                 }
 
@@ -797,6 +801,7 @@ struct PaneLayoutReducer: Sendable {
                     pane.pendingRemoteSSHTarget = nil
                     pane.remoteWorkingDirectory = nil
                     pane.remoteConnectionHealth = .active
+                    pane.remoteForegroundLivenessSnapshot = nil
                 }
             }
         }

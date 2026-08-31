@@ -12,7 +12,10 @@ enum RemoteHelperInstaller {
     static let maximumOutputByteCount = 4 * 1024
     static let successToken = "AWESOMUX_HELPER_INSTALLED"
     static let unsafeRemoteLayoutToken = "AWESOMUX_HELPER_UNSAFE_REMOTE_LAYOUT"
-    static let requiredProtocols = [AmxBackend.bridgeProtocolVersion, "awesomux-handoff-v1"]
+    static let bridgeRequiredProtocols = [AmxBackend.bridgeProtocolVersion]
+    static let handoffRequiredProtocols = ["awesomux-handoff-v1"]
+    static let livenessRequiredProtocols = ["awesomux-liveness-v1"]
+    static let requiredProtocols = bridgeRequiredProtocols + handoffRequiredProtocols
 
     enum Failure: Error, Equatable, Sendable {
         case helperProbeFailed
@@ -46,6 +49,27 @@ enum RemoteHelperInstaller {
     enum ApprovalAction: Equatable, Sendable {
         case install
         case update
+    }
+
+    struct FeatureCapabilities: Equatable, Sendable {
+        let bridge: Bool
+        let handoff: Bool
+        let liveness: Bool
+
+        init(protocols: Set<String>) {
+            bridge = Set(bridgeRequiredProtocols).isSubset(of: protocols)
+            handoff = Set(handoffRequiredProtocols).isSubset(of: protocols)
+            liveness = Set(livenessRequiredProtocols).isSubset(of: protocols)
+        }
+    }
+
+    static func featureCapabilities(helperVersionOutput: String) -> FeatureCapabilities {
+        FeatureCapabilities(
+            protocols: BridgeDoctorSignals.compatibleProtocols(
+                helperVersionOutput: helperVersionOutput,
+                appSupported: Set(requiredProtocols + livenessRequiredProtocols)
+            )
+        )
     }
 
     enum WorkflowOutcome: Equatable, Sendable {
@@ -170,12 +194,8 @@ enum RemoteHelperInstaller {
         }
 
         let output = String(decoding: data, as: UTF8.self)
-        let required = Set(requiredProtocols)
-        let compatible = BridgeDoctorSignals.compatibleProtocols(
-            helperVersionOutput: output,
-            appSupported: required
-        )
-        return compatible == required ? .supported : .incompatible
+        let features = featureCapabilities(helperVersionOutput: output)
+        return features.bridge && features.handoff ? .supported : .incompatible
     }
 
     static func probePlatform(

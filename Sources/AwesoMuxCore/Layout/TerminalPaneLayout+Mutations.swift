@@ -83,6 +83,7 @@ public extension TerminalPaneLayout {
                 return (self, false)
             }
             pane.remoteConnectionHealth = .possiblyStale
+            pane.remoteForegroundLivenessSnapshot = nil
             return (.pane(pane), true)
 
         case let .split(split):

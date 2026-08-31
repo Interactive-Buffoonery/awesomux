@@ -144,6 +144,64 @@ final class GhosttyRuntime {
     @ObservationIgnored
     var bridgeGenerationRegistry: BridgeGenerationRegistry?
 
+    @ObservationIgnored
+    private let remoteLivenessPoller = RemoteLivenessPoller()
+
+    /// Refreshes one pane through its current bridge generation and applies the
+    /// result only if every captured identity still names the live pane.
+    @MainActor
+    func refreshRemoteForegroundLiveness(
+        workspaceID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        in store: SessionStore
+    ) async {
+        guard let pane = store.session(id: workspaceID)?.layout.pane(id: paneID),
+            case .ssh(let execution) = pane.executionPlan,
+            execution.persistenceOwner == .localAmx,
+            pane.remoteConnectionHealth == .active,
+            let context = bridgeGenerationRegistry?.probeContext(for: pane.terminalSessionID),
+            context.remote == execution.target
+        else {
+            store.setRemoteForegroundLivenessSnapshot(nil, sessionID: workspaceID, paneID: paneID)
+            return
+        }
+
+        let terminalSessionID = pane.terminalSessionID
+        let command = AmxBackend.bridgeHelperForegroundLivenessCommand(
+            controlPath: context.controlPath,
+            remote: context.remote,
+            helperPath: context.helperPath,
+            session: terminalSessionID
+        )
+        let liveness = await remoteLivenessPoller.sample(
+            key: .init(
+                workspaceID: workspaceID,
+                paneID: paneID,
+                generation: context.generation
+            ),
+            command: command
+        )
+
+        guard let current = store.session(id: workspaceID)?.layout.pane(id: paneID),
+            current.terminalSessionID == terminalSessionID,
+            current.executionPlan.remoteTarget == context.remote,
+            current.remoteConnectionHealth == .active,
+            bridgeGenerationRegistry?.currentToken(for: terminalSessionID) == context.generation
+        else { return }
+
+        let snapshot = liveness.map {
+            RemoteForegroundLivenessSnapshot(
+                workspaceID: workspaceID,
+                paneID: paneID,
+                terminalSessionID: terminalSessionID,
+                connectionGeneration: context.generation,
+                liveness: $0,
+                sampledAt: Date()
+            )
+        }
+        store.setRemoteForegroundLivenessSnapshot(snapshot, sessionID: workspaceID, paneID: paneID)
+    }
+
     /// The single per-runtime remote-socket ledger (INT-698): the sole deletion
     /// authority shared by every attach preflight and the generation registry, so
     /// `previousGeneration`/`commit` and every teardown `rm` route through one
@@ -221,6 +279,9 @@ final class GhosttyRuntime {
     @ObservationIgnored
     private var visibleSurfaceSamplingPaneIDs: Set<TerminalPane.ID> = []
     private static let visibleSurfaceSampleInterval: Duration = .milliseconds(250)
+    private static let remoteLivenessSampleInterval: Duration = .seconds(5)
+    @ObservationIgnored
+    private var lastRemoteLivenessSchedule: [TerminalPane.ID: ContinuousClock.Instant] = [:]
     /// Controlled clock for the sampling cadence (swap in tests to drive
     /// ticks deterministically).
     @ObservationIgnored
@@ -330,6 +391,19 @@ final class GhosttyRuntime {
         surfaceViews[paneID]
     }
 
+    func clearRemoteLivenessSnapshot(for terminalSessionID: TerminalSessionID) {
+        guard
+            let surface = surfaceViews.values.first(where: {
+                $0.pane.terminalSessionID == terminalSessionID
+            })
+        else { return }
+        surface.sessionStore.setRemoteForegroundLivenessSnapshot(
+            nil,
+            sessionID: surface.sessionID,
+            paneID: surface.paneID
+        )
+    }
+
     /// Lands any title still inside its throttle window, so a quit within the
     /// window persists the pane's real title instead of an animation frame.
     /// Must run before `SessionPersistence.flush`.
@@ -398,6 +472,35 @@ final class GhosttyRuntime {
         }
         for surfaceView in visibleSurfaceViews {
             surfaceView.sampleAgentStateFromVisibleText()
+            scheduleRemoteLivenessSampleIfNeeded(for: surfaceView)
+        }
+    }
+
+    private func scheduleRemoteLivenessSampleIfNeeded(for surfaceView: GhosttySurfaceNSView) {
+        let workspaceID = surfaceView.sessionID
+        let paneID = surfaceView.paneID
+        guard let pane = surfaceView.sessionStore.session(id: workspaceID)?.layout.pane(id: paneID),
+            case .ssh(let execution) = pane.executionPlan,
+            execution.persistenceOwner == .localAmx,
+            pane.remoteConnectionHealth == .active
+        else {
+            lastRemoteLivenessSchedule[paneID] = nil
+            return
+        }
+        let now = ContinuousClock.now
+        if let last = lastRemoteLivenessSchedule[paneID],
+            last.duration(to: now) < Self.remoteLivenessSampleInterval
+        {
+            return
+        }
+        lastRemoteLivenessSchedule[paneID] = now
+        let store = surfaceView.sessionStore
+        Task { @MainActor [weak self] in
+            await self?.refreshRemoteForegroundLiveness(
+                workspaceID: workspaceID,
+                paneID: paneID,
+                in: store
+            )
         }
     }
 
@@ -594,6 +697,15 @@ final class GhosttyRuntime {
         // guard so a redundant discard (surface already gone, ladder still
         // in-flight) still cancels the orphaned task.
         shellActivityLifecycleRefreshTasks.removeValue(forKey: paneID)?.cancel()
+        lastRemoteLivenessSchedule[paneID] = nil
+        if let workspaceID = surfaceViews[paneID]?.sessionID {
+            Task {
+                await remoteLivenessPoller.cancel(
+                    workspaceID: workspaceID,
+                    paneID: paneID
+                )
+            }
+        }
         noteSurfaceVisibility(paneID: paneID, isVisible: false)
         secureInputCoordinator.removePane(paneID)
         guard let surfaceView = surfaceViews.removeValue(forKey: paneID) else {

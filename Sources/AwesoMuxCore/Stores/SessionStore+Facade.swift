@@ -508,6 +508,17 @@ extension SessionStore {
         return true
     }
 
+    @discardableResult
+    public func setRemoteForegroundLivenessSnapshot(
+        _ snapshot: RemoteForegroundLivenessSnapshot?,
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> Bool {
+        mutatePane(sessionID: sessionID, paneID: paneID) { pane in
+            pane.remoteForegroundLivenessSnapshot = snapshot
+        }
+    }
+
     /// Flips a latched `.disconnected` pane to `.reconnecting`, keeping the
     /// captured target unchanged, right before a manual respawn attempt
     /// (`CommandBridgeEnactor.beginManualReconnect`, INT-697). No-ops when the
@@ -945,6 +956,7 @@ extension SessionStore {
             pane.hasConsumedManagedSSHWorkspaceOffer = false
             pane.remoteWorkingDirectory = nil
             pane.remoteConnectionHealth = .active
+            pane.remoteForegroundLivenessSnapshot = nil
         }
         guard changed else { return }
         commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: false]))
