@@ -986,13 +986,6 @@ extension GhosttySurfaceNSView {
     }
 
     func markNeedsAttentionPromptAnswered() {
-        let livePane =
-            sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
-            ?? session.layout.pane(id: paneID)
-        guard livePane?.agentState == .needsAttention else {
-            return
-        }
-
         sessionStore.markNeedsAttentionPromptAnswered(id: sessionID, paneID: paneID)
     }
 }

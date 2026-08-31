@@ -615,6 +615,87 @@ struct AgentRuntimeEventReducerEdgeTests {
         #expect(session.unreadNotificationCount == 1)
     }
 
+    @Test("late permission request is suppressed after a recent answer attempt")
+    func latePermissionRequestIsSuppressedAfterRecentAnswerAttempt() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+        reducer.recordPermissionAnswerAttempt(
+            paneID: paneID,
+            now: Date(timeIntervalSince1970: 5)
+        )
+
+        let permissionResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "late-permission",
+                timestamp: Date(timeIntervalSince1970: 6)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 6)
+        )
+        let permission = try #require(permissionResult)
+        #expect(permission.update.attentionReason == nil)
+        #expect(permission.update.unreadNotificationDelta == 0)
+
+        _ = WorkspaceAttentionReducer.updatePane(
+            &session, paneID: paneID, update: permission.update, now: Date(timeIntervalSince1970: 6)
+        )
+        #expect(session.attentionReason == nil)
+        #expect(session.needsUserInput == false)
+
+        let nextPermissionResult = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "next-permission",
+                timestamp: Date(timeIntervalSince1970: 6.5)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 6.5)
+        )
+        let nextPermission = try #require(nextPermissionResult)
+        #expect(nextPermission.update.attentionReason == .permissionPrompt)
+        #expect(nextPermission.update.unreadNotificationDelta == 1)
+    }
+
+    @Test("permission request after the answer-attempt window is preserved")
+    func permissionRequestAfterAnswerAttemptWindowIsPreserved() throws {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex)
+        let paneID = session.activePaneID
+        seedExecutionState(&session, paneID: paneID, .thinking)
+        var reducer = AgentRuntimeEventReducer()
+        reducer.recordPermissionAnswerAttempt(
+            paneID: paneID,
+            now: Date(timeIntervalSince1970: 5)
+        )
+
+        let result = reducer.decision(
+            for: AgentRuntimeEvent(
+                source: .codex,
+                attentionReason: .permissionPrompt,
+                phase: .notification,
+                eventID: "later-permission",
+                timestamp: Date(timeIntervalSince1970: 7)
+            ),
+            currentSession: session,
+            paneID: paneID,
+            terminalIsFocused: false,
+            now: Date(timeIntervalSince1970: 7)
+        )
+        let decision = try #require(result)
+        #expect(decision.update.attentionReason == .permissionPrompt)
+        #expect(decision.update.unreadNotificationDelta == 1)
+    }
+
     @Test("only prompt submits claim the authoritative notification clear")
     func onlyPromptSubmitClaimsAuthoritativeClear() throws {
         let session = TerminalSession(title: "agent", workingDirectory: "~", agentKind: .openCode)

@@ -534,6 +534,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             inputState.armedLinkClickValue = inputState.mouseOverLink
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_LEFT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -548,6 +549,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_LEFT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
 
         // INT-453: complete plain-click link activation (armed at press,
         // cancelled by drag). Routed through the same funnel as
@@ -661,6 +663,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_RIGHT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func rightMouseUp(with event: NSEvent) {
@@ -674,6 +677,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_RIGHT, event: event)
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -694,6 +698,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             button: GhosttyInputMapper.mouseButton(event.buttonNumber),
             event: event
         )
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -711,6 +716,14 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             button: GhosttyInputMapper.mouseButton(event.buttonNumber),
             event: event
         )
+        markNeedsAttentionPromptAnsweredFromCapturedMouse()
+    }
+
+    private func markNeedsAttentionPromptAnsweredFromCapturedMouse() {
+        guard let surface, ghostty_surface_mouse_captured(surface) else {
+            return
+        }
+        markNeedsAttentionPromptAnswered()
     }
 
     // A held button always produces `mouseDragged`/`rightMouseDragged`/

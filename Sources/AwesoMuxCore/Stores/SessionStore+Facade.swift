@@ -227,17 +227,29 @@ extension SessionStore {
 
     /// Marks an answered prompt as thinking again, on the given pane.
     ///
-    /// No-ops unless that pane is currently `.needsAttention`. When it applies,
-    /// the pane transitions to `.thinking`, clears attention, and clears its
-    /// unread badge because the user has acted on that prompt. `paneID` defaults
-    /// to the session's active pane.
+    /// Active agent panes record a short-lived permission-answer attempt so an
+    /// input delivered just before its hook cannot leave a stale badge. Visible
+    /// state changes only when the pane is currently `.needsAttention`: it moves
+    /// to `.thinking`, clears attention, and clears its unread badge because the
+    /// user acted on that prompt. `paneID` defaults to the session's active pane.
     public func markNeedsAttentionPromptAnswered(
         id: TerminalSession.ID,
         paneID: TerminalPane.ID? = nil
     ) {
         guard let targetPaneID = resolvedPaneID(sessionID: id, paneID: paneID),
-            session(id: id)?.layout.pane(id: targetPaneID)?.agentState == .needsAttention
+            let pane = session(id: id)?.layout.pane(id: targetPaneID)
         else {
+            return
+        }
+        if pane.agentKind != .shell,
+            pane.agentState.refreshesAgentActivity || pane.agentState == .needsAttention
+        {
+            runtimeEventReducer.recordPermissionAnswerAttempt(
+                paneID: targetPaneID,
+                now: Date()
+            )
+        }
+        guard pane.agentState == .needsAttention else {
             return
         }
         applyPaneUpdate(
