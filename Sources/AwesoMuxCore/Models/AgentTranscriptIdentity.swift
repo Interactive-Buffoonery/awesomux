@@ -27,22 +27,29 @@ public struct AgentTranscriptIdentity: Hashable, Sendable {
     /// Returns `nil` unless `agentKind` is a provider whose transcript layout
     /// awesoMux knows and `sessionID` passes that provider's validation.
     ///
-    /// The provider allowlist is `AgentTranscriptImporter.Provider` rather than
-    /// a second list, so the set of kinds that can name a transcript file and
-    /// the set that can be stored as provenance cannot drift apart.
+    /// The provider allowlist covers every transcript storage adapter.
     public init?(agentKind: AgentKind, sessionID: String) {
-        let source: AgentRuntimeSource
-        switch agentKind {
-        case .claudeCode: source = .claudeCode
-        case .codex: source = .codex
-        case .pi: source = .pi
-        case .openCode, .grok, .shell: return nil
-        }
+        guard let source = Self.runtimeSource(for: agentKind) else { return nil }
         guard let validated = source.validatedProviderSessionID(sessionID) else {
             return nil
         }
         self.agentKind = agentKind
         self.sessionID = validated
+    }
+
+    /// Whether awesoMux has a transcript storage adapter for this provider.
+    public static func supports(agentKind: AgentKind) -> Bool {
+        runtimeSource(for: agentKind) != nil
+    }
+
+    private static func runtimeSource(for agentKind: AgentKind) -> AgentRuntimeSource? {
+        switch agentKind {
+        case .claudeCode: .claudeCode
+        case .codex: .codex
+        case .openCode: .openCode
+        case .pi: .pi
+        case .grok, .shell: nil
+        }
     }
 
     /// The provenance of a transcript that was just resolved and opened.

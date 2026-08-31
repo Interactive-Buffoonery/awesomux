@@ -15,13 +15,23 @@ Supported environment variables:
 | Variable | Meaning |
 | --- | --- |
 | `AWESOMUX_AGENT_EVENT_PROTOCOL` | Protocol name, currently `awesomux-agent-v1` |
-| `AWESOMUX_SESSION_ID` | awesoMux session UUID |
-| `AWESOMUX_PANE_ID` | awesoMux pane UUID |
+| `AWESOMUX_SESSION_ID` | Launch workspace UUID: the workspace in which this pane's current process was created. It does not change when the live pane moves to another workspace. |
+| `AWESOMUX_PANE_ID` | Stable awesoMux pane UUID. Use this key for routing and correlation. |
 | `AWESOMUX_AGENT_EVENT_FILE` | JSONL event file for this pane |
 | `AWESOMUX_AGENT_HOOK` | Absolute path to the bundled helper; templates should prefer it over the bare command name |
 | `AWESOMUX_AGENT_ENABLED_SOURCES` | Comma-separated file-drop provider sources enabled when this pane was spawned, such as `opencode,pi`. This is diagnostic/legacy metadata only; app-side event acceptance is the live consent source because child-process environments cannot be updated after Settings changes. |
 | `AWESOMUX_AMX` | Absolute path to the bundled `amx` CLI (the persistent-session backend). Unset when the binary is missing — never a dead path. Restored panes keep the spawn-time value until their daemon dies, so re-check `-x` before use. Not part of the health check. See [amx automation](amx-automation.md). |
 | `AWESOMUX_PROFILE` | Active runtime profile: `production`, `development`, `development:<worktree-id>`, or `test:<pid>`. The app scrubs inherited values and injects its bundle-derived identity; `test:<pid>` only ever comes from a test process, which has no bundle identity to derive one from. Not part of the health check. |
+
+Child-process environments cannot be updated after launch. Moving a pane keeps
+its terminal surface and process alive, so `AWESOMUX_SESSION_ID` remains launch
+provenance rather than tracking the pane's current workspace. Scripts and
+plugins must use `AWESOMUX_PANE_ID` when they need a stable identity and must
+not use `AWESOMUX_SESSION_ID` to infer current workspace membership.
+
+There is no dynamic current-workspace lookup today. If a concrete consumer
+needs one, it should be an awesoMux-owned query keyed by pane ID; workspace
+layout is app state, not part of the `amx` session-management contract.
 
 Payload fields:
 
@@ -552,7 +562,9 @@ environment is unusable.
 The check validates:
 
 - `AWESOMUX_AGENT_EVENT_PROTOCOL` is `awesomux-agent-v1`.
-- `AWESOMUX_SESSION_ID` and `AWESOMUX_PANE_ID` are valid UUIDs.
+- `AWESOMUX_SESSION_ID` and `AWESOMUX_PANE_ID` are valid UUIDs. This checks
+  their launch-time format, not whether the pane still belongs to the launch
+  workspace.
 - `AWESOMUX_AGENT_EVENT_FILE` names the current pane's
   `<AWESOMUX_PANE_ID>.jsonl` file.
 - The event file exists, is a regular file, is owned by the current effective

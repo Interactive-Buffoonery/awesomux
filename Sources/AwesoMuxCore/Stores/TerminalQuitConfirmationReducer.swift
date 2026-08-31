@@ -30,6 +30,14 @@ struct TerminalQuitConfirmationReducer: Sendable {
         }
     }
 
+    static func sampledComm(
+        from snapshots: [TerminalQuitConfirmationSnapshot]
+    ) -> [TerminalPane.ID: String?] {
+        snapshots.reduce(into: [TerminalPane.ID: String?]()) { map, snapshot in
+            map[snapshot.paneID] = snapshot.sampledComm
+        }
+    }
+
     /// Returns the IDs of sessions with >=1 pane whose quit-risk inputs actually
     /// changed, so callers can reclassify
     /// exactly those sessions' quit-risk cache membership (INT-420). This includes
@@ -41,6 +49,7 @@ struct TerminalQuitConfirmationReducer: Sendable {
         risksByPaneID: [TerminalPane.ID: Bool],
         promptObservedByPaneID: [TerminalPane.ID: Bool],
         livenessByPaneID: [TerminalPane.ID: ForegroundProcessLiveness],
+        sampledCommByPaneID: [TerminalPane.ID: String?] = [:],
         to groups: inout [SessionGroup]
     ) -> Set<TerminalSession.ID> {
         var changedSessionIDs: Set<TerminalSession.ID> = []
@@ -52,10 +61,12 @@ struct TerminalQuitConfirmationReducer: Sendable {
                         let risk = risksByPaneID[pane.id] ?? false
                         let promptObserved = promptObservedByPaneID[pane.id] ?? false
                         let liveness = livenessByPaneID[pane.id] ?? .unsampled
+                        let sampledComm = sampledCommByPaneID[pane.id].flatMap { $0 }
                         guard
                             pane.needsTerminalQuitConfirmation != risk
                                 || pane.terminalPromptObserved != promptObserved
                                 || pane.foregroundProcessLiveness != liveness
+                                || pane.sampledComm != sampledComm
                         else {
                             return pane
                         }
@@ -64,6 +75,7 @@ struct TerminalQuitConfirmationReducer: Sendable {
                         pane.needsTerminalQuitConfirmation = risk
                         pane.terminalPromptObserved = promptObserved
                         pane.foregroundProcessLiveness = liveness
+                        pane.sampledComm = sampledComm
                         return pane
                     }
             }

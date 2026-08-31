@@ -1,6 +1,7 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxTestSupport
 import Foundation
+import SQLite3
 import Testing
 
 @testable import AwesoMuxCore
@@ -62,6 +63,53 @@ struct AgentTranscriptOpenerTests {
             #expect(markdown.contains("opening turn"))
             #expect(markdown.contains("closing turn"))
         }
+    }
+
+    @Test("an OpenCode SQLite session is rendered through the shared command path")
+    func opensOpenCodeSQLiteSession() throws {
+        let root = try TemporaryDirectory(prefix: "awesomux-opencode-opener")
+        defer { withExtendedLifetime(root) {} }
+        let dataHome = root.url.appending(path: "opencode", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dataHome, withIntermediateDirectories: true)
+        let databaseURL = dataHome.appending(path: "opencode.db")
+        var database: OpaquePointer?
+        #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+        let openedDatabase = try #require(database)
+        defer { sqlite3_close(openedDatabase) }
+        let setup = """
+            PRAGMA journal_mode=WAL;
+            CREATE TABLE session (id TEXT PRIMARY KEY);
+            CREATE TABLE message (
+                id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT
+            );
+            CREATE TABLE part (
+                id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT,
+                time_created INTEGER, data TEXT
+            );
+            INSERT INTO session VALUES ('ses_01JABC');
+            INSERT INTO message VALUES ('msg_1', 'ses_01JABC', 1, '{"role":"user"}');
+            INSERT INTO part VALUES (
+                'prt_1', 'msg_1', 'ses_01JABC', 1,
+                '{"type":"text","text":"hello from the live database"}'
+            );
+            """
+        #expect(sqlite3_exec(openedDatabase, setup, nil, nil, nil) == SQLITE_OK)
+        let store = AgentTranscriptStore(
+            cacheDirectoryURL: root.url.appending(path: "cache", directoryHint: .isDirectory)
+        )
+
+        let result = AgentTranscriptOpener.open(
+            agentKind: .openCode,
+            executionPlan: .local,
+            configHome: dataHome,
+            reportedSessionID: "ses_01JABC",
+            store: store
+        )
+        let transcript = try #require(try? result.get())
+        #expect(transcript.identity.agentKind == .openCode)
+        #expect(transcript.identity.sessionID == "ses_01JABC")
+        let markdown = try String(contentsOf: transcript.fileURL, encoding: .utf8)
+        #expect(markdown.contains("hello from the live database"))
     }
 
     /// The queued localization ASK, resolved: the renderer's chrome is no longer
@@ -344,13 +392,7 @@ struct AgentTranscriptOpenerTests {
                 AgentTranscriptOpener.unavailableDescription(
                     for: .unavailable(.unsupportedAgent(.grok))
                 )
-                    == "Grok's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, and Pi."
-            )
-            #expect(
-                AgentTranscriptOpener.unavailableDescription(
-                    for: .unavailable(.unsupportedAgent(.openCode))
-                )
-                    == "OpenCode's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, and Pi."
+                    == "Grok's transcripts are not currently available in awesoMux. Transcripts are available for Claude Code, Codex, OpenCode, and Pi."
             )
         }
     }
@@ -415,13 +457,13 @@ struct AgentTranscriptOpenerTests {
         let failures: [AgentTranscriptOpenFailure] = [
             .cacheWriteFailed,
             .unavailable(.unsupportedAgent(.grok)),
-            .unavailable(.unsupportedAgent(.openCode)),
             .unavailable(.remoteExecution),
             .unavailable(.invalidSessionID),
             .unavailable(.noSessionIdentity),
             .unavailable(.notFound),
             .unavailable(.searchLimitReached),
             .unavailable(.unreadable(.notRegularFile)),
+            .unavailable(.databaseUnavailable),
         ]
         let descriptions = failures.map(AgentTranscriptOpener.unavailableDescription(for:))
         #expect(descriptions.allSatisfy { !$0.isEmpty })

@@ -10,7 +10,9 @@ public enum BridgeHelperCommand {
     /// its own line. A list, not a single string, so a
     /// future protocol bump can advertise both the old and new version
     /// during rollout.
-    public static let supportedProtocols = ["awesomux-bridge-v1", "awesomux-handoff-v1"]
+    public static let supportedProtocols = [
+        "awesomux-bridge-v1", "awesomux-handoff-v1", "awesomux-liveness-v1",
+    ]
     private static let supportedBridgeProtocols = ["awesomux-bridge-v1"]
 
     /// `--self-check` exit codes, consumed by the doctor's state-file-custody
@@ -34,6 +36,7 @@ public enum BridgeHelperCommand {
         receiveHandoff: (String, String, Int) throws -> HandoffReceiver.Receipt = {
             try HandoffReceiver.receive(session: $0, advisoryName: $1, expectedBytes: $2)
         },
+        probeLiveness: (String) throws -> RemoteForegroundLivenessReport = defaultLivenessProbe,
         output: (String) -> Void = writeStandardOutput,
         errorOutput: (String) -> Void = writeStandardError
     ) -> Int32 {
@@ -89,6 +92,25 @@ public enum BridgeHelperCommand {
             }
         }
 
+        if arguments.first == "foreground-liveness" {
+            guard arguments.count == 3,
+                arguments[1] == "--session",
+                TerminalSessionID.isValid(arguments[2])
+            else {
+                errorOutput("awesoMuxBridgeHelper: invalid liveness arguments")
+                return 64
+            }
+            guard let report = try? probeLiveness(arguments[2]),
+                let data = try? report.encoded(),
+                let line = String(data: data, encoding: .utf8)
+            else {
+                errorOutput("awesoMuxBridgeHelper: liveness probe failed")
+                return 1
+            }
+            output(line)
+            return 0
+        }
+
         if arguments.count == 2, arguments[0] == "--emit" {
             guard let context = loadContext(environment: environment, readState: readState),
                 supportedBridgeProtocols.contains(context.state.proto),
@@ -117,6 +139,20 @@ public enum BridgeHelperCommand {
         // (INT-698 task B2) is what gives a bare invocation real work.
         return 0
     }
+
+    public static func defaultLivenessProbe(
+        sessionID: String
+    ) throws -> RemoteForegroundLivenessReport {
+        #if os(Linux)
+            RemoteProcessLivenessClassifier.classify(
+                LinuxProcessSnapshotReader().read(sessionID: sessionID)
+            )
+        #else
+            throw LivenessUnavailable()
+        #endif
+    }
+
+    private struct LivenessUnavailable: Error {}
 
     private static let helperVersion = "awesomux-remote-helper/1.0.0"
 

@@ -2,6 +2,13 @@ import AppKit
 
 @MainActor
 final class GhosttySurfaceInputState {
+    /// Set for the synchronous scope of `super.rightMouseDown` after the
+    /// physical right-click route already chose `.presentMenu`. `menu(for:)`
+    /// honors this instead of recomputing the route: mouse capture lives on
+    /// surface state another thread can flip between the two reads, and a
+    /// disagreeing second read would return nil AFTER the release was
+    /// pre-armed — no menu, no press, one silently swallowed gesture.
+    var rightClickMenuRouteArmed = false
     var mouseOverLink: String?
     /// OSC 8 hyperlink peek-preview state (INT-453). See `GhosttySurfaceLinkPeek`.
     /// `peekedLink` is the link the popover is currently presenting (distinct from

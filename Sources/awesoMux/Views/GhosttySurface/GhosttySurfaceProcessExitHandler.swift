@@ -34,9 +34,7 @@ extension GhosttySurfaceNSView {
                 now: Date().timeIntervalSinceReferenceDate
             )
             closeExitedPaneAndDiscardSurfaces()
-            TerminalAccessibilityAnnouncer.announceWorkspaceClosedAfterProcessExit(
-                exitedWithError: exitedWithError
-            )
+            announceWorkspaceClosedAfterProcessExit(exitedWithError)
             return
         }
 

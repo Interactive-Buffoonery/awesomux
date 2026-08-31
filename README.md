@@ -181,7 +181,10 @@ filter that matches nothing prints `warning: No matching test cases were run`,
 reports `0 tests`, and still **exits 0** — so a typo'd filter looks exactly like
 a pass. Check the reported test count, not the exit status.
 
-The preflight runs fourteen steps in order: the public-wording guard, the public-seed-source guard, the plural-guard check, the string-catalog drift check, the test-wait guard's own self-test, the test-wait scan, the format self-test, a non-mutating Swift format check for changed lines (`./script/format.sh --lint`), the review-automation test, the Ghostty-archive drift guard, the agent-event hook test, the sidebar tint/status WCAG contrast gate (`script/check_tint_contrast.py`), the full zmx and Swift test suite (`./script/test.sh all`), and a build that stages, ad-hoc signs, and launch-verifies `dist/awesoMux.app`. Maintainers can request advisory hosted
+The preflight runs the fast source, formatting, licensing, and automation guards,
+then the full zmx and Swift test suite (`./script/test.sh all`), followed by a
+build that stages, ad-hoc signs, and launch-verifies `dist/awesoMux.app`.
+Maintainers can request advisory hosted
 native validation for an exact pull-request SHA with `/ci`; the full local
 preflight remains the strongest pre-PR gate. Required checks, native scopes,
 trust boundaries, and troubleshooting are documented in
@@ -214,11 +217,11 @@ You can also run the contrast gate alone when iterating on design-system
 tokens or sidebar chrome:
 
 ```sh
-python3 script/check_tint_contrast.py
+./script/swift-test.sh --filter SidebarTintContrastTests
 ```
 
 PRs that touch design-system color tokens, the audited sidebar views, or the
-contrast script also run this gate automatically via
+contrast tests also run this focused test automatically on macOS via
 [`.github/workflows/tint-contrast.yml`](.github/workflows/tint-contrast.yml).
 
 ## Contributing
