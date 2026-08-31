@@ -22,11 +22,11 @@ struct SessionManagerReapSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("REAP")
+                Text("END SESSION")
                     .awFont(AwFont.Mono.kicker)
                     .tracking(1.5)
                     .foregroundStyle(Color.aw.red)
-                Text("Kill this session?")
+                Text("End this session?")
                     .awFont(AwFont.UI.title)
                     .foregroundStyle(Color.aw.text)
             }
@@ -86,7 +86,7 @@ struct SessionManagerReapSheet: View {
                     .buttonStyle(SessionManagerGhostButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button(action: onReap) {
-                    Label("Reap session", systemImage: "trash")
+                    Label("End session", systemImage: "trash")
                 }
                 .buttonStyle(SessionManagerDangerButtonStyle())
                 .keyboardShortcut(.defaultAction)
@@ -101,14 +101,16 @@ struct SessionManagerReapSheet: View {
         }
         .awShadow(.sheet)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Confirm reap of \(row.owner ?? "this session")")
+        .accessibilityLabel("Confirm ending \(row.owner ?? "this session")")
     }
 
     private var consequence: String {
         let process = row.activity == .busy ? " and the running process" : ""
         if isOwned {
-            return "This daemon is owned by an open pane. Reaping kills its shell\(process), and the pane will drop to a recoverable error. Its scrollback is discarded."
+            return
+                "This session belongs to an open pane. Ending it stops its shell\(process), and the pane will show a recoverable error. Its scrollback will be discarded."
         }
-        return "This daemon is detached but restorable. Reaping kills the shell\(process) and discards its scrollback — relaunch will no longer bring it back."
+        return
+            "This session is detached but can be restored. Ending it stops the shell\(process) and discards its scrollback — relaunch will no longer bring it back."
     }
 }

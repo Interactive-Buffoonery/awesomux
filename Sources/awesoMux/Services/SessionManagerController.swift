@@ -65,7 +65,7 @@ final class SessionManagerController {
         isVisible = true
         model.startPolling()
         postAnnouncement(
-            "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Pin or Reap. Press Escape to dismiss.",
+            "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Pin or End Session. Press Escape to dismiss.",
             priority: .high
         )
     }

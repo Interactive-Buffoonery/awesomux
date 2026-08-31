@@ -709,7 +709,7 @@
     "Background sessions are off" : {
       "comment" : "Title on a managed SSH pane blocked because background terminal sessions are disabled"
     },
-    "Background sessions. Pin a session to exempt it from auto-cleanup, or reap it to kill it." : {
+    "Background sessions. Pin a session to exempt it from auto-cleanup, or end it when you no longer need it." : {
       "comment" : "Session Manager panel accessibility hint."
     },
     "Block (libghostty default)" : {
@@ -913,6 +913,12 @@
     "Choose…" : {
       "comment" : "Open a folder picker for the worktree target path."
     },
+    "Clean up" : {
+
+    },
+    "Clean up this " : {
+
+    },
     "Clear %arg?" : {
       "comment" : "Title of the clear-workspace (permanent close) confirmation dialog. Argument is the bidi-isolated workspace title."
     },
@@ -1113,7 +1119,7 @@
     "Confirm before closing workspaces with activity" : {
 
     },
-    "Confirm reap of %arg" : {
+    "Confirm ending %arg" : {
 
     },
     "Connect" : {
@@ -1516,6 +1522,9 @@
     "During Focus" : {
 
     },
+    "END SESSION" : {
+
+    },
     "Earlier turns are omitted. This document holds the most recent history that fits." : {
       "comment" : "Notice in a rendered agent transcript when older turns exceeded the size budget"
     },
@@ -1562,6 +1571,12 @@
       "comment" : "Unavailable reason when the target agent's integration is disabled in settings"
     },
     "Enable…" : {
+
+    },
+    "End session" : {
+
+    },
+    "End this session?" : {
 
     },
     "Enter a command." : {
@@ -1626,7 +1641,7 @@
     "Every project gets a workspace — its own shell, its own name in the sidebar. Press %arg to make one." : {
       "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
     },
-    "Every session is attached to an open pane. When you quit with a session running, its daemon keeps the shell and scrollback alive — and shows up here to pin or reap." : {
+    "Every session is attached to an open pane. When you quit with a session running, it keeps the shell and scrollback alive — and shows up here to pin or end." : {
 
     },
     "Executable" : {
@@ -1948,12 +1963,6 @@
     },
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
-    },
-    "Kill this session?" : {
-
-    },
-    "Kills the daemon and its shell." : {
-
     },
     "Lavender" : {
       "comment" : "Workspace group tint color",
@@ -2858,9 +2867,6 @@
     "Quit awesoMux?" : {
       "comment" : "Title of the quit confirmation dialog shown when sessions have running activity.\nTitle of the system quit warning dialog shown when sessions have running activity."
     },
-    "REAP" : {
-
-    },
     "RESOLVED" : {
 
     },
@@ -2874,15 +2880,6 @@
 
     },
     "Read-only snapshot from %arg" : {
-
-    },
-    "Reap" : {
-
-    },
-    "Reap session" : {
-
-    },
-    "Reap this " : {
 
     },
     "Recent Workspaces" : {
@@ -3720,6 +3717,9 @@
       }
     },
     "Stop checking %arg status" : {
+
+    },
+    "Stops the session's shell and discards its scrollback." : {
 
     },
     "Subject: ⁨%arg⁩" : {
@@ -4653,7 +4653,7 @@
     "awesoMux, background sessions, shells, agents, and command-bridge daemons." : {
       "comment" : "Diagnostics settings section subtitle"
     },
-    "click to pin · reap" : {
+    "click to pin · end session" : {
 
     },
     "column header" : {
