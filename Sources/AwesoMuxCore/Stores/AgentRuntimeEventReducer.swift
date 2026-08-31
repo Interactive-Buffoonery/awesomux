@@ -610,14 +610,15 @@ struct AgentRuntimeEventReducer: Sendable {
         // Provider session IDs reject identifiable child sessions. Same-session
         // background producers remain indistinguishable on the v1 wire format,
         // so they retain the accepted false-clear window documented above.
+        let eventMatchesProviderSession =
+            normalizedProviderSessionID(event.providerSessionID).map { eventID in
+                state.providerSessionID.map { $0 == eventID } ?? true
+            } ?? true
         let resolvesPendingPermissionPrompt =
             currentPane.attentionReason == .permissionPrompt
+            && eventMatchesProviderSession
             && (event.phase == .permissionReplied
-                || (event.phase == .toolStart
-                    && eventAttentionReason == nil
-                    && (normalizedProviderSessionID(event.providerSessionID).map { eventID in
-                        state.providerSessionID.map { $0 == eventID } ?? true
-                    } ?? true)))
+                || (event.phase == .toolStart && eventAttentionReason == nil))
 
         let resolvedKind: AgentKind?
         if state.lifecycle.isEnded {

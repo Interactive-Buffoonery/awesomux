@@ -200,17 +200,6 @@ public enum AgentHookEventMapper {
     // OpenCode/Pi add StopFailure and a flat-userInputRequired Notification: unlike Claude
     // Code these providers do not forward notification subtypes, so the event carries no
     // subtype to switch on. The additive keys never overlap base, so the combine never fires.
-    private static func openCodeMapping(hookEventName: String) -> EventMapping? {
-        switch hookEventName {
-        case "PermissionReplied":
-            // OpenCode's bus `permission.replied` — authoritative retract for a
-            // hook-raised `.permissionPrompt` (issue #404). Content-free on purpose.
-            EventMapping(phase: .permissionReplied)
-        default:
-            localAgentMapping[hookEventName]
-        }
-    }
-
     private static let localAgentMapping: [String: EventMapping] = baseMapping.merging([
         "Notification": EventMapping(
             attentionReason: .userInputRequired,
@@ -224,6 +213,17 @@ public enum AgentHookEventMapper {
         "SessionEnd": EventMapping(executionState: .idle, phase: .sessionEnd),
         "StopFailure": EventMapping(executionState: .error, phase: .stop),
     ]) { _, new in new }
+
+    private static func openCodeMapping(hookEventName: String) -> EventMapping? {
+        switch hookEventName {
+        case "PermissionReplied":
+            // OpenCode's bus `permission.replied` — authoritative retract for a
+            // hook-raised `.permissionPrompt` (issue #404). Content-free on purpose.
+            EventMapping(phase: .permissionReplied)
+        default:
+            localAgentMapping[hookEventName]
+        }
+    }
 
     private struct EventMapping {
         var executionState: AgentExecutionState?
