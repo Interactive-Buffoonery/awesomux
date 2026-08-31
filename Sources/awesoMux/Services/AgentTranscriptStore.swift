@@ -1,7 +1,9 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
+import AwesoMuxCore
 import CryptoKit
 import Foundation
+import SecureFileIO
 
 /// The owner-only cache holding agent transcripts rendered to Markdown, so a
 /// document pane has a real `.md` file to open.
@@ -97,12 +99,53 @@ struct AgentTranscriptStore: @unchecked Sendable {
     /// look tidier and would instead leave one orphaned tab and one orphaned
     /// file behind on every refresh.
     ///
+    /// - Parameter skippingUnchanged: Return the existing path without writing
+    ///   when the slot is already a `0o600` file whose contents hash to this
+    ///   render's digest. A live-refreshing session re-renders on every
+    ///   filesystem event, and most of those events change nothing this
+    ///   document shows; rewriting anyway costs an atomic rename, a watcher
+    ///   re-arm, a document reload, and a main-actor attributed-string rebuild
+    ///   to arrive at the bytes already on screen.
+    ///   The check reads the slot back through the same owner-only ingress the
+    ///   write uses rather than trusting a record of the last write: a record
+    ///   describes what this process *did*, and the question the skip actually
+    ///   asks is what is on disk *now*. An external prune between two refreshes
+    ///   would otherwise leave the tab pointing at a file the skip declines to
+    ///   restore, for the rest of the session.
+    /// - Parameter shouldCommit: Consulted as the first statement of the
+    ///   write's critical section by a caller that can have several renders of
+    ///   the same session in flight, so no other write can land between the
+    ///   answer and the bytes. Answering `false` leaves the slot as it stands
+    ///   and reports it unchanged — the render that superseded this one owns
+    ///   its contents. `NSLock` is not reentrant, so this check can move into
+    ///   the lock but the lock can never move out to the caller.
     /// - Returns: The written file, or `nil` if the cache directory failed
     ///   validation or the write failed. `nil` is the caller's cue to report
     ///   the transcript as unavailable, never to retry somewhere else.
-    func write(_ markdown: String, agentKind: AgentKind, sessionID: String) -> URL? {
+    func write(
+        _ markdown: String,
+        agentKind: AgentKind,
+        sessionID: String,
+        skippingUnchanged: Bool = false,
+        shouldCommit: () -> Bool = { true }
+    ) -> URL? {
         let fileURL = fileURL(agentKind: agentKind, sessionID: sessionID)
+        let path = fileURL.standardizedFileURL.path
+        let digest = Self.stableHash(markdown)
         return Self.cacheLock.withLock {
+            // Ahead of everything else in the critical section. A caller that
+            // asks outside the lock and writes inside it leaves exactly the
+            // window the gate exists to close: check, get superseded, and land
+            // on top of the newer render's bytes.
+            guard shouldCommit() else { return fileURL }
+            // Ahead of the skip, not just ahead of the write.
+            // `SecureFileReader`'s `.rejectFinalComponent` policy resolves the
+            // PARENT with realpath by design, so it alone would accept a read
+            // through a symlinked or group-writable cache root — and a skip is
+            // a read whose answer decides whether this session's plaintext ever
+            // gets rewritten into a directory this process owns. Validating
+            // first also re-clamps the root to `0o700` on the refresh path, not
+            // only when the bytes happen to have changed.
             guard
                 fileManager.validatedOwnerOnlyDirectory(
                     at: cacheDirectoryURL,
@@ -111,6 +154,9 @@ struct AgentTranscriptStore: @unchecked Sendable {
             else {
                 return nil
             }
+            if skippingUnchanged, Self.slotHolds(digest, at: fileURL, fileManager: fileManager) {
+                return fileURL
+            }
             do {
                 try fileManager.writeOwnerOnlyFile(at: fileURL, contents: Data(markdown.utf8))
             } catch {
@@ -118,9 +164,51 @@ struct AgentTranscriptStore: @unchecked Sendable {
             }
             // Registration rides the write's critical section, so a prune can
             // never hold a keep-set this write already falsified.
-            Self.authoredPaths.insert(fileURL.standardizedFileURL.path)
+            Self.authoredPaths.insert(path)
             return fileURL
         }
+    }
+
+    /// Whether the slot is already a `0o600` file whose contents hash to
+    /// `digest`.
+    ///
+    /// Read through `SecureFileReader` rather than `Data(contentsOf:)` because
+    /// this is a read of a path another local user could have swapped: the
+    /// answer is only allowed to be `true` for a regular file this user owns,
+    /// reached without following a symlink at the final component. Anything
+    /// else — missing, replaced, over budget — answers `false`, and `false`
+    /// only ever costs a rewrite.
+    ///
+    /// The mode is part of the question rather than a separate repair step. A
+    /// slot left at `0o644` by an older build or by the user holds the right
+    /// bytes at the wrong exposure, and this file is a plaintext copy of the
+    /// session; answering `true` there would leave it world-readable for as
+    /// long as its content stopped changing, which for a finished session is
+    /// forever. Rewritten rather than refused, because `writeOwnerOnlyFile`
+    /// renames a fresh `0o600` temp into place and so repairs the mode as a
+    /// side effect of the ordinary path — refusing would instead fail the
+    /// refresh and blank a tab over a permission bit this process can fix.
+    ///
+    /// Called under `cacheLock`.
+    nonisolated private static func slotHolds(
+        _ digest: String,
+        at fileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        guard
+            let mode = (try? fileManager.attributesOfItem(atPath: fileURL.path))?[
+                .posixPermissions
+            ] as? NSNumber,
+            mode.intValue & 0o777 == 0o600,
+            let contents = try? SecureFileReader.read(
+                at: fileURL,
+                maximumBytes: AgentTranscriptRenderer.budgetBytes,
+                symlinkPolicy: .rejectFinalComponent
+            )
+        else {
+            return false
+        }
+        return stableHash(contents.data) == digest
     }
 
     // MARK: - Naming
@@ -163,7 +251,11 @@ struct AgentTranscriptStore: @unchecked Sendable {
     /// session id would carry it into every log line and crash report that
     /// names the file, against ADR-0015's "filenames only" rule.
     static func stableHash(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8))
+        stableHash(Data(value.utf8))
+    }
+
+    static func stableHash(_ data: Data) -> String {
+        SHA256.hash(data: data)
             .prefix(16)
             .map { String(format: "%02x", $0) }
             .joined()

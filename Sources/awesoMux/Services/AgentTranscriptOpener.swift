@@ -66,6 +66,61 @@ enum AgentTranscriptOpener {
             return .failure(.unavailable(.unsupportedAgent(transcript.agentKind)))
         }
 
+        // Always rewrites, unlike `refresh`: this path exists because the user
+        // just asked for the document, so a slot another process pruned has to
+        // be put back rather than assumed present.
+        return renderAndStore(
+            transcript,
+            store: store,
+            skippingUnchanged: false,
+            shouldCommit: { true }
+        )
+        .map { OpenedAgentTranscript(fileURL: $0, identity: identity) }
+    }
+
+    /// Re-reads an already-resolved transcript and re-renders it into the same
+    /// cache slot, so an open tab follows a session that is still being written.
+    ///
+    /// The re-open is not incidental: a `SecureFileReadHandle` can only vouch
+    /// for the length it validated, so appended bytes are invisible until the
+    /// path is opened again — and opening it again re-runs the owner,
+    /// regular-file, and symlink checks against the current inode.
+    /// - Parameter shouldCommit: Consulted by a caller that can have several
+    ///   renders of the same session in flight. Rendering is the slow part, so
+    ///   a render dispatched by a superseded loop can finish after a newer one
+    ///   has already written — answering `false` is what keeps the tab from
+    ///   moving backwards. A refusal is not a failure: the slot is reported as
+    ///   it stands, since the newer render owns its contents. Asked twice, and
+    ///   the second time is the one that counts: once here as a cheap early-out
+    ///   that skips the store entirely, and again as the first statement of the
+    ///   cache write's own critical section, which is the only place the answer
+    ///   and the bytes cannot be separated by another writer.
+    static func refresh(
+        _ prior: AgentTranscript,
+        store: AgentTranscriptStore = AgentTranscriptStore(),
+        shouldCommit: () -> Bool = { true }
+    ) -> Result<URL, AgentTranscriptOpenFailure> {
+        switch AgentTranscriptImporter.reopen(prior) {
+        case .success(let transcript):
+            return renderAndStore(
+                transcript,
+                store: store,
+                skippingUnchanged: true,
+                shouldCommit: shouldCommit
+            )
+        case .failure(let reason): return .failure(.unavailable(reason))
+        }
+    }
+
+    /// Renders `transcript` and puts it in its cache slot, keyed on the
+    /// validated provider session id so the slot agrees with the immutable
+    /// identity stored on the tab.
+    private static func renderAndStore(
+        _ transcript: AgentTranscript,
+        store: AgentTranscriptStore,
+        skippingUnchanged: Bool,
+        shouldCommit: () -> Bool
+    ) -> Result<URL, AgentTranscriptOpenFailure> {
         let markdown: String
         switch AgentTranscriptRenderer.render(
             transcript,
@@ -75,23 +130,27 @@ enum AgentTranscriptOpener {
         case .failure(let reason): return .failure(.unavailable(reason))
         }
 
-        // Keyed on the validated provider session id so the cache slot agrees
-        // with the immutable identity stored on the tab.
+        // A cheap early-out only. The authoritative check is the one `write`
+        // makes inside the cache lock: this one can be true and stale by the
+        // time the lock is taken, which is the whole failure it guards against.
+        guard shouldCommit() else {
+            return .success(
+                store.fileURL(agentKind: transcript.agentKind, sessionID: transcript.sessionID)
+            )
+        }
+
         guard
             let fileURL = store.write(
                 markdown,
                 agentKind: transcript.agentKind,
-                sessionID: transcript.sessionID
+                sessionID: transcript.sessionID,
+                skippingUnchanged: skippingUnchanged,
+                shouldCommit: shouldCommit
             )
         else {
             return .failure(.cacheWriteFailed)
         }
-        return .success(
-            OpenedAgentTranscript(
-                fileURL: fileURL,
-                identity: identity
-            )
-        )
+        return .success(fileURL)
     }
 
     private static func openOpenCode(

@@ -368,6 +368,10 @@ installation is a separate user action. See
 Agent transcript lookup and resume use the exact provider-native identity and
 the explicit JSONL or read-only SQLite adapters recorded in
 [ADR 0033](adr/0033-agent-transcripts-use-exact-provider-identities.md).
+A mounted JSONL transcript tab re-renders as its session appends, re-validating
+through the secure descriptor reader on every refresh. OpenCode's SQLite-backed
+transcript remains the point-in-time snapshot opened by the user until a
+database/WAL-specific refresh adapter ships; see that ADR's #494 amendment.
 Opt-in Claude Code configuration and richer per-agent adapters remain follow-up
 work under INT-350, INT-351, and INT-352.
 

@@ -9,6 +9,100 @@ import SwiftUI
 @Suite("MarkdownAttributedStringBuilder")
 struct MarkdownTextViewTests {
 
+    @Test("selection changes coalesce to the final state per run-loop turn")
+    @MainActor
+    func selectionChangesReportAnySelection() async {
+        let coordinator = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
+        let textView = NSTextView()
+        textView.string = "copy this"
+        var reported: [Bool] = []
+        coordinator.onSelectionChanged = { reported.append($0) }
+
+        textView.setSelectedRange(NSRange(location: 0, length: 4))
+        coordinator.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
+        textView.setSelectedRange(NSRange(location: 4, length: 0))
+        coordinator.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
+
+        #expect(reported.isEmpty)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(reported == [false])
+    }
+
+    @Test("source replacement preserves only an unchanged selected substring")
+    func sourceReplacementSelectionPolicy() {
+        let current = NSAttributedString(string: "copy this response")
+        let appended = NSAttributedString(string: "copy this response\nnext token")
+        let changed = NSAttributedString(string: "replaced response")
+        let selection = NSRange(location: 0, length: 4)
+
+        #expect(
+            TextStorageSelectionPreservation.canPreserve(
+                selection: selection,
+                current: current,
+                replacement: appended
+            )
+        )
+        #expect(
+            !TextStorageSelectionPreservation.canPreserve(
+                selection: selection,
+                current: current,
+                replacement: changed
+            )
+        )
+        #expect(
+            !TextStorageSelectionPreservation.canPreserve(
+                selection: NSRange(location: 0, length: 0),
+                current: current,
+                replacement: appended
+            )
+        )
+    }
+
+    @Test("storage replacement restores an unchanged selection")
+    @MainActor
+    func storageReplacementRestoresSelection() async {
+        var selectedSourceSpan: Range<Int>? = nil
+        var bindingWrites = 0
+        let coordinator = MarkdownTextViewCoordinator(
+            selectedSourceSpan: Binding(
+                get: { selectedSourceSpan },
+                set: {
+                    selectedSourceSpan = $0
+                    bindingWrites += 1
+                }
+            )
+        )
+        let textView = NSTextView()
+        textView.string = "copy this response"
+        textView.setSelectedRange(NSRange(location: 0, length: 4))
+        textView.delegate = coordinator
+        var reported: [Bool] = []
+        coordinator.onSelectionChanged = { reported.append($0) }
+
+        coordinator.replaceTextStorage(
+            NSAttributedString(string: "copy this response\nnext token"),
+            in: textView,
+            preserving: NSRange(location: 0, length: 4)
+        )
+        coordinator.lastDoc = AttributedMarkdownBuilder.build("copy this response\nnext token")
+        coordinator.publishSelectionState(in: textView)
+
+        #expect(textView.selectedRange() == NSRange(location: 0, length: 4))
+        #expect(reported.isEmpty)
+        #expect(bindingWrites == 0)
+        await Task.yield()
+        await Task.yield()
+        #expect(reported == [true])
+        #expect(bindingWrites == 1)
+        #expect(selectedSourceSpan != nil)
+    }
+
     @Test("read-only snapshots render document links as plain text")
     func readOnlySnapshotDocumentLinksArePlainText() throws {
         let doc = AttributedMarkdownBuilder.build("[local](next.md) [web](https://example.com)")

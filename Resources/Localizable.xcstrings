@@ -4255,6 +4255,9 @@
         }
       }
     },
+    "Transcript is updating live." : {
+      "comment" : "VoiceOver announcement the first time an open agent transcript is rewritten by its running session"
+    },
     "Transfer" : {
       "comment" : "Approve remote clipboard handoff button"
     },
