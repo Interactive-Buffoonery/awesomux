@@ -12,19 +12,19 @@ struct RemoteHelperInstallerTests {
     @MainActor
     func helperSetupWaitsForSheetDismissal() async {
         var sheetAttached = true
-        var pauseCount = 0
+        var dismissalWaitCount = 0
 
         let available = await RemoteHelperInstaller.waitForSheetAvailability(
             authorityIsCurrent: { true },
             hasAttachedSheet: { sheetAttached },
-            pause: {
-                pauseCount += 1
+            waitForSheetDismissal: {
+                dismissalWaitCount += 1
                 sheetAttached = false
             }
         )
 
         #expect(available)
-        #expect(pauseCount == 1)
+        #expect(dismissalWaitCount == 1)
     }
 
     @Test("bundled helper resolves beside the app executable")

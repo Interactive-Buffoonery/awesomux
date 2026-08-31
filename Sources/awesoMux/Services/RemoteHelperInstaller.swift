@@ -659,7 +659,10 @@ enum RemoteHelperInstaller {
         guard let window,
             await waitForSheetAvailability(
                 authorityIsCurrent: authorityIsCurrent,
-                hasAttachedSheet: { window.attachedSheet != nil }
+                hasAttachedSheet: { window.attachedSheet != nil },
+                waitForSheetDismissal: {
+                    await waitForAttachedSheetDismissal(from: window)
+                }
             )
         else {
             return false
@@ -725,24 +728,25 @@ enum RemoteHelperInstaller {
     static func waitForSheetAvailability(
         authorityIsCurrent: @escaping @MainActor () -> Bool,
         hasAttachedSheet: @escaping @MainActor () -> Bool,
-        pause: @escaping @MainActor () async throws -> Void = {
-            try await Task.sleep(for: .milliseconds(50))
-        }
+        waitForSheetDismissal: @escaping @MainActor () async -> Void
     ) async -> Bool {
-        for _ in 0..<40 {
-            guard authorityIsCurrent() else {
-                return false
-            }
-            guard hasAttachedSheet() else {
-                return true
-            }
-            do {
-                try await pause()
-            } catch {
-                return false
-            }
+        while hasAttachedSheet() {
+            guard authorityIsCurrent(), !Task.isCancelled else { return false }
+            await waitForSheetDismissal()
         }
-        return false
+        return authorityIsCurrent() && !Task.isCancelled
+    }
+
+    @MainActor
+    private static func waitForAttachedSheetDismissal(from window: NSWindow) async {
+        let notifications = NotificationCenter.default.notifications(
+            named: NSWindow.didEndSheetNotification,
+            object: window
+        )
+        guard window.attachedSheet != nil else { return }
+        for await _ in notifications {
+            return
+        }
     }
 
     @MainActor
