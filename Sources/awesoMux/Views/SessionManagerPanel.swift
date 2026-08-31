@@ -6,7 +6,7 @@ import SwiftUI
 // MARK: - Lifecycle presentation
 
 /// View-side presentation for a `DaemonLifecycle`: the label, tint, SF Symbol,
-/// group ordering, and the "safe to reap" / "not reapable" group hint. Colour
+/// group ordering, and the "safe to clean up" / "can't clean up" group hint. Colour
 /// only ever *reinforces* — every state is carried by an icon + text label too,
 /// so the surface stays legible under colour-blindness and Increase Contrast.
 enum DaemonLifecyclePresentation {
@@ -45,12 +45,12 @@ enum DaemonLifecyclePresentation {
     }
 
     /// Footer-style hint shown beside the group label. Orphan groups read "safe
-    /// to reap"; `inUseElsewhere` reads "not reapable". Live/restorable groups
-    /// get none — their reap is the graduated-confirm path, not a one-click.
+    /// to clean up"; `inUseElsewhere` reads "can't clean up". Live/restorable
+    /// groups get none — their reap is the graduated-confirm path, not a one-click.
     static func groupHint(_ lifecycle: DaemonLifecycle) -> String? {
         switch lifecycle {
-        case .abandoned, .expired: "safe to reap"
-        case .inUseElsewhere: "not reapable"
+        case .abandoned, .expired: "safe to clean up"
+        case .inUseElsewhere: "can't clean up"
         case .owned, .detachedRestorable: nil
         }
     }
@@ -195,7 +195,7 @@ struct SessionManagerPanel: View {
                 ),
                 hint: String(
                     localized:
-                        "Background sessions. Pin a session to exempt it from auto-cleanup, or reap it to kill it.",
+                        "Background sessions. Pin a session to exempt it from auto-cleanup, or end it when you no longer need it.",
                     comment: "Session Manager panel accessibility hint."
                 )
             )
@@ -388,7 +388,7 @@ struct SessionManagerPanel: View {
             }
             .foregroundStyle(Color.aw.textFaint)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(rowAccessibilityLabel(row) + ", not reapable")
+            .accessibilityLabel(rowAccessibilityLabel(row) + ", can't clean up while in use elsewhere")
         } else {
             HStack(spacing: 2) {
                 Button {
@@ -429,8 +429,8 @@ struct SessionManagerPanel: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Reap session")
-                .accessibilityHint("Kills the daemon and its shell.")
+                .accessibilityLabel("End session")
+                .accessibilityHint("Stops the session's shell and discards its scrollback.")
             }
             // Compose the row's identity into one spoken element ahead of the
             // buttons so VoiceOver reads state + activity + owner + age before
@@ -467,7 +467,7 @@ struct SessionManagerPanel: View {
 
     private func inlineConfirm(_ row: DaemonRow) -> some View {
         HStack(spacing: 12) {
-            Text("Reap this ")
+            Text("Clean up this ")
                 .foregroundStyle(Color.aw.text2)
                 + Text(DaemonLifecyclePresentation.label(row.lifecycle).lowercased())
                 .foregroundStyle(Color.aw.peach).bold()
@@ -480,7 +480,7 @@ struct SessionManagerPanel: View {
                 Task { _ = await model.reap(row) }
                 inlineConfirmID = nil
             } label: {
-                Label("Reap", systemImage: "trash")
+                Label("Clean up", systemImage: "trash")
             }
             .buttonStyle(SessionManagerDangerButtonStyle())
         }
@@ -520,7 +520,9 @@ struct SessionManagerPanel: View {
                 Text("No background sessions")
                     .awFont(AwFont.UI.title)
                     .foregroundStyle(Color.aw.text)
-                Text("Every session is attached to an open pane. When you quit with a session running, its daemon keeps the shell and scrollback alive — and shows up here to pin or reap.")
+                Text(
+                    "Every session is attached to an open pane. When you quit with a session running, it keeps the shell and scrollback alive — and shows up here to pin or end."
+                )
                     .awFont(AwFont.UI.meta)
                     .foregroundStyle(Color.aw.text2)
                     .multilineTextAlignment(.center)
@@ -588,7 +590,7 @@ struct SessionManagerPanel: View {
             // keyboard nav (focus a row, Space/↑↓/P/⌫) is a deferred fast-follow
             // (INT-577) — don't advertise keys that do nothing yet.
             HStack(spacing: 6) {
-                Text("click to pin · reap").foregroundStyle(Color.aw.textFaint)
+                Text("click to pin · end session").foregroundStyle(Color.aw.textFaint)
                 KBD("Esc")
                 Text("dismiss").foregroundStyle(Color.aw.textFaint)
             }
