@@ -48,6 +48,20 @@ Read the docs for the area you are changing before editing.
 - `ghostty-org/ghostling` (MIT) is the minimum viable C terminal reference for libghostty embedding.
 - `neurosnap/zmx` (MIT) is the upstream of `Interactive-Buffoonery/zmx`, our public fork vendored at `vendor/zmx` that adds the AMX out-of-band protocol (ADR 0011). General fixes go upstream when practical; the fork rebases onto upstream `main` on pin-bumps.
 
+## Submodules
+
+`vendor/ghostty` and `vendor/zmx` are pinned submodules; the build scripts sync
+them (see [`docs/ghostty-integration.md`](docs/ghostty-integration.md)).
+
+- If `git status` shows a submodule as modified after a pull, run
+  `git submodule update --init --recursive`. It refuses to discard local
+  modifications rather than overwriting them.
+- Never commit a submodule gitlink change (e.g. staging the `M vendor/ghostty`
+  entry) or bump a pin without an explicit user request. Pin updates are
+  deliberate PRs ("Updating The Pin" in
+  [`docs/ghostty-integration.md`](docs/ghostty-integration.md)).
+- Do not park uncommitted changes inside `vendor/`.
+
 ## Collaboration workflow
 
 Plan in GitHub Issues; ship and review in pull requests.
