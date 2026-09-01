@@ -462,7 +462,12 @@ public extension AwAgentIcon {
         case .grok:
             "Grok"
         case .generic:
-            "Agent"
+            String(
+                localized: "Agent",
+                bundle: bundle,
+                locale: locale,
+                comment: "Generic name for a non-integrated coding agent in an accessibility label."
+            )
         case .shell:
             String(
                 localized: "Shell",
