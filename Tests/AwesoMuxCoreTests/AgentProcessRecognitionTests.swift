@@ -17,6 +17,22 @@ struct AgentProcessRecognitionTests {
         #expect(AgentProcessRecognition.agentKind(forCommand: "/opt/homebrew/bin/pi") == .pi)
     }
 
+    @Test("recognizes every generic coding-agent command")
+    func recognizesGenericAgentCommands() {
+        let commands = [
+            "muse", "cursor-agent", "cursor", "windsurf", "aider", "droid", "amp",
+            "qwen", "kimi", "kilo", "roo", "cline", "copilot", "gemini", "goose",
+            "continue", "zed", "warp", "crush", "kiro", "codebuddy", "qoder",
+            "agy", "shai", "tabnine", "openclaw", "trae", "augment", "codebuff",
+        ]
+
+        for command in commands {
+            #expect(AgentProcessRecognition.agentKind(forCommand: command) == .generic)
+        }
+        #expect(AgentProcessRecognition.agentKind(forCommand: "muse-bin") == .generic)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "cursor-agent-arm64") == .generic)
+    }
+
     @Test("recognizes npm-packaged .exe launchers")
     func recognizesExeLaunchers() {
         // The pane-identity layer runs BEFORE AgentPromptGate: a pane this
@@ -42,5 +58,8 @@ struct AgentProcessRecognitionTests {
         // Pi matches its exact basename only — near-miss commands stay shell.
         #expect(AgentProcessRecognition.agentKind(forCommand: "pip") == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: "pianobar") == nil)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "amplify") == nil)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "rootlesskit") == nil)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "cursorctl") == nil)
     }
 }

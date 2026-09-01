@@ -344,3 +344,36 @@ struct AgentOutputDetectorOpenCodeIdentityTests {
         #expect(detector.detectedState(in: "the opencode config lives under ~/.config") == nil)
     }
 }
+
+@Suite("AgentOutputDetector generic identity")
+struct AgentOutputDetectorGenericIdentityTests {
+    private let detector = AgentOutputDetector()
+
+    @Test("infers a generic agent from a versioned Muse Code banner")
+    func infersMuseFromVersionedBanner() {
+        let detection = detector.detectedOutput(in: "Muse Code v1.2.3")
+        #expect(detection?.agentKind == .generic)
+        #expect(detection?.state == .waiting)
+    }
+
+    @Test(
+        "infers generic agents from complete prompt command names",
+        arguments: ["❯ muse", "✨ ❯ cursor-agent --resume", "$ amp --help"]
+    )
+    func infersPromptAnchoredGenericAgent(text: String) {
+        #expect(detector.detectedOutput(in: text)?.agentKind == .generic)
+    }
+
+    @Test(
+        "does not infer a generic agent from prose or command-name prefixes",
+        arguments: [
+            "we use muse code conventions in this repository",
+            "$ amplify deploy",
+            "❯ rootlesskit --help",
+            "$ cursorctl status",
+        ]
+    )
+    func rejectsProseAndCommandPrefixes(text: String) {
+        #expect(detector.detectedOutput(in: text) == nil)
+    }
+}

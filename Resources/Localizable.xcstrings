@@ -557,7 +557,7 @@
       "comment" : "Diagnostics settings section subtitle"
     },
     "Agent" : {
-      "comment" : "Diagnostics process type"
+      "comment" : "Diagnostics process type\nGeneric display name for an unsupported AI coding agent\nGeneric name for a non-integrated coding agent in an accessibility label."
     },
     "Agent activity" : {
       "comment" : "Accessibility label for the sidebar agent activity panel"

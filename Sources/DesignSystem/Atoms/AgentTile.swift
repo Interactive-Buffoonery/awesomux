@@ -7,6 +7,7 @@ public enum AwAgentIcon: Sendable, Equatable, Hashable {
     case openCode
     case pi
     case grok
+    case generic
     case shell
 }
 
@@ -149,6 +150,10 @@ public struct AgentTile: View, Equatable {
         case .grok:
             GrokGlyph()
                 .stroke(Color.aw.green, style: glyphStroke)
+                .frame(width: size * 0.55, height: size * 0.55)
+        case .generic:
+            GenericAgentGlyph()
+                .stroke(Color.aw.teal, style: glyphStroke)
                 .frame(width: size * 0.55, height: size * 0.55)
         case .shell:
             ShellGlyph()
@@ -404,6 +409,42 @@ private struct GrokGlyph: Shape {
     }
 }
 
+// Angle brackets — generic coding agent (Muse, Cursor, Windsurf, etc.).
+// `< >` reads as "generic code" and stays distinct from shell `>_` and
+// OpenCode's square `[ ]`.
+// Teal stroke keeps the family palette.
+private struct GenericAgentGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let s = min(rect.width, rect.height)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let topY = rect.minY + s * 0.18
+        let bottomY = rect.maxY - s * 0.18
+        let leftBase = rect.minX + s * 0.15
+        let rightBase = rect.maxX - s * 0.15
+        let tipInset = s * 0.18
+
+        // Left angle bracket `<` — two straight legs meeting at center tip
+        // Inset is intentionally large so `< >` can't read as `( )` at 17px
+        let leftTop = CGPoint(x: leftBase + tipInset, y: topY)
+        let leftTip = CGPoint(x: leftBase, y: center.y)
+        let leftBottom = CGPoint(x: leftBase + tipInset, y: bottomY)
+        path.move(to: leftTop)
+        path.addLine(to: leftTip)
+        path.addLine(to: leftBottom)
+
+        // Right angle bracket `>` — mirrored
+        let rightTop = CGPoint(x: rightBase - tipInset, y: topY)
+        let rightTip = CGPoint(x: rightBase, y: center.y)
+        let rightBottom = CGPoint(x: rightBase - tipInset, y: bottomY)
+        path.move(to: rightTop)
+        path.addLine(to: rightTip)
+        path.addLine(to: rightBottom)
+
+        return path
+    }
+}
+
 public extension AwAgentIcon {
     func localizedAccessibilityName(
         bundle: Bundle = .main,
@@ -420,6 +461,13 @@ public extension AwAgentIcon {
             "Pi"
         case .grok:
             "Grok"
+        case .generic:
+            String(
+                localized: "Agent",
+                bundle: bundle,
+                locale: locale,
+                comment: "Generic name for a non-integrated coding agent in an accessibility label."
+            )
         case .shell:
             String(
                 localized: "Shell",

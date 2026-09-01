@@ -60,6 +60,7 @@ struct SessionStoreTextTests {
         #expect(AgentKind.codex.spokenName == "Codex")
         #expect(AgentKind.openCode.spokenName == "OpenCode")
         #expect(AgentKind.pi.spokenName == "Pi")
+        #expect(AgentKind.generic.spokenName == "Agent")
     }
 
     @Test("AgentKind.displayName gives visual copy the full brand name and the localized shell name")
@@ -72,5 +73,6 @@ struct SessionStoreTextTests {
         #expect(AgentKind.openCode.displayName == "OpenCode")
         #expect(AgentKind.pi.displayName == "Pi")
         #expect(AgentKind.grok.displayName == "Grok")
+        #expect(AgentKind.generic.displayName == "Agent")
     }
 }

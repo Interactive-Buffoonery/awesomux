@@ -19,7 +19,7 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         #expect(AgentTranscriptIdentity(agentKind: .codex, sessionID: sessionA) != nil)
         #expect(AgentTranscriptIdentity(agentKind: .pi, sessionID: "pi-session-1") != nil)
         #expect(AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC") != nil)
-        for kind in [AgentKind.grok, .shell] {
+        for kind in [AgentKind.grok, .generic, .shell] {
             #expect(AgentTranscriptIdentity(agentKind: kind, sessionID: sessionA) == nil)
         }
     }
@@ -69,6 +69,7 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
             #"{"agentKind":"Claude Code","sessionID":"not-a-uuid"}"#,
             #"{"agentKind":"OpenCode","sessionID":"not-an-opencode-id"}"#,
             #"{"agentKind":"Grok","sessionID":"\#(sessionA)"}"#,
+            #"{"agentKind":"Generic","sessionID":"\#(sessionA)"}"#,
             #"{"agentKind":"Shell","sessionID":"\#(sessionA)"}"#,
         ] {
             #expect(throws: DecodingError.self) {

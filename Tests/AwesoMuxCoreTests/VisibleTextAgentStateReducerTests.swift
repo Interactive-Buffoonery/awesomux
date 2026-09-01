@@ -123,7 +123,7 @@ struct VisibleTextAgentStateReducerTests {
 
         // Pi reports lifecycle only; Grok 0.2.x never fires Permission hooks —
         // both keep scraped attention as their fallback.
-        for fallbackKind in [AgentKind.pi, .grok, .shell] {
+        for fallbackKind in [AgentKind.pi, .grok, .generic, .shell] {
             #expect(reducer.shouldApplyVisibleTextState(
                 detectedState: .needsAttention,
                 liveAgentKind: fallbackKind,
@@ -396,7 +396,7 @@ struct VisibleTextAgentStateReducerTests {
         // on the wrong agent before the first hook landed. A live foreground
         // process `comm` sample is authoritative and may correct that; scraped
         // viewport text still must not.
-        for reclaiming in [AgentKind.codex, .openCode, .claudeCode, .pi] {
+        for reclaiming in [AgentKind.codex, .openCode, .claudeCode, .pi, .generic] {
             #expect(reducer.agentKindCorrection(
                 detectedAgentKind: reclaiming,
                 detectedKindIsAuthoritative: true,

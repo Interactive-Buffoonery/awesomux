@@ -59,6 +59,12 @@ struct AgentPromptGateTests {
         #expect(verdict(kind: kind, comm: "claude") == .unavailable(.noVerifiedAgent))
     }
 
+    @Test("generic agents decline even when their foreground process matches")
+    func genericAgentsDeclineWithoutTrustedProviderSupport() {
+        #expect(verdict(kind: .generic, comm: "muse") == .unavailable(.noVerifiedAgent))
+        #expect(AgentPromptGate.foregroundCommandMatches(.generic, observedCommand: "muse"))
+    }
+
     @Test(
         "consent-gated providers decline when their integration is disabled",
         arguments: [AgentKind.pi, .openCode]

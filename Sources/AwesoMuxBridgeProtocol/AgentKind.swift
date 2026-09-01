@@ -7,6 +7,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
     case pi = "Pi"
     case grok = "Grok"
     case shell = "Shell"
+    case generic = "Generic"
 
     /// Whether this kind reports its own lifecycle through the runtime-event
     /// hook side channel. When true, the hook stream is the authoritative state
@@ -17,7 +18,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .claudeCode, .codex, .openCode, .pi, .grok:
             true
-        case .shell:
+        case .shell, .generic:
             false
         }
     }
@@ -31,7 +32,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .claudeCode, .codex, .openCode:
             true
-        case .pi, .grok, .shell:
+        case .pi, .grok, .shell, .generic:
             false
         }
     }

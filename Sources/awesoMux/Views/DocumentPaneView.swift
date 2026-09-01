@@ -109,7 +109,7 @@ struct DocumentPaneSendBar: View {
                 case .openCode: integrations.openCode.enabled
                 case .pi: integrations.pi.enabled
                 case .grok: integrations.grok.enabled
-                case .shell: false
+                case .shell, .generic: false
                 }
             },
             agentBinaryPath: { kind in
@@ -119,7 +119,7 @@ struct DocumentPaneSendBar: View {
                 case .openCode: integrations.openCode.binaryPath
                 case .pi: integrations.pi.binaryPath
                 case .grok: integrations.grok.binaryPath
-                case .shell: nil
+                case .shell, .generic: nil
                 }
             },
             foregroundComm: { runtime.foregroundComm(in: $0) },
