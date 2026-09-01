@@ -60,6 +60,21 @@ enum AgentPluginTemplateRendererError: Error, Equatable, Sendable {
     case missingTemplateTree(URL)
     case missingHelperPathFile(URL)
     case helperPathPlaceholderMissing(URL)
+    case directoryPermissionsUpdateFailed(URL, String)
+}
+
+extension AgentPluginTemplateRendererError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .directoryPermissionsUpdateFailed:
+            String(
+                localized: "awesoMux couldn’t make its rendered plugin directory private",
+                comment: "Rendered agent plugin private directory permission update error"
+            )
+        default:
+            nil
+        }
+    }
 }
 
 /// Renders a bundled Claude Code / Codex plugin marketplace tree into Application
@@ -165,7 +180,12 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
             try fileManager.removeItem(at: renderedTreeURL)
         }
         try fileManager.copyItem(at: bundledTreeURL, to: renderedTreeURL)
-        clampOwnerOnly(directoryAt: renderedTreeURL)
+        do {
+            try clampOwnerOnly(directoryAt: renderedTreeURL)
+        } catch {
+            try? fileManager.removeItem(at: renderedTreeURL)
+            throw error
+        }
 
         var hookConfigURLs: [URL] = []
         for relativePath in provider.helperPathFileRelativePaths {
@@ -275,7 +295,7 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
             guard isDirectory.boolValue else {
                 throw AgentPluginTemplateRendererError.missingTemplateTree(url)
             }
-            clampOwnerOnly(directoryAt: url)
+            try clampOwnerOnly(directoryAt: url)
         } else {
             try fileManager.createOwnerOnlyDirectory(at: url)
         }
@@ -285,12 +305,13 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
         try fileManager.writeOwnerOnlyFile(at: url, contents: data)
     }
 
-    private func clampOwnerOnly(directoryAt url: URL) {
+    private func clampOwnerOnly(directoryAt url: URL) throws {
         do {
             try fileManager.setOwnerOnlyPermissions(onDirectoryAt: url)
         } catch {
-            Self.logger.error(
-                "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            throw AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
+                url,
+                error.localizedDescription
             )
         }
     }

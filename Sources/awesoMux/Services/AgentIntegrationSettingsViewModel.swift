@@ -414,6 +414,11 @@ extension Error {
             return "Executable is not runnable"
         case .configHomeIsNotDirectory:
             return "Config home is not a directory"
+        case .directoryPermissionsUpdateFailed:
+            return String(
+                localized: "awesoMux couldn’t make its install directory private",
+                comment: "Agent integration private directory permission update error"
+            )
         case .installManifestUnreadable:
             return String(localized: "Install record could not be read", comment: "Unreadable agent integration install manifest error")
         case .installManifestCorrupt:
