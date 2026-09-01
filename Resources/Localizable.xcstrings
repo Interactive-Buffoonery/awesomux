@@ -2958,6 +2958,9 @@
     "Reconnecting…" : {
       "comment" : "Disabled button label shown on the remote-disconnected overlay while a manual reconnect is in flight\nTitle on the remote-pane overlay while a manual reconnect is in flight"
     },
+    "Reconnects using the captured SSH destination through awesoMux. This workspace and its other panes stay open." : {
+      "comment" : "Explanation when offering to reconnect an ordinary SSH pane as managed"
+    },
     "Record shortcut for %arg" : {
 
     },
@@ -4188,9 +4191,6 @@
     },
     "This request mixes character scripts and may be disguised." : {
       "comment" : "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
-    },
-    "This restarts the current SSH connection through awesoMux. This workspace and its other panes stay open." : {
-      "comment" : "Explanation when offering to reconnect an ordinary SSH pane as managed"
     },
     "This session is still running and can’t be resumed" : {
       "comment" : "Unavailable reason for resuming a session while an agent still holds the terminal"

@@ -132,6 +132,66 @@ struct ManagedSSHObservationLivenessTests {
         #expect(pane.pendingRemoteSSHTarget == "next-alias")
     }
 
+    @Test("an observed SSH command clears after returning to the local shell")
+    func observedSSHCommandClearsAtLocalPrompt() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "next-alias",
+            hasConsumedOffer: false
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand
+        )
+        #expect(
+            store.managedSSHConversionSuggestion(
+                sessionID: sessionID,
+                paneID: paneID
+            )?.sshDestination == "next-alias"
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .idleShell
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.pendingRemoteSSHTarget == nil)
+        #expect(
+            store.managedSSHConversionSuggestion(sessionID: sessionID, paneID: paneID) == nil
+        )
+    }
+
+    @Test("an observed bridged SSH command clears when the daemon shell becomes idle")
+    func observedBridgedSSHCommandClearsAtDaemonPrompt() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "next-alias",
+            hasConsumedOffer: false
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .bridgedBusy
+        )
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .bridged
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.pendingRemoteSSHTarget == nil)
+    }
+
     private func makeStore(
         executionPlan: PaneExecutionPlan,
         remoteHost: String? = "server.example",

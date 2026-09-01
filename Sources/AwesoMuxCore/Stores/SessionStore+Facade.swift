@@ -979,6 +979,33 @@ extension SessionStore {
         return target
     }
 
+    /// Best destination to pre-fill for an explicit conversion. A confirmed
+    /// target wins; otherwise the submitted SSH alias is only a suggestion in
+    /// the user-reviewed sheet and never authorizes an automatic conversion.
+    public func managedSSHConversionSuggestion(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> RemoteTarget? {
+        guard let session = session(id: sessionID),
+            session.activePaneID == paneID,
+            let pane = session.layout.pane(id: paneID),
+            pane.executionPlan == .local
+        else {
+            return nil
+        }
+        if pane.remoteConnectionHealth == .active,
+            pane.remoteHost != nil,
+            let rawTarget = pane.remoteSSHTarget,
+            let confirmedTarget = RemoteTarget(parsing: rawTarget)
+        {
+            return confirmedTarget
+        }
+        guard let rawTarget = pane.pendingRemoteSSHTarget else {
+            return nil
+        }
+        return RemoteTarget(parsing: rawTarget)
+    }
+
     /// Clears runtime remote observations after local process state proves an
     /// ordinary SSH command returned to its shell.
     public func clearManagedSSHObservationIfExitedToLocalShell(
@@ -986,17 +1013,36 @@ extension SessionStore {
         paneID: TerminalPane.ID,
         liveness: ForegroundProcessLiveness
     ) {
-        guard liveness == .idleShell,
-            let pane = session(id: sessionID)?.layout.pane(id: paneID),
-            pane.hasManagedSSHObservation
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            pane.executionPlan == .local
         else {
             return
         }
+
+        if pane.pendingRemoteSSHTarget != nil,
+            !pane.hasObservedPendingRemoteSSHProcess,
+            liveness == .liveCommand || liveness == .bridgedBusy
+        {
+            _ = mutatePane(sessionID: sessionID, paneID: paneID) {
+                $0.hasObservedPendingRemoteSSHProcess = true
+            }
+            return
+        }
+
+        let pendingProcessReturned =
+            pane.hasObservedPendingRemoteSSHProcess
+            && (liveness == .idleShell || liveness == .bridged)
+        let confirmedProcessReturned =
+            liveness == .idleShell
+            && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
+                || pane.hasConsumedManagedSSHWorkspaceOffer)
+        guard pendingProcessReturned || confirmedProcessReturned else { return }
 
         let changed = mutatePane(sessionID: sessionID, paneID: paneID) { pane in
             pane.remoteHost = nil
             pane.remoteSSHTarget = nil
             pane.pendingRemoteSSHTarget = nil
+            pane.hasObservedPendingRemoteSSHProcess = false
             pane.hasConsumedManagedSSHWorkspaceOffer = false
             pane.remoteWorkingDirectory = nil
             pane.remoteConnectionHealth = .active

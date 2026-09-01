@@ -380,6 +380,75 @@ struct PaletteCommandRegistryTests {
         #expect(!withSheet.isEnabled)
     }
 
+    @Test("managed conversion uses a submitted SSH target when title detection misses")
+    @MainActor
+    func managedConversionWithoutDetectedTarget() throws {
+        let pane = TerminalPane(
+            title: "ssh",
+            workingDirectory: "~",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "ssh",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Work", sessions: [session])],
+            selectedSessionID: session.id
+        )
+
+        let command = try #require(
+            PaletteCommandRegistry.command(
+                id: "makeThisWorkspaceManaged",
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(!command.isEnabled)
+        #expect(command.subtitle == nil)
+        #expect(
+            SSHWorkspaceConnectRequest.managedConversion(
+                sessionStore: store,
+                sessionID: session.id
+            ) == nil)
+
+        store.noteSubmittedCommand(
+            sessionID: session.id,
+            paneID: pane.id,
+            command: "ssh imaca8c"
+        )
+        let suggestedCommand = try #require(
+            PaletteCommandRegistry.command(
+                id: "makeThisWorkspaceManaged",
+                in: PaletteCommandRegistry.commands(
+                    sessionStore: store,
+                    availability: .init(),
+                    actions: .noop
+                )
+            ))
+        #expect(suggestedCommand.isEnabled)
+        #expect(suggestedCommand.subtitle == "imaca8c")
+
+        let request = try #require(
+            SSHWorkspaceConnectRequest.managedConversion(
+                sessionStore: store,
+                sessionID: session.id
+            )
+        )
+        #expect(request.initialDestination == "imaca8c")
+        switch request.action {
+        case .convertPane(let sessionID, let paneID):
+            #expect(sessionID == session.id)
+            #expect(paneID == pane.id)
+        case .addToGroup:
+            Issue.record("Expected an in-place pane conversion request")
+        }
+    }
+
     @Test("Rename Pane is gated to multi-pane workspaces")
     @MainActor
     func renamePaneGatedToMultiPane() throws {

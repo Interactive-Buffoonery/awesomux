@@ -433,7 +433,7 @@ struct SSHWorkspaceConnectSheet: View {
         if initialDestination != nil {
             return String(
                 localized:
-                    "This restarts the current SSH connection through awesoMux. This workspace and its other panes stay open.",
+                    "Reconnects using the captured SSH destination through awesoMux. This workspace and its other panes stay open.",
                 comment: "Explanation when offering to reconnect an ordinary SSH pane as managed"
             )
         }
