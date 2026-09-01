@@ -216,19 +216,17 @@ struct ProgressReportPaneRecycleAtomicityTests {
             enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
         )
 
-        // Reproduces `GhosttyRuntime.action`'s pre-fix
-        // `GHOSTTY_ACTION_PROGRESS_REPORT` case verbatim: a report meant for
-        // pane A's current identity, queued via `Task { @MainActor [weak
-        // view] }` instead of dispatched inline.
-        //
-        // Swift's cooperative scheduling guarantees this child `Task` does
-        // NOT run until the CURRENTLY-EXECUTING (non-suspended) code below
-        // hits a suspension point — so the recycle a few lines down is
-        // guaranteed to land BEFORE the task body runs, deterministically
-        // modeling the real gap between the C callback firing and the
-        // queued `Task` actually executing. No sleep, no flakiness.
+        // Reproduces `GhosttyRuntime.action`'s pre-fix deferred dispatch: a
+        // report meant for pane A's current identity is queued instead of
+        // dispatched inline. The gate models the scheduler delay explicitly;
+        // relying on the child task to lose a race with the recycle made this
+        // regression test depend on executor scheduling.
         let reportMeantForSessionA = TerminalProgressReport(state: .set, progress: 99)
+        let (dispatchGate, openDispatchGate) = AsyncStream<Void>.makeStream()
         let oldShapeDispatch = Task { @MainActor [weak view] in
+            for await _ in dispatchGate {
+                break
+            }
             view?.updateProgressReport(reportMeantForSessionA)
         }
 
@@ -243,6 +241,8 @@ struct ProgressReportPaneRecycleAtomicityTests {
         )
         #expect(recycledView === view)
 
+        openDispatchGate.yield()
+        openDispatchGate.finish()
         await oldShapeDispatch.value
 
         // The bug, reproduced: a report meant for session A's pane lands on
