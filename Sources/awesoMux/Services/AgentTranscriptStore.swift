@@ -66,6 +66,10 @@ struct AgentTranscriptStore: Sendable {
         cache.contains(url)
     }
 
+    func completeWrite(at fileURL: URL) {
+        cache.completeWrite(at: fileURL)
+    }
+
     static func cacheFileName(agentKind: AgentKind, sessionID: String) -> String {
         "\(stableHash(cacheIdentityKey(agentKind: agentKind, sessionID: sessionID)))\(fileNameSuffix)"
     }

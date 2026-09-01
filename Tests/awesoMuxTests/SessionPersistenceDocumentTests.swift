@@ -172,7 +172,60 @@ extension SessionPersistenceSerializationDomainTests {
 
     // MARK: - Document viewer round-trip
 
-    /// A session whose layout contains a document group nested in a split (the
+        @Test("malformed generated identity remains durably read-only")
+        func malformedGeneratedIdentityFailsClosed() throws {
+            let identity = try #require(
+                BranchChangesIdentity(
+                    gitBranch: "feature/x",
+                    baseRef: "refs/heads/main",
+                    repositoryName: "awesomux"
+                )
+            )
+            let pane = DocumentPane(
+                fileURL: URL(fileURLWithPath: "/tmp/branch.branch-changes.md"),
+                title: "Branch changes",
+                branchChangesIdentity: identity
+            )
+            var object = try #require(
+                JSONSerialization.jsonObject(with: JSONEncoder().encode(pane)) as? [String: Any]
+            )
+            object.removeValue(forKey: "generatedDocumentKind")
+            object["branchChangesIdentity"] = ["futureShape": true]
+
+            let restored = try JSONDecoder().decode(
+                DocumentPane.self,
+                from: JSONSerialization.data(withJSONObject: object)
+            )
+            #expect(restored.branchChangesIdentity == nil)
+            #expect(restored.generatedDocumentKind == .branchChanges)
+            #expect(!restored.isEditable)
+
+            let reencoded = try #require(
+                JSONSerialization.jsonObject(with: JSONEncoder().encode(restored)) as? [String: Any]
+            )
+            #expect(reencoded["generatedDocumentKind"] as? String == "branchChanges")
+        }
+
+        @Test("a future generated-document kind fails closed as unknown")
+        func futureGeneratedKindFailsClosed() throws {
+            let pane = DocumentPane(
+                fileURL: URL(fileURLWithPath: "/tmp/generated.md"),
+                title: "Generated"
+            )
+            var object = try #require(
+                JSONSerialization.jsonObject(with: JSONEncoder().encode(pane)) as? [String: Any]
+            )
+            object["generatedDocumentKind"] = "futureRenderer"
+
+            let restored = try JSONDecoder().decode(
+                DocumentPane.self,
+                from: JSONSerialization.data(withJSONObject: object)
+            )
+            #expect(restored.generatedDocumentKind == .unknown)
+            #expect(!restored.isEditable)
+        }
+
+        /// A session whose layout contains a document group nested in a split (the
     /// only valid shape — a group is never a layout root) must encode at the
     /// current schema and round-trip back to the same layout. The tab keeps a
     /// deliberately NIL association: v5 data must not get a fresh adjacency

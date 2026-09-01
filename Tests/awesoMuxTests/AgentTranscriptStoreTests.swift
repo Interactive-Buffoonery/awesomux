@@ -217,7 +217,25 @@ extension SessionPersistenceSerializationDomainTests {
         }
     }
 
-    @Test("prune keeps transcripts referenced by live and recently closed layouts")
+        @Test("a completed write lease retires and an unreferenced file is collected")
+        func completedWriteLeaseIsBounded() throws {
+            try Self.withCacheDirectory { store, _ in
+                let fileURL = try #require(
+                    store.write("# transcript", agentKind: .claudeCode, sessionID: Self.sessionID)
+                )
+                store.completeWrite(at: fileURL)
+
+                // The first crossing prune captured this authored path before it
+                // retired the registry entry, so it cannot race the just-completed
+                // tab reaction. The next fresh keep-set is authoritative.
+                store.pruneUnreferencedImmediately(keeping: [])
+                #expect(FileManager.default.fileExists(atPath: fileURL.path))
+                store.pruneUnreferencedImmediately(keeping: [])
+                #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+            }
+        }
+
+        @Test("prune keeps transcripts referenced by live and recently closed layouts")
     func pruneKeepsLiveAndRecentlyClosedReferences() throws {
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-agent-transcript")
         defer { withExtendedLifetime(temporaryDirectory) {} }

@@ -1,5 +1,20 @@
 import Foundation
 
+/// Durable ownership for documents whose backing file is regenerable app
+/// storage. This stays present even when a newer or corrupted typed identity
+/// cannot be decoded, so tolerant restoration never turns cache content into
+/// an editable user document.
+public enum GeneratedDocumentKind: String, Codable, Hashable, Sendable {
+    case agentTranscript
+    case branchChanges
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: (try? container.decode(String.self)) ?? "") ?? .unknown
+    }
+}
+
 /// A document tab, not a terminal pane. Agent, remote, and shell state lives
 /// on `TerminalPane`.
 public struct DocumentPane: Identifiable, Hashable, Sendable {
@@ -20,6 +35,9 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
     /// as the two above: the typed identity is the provenance and the cache URL
     /// is only implementation storage.
     public internal(set) var branchChangesIdentity: BranchChangesIdentity?
+    /// Durable fail-closed ownership marker. Unlike the typed identities, this
+    /// has an `.unknown` fallback specifically for forward-written snapshots.
+    public internal(set) var generatedDocumentKind: GeneratedDocumentKind?
 
     /// Remote provenance, and nothing else.
     ///
@@ -43,8 +61,7 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
     /// files are regenerable cache, so an annotation written there is silently
     /// lost at the next render or prune).
     public var isEditable: Bool {
-        remoteResourceIdentity == nil && agentTranscriptIdentity == nil
-            && branchChangesIdentity == nil
+        remoteResourceIdentity == nil && generatedDocumentKind == nil
     }
 
     public var remoteSnapshotOrigin: String? {
@@ -58,7 +75,8 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
         associatedTerminalPaneID: TerminalPane.ID? = nil,
         remoteResourceIdentity: ResourceIdentity? = nil,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
-        branchChangesIdentity: BranchChangesIdentity? = nil
+        branchChangesIdentity: BranchChangesIdentity? = nil,
+        generatedDocumentKind: GeneratedDocumentKind? = nil
     ) {
         self.id = id
         self.fileURL = fileURL
@@ -66,6 +84,14 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
         self.associatedTerminalPaneID = associatedTerminalPaneID
         self.agentTranscriptIdentity = agentTranscriptIdentity
         self.branchChangesIdentity = branchChangesIdentity
+        self.generatedDocumentKind =
+            if agentTranscriptIdentity != nil {
+                .agentTranscript
+            } else if branchChangesIdentity != nil {
+                .branchChanges
+            } else {
+                generatedDocumentKind
+            }
         // Runtime construction is a trusted programming boundary. Persisted
         // identities use the throwing Codable path before reaching this invariant.
         precondition(
@@ -86,6 +112,7 @@ extension DocumentPane: Codable {
         case remoteSnapshotOrigin
         case agentTranscriptIdentity
         case branchChangesIdentity
+        case generatedDocumentKind
     }
 
     public init(from decoder: Decoder) throws {
@@ -142,6 +169,14 @@ extension DocumentPane: Codable {
             )
         }
 
+        let transcriptIdentity = Self.decodeTolerantTranscriptIdentity(from: container)
+        let branchChangesIdentity = Self.decodeTolerantBranchChangesIdentity(from: container)
+        let generatedDocumentKind = Self.decodeGeneratedDocumentKind(
+            from: container,
+            transcriptIdentity: transcriptIdentity,
+            branchChangesIdentity: branchChangesIdentity
+        )
+
         self.init(
             id: try container.decode(UUID.self, forKey: .id),
             fileURL: try container.decode(URL.self, forKey: .fileURL),
@@ -151,21 +186,16 @@ extension DocumentPane: Codable {
                 forKey: .associatedTerminalPaneID
             ),
             remoteResourceIdentity: identity,
-            agentTranscriptIdentity: Self.decodeTolerantTranscriptIdentity(from: container),
-            branchChangesIdentity: Self.decodeTolerantBranchChangesIdentity(from: container)
+            agentTranscriptIdentity: transcriptIdentity,
+            branchChangesIdentity: branchChangesIdentity,
+            generatedDocumentKind: generatedDocumentKind
         )
     }
 
     /// Decodes transcript provenance leniently: an identity written by a newer
     /// build (an `AgentKind` this one has no case for) or a corrupted one drops
-    /// the *field* rather than throwing, matching `decodeTolerantColor` on
-    /// `TerminalPane`. The tab itself is still a real document pointing at a
-    /// real file, and `DocumentGroup.init(from:)` would otherwise drop it whole.
-    ///
-    /// Residual, accepted: a tab that loses its identity this way becomes
-    /// editable, so annotations could be written into a regenerable cache file
-    /// and lost at the next prune. It takes a hand-edited or forward-written
-    /// snapshot to reach, and losing the tab outright is the worse trade.
+    /// the typed field rather than throwing. `generatedDocumentKind` retains
+    /// ownership independently, so the restored tab remains read-only.
     private static func decodeTolerantTranscriptIdentity(
         from container: KeyedDecodingContainer<CodingKeys>
     ) -> AgentTranscriptIdentity? {
@@ -177,11 +207,9 @@ extension DocumentPane: Codable {
         )) ?? nil
     }
 
-    /// Same tolerance, same trade, as `decodeTolerantTranscriptIdentity`: a
-    /// branch-changes identity a newer build wrote in a shape this one rejects
-    /// drops the *field*, not the tab. The residual is identical — the tab
-    /// becomes editable and an annotation written into it is lost at the next
-    /// prune — and losing a real tab pointing at a real file is the worse trade.
+    /// Same tolerance as `decodeTolerantTranscriptIdentity`: a newer or corrupt
+    /// typed identity drops without dropping the tab, while the independent
+    /// generated-document marker keeps it read-only.
     private static func decodeTolerantBranchChangesIdentity(
         from container: KeyedDecodingContainer<CodingKeys>
     ) -> BranchChangesIdentity? {
@@ -191,6 +219,31 @@ extension DocumentPane: Codable {
             BranchChangesIdentity.self,
             forKey: .branchChangesIdentity
         )) ?? nil
+    }
+
+    private static func decodeGeneratedDocumentKind(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        transcriptIdentity: AgentTranscriptIdentity?,
+        branchChangesIdentity: BranchChangesIdentity?
+    ) -> GeneratedDocumentKind? {
+        if transcriptIdentity != nil { return .agentTranscript }
+        if branchChangesIdentity != nil { return .branchChanges }
+        if container.contains(.generatedDocumentKind) {
+            return
+                (try? container.decodeIfPresent(
+                    GeneratedDocumentKind.self,
+                    forKey: .generatedDocumentKind
+                )) ?? .unknown
+        }
+
+        let declaredTranscript = container.contains(.agentTranscriptIdentity)
+        let declaredBranchChanges = container.contains(.branchChangesIdentity)
+        switch (declaredTranscript, declaredBranchChanges) {
+        case (true, false): return .agentTranscript
+        case (false, true): return .branchChanges
+        case (true, true): return .unknown
+        case (false, false): return nil
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -219,6 +272,7 @@ extension DocumentPane: Codable {
         // `BranchChangesIdentity` cannot be constructed or decoded invalid, and
         // it has no mutable members to invalidate afterwards.
         try container.encodeIfPresent(branchChangesIdentity, forKey: .branchChangesIdentity)
+        try container.encodeIfPresent(generatedDocumentKind, forKey: .generatedDocumentKind)
     }
 
     private static func migrateLegacyRemoteOrigin(

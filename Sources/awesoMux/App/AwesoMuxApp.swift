@@ -220,6 +220,7 @@ struct AwesoMuxApp: App {
     /// (INT-819). Any selection change from another path invalidates it.
     @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
+    @State private var branchChangesCoordinator = BranchChangesCoordinator()
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -2493,6 +2494,7 @@ struct AwesoMuxApp: App {
                 return
             }
             sessionStore.closeDocumentPane(documentID: selectedTab.id, in: session.id)
+            SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
             // Same announcement as the pill's close X (TerminalPaneView) so the
             // outcome is spoken regardless of which affordance closed the tab.
             TerminalAccessibilityAnnouncer.announce(
@@ -3843,6 +3845,10 @@ struct AwesoMuxApp: App {
 
             switch result {
             case .success(let opened):
+                defer {
+                    AgentTranscriptStore().completeWrite(at: opened.fileURL)
+                    SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+                }
                 guard
                     sessionStore.openDocumentPane(
                         fileURL: opened.fileURL,
@@ -3904,32 +3910,42 @@ struct AwesoMuxApp: App {
         // and the write to the shared cache slot. Invocations resolve in
         // whatever order git finishes; without this the slower one's result
         // lands last, and the tab shows — or reloads from disk — the older diff.
-        let ticket = BranchChangesInvocations.begin(paneID: paneID)
+        let coordinator = branchChangesCoordinator
+        let ticket = coordinator.begin(paneID: paneID)
         let chrome = BranchChangesOpener.localizedChrome()
 
-        Task { @MainActor in
+        let task = Task { @MainActor in
+            defer { coordinator.finish(ticket, paneID: paneID) }
             TerminalAccessibilityAnnouncer.announce(
                 String(
                     localized: "Reading branch changes.",
                     comment: "VoiceOver announcement when rendering a pane's branch diff starts"
                 )
             )
-            let result = await Task.detached(priority: .userInitiated) {
-                await BranchChangesOpener().open(
-                    session: session,
-                    chrome: chrome,
-                    claimingSlot: { BranchChangesInvocations.claimSlot($0, ticket: ticket) }
-                )
-            }.value
+            let result = await BranchChangesOpener().open(
+                session: session,
+                chrome: chrome,
+                claimingSlot: { coordinator.claimSlot($0, ticket: ticket) }
+            )
+            guard !Task.isCancelled else {
+                if case .success(let opened) = result, opened.markdown != nil {
+                    BranchChangesOpener().completeWrite(at: opened.fileURL)
+                }
+                SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+                return
+            }
 
             BranchChangesCompletion.apply(
                 result,
                 paneID: paneID,
                 ticket: ticket,
                 store: sessionStore,
+                coordinator: coordinator,
                 alert: showBranchChangesFailureAlert
             )
+            SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
         }
+        coordinator.attach(task, ticket: ticket, paneID: paneID)
     }
 
     private func showBranchChangesFailureAlert(_ failure: BranchChangesFailure) {

@@ -339,6 +339,39 @@ struct BoundedCommandRunnerTests {
         scheduler.advanceOneCycle()
     }
 
+    @Test("cancellation before Process.run never launches the child")
+    func prelaunchCancellationCannotOrphanAChild() async {
+        let marker = NSTemporaryDirectory() + "awesomux-prelaunch-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: marker) }
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/bin/sh"],
+            beforeLaunch: {
+                entered.signal()
+                release.wait()
+            }
+        )
+        let run = Task.detached {
+            await runner.run(
+                arguments: ["-c", ": > \"$1\"", "awesomux-prelaunch", marker],
+                inDirectory: NSTemporaryDirectory()
+            )
+        }
+
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                entered.wait()
+                continuation.resume()
+            }
+        }
+        run.cancel()
+        release.signal()
+
+        #expect(await run.value == nil)
+        #expect(!FileManager.default.fileExists(atPath: marker))
+    }
+
     @Test("a child that outlives the timeout is killed and yields nil")
     func timeoutTerminatesChild() async {
         // `sleep 30` never exits on its own; the 1s timeout must SIGTERM/SIGKILL it

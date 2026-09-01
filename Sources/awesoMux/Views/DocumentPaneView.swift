@@ -279,6 +279,12 @@ struct DocumentPaneSendBar: View {
                 // beside it: a transcript is not editable, so it can hold no
                 // review comments, and Send to Agent would have nothing to send.
                 resumeControl(identity: identity)
+            } else if pane.generatedDocumentKind != nil {
+                Label("Read-only generated document", systemImage: "lock")
+                    .lineLimit(1)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.aw.text2)
+                    .frame(maxWidth: .infinity, minHeight: 28)
             } else {
                 // Resolve once per render: the resolution issues a live foreground
                 // probe, and the title, the unavailable description, and the
@@ -2016,7 +2022,7 @@ struct DocumentPaneView: View {
         writer: @escaping @Sendable (String) -> String?
     ) async -> AnnotationSaveOutcome {
         guard pane.isEditable else {
-            if pane.agentTranscriptIdentity != nil {
+            if pane.generatedDocumentKind == .agentTranscript {
                 showAlert(
                     title: String(
                         localized: "Read-Only Transcript",
@@ -2026,7 +2032,7 @@ struct DocumentPaneView: View {
                             "Agent transcripts are rendered from the session's log and cannot be edited.",
                         comment: "Alert body explaining why a generated agent transcript rejects an edit")
                 )
-            } else if pane.branchChangesIdentity != nil {
+            } else if pane.generatedDocumentKind == .branchChanges {
                 showAlert(
                     title: String(
                         localized: "Read-Only Diff",
@@ -2036,7 +2042,7 @@ struct DocumentPaneView: View {
                             "Branch changes are rendered from the repository and cannot be edited.",
                         comment: "Alert body explaining why a generated branch diff rejects an edit")
                 )
-            } else {
+            } else if pane.remoteResourceIdentity != nil {
                 showAlert(
                     title: String(
                         localized: "Read-Only Snapshot",
@@ -2044,6 +2050,15 @@ struct DocumentPaneView: View {
                     message: String(
                         localized: "Remote Markdown snapshots cannot be edited in awesoMux yet.",
                         comment: "Alert body explaining why a remote Markdown snapshot rejects an edit")
+                )
+            } else {
+                showAlert(
+                    title: String(
+                        localized: "Read-Only Generated Document",
+                        comment: "Alert title when a generated document has unknown provenance"),
+                    message: String(
+                        localized: "This generated document cannot be edited.",
+                        comment: "Alert body when a generated document has unknown provenance")
                 )
             }
             return .failed

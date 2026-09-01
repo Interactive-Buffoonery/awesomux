@@ -7,15 +7,14 @@ import Foundation
 ///
 /// **Retention.** A generated document is treated as a *restored document*, not
 /// as a transient scratch file: it lives exactly as long as a live or
-/// recently-closed document tab references it, and is deleted by the first
-/// prune after that last reference goes away. Those prunes run at launch, at
-/// every snapshot load, and after a recovery replacement — the same lifecycle
-/// points that already cover remote Markdown snapshots, through the same
-/// collector. One bound on "first": a file this process wrote is never pruned
-/// by this process (see `authoredPaths`), so a document orphaned mid-session
-/// waits for the next launch's prune. That over-keeps bounded plaintext on
-/// exactly the failure side the prune exists to take: the converse is deleting
-/// the file under a live tab.
+/// recently-closed document tab references it. A write remains protected until
+/// its caller finishes the tab-open reaction, plus the first prune that safely
+/// crosses that boundary; later fresh prunes can delete it once its last
+/// reference goes away. Scheduled prunes capture the authored set and a
+/// generation, so a stale keep-set cannot delete a write that landed after it
+/// was captured. Once a later prune has crossed that boundary, the authored
+/// record is retired and ordinary live/recently-closed references become
+/// authoritative again.
 ///
 /// The exposure that buys is deliberate and worth stating plainly: the file is
 /// a plaintext copy of whatever the renderer read, which routinely includes
@@ -63,24 +62,21 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// render just wrote and the document pane opens onto nothing.
     ///
     /// The lock orders the filesystem operations; it cannot refresh a keep-set.
-    /// A scheduled prune captures its references at scheduling and runs later,
-    /// and recovery replacement schedules such prunes mid-session: a render
-    /// landing in between writes a file the captured set has never heard of,
-    /// which the prune would then delete from under the freshly opened tab,
-    /// whichever side of the write its enumeration lands on. So the prune
-    /// unions the keep-set with `authoredPaths` INSIDE the lock — exactly the
-    /// files this process put there, consistent with the state being
-    /// enumerated by construction.
+    /// A scheduled prune captures its references and authored generation before
+    /// running later. A render landing between capture and deletion is protected
+    /// by its newer generation; a write whose tab-open reaction is unfinished is
+    /// protected by a pending lease. Completed entries retire once a later prune
+    /// has crossed their generation, keeping this registry bounded.
     /// `RemoteMarkdownSnapshotFetcher` solves the same race with a per-directory
     /// task tail because its writes are eight-second SSH round trips that must
     /// not block their caller; a generated-document write is a local write of a
     /// couple of MiB at most, from a user-initiated command.
     ///
-    /// **One global lock and one global authored set, across every cache
+    /// **One global lock and one global authored registry, across every cache
     /// directory — deliberately, not pending.** An earlier note here said to
     /// key both by directory once a second cache existed. A second cache now
     /// does exist (branch changes beside agent transcripts) and the shared
-    /// pair is still correct, for two independent reasons. The authored set
+    /// pair is still correct, for two independent reasons. The authored registry
     /// holds absolute standardized paths, and a prune deletes only entries it
     /// enumerated inside its own validated directory, so a path authored into
     /// one cache can never match anything another cache's prune is looking at
@@ -93,17 +89,18 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// make the other cache wait on them.`
     nonisolated private static let cacheLock = NSLock()
 
-    /// Every generated-document path this process has written, standardized,
-    /// guarded by `cacheLock` and unioned into every prune's keep-set
-    /// (rationale on `cacheLock`). Registered only on a successful write, so it
-    /// can promise "this process put bytes at this path": entries never name a
-    /// file that failed to land. Nothing removes entries mid-session, because
-    /// nothing in this process can prove a path's last reference died — the
-    /// keep-set that would say so is exactly the stale input being defended
-    /// against. The next launch's prune consults a fresh keep-set and collects
-    /// anything genuinely orphaned.
+    private struct AuthoredPathState {
+        /// The newest prune already scheduled when this write landed.
+        var createdAfterPruneID: Int
+        /// Cleared only after the caller has either opened the tab or abandoned
+        /// the reaction. Pending writes are never candidates for retirement.
+        var isPending: Bool
+    }
+
+    /// Same-process write leases, keyed by standardized absolute path.
     // `nonisolated(unsafe)` promise: accessed only under `cacheLock`.
-    nonisolated(unsafe) private static var authoredPaths: Set<String> = []
+    nonisolated(unsafe) private static var authoredPaths: [String: AuthoredPathState] = [:]
+    nonisolated(unsafe) private static var nextPruneID = 0
 
     // MARK: - Writing
 
@@ -153,8 +150,23 @@ struct GeneratedDocumentCache: @unchecked Sendable {
             }
             // Registration rides the write's critical section, so a prune can
             // never hold a keep-set this write already falsified.
-            Self.authoredPaths.insert(fileURL.standardizedFileURL.path)
+            Self.authoredPaths[fileURL.standardizedFileURL.path] = AuthoredPathState(
+                createdAfterPruneID: Self.nextPruneID,
+                isPending: true
+            )
             return fileURL
+        }
+    }
+
+    /// Releases the write lease after the caller has completed its main-actor
+    /// tab reaction. The next generation-crossing prune may retire the registry
+    /// entry; a live or recently-closed tab still keeps the file itself.
+    func completeWrite(at fileURL: URL) {
+        let path = fileURL.standardizedFileURL.path
+        Self.cacheLock.withLock {
+            guard var state = Self.authoredPaths[path] else { return }
+            state.isPending = false
+            Self.authoredPaths[path] = state
         }
     }
 
@@ -162,6 +174,24 @@ struct GeneratedDocumentCache: @unchecked Sendable {
 
     func fileURL(cacheIdentityKey: String) -> URL {
         cacheDirectoryURL.appending(path: cacheFileName(cacheIdentityKey: cacheIdentityKey))
+    }
+
+    /// Returns a completed shared slot after another invocation won its write.
+    /// The cache lock makes the losing claim observe the winner after its atomic
+    /// write, never halfway through it.
+    func existingFileURL(cacheIdentityKey: String) -> URL? {
+        let candidate = fileURL(cacheIdentityKey: cacheIdentityKey)
+        return Self.cacheLock.withLock {
+            guard
+                fileManager.validatedOwnerOnlyDirectory(
+                    at: cacheDirectoryURL,
+                    createIfMissing: false
+                ) != nil,
+                let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey]),
+                values.isRegularFile == true
+            else { return nil }
+            return candidate
+        }
     }
 
     /// Whether `url` is a slot in this cache.
@@ -211,17 +241,42 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// Captures the keep-set now and prunes off the caller's actor.
     ///
     /// The captured set going stale mid-flight is not an escape hatch:
-    /// references the caller could not know about at scheduling are files
-    /// written after it, and every prune unions in `authoredPaths` inside the
-    /// cache lock, so those files are never deleted by their own process.
+    /// references the caller could not know about at scheduling are protected
+    /// by the captured authored generation and pending-write leases.
     func schedulePruneUnreferenced(keeping referencedFileURLs: Set<URL>) {
         let cache = self
+        let scheduled = scheduledPrune()
         Task.detached(priority: .utility) {
-            cache.pruneUnreferencedImmediately(keeping: referencedFileURLs)
+            cache.pruneUnreferenced(
+                keeping: referencedFileURLs,
+                scheduledID: scheduled.id,
+                protecting: scheduled.authoredPaths
+            )
         }
     }
 
     func pruneUnreferencedImmediately(keeping referencedFileURLs: Set<URL>) {
+        let scheduled = scheduledPrune()
+        pruneUnreferenced(
+            keeping: referencedFileURLs,
+            scheduledID: scheduled.id,
+            protecting: scheduled.authoredPaths
+        )
+    }
+
+    private func scheduledPrune() -> (id: Int, authoredPaths: Set<String>) {
+        Self.cacheLock.withLock {
+            Self.nextPruneID += 1
+            let paths = Set(Self.authoredPaths.keys.filter(belongsToThisCache))
+            return (Self.nextPruneID, paths)
+        }
+    }
+
+    private func pruneUnreferenced(
+        keeping referencedFileURLs: Set<URL>,
+        scheduledID: Int,
+        protecting authoredAtScheduling: Set<String>
+    ) {
         Self.cacheLock.withLock {
             // `createIfMissing: false`: a prune must never bring the directory
             // into existence, and a symlinked cache root is refused here too —
@@ -244,15 +299,19 @@ struct GeneratedDocumentCache: @unchecked Sendable {
                 return
             }
             var referencedPaths = Set(referencedFileURLs.map(\.standardizedFileURL.path))
-            // The keep-set is a capture from whenever the caller computed it —
-            // for a scheduled prune, necessarily before the prune ran. Union in
-            // the paths this process wrote: those are exactly the references a
-            // stale keep-set can miss, and the union is evaluated under the
-            // same lock the writes were taken under, so it is precisely as
-            // fresh as the directory being enumerated. Paths authored into a
-            // sibling cache are absolute and therefore cannot match anything
-            // this enumeration returned.
-            referencedPaths.formUnion(Self.authoredPaths)
+            referencedPaths.formUnion(authoredAtScheduling)
+            // A write after this prune was scheduled was absent from both the
+            // captured authored set and the caller's earlier keep-set. Pending
+            // writes need the same protection even when they predate the prune:
+            // their tab-open reaction has not reached SessionStore yet.
+            referencedPaths.formUnion(
+                Self.authoredPaths.compactMap { path, state in
+                    guard belongsToThisCache(path),
+                        state.isPending || state.createdAfterPruneID >= scheduledID
+                    else { return nil }
+                    return path
+                }
+            )
             for entry in entries where !referencedPaths.contains(entry.standardizedFileURL.path) {
                 // Only the regular files a cache writes are ours to delete.
                 guard
@@ -261,6 +320,20 @@ struct GeneratedDocumentCache: @unchecked Sendable {
                 else { continue }
                 try? fileManager.removeItem(at: entry)
             }
+
+            // Once a completed write has survived a prune scheduled strictly
+            // after it landed, future prunes can trust their fresh store-derived
+            // keep-set. Pending and post-schedule writes remain leased.
+            Self.authoredPaths = Self.authoredPaths.filter { path, state in
+                !belongsToThisCache(path)
+                    || state.isPending
+                    || state.createdAfterPruneID >= scheduledID
+            }
         }
+    }
+
+    private func belongsToThisCache(_ path: String) -> Bool {
+        URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL.path
+            == cacheDirectoryURL.standardizedFileURL.path
     }
 }

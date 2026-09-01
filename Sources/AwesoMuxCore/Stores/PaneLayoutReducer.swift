@@ -199,6 +199,9 @@ struct PaneLayoutReducer: Sendable {
                 }
                 if existing.agentTranscriptIdentity != effectiveTranscriptIdentity {
                     existing.agentTranscriptIdentity = effectiveTranscriptIdentity
+                    if effectiveTranscriptIdentity != nil {
+                        existing.generatedDocumentKind = .agentTranscript
+                    }
                     if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
                         group.tabs[index] = existing
                     }
@@ -206,6 +209,9 @@ struct PaneLayoutReducer: Sendable {
                 }
                 if existing.branchChangesIdentity != effectiveBranchChangesIdentity {
                     existing.branchChangesIdentity = effectiveBranchChangesIdentity
+                    if effectiveBranchChangesIdentity != nil {
+                        existing.generatedDocumentKind = .branchChanges
+                    }
                     if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
                         group.tabs[index] = existing
                     }
@@ -396,6 +402,7 @@ struct PaneLayoutReducer: Sendable {
         // the invariant "a navigated tab carries no stale provenance" is
         // visible here rather than inferred from a guard forty lines up.
         tab.branchChangesIdentity = nil
+        tab.generatedDocumentKind = nil
         group.tabs[index] = tab
         guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group) else {
             return nil

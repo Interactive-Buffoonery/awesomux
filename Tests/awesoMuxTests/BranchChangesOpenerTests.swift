@@ -75,6 +75,15 @@ struct BranchChangesOpenerTests {
 
     private static let headOnMain = BoundedCommandResult.success(Data("feature/x\n".utf8))
 
+    private static func repositorySnapshot(
+        root: URL,
+        head: String = String(repeating: "a", count: 40),
+        base: String = String(repeating: "b", count: 40),
+        branch: String = "feature/x"
+    ) -> BoundedCommandResult {
+        .success(Data("\(root.path)\n\(head)\n\(base)\n\(branch)\n".utf8))
+    }
+
     // MARK: - The subprocess gate
 
     @Test("a remote pane never spawns a command")
@@ -143,7 +152,7 @@ struct BranchChangesOpenerTests {
             session: session(workingDirectory: nested.path),
             chrome: Self.chrome
         )
-        #expect(runner.invocations.count == 3)
+        #expect(runner.invocations.count == 4)
         let expected = repository.root.resolvingSymlinksInPath().standardizedFileURL.path
         for invocation in runner.invocations {
             #expect(invocation.directory.standardizedFileURL.path == expected)
@@ -361,9 +370,10 @@ struct BranchChangesOpenerTests {
             chrome: Self.chrome
         )
         let opened = try #require(result.success)
-        #expect(opened.markdown.contains("**This diff is incomplete.**"))
-        #expect(opened.markdown.hasSuffix("**This diff is incomplete.**\n\n"))
-        #expect(try String(contentsOf: opened.fileURL, encoding: .utf8) == opened.markdown)
+        let markdown = try #require(opened.markdown)
+        #expect(markdown.contains("**This diff is incomplete.**"))
+        #expect(markdown.hasSuffix("**This diff is incomplete.**\n\n"))
+        #expect(try String(contentsOf: opened.fileURL, encoding: .utf8) == markdown)
     }
 
     @Test("a diff that blew both the size cap and the deadline is refused, not shown")
@@ -425,7 +435,10 @@ struct BranchChangesOpenerTests {
         let runner = SpyGitRunner(outcomes: [
             Self.refListing([("refs/remotes/origin/main", "")]),
             .success(Data("+diff\n".utf8)),
-            .success(Data("someone-elses-branch\n".utf8)),
+            Self.repositorySnapshot(
+                root: repository.root,
+                head: String(repeating: "c", count: 40)
+            ),
         ])
         let result = await opener(runner, cacheDirectory: cacheDirectory).open(
             session: session(workingDirectory: repository.root.path),
@@ -433,6 +446,29 @@ struct BranchChangesOpenerTests {
         )
         #expect(result == .failure(.repositoryChanged))
         #expect(!FileManager.default.fileExists(atPath: cacheDirectory.path))
+    }
+
+    @Test("a base ref that moved during the read discards the diff")
+    func baseMovementDiscardsTheDiff() async throws {
+        let repository = try ValidatedRepository()
+        defer { repository.remove() }
+        let runner = SpyGitRunner(outcomes: [
+            Self.refListing([("refs/remotes/origin/main", "")]),
+            Self.repositorySnapshot(root: repository.root),
+            .success(Data("+diff\n".utf8)),
+            Self.repositorySnapshot(
+                root: repository.root,
+                base: String(repeating: "c", count: 40)
+            ),
+        ])
+
+        let result = await opener(runner, cacheDirectory: repository.cacheDirectory).open(
+            session: session(workingDirectory: repository.root.path),
+            chrome: Self.chrome
+        )
+
+        #expect(result == .failure(.repositoryChanged))
+        #expect(!FileManager.default.fileExists(atPath: repository.cacheDirectory.path))
     }
 
     @Test("a bookend that could not run fails closed")
@@ -507,8 +543,9 @@ struct BranchChangesOpenerTests {
         let cacheDirectory = repository.cacheDirectory
         // Two different panes, one repository, one branch, one base ref — so one
         // cache slot. Tickets are issued in press order, on the main actor.
-        let stale = BranchChangesInvocations.begin(paneID: UUID())
-        let current = BranchChangesInvocations.begin(paneID: UUID())
+        let coordinator = BranchChangesCoordinator()
+        let stale = coordinator.begin(paneID: UUID())
+        let current = coordinator.begin(paneID: UUID())
 
         func run(_ diff: String, ticket: Int) async
             -> Result<OpenedBranchChanges, BranchChangesFailure>
@@ -521,7 +558,7 @@ struct BranchChangesOpenerTests {
             return await opener(runner, cacheDirectory: cacheDirectory).open(
                 session: session(workingDirectory: repository.root.path),
                 chrome: Self.chrome,
-                claimingSlot: { BranchChangesInvocations.claimSlot($0, ticket: ticket) }
+                claimingSlot: { coordinator.claimSlot($0, ticket: ticket) }
             )
         }
 
@@ -531,11 +568,14 @@ struct BranchChangesOpenerTests {
         let winner = try #require((await run("+current\n", ticket: current)).success)
         let loser = await run("+stale\n", ticket: stale)
 
-        #expect(loser == .failure(.superseded))
+        let shared = try #require(loser.success)
+        #expect(shared.fileURL == winner.fileURL)
+        #expect(shared.markdown == nil)
         let onDisk = try String(contentsOf: winner.fileURL, encoding: .utf8)
         #expect(onDisk.contains("+current"))
         #expect(!onDisk.contains("+stale"))
-        #expect(onDisk == winner.markdown)
+        let winnerMarkdown = try #require(winner.markdown)
+        #expect(onDisk == winnerMarkdown)
         #expect(try FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path).count == 1)
     }
 
@@ -543,20 +583,44 @@ struct BranchChangesOpenerTests {
     @Test("pressing the command again on one pane supersedes the run already in flight")
     func aSecondPressOnTheSamePaneSupersedesTheFirst() {
         let pane = UUID()
+        let coordinator = BranchChangesCoordinator()
         let slot = BranchChangesOpener.cacheIdentityKey(
             validatedRepoRootPath: "/repo-\(UUID().uuidString)",
             gitBranch: "feature/x",
             baseRef: "refs/remotes/origin/main"
         )
-        let first = BranchChangesInvocations.begin(paneID: pane)
-        let second = BranchChangesInvocations.begin(paneID: pane)
-        #expect(!BranchChangesInvocations.isCurrent(first, paneID: pane))
-        #expect(BranchChangesInvocations.isCurrent(second, paneID: pane))
+        let first = coordinator.begin(paneID: pane)
+        let second = coordinator.begin(paneID: pane)
+        #expect(!coordinator.isCurrent(first, paneID: pane))
+        #expect(coordinator.isCurrent(second, paneID: pane))
         // Same ordering at the slot, whichever finishes first: one counter
         // serves both gates, so they cannot disagree about which run is newer.
-        #expect(BranchChangesInvocations.claimSlot(slot, ticket: second))
-        #expect(!BranchChangesInvocations.claimSlot(slot, ticket: first))
-        #expect(!BranchChangesInvocations.claimSlot(slot, ticket: second))
+        #expect(coordinator.claimSlot(slot, ticket: second))
+        #expect(!coordinator.claimSlot(slot, ticket: first))
+        #expect(!coordinator.claimSlot(slot, ticket: second))
+    }
+
+    @MainActor
+    @Test("pressing the command again cancels the pane's running task")
+    func aSecondPressCancelsTheFirstTask() async {
+        let pane = UUID()
+        let coordinator = BranchChangesCoordinator()
+        let cancellations = EventRecorder<Bool>()
+        let first = coordinator.begin(paneID: pane)
+        let task = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {}
+            await cancellations.record(Task.isCancelled)
+        }
+        coordinator.attach(task, ticket: first, paneID: pane)
+
+        let second = coordinator.begin(paneID: pane)
+        await task.value
+
+        #expect(await cancellations.values == [true])
+        coordinator.finish(first, paneID: pane)
+        coordinator.finish(second, paneID: pane)
     }
 
     @Test("branches sharing a long prefix land in different slots")
@@ -676,6 +740,33 @@ struct BranchChangesOpenerTests {
 
     // MARK: - Integration
 
+    @Test("a .git file redirected to an unrelated repository is refused")
+    func redirectedOrdinaryRepositoryIsRefused() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        let attacker = fixture.root.appending(path: "attacker", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: attacker, withIntermediateDirectories: true)
+        try Data("gitdir: \(fixture.repository.path)/.git\n".utf8)
+            .write(to: attacker.appending(path: ".git"))
+        let cache = fixture.root.appending(path: "cache", directoryHint: .isDirectory)
+        let opener = BranchChangesOpener(
+            runner: BoundedLocalGitCommandRunner(timeout: .seconds(30)),
+            cache: GeneratedDocumentCache(
+                cacheDirectoryURL: cache,
+                fileNameSuffix: BranchChangesOpener.fileNameSuffix
+            )
+        )
+
+        let result = await opener.open(
+            session: session(workingDirectory: attacker.path),
+            chrome: Self.chrome,
+            claimingSlot: { _ in true }
+        )
+
+        #expect(result == .failure(.unvalidatedRepository))
+        #expect(!FileManager.default.fileExists(atPath: cache.path))
+    }
+
     /// The one test that runs REAL git. Everything above stubs the runner, so
     /// nothing above would notice if the production argv were rejected — and
     /// `git diff` exits 129 for the option order this feature very nearly used.
@@ -765,6 +856,7 @@ private final class SpyGitRunner: LocalGitCommandRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var remaining: [BoundedCommandResult]
     private var recorded: [Invocation] = []
+    private var snapshotCount = 0
 
     init(outcomes: [BoundedCommandResult]) {
         remaining = outcomes
@@ -777,9 +869,50 @@ private final class SpyGitRunner: LocalGitCommandRunning, @unchecked Sendable {
     func run(arguments: [String], inDirectory directory: URL) async -> BoundedCommandResult {
         lock.withLock {
             recorded.append(Invocation(arguments: arguments, directory: directory))
+            if arguments.contains("--show-toplevel") {
+                snapshotCount += 1
+                if let first = remaining.first, Self.isRepositorySnapshot(first) {
+                    return remaining.removeFirst()
+                }
+                if snapshotCount > 1,
+                    let first = remaining.first,
+                    Self.isFailure(first)
+                {
+                    return remaining.removeFirst()
+                }
+                let branch = Self.branch(in: directory)
+                return .success(
+                    Data(
+                        "\(directory.path)\n\(String(repeating: "a", count: 40))\n\(String(repeating: "b", count: 40))\n\(branch)\n".utf8
+                    )
+                )
+            }
             guard !remaining.isEmpty else { return .spawnFailure }
             return remaining.removeFirst()
         }
+    }
+
+    private static func isRepositorySnapshot(_ result: BoundedCommandResult) -> Bool {
+        guard case .success(let data) = result else { return false }
+        return String(decoding: data, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: false).count == 5
+    }
+
+    private static func isFailure(_ result: BoundedCommandResult) -> Bool {
+        if case .success = result { return false }
+        if case .outputTruncated = result { return false }
+        return true
+    }
+
+    private static func branch(in directory: URL) -> String {
+        let head = directory.appending(path: ".git/HEAD")
+        guard let value = try? String(contentsOf: head, encoding: .utf8),
+            value.hasPrefix("ref: refs/heads/")
+        else { return "HEAD" }
+        return
+            value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "ref: refs/heads/", with: "")
     }
 }
 

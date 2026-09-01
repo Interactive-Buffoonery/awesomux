@@ -45,11 +45,12 @@ struct BranchChangesCompletionTests {
             activePaneID: terminal.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let coordinator = BranchChangesCoordinator()
         // Two presses on one pane. The first is no longer the pane's current
         // invocation, but a branch switch between them means it rendered into a
         // DIFFERENT cache slot — so its claim succeeded and its bytes landed.
-        let stale = BranchChangesInvocations.begin(paneID: terminal.id)
-        _ = BranchChangesInvocations.begin(paneID: terminal.id)
+        let stale = coordinator.begin(paneID: terminal.id)
+        _ = coordinator.begin(paneID: terminal.id)
 
         let result = try render(markdown: "# stale\n")
         var alerts: [BranchChangesFailure] = []
@@ -58,6 +59,7 @@ struct BranchChangesCompletionTests {
             paneID: terminal.id,
             ticket: stale,
             store: store,
+            coordinator: coordinator,
             alert: { alerts.append($0) }
         )
 
@@ -68,7 +70,7 @@ struct BranchChangesCompletionTests {
         // not as somebody else's edit.
         let context = DocumentPaneView.selfWriteRegistry.context(
             fileURL: result.fileURL,
-            onDiskSource: result.markdown
+            onDiskSource: try #require(result.markdown)
         )
         #expect(context?.isSelfWrite == true)
     }
@@ -82,7 +84,8 @@ struct BranchChangesCompletionTests {
                 sessions: [TerminalSession(title: "other", workingDirectory: "/tmp")])
         ])
         let gonePaneID = UUID()
-        let ticket = BranchChangesInvocations.begin(paneID: gonePaneID)
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: gonePaneID)
 
         let result = try render(markdown: "# orphaned\n")
         var alerts: [BranchChangesFailure] = []
@@ -91,13 +94,14 @@ struct BranchChangesCompletionTests {
             paneID: gonePaneID,
             ticket: ticket,
             store: store,
+            coordinator: coordinator,
             alert: { alerts.append($0) }
         )
 
         #expect(alerts == [.paneClosed])
         let context = DocumentPaneView.selfWriteRegistry.context(
             fileURL: result.fileURL,
-            onDiskSource: result.markdown
+            onDiskSource: try #require(result.markdown)
         )
         #expect(context?.isSelfWrite == true)
     }
@@ -112,8 +116,9 @@ struct BranchChangesCompletionTests {
             activePaneID: terminal.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        let stale = BranchChangesInvocations.begin(paneID: terminal.id)
-        let current = BranchChangesInvocations.begin(paneID: terminal.id)
+        let coordinator = BranchChangesCoordinator()
+        let stale = coordinator.begin(paneID: terminal.id)
+        let current = coordinator.begin(paneID: terminal.id)
 
         // One shared path: both runs rendered the same slot. Disk holds the
         // current run's bytes (the slot claim guarantees it); the completions
@@ -130,6 +135,7 @@ struct BranchChangesCompletionTests {
             paneID: terminal.id,
             ticket: current,
             store: store,
+            coordinator: coordinator,
             alert: { _ in }
         )
         BranchChangesCompletion.apply(
@@ -137,6 +143,7 @@ struct BranchChangesCompletionTests {
             paneID: terminal.id,
             ticket: stale,
             store: store,
+            coordinator: coordinator,
             alert: { _ in }
         )
 
@@ -144,12 +151,12 @@ struct BranchChangesCompletionTests {
         // run's bytes — not the stale run's.
         let context = DocumentPaneView.selfWriteRegistry.context(
             fileURL: currentRender.fileURL,
-            onDiskSource: currentRender.markdown
+            onDiskSource: try #require(currentRender.markdown)
         )
         #expect(context?.isSelfWrite == true)
         let staleContext = DocumentPaneView.selfWriteRegistry.context(
             fileURL: currentRender.fileURL,
-            onDiskSource: staleRender.markdown
+            onDiskSource: try #require(staleRender.markdown)
         )
         #expect(staleContext?.isSelfWrite != true)
     }
@@ -169,7 +176,8 @@ struct BranchChangesCompletionTests {
                     )
                 ])
         ])
-        let ticket = BranchChangesInvocations.begin(paneID: terminal.id)
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: terminal.id)
         let unwritten = try render(markdown: "# never written\n")
 
         var alerts: [BranchChangesFailure] = []
@@ -178,6 +186,7 @@ struct BranchChangesCompletionTests {
             paneID: terminal.id,
             ticket: ticket,
             store: store,
+            coordinator: coordinator,
             alert: { alerts.append($0) }
         )
 
@@ -185,7 +194,7 @@ struct BranchChangesCompletionTests {
         #expect(
             DocumentPaneView.selfWriteRegistry.context(
                 fileURL: unwritten.fileURL,
-                onDiskSource: unwritten.markdown
+                onDiskSource: try #require(unwritten.markdown)
             ) == nil
         )
     }
@@ -211,7 +220,8 @@ struct BranchChangesCompletionTests {
         )
         let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [source])])
         let movedID = try #require(store.movePaneToNewWorkspace(id: moving.id, in: source.id))
-        let ticket = BranchChangesInvocations.begin(paneID: moving.id)
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: moving.id)
 
         let result = try render(markdown: "# moved\n")
         var alerts: [BranchChangesFailure] = []
@@ -220,6 +230,7 @@ struct BranchChangesCompletionTests {
             paneID: moving.id,
             ticket: ticket,
             store: store,
+            coordinator: coordinator,
             alert: { alerts.append($0) }
         )
 
@@ -245,7 +256,8 @@ struct BranchChangesCompletionTests {
             activePaneID: terminal.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        let ticket = BranchChangesInvocations.begin(paneID: terminal.id)
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: terminal.id)
 
         let result = try render(markdown: "# here\n")
         BranchChangesCompletion.apply(
@@ -253,6 +265,7 @@ struct BranchChangesCompletionTests {
             paneID: terminal.id,
             ticket: ticket,
             store: store,
+            coordinator: coordinator,
             alert: { Issue.record("unexpected failure alert: \($0)") }
         )
 

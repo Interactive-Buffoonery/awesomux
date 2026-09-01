@@ -12,7 +12,10 @@ struct OpenedBranchChanges: Equatable, Sendable {
     /// The exact source written to `fileURL`, so the caller can register the
     /// write with the self-write registry before the file watcher sees it. A
     /// refresh must not surface as somebody else's edit.
-    let markdown: String
+    /// Present only when this invocation wrote the shared cache slot. A second
+    /// pane can legitimately reuse bytes written by a newer invocation; it must
+    /// open the file without registering its own stale render as the file source.
+    let markdown: String?
 }
 
 /// Everything that can stop a branch diff reaching the screen.
@@ -40,103 +43,6 @@ enum BranchChangesFailure: Error, Equatable, Sendable {
     /// opener — it is the only failure that is about awesoMux's own state
     /// rather than the repository's.
     case paneClosed
-}
-
-// MARK: - Latest-wins gate
-
-/// Latest-wins for overlapping Show Branch Changes invocations.
-///
-/// Not an in-flight lock, deliberately. Blocking a second invocation would make
-/// the command feel dead exactly when the user pressed it again *because* the
-/// repository moved and they want the newer answer. Instead both run and only
-/// the newest one is allowed to land — git finishes in whatever order it likes,
-/// and without this the slower run's older diff lands last and wins.
-///
-/// **Two things need ordering, not one.** The pane's own reaction — the tab it
-/// opens, the alert it raises — is per pane. The rendered file is not: the cache
-/// slot is keyed by repository root, branch, and base ref, so two panes on the
-/// same branch of the same checkout render into ONE file, and a superseded run
-/// finishing late overwrites it under an already-open tab. Because that write is
-/// not registered with the self-write registry, the tab's watcher reloads stale
-/// bytes and reports them as somebody else's edit.
-///
-/// **One counter serves both**, and that is the point rather than a saving. The
-/// ticket is issued on the main actor when the command is pressed, so pane order
-/// and slot order are the same order by construction: the run whose UI reaction
-/// is discarded can never be the run whose bytes are on disk. A counter started
-/// later — once the slot key is finally known, after base resolution — would
-/// order by whichever run resolved its base first, which is not the order the
-/// pane gate uses, and the two gates disagreeing is the same bug wearing a
-/// different hat.
-///
-/// None of the three maps (pane tickets, slot tickets, registered tickets) is
-/// pruned: an entry is a few words, a pane, slot, or path that will never be
-/// seen again also never costs anything again, and the registration high-water
-/// mark MUST survive to reject arbitrarily late completions. `ponytail:
-/// unbounded maps; prune on pane close if a session ever churns panes in the
-/// millions.`
-@MainActor
-enum BranchChangesInvocations {
-    private static var nextTicket = 0
-    private static var paneTickets: [TerminalPane.ID: Int] = [:]
-
-    /// Issues the ticket for one invocation and makes it the pane's current one.
-    static func begin(paneID: TerminalPane.ID) -> Int {
-        nextTicket += 1
-        paneTickets[paneID] = nextTicket
-        return nextTicket
-    }
-
-    static func isCurrent(_ ticket: Int, paneID: TerminalPane.ID) -> Bool {
-        paneTickets[paneID] == ticket
-    }
-
-    private static var registeredTickets: [URL: Int] = [:]
-
-    /// Whether `ticket` may register bytes for `fileURL` with the self-write
-    /// registry, recording it as the path's newest registrant if so.
-    ///
-    /// Completions arrive on the main actor in any order. Without this gate, a
-    /// stale successful completion landing AFTER the current one would
-    /// re-register the path with older bytes, and the watcher would then read
-    /// the newer on-disk content as somebody else's edit — the mirror image of
-    /// the unregistered-write bug this gate's caller exists to prevent. The
-    /// slot claim guarantees disk holds the highest-claiming ticket's bytes,
-    /// so accepting only monotonically increasing tickets per path converges
-    /// the registry on what is actually on disk.
-    ///
-    /// ponytail: a stale completion arriving BEFORE the current one still
-    /// registers its (already overwritten) bytes for a moment; the registry's
-    /// short validity window and byte comparison bound the exposure to one
-    /// transient indicator. Registering inside the write's critical section
-    /// would close it, at the cost of a main-actor hop under the cache lock.
-    static func shouldRegister(_ ticket: Int, for fileURL: URL) -> Bool {
-        guard (registeredTickets[fileURL] ?? 0) < ticket else { return false }
-        registeredTickets[fileURL] = ticket
-        return true
-    }
-
-    // MARK: Cache slots
-
-    // `nonisolated(unsafe)` promise: accessed only under `slotLock`. Not on the
-    // main actor because the claim is taken by the render, which runs detached.
-    nonisolated private static let slotLock = NSLock()
-    nonisolated(unsafe) private static var slotTickets: [String: Int] = [:]
-
-    /// Claims `slot` for `ticket`, or refuses because a newer invocation already
-    /// holds it.
-    ///
-    /// Claim and write have to be one step — a caller that asked "am I still
-    /// current?" and then wrote would leave exactly the window this closes — so
-    /// this is called from inside `GeneratedDocumentCache.write`'s critical
-    /// section, and a refusal means the bytes are never written at all.
-    nonisolated static func claimSlot(_ slot: String, ticket: Int) -> Bool {
-        slotLock.withLock {
-            guard (slotTickets[slot] ?? 0) < ticket else { return false }
-            slotTickets[slot] = ticket
-            return true
-        }
-    }
 }
 
 // MARK: - Opener
@@ -225,6 +131,10 @@ struct BranchChangesOpener: Sendable {
         cache.pruneUnreferencedImmediately(keeping: referencedFileURLs)
     }
 
+    func completeWrite(at fileURL: URL) {
+        cache.completeWrite(at: fileURL)
+    }
+
     // MARK: Open
 
     /// - Parameter claimingSlot: Called with the cache slot key at the moment of
@@ -255,11 +165,25 @@ struct BranchChangesOpener: Sendable {
             return .failure(.unvalidatedRepository)
         }
         let rootURL = URL(fileURLWithPath: validatedRoot, isDirectory: true)
+        guard await redirectedGitDirectoryIsBoundToRoot(rootURL) else {
+            return .failure(.unvalidatedRepository)
+        }
 
         let baseRef: String
         switch await resolveBaseRef(inDirectory: rootURL) {
         case .success(let resolved): baseRef = resolved
         case .failure(let failure): return .failure(failure)
+        }
+
+        guard
+            let initialRepository = await repositorySnapshot(
+                inDirectory: rootURL,
+                baseRef: baseRef
+            ),
+            initialRepository.rootURL == rootURL.standardizedFileURL,
+            initialRepository.branch == (model.gitBranch ?? "HEAD")
+        else {
+            return .failure(.repositoryChanged)
         }
 
         guard
@@ -301,26 +225,17 @@ struct BranchChangesOpener: Sendable {
             return .failure(.diffTimedOut)
         }
 
-        // TOCTOU bookend. HEAD was read from `.git/HEAD` before the diff ran;
-        // a checkout or a finished rebase in between would have produced a diff
-        // for a branch the tab is about to name something else.
-        //
-        // ponytail: names only. A detached HEAD that moved between two commits
-        // still reports `HEAD` both times and slips through. Compare object ids
-        // if that case ever matters — it costs a second bounded `rev-parse`.
-        switch await runner.run(
-            arguments: ["--no-optional-locks", "rev-parse", "--abbrev-ref", "HEAD"],
-            inDirectory: rootURL
-        ) {
-        case .success(let data):
-            let head = String(decoding: data, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard head == (model.gitBranch ?? "HEAD") else {
-                return .failure(.repositoryChanged)
-            }
-        default:
-            // The bookend cannot confirm HEAD held still, so the diff cannot be
-            // presented as this branch's. Fail closed.
+        // One immutable bookend covers all three claims the rendered document
+        // makes: which checkout, which HEAD commit, and which base commit. A
+        // branch name alone survives resets/rebases and every detached checkout;
+        // a ref name alone also survives a concurrent fetch that moves the base.
+        guard
+            let finalRepository = await repositorySnapshot(
+                inDirectory: rootURL,
+                baseRef: baseRef
+            ),
+            finalRepository == initialRepository
+        else {
             return .failure(.repositoryChanged)
         }
 
@@ -342,11 +257,127 @@ struct BranchChangesOpener: Sendable {
             return claimed
         }
         guard let fileURL = written else {
+            if wasSuperseded, let sharedFileURL = cache.existingFileURL(cacheIdentityKey: slotKey) {
+                return .success(
+                    OpenedBranchChanges(
+                        fileURL: sharedFileURL,
+                        identity: identity,
+                        markdown: nil
+                    )
+                )
+            }
             return .failure(wasSuperseded ? .superseded : .cacheWriteFailed)
         }
         return .success(
             OpenedBranchChanges(fileURL: fileURL, identity: identity, markdown: markdown)
         )
+    }
+
+    private struct RepositorySnapshot: Equatable {
+        let rootURL: URL
+        let headObjectID: String
+        let baseObjectID: String
+        let branch: String
+    }
+
+    /// Reads the repository identity and both compared object IDs in one Git
+    /// process. The top-level check catches a checkout identity change; the
+    /// separate gitdir/worktree binding check above handles redirected `.git`
+    /// files because Git itself reports the invoking directory for that shape.
+    private func repositorySnapshot(
+        inDirectory directory: URL,
+        baseRef: String
+    ) async -> RepositorySnapshot? {
+        let result = await runner.run(
+            arguments: [
+                "--no-optional-locks",
+                "rev-parse",
+                "--path-format=absolute",
+                "--show-toplevel",
+                "HEAD",
+                baseRef,
+                "--abbrev-ref",
+                "HEAD",
+            ],
+            inDirectory: directory
+        )
+        guard case .success(let data) = result,
+            let output = String(data: data, encoding: .utf8)
+        else { return nil }
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count == 5, lines.last?.isEmpty == true else { return nil }
+        let headObjectID = String(lines[1])
+        let baseObjectID = String(lines[2])
+        guard Self.isObjectID(headObjectID), Self.isObjectID(baseObjectID) else { return nil }
+        return RepositorySnapshot(
+            rootURL: URL(fileURLWithPath: String(lines[0]), isDirectory: true)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL,
+            headObjectID: headObjectID,
+            baseObjectID: baseObjectID,
+            branch: String(lines[3])
+        )
+    }
+
+    private static func isObjectID(_ value: String) -> Bool {
+        (value.count == 40 || value.count == 64) && value.allSatisfy(\.isHexDigit)
+    }
+
+    /// A `.git` file normally identifies either a linked worktree (whose
+    /// backlink `TerminalPathBarModel` already verifies) or a submodule admin
+    /// directory with an explicit `core.worktree`. A pointer to an unrelated
+    /// ordinary repository also passes Git's basic shape checks, but Git then
+    /// treats the invoking directory as that repository's work tree and a diff
+    /// can disclose its index. Require the explicit worktree binding for that
+    /// full-admin-directory shape.
+    private func redirectedGitDirectoryIsBoundToRoot(_ rootURL: URL) async -> Bool {
+        let dotGit = rootURL.appending(path: ".git")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        if isDirectory.boolValue { return true }
+
+        guard let handle = try? FileHandle(forReadingFrom: dotGit) else { return false }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 4097),
+            data.count <= 4096,
+            let line = String(data: data, encoding: .utf8)?
+                .split(separator: "\n", omittingEmptySubsequences: false).first
+        else { return false }
+        let marker = "gitdir:"
+        let declaration = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard declaration.hasPrefix(marker) else { return false }
+        let path = declaration.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty else { return false }
+        let adminDirectory =
+            (path.hasPrefix("/")
+            ? URL(fileURLWithPath: path, isDirectory: true)
+            : rootURL.appending(path: path, directoryHint: .isDirectory))
+            .resolvingSymlinksInPath().standardizedFileURL
+
+        // The existing validator requires a linked-worktree backlink to this
+        // exact `.git` file. Do not impose `core.worktree` on that valid shape.
+        if FileManager.default.fileExists(
+            atPath: adminDirectory.appending(path: "commondir").path
+        ) {
+            return true
+        }
+
+        let result = await runner.run(
+            arguments: ["--no-optional-locks", "config", "--path", "--get", "core.worktree"],
+            inDirectory: rootURL
+        )
+        guard case .success(let data) = result,
+            let output = String(data: data, encoding: .utf8)
+        else { return false }
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count == 2, lines.last?.isEmpty == true, !lines[0].isEmpty else { return false }
+        let configured = URL(
+            fileURLWithPath: String(lines[0]),
+            relativeTo: adminDirectory
+        ).resolvingSymlinksInPath().standardizedFileURL
+        return configured == rootURL.resolvingSymlinksInPath().standardizedFileURL
     }
 
     // MARK: Base resolution

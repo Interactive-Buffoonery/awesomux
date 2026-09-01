@@ -19,6 +19,7 @@ enum BranchChangesCompletion {
         paneID: TerminalPane.ID,
         ticket: Int,
         store: SessionStore,
+        coordinator: BranchChangesCoordinator,
         alert: (BranchChangesFailure) -> Void
     ) {
         // Unconditional, and ahead of every gate below. The slot claim stops a
@@ -34,14 +35,18 @@ enum BranchChangesCompletion {
         // mirror image of the unregistered-write bug the unconditional record
         // would reintroduce.
         if case .success(let opened) = result,
-            BranchChangesInvocations.shouldRegister(ticket, for: opened.fileURL)
+            let markdown = opened.markdown,
+            coordinator.shouldRegister(ticket, for: opened.fileURL)
         {
             DocumentPaneView.selfWriteRegistry.record(
                 fileURL: opened.fileURL,
-                source: opened.markdown
+                source: markdown
             )
         }
-        guard BranchChangesInvocations.isCurrent(ticket, paneID: paneID) else { return }
+        if case .success(let opened) = result, opened.markdown != nil {
+            BranchChangesOpener().completeWrite(at: opened.fileURL)
+        }
+        guard coordinator.isCurrent(ticket, paneID: paneID) else { return }
 
         switch result {
         case .failure(.superseded):

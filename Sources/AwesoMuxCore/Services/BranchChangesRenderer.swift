@@ -1,4 +1,5 @@
 import Foundation
+import UnicodeHygiene
 
 /// Turns a `git diff` into a bounded Markdown document.
 ///
@@ -244,45 +245,63 @@ public enum BranchChangesRenderer {
         var wasCut: Bool
     }
 
-    /// Decodes `diff` as UTF-8 (replacing invalid bytes) and removes everything
-    /// that has no business in a fenced block: C0 controls other than newline
-    /// and tab — ESC included, which is what keeps a diff of a file full of
-    /// terminal escapes from repainting the pane's own rendering — and DEL.
+    /// Decodes `diff` as UTF-8 (replacing invalid bytes), removes terminal
+    /// controls, and renders direction-changing or invisible Unicode as an
+    /// explicit `<U+XXXX>` token. A review surface must not let Trojan Source
+    /// controls make displayed code differ from the bytes under review.
     ///
     /// Carriage returns are dropped rather than kept, so a CRLF file's diff does
     /// not render every line with a trailing control byte.
     static func sanitizedBody(_ diff: Data) -> SanitizedBody {
-        let decoded = Array(String(decoding: diff, as: UTF8.self).utf8)
+        let decoded = String(decoding: diff, as: UTF8.self)
         var kept: [UInt8] = []
-        kept.reserveCapacity(decoded.count)
+        kept.reserveCapacity(decoded.utf8.count)
         var backtickRun = 0
         var lastLineStart = 0
-        for byte in decoded {
+        func append(_ byte: UInt8) -> Bool {
+            kept.append(byte)
             if byte == UInt8(ascii: "\n") {
-                kept.append(byte)
                 backtickRun = 0
                 lastLineStart = kept.count
-                continue
+                return true
             }
-            // Load-bearing that the run is counted over what is KEPT, not over
-            // the input: dropping a control byte from between two backtick runs
-            // joins them in the output, and a count taken before the drop would
-            // size the fence for two short runs instead of the one long one the
-            // reader ends up with.
-            if byte != UInt8(ascii: "\t"), byte < 0x20 || byte == 0x7F {
-                continue
-            }
-            kept.append(byte)
             if byte == UInt8(ascii: "`") {
                 backtickRun += 1
                 if backtickRun > maximumBacktickRun {
                     // Cut at the start of the offending line, so the document
                     // never ends inside a run the fence could not contain.
                     kept.removeSubrange(lastLineStart...)
-                    return SanitizedBody(bytes: kept, wasCut: true)
+                    return false
                 }
             } else {
                 backtickRun = 0
+            }
+            return true
+        }
+
+        for scalar in decoded.unicodeScalars {
+            let value = scalar.value
+            if value == 0x0A || value == 0x09 {
+                guard append(UInt8(value)) else {
+                    return SanitizedBody(bytes: kept, wasCut: true)
+                }
+                continue
+            }
+            // Load-bearing that controls are removed before counting backticks:
+            // stripping one between two runs joins those runs in the output.
+            if value <= 0x1F || value == 0x7F || 0x80...0x9F ~= value {
+                continue
+            }
+            let rendered: String
+            if UnicodeHygiene.isUnsafePathScalar(scalar) {
+                rendered = String(format: "<U+%04X>", value)
+            } else {
+                rendered = String(scalar)
+            }
+            for byte in rendered.utf8 {
+                guard append(byte) else {
+                    return SanitizedBody(bytes: kept, wasCut: true)
+                }
             }
         }
         return SanitizedBody(bytes: kept, wasCut: false)

@@ -92,6 +92,15 @@ struct BranchChangesRendererTests {
         #expect(text.contains("\n`````diff\n"))
     }
 
+    @Test("bidi and zero-width controls are rendered as visible codepoint tokens")
+    func unsafeUnicodeIsVisible() throws {
+        let text = render("+safe\u{202E}hidden\u{2066}isolate\u{200B}zero\n")
+        let body = try fencedBody(of: text)
+        #expect(body.contains("safe<U+202E>hidden<U+2066>isolate<U+200B>zero"))
+        let escapedValues: Set<UInt32> = [0x202E, 0x2066, 0x200B]
+        #expect(!body.unicodeScalars.contains { escapedValues.contains($0.value) })
+    }
+
     // MARK: - Truncation
 
     @Test("a truncated diff says so above the fence and again below it")
