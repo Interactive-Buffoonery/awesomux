@@ -192,7 +192,10 @@ struct AgentPluginTemplateRendererTests {
             )
 
             #expect(
-                throws: AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(target)
+                throws: AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
+                    target,
+                    CocoaError(.fileWriteNoPermission).localizedDescription
+                )
             ) {
                 try renderer.render(
                     provider: .claudeCode,
@@ -210,7 +213,8 @@ struct AgentPluginTemplateRendererTests {
     @Test("private directory failure has a readable action message")
     func privateDirectoryFailureHasReadableMessage() {
         let error = AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
-            URL(fileURLWithPath: "/private/rendered-plugin")
+            URL(fileURLWithPath: "/private/rendered-plugin"),
+            CocoaError(.fileWriteNoPermission).localizedDescription
         )
 
         #expect(error.localizedDescription == "awesoMux couldn’t make its rendered plugin directory private")

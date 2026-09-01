@@ -539,7 +539,10 @@ struct AgentIntegrationInstallerTests {
             let installedURL = configHome.appending(path: "plugins/awesomux-opencode-status.js")
 
             #expect(
-                throws: AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(privateDirectory)
+                throws: AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(
+                    privateDirectory,
+                    CocoaError(.fileWriteNoPermission).localizedDescription
+                )
             ) {
                 try installer.install(
                     provider: .openCode,

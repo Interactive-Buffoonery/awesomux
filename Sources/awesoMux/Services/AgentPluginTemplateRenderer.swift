@@ -60,7 +60,7 @@ enum AgentPluginTemplateRendererError: Error, Equatable, Sendable {
     case missingTemplateTree(URL)
     case missingHelperPathFile(URL)
     case helperPathPlaceholderMissing(URL)
-    case directoryPermissionsUpdateFailed(URL)
+    case directoryPermissionsUpdateFailed(URL, String)
 }
 
 extension AgentPluginTemplateRendererError: LocalizedError {
@@ -309,7 +309,10 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
         do {
             try fileManager.setOwnerOnlyPermissions(onDirectoryAt: url)
         } catch {
-            throw AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(url)
+            throw AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
+                url,
+                error.localizedDescription
+            )
         }
     }
 }

@@ -88,7 +88,7 @@ enum AgentIntegrationInstallerError: Error, Equatable, Sendable {
     case executableIsDirectory(URL)
     case executableNotExecutable(URL)
     case configHomeIsNotDirectory(URL)
-    case directoryPermissionsUpdateFailed(URL)
+    case directoryPermissionsUpdateFailed(URL, String)
     case installManifestUnreadable
     case installManifestCorrupt
     case installStateUnavailable
@@ -584,7 +584,10 @@ struct AgentIntegrationInstaller {
                 do {
                     try fileManager.setOwnerOnlyPermissions(onDirectoryAt: url)
                 } catch {
-                    throw AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(url)
+                    throw AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(
+                        url,
+                        error.localizedDescription
+                    )
                 }
             }
         } else {
