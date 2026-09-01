@@ -251,13 +251,6 @@ enum PaletteCommandRegistry {
                 paneID: $0.activePaneID
             )
         }
-        let canRequestManagedSSHConversion =
-            selected.map {
-                sessionStore.canRequestManagedSSHConversion(
-                    sessionID: $0.id,
-                    paneID: $0.activePaneID
-                )
-            } ?? false
         let selectedHasMultiplePanes = selected?.layout.hasMultiplePanes ?? false
         let selectedHasMultipleDocumentTabs =
             (selected?.layout.firstDocumentGroup?.tabs.count ?? 0) > 1
@@ -348,7 +341,7 @@ enum PaletteCommandRegistry {
                 subtitle: managedSSHConversionTarget?.sshDestination,
                 keywords: ["ssh", "remote", "managed", "convert", "reconnect"],
                 shortcut: nil,
-                isEnabled: canRequestManagedSSHConversion && !availability.isAnySheetPresented,
+                isEnabled: managedSSHConversionTarget != nil && !availability.isAnySheetPresented,
                 selectionScope: .pane,
                 run: actions.makeThisWorkspaceManaged
             ),

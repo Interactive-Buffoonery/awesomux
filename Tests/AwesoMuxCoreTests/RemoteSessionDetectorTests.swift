@@ -222,6 +222,27 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteSSHTarget(store, pid) == "devbox")
     }
 
+    @Test("a working-directory report does not erase a title-less SSH target")
+    func workingDirectoryReportPreservesTitlelessSSHTarget() {
+        let (store, sid, pid) = makeStore()
+        let originalDirectory = store.session(id: sid)?.layout.pane(id: pid)?.workingDirectory
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh devbox")
+        store.updatePane(
+            sessionID: sid,
+            paneID: pid,
+            workingDirectory: Self.validLocalDir
+        )
+
+        let pane = store.session(id: sid)?.layout.pane(id: pid)
+        #expect(pane?.pendingRemoteSSHTarget == "devbox")
+        #expect(pane?.workingDirectory == originalDirectory)
+        #expect(
+            store.managedSSHConversionSuggestion(sessionID: sid, paneID: pid)?.sshDestination
+                == "devbox"
+        )
+    }
+
     @Test("dismissing the managed offer preserves the explicit conversion target without reopening")
     func managedWorkspaceOfferDismissalPreservesExplicitConversionTarget() {
         let (store, sid, pid) = makeStore()
@@ -363,6 +384,21 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteSSHTarget(store, pid) == "host-a")
         #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
         #expect(store.managedSSHConversionTarget(sessionID: sid, paneID: pid)?.sshDestination == "host-a")
+    }
+
+    @Test("nested title-less SSH keeps the outer destination")
+    func nestedTitlelessSSHRetainsOuterTarget() {
+        let (store, sid, pid) = makeStore()
+
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh bastion")
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh private-host")
+
+        let pane = store.session(id: sid)?.layout.pane(id: pid)
+        #expect(pane?.pendingRemoteSSHTarget == "bastion")
+        #expect(
+            store.managedSSHConversionSuggestion(sessionID: sid, paneID: pid)?.sshDestination
+                == "bastion"
+        )
     }
 
     @Test("an indeterminate tool title cannot recover a title-derived remote directory")
@@ -566,6 +602,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
             remoteSSHTarget: "webserver-alias",
             hasConsumedManagedSSHWorkspaceOffer: true,
             pendingRemoteSSHTarget: "other-webserver-alias",
+            hasObservedPendingRemoteSSHProcess: true,
             remoteConnectionHealth: .possiblyStale,
             remoteWorkingDirectory: "~/app",
             executionPlan: .local
@@ -576,6 +613,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
         #expect(!json.contains("remoteSSHTarget"))
         #expect(!json.contains("hasConsumedManagedSSHWorkspaceOffer"))
         #expect(!json.contains("pendingRemoteSSHTarget"))
+        #expect(!json.contains("hasObservedPendingRemoteSSHProcess"))
         #expect(!json.contains("remoteConnectionHealth"))
         #expect(!json.contains("remoteWorkingDirectory"))
         #expect(!json.contains("possiblyStale"))
@@ -585,6 +623,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
         #expect(restored.remoteSSHTarget == nil)
         #expect(!restored.hasConsumedManagedSSHWorkspaceOffer)
         #expect(restored.pendingRemoteSSHTarget == nil)
+        #expect(!restored.hasObservedPendingRemoteSSHProcess)
         #expect(restored.remoteConnectionHealth == .active)
         #expect(restored.remoteWorkingDirectory == nil)
         #expect(restored.title == pane.title)

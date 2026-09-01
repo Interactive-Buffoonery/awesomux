@@ -979,28 +979,6 @@ extension SessionStore {
         return target
     }
 
-    /// Whether an explicit user action may replace the active local pane with
-    /// a declared managed SSH connection. Automatic offers still use
-    /// `managedSSHConversionTarget`, which requires the terminal title to prove
-    /// that the submitted SSH command connected.
-    public func canRequestManagedSSHConversion(
-        sessionID: TerminalSession.ID,
-        paneID: TerminalPane.ID
-    ) -> Bool {
-        guard let session = session(id: sessionID),
-            session.activePaneID == paneID,
-            let pane = session.layout.pane(id: paneID)
-        else {
-            return false
-        }
-        guard pane.executionPlan == .local else { return false }
-        if managedSSHConversionTarget(sessionID: sessionID, paneID: paneID) != nil {
-            return true
-        }
-        guard let rawTarget = pane.pendingRemoteSSHTarget else { return false }
-        return RemoteTarget(parsing: rawTarget) != nil
-    }
-
     /// Best destination to pre-fill for an explicit conversion. A confirmed
     /// target wins; otherwise the submitted SSH alias is only a suggestion in
     /// the user-reviewed sheet and never authorizes an automatic conversion.
@@ -1008,13 +986,21 @@ extension SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
     ) -> RemoteTarget? {
-        guard canRequestManagedSSHConversion(sessionID: sessionID, paneID: paneID) else {
+        guard let session = session(id: sessionID),
+            session.activePaneID == paneID,
+            let pane = session.layout.pane(id: paneID),
+            pane.executionPlan == .local
+        else {
             return nil
         }
-        if let target = managedSSHConversionTarget(sessionID: sessionID, paneID: paneID) {
-            return target
+        if pane.remoteConnectionHealth == .active,
+            pane.remoteHost != nil,
+            let rawTarget = pane.remoteSSHTarget,
+            let confirmedTarget = RemoteTarget(parsing: rawTarget)
+        {
+            return confirmedTarget
         }
-        guard let rawTarget = session(id: sessionID)?.layout.pane(id: paneID)?.pendingRemoteSSHTarget else {
+        guard let rawTarget = pane.pendingRemoteSSHTarget else {
             return nil
         }
         return RemoteTarget(parsing: rawTarget)
@@ -1027,17 +1013,36 @@ extension SessionStore {
         paneID: TerminalPane.ID,
         liveness: ForegroundProcessLiveness
     ) {
-        guard liveness == .idleShell,
-            let pane = session(id: sessionID)?.layout.pane(id: paneID),
-            pane.hasManagedSSHObservation
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            pane.executionPlan == .local
         else {
             return
         }
+
+        if pane.pendingRemoteSSHTarget != nil,
+            !pane.hasObservedPendingRemoteSSHProcess,
+            liveness == .liveCommand || liveness == .bridgedBusy
+        {
+            _ = mutatePane(sessionID: sessionID, paneID: paneID) {
+                $0.hasObservedPendingRemoteSSHProcess = true
+            }
+            return
+        }
+
+        let pendingProcessReturned =
+            pane.hasObservedPendingRemoteSSHProcess
+            && (liveness == .idleShell || liveness == .bridged)
+        let confirmedProcessReturned =
+            liveness == .idleShell
+            && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
+                || pane.hasConsumedManagedSSHWorkspaceOffer)
+        guard pendingProcessReturned || confirmedProcessReturned else { return }
 
         let changed = mutatePane(sessionID: sessionID, paneID: paneID) { pane in
             pane.remoteHost = nil
             pane.remoteSSHTarget = nil
             pane.pendingRemoteSSHTarget = nil
+            pane.hasObservedPendingRemoteSSHProcess = false
             pane.hasConsumedManagedSSHWorkspaceOffer = false
             pane.remoteWorkingDirectory = nil
             pane.remoteConnectionHealth = .active

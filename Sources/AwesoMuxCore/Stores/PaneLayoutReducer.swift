@@ -35,6 +35,7 @@ struct PaneLayoutReducer: Sendable {
             || new.remoteSSHTarget != old.remoteSSHTarget
             || new.hasConsumedManagedSSHWorkspaceOffer != old.hasConsumedManagedSSHWorkspaceOffer
             || new.pendingRemoteSSHTarget != old.pendingRemoteSSHTarget
+            || new.hasObservedPendingRemoteSSHProcess != old.hasObservedPendingRemoteSSHProcess
             || new.remoteWorkingDirectory != old.remoteWorkingDirectory
             || new.remoteConnectionHealth != old.remoteConnectionHealth
             || new.remoteForegroundLivenessSnapshot != old.remoteForegroundLivenessSnapshot
@@ -766,6 +767,7 @@ struct PaneLayoutReducer: Sendable {
                         pane.remoteSSHTarget = pendingTarget
                         pane.hasConsumedManagedSSHWorkspaceOffer = false
                         pane.pendingRemoteSSHTarget = nil
+                        pane.hasObservedPendingRemoteSSHProcess = false
                     } else if originalPane.remoteHost != host {
                         pane.remoteSSHTarget = nil
                         pane.hasConsumedManagedSSHWorkspaceOffer = false
@@ -791,6 +793,7 @@ struct PaneLayoutReducer: Sendable {
                     pane.remoteWorkingDirectory = remoteDirectory
                 }
             case .local:
+                guard pane.pendingRemoteSSHTarget == nil else { break }
                 if let localDirectory = WorkingDirectoryValidator.validatedReportedDirectory(
                     workingDirectory
                 ) {
@@ -799,6 +802,7 @@ struct PaneLayoutReducer: Sendable {
                     pane.remoteSSHTarget = nil
                     pane.hasConsumedManagedSSHWorkspaceOffer = false
                     pane.pendingRemoteSSHTarget = nil
+                    pane.hasObservedPendingRemoteSSHProcess = false
                     pane.remoteWorkingDirectory = nil
                     pane.remoteConnectionHealth = .active
                     pane.remoteForegroundLivenessSnapshot = nil
@@ -838,15 +842,15 @@ struct PaneLayoutReducer: Sendable {
         }
 
         guard pane.remoteHost == nil,
+            pane.pendingRemoteSSHTarget == nil,
             RemoteSSHCommandTarget.isSSHCommand(command)
         else {
             return nil
         }
         let target = RemoteSSHCommandTarget.parseManagedWorkspaceOffer(command)
-        guard pane.pendingRemoteSSHTarget != target else {
-            return nil
-        }
+        guard target != nil else { return nil }
         pane.pendingRemoteSSHTarget = target
+        pane.hasObservedPendingRemoteSSHProcess = false
 
         guard let layout = session.layout.replacingPane(id: paneID, with: .pane(pane)) else {
             return nil

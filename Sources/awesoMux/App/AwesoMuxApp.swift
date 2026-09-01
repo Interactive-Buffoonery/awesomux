@@ -1046,7 +1046,7 @@ struct AwesoMuxApp: App {
                 Button("Make This Workspace Managed…") {
                     requestManagedSSHWorkspaceConversion()
                 }
-                .disabled(!canRequestSelectedManagedSSHConversion || isAnySheetPresented)
+                .disabled(selectedManagedSSHConversionTarget == nil || isAnySheetPresented)
 
                 Button(
                     String(
@@ -2670,9 +2670,9 @@ struct AwesoMuxApp: App {
         return session.unreadNotificationCount > 0 || session.needsAcknowledgement
     }
 
-    private var canRequestSelectedManagedSSHConversion: Bool {
-        guard let session = sessionStore.selectedSession else { return false }
-        return sessionStore.canRequestManagedSSHConversion(
+    private var selectedManagedSSHConversionTarget: RemoteTarget? {
+        guard let session = sessionStore.selectedSession else { return nil }
+        return sessionStore.managedSSHConversionSuggestion(
             sessionID: session.id,
             paneID: session.activePaneID
         )
@@ -3394,10 +3394,10 @@ struct AwesoMuxApp: App {
         else {
             return false
         }
-        return sessionStore.canRequestManagedSSHConversion(
+        return sessionStore.managedSSHConversionSuggestion(
             sessionID: session.id,
             paneID: session.activePaneID
-        )
+        ) != nil
     }
 
     private func requestManagedSSHWorkspaceConversion(_ session: TerminalSession? = nil) {
@@ -5360,19 +5360,15 @@ struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
             }
         guard let session,
             sessionStore.selectedSessionID == session.id,
-            sessionStore.canRequestManagedSSHConversion(
+            let target = sessionStore.managedSSHConversionSuggestion(
                 sessionID: session.id,
                 paneID: session.activePaneID
             )
         else {
             return nil
         }
-        let target = sessionStore.managedSSHConversionSuggestion(
-            sessionID: session.id,
-            paneID: session.activePaneID
-        )
         return Self(
-            initialDestination: target?.sshDestination,
+            initialDestination: target.sshDestination,
             origin: .explicitConversion,
             action: .convertPane(sessionID: session.id, paneID: session.activePaneID)
         )
