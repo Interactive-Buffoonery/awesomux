@@ -439,7 +439,7 @@ open -n dist/awesoMux.app
 | Sidebar single-host presentation | [0025 - Sidebar single-host presentation](adr/0025-sidebar-single-host-presentation.md) |
 | Typed workspace-pane model, capabilities, live-vs-intent seam | [0026 - Typed workspace-pane foundation](adr/0026-typed-workspace-pane-foundation.md) |
 | Ghostty submodule, XCFramework, linker, resources | [`docs/ghostty-integration.md`](ghostty-integration.md) |
-| Ghostty XCFramework prebuilds, richer persistence | Open items in [`AGENTS.md`](../AGENTS.md) **Stack & decisions (open)** |
+| Decisions not yet recorded in code, docs, or ADRs | Current [GitHub Issues](https://github.com/Interactive-Buffoonery/awesomux/issues) |
 
 ## What’s intentionally out of date in older notes
 
