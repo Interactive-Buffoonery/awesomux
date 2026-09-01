@@ -409,9 +409,9 @@ private struct GrokGlyph: Shape {
     }
 }
 
-// Angle brackets with dot — generic coding agent (Muse, Cursor, Windsurf, etc.).
-// Angle brackets `< >` around a centered dot read as "generic code" and stay
-// distinct from shell `>_` and OpenCode's square `[ ]`.
+// Angle brackets — generic coding agent (Muse, Cursor, Windsurf, etc.).
+// `< >` reads as "generic code" and stays distinct from shell `>_` and
+// OpenCode's square `[ ]`.
 // Teal stroke keeps the family palette.
 private struct GenericAgentGlyph: Shape {
     func path(in rect: CGRect) -> Path {
@@ -441,13 +441,6 @@ private struct GenericAgentGlyph: Shape {
         path.addLine(to: rightTip)
         path.addLine(to: rightBottom)
 
-        // Centered dot
-        let dotR = s * 0.09
-        path.addEllipse(
-            in: CGRect(
-                x: center.x - dotR, y: center.y - dotR,
-                width: dotR * 2, height: dotR * 2
-            ))
         return path
     }
 }
