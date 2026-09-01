@@ -301,9 +301,9 @@ struct VisibleTextAgentStateReducerTests {
         #expect(background.unreadNotificationDelta == 0)
     }
 
-    @Test("visible text corrects stale Codex identity from confident Claude cues")
-    func visibleTextCorrectsStaleCodexIdentityFromConfidentClaudeCues() {
-        let staleCodex = reducer.visibleTextDecision(
+    @Test("Claude prose does not relabel a hook-identified Codex pane")
+    func claudeProseDoesNotRelabelHookIdentifiedCodexPane() {
+        let liveCodex = reducer.visibleTextDecision(
             detectedState: .thinking,
             detectedAgentKind: .claudeCode,
             liveAgentKind: .codex,
@@ -311,9 +311,8 @@ struct VisibleTextAgentStateReducerTests {
             liveDisplayState: .thinking,
             terminalIsActiveForAttention: true
         )
-        #expect(staleCodex.shouldApply)
-        #expect(!staleCodex.shouldApplyState)
-        #expect(staleCodex.agentKind == .claudeCode)
+        #expect(!liveCodex.shouldApply)
+        #expect(liveCodex.agentKind == nil)
 
         let shell = reducer.visibleTextDecision(
             detectedState: .thinking,

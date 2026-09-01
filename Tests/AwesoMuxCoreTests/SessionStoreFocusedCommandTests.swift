@@ -255,8 +255,55 @@ struct SessionStoreFocusedCommandTests {
         #expect(store.session(id: session.id)?.needsUserInput == true)
     }
 
-    @Test("markNeedsAttentionPromptAnswered preserves visible state outside needs attention")
-    func markNeedsAttentionPromptAnsweredPreservesVisibleStateOutsideNeedsAttention() {
+    @Test("terminal input clears unread from a waiting agent")
+    func terminalInputClearsUnreadFromWaitingAgent() {
+        let session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            agentState: .waiting,
+            unreadNotificationCount: 1
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "main", sessions: [session])
+        ])
+
+        store.markNeedsAttentionPromptAnswered(id: session.id)
+
+        #expect(store.selectedSession?.agentState == .waiting)
+        #expect(store.selectedSession?.attentionReason == nil)
+        #expect(store.selectedSession?.unreadNotificationCount == 0)
+        #expect(store.unreadNotificationTotal == 0)
+    }
+
+    @Test("visible active work clears a resolved permission prompt")
+    func visibleActiveWorkClearsResolvedPermissionPrompt() {
+        let session = TerminalSession(
+            title: "codex",
+            workingDirectory: "~",
+            agentKind: .codex,
+            attentionReason: .permissionPrompt,
+            unreadNotificationCount: 1
+        )
+        let store = SessionStore(groups: [
+            SessionGroup(name: "main", sessions: [session])
+        ])
+
+        let applied = store.applyDetectedAgentState(
+            id: session.id,
+            detectedState: .thinking,
+            clearsAttention: true,
+            clearsUnreadNotifications: true
+        )
+
+        #expect(applied)
+        #expect(store.selectedSession?.agentState == .thinking)
+        #expect(store.selectedSession?.attentionReason == nil)
+        #expect(store.selectedSession?.unreadNotificationCount == 0)
+    }
+
+    @Test("terminal input preserves visible state while clearing unread")
+    func terminalInputPreservesVisibleStateWhileClearingUnread() {
         let session = TerminalSession(
             title: "codex",
             workingDirectory: "~",
@@ -272,8 +319,8 @@ struct SessionStoreFocusedCommandTests {
 
         #expect(store.selectedSession?.agentState == .running)
         #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.unreadNotificationCount == 2)
-        #expect(store.unreadNotificationTotal == 2)
+        #expect(store.selectedSession?.unreadNotificationCount == 0)
+        #expect(store.unreadNotificationTotal == 0)
     }
 
     private func makeSession(

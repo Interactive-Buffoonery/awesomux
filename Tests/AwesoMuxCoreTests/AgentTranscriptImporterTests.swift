@@ -11,6 +11,59 @@ struct AgentTranscriptImporterTests {
     private static let sessionB = "9a8b7c6d-5e4f-4321-9876-543210fedcba"
 
     @Test
+    func transcriptSearchRootUsesTheProviderLayout() {
+        let configHome = URL(fileURLWithPath: "/tmp/provider-home", isDirectory: true)
+
+        #expect(
+            AgentTranscriptImporter.transcriptSearchRoot(
+                agentKind: .claudeCode,
+                configHome: configHome
+            ) == configHome.appending(path: "projects", directoryHint: .isDirectory)
+        )
+        for provider: AgentKind in [.codex, .pi] {
+            #expect(
+                AgentTranscriptImporter.transcriptSearchRoot(
+                    agentKind: provider,
+                    configHome: configHome
+                ) == configHome.appending(path: "sessions", directoryHint: .isDirectory)
+            )
+        }
+        for unsupported: AgentKind in [.openCode, .grok, .shell] {
+            #expect(
+                AgentTranscriptImporter.transcriptSearchRoot(
+                    agentKind: unsupported,
+                    configHome: configHome
+                ) == nil
+            )
+        }
+    }
+
+    @Test
+    func recoveryFilenameMatchingRejectsUnrelatedSessions() {
+        #expect(
+            AgentTranscriptImporter.matchesTranscriptFileName(
+                agentKind: .claudeCode,
+                sessionID: Self.sessionA,
+                fileName: "\(Self.sessionA).jsonl"
+            )
+        )
+        #expect(
+            !AgentTranscriptImporter.matchesTranscriptFileName(
+                agentKind: .claudeCode,
+                sessionID: Self.sessionA,
+                fileName: "\(Self.sessionB).jsonl"
+            )
+        )
+        #expect(
+            AgentTranscriptImporter.matchesTranscriptFileName(
+                agentKind: .codex,
+                sessionID: Self.sessionA,
+                fileName: "rollout-2026-08-29-\(Self.sessionA).jsonl"
+            )
+        )
+    }
+
+    @Test
     func opensClaudeTranscriptByExactSessionID() throws {
         let fixture = try Fixture(provider: .claudeCode)
         defer { fixture.remove() }
@@ -204,6 +257,115 @@ struct AgentTranscriptImporterTests {
         #expect(search.reachedLimit)
     }
 
+    // MARK: - Re-opening a growing transcript
+
+    /// `reopen` exists because a `SecureFileReadHandle` can only vouch for the
+    /// length it validated: the descriptor on the prior value can never see an
+    /// append, however long it is held.
+    @Test
+    func reopenSeesBytesAppendedAfterTheFirstOpen() throws {
+        let fixture = try Fixture(provider: .claudeCode)
+        defer { fixture.remove() }
+        let url = try fixture.write(
+            "projects/p/\(Self.sessionA).jsonl",
+            #"{"type":"user","message":{"content":"first"}}"#
+        )
+        let prior = try fixture.open(sessionID: Self.sessionA).get()
+        try fixture.append(
+            #"{"type":"assistant","message":{"content":"second"}}"#,
+            to: url
+        )
+
+        let reopened = try AgentTranscriptImporter.reopen(prior).get()
+
+        #expect(reopened.agentKind == prior.agentKind)
+        #expect(reopened.sessionID == prior.sessionID)
+        #expect(reopened.resolvedURL == prior.resolvedURL)
+        #expect(reopened.handle.size > prior.handle.size)
+        #expect(reopened.handle.size == UInt64(try Data(contentsOf: url).count))
+    }
+
+    @Test
+    func reopenRefusesAFileOwnedByAnotherUser() throws {
+        let fixture = try Fixture(provider: .claudeCode)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            "projects/p/\(Self.sessionA).jsonl",
+            #"{"type":"user","message":{"content":"first"}}"#
+        )
+        let prior = try fixture.open(sessionID: Self.sessionA).get()
+
+        #expect(
+            fixture.failure(AgentTranscriptImporter.reopen(prior, effectiveUID: geteuid() &+ 1))
+                == .unreadable(.wrongOwner)
+        )
+    }
+
+    @Test
+    func reopenRefusesANonRegularFileAtTheSamePath() throws {
+        let fixture = try Fixture(provider: .claudeCode)
+        defer { fixture.remove() }
+        let url = try fixture.write(
+            "projects/p/\(Self.sessionA).jsonl",
+            #"{"type":"user","message":{"content":"first"}}"#
+        )
+        let prior = try fixture.open(sessionID: Self.sessionA).get()
+
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+
+        #expect(fixture.failure(AgentTranscriptImporter.reopen(prior)) == .unreadable(.notRegularFile))
+    }
+
+    /// Every refresh re-runs the ingress checks against whatever inode the path
+    /// names now, so a path swapped for a symlink is refused on the next tick
+    /// rather than followed on the strength of the first open.
+    @Test
+    func reopenRefusesASymlinkedFinalComponent() throws {
+        let fixture = try Fixture(provider: .claudeCode)
+        defer { fixture.remove() }
+        let url = try fixture.write(
+            "projects/p/\(Self.sessionA).jsonl",
+            #"{"type":"user","message":{"content":"first"}}"#
+        )
+        let decoy = try fixture.write(
+            "projects/p/decoy.jsonl",
+            #"{"type":"user","message":{"content":"decoy"}}"#
+        )
+        let prior = try fixture.open(sessionID: Self.sessionA).get()
+
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.createSymbolicLink(at: url, withDestinationURL: decoy)
+
+        #expect(fixture.failure(AgentTranscriptImporter.reopen(prior)) == .unreadable(.unreadable))
+    }
+
+    /// A path is not an inode. Re-opening resolves whatever the path names now,
+    /// so carrying the prior session id forward unconditionally would stamp a
+    /// validated id onto a file that merely inherited the name — the same
+    /// identity/content decoupling the typed seam exists to prevent, reached
+    /// through a different door.
+    @Test
+    func reopenRefusesAReplacementInodeAtTheSamePath() throws {
+        let fixture = try Fixture(provider: .claudeCode)
+        defer { fixture.remove() }
+        let url = try fixture.write(
+            "projects/p/\(Self.sessionA).jsonl",
+            #"{"type":"user","message":{"content":"first"}}"#
+        )
+        let prior = try fixture.open(sessionID: Self.sessionA).get()
+
+        // An atomic replace: same path, same owner, same permissions, new inode
+        // — indistinguishable from the original by every check `open` makes.
+        try Data((#"{"type":"user","message":{"content":"impostor"}}"# + "\n").utf8)
+            .write(to: url, options: .atomic)
+
+        // `.notFound` rather than a security refusal: the binding is stale, not
+        // hostile, and the caller's remedy is to re-run discovery. That routes
+        // into the rediscover branch and re-establishes the pairing properly.
+        #expect(fixture.failure(AgentTranscriptImporter.reopen(prior)) == .notFound)
+    }
+
     private final class Fixture {
         let root: URL
         let configHome: URL
@@ -226,6 +388,13 @@ struct AgentTranscriptImporterTests {
             )
             try Data((contents + "\n").utf8).write(to: url)
             return try SecureFileReader.open(at: url).resolvedURL
+        }
+
+        func append(_ contents: String, to url: URL) throws {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data((contents + "\n").utf8))
         }
 
         func open(

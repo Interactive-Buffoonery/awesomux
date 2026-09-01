@@ -140,7 +140,8 @@ A pane may instead declare `PersistenceOwner.remoteZmx`, naming a validated
 session on the remote host. For such a pane, the remote host's backend owns
 persistence: opening it runs `ssh <host> '<backend> attach <name>'` directly,
 with no local daemon, no local agent-signaling side channel (§4 does not
-apply), and no bridge preflight.
+apply), and no bridge preflight. Installation and recovery steps live in
+[`docs/remote-session-persistence.md`](../remote-session-persistence.md).
 
 Which backend, and where, is resolved on the far side rather than declared.
 The attach re-execs through `"$SHELL" -lc` and takes the first of `amx` on

@@ -142,6 +142,9 @@ final class DocumentRevisionMonitor {
     /// except that re-reporting the identical revision a reconcile just
     /// recorded refreshes the indicator without speaking it twice.
     func recordSelected(_ revision: LineDiffCount.ExternalEdit, for tab: DocumentPane) {
+        // Same reason `sync` skips transcripts, enforced at the pane
+        // pipeline's own entry point so no future caller can route around it.
+        guard tab.agentTranscriptIdentity == nil else { return }
         let monitorGeneration = monitorRecordedGenerations.removeValue(forKey: tab.id)
         let duplicatesMonitorRecord =
             monitorGeneration != nil
@@ -180,6 +183,11 @@ final class DocumentRevisionMonitor {
     /// on group-view appearance (a restored multi-tab group needs background
     /// watchers before any group mutation) and on every group change.
     func sync(tabs: [DocumentPane], selectedTabID: DocumentPane.ID?, cachedSource: (DocumentPane) -> String?) {
+        // A rendered transcript is regenerable cache, not a user-edited
+        // document: live refresh rewrites the file for as long as the agent
+        // runs, so an entry and a watcher here would record and speak
+        // "N lines changed" on every refresh for edits nobody made.
+        let tabs = tabs.filter { $0.agentTranscriptIdentity == nil }
         self.tabs = tabs
         self.selectedTabID = selectedTabID
 
@@ -237,6 +245,12 @@ final class DocumentRevisionMonitor {
     /// legitimately recorded indicator).
     func noteRenderCompleted(source: String?, for tab: DocumentPane) {
         guard let source else { return }
+        // The third of three entry points, guarded for the same reason as the
+        // other two. `sync` filters transcripts out, but this runs per reload
+        // and would recreate an entry for a tab that has none — inert today
+        // only because nothing reads it back, which is not a property to leave
+        // resting on the next caller.
+        guard tab.agentTranscriptIdentity == nil else { return }
         // A pending reconcile owns this tab's baseline until it commits; see
         // `pendingReconcileTabIDs`. The baseline refreshes on the tab's next
         // render completion.

@@ -83,6 +83,11 @@ struct AgentRuntimeEventReducer: Sendable {
         /// prompt before its hook arrived. Runtime-only; used to suppress a
         /// stale `PermissionRequest` raise (issue #404).
         var lastPermissionAnswerAttemptAt: Date?
+        // Tool ids whose starts have applied in the current turn. Permission
+        // hooks and tool ends use this to prove that an end belongs to the
+        // blocked tool rather than older background or subagent work.
+        var activeToolEventIDs: Set<String> = []
+        var pendingPermissionToolEventID: String?
     }
 
     /// How long a permission-answer attempt remains evidence against a late
@@ -352,6 +357,8 @@ struct AgentRuntimeEventReducer: Sendable {
                 )
             }
             state.providerSessionID = nil
+            state.activeToolEventIDs.removeAll()
+            state.pendingPermissionToolEventID = nil
             advanceTimestampWatermark(event.timestamp, now: now, into: &state)
             stateByPaneID[paneID] = state
             return Decision(
@@ -442,6 +449,10 @@ struct AgentRuntimeEventReducer: Sendable {
             let wasLifecycleStopped = state.lifecycle.currentIsStopped
             state.lifecycle.start()
             state.suppressesHeuristicState = false
+            if !state.hasAppliedEvent || wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns {
+                state.activeToolEventIDs.removeAll()
+                state.pendingPermissionToolEventID = nil
+            }
             // Drop the old id BEFORE latching: a proven new lifecycle whose
             // SessionStart carries no id must report "unknown session", never
             // the previous session's id.
@@ -491,6 +502,17 @@ struct AgentRuntimeEventReducer: Sendable {
             state.lastEndedTranscriptIdentity = nil
             state.lastEndedAgentKind = nil
             state.providerSessionID = providerSessionID
+        }
+
+        if event.phase == .promptSubmit {
+            // Starts left over from the previous turn can finish after this
+            // prompt. They cannot resolve a permission request in the new turn.
+            state.activeToolEventIDs.removeAll()
+            state.pendingPermissionToolEventID = nil
+        } else if event.phase == .toolStart,
+            let eventID = normalizedEventID(event.eventID)
+        {
+            state.activeToolEventIDs.insert(eventID)
         }
 
         // Turn-boundary tracking for the trailing-`.toolEnd` suppression below.
@@ -576,6 +598,9 @@ struct AgentRuntimeEventReducer: Sendable {
         }
         if eventAttentionReason == .permissionPrompt {
             state.lastPermissionAnswerAttemptAt = nil
+            state.pendingPermissionToolEventID = normalizedEventID(event.eventID).flatMap {
+                state.activeToolEventIDs.contains($0) ? $0 : nil
+            }
         }
         // Legacy `state` was a full display-state replacement, so an execution
         // update clears prior attention. Modern `executionState` is independent
@@ -633,25 +658,38 @@ struct AgentRuntimeEventReducer: Sendable {
                 $0 == state.providerSessionID
             } ?? true)
         // A permission reply directly proves that the gate resolved. For
-        // providers without that event, the first plain tool start afterward is
-        // equivalent proof even when the answer went through the agent TUI
-        // (mouse click) instead of awesoMux's keystroke path. A tool start that
-        // carries its own attention reason is a new blocking claim, not a
-        // retraction. Scoped to `.permissionPrompt` only — `.userInputRequired`
-        // can still be live while background tool phases run (issue #404).
+        // providers without that event, a later plain tool start is equivalent
+        // proof. Codex reports its start before PermissionRequest, so its end is
+        // authoritative only when all three hooks share the same tool id and
+        // the turn has not ended. An event that carries its own attention reason
+        // is a new blocking claim, not a retraction. Scoped to
+        // `.permissionPrompt` only — `.userInputRequired` can still be live
+        // while background tool phases run (issue #404).
         //
-        // Provider session IDs reject identifiable child sessions. Same-session
-        // background producers remain indistinguishable on the v1 wire format,
-        // so they retain the accepted false-clear window documented above.
+        // Provider session IDs reject identifiable child sessions. Tool ids
+        // distinguish concurrent work inside the same provider session.
         let eventMatchesProviderSession =
             !idsProveAnotherSession(event.providerSessionID, latched: state.providerSessionID)
+        let eventToolID = normalizedEventID(event.eventID)
+        let endsPromptedTool =
+            event.phase == .toolEnd
+            && !ignoresTrailingToolEnd
+            && (eventToolID.map {
+                $0 == state.pendingPermissionToolEventID
+                    && state.activeToolEventIDs.contains($0)
+            } ?? false)
         let resolvesPendingPermissionPrompt =
             currentPane.attentionReason == .permissionPrompt
             && eventMatchesProviderSession
             && (event.phase == .permissionReplied
-                || (event.phase == .toolStart && eventAttentionReason == nil))
+                || (event.phase == .toolStart && eventAttentionReason == nil)
+                || (endsPromptedTool && eventAttentionReason == nil))
         if resolvesPendingPermissionPrompt {
             state.lastPermissionAnswerAttemptAt = nil
+            state.pendingPermissionToolEventID = nil
+        }
+        if event.phase == .toolEnd, let eventToolID {
+            state.activeToolEventIDs.remove(eventToolID)
         }
 
         let resolvedKind: AgentKind?
@@ -771,6 +809,11 @@ struct AgentRuntimeEventReducer: Sendable {
     }
 
     private func normalizedProviderSessionID(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func normalizedEventID(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }

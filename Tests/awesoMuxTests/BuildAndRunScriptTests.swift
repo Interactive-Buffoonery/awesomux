@@ -125,6 +125,35 @@ struct BuildAndRunScriptTests {
             script[perfInstallCase.upperBound..<nextCase.lowerBound].contains("terminate_app_bundle_and_wait \"$INSTALLED_APP_BUNDLE\""))
     }
 
+    @Test("install keeps an in-use replaced bundle named awesoMux")
+    func installKeepsInUseReplacedBundleNamedAwesoMux() throws {
+        let result = try Self.runInstallReplacementSnippet()
+
+        #expect(result.exitStatus == 0, "stderr: \(result.error)")
+        #expect(result.output.contains("installed=new"), "stdout: \(result.output)")
+        #expect(result.output.contains("retired=old"), "stdout: \(result.output)")
+        #expect(result.output.contains("retired_name=awesoMux.app"), "stdout: \(result.output)")
+        #expect(result.output.contains("trash_called=no"), "stdout: \(result.output)")
+    }
+
+    @Test("install cleans retired bundles after their sessions exit")
+    func installCleansUnusedRetiredBundles() throws {
+        let result = try Self.runRetiredBundleCleanupSnippet()
+
+        #expect(result.exitStatus == 0, "stderr: \(result.error)")
+        #expect(result.output.contains("used=kept"), "stdout: \(result.output)")
+        #expect(result.output.contains("unused=cleaned"), "stdout: \(result.output)")
+        #expect(result.output.contains("trashed=unused"), "stdout: \(result.output)")
+    }
+
+    @Test("open files count as in use when lsof also reports a partial scan")
+    func openFilesCountAsInUseWhenLSOFExitsOne() throws {
+        let result = try Self.runPartialLSOFResultSnippet()
+
+        #expect(result.exitStatus == 0, "stderr: \(result.error)")
+        #expect(result.output.contains("in_use=yes"), "stdout: \(result.output)")
+    }
+
     @Test("installed builds require Ghostty artifacts from the pinned revision")
     func installedBuildsRequirePinnedGhosttyArtifacts() throws {
         let buildScript = try Self.contents(of: "script/build_and_run.sh")
@@ -503,6 +532,154 @@ struct BuildAndRunScriptTests {
             "Package.swift not found at \(manifest.path); the test file likely moved depth"
         )
         return root
+    }
+
+    private static func installReplacementFunctions(from script: String) throws -> String {
+        let retirementStart = try #require(script.range(of: "retired_app_bundle_is_in_use() {")?.lowerBound)
+        let appExecutable = try #require(
+            script.range(of: "\napp_executable_path() {", range: retirementStart..<script.endIndex)?.lowerBound)
+        let installBody = try installAppBody(from: script)
+        return String(script[retirementStart..<appExecutable]) + "\n" + installBody
+    }
+
+    private static func runInstallReplacementSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let functions = try installReplacementFunctions(from: script)
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-install-replacement")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        let bash = """
+            set -euo pipefail
+            APP_NAME=awesoMux
+            INSTALL_DIR="\(temporaryDirectory.url.path)/Applications"
+            INSTALLED_APP_BUNDLE="$INSTALL_DIR/$APP_NAME.app"
+            APP_BUNDLE="\(temporaryDirectory.url.path)/staged/$APP_NAME.app"
+            RETIRED_APP_BUNDLES="$INSTALL_DIR/.awesomux-retired"
+            mkdir -p "$INSTALLED_APP_BUNDLE" "$APP_BUNDLE"
+            printf old > "$INSTALLED_APP_BUNDLE/version"
+            printf new > "$APP_BUNDLE/version"
+
+            \(functions)
+
+            terminate_app_bundle_and_wait() { :; }
+            retired_app_bundle_is_in_use() { return 0; }
+            TRASH_CALLED=no
+            trash_path() { TRASH_CALLED=yes; }
+
+            install_app
+
+            retired_bundle="$(find "$RETIRED_APP_BUNDLES" -type d -name "$APP_NAME.app" -print -quit)"
+            printf 'installed=%s\n' "$(<"$INSTALLED_APP_BUNDLE/version")"
+            printf 'retired=%s\n' "$(<"$retired_bundle/version")"
+            printf 'retired_name=%s\n' "${retired_bundle##*/}"
+            printf 'trash_called=%s\n' "$TRASH_CALLED"
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
+        let captured = try captureOutput(of: process)
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout,
+            error: captured.stderr
+        )
+    }
+
+    private static func runRetiredBundleCleanupSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let functions = try installReplacementFunctions(from: script)
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-retired-cleanup")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        let bash = """
+            set -euo pipefail
+            APP_NAME=awesoMux
+            INSTALL_DIR="\(temporaryDirectory.url.path)/Applications"
+            INSTALLED_APP_BUNDLE="$INSTALL_DIR/$APP_NAME.app"
+            APP_BUNDLE="\(temporaryDirectory.url.path)/staged/$APP_NAME.app"
+            RETIRED_APP_BUNDLES="$INSTALL_DIR/.awesomux-retired"
+            mkdir -p \
+              "$INSTALLED_APP_BUNDLE" \
+              "$APP_BUNDLE" \
+              "$RETIRED_APP_BUNDLES/used/$APP_NAME.app" \
+              "$RETIRED_APP_BUNDLES/unused/$APP_NAME.app"
+
+            \(functions)
+
+            terminate_app_bundle_and_wait() { :; }
+            retired_app_bundle_is_in_use() {
+              [[ "$1" == "$INSTALLED_APP_BUNDLE" || "$1" == "$RETIRED_APP_BUNDLES/used/$APP_NAME.app" ]]
+            }
+            TRASHED=""
+            trash_path() {
+              TRASHED="${TRASHED:+$TRASHED,}${1##*/}"
+              /bin/mv "$1" "\(temporaryDirectory.url.path)/trashed-${1##*/}"
+            }
+
+            install_app
+
+            [[ -d "$RETIRED_APP_BUNDLES/used/$APP_NAME.app" ]] && used=kept || used=missing
+            [[ -d "$RETIRED_APP_BUNDLES/unused" ]] && unused=kept || unused=cleaned
+            printf 'used=%s\n' "$used"
+            printf 'unused=%s\n' "$unused"
+            printf 'trashed=%s\n' "$TRASHED"
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
+        let captured = try captureOutput(of: process)
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout,
+            error: captured.stderr
+        )
+    }
+
+    private static func runPartialLSOFResultSnippet() throws -> ShellResult {
+        let script = try contents(of: "script/build_and_run.sh")
+        let functions = try installReplacementFunctions(from: script)
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-partial-lsof")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let fakeLSOF = temporaryDirectory.url.appendingPathComponent("lsof")
+        try "#!/bin/bash\nprintf '29243\\n29252\\n'\nexit 1\n".write(
+            to: fakeLSOF,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeLSOF.path)
+
+        let bash = """
+            set -euo pipefail
+            APP_NAME=awesoMux
+            AMX_NAME=amx
+            PROCESS_ENUMERATION_FAILURE=70
+            LSOF_BIN="\(fakeLSOF.path)"
+            RETIRED_APP_BUNDLES="\(temporaryDirectory.url.path)/retired"
+
+            \(functions)
+
+            if retired_app_bundle_is_in_use /tmp/fake.app; then
+              printf 'in_use=yes\n'
+            else
+              printf 'in_use=no status=%s\n' "$?"
+              exit 1
+            fi
+            """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", bash]
+        let captured = try captureOutput(of: process)
+
+        return ShellResult(
+            exitStatus: process.terminationStatus,
+            output: captured.stdout,
+            error: captured.stderr
+        )
     }
 
     private static func processStateFunctions(from script: String) throws -> String {

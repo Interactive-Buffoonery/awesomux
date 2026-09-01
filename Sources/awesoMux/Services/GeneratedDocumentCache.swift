@@ -1,6 +1,7 @@
 import AwesoMuxConfig
 import CryptoKit
 import Foundation
+import SecureFileIO
 
 /// The owner-only write/prune mechanics shared by every cache of Markdown
 /// awesoMux renders for a document pane to open.
@@ -130,9 +131,12 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     func write(
         _ markdown: String,
         cacheIdentityKey: String,
+        skippingUnchanged: Bool = false,
+        maximumExistingBytes: Int? = nil,
         ifStillCurrent: () -> Bool = { true }
     ) -> URL? {
         let fileURL = fileURL(cacheIdentityKey: cacheIdentityKey)
+        let digest = skippingUnchanged ? Self.stableHash(Data(markdown.utf8)) : nil
         return Self.cacheLock.withLock {
             guard ifStillCurrent() else { return nil }
             guard
@@ -142,6 +146,17 @@ struct GeneratedDocumentCache: @unchecked Sendable {
                 ) != nil
             else {
                 return nil
+            }
+            if let digest,
+                let maximumExistingBytes,
+                Self.slotHolds(
+                    digest,
+                    at: fileURL,
+                    maximumBytes: maximumExistingBytes,
+                    fileManager: fileManager
+                )
+            {
+                return fileURL
             }
             do {
                 try fileManager.writeOwnerOnlyFile(at: fileURL, contents: Data(markdown.utf8))
@@ -230,10 +245,40 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// identity would carry it into every log line and crash report that names
     /// the file, against ADR-0015's "filenames only" rule.
     static func stableHash(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8))
+        stableHash(Data(value.utf8))
+    }
+
+    static func stableHash(_ data: Data) -> String {
+        SHA256.hash(data: data)
             .prefix(16)
             .map { String(format: "%02x", $0) }
             .joined()
+    }
+
+    /// Whether an existing slot already contains `digest` with the custody a
+    /// generated plaintext document requires. Called under `cacheLock` after
+    /// the cache-directory validation, so a skipped write cannot accept bytes
+    /// through a symlinked or loosely-permissioned root.
+    private static func slotHolds(
+        _ digest: String,
+        at fileURL: URL,
+        maximumBytes: Int,
+        fileManager: FileManager
+    ) -> Bool {
+        guard
+            let mode = (try? fileManager.attributesOfItem(atPath: fileURL.path))?[
+                .posixPermissions
+            ] as? NSNumber,
+            mode.intValue & 0o777 == 0o600,
+            let contents = try? SecureFileReader.read(
+                at: fileURL,
+                maximumBytes: maximumBytes,
+                symlinkPolicy: .rejectFinalComponent
+            )
+        else {
+            return false
+        }
+        return stableHash(contents.data) == digest
     }
 
     // MARK: - Pruning

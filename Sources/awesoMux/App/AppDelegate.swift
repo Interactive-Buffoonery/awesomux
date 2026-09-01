@@ -25,9 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var openPrimaryWindow: (() -> Void)?
     private let notificationBridge = WorkspaceNotificationBridge()
     private lazy var menuBarMiniStatusItemController = MenuBarMiniStatusItemController(
-        primaryAction: { [weak self] in
-            self?.menuBarStatusItemPrimaryClick()
-        },
         menuProvider: { [weak self] in
             self?.makeDockCommandMenu()
         }
@@ -154,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         newWorkspace.target = self
         newWorkspace.isEnabled = sessionStore != nil && appSettingsStore != nil
+        applyShortcut(KeyboardShortcutCatalog.newWorkspace, to: newWorkspace)
         menu.addItem(newWorkspace)
 
         let recents = NSMenuItem(
@@ -184,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && ghosttyRuntime != nil
             && appSettingsStore != nil
             && floatingPanelController != nil
+        applyShortcut(KeyboardShortcutCatalog.toggleFloatingPanel, to: floatingPanel)
         menu.addItem(floatingPanel)
 
         let popUpTerminal = NSMenuItem(
@@ -199,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && ghosttyRuntime != nil
             && appSettingsStore != nil
             && popUpTerminalController != nil
+        applyShortcut(KeyboardShortcutCatalog.togglePopUpTerminal, to: popUpTerminal)
         menu.addItem(popUpTerminal)
 
         menu.addItem(.separator())
@@ -213,6 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.target = self
         settings.isEnabled = openSettings != nil
+        settings.keyEquivalent = ","
+        settings.keyEquivalentModifierMask = .command
         menu.addItem(settings)
 
         // No custom Quit item: macOS appends a native Quit to every Dock menu,
@@ -223,9 +225,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func syncMenuBarMiniStatusItem() {
         menuBarMiniStatusItemController.update(
-            isEnabled: appSettingsStore?.general.value.showMenuBarMiniStatus ?? false,
+            visibility: appSettingsStore?.general.value.menuBarVisibility ?? .never,
             hasWorkspaceNeedingInput: sessionStore?.hasWorkspaceNeedingInputForMenuBar == true
         )
+    }
+
+    func menuBarAccentDidChange() {
+        menuBarMiniStatusItemController.accentDidChange()
     }
 
     /// Live workspaces in sidebar order (groups in order, sessions within),
@@ -234,12 +240,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// isn't bound yet.
     private func makeOpenWorkspaceItems() -> [NSMenuItem] {
         guard let sessionStore else { return [] }
-        return DockRecentWorkspaceMenu.openWorkspaceRows(
+        let rows = DockRecentWorkspaceMenu.openWorkspaceRows(
             groups: sessionStore.groups,
             liftedSessionIDs: sessionStore.liftedSessionIDs,
             pinnedSessionIDs: sessionStore.pinnedSessionIDs,
             activeID: sessionStore.selectedSessionID
-        ).map { row in
+        )
+        let shortcuts = resolvedShortcuts(KeyboardShortcutCatalog.jumpWorkspaces)
+        return rows.enumerated().map { index, row in
             let item = NSMenuItem(
                 title: row.title,
                 action: #selector(dockSelectOpenWorkspace(_:)),
@@ -248,6 +256,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.target = self
             item.representedObject = DockOpenWorkspaceToken(sessionID: row.sessionID)
             item.state = row.isActive ? .on : .off
+            if shortcuts.indices.contains(index) {
+                DockMenuShortcut.apply(shortcuts[index], to: item)
+            }
             return item
         }
     }
@@ -269,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             submenu.addItem(empty)
             return submenu
         }
-        for workspace in recents {
+        for (index, workspace) in recents.enumerated() {
             let item = NSMenuItem(
                 title: DockRecentWorkspaceMenu.displayTitle(for: workspace),
                 action: #selector(dockReopenRecentWorkspace(_:)),
@@ -277,9 +288,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             item.target = self
             item.representedObject = DockRecentWorkspaceToken(workspace: workspace)
+            if index == 0 {
+                applyShortcut(KeyboardShortcutCatalog.reopenClosedWorkspace, to: item)
+            }
             submenu.addItem(item)
         }
         return submenu
+    }
+
+    private func applyShortcut(_ binding: KeyBinding, to item: NSMenuItem) {
+        DockMenuShortcut.apply(resolvedShortcut(binding), to: item)
+    }
+
+    private func resolvedShortcut(_ binding: KeyBinding) -> KeyBinding {
+        KeyboardShortcutCatalog.resolved(
+            binding,
+            keyboard: appSettingsStore?.keyboard.value ?? .defaultValue
+        )
+    }
+
+    private func resolvedShortcuts(_ bindings: [KeyBinding]) -> [KeyBinding] {
+        bindings.map(resolvedShortcut)
     }
 
     @objc
@@ -398,10 +427,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ghosttyRuntime: ghosttyRuntime,
             appSettingsStore: appSettingsStore
         )
-    }
-
-    private func menuBarStatusItemPrimaryClick() {
-        dockShowFloatingPanel()
     }
 
     @objc
@@ -1549,10 +1574,23 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     }
 }
 
-private extension SessionStore {
+extension SessionStore {
     var hasWorkspaceNeedingInputForMenuBar: Bool {
+        Self.hasWorkspaceNeedingInputForMenuBar(
+            groups: groups,
+            unansweredTurnPaneIDs: unansweredTurnPaneIDs
+        )
+    }
+
+    static func hasWorkspaceNeedingInputForMenuBar(
+        groups: [SessionGroup],
+        unansweredTurnPaneIDs: Set<TerminalPane.ID>
+    ) -> Bool {
         groups.contains { group in
-            group.sessions.contains { $0.needsAcknowledgement }
+            group.sessions.contains {
+                $0.needsAcknowledgement
+                    || $0.hasUnansweredTurn(in: unansweredTurnPaneIDs)
+            }
         }
     }
 }

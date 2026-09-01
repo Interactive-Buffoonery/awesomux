@@ -60,7 +60,9 @@ setup.
 **Remote-owned panes:** a pane declaring `PersistenceOwner.remoteZmx` still
 sets `$ZMX_SESSION`, but it names a session in the *far* host's `ZMX_DIR`,
 owned by the remote zmx, not awesoMux's local daemon. The local `amx` has no
-socket for it — `send` and `history` cannot reach such a pane.
+socket for it — `send` and `history` cannot reach such a pane. See
+[Remote session persistence](remote-session-persistence.md) for remote backend
+installation and recovery commands.
 
 **`ZMX_SESSION_PREFIX` warning:** zmx prepends `$ZMX_SESSION_PREFIX` to
 **every** session argument — including an explicit `"$ZMX_SESSION"`

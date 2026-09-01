@@ -29,6 +29,7 @@ PROD_BUNDLE_ID="$AWESOMUX_PRODUCTION_BUNDLE_ID"
 LOG_SUBSYSTEM="$PROD_BUNDLE_ID"
 PROCESS_ENUMERATION_FAILURE=70
 SELF_TERMINATION_REFUSED=71
+LSOF_BIN="${AWESOMUX_LSOF:-/usr/sbin/lsof}"
 
 # BUNDLE_DISPLAY_NAME (CFBundleName) distinguishes the two identities everywhere
 # macOS shows the app by name — System Settings → Notifications, the menu bar,
@@ -45,6 +46,7 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 INSTALL_DIR="${AWESOMUX_INSTALL_DIR:-$HOME/Applications}"
 INSTALLED_APP_BUNDLE="$INSTALL_DIR/$APP_NAME.app"
+RETIRED_APP_BUNDLES="$INSTALL_DIR/.awesomux-retired"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
@@ -179,6 +181,67 @@ trash_path() {
   fi
 
   trash "$path"
+}
+
+# Persistent terminal sessions can outlive the app process. Moving their bundle
+# to Trash makes macOS show Trash's conflict-suffixed filename in later privacy
+# prompts, so keep the app leaf named awesoMux.app until those sessions exit.
+retired_app_bundle_is_in_use() {
+  local bundle="$1"
+  local line output status
+
+  if output="$("$LSOF_BIN" -t "$bundle/Contents/MacOS/$AMX_NAME" 2>&1)"; then
+    status=0
+  else
+    status="$?"
+  fi
+
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[0-9]+$ ]] && return 0
+  done <<< "$output"
+
+  if [[ "$status" -eq 1 && -z "$output" ]]; then
+    return 1
+  fi
+
+  echo "error: unable to determine whether $bundle is still in use (lsof exited $status)." >&2
+  [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+  return "$PROCESS_ENUMERATION_FAILURE"
+}
+
+retire_installed_app_bundle() {
+  local bundle="$1"
+  local retired_directory retired_bundle
+
+  mkdir -p "$RETIRED_APP_BUNDLES"
+  retired_directory="$(mktemp -d "$RETIRED_APP_BUNDLES/XXXXXXXX")"
+  retired_bundle="$retired_directory/$APP_NAME.app"
+  mv "$bundle" "$retired_bundle"
+
+  echo "Retired replaced bundle to $retired_bundle"
+}
+
+cleanup_retired_app_bundles() {
+  local retired_directory retired_bundle status
+
+  [[ -d "$RETIRED_APP_BUNDLES" ]] || return 0
+
+  for retired_directory in "$RETIRED_APP_BUNDLES"/*; do
+    retired_bundle="$retired_directory/$APP_NAME.app"
+    [[ -d "$retired_bundle" ]] || continue
+
+    if retired_app_bundle_is_in_use "$retired_bundle"; then
+      continue
+    else
+      status="$?"
+    fi
+
+    if [[ "$status" -eq 1 ]]; then
+      trash_path "$retired_directory"
+    fi
+  done
+
+  return 0
 }
 
 app_executable_path() {
@@ -1017,11 +1080,23 @@ run_window_diagnostics() {
 }
 
 install_app() {
+  local status
+
   mkdir -p "$INSTALL_DIR"
   terminate_app_bundle_and_wait "$INSTALLED_APP_BUNDLE"
+  cleanup_retired_app_bundles
 
   if [[ -e "$INSTALLED_APP_BUNDLE" ]]; then
-    trash_path "$INSTALLED_APP_BUNDLE"
+    if retired_app_bundle_is_in_use "$INSTALLED_APP_BUNDLE"; then
+      retire_installed_app_bundle "$INSTALLED_APP_BUNDLE"
+    else
+      status="$?"
+      if [[ "$status" -eq 1 ]]; then
+        trash_path "$INSTALLED_APP_BUNDLE"
+      else
+        retire_installed_app_bundle "$INSTALLED_APP_BUNDLE"
+      fi
+    fi
   fi
 
   /usr/bin/ditto "$APP_BUNDLE" "$INSTALLED_APP_BUNDLE"

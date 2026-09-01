@@ -330,7 +330,9 @@ waiting for your next turn" semantic. If the turn completed while the terminal
 was not focused, the pane can still receive unread / notification treatment, but
 that event does not project to the peach `needsAttention` badge. Selection-based
 acknowledgement uses a **dwell** so keyboard cycling does not accidentally clear
-attention or unread state — see [ADR 0003](adr/0003-acknowledge-on-selection-dwell.md).
+attention or unread state. Direct terminal input acknowledges the active pane
+immediately because it proves the user is interacting with that pane. See
+[ADR 0003](adr/0003-acknowledge-on-selection-dwell.md).
 
 Transition diagram (target contract; not necessarily a single enforced state machine in code yet):
 
@@ -367,6 +369,10 @@ installation is a separate user action. See
 Agent transcript lookup and resume use the exact provider-native identity and
 the explicit JSONL or read-only SQLite adapters recorded in
 [ADR 0033](adr/0033-agent-transcripts-use-exact-provider-identities.md).
+A mounted JSONL transcript tab re-renders as its session appends, re-validating
+through the secure descriptor reader on every refresh. OpenCode's SQLite-backed
+transcript remains the point-in-time snapshot opened by the user until a
+database/WAL-specific refresh adapter ships; see that ADR's #494 amendment.
 Opt-in Claude Code configuration and richer per-agent adapters remain follow-up
 work under INT-350, INT-351, and INT-352.
 
@@ -430,11 +436,11 @@ open -n dist/awesoMux.app
 | Semantic waiting agent state | [0007 - Agent waiting semantic state](adr/0007-agent-waiting-semantic-state.md) |
 | OpenCode and Pi provider opt-in | [0010 - OpenCode and Pi opt-in agent integrations](adr/0010-opencode-pi-opt-in-agent-integrations.md) |
 | Ghostty app actions and awesoMux command ownership | [0020 - Ghostty app actions are not an awesoMux command surface](adr/0020-ghostty-app-actions-are-not-an-awesomux-command-surface.md) |
-| Remote SSH workspaces: local `amx` by default or opt-in remote-owned zmx, declared execution identity, SSH composition | [0023 - Remote workspace architecture](adr/0023-remote-workspace-architecture.md) |
+| Remote SSH workspaces: local `amx` by default or opt-in remote-owned zmx, declared execution identity, SSH composition | [0023 - Remote workspace architecture](adr/0023-remote-workspace-architecture.md); [installation and recovery](remote-session-persistence.md) |
 | Sidebar single-host presentation | [0025 - Sidebar single-host presentation](adr/0025-sidebar-single-host-presentation.md) |
 | Typed workspace-pane model, capabilities, live-vs-intent seam | [0026 - Typed workspace-pane foundation](adr/0026-typed-workspace-pane-foundation.md) |
 | Ghostty submodule, XCFramework, linker, resources | [`docs/ghostty-integration.md`](ghostty-integration.md) |
-| Ghostty XCFramework prebuilds, richer persistence | Open items in [`AGENTS.md`](../AGENTS.md) **Stack & decisions (open)** |
+| Decisions not yet recorded in code, docs, or ADRs | Current [GitHub Issues](https://github.com/Interactive-Buffoonery/awesomux/issues) |
 
 ## What’s intentionally out of date in older notes
 
