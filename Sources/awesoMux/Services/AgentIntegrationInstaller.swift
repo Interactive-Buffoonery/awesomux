@@ -1,6 +1,5 @@
 import AwesoMuxConfig
 import Foundation
-import os
 
 enum AgentIntegrationInstallProvider: String, Codable, CaseIterable, Hashable, Sendable {
     case openCode = "open_code"
@@ -89,6 +88,7 @@ enum AgentIntegrationInstallerError: Error, Equatable, Sendable {
     case executableIsDirectory(URL)
     case executableNotExecutable(URL)
     case configHomeIsNotDirectory(URL)
+    case directoryPermissionsUpdateFailed(URL)
     case installManifestUnreadable
     case installManifestCorrupt
     case installStateUnavailable
@@ -99,11 +99,6 @@ enum AgentIntegrationInstallerError: Error, Equatable, Sendable {
 }
 
 struct AgentIntegrationInstaller {
-    private static let logger = Logger(
-        subsystem: "com.interactivebuffoonery.awesomux",
-        category: "AgentIntegrationInstaller"
-    )
-
     var resourcesDirectoryURL: URL
     var supportDirectoryURL: URL
     var installStateDirectoryURL: URL
@@ -586,7 +581,11 @@ struct AgentIntegrationInstaller {
                 throw AgentIntegrationInstallerError.configHomeIsNotDirectory(url)
             }
             if !preservesExistingPermissions {
-                clampOwnerOnly(directoryAt: url)
+                do {
+                    try fileManager.setOwnerOnlyPermissions(onDirectoryAt: url)
+                } catch {
+                    throw AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(url)
+                }
             }
         } else {
             try fileManager.createOwnerOnlyDirectory(at: url)
@@ -595,16 +594,6 @@ struct AgentIntegrationInstaller {
 
     private func writePrivateFile(_ data: Data, to url: URL) throws {
         try fileManager.writeOwnerOnlyFile(at: url, contents: data)
-    }
-
-    private func clampOwnerOnly(directoryAt url: URL) {
-        do {
-            try fileManager.setOwnerOnlyPermissions(onDirectoryAt: url)
-        } catch {
-            Self.logger.error(
-                "failed to set private permissions on \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-        }
     }
 
     private func stableSetupID(

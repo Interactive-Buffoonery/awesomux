@@ -516,6 +516,42 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
+    @Test("install fails when its existing private directory cannot be clamped")
+    func installFailsWhenPrivateDirectoryCannotBeClamped() throws {
+        try Self.withTemporaryDirectory { directory in
+            let support = directory.appending(path: "support", directoryHint: .isDirectory)
+            let privateDirectory = support.appending(path: "AgentIntegrations", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: privateDirectory, withIntermediateDirectories: true)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: privateDirectory.path
+            )
+            let installState = directory.appending(path: "install-state", directoryHint: .isDirectory)
+            let installer = AgentIntegrationInstaller(
+                resourcesDirectoryURL: Self.packageResourcesURL,
+                supportDirectoryURL: support,
+                installStateDirectoryURL: installState,
+                legacyInstallStateDirectoryURL: installState,
+                fileManager: PermissionFailingFileManager(path: privateDirectory.path)
+            )
+            let home = directory.appending(path: "home", directoryHint: .isDirectory)
+            let configHome = home.appending(path: ".config/opencode", directoryHint: .isDirectory)
+            let installedURL = configHome.appending(path: "plugins/awesomux-opencode-status.js")
+
+            #expect(
+                throws: AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(privateDirectory)
+            ) {
+                try installer.install(
+                    provider: .openCode,
+                    setup: AgentIntegrationSetup(enabled: true, configHome: configHome.path),
+                    homeDirectory: home
+                )
+            }
+            #expect(!FileManager.default.fileExists(atPath: installedURL.path))
+            #expect(try installer.loadManifest().records.isEmpty)
+        }
+    }
+
     @Test("legacy import lock contention is reported as busy")
     func legacyImportLockContentionReportsBusy() async throws {
         try await Self.withTemporaryDirectory { directory in
@@ -1069,6 +1105,22 @@ struct AgentIntegrationInstallerTests {
 private final class BackupPermissionFailingFileManager: FileManager {
     override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
         if path.contains(".unsupported-v") {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.setAttributes(attributes, ofItemAtPath: path)
+    }
+}
+
+private final class PermissionFailingFileManager: FileManager {
+    let path: String
+
+    init(path: String) {
+        self.path = path
+        super.init()
+    }
+
+    override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        if path == self.path {
             throw CocoaError(.fileWriteNoPermission)
         }
         try super.setAttributes(attributes, ofItemAtPath: path)
