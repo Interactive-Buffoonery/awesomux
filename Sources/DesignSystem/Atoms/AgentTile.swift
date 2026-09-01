@@ -409,21 +409,45 @@ private struct GrokGlyph: Shape {
     }
 }
 
-// Diamond with centered dot — generic coding agent (Muse, Cursor, Windsurf, etc.).
-// Distinct from shell `>_` and all brand marks; teal tint keeps it family.
+// Angle brackets with dot — generic coding agent (Muse, Cursor, Windsurf, etc.).
+// Angle brackets `< >` around a centered dot read as "generic code" and stay
+// distinct from shell `>_` and OpenCode's square `[ ]`.
+// Teal stroke keeps the family palette.
 private struct GenericAgentGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
+        let s = min(rect.width, rect.height)
         let center = CGPoint(x: rect.midX, y: rect.midY)
-        let r = min(rect.width, rect.height) * 0.38
-        path.move(to: CGPoint(x: center.x, y: center.y - r))
-        path.addLine(to: CGPoint(x: center.x + r, y: center.y))
-        path.addLine(to: CGPoint(x: center.x, y: center.y + r))
-        path.addLine(to: CGPoint(x: center.x - r, y: center.y))
-        path.closeSubpath()
-        // centered dot
-        let dotR = r * 0.22
-        path.addEllipse(in: CGRect(x: center.x - dotR, y: center.y - dotR, width: dotR * 2, height: dotR * 2))
+        let topY = rect.minY + s * 0.18
+        let bottomY = rect.maxY - s * 0.18
+        let leftBase = rect.minX + s * 0.15
+        let rightBase = rect.maxX - s * 0.15
+        let tipInset = s * 0.18
+
+        // Left angle bracket `<` — two straight legs meeting at center tip
+        // Inset is intentionally large so `< >` can't read as `( )` at 17px
+        let leftTop = CGPoint(x: leftBase + tipInset, y: topY)
+        let leftTip = CGPoint(x: leftBase, y: center.y)
+        let leftBottom = CGPoint(x: leftBase + tipInset, y: bottomY)
+        path.move(to: leftTop)
+        path.addLine(to: leftTip)
+        path.addLine(to: leftBottom)
+
+        // Right angle bracket `>` — mirrored
+        let rightTop = CGPoint(x: rightBase - tipInset, y: topY)
+        let rightTip = CGPoint(x: rightBase, y: center.y)
+        let rightBottom = CGPoint(x: rightBase - tipInset, y: bottomY)
+        path.move(to: rightTop)
+        path.addLine(to: rightTip)
+        path.addLine(to: rightBottom)
+
+        // Centered dot
+        let dotR = s * 0.09
+        path.addEllipse(
+            in: CGRect(
+                x: center.x - dotR, y: center.y - dotR,
+                width: dotR * 2, height: dotR * 2
+            ))
         return path
     }
 }

@@ -229,7 +229,7 @@ public struct VisibleTextAgentStateReducer: Sendable {
         if liveAgentKind == .shell {
             return detectedAgentKind
         }
-        if detectedKindIsAuthoritative, detectedAgentKind.usesReliableHooks {
+        if detectedKindIsAuthoritative {
             return detectedAgentKind
         }
         return nil

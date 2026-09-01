@@ -68,7 +68,7 @@ struct ForegroundProcessLivenessTests {
 struct AgentLivenessPolicyTests {
     @Test(
         "only an idle shell under an agent-tagged pane resets agent chrome",
-        arguments: [AgentKind.claudeCode, .codex, .openCode, .pi, .grok]
+        arguments: [AgentKind.claudeCode, .codex, .openCode, .pi, .grok, .generic]
     )
     func idleShellResetsEveryAgentKind(kind: AgentKind) {
         #expect(AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, liveness: .idleShell))

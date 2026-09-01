@@ -230,44 +230,38 @@ public struct AgentOutputDetector: Sendable {
         _ text: String,
         allowsPromptLaunch: Bool
     ) -> Bool {
-        // Banner-anchored for Muse (Muse's version line) plus prompt-anchored
-        // launches for all generic CLIs. Prompt-anchored so docs mentioning
-        // these tools don't tag a shell pane.
-        if text.contains("muse code") {
+        if containsVersionedMuseBanner(text) {
             return true
         }
         guard allowsPromptLaunch else {
             return false
         }
-        return text.contains("$ muse") || text.contains("❯ muse")
-            || text.contains("$ cursor-agent") || text.contains("❯ cursor-agent")
-            || text.contains("$ cursor") || text.contains("❯ cursor")
-            || text.contains("$ windsurf") || text.contains("❯ windsurf")
-            || text.contains("$ aider") || text.contains("❯ aider")
-            || text.contains("$ droid") || text.contains("❯ droid")
-            || text.contains("$ amp") || text.contains("❯ amp")
-            || text.contains("$ qwen") || text.contains("❯ qwen")
-            || text.contains("$ kimi") || text.contains("❯ kimi")
-            || text.contains("$ kilo") || text.contains("❯ kilo")
-            || text.contains("$ roo") || text.contains("❯ roo")
-            || text.contains("$ cline") || text.contains("❯ cline")
-            || text.contains("$ copilot") || text.contains("❯ copilot")
-            || text.contains("$ gemini") || text.contains("❯ gemini")
-            || text.contains("$ goose") || text.contains("❯ goose")
-            || text.contains("$ continue") || text.contains("❯ continue")
-            || text.contains("$ zed") || text.contains("❯ zed")
-            || text.contains("$ warp") || text.contains("❯ warp")
-            || text.contains("$ crush") || text.contains("❯ crush")
-            || text.contains("$ kiro") || text.contains("❯ kiro")
-            || text.contains("$ codebuddy") || text.contains("❯ codebuddy")
-            || text.contains("$ qoder") || text.contains("❯ qoder")
-            || text.contains("$ agy") || text.contains("❯ agy")
-            || text.contains("$ shai") || text.contains("❯ shai")
-            || text.contains("$ tabnine") || text.contains("❯ tabnine")
-            || text.contains("$ openclaw") || text.contains("❯ openclaw")
-            || text.contains("$ trae") || text.contains("❯ trae")
-            || text.contains("$ augment") || text.contains("❯ augment")
-            || text.contains("$ codebuff") || text.contains("❯ codebuff")
+        return text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+            ["$ ", "❯ "].contains { marker in
+                guard let markerRange = line.range(of: marker) else {
+                    return false
+                }
+                let command = line[markerRange.upperBound...]
+                    .prefix { !$0.isWhitespace }
+                return AgentProcessRecognition.agentKind(forCommand: String(command)) == .generic
+            }
+        }
+    }
+
+    private func containsVersionedMuseBanner(_ text: String) -> Bool {
+        text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count == 3, parts[0] == "muse", parts[1] == "code" else {
+                return false
+            }
+            let rawVersion = parts[2]
+            let version = rawVersion.first == "v" ? rawVersion.dropFirst() : rawVersion[...]
+            let components = version.split(separator: ".", omittingEmptySubsequences: false)
+            return components.count >= 2
+                && components.allSatisfy { component in
+                    !component.isEmpty && component.allSatisfy { $0.isASCII && $0.isNumber }
+                }
+        }
     }
 
     private func containsNeedsAttentionPrompt(_ text: String) -> Bool {

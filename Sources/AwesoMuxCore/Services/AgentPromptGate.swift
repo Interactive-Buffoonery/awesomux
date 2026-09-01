@@ -59,12 +59,10 @@ public struct AgentForegroundIncarnation: Equatable, Sendable {
 }
 
 public enum AgentPromptGate {
-    /// The v1 provider scope modeled by INT-569. Grok is deliberately
-    /// excluded until the issue's provider list grows. Generic agents
-    /// (Muse, Cursor, etc.) are included so `generic` panes can receive
-    /// nudges when their foreground process matches.
+    /// The v1 provider scope modeled by INT-569. Grok and generic agents are
+    /// excluded until they can provide a trusted waiting-at-input signal.
     static let supportedProviders: Set<AgentKind> = [
-        .claudeCode, .codex, .pi, .openCode, .generic,
+        .claudeCode, .codex, .pi, .openCode,
     ]
 
     public enum Verdict: Hashable, Sendable {
@@ -216,7 +214,7 @@ public enum AgentPromptGate {
                 return true
             }
         case .generic:
-            if isGenericAgentCommand(name, rawName: rawName) {
+            if AgentProcessRecognition.agentKind(forCommand: observedCommand) == .generic {
                 return true
             }
         case .grok, .shell:
@@ -269,24 +267,6 @@ public enum AgentPromptGate {
         "vim", "nvim", "vi", "emacs", "nano", "less", "more",
         "htop", "top", "tmux", "screen", "ssh",
     ]
-
-    private static func isGenericAgentCommand(_ name: String, rawName: String) -> Bool {
-        // Keep in sync with AgentProcessRecognition.isGenericAgentCommand.
-        let genericBases: Set<String> = [
-            "muse", "cursor-agent", "cursor", "windsurf", "aider", "droid", "amp",
-            "qwen", "kimi", "kilo", "roo", "cline", "copilot", "gemini", "goose",
-            "continue", "zed", "warp", "crush", "kiro", "codebuddy", "qoder",
-            "agy", "shai", "tabnine", "openclaw", "trae", "augment", "codebuff",
-        ]
-        // Check exact and prefix forms; muse-bin is the truncated Muse binary.
-        if name == "muse" || name.hasPrefix("muse-") || name.hasPrefix("muse-bin") { return true }
-        if rawName == "muse" || rawName.hasPrefix("muse-") || rawName.hasPrefix("muse-bin") { return true }
-        for base in genericBases {
-            if name == base || name.hasPrefix(base + "-") { return true }
-            if rawName == base || rawName.hasPrefix(base + "-") { return true }
-        }
-        return false
-    }
 
     /// `2.1.214`-shaped: non-empty dot-separated runs of ASCII digits, with
     /// at least one dot. Only Claude Code's native installer is known to

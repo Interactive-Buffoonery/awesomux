@@ -91,7 +91,7 @@ struct QuitRiskPolicyTests {
     func nonShellAgentKindsCoverage() {
         // Every non-shell kind (incl. pi/openCode) gets .liveAgentProcess for a
         // live foreground and the agent-execution fallback when unsampled.
-        for kind in [AgentKind.pi, .openCode, .claudeCode, .codex] {
+        for kind in [AgentKind.pi, .openCode, .claudeCode, .codex, .generic] {
             #expect(decide(kind, liveness: .liveCommand).reason == .liveAgentProcess)
             #expect(decide(kind, exec: .running, changed: fresh(), liveness: .unsampled).reason == .activeAgentExecution)
         }

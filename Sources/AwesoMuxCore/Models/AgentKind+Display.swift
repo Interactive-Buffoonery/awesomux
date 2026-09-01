@@ -22,7 +22,12 @@ extension AgentKind {
         case .grok:
             "Grok"
         case .generic:
-            "Agent"
+            String(
+                localized: "Agent",
+                bundle: bundle,
+                locale: locale,
+                comment: "Generic display name for an unsupported AI coding agent"
+            )
         case .shell:
             // Unlike the brand-name cases above, "Shell" is a generic noun that
             // sits next to SessionStoreText's localized "shell" fallback prefix
@@ -40,7 +45,8 @@ extension AgentKind {
 
     /// Full brand name for visual copy that names the agent in a sentence
     /// ("Send to Claude Code", "Enable the Claude Code integration…"): the
-    /// complete `rawValue` brand for agent kinds, localized text for `.shell`.
+    /// complete `rawValue` brand for known agent kinds, localized text for
+    /// `.generic` and `.shell`.
     /// Distinct from `spokenName`, which is reserved for VoiceOver/announcement
     /// contexts; visual copy must use this so the spoken variant can evolve for
     /// speech without dragging UI strings along.
@@ -52,14 +58,19 @@ extension AgentKind {
         bundle: Bundle = .main,
         locale: Locale = .current
     ) -> String {
-        self == .shell ? localizedShortName(bundle: bundle, locale: locale) : rawValue
+        switch self {
+        case .generic, .shell:
+            localizedShortName(bundle: bundle, locale: locale)
+        case .claudeCode, .codex, .openCode, .pi, .grok:
+            rawValue
+        }
     }
 
     /// Full display name for spoken/announcement contexts (e.g. VoiceOver attention
     /// announcements): `rawValue`'s full brand name ("Claude Code") for agent kinds,
-    /// but `shortName`'s localized text for `.shell` — `rawValue`'s "Shell" is the
-    /// Codable/persistence representation and must stay a fixed literal, so callers
-    /// that speak this value out loud need this instead (INT-95 PR-review finding:
+    /// but `shortName`'s localized text for `.generic` and `.shell` — their raw
+    /// values are Codable/persistence representations and must stay fixed literals,
+    /// so callers that speak this value out loud need this instead (INT-95 PR-review finding:
     /// `WorkspaceAttentionAnnouncementTracker` was reading raw `rawValue` and could
     /// speak an unlocalized "Shell" beside an already-localized workspace title).
     public var spokenName: String {
@@ -70,6 +81,6 @@ extension AgentKind {
         bundle: Bundle = .main,
         locale: Locale = .current
     ) -> String {
-        self == .shell ? localizedShortName(bundle: bundle, locale: locale) : rawValue
+        localizedDisplayName(bundle: bundle, locale: locale)
     }
 }

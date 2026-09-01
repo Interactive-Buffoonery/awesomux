@@ -6,6 +6,13 @@ import AwesoMuxBridgeProtocol
 /// matching explicit instead of open-coding exact string comparisons at sampler
 /// call sites.
 public enum AgentProcessRecognition {
+    private static let genericAgentCommands: Set<String> = [
+        "muse", "cursor-agent", "cursor", "windsurf", "aider", "droid", "amp",
+        "qwen", "kimi", "kilo", "roo", "cline", "copilot", "gemini", "goose",
+        "continue", "zed", "warp", "crush", "kiro", "codebuddy", "qoder",
+        "agy", "shai", "tabnine", "openclaw", "trae", "augment", "codebuff",
+    ]
+
     public static func agentKind(forCommand command: String?) -> AgentKind? {
         guard let command else {
             return nil
@@ -52,46 +59,8 @@ public enum AgentProcessRecognition {
     }
 
     private static func isGenericAgentCommand(_ name: String) -> Bool {
-        // Direct binaries and their suffixed variants. Keep the list explicit;
-        // heuristic fallback would mis-tag builds/tests mentioning these words.
-        let genericPrefixes = [
-            "muse", "muse-bin",
-            "cursor-agent", "cursor",
-            "windsurf", "windsurf-",
-            "aider", "aider-",
-            "droid", "droid-",
-            "amp", "amp-",
-            "qwen", "qwen-",
-            "kimi", "kimi-",
-            "kilo", "kilo-",
-            "roo", "roo-",
-            "cline", "cline-",
-            "copilot", "copilot-",
-            "gemini", "gemini-",
-            "goose", "goose-",
-            "continue", "continue-",
-            "zed", "zed-",
-            "warp", "warp-",
-            "crush", "crush-",
-            "kiro", "kiro-",
-            "codebuddy", "codebuddy-",
-            "qoder", "qoder-",
-            "agy", "agy-",
-            "shai", "shai-",
-            "tabnine", "tabnine-",
-            "openclaw", "openclaw-",
-            "trae", "trae-",
-            "augment", "augment-",
-            "codebuff", "codebuff-",
-        ]
-        for prefix in genericPrefixes {
-            if prefix.hasSuffix("-") {
-                if name.hasPrefix(prefix) { return true }
-            } else {
-                if name == prefix || name.hasPrefix(prefix + "-") { return true }
-            }
-        }
-        return false
+        genericAgentCommands.contains(name)
+            || genericAgentCommands.contains { name.hasPrefix($0 + "-") }
     }
 
     private static func isBareVersionName(_ name: String) -> Bool {
