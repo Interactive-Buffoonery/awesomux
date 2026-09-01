@@ -979,6 +979,47 @@ extension SessionStore {
         return target
     }
 
+    /// Whether an explicit user action may replace the active local pane with
+    /// a declared managed SSH connection. Automatic offers still use
+    /// `managedSSHConversionTarget`, which requires the terminal title to prove
+    /// that the submitted SSH command connected.
+    public func canRequestManagedSSHConversion(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> Bool {
+        guard let session = session(id: sessionID),
+            session.activePaneID == paneID,
+            let pane = session.layout.pane(id: paneID)
+        else {
+            return false
+        }
+        guard pane.executionPlan == .local else { return false }
+        if managedSSHConversionTarget(sessionID: sessionID, paneID: paneID) != nil {
+            return true
+        }
+        guard let rawTarget = pane.pendingRemoteSSHTarget else { return false }
+        return RemoteTarget(parsing: rawTarget) != nil
+    }
+
+    /// Best destination to pre-fill for an explicit conversion. A confirmed
+    /// target wins; otherwise the submitted SSH alias is only a suggestion in
+    /// the user-reviewed sheet and never authorizes an automatic conversion.
+    public func managedSSHConversionSuggestion(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> RemoteTarget? {
+        guard canRequestManagedSSHConversion(sessionID: sessionID, paneID: paneID) else {
+            return nil
+        }
+        if let target = managedSSHConversionTarget(sessionID: sessionID, paneID: paneID) {
+            return target
+        }
+        guard let rawTarget = session(id: sessionID)?.layout.pane(id: paneID)?.pendingRemoteSSHTarget else {
+            return nil
+        }
+        return RemoteTarget(parsing: rawTarget)
+    }
+
     /// Clears runtime remote observations after local process state proves an
     /// ordinary SSH command returned to its shell.
     public func clearManagedSSHObservationIfExitedToLocalShell(
