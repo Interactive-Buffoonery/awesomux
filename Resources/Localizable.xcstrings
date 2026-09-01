@@ -1798,6 +1798,9 @@
     "Geist Sans — Copyright 2024 The Geist Project Authors. SIL Open Font License 1.1." : {
       "comment" : "About settings attribution for the bundled Geist Sans interface font"
     },
+    "Generated documents can't browse to other files" : {
+      "comment" : "Help text for the Files toggle when a generated document has unknown provenance"
+    },
     "Ghostty" : {
 
     },
@@ -2929,11 +2932,17 @@
     "Read-Only Diff" : {
       "comment" : "Alert title when the user tries to annotate a generated branch diff"
     },
+    "Read-Only Generated Document" : {
+      "comment" : "Alert title when a generated document has unknown provenance"
+    },
     "Read-Only Snapshot" : {
       "comment" : "Alert title when the user tries to annotate a remote Markdown snapshot"
     },
     "Read-Only Transcript" : {
       "comment" : "Alert title when the user tries to annotate a generated agent transcript"
+    },
+    "Read-only generated document" : {
+
     },
     "Read-only remote Markdown snapshot from %arg" : {
 
@@ -2943,15 +2952,6 @@
     },
     "Reading branch changes." : {
       "comment" : "VoiceOver announcement when rendering a pane's branch diff starts"
-    },
-    "Reap" : {
-
-    },
-    "Reap session" : {
-
-    },
-    "Reap this " : {
-
     },
     "Recent Workspaces" : {
       "comment" : "Dock right-click menu item whose submenu lists recently closed workspaces to reopen."
@@ -4232,6 +4232,9 @@
     "This document's terminal isn't available — reopen the document from a running terminal to reconnect" : {
       "comment" : "Tooltip for the send button when its terminal is gone"
     },
+    "This generated document cannot be edited." : {
+      "comment" : "Alert body when a generated document has unknown provenance"
+    },
     "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app." : {
       "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
     },
@@ -4703,11 +4706,11 @@
     "awesoMux couldn't replace the saved workspace file. The existing file was kept and automatic session saving remains paused." : {
       "comment" : "Recovery replacement failure shown after an owner-only snapshot write fails"
     },
-    "awesoMux couldn't save the rendered diff to its cache." : {
-      "comment" : "Branch diff failure when writing the rendered Markdown to the app cache fails"
-    },
     "awesoMux couldn't safely read OpenCode's session database. Check that it still exists and is owned by your user." : {
       "comment" : "Transcript failure when OpenCode's SQLite session store cannot be read safely"
+    },
+    "awesoMux couldn't save the rendered diff to its cache." : {
+      "comment" : "Branch diff failure when writing the rendered Markdown to the app cache fails"
     },
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
@@ -4801,6 +4804,9 @@
     },
     "from %arg" : {
       "comment" : "Appended to a lifted sidebar workspace's VoiceOver rotor label when the state it just spoke already named why the row was lifted, so only the group it returns to is left to say. The argument is a user-chosen group name."
+    },
+    "generated document, read-only" : {
+      "comment" : "Spoken qualifier on a document tab whose generated provenance is unknown"
     },
     "in use" : {
 
