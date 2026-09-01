@@ -299,6 +299,14 @@ struct AgentIntegrationSettingsViewModelTests {
             #expect(viewModel.errorMessage(for: installerError) == "Use an absolute path")
             let disabledError = AgentIntegrationInstallerError.providerDisabled(.openCode)
             #expect(viewModel.errorMessage(for: disabledError) == "Enable this provider first")
+            let permissionsError = AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(
+                directory,
+                CocoaError(.fileWriteNoPermission).localizedDescription
+            )
+            #expect(
+                viewModel.errorMessage(for: permissionsError)
+                    == "awesoMux couldn’t make its install directory private"
+            )
             let rollbackURL = directory.appending(path: "awesomux-pi-status.ts")
             let rollbackError = AgentIntegrationInstallerError.fileRollbackFailed(
                 rollbackURL,
