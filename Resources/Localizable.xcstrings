@@ -4611,6 +4611,12 @@
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
+    "awesoMux couldn’t make its install directory private" : {
+      "comment" : "Agent integration private directory permission update error"
+    },
+    "awesoMux couldn’t make its rendered plugin directory private" : {
+      "comment" : "Rendered agent plugin private directory permission update error"
+    },
     "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process." : {
       "comment" : "Body of the close-pane confirmation dialog when pane activity is unverifiable.",
       "localizations" : {
