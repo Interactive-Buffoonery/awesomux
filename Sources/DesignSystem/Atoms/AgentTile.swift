@@ -7,6 +7,7 @@ public enum AwAgentIcon: Sendable, Equatable, Hashable {
     case openCode
     case pi
     case grok
+    case generic
     case shell
 }
 
@@ -149,6 +150,10 @@ public struct AgentTile: View, Equatable {
         case .grok:
             GrokGlyph()
                 .stroke(Color.aw.green, style: glyphStroke)
+                .frame(width: size * 0.55, height: size * 0.55)
+        case .generic:
+            GenericAgentGlyph()
+                .stroke(Color.aw.teal, style: glyphStroke)
                 .frame(width: size * 0.55, height: size * 0.55)
         case .shell:
             ShellGlyph()
@@ -404,6 +409,25 @@ private struct GrokGlyph: Shape {
     }
 }
 
+// Diamond with centered dot — generic coding agent (Muse, Cursor, Windsurf, etc.).
+// Distinct from shell `>_` and all brand marks; teal tint keeps it family.
+private struct GenericAgentGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let r = min(rect.width, rect.height) * 0.38
+        path.move(to: CGPoint(x: center.x, y: center.y - r))
+        path.addLine(to: CGPoint(x: center.x + r, y: center.y))
+        path.addLine(to: CGPoint(x: center.x, y: center.y + r))
+        path.addLine(to: CGPoint(x: center.x - r, y: center.y))
+        path.closeSubpath()
+        // centered dot
+        let dotR = r * 0.22
+        path.addEllipse(in: CGRect(x: center.x - dotR, y: center.y - dotR, width: dotR * 2, height: dotR * 2))
+        return path
+    }
+}
+
 public extension AwAgentIcon {
     func localizedAccessibilityName(
         bundle: Bundle = .main,
@@ -420,6 +444,8 @@ public extension AwAgentIcon {
             "Pi"
         case .grok:
             "Grok"
+        case .generic:
+            "Agent"
         case .shell:
             String(
                 localized: "Shell",

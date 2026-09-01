@@ -33,7 +33,7 @@ public extension PlanAnnotationAuthor {
         case .codex: self = .codex
         case .pi: self = .pi
         case .openCode: self = .opencode
-        case .grok, .shell: return nil
+        case .grok, .shell, .generic: return nil
         }
     }
 

@@ -21,6 +21,8 @@ extension AgentKind {
             "Pi"
         case .grok:
             "Grok"
+        case .generic:
+            "Agent"
         case .shell:
             // Unlike the brand-name cases above, "Shell" is a generic noun that
             // sits next to SessionStoreText's localized "shell" fallback prefix

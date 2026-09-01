@@ -144,6 +144,7 @@ public struct AgentOutputDetector: Sendable {
             || text.contains("❯ claude")
             || containsConfidentOpenCodeIdentity(text, allowsPromptLaunch: true)
             || containsConfidentCodexIdentity(text, allowsPromptLaunch: true)
+            || containsConfidentGenericIdentity(text, allowsPromptLaunch: true)
     }
 
     // `hasGrokIdentity` is threaded through rather than re-derived here: the
@@ -155,6 +156,12 @@ public struct AgentOutputDetector: Sendable {
         allowsGrokIdentity: Bool,
         hasGrokIdentity: Bool
     ) -> AgentKind? {
+        // Generic checked before Claude so a Muse/Cursor pane that mentions
+        // "claude code" in prose does not get hijacked. Generic is prompt-anchored
+        // (or banner-anchored for Muse) so plain prose mentioning these CLIs is safe.
+        if containsConfidentGenericIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {
+            return .generic
+        }
         if containsConfidentClaudeIdentity(text) {
             return .claudeCode
         }
@@ -217,6 +224,50 @@ public struct AgentOutputDetector: Sendable {
             return false
         }
         return text.contains("$ opencode") || text.contains("❯ opencode")
+    }
+
+    private func containsConfidentGenericIdentity(
+        _ text: String,
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        // Banner-anchored for Muse (Muse's version line) plus prompt-anchored
+        // launches for all generic CLIs. Prompt-anchored so docs mentioning
+        // these tools don't tag a shell pane.
+        if text.contains("muse code") {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return text.contains("$ muse") || text.contains("❯ muse")
+            || text.contains("$ cursor-agent") || text.contains("❯ cursor-agent")
+            || text.contains("$ cursor") || text.contains("❯ cursor")
+            || text.contains("$ windsurf") || text.contains("❯ windsurf")
+            || text.contains("$ aider") || text.contains("❯ aider")
+            || text.contains("$ droid") || text.contains("❯ droid")
+            || text.contains("$ amp") || text.contains("❯ amp")
+            || text.contains("$ qwen") || text.contains("❯ qwen")
+            || text.contains("$ kimi") || text.contains("❯ kimi")
+            || text.contains("$ kilo") || text.contains("❯ kilo")
+            || text.contains("$ roo") || text.contains("❯ roo")
+            || text.contains("$ cline") || text.contains("❯ cline")
+            || text.contains("$ copilot") || text.contains("❯ copilot")
+            || text.contains("$ gemini") || text.contains("❯ gemini")
+            || text.contains("$ goose") || text.contains("❯ goose")
+            || text.contains("$ continue") || text.contains("❯ continue")
+            || text.contains("$ zed") || text.contains("❯ zed")
+            || text.contains("$ warp") || text.contains("❯ warp")
+            || text.contains("$ crush") || text.contains("❯ crush")
+            || text.contains("$ kiro") || text.contains("❯ kiro")
+            || text.contains("$ codebuddy") || text.contains("❯ codebuddy")
+            || text.contains("$ qoder") || text.contains("❯ qoder")
+            || text.contains("$ agy") || text.contains("❯ agy")
+            || text.contains("$ shai") || text.contains("❯ shai")
+            || text.contains("$ tabnine") || text.contains("❯ tabnine")
+            || text.contains("$ openclaw") || text.contains("❯ openclaw")
+            || text.contains("$ trae") || text.contains("❯ trae")
+            || text.contains("$ augment") || text.contains("❯ augment")
+            || text.contains("$ codebuff") || text.contains("❯ codebuff")
     }
 
     private func containsNeedsAttentionPrompt(_ text: String) -> Bool {
