@@ -1804,6 +1804,9 @@
     "Ghostty" : {
 
     },
+    "Git couldn't produce the diff because the command didn't finish correctly. Try again." : {
+      "comment" : "Branch diff failure when the git subprocess could not start or drain its output"
+    },
     "Git couldn't produce the diff. It exited with status %arg." : {
       "comment" : "Branch diff failure naming the exit status git returned"
     },

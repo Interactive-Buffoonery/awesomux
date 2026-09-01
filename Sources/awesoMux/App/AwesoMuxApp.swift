@@ -2081,19 +2081,19 @@ struct AwesoMuxApp: App {
 
         let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
-        let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
-        let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
-        let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+        let inputs = Self.closeWorkspaceConfirmationInputs(
+            session: session,
+            floatingAtRisk: floatingAtRisk,
+            at: now
+        )
 
         let body = DestructivePaneActionConfirmationPolicy.confirmationBody(
             action: .closeWorkspace,
             displayTitle: displayTitle,
-            agentKind: singlePane?.agentKind,
-            sampledComm: singlePane?.sampledComm,
-            riskReason: singlePane?.closeRiskReason(at: now)
-                ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
-                    ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil)),
-            riskyPaneCount: riskyPaneCount
+            agentKind: inputs.singlePane?.agentKind,
+            sampledComm: inputs.singlePane?.sampledComm,
+            riskReason: inputs.riskReason,
+            riskyPaneCount: inputs.riskyPaneCount
         )
 
         return NSAlert.confirmDestructive(
@@ -2167,9 +2167,11 @@ struct AwesoMuxApp: App {
             )
         case .closeWorkspace:
             let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
-            let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
-            let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
-            let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+            let inputs = Self.closeWorkspaceConfirmationInputs(
+                session: session,
+                floatingAtRisk: floatingAtRisk,
+                at: now
+            )
             title = String(
                 localized: "Close \(displayTitle)?",
                 comment:
@@ -2178,12 +2180,10 @@ struct AwesoMuxApp: App {
             body = DestructivePaneActionConfirmationPolicy.confirmationBody(
                 action: .closeWorkspace,
                 displayTitle: displayTitle,
-                agentKind: singlePane?.agentKind,
-                sampledComm: singlePane?.sampledComm,
-                riskReason: singlePane?.closeRiskReason(at: now)
-                    ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
-                        ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil)),
-                riskyPaneCount: riskyPaneCount
+                agentKind: inputs.singlePane?.agentKind,
+                sampledComm: inputs.singlePane?.sampledComm,
+                riskReason: inputs.riskReason,
+                riskyPaneCount: inputs.riskyPaneCount
             )
         }
 
@@ -2193,6 +2193,21 @@ struct AwesoMuxApp: App {
             keyboardHint: action.keyboardHint,
             destructiveTitle: action.destructiveButtonTitle
         ) ? .proceed : .userCancelled
+    }
+
+    private static func closeWorkspaceConfirmationInputs(
+        session: TerminalSession,
+        floatingAtRisk: Bool,
+        at now: Date
+    ) -> (singlePane: TerminalPane?, riskReason: QuitRiskReason?, riskyPaneCount: Int) {
+        let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
+        let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
+        let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+        let riskReason =
+            singlePane?.closeRiskReason(at: now)
+            ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
+                ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil))
+        return (singlePane, riskReason, riskyPaneCount)
     }
 
     /// Issue #190 mechanism 3: the confirmation chain used to discard WHY a
@@ -3916,6 +3931,7 @@ struct AwesoMuxApp: App {
         // lands last, and the tab shows — or reloads from disk — the older diff.
         let coordinator = branchChangesCoordinator
         let ticket = coordinator.begin(paneID: paneID)
+        let opener = BranchChangesOpener()
         let chrome = BranchChangesOpener.localizedChrome()
 
         let task = Task { @MainActor in
@@ -3926,15 +3942,18 @@ struct AwesoMuxApp: App {
                     comment: "VoiceOver announcement when rendering a pane's branch diff starts"
                 )
             )
-            let result = await BranchChangesOpener().open(
+            let result = await opener.open(
                 session: session,
                 chrome: chrome,
                 claimingSlot: { coordinator.claimSlot($0, ticket: ticket) }
             )
             guard !Task.isCancelled else {
-                if case .success(let opened) = result, opened.markdown != nil {
-                    BranchChangesOpener().completeWrite(at: opened.fileURL)
-                }
+                BranchChangesCompletion.finalizeWrite(
+                    result,
+                    ticket: ticket,
+                    coordinator: coordinator,
+                    completeWrite: { opener.completeWrite(at: $0) }
+                )
                 SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
                 return
             }
@@ -3945,6 +3964,7 @@ struct AwesoMuxApp: App {
                 ticket: ticket,
                 store: sessionStore,
                 coordinator: coordinator,
+                completeWrite: { opener.completeWrite(at: $0) },
                 alert: showBranchChangesFailureAlert
             )
             SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)

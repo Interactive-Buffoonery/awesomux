@@ -563,7 +563,8 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                     associatedTerminalPaneID: tab.associatedTerminalPaneID,
                     remoteResourceIdentity: tab.remoteResourceIdentity,
                     agentTranscriptIdentity: tab.agentTranscriptIdentity,
-                    branchChangesIdentity: tab.branchChangesIdentity
+                    branchChangesIdentity: tab.branchChangesIdentity,
+                    generatedDocumentKind: tab.generatedDocumentKind
                 )
                 if group.selectedTabID == tab.id {
                     selectedTabID = reminted.id

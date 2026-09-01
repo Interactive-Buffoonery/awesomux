@@ -54,20 +54,47 @@ struct BranchChangesCompletionTests {
 
         let result = try render(markdown: "# stale\n")
         var alerts: [BranchChangesFailure] = []
+        var completedWrites: [URL] = []
         BranchChangesCompletion.apply(
             .success(result),
             paneID: terminal.id,
             ticket: stale,
             store: store,
             coordinator: coordinator,
+            completeWrite: { completedWrites.append($0) },
             alert: { alerts.append($0) }
         )
 
         // Everything user-facing stays suppressed...
         #expect(alerts.isEmpty)
+        #expect(completedWrites == [result.fileURL])
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
         // ...but an already-open tab on that file must see the rewrite as ours,
         // not as somebody else's edit.
+        let context = DocumentPaneView.selfWriteRegistry.context(
+            fileURL: result.fileURL,
+            onDiskSource: try #require(result.markdown)
+        )
+        #expect(context?.isSelfWrite == true)
+    }
+
+    @Test("a cancelled completion still finalizes bytes that reached disk")
+    func cancelledCompletionFinalizesItsWrite() throws {
+        let paneID = UUID()
+        let coordinator = BranchChangesCoordinator()
+        let cancelled = coordinator.begin(paneID: paneID)
+        _ = coordinator.begin(paneID: paneID)
+        let result = try render(markdown: "# cancelled\n")
+        var completedWrites: [URL] = []
+
+        BranchChangesCompletion.finalizeWrite(
+            .success(result),
+            ticket: cancelled,
+            coordinator: coordinator,
+            completeWrite: { completedWrites.append($0) }
+        )
+
+        #expect(completedWrites == [result.fileURL])
         let context = DocumentPaneView.selfWriteRegistry.context(
             fileURL: result.fileURL,
             onDiskSource: try #require(result.markdown)
@@ -95,6 +122,7 @@ struct BranchChangesCompletionTests {
             ticket: ticket,
             store: store,
             coordinator: coordinator,
+            completeWrite: { _ in },
             alert: { alerts.append($0) }
         )
 
@@ -136,6 +164,7 @@ struct BranchChangesCompletionTests {
             ticket: current,
             store: store,
             coordinator: coordinator,
+            completeWrite: { _ in },
             alert: { _ in }
         )
         BranchChangesCompletion.apply(
@@ -144,6 +173,7 @@ struct BranchChangesCompletionTests {
             ticket: stale,
             store: store,
             coordinator: coordinator,
+            completeWrite: { _ in },
             alert: { _ in }
         )
 
@@ -187,6 +217,7 @@ struct BranchChangesCompletionTests {
             ticket: ticket,
             store: store,
             coordinator: coordinator,
+            completeWrite: { _ in },
             alert: { alerts.append($0) }
         )
 
@@ -231,6 +262,7 @@ struct BranchChangesCompletionTests {
             ticket: ticket,
             store: store,
             coordinator: coordinator,
+            completeWrite: { _ in },
             alert: { alerts.append($0) }
         )
 
@@ -266,6 +298,7 @@ struct BranchChangesCompletionTests {
             ticket: ticket,
             store: store,
             coordinator: coordinator,
+            completeWrite: { _ in },
             alert: { Issue.record("unexpected failure alert: \($0)") }
         )
 

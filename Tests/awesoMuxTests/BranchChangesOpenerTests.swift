@@ -79,9 +79,9 @@ struct BranchChangesOpenerTests {
         root: URL,
         head: String = String(repeating: "a", count: 40),
         base: String = String(repeating: "b", count: 40),
-        branch: String = "feature/x"
+        headRef: String = "refs/heads/feature/x"
     ) -> BoundedCommandResult {
-        .success(Data("\(root.path)\n\(head)\n\(base)\n\(branch)\n".utf8))
+        .success(Data("\(root.path)\n\(head)\n\(base)\n\(headRef)\n".utf8))
     }
 
     // MARK: - The subprocess gate
@@ -410,6 +410,25 @@ struct BranchChangesOpenerTests {
         #expect(!FileManager.default.fileExists(atPath: cacheDirectory.path))
     }
 
+    @Test("a diff command that fails to start or drain is not reported as a timeout")
+    func invocationFailureIsNotReportedAsTimeout() async throws {
+        for outcome in [BoundedCommandResult.spawnFailure, .outputNotDrained] {
+            let repository = try ValidatedRepository()
+            defer { repository.remove() }
+            let runner = SpyGitRunner(outcomes: [
+                Self.refListing([("refs/remotes/origin/main", "")]),
+                outcome,
+            ])
+
+            let result = await opener(runner, cacheDirectory: repository.cacheDirectory).open(
+                session: session(workingDirectory: repository.root.path),
+                chrome: Self.chrome
+            )
+
+            #expect(result == .failure(.diffInvocationFailed))
+        }
+    }
+
     @Test("a non-zero diff exit carries git's status code")
     func nonZeroExitCarriesTheCode() async throws {
         let repository = try ValidatedRepository()
@@ -727,7 +746,8 @@ struct BranchChangesOpenerTests {
     func everyFailureHasADistinctSentence() {
         let failures: [BranchChangesFailure] = [
             .remotePane, .noRepository, .unvalidatedRepository, .noDefaultBranch,
-            .gitUnavailable, .baseResolutionFailed, .diffFailed(exitCode: 129), .diffTimedOut,
+            .gitUnavailable, .baseResolutionFailed, .diffFailed(exitCode: 129),
+            .diffInvocationFailed, .diffTimedOut,
             .diffTooLarge, .repositoryChanged, .cacheWriteFailed, .paneClosed, .superseded,
         ]
         let sentences = failures.map(BranchChangesOpener.failureDescription(for:))
@@ -749,8 +769,11 @@ struct BranchChangesOpenerTests {
         try Data("gitdir: \(fixture.repository.path)/.git\n".utf8)
             .write(to: attacker.appending(path: ".git"))
         let cache = fixture.root.appending(path: "cache", directoryHint: .isDirectory)
+        let runner = RecordingGitRunner(
+            BoundedLocalGitCommandRunner(timeout: .seconds(30))
+        )
         let opener = BranchChangesOpener(
-            runner: BoundedLocalGitCommandRunner(timeout: .seconds(30)),
+            runner: runner,
             cache: GeneratedDocumentCache(
                 cacheDirectoryURL: cache,
                 fileNameSuffix: BranchChangesOpener.fileNameSuffix
@@ -765,6 +788,38 @@ struct BranchChangesOpenerTests {
 
         #expect(result == .failure(.unvalidatedRepository))
         #expect(!FileManager.default.fileExists(atPath: cache.path))
+        #expect(
+            runner.invocations.contains {
+                $0.arguments
+                    == ["--no-optional-locks", "config", "--path", "--get", "core.worktree"]
+                    && $0.directory == attacker
+            }
+        )
+    }
+
+    @Test("an ambiguous short ref name still opens branch changes")
+    func ambiguousShortRefNameStillOpens() async throws {
+        let fixture = try GitFixture()
+        defer { fixture.remove() }
+        try fixture.git(["checkout", "-q", "-b", "feature/x"])
+        try fixture.git(["tag", "feature/x"])
+        try fixture.commit(file: "a.txt", contents: "changed\n", message: "work")
+        let cache = fixture.root.appending(path: "cache", directoryHint: .isDirectory)
+        let opener = BranchChangesOpener(
+            runner: BoundedLocalGitCommandRunner(timeout: .seconds(30)),
+            cache: GeneratedDocumentCache(
+                cacheDirectoryURL: cache,
+                fileNameSuffix: BranchChangesOpener.fileNameSuffix
+            )
+        )
+
+        let result = await opener.open(
+            session: session(workingDirectory: fixture.repository.path),
+            chrome: Self.chrome,
+            claimingSlot: { _ in true }
+        )
+
+        #expect(result.success?.identity.gitBranch == "feature/x")
     }
 
     /// The one test that runs REAL git. Everything above stubs the runner, so
@@ -880,10 +935,10 @@ private final class SpyGitRunner: LocalGitCommandRunning, @unchecked Sendable {
                 {
                     return remaining.removeFirst()
                 }
-                let branch = Self.branch(in: directory)
+                let headRef = Self.headRef(in: directory)
                 return .success(
                     Data(
-                        "\(directory.path)\n\(String(repeating: "a", count: 40))\n\(String(repeating: "b", count: 40))\n\(branch)\n".utf8
+                        "\(directory.path)\n\(String(repeating: "a", count: 40))\n\(String(repeating: "b", count: 40))\n\(headRef)\n".utf8
                     )
                 )
             }
@@ -904,7 +959,7 @@ private final class SpyGitRunner: LocalGitCommandRunning, @unchecked Sendable {
         return true
     }
 
-    private static func branch(in directory: URL) -> String {
+    private static func headRef(in directory: URL) -> String {
         let head = directory.appending(path: ".git/HEAD")
         guard let value = try? String(contentsOf: head, encoding: .utf8),
             value.hasPrefix("ref: refs/heads/")
@@ -912,7 +967,33 @@ private final class SpyGitRunner: LocalGitCommandRunning, @unchecked Sendable {
         return
             value
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "ref: refs/heads/", with: "")
+            .replacingOccurrences(of: "ref: ", with: "")
+    }
+}
+
+private final class RecordingGitRunner: LocalGitCommandRunning, @unchecked Sendable {
+    struct Invocation: Sendable {
+        let arguments: [String]
+        let directory: URL
+    }
+
+    private let underlying: any LocalGitCommandRunning
+    private let lock = NSLock()
+    private var recorded: [Invocation] = []
+
+    init(_ underlying: any LocalGitCommandRunning) {
+        self.underlying = underlying
+    }
+
+    var invocations: [Invocation] {
+        lock.withLock { recorded }
+    }
+
+    func run(arguments: [String], inDirectory directory: URL) async -> BoundedCommandResult {
+        lock.withLock {
+            recorded.append(Invocation(arguments: arguments, directory: directory))
+        }
+        return await underlying.run(arguments: arguments, inDirectory: directory)
     }
 }
 

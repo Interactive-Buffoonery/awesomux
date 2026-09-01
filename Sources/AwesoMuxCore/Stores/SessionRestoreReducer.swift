@@ -729,7 +729,8 @@ struct SessionRestoreReducer: Sendable {
                     associatedTerminalPaneID: tab.associatedTerminalPaneID,
                     remoteResourceIdentity: tab.remoteResourceIdentity,
                     agentTranscriptIdentity: tab.agentTranscriptIdentity,
-                    branchChangesIdentity: tab.branchChangesIdentity
+                    branchChangesIdentity: tab.branchChangesIdentity,
+                    generatedDocumentKind: tab.generatedDocumentKind
                 )
                 seenPaneIDs.insert(remintedTab.id)
                 if restoredGroup.selectedTabID == tab.id {

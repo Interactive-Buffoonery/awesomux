@@ -31,6 +31,7 @@ enum BranchChangesFailure: Error, Equatable, Sendable {
     case gitUnavailable
     case baseResolutionFailed
     case diffFailed(exitCode: Int32)
+    case diffInvocationFailed
     case diffTimedOut
     case diffTooLarge
     case repositoryChanged
@@ -175,13 +176,14 @@ struct BranchChangesOpener: Sendable {
         case .failure(let failure): return .failure(failure)
         }
 
+        let expectedHeadRef = model.gitBranch.map { "refs/heads/\($0)" } ?? "HEAD"
         guard
             let initialRepository = await repositorySnapshot(
                 inDirectory: rootURL,
                 baseRef: baseRef
             ),
             initialRepository.rootURL == rootURL.standardizedFileURL,
-            initialRepository.branch == (model.gitBranch ?? "HEAD")
+            initialRepository.headRef == expectedHeadRef
         else {
             return .failure(.repositoryChanged)
         }
@@ -222,7 +224,7 @@ struct BranchChangesOpener: Sendable {
         case .executableNotFound:
             return .failure(.gitUnavailable)
         case .spawnFailure, .outputNotDrained:
-            return .failure(.diffTimedOut)
+            return .failure(.diffInvocationFailed)
         }
 
         // One immutable bookend covers all three claims the rendered document
@@ -277,7 +279,7 @@ struct BranchChangesOpener: Sendable {
         let rootURL: URL
         let headObjectID: String
         let baseObjectID: String
-        let branch: String
+        let headRef: String
     }
 
     /// Reads the repository identity and both compared object IDs in one Git
@@ -296,7 +298,7 @@ struct BranchChangesOpener: Sendable {
                 "--show-toplevel",
                 "HEAD",
                 baseRef,
-                "--abbrev-ref",
+                "--symbolic-full-name",
                 "HEAD",
             ],
             inDirectory: directory
@@ -315,7 +317,7 @@ struct BranchChangesOpener: Sendable {
                 .standardizedFileURL,
             headObjectID: headObjectID,
             baseObjectID: baseObjectID,
-            branch: String(lines[3])
+            headRef: String(lines[3])
         )
     }
 
@@ -615,6 +617,11 @@ struct BranchChangesOpener: Sendable {
             return String(
                 localized: "Git couldn't produce the diff. It exited with status \(exitCode).",
                 comment: "Branch diff failure naming the exit status git returned"
+            )
+        case .diffInvocationFailed:
+            return String(
+                localized: "Git couldn't produce the diff because the command didn't finish correctly. Try again.",
+                comment: "Branch diff failure when the git subprocess could not start or drain its output"
             )
         case .diffTimedOut:
             return String(

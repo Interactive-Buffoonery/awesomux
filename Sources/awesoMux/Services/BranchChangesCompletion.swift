@@ -20,32 +20,15 @@ enum BranchChangesCompletion {
         ticket: Int,
         store: SessionStore,
         coordinator: BranchChangesCoordinator,
+        completeWrite: (URL) -> Void,
         alert: (BranchChangesFailure) -> Void
     ) {
-        // Unconditional, and ahead of every gate below. The slot claim stops a
-        // superseded run writing to the SAME slot, but two runs on one pane can
-        // render into different slots — a branch switch between presses changes
-        // the key — so a run whose UI reaction is about to be discarded can
-        // still have put bytes on disk. Unregistered, those bytes make the
-        // watcher on whatever tab already holds that file report awesoMux's own
-        // rewrite as somebody else's edit, announced aloud to the one user who
-        // has no way to check.
-        // Gated by ticket so a stale completion arriving AFTER the current one
-        // cannot re-register the path with older bytes than disk holds — the
-        // mirror image of the unregistered-write bug the unconditional record
-        // would reintroduce.
-        if case .success(let opened) = result,
-            let markdown = opened.markdown,
-            coordinator.shouldRegister(ticket, for: opened.fileURL)
-        {
-            DocumentPaneView.selfWriteRegistry.record(
-                fileURL: opened.fileURL,
-                source: markdown
-            )
-        }
-        if case .success(let opened) = result, opened.markdown != nil {
-            BranchChangesOpener().completeWrite(at: opened.fileURL)
-        }
+        finalizeWrite(
+            result,
+            ticket: ticket,
+            coordinator: coordinator,
+            completeWrite: completeWrite
+        )
         guard coordinator.isCurrent(ticket, paneID: paneID) else { return }
 
         switch result {
@@ -95,6 +78,35 @@ enum BranchChangesCompletion {
             )
         case .failure(let failure):
             alert(failure)
+        }
+    }
+
+    static func finalizeWrite(
+        _ result: Result<OpenedBranchChanges, BranchChangesFailure>,
+        ticket: Int,
+        coordinator: BranchChangesCoordinator,
+        completeWrite: (URL) -> Void
+    ) {
+        // Unconditional, and ahead of every gate below. The slot claim stops a
+        // superseded run writing to the SAME slot, but two runs on one pane can
+        // render into different slots — a branch switch between presses changes
+        // the key — so a run whose UI reaction is about to be discarded can
+        // still have put bytes on disk. Unregistered, those bytes make the
+        // watcher on whatever tab already holds that file report awesoMux's own
+        // rewrite as somebody else's edit, announced aloud to the one user who
+        // has no way to check.
+        // Gated by ticket so a stale completion arriving AFTER the current one
+        // cannot re-register the path with older bytes than disk holds — the
+        // mirror image of the unregistered-write bug the unconditional record
+        // would reintroduce.
+        if case .success(let opened) = result, let markdown = opened.markdown {
+            if coordinator.shouldRegister(ticket, for: opened.fileURL) {
+                DocumentPaneView.selfWriteRegistry.record(
+                    fileURL: opened.fileURL,
+                    source: markdown
+                )
+            }
+            completeWrite(opened.fileURL)
         }
     }
 }
