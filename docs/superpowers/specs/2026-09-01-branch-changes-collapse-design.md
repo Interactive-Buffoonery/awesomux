@@ -51,7 +51,7 @@ Selection inside a body that is then collapsed is cleared rather than remapped.
 For each section in the index the overlay draws, in the text view's flipped coordinate space:
 
 - A chevron (`chevron.down` expanded, `chevron.right` collapsed) at the heading's leading edge. Branch-changes headings get a head indent of one chevron width plus spacing so the glyph sits in the text's margin, not over its first letter.
-- A counts badge after the heading text: `+n` in the green hue, `−m` in the red hue, in the small body font, vertically centred on the heading's first line fragment. A zero count is still shown (`+0`), so the badge shape is stable.
+- A counts badge right-aligned on the heading row (the trailing edge of the text container, the way VS Code and GitHub place it): `+n` in the green hue, `−m` in the red hue, in a small monospaced-digit font, vertically centred on the heading's first line fragment. A zero count is still shown (`+0`), so the badge shape is stable.
 - On hunk rows: a full-width band in the blue hue at `diffTintAlpha`, and a 1pt hairline along the top edge. Rows are computed by the same fragment walk as the green/red tints, keyed off a new `.diffLineTint` value for `.hunk`.
 
 Hit testing: the whole heading row (heading line fragment rect, full width) toggles the section; `hitTest` returns the overlay for those rects and `resetCursorRects` sets the pointing hand there. A click calls `onSectionToggled(key)`.
@@ -59,6 +59,10 @@ Hit testing: the whole heading row (heading line fragment rect, full width) togg
 Accessibility: each section heading is exposed as a button child (like the comment pills), label `"<path>, <n> added, <m> removed"`, value `"expanded"` / `"collapsed"`, press toggles. The pill children and table elements remain.
 
 Keyboard: a footer control (section 5) toggles Collapse All / Expand All. It is a real SwiftUI button, so Full Keyboard Access reaches it. Per-heading keyboard toggling is not in scope.
+
+### 3b. Sticky section header
+
+While a file's body is scrolled under the top edge, that file's heading pins to the top of the viewport as a 30pt bar: chevron, path, counts, on the terminal background with a hairline beneath. The next heading pushes it up as it approaches and takes over once it reaches the edge, so exactly one heading is ever pinned and a heading that is visible in place is never drawn twice. The bar is a plain AppKit view added to the scroll view above the clip view, repositioned from the clip view's bounds-change notification using the overlay's section geometry. Placement is a pure function (visible top, heading rows, header height) and is unit-tested. Clicking the bar scrolls to that heading and toggles the section. VoiceOver sees it as a button with the same label and value as the overlay's heading buttons.
 
 ### 4. State
 
@@ -83,6 +87,7 @@ Transcript tabs and remote snapshots keep their current footers.
 - Line-number gutter (index carries the data).
 - Persisting collapsed state across relaunch.
 - Side-by-side view, syntax highlighting, editing.
+- Per-heading keyboard toggling inside the text view (Collapse All / Expand All is the keyboard path).
 - Per-line VoiceOver roles: the plan includes a bounded spike that stamps `NSAccessibilityCustomTextAttribute` (or equivalent) on added/removed lines and checks whether VoiceOver reads it. If it does, ship it in this PR; if not, record the finding on #570 and leave it as a follow-up.
 
 ## Testing
