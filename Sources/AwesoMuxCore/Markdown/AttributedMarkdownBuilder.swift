@@ -19,6 +19,11 @@ import Markdown
 // MARK: - Builder entry point
 
 public enum AttributedMarkdownBuilder {
+    /// Diff lines emitted as individual runs before the rest of a fence is
+    /// emitted as one code run. Twenty thousand is past any diff a person reads
+    /// line by line and well under where per-run styling costs seconds.
+    public static let maximumDiffFenceLines = 20_000
+
     /// Parse `source` and return a `RenderedDocument` whose runs are 1:1 with the
     /// rendered text (no markup strings, no badge characters).
     public static func build(_ source: String) -> RenderedDocument {
@@ -159,6 +164,24 @@ private struct Context {
             run.markID = nil    // will be stamped when comment arrives
         }
         runs.append(run)
+    }
+
+    /// The UTF-8 offset where a fenced block's body begins, when `body` sits
+    /// verbatim in the source right after the opening fence line; nil when it
+    /// does not (an indented fence, or a body swift-markdown normalized).
+    func fenceBodyStart(blockRange: Range<Int>?, body: String) -> Int? {
+        guard let blockRange else { return nil }
+        let utf8 = source.utf8
+        guard blockRange.upperBound <= utf8.count else { return nil }
+        let blockStart = utf8.index(utf8.startIndex, offsetBy: blockRange.lowerBound)
+        let blockEnd = utf8.index(utf8.startIndex, offsetBy: blockRange.upperBound)
+        guard let newline = utf8[blockStart..<blockEnd].firstIndex(of: UInt8(ascii: "\n")) else { return nil }
+        let bodyStart = utf8.index(after: newline)
+        let bodyLength = body.utf8.count
+        guard utf8.distance(from: bodyStart, to: blockEnd) >= bodyLength else { return nil }
+        let bodyEnd = utf8.index(bodyStart, offsetBy: bodyLength)
+        guard utf8[bodyStart..<bodyEnd].elementsEqual(body.utf8) else { return nil }
+        return blockRange.lowerBound + utf8.distance(from: blockStart, to: bodyStart)
     }
 
     // MARK: InlineHTML handler
@@ -319,7 +342,45 @@ private struct Context {
             let trimmed = rawCode.hasSuffix("\n") ? String(rawCode.dropLast()) : rawCode
             // Source range spans the entire fenced block (including fences) → preciseMapping = false.
             let sr = byteRange(of: code)
-            emitLeaf(text: trimmed, style: .code, inline: InlineStyle(), source: sr, enclosing: sr)
+            // The whole info string, so ```` ```diff title="x" ```` still counts.
+            let language = code.language?.split(whereSeparator: \.isWhitespace).first?.lowercased()
+            guard language == "diff" || language == "patch" else {
+                emitLeaf(text: trimmed, style: .code, inline: InlineStyle(), source: sr, enclosing: sr)
+                break
+            }
+            // A diff fence becomes one run per line so the view can color each
+            // line by its prefix. Each line gets its own source range when the
+            // fence body can be located verbatim in the source, so the scroll
+            // anchor's intra-run walk (INT-567) still lands on the line the
+            // reader was on; `enclosing` stays the whole fence so selection
+            // snapping treats it as one unit either way. An indented fence
+            // strips leading whitespace from its lines and cannot be located
+            // verbatim, so it falls back to the block range for every line.
+            let lines = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
+            var cursor = fenceBodyStart(blockRange: sr, body: trimmed)
+            for (index, line) in lines.enumerated() {
+                if index > 0 {
+                    runs.append(
+                        RenderedRun(
+                            text: "\n", style: .blockSeparator, monospaced: true,
+                            sourceRange: nil, enclosingRange: nil, preciseMapping: false
+                        ))
+                }
+                // Past the cap, the remainder is one plain code run: a diff of
+                // half a million two-byte lines fits every byte budget and would
+                // otherwise become a million runs the view has to style.
+                if index == AttributedMarkdownBuilder.maximumDiffFenceLines {
+                    let rest = lines[index...].joined(separator: "\n")
+                    emitLeaf(text: rest, style: .code, inline: InlineStyle(), source: sr, enclosing: sr)
+                    break
+                }
+                let lineRange = cursor.map { $0..<($0 + line.utf8.count) }
+                cursor = cursor.map { $0 + line.utf8.count + 1 }
+                emitLeaf(
+                    text: String(line), style: .diffLine(DiffLineKind(line: line)),
+                    inline: InlineStyle(), source: lineRange ?? sr, enclosing: sr
+                )
+            }
 
         case let quote as BlockQuote:
             var first = true

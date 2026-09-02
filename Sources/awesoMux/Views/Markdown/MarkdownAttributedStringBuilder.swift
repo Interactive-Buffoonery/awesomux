@@ -1,5 +1,8 @@
 import AppKit
 import AwesoMuxCore
+import DesignSystem
+// Only the type: a full `import SwiftUI` shadows Core's `TableColumnAlignment`.
+import struct SwiftUI.Color
 
 // MARK: - Attribute keys
 
@@ -10,6 +13,12 @@ extension NSAttributedString.Key {
     /// Present on table-cell content runs so `CommentBadgeOverlay` can draw
     /// borders and expose cell accessibility elements.
     static let tableCellGrid = NSAttributedString.Key("awesomux.tableCellGrid")
+
+    /// Present on added/removed diff lines, valued with the palette `NSColor`
+    /// the `CommentBadgeOverlay` washes across the full row. A run background
+    /// attribute would stop at the last glyph; a diff row reads as a row only
+    /// when the tint spans the whole line.
+    static let diffLineTint = NSAttributedString.Key("awesomux.diffLineTint")
 }
 
 /// Identifies which table cell a character range belongs to, for the border pass.
@@ -82,6 +91,7 @@ enum MarkdownAttributedStringBuilder {
     static func attributedString(
         for doc: RenderedDocument,
         textColor: NSColor? = nil,
+        terminalBackground: NSColor? = nil,
         relativeLinkBaseURL: URL? = nil,
         allowsDocumentLinks: Bool = true
     ) -> NSAttributedString {
@@ -89,6 +99,7 @@ enum MarkdownAttributedStringBuilder {
         // attributed substring per run is noticeably expensive on long documents.
         let fullText = doc.runs.map(\.text).joined()
         let result = NSMutableAttributedString(string: fullText)
+        let diffPalette = DiffPalette(terminalBackground: terminalBackground)
 
         var location = 0
         for run in doc.runs {
@@ -99,6 +110,15 @@ enum MarkdownAttributedStringBuilder {
             defer { location += length }
 
             result.addAttribute(.font, value: font(for: run), range: range)
+            if case .diffLine(let kind) = run.style {
+                result.addAttribute(.paragraphStyle, value: diffLineParagraphStyle, range: range)
+                // Layout attributes, so outside the color guard below: the
+                // overlay reads the tint to place row washes whether or not a
+                // text color was supplied.
+                if let tint = diffPalette.tint(kind) {
+                    result.addAttribute(.diffLineTint, value: tint, range: range)
+                }
+            }
 
             // Contrast against the terminal surface, not app chrome; inline code
             // and front matter are dimmed while staying legible.
@@ -108,6 +128,17 @@ enum MarkdownAttributedStringBuilder {
                     result.addAttribute(.foregroundColor, value: fg.withAlphaComponent(0.62), range: range)
                 case .code:
                     result.addAttribute(.foregroundColor, value: fg.withAlphaComponent(0.85), range: range)
+                case .diffLine(let kind):
+                    result.addAttribute(
+                        .foregroundColor, value: diffLineColor(kind, textColor: fg, palette: diffPalette),
+                        range: range)
+                    if let tint = diffPalette.tint(kind) {
+                        // The sign in the gutter keeps the full hue so the row
+                        // still reads without color vision or the tint. One
+                        // UTF-16 unit: an added/removed line starts with ASCII.
+                        result.addAttribute(
+                            .foregroundColor, value: tint, range: NSRange(location: range.location, length: 1))
+                    }
                 default:
                     if run.monospaced {
                         result.addAttribute(.foregroundColor, value: fg.withAlphaComponent(0.85), range: range)
@@ -172,7 +203,7 @@ enum MarkdownAttributedStringBuilder {
     private static func shouldAutoLinkBareRelativePaths(in run: RenderedRun) -> Bool {
         guard !run.monospaced else { return false }
         switch run.style {
-        case .frontMatter, .code:
+        case .frontMatter, .code, .diffLine:
             return false
         default:
             return true
@@ -396,6 +427,10 @@ enum MarkdownAttributedStringBuilder {
             return headingFont(level: level, italic: run.italic)
         case .code:
             return monoFont(bold: run.bold, italic: run.italic)
+        case .diffLine:
+            // Never bold or italic (the builder emits diff lines with no inline
+            // style), so one cached font serves every line of the document.
+            return diffLineFont
         case .tableHeader:
             return bodyFont(bold: true, italic: run.italic)
         case .tableCell:
@@ -423,6 +458,78 @@ enum MarkdownAttributedStringBuilder {
         let base = NSFont.systemFont(ofSize: size, weight: .bold)
         return applyTraits(to: base, bold: false, italic: italic)
     }
+
+    // MARK: - Diff lines
+
+    /// The three palette hues a diff needs, resolved once per document rather
+    /// than once per line.
+    ///
+    /// Resolved against the terminal background when the caller knows it: the
+    /// document sits on the terminal surface, whose color is independent of
+    /// app appearance (INT-285), so a dynamic token keyed off light/dark mode
+    /// can land Mocha green on a Latte-bright terminal at 1.5:1 and take the
+    /// gutter sign — the one non-color cue — with it. Without a background the
+    /// dynamic token is the best available guess.
+    struct DiffPalette {
+        let added: NSColor
+        let removed: NSColor
+        let hunk: NSColor
+
+        init(terminalBackground: NSColor?) {
+            if let terminalBackground {
+                let background = Color(nsColor: terminalBackground)
+                added = NSColor(Color.aw.terminalHue(.green, terminalBackground: background))
+                removed = NSColor(Color.aw.terminalHue(.red, terminalBackground: background))
+                hunk = NSColor(Color.aw.terminalHue(.blue, terminalBackground: background))
+            } else {
+                added = NSColor(Color.aw.green)
+                removed = NSColor(Color.aw.red)
+                hunk = NSColor(Color.aw.blue)
+            }
+        }
+
+        /// The row wash for a diff line, at full alpha: the overlay applies its own.
+        func tint(_ kind: DiffLineKind) -> NSColor? {
+            switch kind {
+            case .added: return added
+            case .removed: return removed
+            case .hunk, .meta, .context: return nil
+            }
+        }
+    }
+
+    /// Added and removed lines keep body-colored text over a full-row wash of
+    /// the palette's green or red (see `DiffPalette.tint`), the way a review
+    /// surface reads rather than a terminal: a hundred-line addition in solid
+    /// green is a wall, the same lines on a faint tint are still code. Hunk
+    /// headers take blue as a landmark; file headers dim toward the body color
+    /// rather than taking a hue of their own, because they are navigation, not
+    /// change — dimmed to the front-matter level, which is the floor this file
+    /// already accepts for secondary text.
+    private static func diffLineColor(_ kind: DiffLineKind, textColor fg: NSColor, palette: DiffPalette) -> NSColor {
+        switch kind {
+        case .added, .removed, .context: return fg.withAlphaComponent(0.85)
+        case .hunk: return palette.hunk
+        case .meta: return fg.withAlphaComponent(0.62)
+        }
+    }
+
+    /// A wrapped diff line continues under its content, past the one-column
+    /// `+`/`-` gutter, so the gutter stays a straight edge down the block. Two
+    /// monospace advances, not one: a single column reads as a stray indent.
+    ///
+    /// Built once: a document at the renderer's budget has tens of thousands
+    /// of diff lines, and every one carries this same style. Neither
+    /// `NSParagraphStyle` nor `NSFont` is `Sendable` in the SDK, but both are
+    /// immutable once built, which is what `nonisolated(unsafe)` asserts here.
+    nonisolated(unsafe) private static let diffLineParagraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        let advance = (" " as NSString).size(withAttributes: [.font: diffLineFont]).width
+        style.headIndent = advance * 2
+        return style.copy() as! NSParagraphStyle
+    }()
+
+    nonisolated(unsafe) private static let diffLineFont: NSFont = monoFont(bold: false, italic: false)
 
     private static func monoFont(bold: Bool, italic: Bool) -> NSFont {
         let base = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: bold ? .bold : .regular)

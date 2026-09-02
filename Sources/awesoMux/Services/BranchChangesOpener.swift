@@ -525,22 +525,13 @@ struct BranchChangesOpener: Sendable {
     static func localizedChrome(snapshotTakenAt: Date = Date()) -> BranchChangesRenderer.Chrome {
         let time = snapshotTakenAt.formatted(date: .omitted, time: .shortened)
         return BranchChangesRenderer.Chrome(
-            title: String(
-                localized: "Branch changes",
-                comment: "Heading of a rendered branch diff document"
-            ),
-            branchLabel: String(
-                localized: "Branch",
-                comment: "Label before the branch name in a rendered branch diff"
-            ),
-            baseLabel: String(
-                localized: "Compared with",
-                comment: "Label before the base ref in a rendered branch diff"
-            ),
-            repositoryLabel: String(
-                localized: "Repository",
-                comment: "Label before the repository name in a rendered branch diff"
-            ),
+            comparisonNotice: { base, repository in
+                String(
+                    localized: "Compared with \(base) in \(repository).",
+                    comment:
+                        "Line under the heading of a rendered branch diff naming the base ref and repository it is compared against; both arguments are Markdown code spans"
+                )
+            },
             snapshotNotice: String(
                 localized:
                     "Snapshot taken at \(time). Run Show Branch Changes again to refresh it.",
@@ -562,6 +553,20 @@ struct BranchChangesOpener: Sendable {
                     localized: "This branch matches \(base). There is nothing to show.",
                     comment:
                         "Notice in a rendered branch diff when the branch and its base are identical"
+                )
+            },
+            newFileLabel: String(
+                localized: "new file",
+                comment: "Status after a file path heading in a rendered branch diff, for a file the branch created"
+            ),
+            deletedFileLabel: String(
+                localized: "deleted",
+                comment: "Status after a file path heading in a rendered branch diff, for a file the branch deleted"
+            ),
+            renamedFromLabel: { previousPath in
+                String(
+                    localized: "renamed from \(previousPath)",
+                    comment: "Status after a file path heading in a rendered branch diff, naming the path the file had before"
                 )
             }
         )

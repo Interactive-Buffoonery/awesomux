@@ -1406,6 +1406,7 @@ struct DocumentPaneView: View {
                             selectedSourceSpan: $selectedSourceSpan,
                             highlightColor: highlightColor,
                             textColor: markdownTextColor,
+                            terminalBackground: NSColor(terminalBackgroundColor),
                             relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
                             allowsDocumentLinks: !isReadOnly,
                             annotationsInteractive: annotationsInteractive,

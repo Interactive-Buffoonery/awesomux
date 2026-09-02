@@ -736,13 +736,10 @@
 
     },
     "Branch" : {
-      "comment" : "Accessibility state for a branch worktree.\nExisting local branch picker label.\nLabel before the branch name in a rendered branch diff"
+      "comment" : "Accessibility state for a branch worktree.\nExisting local branch picker label."
     },
     "Branch %arg was created, but the worktree was not." : {
       "comment" : "Branch-only partial worktree creation announcement.\nBranch-only partial worktree creation result."
-    },
-    "Branch changes" : {
-      "comment" : "Heading of a rendered branch diff document"
     },
     "Branch changes are rendered from the repository and cannot be edited." : {
       "comment" : "Alert body explaining why a generated branch diff rejects an edit"
@@ -1136,8 +1133,16 @@
     "Compact mode" : {
       "comment" : "Settings field label for the sidebar compact mode toggle"
     },
-    "Compared with" : {
-      "comment" : "Label before the base ref in a rendered branch diff"
+    "Compared with %arg in %arg." : {
+      "comment" : "Line under the heading of a rendered branch diff naming the base ref and repository it is compared against; both arguments are Markdown code spans",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Compared with %1$arg in %2$arg."
+          }
+        }
+      }
     },
     "Configuration" : {
       "comment" : "Diagnostics event category"
@@ -3296,9 +3301,6 @@
     "Report a bug…" : {
 
     },
-    "Repository" : {
-      "comment" : "Label before the repository name in a rendered branch diff"
-    },
     "Reset" : {
       "comment" : "Appearance settings section title"
     },
@@ -4799,6 +4801,9 @@
     "current worktree" : {
       "comment" : "Accessibility state for the main worktree."
     },
+    "deleted" : {
+      "comment" : "Status after a file path heading in a rendered branch diff, for a file the branch deleted"
+    },
     "dismiss" : {
 
     },
@@ -4840,6 +4845,9 @@
     },
     "navigate" : {
 
+    },
+    "new file" : {
+      "comment" : "Status after a file path heading in a rendered branch diff, for a file the branch created"
     },
     "new workspace" : {
 
@@ -4899,6 +4907,9 @@
     },
     "remote on %arg" : {
       "comment" : "VoiceOver action fragment naming the remote host for a pane."
+    },
+    "renamed from %arg" : {
+      "comment" : "Status after a file path heading in a rendered branch diff, naming the path the file had before"
     },
     "rendered branch diff, read-only" : {
       "comment" : "Spoken qualifier on a document tab that holds a generated branch diff"

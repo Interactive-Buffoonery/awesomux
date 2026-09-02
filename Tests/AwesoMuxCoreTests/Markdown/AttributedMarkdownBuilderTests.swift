@@ -479,4 +479,99 @@ struct AttributedMarkdownBuilderTests {
         }
         #expect(column == 0 && alignment == .center)
     }
+
+    // MARK: - Diff fences
+
+    @Test("a diff fence becomes one run per line, classified by prefix, joined by hard breaks")
+    func diffFenceSplitsIntoClassifiedLines() throws {
+        let src = "```diff\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n```\n"
+        let doc = AttributedMarkdownBuilder.build(src)
+        let kinds: [DiffLineKind] = doc.runs.compactMap {
+            if case .diffLine(let kind) = $0.style { return kind } else { return nil }
+        }
+        #expect(kinds == [.hunk, .context, .removed, .added])
+        #expect(doc.runs.map(\.text).joined() == "@@ -1,2 +1,2 @@\n context\n-old\n+new")
+        let separators = doc.runs.filter { $0.style == .blockSeparator }
+        #expect(separators.count == 3)
+        #expect(separators.allSatisfy { $0.text == "\n" })
+        // Each line maps precisely to its own source bytes, so the scroll
+        // anchor lands on the line; the enclosing range is still the whole
+        // fence, so selection snapping treats it as one unit.
+        let lines = doc.runs.filter { if case .diffLine = $0.style { return true } else { return false } }
+        for line in lines {
+            #expect(line.preciseMapping)
+            #expect(sub(src, try #require(line.sourceRange)) == line.text)
+            #expect(sub(src, try #require(line.enclosingRange)) == "```diff\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n```")
+        }
+    }
+
+    @Test("an indented diff fence falls back to the whole-fence range rather than guessing")
+    func indentedDiffFenceKeepsBlockRange() throws {
+        let src = "- item\n\n   ```diff\n   +a\n   +b\n   ```\n"
+        let doc = AttributedMarkdownBuilder.build(src)
+        let lines = doc.runs.filter { if case .diffLine = $0.style { return true } else { return false } }
+        #expect(lines.count == 2)
+        for line in lines {
+            #expect(!line.preciseMapping)
+            #expect(line.sourceRange == line.enclosingRange)
+        }
+    }
+
+    @Test("a diff fence with a longer info string still counts as diff")
+    func infoStringFirstTokenSelectsDiff() {
+        let doc = AttributedMarkdownBuilder.build("```diff title=\"fix.diff\"\n+x\n```\n")
+        #expect(doc.runs.contains { $0.style == .diffLine(.added) })
+    }
+
+    @Test("past the line cap the rest of a diff fence is one code run")
+    func diffFenceLineCapFallsBackToCode() {
+        let cap = AttributedMarkdownBuilder.maximumDiffFenceLines
+        let body = (0..<(cap + 5)).map { "+\($0)" }.joined(separator: "\n")
+        let doc = AttributedMarkdownBuilder.build("```diff\n\(body)\n```\n")
+        let diffLines = doc.runs.filter { if case .diffLine = $0.style { return true } else { return false } }
+        #expect(diffLines.count == cap)
+        let tail = doc.runs.filter { $0.style == .code }
+        #expect(tail.count == 1)
+        #expect(tail.first?.text == "+\(cap)\n+\(cap + 1)\n+\(cap + 2)\n+\(cap + 3)\n+\(cap + 4)")
+        #expect(doc.runs.map(\.text).joined() == body)
+    }
+
+    @Test("a fence in any other language is still one code run")
+    func nonDiffFenceStaysWhole() {
+        let doc = AttributedMarkdownBuilder.build("```swift\n+not a diff\n-really\n```\n")
+        let code = doc.runs.filter { $0.style == .code }
+        #expect(code.count == 1)
+        #expect(code.first?.text == "+not a diff\n-really")
+        #expect(!doc.runs.contains { if case .diffLine = $0.style { return true } else { return false } })
+    }
+
+    @Test(
+        "diff line classification",
+        arguments: [
+            ("+added", DiffLineKind.added),
+            ("-removed", .removed),
+            (" context", .context),
+            ("@@ -1 +1 @@", .hunk),
+            ("@@@ -1 +1 +1 @@@", .hunk),
+            ("diff --git a/x b/x", .meta),
+            ("index 1..2 100644", .meta),
+            ("--- a/x", .meta),
+            ("+++ b/x", .meta),
+            ("+++ /dev/null", .meta),
+            ("--- /dev/null", .meta),
+            ("\\ No newline at end of file", .meta),
+            ("Binary files a/x and b/x differ", .meta),
+            ("new file mode 100644", .meta),
+            ("rename from x", .meta),
+            // A removed SQL comment and an added `++` line are content, not headers.
+            ("--- a comment", .removed),
+            ("--- ", .removed),
+            ("+++i", .added),
+            ("---", .removed),
+            ("", .context),
+        ] as [(String, DiffLineKind)]
+    )
+    func diffLineKinds(line: String, expected: DiffLineKind) {
+        #expect(DiffLineKind(line: line[...]) == expected)
+    }
 }

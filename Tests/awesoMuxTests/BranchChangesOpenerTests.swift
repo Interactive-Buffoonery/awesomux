@@ -870,14 +870,14 @@ struct BranchChangesOpenerTests {
     // MARK: - Shared chrome
 
     private static let chrome = BranchChangesRenderer.Chrome(
-        title: "Branch changes",
-        branchLabel: "Branch",
-        baseLabel: "Compared with",
-        repositoryLabel: "Repository",
+        comparisonNotice: { "Compared with \($0) in \($1)." },
         snapshotNotice: "Snapshot taken just now.",
         untrackedNotice: "Untracked files are not included.",
         truncationNotice: "This diff is incomplete.",
-        emptyNotice: { "This branch matches \($0)." }
+        emptyNotice: { "This branch matches \($0)." },
+        newFileLabel: "new file",
+        deletedFileLabel: "deleted",
+        renamedFromLabel: { "renamed from \($0)" }
     )
 }
 

@@ -110,6 +110,9 @@ struct MarkdownTextView: NSViewRepresentable {
     var highlightColor: NSColor = .systemYellow.withAlphaComponent(0.3)
     /// Adaptive text color derived from the terminal background (INT-562 dark-on-dark fix).
     var textColor: NSColor? = nil
+    /// The terminal background itself, for hues that must be tuned against the
+    /// surface rather than the app appearance (diff line colors).
+    var terminalBackground: NSColor? = nil
     /// Directory used to resolve schemeless relative Markdown links in document panes.
     var relativeLinkBaseURL: URL? = nil
     /// Remote snapshots keep external web links actionable but render document
@@ -172,6 +175,7 @@ struct MarkdownTextView: NSViewRepresentable {
         MarkdownAttributedStringBuilder.attributedString(
             for: doc,
             textColor: textColor,
+            terminalBackground: terminalBackground,
             relativeLinkBaseURL: relativeLinkBaseURL,
             allowsDocumentLinks: allowsDocumentLinks
         )
@@ -301,7 +305,9 @@ struct MarkdownTextView: NSViewRepresentable {
         // Text color and relative link base are part of the attributed string (not
         // post-passes like highlights), so changes must trigger a full rebuild just
         // like a source change.
-        let textColorChanged = context.coordinator.lastTextColor != textColor
+        let textColorChanged =
+            context.coordinator.lastTextColor != textColor
+            || context.coordinator.lastTerminalBackground != terminalBackground
         let linkBaseChanged = context.coordinator.lastRelativeLinkBaseURL != relativeLinkBaseURL
         let documentLinkPolicyChanged =
             context.coordinator.lastAllowsDocumentLinks != allowsDocumentLinks
@@ -356,6 +362,7 @@ struct MarkdownTextView: NSViewRepresentable {
                 context.coordinator.noteStorageReplaced()
                 context.coordinator.lastSource = doc.source
                 context.coordinator.lastTextColor = textColor
+                context.coordinator.lastTerminalBackground = terminalBackground
                 context.coordinator.lastRelativeLinkBaseURL = relativeLinkBaseURL
                 context.coordinator.lastAllowsDocumentLinks = allowsDocumentLinks
                 context.coordinator.lastDoc = doc
@@ -521,6 +528,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     var lastHighlightColor: NSColor? = nil
     var lastHiddenAnnotationIDs: Set<String> = []
     var lastTextColor: NSColor? = nil
+    var lastTerminalBackground: NSColor? = nil
     var lastRelativeLinkBaseURL: URL? = nil
     var lastAllowsDocumentLinks: Bool? = nil
     var currentAttr: NSMutableAttributedString? = nil
