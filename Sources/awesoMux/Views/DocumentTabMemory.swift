@@ -22,6 +22,9 @@ import Foundation
 /// URL), and serving the old file's render or scroll offset there would show
 /// wrong content. Reads validate the path; `prune(keeping:)` drops entries
 /// whose tab is gone or whose file changed.
+///
+/// Also holds each tab's collapsed branch-diff section keys — session-only,
+/// never persisted, and pinned to the same path as everything else here.
 struct DocumentTabMemory {
     struct Render {
         private enum Seed {
@@ -31,10 +34,12 @@ struct DocumentTabMemory {
         }
 
         private let seed: Seed
+        let sectionIndex: BranchDiffSectionIndex?
 
         init(
             loadResult: DocumentLoader.LoadResult,
-            renderedDoc: RenderedDocument?
+            renderedDoc: RenderedDocument?,
+            sectionIndex: BranchDiffSectionIndex? = nil
         ) {
             switch loadResult {
             case .loaded:
@@ -47,6 +52,7 @@ struct DocumentTabMemory {
             case let .readError(message):
                 seed = .readError(message)
             }
+            self.sectionIndex = sectionIndex
         }
 
         var loadResult: DocumentLoader.LoadResult {
@@ -73,6 +79,7 @@ struct DocumentTabMemory {
         let sourcePath: String
         var render: Render?
         var scrollAnchor: Int?
+        var collapsedSections: Set<String> = []
     }
 
     private var entries: [DocumentPane.ID: Entry] = [:]
@@ -83,6 +90,26 @@ struct DocumentTabMemory {
 
     func scrollAnchor(for tab: DocumentPane) -> Int? {
         entry(for: tab)?.scrollAnchor
+    }
+
+    func collapsedSections(for tab: DocumentPane) -> Set<String> {
+        entry(for: tab)?.collapsedSections ?? []
+    }
+
+    func sectionIndex(for tab: DocumentPane) -> BranchDiffSectionIndex? {
+        entry(for: tab)?.render?.sectionIndex
+    }
+
+    mutating func setCollapsedSections(_ keys: Set<String>, for tab: DocumentPane) {
+        var entry = matchingOrFresh(for: tab)
+        entry.collapsedSections = keys
+        entries[tab.id] = entry
+    }
+
+    mutating func toggleSection(_ key: String, for tab: DocumentPane) {
+        var keys = collapsedSections(for: tab)
+        if keys.contains(key) { keys.remove(key) } else { keys.insert(key) }
+        setCollapsedSections(keys, for: tab)
     }
 
     mutating func storeRender(_ render: Render, for tab: DocumentPane) {

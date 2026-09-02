@@ -973,6 +973,10 @@ struct DocumentPaneView: View {
 
     @State private var loadResult: DocumentLoader.LoadResult? = nil
     @State private var renderedDoc: RenderedDocument? = nil
+    /// Task 6 reads this to drive fold state; declared here since it comes from
+    /// the same render pass as `renderedDoc`. `nil` on branch-changes tabs
+    /// whose load rejected or errored, and always nil off that pane kind.
+    @State private var localSectionIndex: BranchDiffSectionIndex? = nil
     /// True while the file on disk is over the size cap and the last whole
     /// render is being held on screen behind `DocumentOversizeBanner`.
     ///
@@ -1059,6 +1063,7 @@ struct DocumentPaneView: View {
         self.onRegisterScrollAnchorCapture = onRegisterScrollAnchorCapture
         _loadResult = State(initialValue: cachedRender?.loadResult)
         _renderedDoc = State(initialValue: cachedRender?.renderedDoc)
+        _localSectionIndex = State(initialValue: cachedRender?.sectionIndex)
         _pendingScrollAnchor = State(initialValue: initialScrollAnchor)
         _showsOversizeBanner = State(
             initialValue: DocumentOversizePolicy.isOversize(
@@ -1339,7 +1344,12 @@ struct DocumentPaneView: View {
             if !result.isRejectedForSize,
                 Self.sourceChanged(doc, priorDoc)
             {
-                onRenderCompleted?(DocumentTabMemory.Render(loadResult: result, renderedDoc: doc))
+                // `doc` is `RenderedDocument?` here (a rejected or unreadable
+                // file has none).
+                let sectionIndex = pane.generatedDocumentKind == .branchChanges ? doc.map(BranchDiffSectionIndex.init(document:)) : nil
+                localSectionIndex = sectionIndex  // nil on failures so a stale index never outlives its document
+                onRenderCompleted?(
+                    DocumentTabMemory.Render(loadResult: result, renderedDoc: doc, sectionIndex: sectionIndex))
             }
             // Report the comment count only on a real render — an unreadable or
             // rejected file (doc == nil) is not "all comments resolved", so we

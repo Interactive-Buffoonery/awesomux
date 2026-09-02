@@ -141,4 +141,56 @@ import Testing
         memory.prune(keeping: [replaced])
         #expect(memory.render(for: tab) == nil)
     }
+
+    @Test func collapsedSectionsToggleAndReadBackForTheSamePath() {
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/c.md")
+        #expect(memory.collapsedSections(for: tab).isEmpty)
+        memory.toggleSection("a.swift", for: tab)
+        memory.toggleSection("b.swift", for: tab)
+        memory.toggleSection("a.swift", for: tab)
+        #expect(memory.collapsedSections(for: tab) == ["b.swift"])
+        memory.setCollapsedSections(["x", "y"], for: tab)
+        #expect(memory.collapsedSections(for: tab) == ["x", "y"])
+    }
+
+    @Test func collapsedSectionsDropWhenTheTabShowsAnotherFile() {
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/d.md")
+        memory.toggleSection("a.swift", for: tab)
+        var moved = tab
+        moved.fileURL = URL(fileURLWithPath: "/tmp/other.md")
+        #expect(memory.collapsedSections(for: moved).isEmpty)
+        memory.prune(keeping: [moved])
+        #expect(memory.collapsedSections(for: tab).isEmpty)
+    }
+
+    @Test func collapsedSectionsSurviveARenderStoreForTheSamePath() {
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/e.md")
+        memory.toggleSection("a.swift", for: tab)
+        memory.storeRender(makeRender(source: "refreshed"), for: tab)
+        #expect(memory.collapsedSections(for: tab) == ["a.swift"])
+    }
+
+    @Test func collapsedKeysKeyedByPathSurviveAStatusSuffixChange() {
+        // Keyed on the path only (BranchDiffSectionIndex.keyText), so the fold set
+        // stored while the file was `— new file` still applies after a commit.
+        let before = BranchDiffSectionIndex(document: AttributedMarkdownBuilder.build("## a.swift — _new file_\n\n```diff\n+x\n```\n"))
+        let after = BranchDiffSectionIndex(document: AttributedMarkdownBuilder.build("## a.swift\n\n```diff\n+x\n```\n"))
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/g.md")
+        memory.toggleSection(before.keys[0], for: tab)
+        #expect(memory.collapsedSections(for: tab).contains(after.keys[0]))
+    }
+
+    @Test func renderCarriesTheSectionIndexItWasGiven() {
+        let doc = AttributedMarkdownBuilder.build("## f\n\n```diff\n+a\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        let render = DocumentTabMemory.Render(loadResult: .loaded(source: doc.source, snapshot: nil), renderedDoc: doc, sectionIndex: index)
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/f.md")
+        memory.storeRender(render, for: tab)
+        #expect(memory.sectionIndex(for: tab)?.keys == ["f"])
+    }
 }
