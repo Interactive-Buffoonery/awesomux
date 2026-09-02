@@ -159,6 +159,52 @@ struct BranchChangesOpenerTests {
         }
     }
 
+    @Test("open(session:pane:) reads the explicit pane, not the session's active pane")
+    func openUsesExplicitPane() async throws {
+        let repository = try ValidatedRepository()
+        defer { repository.remove() }
+        let target = try #require(RemoteTarget(parsing: "user@host"))
+        // The active pane is remote: consulting it instead of the explicit pane
+        // short-circuits to `.remotePane` before a single command runs.
+        let active = TerminalPane(
+            title: "ssh",
+            workingDirectory: "/tmp",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let explicit = TerminalPane(
+            title: "zsh",
+            workingDirectory: repository.root.path,
+            executionPlan: .local
+        )
+        var session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .split(
+                TerminalSplit(orientation: .horizontal, first: .pane(active), second: .pane(explicit))
+            )
+        )
+        session.activePaneID = active.id
+        let runner = SpyGitRunner(outcomes: [
+            Self.refListing([("refs/remotes/origin/main", "")]),
+            .success(Data("+diff\n".utf8)),
+            Self.headOnMain,
+        ])
+        let result = await opener(runner, cacheDirectory: repository.cacheDirectory).open(
+            session: session,
+            pane: explicit,
+            chrome: Self.chrome,
+            claimingSlot: { _ in true }
+        )
+        #expect(result.success != nil)
+        let expected = repository.root.resolvingSymlinksInPath().standardizedFileURL.path
+        #expect(!runner.invocations.isEmpty)
+        #expect(
+            runner.invocations.allSatisfy {
+                $0.directory.standardizedFileURL.path == expected
+            }
+        )
+    }
+
     // MARK: - Base resolution ladder
 
     @Test("origin/HEAD's symref target wins when it names a ref in the same listing")
@@ -891,6 +937,26 @@ private extension Result where Success == OpenedBranchChanges, Failure == Branch
 }
 
 private extension BranchChangesOpener {
+    /// Test-only: the app addresses `open` by pane, but every test that is not
+    /// about pane selection means "the session's active pane".
+    func open(
+        session: TerminalSession,
+        chrome: BranchChangesRenderer.Chrome,
+        claimingSlot: @Sendable (String) -> Bool
+    ) async -> Result<OpenedBranchChanges, BranchChangesFailure> {
+        await open(
+            session: session,
+            pane: session.activePane
+                ?? TerminalPane(
+                    title: session.title,
+                    workingDirectory: session.workingDirectory,
+                    executionPlan: .local
+                ),
+            chrome: chrome,
+            claimingSlot: claimingSlot
+        )
+    }
+
     /// The uncontended case, which is every test that is not about the slot
     /// gate. Test-only: `open` takes the claim with no default precisely so the
     /// app cannot silently skip it.

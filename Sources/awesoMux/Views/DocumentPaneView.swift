@@ -28,6 +28,13 @@ struct DocumentPaneSendBar: View {
     /// shell activity flips.
     let onCompose: () -> Void
 
+    /// Branch-diff file-section keys in document order, and this tab's folded
+    /// set — the footer's Collapse All / Expand All writes the whole set back
+    /// through `onSetCollapsedSections`. Empty on every other document kind.
+    var sectionKeys: [String] = []
+    var collapsedSections: Set<String> = []
+    var onSetCollapsedSections: (Set<String>) -> Void = { _ in }
+
     /// Whether the last nudge attempt found no live surface — shown briefly so the
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
@@ -49,6 +56,14 @@ struct DocumentPaneSendBar: View {
     // indirection, so enabling an integration recomputes `body` immediately
     // instead of waiting on an unrelated render (CodeRabbit finding).
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(\.branchChangesRefresh) private var branchChangesRefresh
+    /// Optional on purpose: the terminal panels host this bar from their own
+    /// environment roots, which do not carry the app's coordinator. A missing
+    /// coordinator means no busy state, never a crash.
+    @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator: BranchChangesCoordinator?
+    /// Bridges the gap between the click and the coordinator's set updating, so
+    /// a double-click cannot start two runs. Cleared in the refresh completion.
+    @State private var refreshRequested = false
 
     /// INT-569 field diagnostics: the one line that says why a send bar is
     /// disabled. Each individual probe already names its own guard, but nothing
@@ -264,6 +279,112 @@ struct DocumentPaneSendBar: View {
         )
     }
 
+    // MARK: - Branch changes footer
+
+    /// Refresh re-runs the comparison for the terminal this tab was generated
+    /// from, which is not necessarily the active pane. The structural
+    /// resolution is used deliberately — unlike Send to Agent, re-running git
+    /// needs a live local terminal, not a receptive agent.
+    private var branchChangesControls: some View {
+        let verdict = BranchChangesRefreshPolicy.verdict(
+            target: session.layout.documentNudgeTarget(for: pane.id),
+            inFlight: refreshRequested || isRefreshingTarget
+        )
+        let unavailable: String? = {
+            if case .unavailable(let caption) = verdict { return caption }
+            return nil
+        }()
+        return HStack(spacing: 8) {
+            // Only Refresh needs the app's command; Collapse All needs nothing
+            // from the environment, so a hosting root without the action (the
+            // terminal panels) keeps today's label and still gets the folds.
+            if branchChangesRefresh == nil {
+                readOnlyGeneratedDocumentLabel
+            } else {
+                VStack(spacing: 3) {
+                    SendToAgentButton(
+                        purpose: .refreshBranchChanges,
+                        title: String(
+                            localized: "Refresh",
+                            comment:
+                                "Send-bar button title on a branch changes tab that re-runs the comparison"
+                        ),
+                        failed: false,
+                        isBusy: verdict == .busy,
+                        unavailableDescription: unavailable,
+                        action: refresh
+                    )
+                    .frame(height: 28)
+                    Text(
+                        unavailable
+                            ?? String(
+                                localized: "Read-only generated document",
+                                comment: "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
+                            )
+                    )
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.aw.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityHidden(true)
+                }
+            }
+            if !sectionKeys.isEmpty {
+                // After a refresh adds one file, this reads "Collapse All" again
+                // while the rest stay folded. Cosmetic and self-correcting on
+                // the next press.
+                let allCollapsed = Set(sectionKeys).isSubset(of: collapsedSections)
+                Button(
+                    allCollapsed
+                        ? String(
+                            localized: "Expand All",
+                            comment:
+                                "Send-bar button on a branch changes tab that unfolds every file section"
+                        )
+                        : String(
+                            localized: "Collapse All",
+                            comment:
+                                "Send-bar button on a branch changes tab that folds every file section"
+                        )
+                ) {
+                    onSetCollapsedSections(allCollapsed ? [] : Set(sectionKeys))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var readOnlyGeneratedDocumentLabel: some View {
+        Label(
+            String(
+                localized: "Read-only generated document",
+                comment: "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
+            ),
+            systemImage: "lock"
+        )
+        .lineLimit(1)
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(Color.aw.text2)
+        .frame(maxWidth: .infinity, minHeight: 28)
+    }
+
+    private var isRefreshingTarget: Bool {
+        guard case .available(let target) = session.layout.documentNudgeTarget(for: pane.id),
+            let branchChangesCoordinator
+        else { return false }
+        return branchChangesCoordinator.refreshingPaneIDs.contains(target.id)
+    }
+
+    private func refresh() {
+        guard !refreshRequested, !isRefreshingTarget, let branchChangesRefresh,
+            case .available(let target) = session.layout.documentNudgeTarget(for: pane.id)
+        else { return }
+        refreshRequested = true
+        branchChangesRefresh.run(target.id) { refreshRequested = false }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             if let origin = pane.remoteSnapshotOrigin {
@@ -279,12 +400,10 @@ struct DocumentPaneSendBar: View {
                 // beside it: a transcript is not editable, so it can hold no
                 // review comments, and Send to Agent would have nothing to send.
                 resumeControl(identity: identity)
+            } else if pane.generatedDocumentKind == .branchChanges {
+                branchChangesControls
             } else if pane.generatedDocumentKind != nil {
-                Label("Read-only generated document", systemImage: "lock")
-                    .lineLimit(1)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.aw.text2)
-                    .frame(maxWidth: .infinity, minHeight: 28)
+                readOnlyGeneratedDocumentLabel
             } else {
                 // Resolve once per render: the resolution issues a live foreground
                 // probe, and the title, the unavailable description, and the
@@ -695,11 +814,13 @@ private struct SendToAgentButton: NSViewRepresentable {
     enum Purpose {
         case sendToAgent
         case resumeSession
+        case refreshBranchChanges
 
         var symbolName: String {
             switch self {
             case .sendToAgent: "paperplane.fill"
             case .resumeSession: "play.fill"
+            case .refreshBranchChanges: "arrow.clockwise"
             }
         }
 
@@ -716,6 +837,39 @@ private struct SendToAgentButton: NSViewRepresentable {
                     localized:
                         "pastes this session's resume command into the terminal without running it",
                     comment: "Accessibility/tooltip phrase describing what the transcript resume button does"
+                )
+            case .refreshBranchChanges:
+                String(
+                    localized: "re-runs the branch comparison for this tab's terminal",
+                    comment: "Accessibility/tooltip phrase describing what the branch changes refresh button does"
+                )
+            }
+        }
+
+        /// Spoken copy while an attempt is in flight. Per purpose: the busy
+        /// state is the one label that names what the button is actually
+        /// waiting on, so a shared sentence speaks the wrong thing on every
+        /// purpose but the one it was written for.
+        var busyDescription: String {
+            switch self {
+            case .sendToAgent:
+                // Send is never busy today — `isBusy` is left at its default at
+                // that call site, because the compose sheet, not the button,
+                // owns the wait. Kept exhaustive rather than fatal so a future
+                // busy Send speaks something honest instead of trapping.
+                String(
+                    localized: "sending",
+                    comment: "Accessibility phrase while the document send button is mid-send"
+                )
+            case .resumeSession:
+                String(
+                    localized: "checking this session's log",
+                    comment: "Accessibility phrase while a Resume attempt probes the provider's session log"
+                )
+            case .refreshBranchChanges:
+                String(
+                    localized: "re-running the comparison",
+                    comment: "Accessibility phrase while a branch changes Refresh is re-running git"
                 )
             }
         }
@@ -784,8 +938,8 @@ private struct SendToAgentButton: NSViewRepresentable {
                     )
                     : isBusy
                         ? String(
-                            localized: "\(title) — checking this session's log",
-                            comment: "Accessibility label for the send bar button while a Resume attempt probes the provider's session log"
+                            localized: "\(title) — \(purpose.busyDescription)",
+                            comment: "Accessibility label for the send bar button while its attempt is in flight"
                         )
                         : String(
                             localized: "\(title) — \(purpose.affordanceDescription)",

@@ -305,7 +305,10 @@ struct DocumentGroupView: View {
                     session: session,
                     runtime: runtime,
                     showAllResolvedNotice: $showAllResolvedNotice,
-                    onCompose: { presentComposer() }
+                    onCompose: { presentComposer() },
+                    sectionKeys: tabMemory.sectionIndex(for: document)?.keys ?? [],
+                    collapsedSections: tabMemory.collapsedSections(for: document),
+                    onSetCollapsedSections: { tabMemory.setCollapsedSections($0, for: document) }
                 )
                 // Fresh identity per tab so a failure state (Peach button) from
                 // one tab never bleeds into the next tab's healthy send bar. A

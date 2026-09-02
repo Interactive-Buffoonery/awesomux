@@ -881,6 +881,16 @@ struct AwesoMuxApp: App {
             .environment(appSettingsStore)
             .environment(updateController)
             .environment(documentTabActions)
+                // Both reach the document send bar only because `ContentView`
+                // re-injects them into the split's pane closures — the split's
+                // NSHostingControllers are fresh environment roots.
+                .environment(branchChangesCoordinator)
+                .environment(
+                    \.branchChangesRefresh,
+                    BranchChangesRefreshAction { paneID, completion in
+                        showBranchChanges(forPane: paneID, completion: completion)
+                    }
+                )
                 .environment(firstRunTourController)
             .appearanceBridge(appSettingsStore)
             .modifier(CaptureOpenWindowAction(action: $openWindowAction))
@@ -3910,6 +3920,9 @@ struct AwesoMuxApp: App {
     private func showBranchChangesForActivePane() {
         // Same first line as its neighbours: this command is gated on
         // `isAnySheetPresented`, so a stale wedge would leave it silently dead.
+        // The gate and the heal stay on the menu/palette path only: the send
+        // bar's Refresh button lives inside the window and cannot be clicked
+        // while a sheet is up.
         healSheetWedgeBeforeGatedCommand()
         guard !isAnySheetPresented,
             let session = sessionStore.selectedSession,
@@ -3917,14 +3930,31 @@ struct AwesoMuxApp: App {
         else {
             return
         }
+        showBranchChanges(forPane: pane.id)
+    }
+
+    /// - Parameter completion: Called exactly once on every exit — the early
+    ///   refusals here and, for a spawned run, the task's `defer`, which covers
+    ///   cancellation, supersession, failure, and success alike.
+    private func showBranchChanges(
+        forPane paneID: TerminalPane.ID,
+        completion: @escaping @MainActor () -> Void = {}
+    ) {
+        guard let sessionID = sessionStore.sessionIDContainingPane(paneID),
+            let session = sessionStore.session(id: sessionID),
+            let pane = session.layout.pane(id: paneID)
+        else {
+            completion()
+            return
+        }
         // The remote gate runs HERE, on the main actor, before any work is
         // spawned. The opener re-asserts it, but a remote pane must not cost a
         // detached task and a path-bar filesystem walk to be told no.
         guard case .local = pane.executionPlan else {
             showBranchChangesFailureAlert(.remotePane)
+            completion()
             return
         }
-        let paneID = pane.id
         // Latest-wins, on one ticket that orders both the pane's reaction below
         // and the write to the shared cache slot. Invocations resolve in
         // whatever order git finishes; without this the slower one's result
@@ -3935,7 +3965,10 @@ struct AwesoMuxApp: App {
         let chrome = BranchChangesOpener.localizedChrome()
 
         let task = Task { @MainActor in
-            defer { coordinator.finish(ticket, paneID: paneID) }
+            defer {
+                coordinator.finish(ticket, paneID: paneID)
+                completion()
+            }
             TerminalAccessibilityAnnouncer.announce(
                 String(
                     localized: "Reading branch changes.",
@@ -3944,6 +3977,7 @@ struct AwesoMuxApp: App {
             )
             let result = await opener.open(
                 session: session,
+                pane: pane,
                 chrome: chrome,
                 claimingSlot: { coordinator.claimSlot($0, ticket: ticket) }
             )

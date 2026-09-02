@@ -134,6 +134,10 @@ struct ContentView: View {
     // to each pane inside the split closures so the panes keep their environment.
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(UpdateController.self) private var updateController
+    // Same re-injection reason as the store above: the branch-changes tab's
+    // Refresh button reads both from the environment inside the split.
+    @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator
+    @Environment(\.branchChangesRefresh) private var branchChangesRefresh
     @Environment(\.controlActiveState) private var controlActiveState
 
     private let sidebarWidthPreferenceStore = SidebarWidthPreferenceStore()
@@ -432,6 +436,8 @@ struct ContentView: View {
                         sidebarPosition: sidebarPosition
                     )
                     .environment(appSettingsStore)
+                    .environment(branchChangesCoordinator)
+                    .environment(\.branchChangesRefresh, branchChangesRefresh)
                     .appearanceBridge(appSettingsStore)
                 }
             )
