@@ -294,14 +294,18 @@ struct DocumentPaneSendBar: View {
             if case .unavailable(let caption) = verdict { return caption }
             return nil
         }()
-        return HStack(spacing: 8) {
-            // Only Refresh needs the app's command; Collapse All needs nothing
-            // from the environment, so a hosting root without the action (the
-            // terminal panels) keeps today's label and still gets the folds.
-            if branchChangesRefresh == nil {
-                readOnlyGeneratedDocumentLabel
-            } else {
-                VStack(spacing: 3) {
+        // One row of equal-height buttons with the caption under both: the
+        // caption belongs to the row, not to Refresh, or Collapse All ends up
+        // vertically centred against a two-line neighbour.
+        return VStack(spacing: 3) {
+            HStack(spacing: 8) {
+                // Only Refresh needs the app's command; Collapse All needs
+                // nothing from the environment, so a hosting root without the
+                // action (the terminal panels) keeps today's label and still
+                // gets the folds.
+                if branchChangesRefresh == nil {
+                    readOnlyGeneratedDocumentLabel
+                } else {
                     SendToAgentButton(
                         purpose: .refreshBranchChanges,
                         title: String(
@@ -315,45 +319,63 @@ struct DocumentPaneSendBar: View {
                         action: refresh
                     )
                     .frame(height: 28)
-                    Text(
-                        unavailable
-                            ?? String(
-                                localized: "Read-only generated document",
-                                comment: "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
-                            )
-                    )
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.aw.text2)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityHidden(true)
+                }
+                if !sectionKeys.isEmpty {
+                    // After a refresh adds one file, this reads "Collapse All"
+                    // again while the rest stay folded. Cosmetic and
+                    // self-correcting on the next press.
+                    let allCollapsed = Set(sectionKeys).isSubset(of: collapsedSections)
+                    Button {
+                        onSetCollapsedSections(allCollapsed ? [] : Set(sectionKeys))
+                    } label: {
+                        Text(
+                            allCollapsed
+                                ? String(
+                                    localized: "Expand All",
+                                    comment:
+                                        "Send-bar button on a branch changes tab that unfolds every file section"
+                                )
+                                : String(
+                                    localized: "Collapse All",
+                                    comment:
+                                        "Send-bar button on a branch changes tab that folds every file section"
+                                )
+                        )
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.aw.mauve)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        // Same plate as `SendToAgentButton` (mauve at 0.15 over a
+                        // 1pt mauve rule, 6pt corners), so the row reads as one
+                        // control family rather than a system button beside a
+                        // custom one.
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.aw.mauve.opacity(0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.aw.mauve, lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            if !sectionKeys.isEmpty {
-                // After a refresh adds one file, this reads "Collapse All" again
-                // while the rest stay folded. Cosmetic and self-correcting on
-                // the next press.
-                let allCollapsed = Set(sectionKeys).isSubset(of: collapsedSections)
-                Button(
-                    allCollapsed
-                        ? String(
-                            localized: "Expand All",
-                            comment:
-                                "Send-bar button on a branch changes tab that unfolds every file section"
+            if branchChangesRefresh != nil {
+                Text(
+                    unavailable
+                        ?? String(
+                            localized: "Read-only generated document",
+                            comment: "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
                         )
-                        : String(
-                            localized: "Collapse All",
-                            comment:
-                                "Send-bar button on a branch changes tab that folds every file section"
-                        )
-                ) {
-                    onSetCollapsedSections(allCollapsed ? [] : Set(sectionKeys))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                // `.small` alone leaves a ~20pt target; the sibling Refresh is
-                // pinned to 28. WCAG 2.5.8 wants 24 (a11y review).
-                .frame(minHeight: 24)
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Color.aw.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityHidden(true)
             }
         }
         .frame(maxWidth: .infinity)

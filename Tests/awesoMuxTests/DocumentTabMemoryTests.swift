@@ -162,7 +162,10 @@ import Testing
         moved.fileURL = URL(fileURLWithPath: "/tmp/other.md")
         #expect(memory.collapsedSections(for: moved).isEmpty)
         memory.prune(keeping: [moved])
-        #expect(memory.collapsedSections(for: tab).isEmpty)
+        // Prune drops the view-local entry, not the fold state: folds are pinned
+        // to (id, path) and outlive the group view so a workspace switch keeps
+        // them. Asking for the old path again gets the old folds back.
+        #expect(memory.collapsedSections(for: tab) == ["a.swift"])
     }
 
     @Test func collapsedSectionsSurviveARenderStoreForTheSamePath() {
@@ -182,6 +185,18 @@ import Testing
         let tab = makeTab(path: "/tmp/g.md")
         memory.toggleSection(before.keys[0], for: tab)
         #expect(memory.collapsedSections(for: tab).contains(after.keys[0]))
+    }
+
+    @Test func collapsedSectionsOutliveTheMemoryStructForTheSamePath() {
+        // A workspace switch rebuilds the group view and its @State memory; the
+        // folds must come back for the same tab id and path, and not for another path.
+        let tab = makeTab(path: "/tmp/h.md")
+        var first = DocumentTabMemory()
+        first.toggleSection("a.swift", for: tab)
+        let second = DocumentTabMemory()
+        #expect(second.collapsedSections(for: tab) == ["a.swift"])
+        let moved = DocumentPane(id: tab.id, fileURL: URL(fileURLWithPath: "/tmp/other.md"), title: "other.md")
+        #expect(second.collapsedSections(for: moved).isEmpty)
     }
 
     @Test func renderCarriesTheSectionIndexItWasGiven() {
