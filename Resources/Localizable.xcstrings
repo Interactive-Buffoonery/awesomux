@@ -4654,6 +4654,9 @@
     "actions only" : {
 
     },
+    "added line" : {
+      "comment" : "VoiceOver custom text attribute on an added diff line"
+    },
     "agent activity" : {
       "comment" : "Activity noun in the quit dialog body when only agents are at risk."
     },
@@ -4913,6 +4916,9 @@
     },
     "remote on %arg" : {
       "comment" : "VoiceOver action fragment naming the remote host for a pane."
+    },
+    "removed line" : {
+      "comment" : "VoiceOver custom text attribute on a removed diff line"
     },
     "renamed from %arg" : {
       "comment" : "Status after a file path heading in a rendered branch diff, naming the path the file had before"

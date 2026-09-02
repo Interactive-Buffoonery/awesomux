@@ -71,6 +71,29 @@ struct MarkdownDiffLineStylingTests {
         #expect(color.alphaComponent < 1)
     }
 
+    @Test("added/removed lines carry an accessibility custom-text attribute; context does not")
+    @MainActor
+    func accessibilityCustomTextStampsDiffLines() throws {
+        let source = "```diff\n context\n-old\n+new\n```\n"
+        let doc = AttributedMarkdownBuilder.build(source)
+        let addedText = try #require(
+            attributes(ofLine: "+new", in: doc)[.accessibilityCustomText] as? [String])
+        let removedText = try #require(
+            attributes(ofLine: "-old", in: doc)[.accessibilityCustomText] as? [String])
+        #expect(addedText == ["added line"])
+        #expect(removedText == ["removed line"])
+        #expect(attributes(ofLine: " context", in: doc)[.accessibilityCustomText] == nil)
+
+        // Mechanical proxy for "does VoiceOver read it": ask the headless text
+        // view's accessibility layer for the attributed string over the
+        // `+new` line and check the attribute survived translation.
+        let textView = makeTextView(source)
+        let addedRange = (textView.string as NSString).range(of: "+new")
+        let axString = textView.accessibilityAttributedString(for: addedRange)
+        let axText = axString?.attribute(.accessibilityCustomText, at: 0, effectiveRange: nil) as? [String]
+        #expect(axText == ["added line"])
+    }
+
     // MARK: - Overlay row washes
 
     /// TextKit 2 text view configured like `MarkdownTextView.makeNSView`, with

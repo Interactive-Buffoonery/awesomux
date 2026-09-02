@@ -88,7 +88,7 @@ Transcript tabs and remote snapshots keep their current footers.
 - Persisting collapsed state across relaunch.
 - Side-by-side view, syntax highlighting, editing.
 - Per-heading keyboard toggling inside the text view (Collapse All / Expand All is the keyboard path).
-- Per-line VoiceOver roles: the plan includes a bounded spike that stamps `NSAccessibilityCustomTextAttribute` (or equivalent) on added/removed lines and checks whether VoiceOver reads it. If it does, ship it in this PR; if not, record the finding on #570 and leave it as a follow-up.
+- Per-line VoiceOver roles: the spike stamped `.accessibilityCustomText` (value MUST be a one-element `[String]`; a bare `String` crashes the accessibility bridge with `-[NSTaggedPointerString count]`) on added and removed diff lines; the attribute survives into `NSTextView.accessibilityAttributedString(for:)` in a headless test; it ships in this PR pending a live VoiceOver listen by the maintainer, and is removed if VoiceOver does not speak it.
 
 ## Testing
 
