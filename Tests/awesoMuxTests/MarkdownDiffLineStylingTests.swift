@@ -181,6 +181,84 @@ struct MarkdownDiffLineStylingTests {
         let plain = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white)
         #expect(plain.attribute(.diffSectionKey, at: first.location, effectiveRange: nil) == nil)
     }
+    // MARK: - Folding
+
+    @Test("folding removes exactly the body and keeps one block separator between surviving headings")
+    func foldedDocumentOmitsCollapsedBody() {
+        let doc = AttributedMarkdownBuilder.build(
+            "## a\n\n```diff\n+only-in-a\n```\n\n## b\n\n```diff\n+only-in-b\n```\n\n## c\n\n```diff\n+only-in-c\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        func text(_ collapsed: Set<String>) -> String {
+            MarkdownAttributedStringBuilder.attributedString(
+                for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: collapsed), textColor: .white, sectionIndex: index
+            ).string
+        }
+        // Exact strings, so a fold that eats the heading's separator ("ab") or leaves a double gap fails.
+        #expect(text(["a"]) == "a\n\nb\n\n+only-in-b\n\nc\n\n+only-in-c")
+        #expect(text(["b"]) == "a\n\n+only-in-a\n\nb\n\nc\n\n+only-in-c")
+        #expect(text(["c"]) == "a\n\n+only-in-a\n\nb\n\n+only-in-b\n\nc")
+        #expect(text(["a", "b"]) == "a\n\nb\n\nc\n\n+only-in-c")
+        #expect(text(["a", "b", "c"]) == "a\n\nb\n\nc")
+        #expect(text([]) == MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index).string)
+        // No index at all, and a collapsed key whose section has no fence to
+        // remove, both fold nothing rather than trimming a neighbour's runs.
+        #expect(MarkdownTextView.foldedDocument(doc, index: nil, collapsed: ["a"]).runs == doc.runs)
+        let renameOnly = AttributedMarkdownBuilder.build("## x\n\n## y\n\n```diff\n+only-in-y\n```\n")
+        let renameIndex = BranchDiffSectionIndex(document: renameOnly)
+        #expect(renameIndex.section(key: "x")?.isFoldable == false)
+        #expect(
+            MarkdownTextView.foldedDocument(renameOnly, index: renameIndex, collapsed: ["x"]).runs
+                == renameOnly.runs)
+    }
+
+    @Test("bodyRuns of the last section stop before the document's trailing separator so the joined text has no dangling newline")
+    func lastSectionKeepsNoTrailingSeparator() {
+        let doc = AttributedMarkdownBuilder.build("## a\n\n```diff\n+x\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"])
+        #expect(folded.runs.map(\.text).joined() == "a")
+    }
+
+    // MARK: - Selection remap across a fold
+
+    private static let threeSections =
+        "## a\n\n```diff\n+only-in-a\n```\n\n## b\n\n```diff\n+only-in-b\n```\n\n## c\n\n```diff\n+only-in-c\n```\n"
+
+    @Test("a selection below the folded body keeps its text at its new offsets")
+    func selectionBelowFoldSurvivesWithNewOffsets() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index)
+        let before = (unfolded.string as NSString).range(of: "+only-in-b")
+        let span = try #require(
+            SelectionSourceMapping.sourceSpan(
+                forSelectedUTF16: before.location..<(before.location + before.length), in: doc))
+
+        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"])
+        let replacement = MarkdownAttributedStringBuilder.attributedString(for: folded, textColor: .white, sectionIndex: index)
+        let preserved = MarkdownTextView.preservedSelectionRange(
+            sourceSpan: span, selectedText: "+only-in-b", in: folded, replacement: replacement)
+        #expect(preserved.length == before.length)
+        #expect(preserved.location != before.location)
+        #expect((replacement.string as NSString).substring(with: preserved) == "+only-in-b")
+    }
+
+    @Test("a selection inside the folded body collapses to an empty range")
+    func selectionInsideFoldClears() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index)
+        let before = (unfolded.string as NSString).range(of: "+only-in-a")
+        let span = try #require(
+            SelectionSourceMapping.sourceSpan(
+                forSelectedUTF16: before.location..<(before.location + before.length), in: doc))
+
+        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"])
+        let replacement = MarkdownAttributedStringBuilder.attributedString(for: folded, textColor: .white, sectionIndex: index)
+        let preserved = MarkdownTextView.preservedSelectionRange(
+            sourceSpan: span, selectedText: "+only-in-a", in: folded, replacement: replacement)
+        #expect(preserved == NSRange(location: 0, length: 0))
+    }
 }
 
 /// WCAG relative-luminance contrast, local to this suite so the assertion

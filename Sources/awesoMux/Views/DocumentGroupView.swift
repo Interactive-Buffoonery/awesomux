@@ -295,7 +295,9 @@ struct DocumentGroupView: View {
                     },
                     onRegisterScrollAnchorCapture: { capture in
                         scrollAnchorCapture = (document.id, capture)
-                    }
+                    },
+                    collapsedSections: tabMemory.collapsedSections(for: document),
+                    onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }
                 )
                 .id(document.fileURL.standardizedFileURL.path)
                 DocumentPaneSendBar(

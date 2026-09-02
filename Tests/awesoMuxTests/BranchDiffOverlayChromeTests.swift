@@ -11,7 +11,8 @@ struct BranchDiffOverlayChromeTests {
     /// forced, so fragment geometry exists without a window.
     @MainActor
     private func makeOverlay(
-        _ source: String, collapsed: Set<String> = [], width: CGFloat = 400
+        _ source: String, collapsed: Set<String> = [], width: CGFloat = 400,
+        proseWrapWidth: CGFloat? = nil
     ) -> (CommentBadgeOverlay, NSTextView, NSAttributedString, BranchDiffSectionIndex) {
         let textView = NSTextView(usingTextLayoutManager: true)
         textView.frame = NSRect(x: 0, y: 0, width: width, height: 600)
@@ -24,6 +25,12 @@ struct BranchDiffOverlayChromeTests {
         let attr = MarkdownAttributedStringBuilder.attributedString(
             for: doc, textColor: .white, sectionIndex: index)
         textView.textStorage?.setAttributedString(attr)
+        if let proseWrapWidth, let storage = textView.textStorage {
+            // The wrap width is stamped by the coordinator, not the builder, so a
+            // geometry assertion has to run the same pass the live view runs.
+            _ = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
+                .applyProseWrapWidth(to: storage, in: textView, clipWidth: proseWrapWidth)
+        }
         textView.textLayoutManager?.ensureLayout(for: textView.textLayoutManager!.documentRange)
         let overlay = CommentBadgeOverlay(frame: textView.bounds)
         textView.addSubview(overlay)
@@ -114,6 +121,20 @@ struct BranchDiffOverlayChromeTests {
         let tints = CommentBadgeOverlay.diffTintRows(
             intersecting: NSRect(x: 0, y: 0, width: 400, height: 4000), in: textView, width: 400)
         #expect(tints.contains { abs($0.rect.minY - rules[0].minY) < 0.5 })
+    }
+
+    @Test("a long path heading wraps before the counts badge instead of running under it")
+    @MainActor
+    func longHeadingWrapsBeforeTheCountsBadge() throws {
+        let path = (0..<20).map { "segment\($0)" }.joined(separator: "/")
+        #expect(path.count >= 120)
+        let (overlay, textView, _, _) = makeOverlay(
+            "## \(path)\n\n```diff\n+x\n```\n", width: 300, proseWrapWidth: 300)
+        let heading = try #require(overlay.sectionChrome.first)
+        let limit =
+            300 - textView.textContainerInset.width
+            - MarkdownAttributedStringBuilder.sectionHeadingTrailingReserve + 1
+        #expect(heading.headingRect.maxX <= limit, "headingRect \(heading.headingRect) exceeds \(limit)")
     }
 
     @Test("chrome changes notify the sticky-header observer only when the computed value moves")

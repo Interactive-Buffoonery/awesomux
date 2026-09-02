@@ -966,6 +966,12 @@ struct DocumentPaneView: View {
     /// Surfaces the coordinator's scroll-anchor capture to the group view so it
     /// can snapshot the outgoing tab's position on a tab switch (INT-748 PR2).
     var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)?
+    /// Collapsed branch-diff section keys, owned by the group's tab memory.
+    /// The index itself is NOT an input: this view owns it (`localSectionIndex`),
+    /// computed from the document it actually renders, so a group-held index
+    /// that lags a render can never shadow the current one.
+    var collapsedSections: Set<String> = []
+    var onSectionToggled: ((String) -> Void)?
 
     /// Task 6: terminal background propagated by TerminalPaneView so the highlight
     /// contrast is measured against the actual painted surface, not the app chrome.
@@ -1051,7 +1057,9 @@ struct DocumentPaneView: View {
         onRevision: @escaping (LineDiffCount.ExternalEdit) -> Void = { _ in },
         annotationHandoffProvider: (() -> AnnotationHandoffPresentation)? = nil,
         onSendAnnotation: @escaping (String, [String]) -> Void = { _, _ in },
-        onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil
+        onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil,
+        collapsedSections: Set<String> = [],
+        onSectionToggled: ((String) -> Void)? = nil
     ) {
         self.pane = pane
         self.onCommentCountChanged = onCommentCountChanged
@@ -1061,6 +1069,8 @@ struct DocumentPaneView: View {
         self.annotationHandoffProvider = annotationHandoffProvider
         self.onSendAnnotation = onSendAnnotation
         self.onRegisterScrollAnchorCapture = onRegisterScrollAnchorCapture
+        self.collapsedSections = collapsedSections
+        self.onSectionToggled = onSectionToggled
         _loadResult = State(initialValue: cachedRender?.loadResult)
         _renderedDoc = State(initialValue: cachedRender?.renderedDoc)
         _localSectionIndex = State(initialValue: cachedRender?.sectionIndex)
@@ -1487,7 +1497,10 @@ struct DocumentPaneView: View {
                                 onRegisterScrollAnchorCapture?(capture)
                             },
                             onOpenDocumentLink: onOpenDocumentLink,
-                            hiddenAnnotationIDs: hiddenIDs
+                            hiddenAnnotationIDs: hiddenIDs,
+                            sectionIndex: localSectionIndex,
+                            collapsedSections: collapsedSections,
+                            onSectionToggled: onSectionToggled
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contextMenu {
