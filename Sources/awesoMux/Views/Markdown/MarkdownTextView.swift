@@ -327,6 +327,41 @@ struct MarkdownTextView: NSViewRepresentable {
             object: scrollView.contentView
         )
 
+        // Branch-changes sticky header. A sibling of the clip view rather than a
+        // document subview, so it does not scroll with the text.
+        //
+        // Step 0 finding: NSScrollView.isFlipped is unconditionally TRUE on
+        // macOS 15 (it does not track the document view — an unflipped or absent
+        // document view reports the same), so the scroll view's own space has y
+        // growing DOWNWARD and the top edge at `clip.frame.minY`. The clip view
+        // is flipped only because its document is.
+        let header = BranchDiffStickyHeaderView(
+            frame: NSRect(
+                origin: .zero,
+                size: NSSize(
+                    width: scrollView.contentSize.width, height: BranchDiffStickyHeaderView.height)))
+        header.contentInset = textView.textContainerInset.width
+        header.onActivate = { [weak coordinator = context.coordinator] key in
+            coordinator?.activateStickyHeader(key)
+        }
+        context.coordinator.stickyHeader = header
+        scrollView.addSubview(header, positioned: .above, relativeTo: scrollView.contentView)
+        // A pushed-out header sits partly above the clip's top edge, and the
+        // scroll view does not clip by default — without this it would draw over
+        // the annotation bar above the pane.
+        scrollView.clipsToBounds = true
+
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(MarkdownTextViewCoordinator.clipViewBoundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+        overlay.onSectionChromeChanged = { [weak coordinator = context.coordinator] in
+            coordinator?.sectionChromeDidChange()
+        }
+
         // Surface the NSTextView reference to the parent for popover anchoring.
         onTextViewAvailable?(textView)
 
@@ -522,6 +557,19 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.onOpenDocumentLink = onOpenDocumentLink
         context.coordinator.onSectionToggled = onSectionToggled
 
+        // Task 7: the sticky header repeats a heading row, so it takes the same
+        // surface, body and diff hues the document itself is drawn with.
+        if let header = context.coordinator.stickyHeader {
+            let palette = MarkdownAttributedStringBuilder.DiffPalette(
+                terminalBackground: terminalBackground)
+            header.backgroundColor = terminalBackground ?? .windowBackgroundColor
+            header.titleColor = textColor ?? .labelColor
+            header.addedColor = palette.added
+            header.removedColor = palette.removed
+            header.ruleColor = NSColor(Color.aw.border2)
+            header.contentInset = textView.textContainerInset.width
+        }
+
         // Task 7: re-register the capture closure on every update pass.
         onRegisterScrollAnchorCapture?({ [weak coordinator = context.coordinator] in
             coordinator?.scrollAnchorSourceOffset()
@@ -598,6 +646,7 @@ struct MarkdownTextView: NSViewRepresentable {
                         context.coordinator.scrollToSourceOffset(foldViewportAnchor)
                     }
                 }
+                context.coordinator.updateStickyHeader()
 
                 // Async pass: catches layout that completes after this SwiftUI update
                 // cycle. Task @MainActor keeps actor isolation so capturing the
@@ -618,6 +667,7 @@ struct MarkdownTextView: NSViewRepresentable {
                         // visibility filter when updates land back-to-back.
                         hiddenIDs: coordinator.lastHiddenAnnotationIDs
                     )
+                    coordinator.updateStickyHeader()
                 }
             }
 
@@ -710,6 +760,66 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             pendingSectionReanchor = (key, chrome.rowRect.minY - clip.bounds.minY)
         }
         onSectionToggled?(key)
+    }
+
+    // Task 7: sticky section header.
+    weak var stickyHeader: BranchDiffStickyHeaderView? = nil
+    /// Heading row geometry, rebuilt only when the chrome changes. The bounds
+    /// notification fires per scroll frame, so `updateStickyHeader` must not
+    /// rebuild this itself.
+    private var cachedSectionRows: [(minY: CGFloat, maxY: CGFloat)] = []
+
+    func sectionChromeDidChange() {
+        cachedSectionRows =
+            badgeOverlay?.sectionChrome.map { ($0.rowRect.minY, $0.rowRect.maxY) } ?? []
+        updateStickyHeader()
+    }
+
+    /// Not coalesced onto the next runloop turn, unlike the frame observer: a
+    /// pinned header that lags the scroll by a turn visibly jitters.
+    @objc func clipViewBoundsDidChange(_ notification: Notification) {
+        updateStickyHeader()
+    }
+
+    func updateStickyHeader() {
+        guard let header = stickyHeader, let textView, let overlay = badgeOverlay,
+            let scrollView = textView.enclosingScrollView
+        else { return }
+        let chrome = overlay.sectionChrome
+        let clip = scrollView.contentView
+        guard !chrome.isEmpty, chrome.count == cachedSectionRows.count,
+            let placement = BranchDiffStickyHeaderView.placement(
+                visibleTop: clip.bounds.minY,
+                rows: cachedSectionRows,
+                headerHeight: BranchDiffStickyHeaderView.height)
+        else {
+            header.model = nil
+            return
+        }
+        let section = chrome[placement.index]
+        let model = BranchDiffStickyHeaderView.Model(
+            key: section.key, title: section.title, added: section.added,
+            removed: section.removed, collapsed: section.collapsed)
+        if header.model != model { header.model = model }
+        // The scroll view's own space is FLIPPED (see makeNSView): its top edge
+        // is `clip.frame.minY` and y grows downward, so a `pushOffset` of ≤ 0
+        // ("move up") is added, not subtracted.
+        let frame = NSRect(
+            x: clip.frame.minX,
+            y: clip.frame.minY + placement.pushOffset,
+            width: clip.frame.width,
+            height: BranchDiffStickyHeaderView.height)
+        if header.frame != frame { header.frame = frame }
+    }
+
+    func activateStickyHeader(_ key: String) {
+        guard let textView, let overlay = badgeOverlay,
+            let chrome = overlay.sectionChrome.first(where: { $0.key == key }),
+            let scrollView = textView.enclosingScrollView
+        else { return }
+        let x = scrollView.contentView.bounds.origin.x
+        textView.scroll(NSPoint(x: x, y: max(0, chrome.rowRect.minY - 4)))
+        handleSectionToggle(key)
     }
 
     /// After a fold rebuild, keep the toggled heading where it was on screen.
@@ -847,6 +957,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         if textView.frame.size != size {
             textView.setFrameSize(size)
         }
+        updateStickyHeader()
     }
 
     /// Stamps `tailIndent` on every non-table paragraph so prose (including
