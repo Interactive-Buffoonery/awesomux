@@ -39,9 +39,20 @@ struct BranchDiffSectionIndex: Equatable {
 
     let sections: [Section]
 
+    /// Keys are unique by construction (`key(keyText:occurrence:)` disambiguates
+    /// repeats), so this is a total index of `sections`. Stored rather than
+    /// scanned: the attributed-string builder asks once per heading, which was
+    /// O(n²) in changed-file count on the main thread (review).
+    private let sectionsByKey: [String: Section]
+
     var keys: [String] { sections.map(\.key) }
 
-    func section(key: String) -> Section? { sections.first { $0.key == key } }
+    func section(key: String) -> Section? { sectionsByKey[key] }
+
+    /// Hand-written so the compare stays on `sections` alone. `sectionsByKey` is
+    /// derived from it, and Array's buffer-identity fast path is what keeps
+    /// `MarkdownTextView.updateNSView`'s per-pass index compare near-free.
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.sections == rhs.sections }
 
     /// The path half of `path — _status_`: non-italic runs joined, trailing
     /// " — " trimmed. Stable across the status suffix changing or vanishing.
@@ -58,27 +69,35 @@ struct BranchDiffSectionIndex: Equatable {
         occurrence == 0 ? keyText : keyText + "\n" + String(occurrence + 1)
     }
 
-    init(document: RenderedDocument) {
-        let runs = document.runs
-        var headings: [(start: Int, end: Int)] = []
+    /// Maximal spans of consecutive level-2 heading runs, in document order —
+    /// one span per file heading, including its inline italic status run. Shared
+    /// with `MarkdownAttributedStringBuilder.sectionKeysByRun`, which must derive
+    /// the SAME spans or a heading silently loses its chrome (review).
+    static func headingSpans(in runs: [RenderedRun]) -> [Range<Int>] {
+        var spans: [Range<Int>] = []
         var i = 0
         while i < runs.count {
             guard case .heading(level: 2) = runs[i].style else { i += 1; continue }
             var end = i
             while end < runs.count, case .heading(level: 2) = runs[end].style { end += 1 }
-            headings.append((i, end))
+            spans.append(i..<end)
             i = end
         }
+        return spans
+    }
+
+    init(document: RenderedDocument) {
+        let runs = document.runs
         var sections: [Section] = []
         var occurrences: [String: Int] = [:]
-        for heading in headings {
-            let slice = runs[heading.start..<heading.end]
+        for heading in Self.headingSpans(in: runs) {
+            let slice = runs[heading]
             let keyText = Self.keyText(headingRuns: slice)
             let occurrence = occurrences[keyText, default: 0]
             occurrences[keyText] = occurrence + 1
             let title = slice.map(\.text).joined()
             // The fence, if any, starts after the heading's own block separator.
-            var fenceStart = heading.end
+            var fenceStart = heading.upperBound
             if fenceStart < runs.count, runs[fenceStart].style == .blockSeparator { fenceStart += 1 }
             var fenceEnd = fenceStart
             var added = 0, removed = 0
@@ -116,22 +135,26 @@ struct BranchDiffSectionIndex: Equatable {
             // A fold removes the heading's separator plus the fence, and keeps
             // the "\n\n" after the fence for whatever follows. A fence-less
             // heading has an empty range and is not foldable.
-            let bodyRuns = fenceEnd > fenceStart ? heading.end..<fenceEnd : heading.end..<heading.end
+            let bodyRuns =
+                fenceEnd > fenceStart
+                ? heading.upperBound..<fenceEnd : heading.upperBound..<heading.upperBound
             sections.append(
                 Section(
                     key: Self.key(keyText: keyText, occurrence: occurrence),
                     title: title,
-                    headingRuns: heading.start..<heading.end,
+                    headingRuns: heading,
                     bodyRuns: bodyRuns,
                     added: added, removed: removed, hunks: hunks))
         }
         self.sections = sections
+        self.sectionsByKey = Dictionary(sections.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// `@@ -a[,b] +c[,d] @@…`; a missing length means 1. Combined-diff
-    /// headers (`@@@`) and anything else return nil.
+    /// `@@ -a[,b] +c[,d] @@…`; a missing length means 1. Anything else returns
+    /// nil — including a combined-diff header, whose `@@@` fails the `"@@ "`
+    /// prefix on its third `@`.
     static func parseHunkHeader(_ line: String) -> HunkHeader? {
-        guard line.hasPrefix("@@ "), !line.hasPrefix("@@@") else { return nil }
+        guard line.hasPrefix("@@ ") else { return nil }
         let parts = line.dropFirst(3).split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count >= 2, parts[0].hasPrefix("-"), parts[1].hasPrefix("+"),
             let old = range(parts[0].dropFirst()), let new = range(parts[1].dropFirst())

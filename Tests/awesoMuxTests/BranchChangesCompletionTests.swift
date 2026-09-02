@@ -230,6 +230,113 @@ struct BranchChangesCompletionTests {
         )
     }
 
+    // MARK: - The tab that asked
+
+    @Test("a refresh whose tab was closed mid-run finalizes its write but opens nothing")
+    func closedOriginatingTabDoesNotReopen() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: terminal.id)
+        let result = try render(markdown: "# closed\n")
+
+        var alerts: [BranchChangesFailure] = []
+        var completedWrites: [URL] = []
+        BranchChangesCompletion.apply(
+            .success(result),
+            paneID: terminal.id,
+            // A tab id the store never held: the user closed it while git ran.
+            originatingDocumentID: UUID(),
+            ticket: ticket,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { completedWrites.append($0) },
+            alert: { alerts.append($0) }
+        )
+
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+        #expect(alerts.isEmpty, "the user closed the tab; there is nothing to report")
+        // The bytes still reached disk, so they still have to be claimed as ours.
+        #expect(completedWrites == [result.fileURL])
+        let context = DocumentPaneView.selfWriteRegistry.context(
+            fileURL: result.fileURL,
+            onDiskSource: try #require(result.markdown)
+        )
+        #expect(context?.isSelfWrite == true)
+    }
+
+    @Test("a menu-started run carries no originating tab and always opens one")
+    func nilOriginatingDocumentStillOpensATab() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: terminal.id)
+        let result = try render(markdown: "# menu\n")
+
+        BranchChangesCompletion.apply(
+            .success(result),
+            paneID: terminal.id,
+            originatingDocumentID: nil,
+            ticket: ticket,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { _ in }
+        )
+
+        let group = try #require(store.session(id: session.id)?.layout.firstDocumentGroup)
+        #expect(group.tabs.count == 1)
+    }
+
+    @Test("a refresh whose tab is still open opens into it as before")
+    func liveOriginatingTabStillOpens() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let existing = try #require(
+            store.openDocumentPane(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appending(path: "awesomux-origin-\(UUID().uuidString).branch-changes.md"),
+                in: session.id,
+                associatedWith: terminal.id
+            )
+        )
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: terminal.id)
+        let result = try render(markdown: "# live\n")
+
+        BranchChangesCompletion.apply(
+            .success(result),
+            paneID: terminal.id,
+            originatingDocumentID: existing,
+            ticket: ticket,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { _ in }
+        )
+
+        let group = try #require(store.session(id: session.id)?.layout.firstDocumentGroup)
+        #expect(group.tabs.count == 2)
+    }
+
     // MARK: - Following the pane
 
     @Test("the tab follows a pane that moved to another workspace")

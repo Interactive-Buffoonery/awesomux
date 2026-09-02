@@ -156,4 +156,18 @@ struct BranchDiffSectionIndexTests {
         #expect(section.hunks[1].header?.oldStart == 50 && section.hunks[1].header?.newStart == 60)
         #expect(doc.runs[section.hunks[1].runIndex].style == .diffLine(.hunk))
     }
+
+    @Test("heading spans group consecutive heading runs, italic status included, one span per file")
+    func headingSpansGroupOneSpanPerHeading() {
+        // The status suffix is a second, italic heading run of the SAME heading;
+        // the builder and the index both key off these spans, so a drift here
+        // silently strips a file's chrome.
+        let (doc, _) = build("## a.swift — _new file_\n\n```diff\n+x\n```\n\n## b.swift\n\n```diff\n+y\n```\n")
+        let spans = BranchDiffSectionIndex.headingSpans(in: doc.runs)
+        #expect(spans.count == 2)
+        #expect(spans[0].count > 1, "the italic status run belongs to the first heading's span")
+        #expect(doc.runs[spans[0]].contains { $0.italic })
+        #expect(doc.runs[spans[1]].map(\.text).joined() == "b.swift")
+        #expect(BranchDiffSectionIndex.headingSpans(in: []).isEmpty)
+    }
 }

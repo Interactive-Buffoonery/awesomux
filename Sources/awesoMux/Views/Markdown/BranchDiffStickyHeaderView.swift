@@ -36,23 +36,32 @@ final class BranchDiffStickyHeaderView: NSView {
     /// heading row rects in document order. Nil when no heading has reached the
     /// top edge yet — nothing to pin.
     ///
-    /// A heading whose `minY` equals `visibleTop` counts as pinned: the drawn
-    /// header covers the in-place heading exactly, so nothing shows twice.
+    /// A row pins once the drawn bar would COVER it, not once its top edge
+    /// crosses: `max(minY, maxY - headerHeight)`. For a single-line heading
+    /// (shorter than the bar) that is its `minY` — the bar sits exactly over it
+    /// and nothing reads twice. For a wrapped heading taller than the bar it is
+    /// the point where the bar would hide the last line; pinning at `minY` there
+    /// drew the heading twice, once in place and once in the bar (review).
     nonisolated static func placement(
         visibleTop: CGFloat,
         rows: [(minY: CGFloat, maxY: CGFloat)],
         headerHeight: CGFloat
     ) -> Placement? {
+        func pinPoint(_ row: (minY: CGFloat, maxY: CGFloat)) -> CGFloat {
+            max(row.minY, row.maxY - headerHeight)
+        }
         // ponytail: linear scan, binary search if a thousand-file diff makes this show up
         var pinned: Int? = nil
         for (offset, row) in rows.enumerated() {
-            guard row.minY <= visibleTop else { break }
+            guard pinPoint(row) <= visibleTop else { break }
             pinned = offset
         }
         guard let pinned else { return nil }
         let next = pinned + 1
+        // Same point the next row would pin at, so the hand-off is continuous:
+        // the push reaches its full height exactly when that row takes over.
         let pushOffset =
-            next < rows.count ? min(0, rows[next].minY - visibleTop - headerHeight) : 0
+            next < rows.count ? min(0, pinPoint(rows[next]) - visibleTop - headerHeight) : 0
         return Placement(index: pinned, pushOffset: pushOffset)
     }
 
@@ -60,12 +69,18 @@ final class BranchDiffStickyHeaderView: NSView {
         didSet {
             guard oldValue != model else { return }
             isHidden = model == nil
+            // The pointing-hand rect covers the whole bar, so it has to come and
+            // go with the bar itself.
+            window?.invalidateCursorRects(for: self)
             refreshContent()
         }
     }
 
     /// Test seam: headless tests have no window to inspect the drawn chevron.
     var isChevronHidden: Bool { chevron.isHidden }
+    /// Test seam: the chevron's own frame, so a hit-test assertion can aim at
+    /// the subview that used to swallow the click rather than at empty bar.
+    var chevronFrameForTesting: NSRect { chevron.frame }
 
     /// Click, or the test seam, resolved to the pinned section's key.
     var onActivate: ((String) -> Void)? = nil
@@ -153,6 +168,21 @@ final class BranchDiffStickyHeaderView: NSView {
         ruleColor.setFill()
         // Unflipped: the header's own bottom edge is y == 0.
         NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 1).fill()
+    }
+
+    /// The whole bar is one click target. Without this the enabled `NSControl`
+    /// subviews (the image view and the two labels) swallow a click that lands
+    /// on them — including the chevron, the most obvious place to press.
+    /// `point` arrives in the SUPERVIEW's space.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, bounds.contains(convert(point, from: superview)) else { return nil }
+        return self
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard !isHidden else { return }
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 
     override func mouseDown(with event: NSEvent) {

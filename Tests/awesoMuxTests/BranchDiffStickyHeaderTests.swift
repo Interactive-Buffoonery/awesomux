@@ -91,4 +91,45 @@ struct BranchDiffStickyHeaderTests {
     func emptyRows() {
         #expect(BranchDiffStickyHeaderView.placement(visibleTop: 500, rows: [], headerHeight: 30) == nil)
     }
+
+    @Test("a wrapped heading taller than the bar pins only once the bar would cover it")
+    func tallHeadingPinsWhenCovered() {
+        // A two-line heading: 52pt tall against a 30pt bar. Pinning at minY drew
+        // it twice — once in place, once in the bar (review).
+        let tall: [(minY: CGFloat, maxY: CGFloat)] = [(100, 152), (500, 524)]
+        #expect(BranchDiffStickyHeaderView.placement(visibleTop: 100, rows: tall, headerHeight: 30) == nil)
+        #expect(BranchDiffStickyHeaderView.placement(visibleTop: 121, rows: tall, headerHeight: 30) == nil)
+        #expect(
+            BranchDiffStickyHeaderView.placement(visibleTop: 122, rows: tall, headerHeight: 30)
+                == .init(index: 0, pushOffset: 0))
+        // The push-out uses the NEXT row's pin point too, so the hand-off is
+        // continuous: full push exactly where that row takes over.
+        #expect(
+            BranchDiffStickyHeaderView.placement(visibleTop: 480, rows: tall, headerHeight: 30)
+                == .init(index: 0, pushOffset: -10))
+        #expect(
+            BranchDiffStickyHeaderView.placement(visibleTop: 500, rows: tall, headerHeight: 30)
+                == .init(index: 1, pushOffset: 0))
+    }
+
+    @Test("the whole bar takes the click, including the chevron its image view sits under")
+    @MainActor
+    func hitTestCoversTheChevron() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let view = BranchDiffStickyHeaderView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        container.addSubview(view)
+        // Hidden (no model) it must stay transparent to clicks.
+        #expect(view.hitTest(NSPoint(x: 30, y: 15)) == nil)
+
+        view.model = .init(
+            key: "a.swift", title: "a.swift", added: 3, removed: 1, collapsed: false,
+            foldable: true)
+        view.layoutSubtreeIfNeeded()
+        let chevron = view.chevronFrameForTesting
+        #expect(chevron.width > 0 && chevron.height > 0)
+        let onChevron = view.convert(NSPoint(x: chevron.midX, y: chevron.midY), to: container)
+        #expect(view.hitTest(onChevron) === view)
+        // And a point outside the bar still falls through.
+        #expect(view.hitTest(NSPoint(x: 150, y: 100)) == nil)
+    }
 }

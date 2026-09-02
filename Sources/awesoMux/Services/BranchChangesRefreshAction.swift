@@ -9,9 +9,17 @@ import SwiftUI
 /// session store, and the failure-alert presenter — none of which the send bar
 /// holds, and none of which should become a global to reach it.
 struct BranchChangesRefreshAction {
+    /// - Parameter originatingDocumentID: the tab that asked, when a tab did.
+    ///   Nil for the menu and palette, which have no tab of their own and always
+    ///   open one. A footer Refresh passes its tab so a run whose tab was closed
+    ///   mid-flight finishes its cache write without reopening the tab the user
+    ///   just dismissed.
     let run:
-        @MainActor (_ paneID: TerminalPane.ID, _ completion: @escaping @MainActor () -> Void)
-            -> Void
+        @MainActor (
+            _ paneID: TerminalPane.ID,
+            _ originatingDocumentID: DocumentPane.ID?,
+            _ completion: @escaping @MainActor () -> Void
+        ) -> Void
 }
 
 extension EnvironmentValues {

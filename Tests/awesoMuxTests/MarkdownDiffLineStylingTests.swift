@@ -201,40 +201,107 @@ struct MarkdownDiffLineStylingTests {
     private static let threeSections =
         "## a\n\n```diff\n+only-in-a\n```\n\n## b\n\n```diff\n+only-in-b\n```\n\n## c\n\n```diff\n+only-in-c\n```\n"
 
+    /// Rendered strings for `doc` before and after applying `collapsed`, plus the
+    /// range `preservedSelectionRange` maps `selection` to.
+    private func remap(
+        _ selection: NSRange, in doc: RenderedDocument, index: BranchDiffSectionIndex,
+        from before: Set<String> = [], to after: Set<String>
+    ) -> (replacement: NSString, preserved: NSRange) {
+        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: after)
+        let replacement = MarkdownAttributedStringBuilder.attributedString(
+            for: folded, textColor: .white, sectionIndex: index)
+        return (
+            replacement.string as NSString,
+            MarkdownTextView.preservedSelectionRange(
+                selection, in: doc, index: index, from: before, to: after,
+                replacementLength: replacement.length)
+        )
+    }
+
     @Test("a selection below the folded body keeps its text at its new offsets")
     func selectionBelowFoldSurvivesWithNewOffsets() throws {
         let doc = AttributedMarkdownBuilder.build(Self.threeSections)
         let index = BranchDiffSectionIndex(document: doc)
-        let unfolded = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index)
+        let unfolded = MarkdownAttributedStringBuilder.attributedString(
+            for: doc, textColor: .white, sectionIndex: index)
         let before = (unfolded.string as NSString).range(of: "+only-in-b")
-        let span = try #require(
-            SelectionSourceMapping.sourceSpan(
-                forSelectedUTF16: before.location..<(before.location + before.length), in: doc))
 
-        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"])
-        let replacement = MarkdownAttributedStringBuilder.attributedString(for: folded, textColor: .white, sectionIndex: index)
-        let preserved = MarkdownTextView.preservedSelectionRange(
-            sourceSpan: span, selectedText: "+only-in-b", in: folded, replacement: replacement)
+        let (replacement, preserved) = remap(before, in: doc, index: index, to: ["a"])
         #expect(preserved.length == before.length)
         #expect(preserved.location != before.location)
-        #expect((replacement.string as NSString).substring(with: preserved) == "+only-in-b")
+        #expect(replacement.substring(with: preserved) == "+only-in-b")
     }
 
-    @Test("a selection inside the folded body collapses to an empty range")
+    @Test("a selection inside the folded body collapses to a caret at the fold point")
     func selectionInsideFoldClears() throws {
         let doc = AttributedMarkdownBuilder.build(Self.threeSections)
         let index = BranchDiffSectionIndex(document: doc)
-        let unfolded = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index)
+        let unfolded = MarkdownAttributedStringBuilder.attributedString(
+            for: doc, textColor: .white, sectionIndex: index)
         let before = (unfolded.string as NSString).range(of: "+only-in-a")
-        let span = try #require(
-            SelectionSourceMapping.sourceSpan(
-                forSelectedUTF16: before.location..<(before.location + before.length), in: doc))
 
-        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"])
-        let replacement = MarkdownAttributedStringBuilder.attributedString(for: folded, textColor: .white, sectionIndex: index)
-        let preserved = MarkdownTextView.preservedSelectionRange(
-            sourceSpan: span, selectedText: "+only-in-a", in: folded, replacement: replacement)
-        #expect(preserved == NSRange(location: 0, length: 0))
+        let (replacement, preserved) = remap(before, in: doc, index: index, to: ["a"])
+        #expect(preserved.length == 0)
+        // The fold point, not offset 0: that is where a subsequent Shift-click
+        // extends from, and the top of the document is not where the user was.
+        #expect(preserved.location == NSMaxRange(replacement.range(of: "a")))
+    }
+
+    /// The bug the source-span round trip had: diff lines are non-contiguous in
+    /// source, so a selection spanning several of them snapped out to the whole
+    /// fence and was then discarded — by a fold in an entirely different file.
+    @Test("a multi-line selection inside one file survives folding another file")
+    func multiLineSelectionSurvivesUnrelatedFold() throws {
+        let source =
+            "## a\n\n```diff\n+a1\n+a2\n```\n\n## b\n\n```diff\n+b1\n+b2\n+b3\n```\n"
+        let doc = AttributedMarkdownBuilder.build(source)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded =
+            MarkdownAttributedStringBuilder.attributedString(
+                for: doc, textColor: .white, sectionIndex: index
+            ).string as NSString
+        let start = unfolded.range(of: "+b1")
+        let end = unfolded.range(of: "+b3")
+        let selection = NSRange(location: start.location, length: NSMaxRange(end) - start.location)
+        let selected = unfolded.substring(with: selection)
+        #expect(selected.contains("\n"), "the fixture must span more than one line")
+
+        let (replacement, preserved) = remap(selection, in: doc, index: index, to: ["a"])
+        #expect(preserved.length == selection.length)
+        #expect(replacement.substring(with: preserved) == selected)
+    }
+
+    @Test("a caret below the fold moves with the text instead of resetting to the top")
+    func caretBelowFoldKeepsItsPosition() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded =
+            MarkdownAttributedStringBuilder.attributedString(
+                for: doc, textColor: .white, sectionIndex: index
+            ).string as NSString
+        let caret = NSRange(location: unfolded.range(of: "+only-in-c").location, length: 0)
+
+        let (replacement, preserved) = remap(caret, in: doc, index: index, to: ["a"])
+        #expect(preserved.length == 0)
+        #expect(preserved.location != 0)
+        #expect(preserved.location == replacement.range(of: "+only-in-c").location)
+    }
+
+    @Test("unfolding shifts a selection below the restored body forward")
+    func selectionShiftsForwardOnUnfold() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let foldedString =
+            MarkdownAttributedStringBuilder.attributedString(
+                for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"]),
+                textColor: .white, sectionIndex: index
+            ).string as NSString
+        let before = foldedString.range(of: "+only-in-b")
+
+        let (replacement, preserved) = remap(before, in: doc, index: index, from: ["a"], to: [])
+        #expect(preserved.length == before.length)
+        #expect(preserved.location > before.location)
+        #expect(replacement.substring(with: preserved) == "+only-in-b")
     }
 
     /// Regression guard on the cost the `foldChanged` comment in

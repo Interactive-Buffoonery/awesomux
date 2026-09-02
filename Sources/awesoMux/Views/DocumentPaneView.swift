@@ -351,6 +351,9 @@ struct DocumentPaneSendBar: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                // `.small` alone leaves a ~20pt target; the sibling Refresh is
+                // pinned to 28. WCAG 2.5.8 wants 24 (a11y review).
+                .frame(minHeight: 24)
             }
         }
         .frame(maxWidth: .infinity)
@@ -382,7 +385,9 @@ struct DocumentPaneSendBar: View {
             case .available(let target) = session.layout.documentNudgeTarget(for: pane.id)
         else { return }
         refreshRequested = true
-        branchChangesRefresh.run(target.id) { refreshRequested = false }
+        // The tab's own id travels with the run: if the user closes this tab
+        // while git is still going, the completion must not resurrect it.
+        branchChangesRefresh.run(target.id, pane.id) { refreshRequested = false }
     }
 
     var body: some View {

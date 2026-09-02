@@ -188,37 +188,101 @@ struct MarkdownTextView: NSViewRepresentable {
         return doc.folding(removingRunRanges: ranges)
     }
 
-    /// Where a selection lands after a fold. Folding does not move source
-    /// offsets, so the span — not the old UTF-16 range — is the stable handle.
-    /// An empty range for a selection whose text did not survive: AppKit keeps
-    /// the stale UTF-16 indices otherwise, which after a fold highlight
-    /// unrelated text further down.
+    /// Where a selection — or a bare caret — lands after a fold.
     ///
-    /// ponytail: source round-trip, so a multi-line selection inside a diff
-    /// fence is lost on ANY fold, including one in another file — diff lines are
-    /// non-contiguous in source, so the span snaps out to the whole fence's
-    /// enclosing range and the text comparison then fails. Upgrade path if that
-    /// bites: shift the old UTF-16 range by the summed length of the removed
-    /// runs above it instead of mapping through source at all.
+    /// Pure UTF-16 arithmetic over `doc`'s runs. A fold removes whole runs and
+    /// moves nothing else, so a boundary in surviving text shifts by the total
+    /// length removed before it; an unfold shifts it forward by what was
+    /// re-inserted. A selection that overlaps text this pass hides collapses to
+    /// a caret at the fold point — AppKit keeps the stale indices otherwise,
+    /// which after a fold highlight unrelated text further down.
+    ///
+    /// `oldCollapsed` and `newCollapsed` are both applied to the SAME unfolded
+    /// `doc`, so one call covers a fold, an unfold, and a Collapse All that does
+    /// both at once. Only valid while `doc` and `index` are unchanged across the
+    /// pass; the caller checks that before asking.
+    ///
+    /// Replaces a source-span round trip that lost EVERY multi-line selection
+    /// inside a diff fence — diff lines are non-contiguous in source, so the
+    /// span snapped out to the whole fence and the text comparison then failed —
+    /// and reset every caret to offset 0 (review).
     nonisolated static func preservedSelectionRange(
-        sourceSpan: Range<Int>?,
-        selectedText: String,
-        in displayDoc: RenderedDocument,
-        replacement: NSAttributedString
+        _ selection: NSRange,
+        in doc: RenderedDocument,
+        index: BranchDiffSectionIndex?,
+        from oldCollapsed: Set<String>,
+        to newCollapsed: Set<String>,
+        replacementLength: Int
     ) -> NSRange {
-        let cleared = NSRange(location: 0, length: 0)
-        guard let sourceSpan, !selectedText.isEmpty,
-            let lower = SelectionSourceMapping.renderedUTF16Offset(
-                forSourceOffset: sourceSpan.lowerBound, in: displayDoc),
-            let upper = SelectionSourceMapping.renderedUTF16Offset(
-                forSourceOffset: sourceSpan.upperBound, in: displayDoc),
-            lower < upper, upper <= replacement.length
-        else { return cleared }
-        let range = NSRange(location: lower, length: upper - lower)
-        guard (replacement.string as NSString).substring(with: range) == selectedText else {
-            return cleared
+        func hiddenRuns(_ collapsed: Set<String>) -> Set<Int> {
+            guard let index, !collapsed.isEmpty else { return [] }
+            var out: Set<Int> = []
+            for section in index.sections
+            where collapsed.contains(section.key) && section.isFoldable {
+                out.formUnion(section.bodyRuns)
+            }
+            return out
         }
-        return range
+        let wasHidden = hiddenRuns(oldCollapsed)
+        let isHidden = hiddenRuns(newCollapsed)
+        let selectionEnd = selection.location + selection.length
+
+        var oldOffset = 0  // walks the string the selection was taken from
+        var newOffset = 0  // walks the string that replaces it
+        var lower: Int? = nil
+        var upper: Int? = nil
+        /// Where the selection first met text this pass removes. Non-nil means
+        /// the selection cannot survive as a range.
+        var collapsePoint: Int? = nil
+        /// Old-string start of the first run this pass removes, so a selection
+        /// that resolved nothing can be placed on the correct side of the fold.
+        var firstRemovedStart: Int? = nil
+
+        for (runIndex, run) in doc.runs.enumerated() {
+            let length = (run.text as NSString).length
+            let inOld = !wasHidden.contains(runIndex)
+            let inNew = !isHidden.contains(runIndex)
+            guard inOld else {
+                // Absent from the old string; an unfold puts it back, which
+                // pushes everything after it forward in the new one.
+                if inNew { newOffset += length }
+                continue
+            }
+            let start = oldOffset
+            let end = oldOffset + length
+            oldOffset = end
+            guard inNew else {
+                if firstRemovedStart == nil { firstRemovedStart = start }
+                // Half-open on both sides: a boundary sitting exactly on the
+                // edge of a removed run belongs to its surviving neighbour.
+                if collapsePoint == nil, selection.location < end, selectionEnd > start {
+                    collapsePoint = newOffset
+                }
+                continue
+            }
+            if lower == nil, selection.location >= start, selection.location <= end {
+                lower = newOffset + (selection.location - start)
+            }
+            if upper == nil, selectionEnd >= start, selectionEnd <= end {
+                upper = newOffset + (selectionEnd - start)
+            }
+            newOffset += length
+        }
+
+        if let collapsePoint {
+            return NSRange(location: min(max(0, collapsePoint), replacementLength), length: 0)
+        }
+        guard let lower, let upper, lower <= upper, upper <= replacementLength else {
+            // Nothing resolved, so the selection lay past the last surviving
+            // run — normally because the document's LAST run is the one folded.
+            // Which end it collapses to depends on which side of the fold it
+            // started: everything removed sat after it, or before it.
+            if let firstRemovedStart, selection.location < firstRemovedStart {
+                return NSRange(location: 0, length: 0)
+            }
+            return NSRange(location: min(max(0, newOffset), replacementLength), length: 0)
+        }
+        return NSRange(location: lower, length: upper - lower)
     }
 
     // MARK: - NSViewRepresentable
@@ -327,37 +391,11 @@ struct MarkdownTextView: NSViewRepresentable {
             object: scrollView.contentView
         )
 
-        // Branch-changes sticky header. A sibling of the clip view rather than a
-        // document subview, so it does not scroll with the text.
-        //
-        // Step 0 finding: NSScrollView.isFlipped is unconditionally TRUE on
-        // macOS 15 (it does not track the document view — an unflipped or absent
-        // document view reports the same), so the scroll view's own space has y
-        // growing DOWNWARD and the top edge at `clip.frame.minY`. The clip view
-        // is flipped only because its document is.
-        let header = BranchDiffStickyHeaderView(
-            frame: NSRect(
-                origin: .zero,
-                size: NSSize(
-                    width: scrollView.contentSize.width, height: BranchDiffStickyHeaderView.height)))
-        header.contentInset = textView.textContainerInset.width
-        header.onActivate = { [weak coordinator = context.coordinator] key in
-            coordinator?.activateStickyHeader(key)
-        }
-        context.coordinator.stickyHeader = header
-        scrollView.addSubview(header, positioned: .above, relativeTo: scrollView.contentView)
-        // A pushed-out header sits partly above the clip's top edge, and the
-        // scroll view does not clip by default — without this it would draw over
-        // the annotation bar above the pane.
-        scrollView.clipsToBounds = true
-
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            context.coordinator,
-            selector: #selector(MarkdownTextViewCoordinator.clipViewBoundsDidChange(_:)),
-            name: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView
-        )
+        // The branch-changes sticky header, its clipping, and the per-scroll-frame
+        // bounds observer are installed lazily by `installStickyHeaderIfNeeded`
+        // on the first pass that carries a section index. Every other Markdown
+        // pane — transcripts, READMEs, remote snapshots — is the common case and
+        // pays none of it.
         overlay.onSectionChromeChanged = { [weak coordinator = context.coordinator] in
             coordinator?.sectionChromeDidChange()
         }
@@ -392,6 +430,12 @@ struct MarkdownTextView: NSViewRepresentable {
         let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         context.coordinator.badgeOverlay?.tableBorderColor =
             increaseContrast ? base : base.withAlphaComponent(0.5)
+        // The diff hairlines (hunk rules, the sticky bar's bottom edge) resolve
+        // against the TERMINAL the document is drawn on, exactly like the table
+        // grid above. `Color.aw.border2` is an app-appearance token: on a light
+        // terminal under a dark app it resolved to a light hairline on a light
+        // surface and vanished (review). Solid under Increase Contrast.
+        let hairlineColor = increaseContrast ? base : base.withAlphaComponent(0.14)
 
         // Only re-build the attributed string when baked-in attributes change.
         // Text color and relative link base are part of the attributed string (not
@@ -419,6 +463,12 @@ struct MarkdownTextView: NSViewRepresentable {
         // can reproduce an identical source under a changed index, and skipping
         // the rebuild there would leave `lastDoc` and the heading attributes
         // stale.
+        // `lastSectionIndex != sectionIndex` runs on EVERY pass, including a
+        // per-selection-event one, and the index carries a section per changed
+        // file. It stays near-free only because the same `@State` instance is
+        // handed down each pass, so Array's buffer-identity fast path settles it
+        // without touching an element. Upgrade path if the index is ever rebuilt
+        // per render: give it a generation stamp and compare that instead.
         let foldChanged =
             context.coordinator.lastCollapsedSections != collapsedSections
             || context.coordinator.lastSectionIndex != sectionIndex
@@ -465,21 +515,25 @@ struct MarkdownTextView: NSViewRepresentable {
             } else {
                 let preservedRange: NSRange?
                 if foldChanged {
-                    // A fold moves every offset below it, so the old UTF-16 range
-                    // is meaningless. Re-derive it from the source span, which
-                    // folding does not touch; a selection whose text is now
-                    // hidden collapses instead of jumping to unrelated text.
-                    // A caret (zero-length selection) resets to offset 0 rather
-                    // than being tracked: setSelectedRange does not scroll, and
-                    // the re-anchor path below owns the viewport, so the only
-                    // cost is where a subsequent Shift-click would extend from.
-                    preservedRange = Self.preservedSelectionRange(
-                        sourceSpan: selectedSourceSpan,
-                        selectedText: selectedRange.length > 0
-                            ? (textView.string as NSString).substring(with: selectedRange) : "",
-                        in: displayDoc,
-                        replacement: mutableAttr
-                    )
+                    // A fold moves every offset below it, so the old UTF-16
+                    // range has to be transformed rather than reused. The
+                    // transform is arithmetic over the SAME base document, so a
+                    // pass that also reloaded the source, or re-derived the
+                    // index, has no old geometry to transform and clears
+                    // instead.
+                    let sameBase =
+                        !docSourceChanged && context.coordinator.lastSectionIndex == sectionIndex
+                    preservedRange =
+                        sameBase
+                        ? Self.preservedSelectionRange(
+                            selectedRange,
+                            in: doc,
+                            index: sectionIndex,
+                            from: context.coordinator.lastCollapsedSections,
+                            to: collapsedSections,
+                            replacementLength: mutableAttr.length
+                        )
+                        : NSRange(location: 0, length: 0)
                 } else {
                     preservedRange =
                         selectedRange.length > 0
@@ -520,7 +574,14 @@ struct MarkdownTextView: NSViewRepresentable {
 
                 // Task 7: source-anchored scroll — only on a real content reload, never on
                 // a textColor-only restyle (which would re-apply a stale anchor).
-                if docSourceChanged, let anchor = scrollAnchorOffset {
+                //
+                // A pass that reloads AND folds has two claims on the viewport.
+                // The clicked heading wins: this anchor lands a runloop later and
+                // would otherwise override the re-anchor performed synchronously
+                // below (review).
+                let foldOwnsViewport =
+                    foldChanged && context.coordinator.pendingSectionReanchor != nil
+                if docSourceChanged, !foldOwnsViewport, let anchor = scrollAnchorOffset {
                     DispatchQueue.main.async {
                         context.coordinator.scrollToSourceOffset(anchor)
                     }
@@ -561,6 +622,9 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // Task 7: the sticky header repeats a heading row, so it takes the same
         // surface, body and diff hues the document itself is drawn with.
+        if sectionIndex != nil {
+            context.coordinator.installStickyHeaderIfNeeded(in: scrollView)
+        }
         if let header = context.coordinator.stickyHeader {
             let palette = MarkdownAttributedStringBuilder.DiffPalette(
                 terminalBackground: terminalBackground)
@@ -568,7 +632,7 @@ struct MarkdownTextView: NSViewRepresentable {
             header.titleColor = textColor ?? .labelColor
             header.addedColor = palette.added
             header.removedColor = palette.removed
-            header.ruleColor = NSColor(Color.aw.border2)
+            header.ruleColor = hairlineColor
             header.contentInset = textView.textContainerInset.width
         }
 
@@ -606,7 +670,8 @@ struct MarkdownTextView: NSViewRepresentable {
                     terminalBackground: terminalBackground)
                 overlay.addedCountColor = palette.added
                 overlay.removedCountColor = palette.removed
-                overlay.hunkRuleColor = NSColor(Color.aw.border2)
+                overlay.hunkRuleColor = hairlineColor
+                overlay.chevronColor = base
             }
             overlay.collapsedSections = collapsedSections
             overlay.onSectionToggled = { [weak coordinator = context.coordinator] key in
@@ -768,6 +833,44 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
 
     // Task 7: sticky section header.
     weak var stickyHeader: BranchDiffStickyHeaderView? = nil
+
+    /// Built on the first update pass that carries a section index, not in
+    /// `makeNSView`: the header view, the scroll view's clipping, and a
+    /// notification that fires once per scroll frame are all cost every plain
+    /// Markdown pane — transcripts, READMEs, snapshots — would otherwise pay for
+    /// a fold it can never perform (review). The scroll view retains the header,
+    /// so the weak reference above is enough to make this idempotent.
+    func installStickyHeaderIfNeeded(in scrollView: NSScrollView) {
+        guard stickyHeader == nil else { return }
+        // A sibling of the clip view rather than a document subview, so it does
+        // not scroll with the text.
+        //
+        // Step 0 finding: NSScrollView.isFlipped is unconditionally TRUE on
+        // macOS 15 (it does not track the document view — an unflipped or absent
+        // document view reports the same), so the scroll view's own space has y
+        // growing DOWNWARD and the top edge at `clip.frame.minY`. The clip view
+        // is flipped only because its document is.
+        let header = BranchDiffStickyHeaderView(
+            frame: NSRect(
+                origin: .zero,
+                size: NSSize(
+                    width: scrollView.contentSize.width,
+                    height: BranchDiffStickyHeaderView.height)))
+        header.onActivate = { [weak self] key in self?.activateStickyHeader(key) }
+        stickyHeader = header
+        scrollView.addSubview(header, positioned: .above, relativeTo: scrollView.contentView)
+        // A pushed-out header sits partly above the clip's top edge, and the
+        // scroll view does not clip by default — without this it would draw over
+        // the annotation bar above the pane.
+        scrollView.clipsToBounds = true
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(MarkdownTextViewCoordinator.clipViewBoundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+    }
     /// Heading row geometry, rebuilt only when the chrome changes. The bounds
     /// notification fires per scroll frame, so `updateStickyHeader` must not
     /// rebuild this itself.
@@ -819,7 +922,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             removed: section.removed, collapsed: section.collapsed,
             foldable: section.foldable)
         if header.model != model { header.model = model }
-        // The scroll view's own space is FLIPPED (see makeNSView): its top edge
+        // The scroll view's own space is FLIPPED (see installStickyHeaderIfNeeded): its top edge
         // is `clip.frame.minY` and y grows downward, so a `pushOffset` of ≤ 0
         // ("move up") is added, not subtracted.
         let frame = NSRect(

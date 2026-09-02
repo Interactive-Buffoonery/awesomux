@@ -78,7 +78,16 @@ final class CommentBadgeOverlay: NSView {
     /// `MarkdownTextView`. `hunkRuleColor` nil ⇒ no hairline drawn.
     var addedCountColor: NSColor = .systemGreen
     var removedCountColor: NSColor = .systemRed
-    var hunkRuleColor: NSColor? = nil
+    var hunkRuleColor: NSColor? = nil {
+        didSet { if oldValue != hunkRuleColor { needsDisplay = true } }
+    }
+    /// Full-alpha terminal text color for the fold chevron. The chevron is an
+    /// affordance, not a hairline, so it does not share the border's dimming —
+    /// and the sticky header draws its own chevron at full alpha, so a dimmed
+    /// one here made the same glyph change weight as it pinned (review).
+    var chevronColor: NSColor? = nil {
+        didSet { if oldValue != chevronColor { needsDisplay = true } }
+    }
 
     private(set) var sectionChrome: [SectionChrome] = []
 
@@ -609,8 +618,22 @@ final class CommentBadgeOverlay: NSView {
         sectionAccessibilityChildren()
     }
 
+    /// The built section buttons, or nil when a structural change has retired
+    /// them. Same contract as the AXTable tree above: VoiceOver holds these
+    /// while the user navigates, so a fold — which changes only value and
+    /// geometry — must hand back the SAME identities with fresh state, or the
+    /// cursor drops and the announced value is whatever was true at build time
+    /// (review). Elements are addressed by POSITION in `sectionChrome`; the
+    /// signature below rebuilds them whenever that ordering can have moved.
+    private var builtSectionElements: [PillAccessibilityElement]?
+    /// Per-section fingerprint of everything baked into an element at build
+    /// time — identity, spoken label, and role. Value and frame are resolved
+    /// live and are deliberately absent.
+    private var sectionStructureSignature: [Int] = []
+
     private func sectionAccessibilityChildren() -> [NSAccessibilityElement] {
-        sectionChrome.map { chrome in
+        if let builtSectionElements { return builtSectionElements }
+        let elements = sectionChrome.enumerated().map { position, chrome -> PillAccessibilityElement in
             let element = PillAccessibilityElement()
             element.setAccessibilityParent(self)
             // A fence-less section has nothing to fold, so it is announced as
@@ -623,27 +646,31 @@ final class CommentBadgeOverlay: NSView {
             element.setAccessibilityLabel(
                 Self.sectionAccessibilityLabel(
                     title: chrome.title, added: chrome.added, removed: chrome.removed))
+            element.frameProvider = { [weak self] in
+                guard let self, let window = self.window,
+                    position < self.sectionChrome.count
+                else { return .zero }
+                let current = self.sectionChrome[position]
+                return window.convertToScreen(self.convert(current.rowRect, to: nil))
+            }
             if chrome.foldable {
-                element.setAccessibilityValue(
-                    chrome.collapsed
+                element.valueProvider = { [weak self] in
+                    guard let self, position < self.sectionChrome.count else { return nil }
+                    return self.sectionChrome[position].collapsed
                         ? String(
                             localized: "collapsed",
                             comment: "VoiceOver value for a collapsed branch-changes file section")
                         : String(
                             localized: "expanded",
-                            comment: "VoiceOver value for an expanded branch-changes file section"))
-            }
-            let rowRect = chrome.rowRect
-            element.frameProvider = { [weak self] in
-                guard let self, let window = self.window else { return .zero }
-                return window.convertToScreen(self.convert(rowRect, to: nil))
-            }
-            if chrome.foldable {
+                            comment: "VoiceOver value for an expanded branch-changes file section")
+                }
                 let key = chrome.key
                 element.onPress = { [weak self] in self?.onSectionToggled?(key) }
             }
             return element
         }
+        builtSectionElements = elements
+        return elements
     }
 
     /// `title` is the section's DISPLAY title, never its opaque key. "added" and
@@ -769,8 +796,16 @@ final class CommentBadgeOverlay: NSView {
     private var sectionRangeAttr: NSAttributedString?
     private var sectionRanges: [(key: String, range: NSRange)] = []
 
+    /// Test seam: how many times the whole-document `.diffSectionKey` walk has
+    /// actually run. The cache above is the difference between a fold costing
+    /// one document walk and costing three (the sync pass, the INT-562 async
+    /// pass, and the layout that follows), which no wall-clock assertion can
+    /// state deterministically.
+    private(set) var sectionKeyEnumerationCountForTesting = 0
+
     private func sectionKeyRanges(in attr: NSAttributedString) -> [(key: String, range: NSRange)] {
         if let sectionRangeAttr, sectionRangeAttr === attr { return sectionRanges }
+        sectionKeyEnumerationCountForTesting += 1
         var out: [(key: String, range: NSRange)] = []
         attr.enumerateAttribute(
             .diffSectionKey,
@@ -837,8 +872,36 @@ final class CommentBadgeOverlay: NSView {
             sectionRangeAttr = nil
             sectionRanges = []
         }
+        let signature = out.map { chrome -> Int in
+            var hasher = Hasher()
+            hasher.combine(chrome.key)
+            hasher.combine(chrome.title)
+            hasher.combine(chrome.added)
+            hasher.combine(chrome.removed)
+            hasher.combine(chrome.foldable)
+            return hasher.finalize()
+        }
+        let structureChanged = signature != sectionStructureSignature
+        if structureChanged {
+            sectionStructureSignature = signature
+            builtSectionElements = nil
+        }
         guard out != previous else { return }
         window?.invalidateCursorRects(for: self)
+        // A fold changes each button's value; the held elements resolve that
+        // live, but an assistive client only re-reads when told to (review).
+        // Deliberately NOT posted for a pure geometry move: `out != previous`
+        // also fires on every layout frame of a pane drag, and announcing each
+        // one turns a drag into a notification stream with VoiceOver on. That
+        // makes the trigger narrower than the AXTable path's, which posts on its
+        // structure signature alone — collapsed state is state the table has no
+        // equivalent of. Positional compare is sound because a structure change
+        // (which includes key order) is already covered by the first clause.
+        if window != nil,
+            structureChanged || out.map(\.collapsed) != previous.map(\.collapsed)
+        {
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+        }
         onSectionChromeChanged?()
     }
 
@@ -847,9 +910,14 @@ final class CommentBadgeOverlay: NSView {
         sectionTextView = nil
         sectionRangeAttr = nil
         sectionRanges = []
+        builtSectionElements = nil
+        sectionStructureSignature = []
         guard !sectionChrome.isEmpty else { return }
         sectionChrome = []
         window?.invalidateCursorRects(for: self)
+        if window != nil {
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+        }
         onSectionChromeChanged?()
     }
 
@@ -861,25 +929,54 @@ final class CommentBadgeOverlay: NSView {
     /// suppressed instead of stroking rules through wrapped text. Since INT-687
     /// the container is infinite (wide tables overflow into a horizontal scroll,
     /// they don't wrap), so this suppression is a safety net, not the norm.
-    private func updateTableBorders(attr: NSAttributedString, textView: NSTextView) {
-        // Collect each cell's text rect tagged with its grid position.
-        var cells: [(grid: TableCellGrid, rect: NSRect)] = []
-        var infos: [TableCellInfo] = []
-        var wrappedTables: Set<Int> = []
+    /// The `.tableCellGrid` cell ranges of `attr`, scanned once per attributed-
+    /// string instance — the same deal `sectionKeyRanges` gets, and for the same
+    /// reason: the scan walks EVERY attribute run of the document, and a fold
+    /// runs `updateBadges` twice (the sync pass and the INT-562 async one) on
+    /// top of every layout tick a pane drag fires. Only the per-cell rect
+    /// resolution below is cheap enough to repeat.
+    ///
+    /// Weak, unlike `sectionRangeAttr`: the text storage owns this string, and a
+    /// table-free document has no `borderAttr` clear to piggyback on, so a
+    /// strong reference here would pin a large diff's storage for the pane's
+    /// lifetime. A deallocated string zeroes the reference and the next pass
+    /// simply re-scans.
+    private weak var tableRangeAttr: NSAttributedString?
+    private var tableRanges: [(grid: TableCellGrid, range: NSRange, text: String)] = []
+
+    private func tableCellRanges(
+        in attr: NSAttributedString
+    ) -> [(grid: TableCellGrid, range: NSRange, text: String)] {
+        if let tableRangeAttr, tableRangeAttr === attr { return tableRanges }
+        var out: [(grid: TableCellGrid, range: NSRange, text: String)] = []
         let full = attr.string as NSString
         attr.enumerateAttribute(
             .tableCellGrid,
             in: NSRange(location: 0, length: attr.length),
             options: []
         ) { value, nsRange, _ in
-            guard let grid = value as? TableCellGrid, nsRange.length > 0,
-                let cell = Self.cellRectInTextView(range: nsRange, in: textView)
-            else { return }
-            if cell.segments > 1 {
-                wrappedTables.insert(grid.table)
+            guard let grid = value as? TableCellGrid, nsRange.length > 0 else { return }
+            out.append((grid, nsRange, full.substring(with: nsRange)))
+        }
+        tableRangeAttr = attr
+        tableRanges = out
+        return out
+    }
+
+    private func updateTableBorders(attr: NSAttributedString, textView: NSTextView) {
+        // Collect each cell's text rect tagged with its grid position.
+        var cells: [(grid: TableCellGrid, rect: NSRect)] = []
+        var infos: [TableCellInfo] = []
+        var wrappedTables: Set<Int> = []
+        for entry in tableCellRanges(in: attr) {
+            guard let cell = Self.cellRectInTextView(range: entry.range, in: textView) else {
+                continue
             }
-            cells.append((grid, cell.rect))
-            infos.append(TableCellInfo(grid: grid, rect: cell.rect, text: full.substring(with: nsRange)))
+            if cell.segments > 1 {
+                wrappedTables.insert(entry.grid.table)
+            }
+            cells.append((entry.grid, cell.rect))
+            infos.append(TableCellInfo(grid: entry.grid, rect: cell.rect, text: entry.text))
         }
         // Cache inputs so a plain relayout (resize) can refresh borders via layout();
         // clear them when there are no tables so table-free documents keep the nil
@@ -942,16 +1039,7 @@ final class CommentBadgeOverlay: NSView {
     static func diffTintRows(
         intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
     ) -> [(rect: NSRect, color: NSColor)] {
-        var out: [(rect: NSRect, color: NSColor)] = []
-        for row in diffAttributeRows(.diffLineTint, intersecting: rect, in: textView, width: width) {
-            guard let color = row.value as? NSColor else { continue }
-            if let last = out.last, last.color == color, abs(last.rect.maxY - row.rect.minY) < 1 {
-                out[out.count - 1].rect = last.rect.union(row.rect)
-            } else {
-                out.append((row.rect, color))
-            }
-        }
-        return out
+        diffRows(intersecting: rect, in: textView, width: width).tints
     }
 
     /// A 1pt rule at the top of every hunk-header row intersecting `rect`,
@@ -959,20 +1047,20 @@ final class CommentBadgeOverlay: NSView {
     static func diffHunkRuleRows(
         intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
     ) -> [NSRect] {
-        diffAttributeRows(.diffHunkRule, intersecting: rect, in: textView, width: width)
-            .map { NSRect(x: 0, y: $0.rect.minY, width: width, height: 1) }
+        diffRows(intersecting: rect, in: textView, width: width).rules
     }
 
-    /// Full-width row rects for the layout fragments intersecting `rect` whose
-    /// first character carries `key`, paired with that attribute's value.
-    private static func diffAttributeRows(
-        _ key: NSAttributedString.Key, intersecting rect: NSRect, in textView: NSTextView,
-        width: CGFloat
-    ) -> [(rect: NSRect, value: Any)] {
+    /// Both diff row sets from ONE fragment walk. `draw(_:)` needs the washes
+    /// and the hunk rules together, and each set costs a full walk of the
+    /// visible fragments — the two public accessors above exist for tests, which
+    /// can afford the second walk; the draw path cannot (review).
+    static func diffRows(
+        intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
+    ) -> (tints: [(rect: NSRect, color: NSColor)], rules: [NSRect]) {
         guard let layoutManager = textView.textLayoutManager,
             let contentStorage = textView.textContentStorage,
             let storage = textView.textStorage
-        else { return [] }
+        else { return ([], []) }
         let inset = textView.textContainerInset
         // Fragment frames are in container space; `rect` arrives in overlay
         // (== text view) space, which is the container offset by the inset.
@@ -980,23 +1068,35 @@ final class CommentBadgeOverlay: NSView {
         guard
             let first = layoutManager.textLayoutFragment(
                 for: CGPoint(x: 0, y: max(0, containerRect.minY)))
-        else { return [] }
+        else { return ([], []) }
         let documentStart = contentStorage.documentRange.location
-        var out: [(rect: NSRect, value: Any)] = []
+        var tints: [(rect: NSRect, color: NSColor)] = []
+        var rules: [NSRect] = []
         layoutManager.enumerateTextLayoutFragments(
             from: first.rangeInElement.location, options: [.ensuresLayout]
         ) { fragment in
             let frame = fragment.layoutFragmentFrame
             if frame.minY > containerRect.maxY { return false }
             let offset = contentStorage.offset(from: documentStart, to: fragment.rangeInElement.location)
-            guard offset >= 0, offset < storage.length,
-                let value = storage.attribute(key, at: offset, effectiveRange: nil)
-            else { return true }
-            out.append(
-                (NSRect(x: 0, y: frame.minY + inset.height, width: width, height: frame.height), value))
+            guard offset >= 0, offset < storage.length else { return true }
+            let y = frame.minY + inset.height
+            if let color = storage.attribute(.diffLineTint, at: offset, effectiveRange: nil) as? NSColor {
+                let row = NSRect(x: 0, y: y, width: width, height: frame.height)
+                // One rect per run of same-colored consecutive lines, so a block
+                // of additions is one wash with no hairline seams where rounding
+                // leaves a fraction of a point between rows.
+                if let last = tints.last, last.color == color, abs(last.rect.maxY - row.minY) < 1 {
+                    tints[tints.count - 1].rect = last.rect.union(row)
+                } else {
+                    tints.append((row, color))
+                }
+            }
+            if storage.attribute(.diffHunkRule, at: offset, effectiveRange: nil) != nil {
+                rules.append(NSRect(x: 0, y: y, width: width, height: 1))
+            }
             return true
         }
-        return out
+        return (tints, rules)
     }
 
     /// Build a clean grid (outer frame + interior column/row rules) from the raw
@@ -1182,17 +1282,14 @@ final class CommentBadgeOverlay: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if let textView = superview as? NSTextView {
-            for tint in Self.diffTintRows(intersecting: dirtyRect, in: textView, width: bounds.width) {
+            let rows = Self.diffRows(intersecting: dirtyRect, in: textView, width: bounds.width)
+            for tint in rows.tints {
                 tint.color.withAlphaComponent(Self.diffTintAlpha).setFill()
                 tint.rect.fill()
             }
             if let ruleColor = hunkRuleColor {
                 ruleColor.setFill()
-                for rule in Self.diffHunkRuleRows(
-                    intersecting: dirtyRect, in: textView, width: bounds.width)
-                {
-                    rule.fill()
-                }
+                for rule in rows.rules { rule.fill() }
             }
             if !sectionChrome.isEmpty {
                 let inset = textView.textContainerInset
@@ -1232,7 +1329,7 @@ final class CommentBadgeOverlay: NSView {
         ofSize: 11, weight: .semibold)
 
     private func drawChevron(for chrome: SectionChrome, inset: NSSize) {
-        let tint = tableBorderColor ?? .labelColor
+        let tint = chevronColor ?? .labelColor
         // ponytail: the symbol is rebuilt per visible heading rather than cached.
         // System symbol lookup is cheap and only rows in the dirty rect draw;
         // cache per (appearance, tint) if a scroll profile ever shows it.
@@ -1272,8 +1369,11 @@ final class CommentBadgeOverlay: NSView {
     ) -> NSRect {
         let text = countsBadgeText(added: added, removed: removed) as NSString
         let size = text.size(withAttributes: [.font: countsBadgeFont])
+        // Padding on BOTH sides of the text, inside the trailing inset: the
+        // origin backs off two paddings so the plate's right edge lands on the
+        // inset instead of one padding past it (review).
         return NSRect(
-            x: clipRect.maxX - inset.width - size.width - countsBadgePadding,
+            x: clipRect.maxX - inset.width - size.width - countsBadgePadding * 2,
             y: headingMinY + (sectionHeadingLineHeight - size.height) / 2 - 1,
             width: size.width + countsBadgePadding * 2,
             height: size.height + 2)
@@ -1310,6 +1410,9 @@ final class CommentBadgeOverlay: NSView {
         let background = Self.countsBadgeRect(
             added: chrome.added, removed: chrome.removed, headingMinY: chrome.headingRect.minY,
             clipRect: clipRect, inset: inset)
+        // Lower than `diffTintAlpha` on purpose: that alpha is calibrated for a
+        // wash lying OVER glyphs, where it has to stay readable. This is a chip
+        // in the empty trailing margin, where the same value reads as a box.
         (tableBorderColor ?? .labelColor).withAlphaComponent(0.08).setFill()
         NSBezierPath(roundedRect: background, xRadius: 4, yRadius: 4).fill()
         attributed.draw(
@@ -1378,10 +1481,21 @@ final class PillAccessibilityElement: NSAccessibilityElement {
     /// NSView) keeps a non-Sendable view from crossing the isolation boundary.
     var frameProvider: (@MainActor () -> NSRect)?
     var onPress: (@MainActor () -> Void)?
+    /// Resolved at query time for the same reason the frame is: a section
+    /// button's expanded/collapsed value changes under a held element, and a
+    /// snapshot taken at build time announces the state before the fold. Nil
+    /// falls back to whatever `setAccessibilityValue` stored (the pills, which
+    /// have no value).
+    var valueProvider: (@MainActor () -> String?)?
 
     override func accessibilityFrame() -> NSRect {
         guard let frameProvider else { return .zero }
         return MainActor.assumeIsolated { frameProvider() }
+    }
+
+    override func accessibilityValue() -> Any? {
+        guard let valueProvider else { return super.accessibilityValue() }
+        return MainActor.assumeIsolated { valueProvider() }
     }
 
     override func accessibilityPerformPress() -> Bool {

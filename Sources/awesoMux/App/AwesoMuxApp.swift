@@ -887,8 +887,11 @@ struct AwesoMuxApp: App {
                 .environment(branchChangesCoordinator)
                 .environment(
                     \.branchChangesRefresh,
-                    BranchChangesRefreshAction { paneID, completion in
-                        showBranchChanges(forPane: paneID, completion: completion)
+                    BranchChangesRefreshAction { paneID, originatingDocumentID, completion in
+                        showBranchChanges(
+                            forPane: paneID,
+                            originatingDocumentID: originatingDocumentID,
+                            completion: completion)
                     }
                 )
                 .environment(firstRunTourController)
@@ -3938,6 +3941,7 @@ struct AwesoMuxApp: App {
     ///   cancellation, supersession, failure, and success alike.
     private func showBranchChanges(
         forPane paneID: TerminalPane.ID,
+        originatingDocumentID: DocumentPane.ID? = nil,
         completion: @escaping @MainActor () -> Void = {}
     ) {
         guard let sessionID = sessionStore.sessionIDContainingPane(paneID),
@@ -3995,6 +3999,7 @@ struct AwesoMuxApp: App {
             BranchChangesCompletion.apply(
                 result,
                 paneID: paneID,
+                originatingDocumentID: originatingDocumentID,
                 ticket: ticket,
                 store: sessionStore,
                 coordinator: coordinator,

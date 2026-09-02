@@ -62,7 +62,78 @@ struct BranchDiffOverlayChromeTests {
         let elapsed = ContinuousClock().measure {
             overlay.updateBadges(attr: fresh, textView: textView)
         }
-        #expect(elapsed < .milliseconds(16), "updateBadges took \(elapsed)")
+        // A loose ceiling on purpose: this is a "did the geometry pass go
+        // quadratic" guard, not a frame budget, and a 16 ms wall clock on a
+        // loaded CI box is a flake generator (review). The deterministic half of
+        // the claim is the cache assertion below.
+        #expect(elapsed < .milliseconds(100), "updateBadges took \(elapsed)")
+    }
+
+    @Test("a second pass over the same attributed string re-resolves rects without re-walking the runs")
+    @MainActor
+    func repeatedUpdateReusesTheSectionKeyScan() {
+        let (overlay, textView, attr, _) = makeOverlay(twoFiles)
+        // makeOverlay already ran one pass, so the whole-document walk has been
+        // paid exactly once for this instance.
+        #expect(overlay.sectionKeyEnumerationCountForTesting == 1)
+        overlay.updateBadges(attr: attr, textView: textView)
+        overlay.layout()
+        #expect(
+            overlay.sectionKeyEnumerationCountForTesting == 1,
+            "the identity cache is what keeps a fold from paying three document walks")
+        // A different instance is a genuine miss.
+        let fresh = NSAttributedString(attributedString: attr)
+        overlay.updateBadges(attr: fresh, textView: textView)
+        #expect(overlay.sectionKeyEnumerationCountForTesting == 2)
+    }
+
+    @Test("a fold keeps the same accessibility elements and reports the new value through them")
+    @MainActor
+    func sectionElementsSurviveAFoldWithLiveValues() throws {
+        let (overlay, textView, attr, _) = makeOverlay(twoFiles)
+        let before = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(before.count == 2)
+        #expect(before[0].accessibilityValue() as? String == "expanded")
+        // Re-querying without any change hands back the same instances, the way
+        // VoiceOver expects while its cursor is parked on one.
+        #expect(overlay.sectionAccessibilityChildrenForTesting()[0] === before[0])
+
+        overlay.collapsedSections = ["a.swift"]
+        overlay.updateBadges(attr: attr, textView: textView)
+        let after = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(after[0] === before[0], "a fold changes value and geometry, not identity")
+        // The SAME held element must report the new state, not the one baked in
+        // when it was built.
+        #expect(before[0].accessibilityValue() as? String == "collapsed")
+        #expect(before[1].accessibilityValue() as? String == "expanded")
+    }
+
+    @Test("a structural change retires the section elements instead of reusing them")
+    @MainActor
+    func structuralChangeMintsNewSectionElements() throws {
+        let (overlay, textView, _, _) = makeOverlay(twoFiles)
+        let before = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(before.count == 2)
+
+        // A refresh that dropped one file: different keys, so the held elements
+        // no longer describe anything.
+        let doc = AttributedMarkdownBuilder.build("## b.swift\n\n```diff\n+z\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        let attr = MarkdownAttributedStringBuilder.attributedString(
+            for: doc, textColor: .white, sectionIndex: index)
+        textView.textStorage?.setAttributedString(attr)
+        textView.textLayoutManager?.ensureLayout(for: textView.textLayoutManager!.documentRange)
+        overlay.sectionCounts = Dictionary(
+            uniqueKeysWithValues: index.sections.map { ($0.key, ($0.added, $0.removed)) })
+        overlay.sectionTitles = Dictionary(
+            uniqueKeysWithValues: index.sections.map { ($0.key, $0.title) })
+        overlay.foldableKeys = Set(index.sections.filter(\.isFoldable).map(\.key))
+        overlay.updateBadges(attr: attr, textView: textView)
+
+        let after = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(after.count == 1)
+        #expect(after[0] !== before[0])
+        #expect(after[0].accessibilityLabel() == "b.swift, 1 added, 0 removed")
     }
 
     @Test("one chrome entry per section, in document order, with counts and fold state")

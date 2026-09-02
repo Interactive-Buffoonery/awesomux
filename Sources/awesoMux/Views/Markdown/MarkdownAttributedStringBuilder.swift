@@ -107,19 +107,17 @@ enum MarkdownAttributedStringBuilder {
     private static func sectionKeysByRun(in doc: RenderedDocument, index: BranchDiffSectionIndex) -> [Int: String] {
         var out: [Int: String] = [:]
         var occurrences: [String: Int] = [:]
-        var i = 0
-        while i < doc.runs.count {
-            guard case .heading(level: 2) = doc.runs[i].style else { i += 1; continue }
-            var end = i
-            while end < doc.runs.count, case .heading(level: 2) = doc.runs[end].style { end += 1 }
-            let text = BranchDiffSectionIndex.keyText(headingRuns: doc.runs[i..<end])
+        // Membership only, resolved once: `index.section(key:)` per heading was
+        // a linear scan, so a diff with thousands of files paid O(n²) on the
+        // main thread per rebuild (review).
+        let known = Set(index.keys)
+        for heading in BranchDiffSectionIndex.headingSpans(in: doc.runs) {
+            let text = BranchDiffSectionIndex.keyText(headingRuns: doc.runs[heading])
             let occurrence = occurrences[text, default: 0]
             occurrences[text] = occurrence + 1
             let key = BranchDiffSectionIndex.key(keyText: text, occurrence: occurrence)
-            if index.section(key: key) != nil {
-                for r in i..<end { out[r] = key }
-            }
-            i = end
+            guard known.contains(key) else { continue }
+            for r in heading { out[r] = key }
         }
         return out
     }
