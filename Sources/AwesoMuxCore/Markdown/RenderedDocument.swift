@@ -205,6 +205,23 @@ public struct RenderedDocument: Sendable {
         annotations.first { $0.id == id }
     }
 
+    /// A copy with the runs in `ranges` (half-open run indices) removed and
+    /// every surviving run untouched. Source ranges are deliberately not
+    /// renumbered: they index `source`, which is unchanged, so selection and
+    /// scroll-anchor mapping keep working on the folded document.
+    public func folding(removingRunRanges ranges: [Range<Int>]) -> RenderedDocument {
+        guard !ranges.isEmpty else { return self }
+        var removed = [Bool](repeating: false, count: runs.count)
+        for range in ranges {
+            let lower = max(0, range.lowerBound)
+            let upper = min(runs.count, range.upperBound)
+            guard lower < upper else { continue }
+            for i in lower..<upper { removed[i] = true }
+        }
+        let kept = runs.indices.filter { !removed[$0] }.map { runs[$0] }
+        return RenderedDocument(source: source, runs: kept, annotations: annotations, taskProgress: taskProgress)
+    }
+
     /// Feed for the inline resolution tracker (INT-683). The single
     /// whole-document note has its own status affordance and does not count as
     /// an inline review item.
