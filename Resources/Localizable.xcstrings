@@ -362,6 +362,17 @@
         }
       }
     },
+    "%arg, %arg added, %arg removed" : {
+      "comment" : "VoiceOver label for a branch-changes file section: path, added lines, removed lines",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, %2$arg added, %3$arg removed"
+          }
+        }
+      }
+    },
     "%arg, %arg, %arg, %arg, %arg, %arg" : {
       "comment" : "Accessibility label for a worktree row. Includes its action, branch state, branch name, current or linked state, open state, and path.",
       "localizations" : {
@@ -4804,6 +4815,9 @@
     "click to pin · end session" : {
 
     },
+    "collapsed" : {
+      "comment" : "VoiceOver value for a collapsed branch-changes file section"
+    },
     "column header" : {
       "comment" : "VoiceOver label for an empty table header cell"
     },
@@ -4815,6 +4829,9 @@
     },
     "dismiss" : {
 
+    },
+    "expanded" : {
+      "comment" : "VoiceOver value for an expanded branch-changes file section"
     },
     "file outgrew the limit" : {
       "comment" : "Document banner kicker when a local file grows past the size cap"

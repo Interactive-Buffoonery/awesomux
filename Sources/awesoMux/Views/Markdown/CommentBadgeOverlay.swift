@@ -54,6 +54,35 @@ final class CommentBadgeOverlay: NSView {
     struct TableCellInfo { let grid: TableCellGrid; let rect: NSRect; let text: String }
     private var tableCellInfos: [TableCellInfo] = []
 
+    /// One branch-changes file section's drawn chrome and click target.
+    struct SectionChrome: Equatable {
+        let key: String
+        let title: String
+        let headingRect: NSRect
+        let rowRect: NSRect
+        let collapsed: Bool
+        let added: Int
+        let removed: Int
+    }
+
+    /// Inputs for the section chrome. Set before `updateBadges`; nil disables it.
+    var sectionCounts: [String: (added: Int, removed: Int)]? = nil
+    var sectionTitles: [String: String] = [:]
+    var collapsedSections: Set<String> = []
+
+    /// Tint hues for the counts; set from the builder's `DiffPalette` by
+    /// `MarkdownTextView`. `hunkRuleColor` nil ⇒ no hairline drawn.
+    var addedCountColor: NSColor = .systemGreen
+    var removedCountColor: NSColor = .systemRed
+    var hunkRuleColor: NSColor? = nil
+
+    private(set) var sectionChrome: [SectionChrome] = []
+
+    /// Cached inputs so a plain relayout recomputes heading geometry, mirroring
+    /// the border cache. Cleared for documents with no sections.
+    private weak var sectionTextView: NSTextView?
+    private var sectionAttr: NSAttributedString?
+
     /// Cached inputs for recomputing table borders on a plain relayout (e.g. a pane
     /// resize) that doesn't route through `updateBadges`. The text view is weak (the
     /// overlay must not keep it alive); the attributed string is a strong reference
@@ -87,6 +116,14 @@ final class CommentBadgeOverlay: NSView {
 
     /// Called when the "add" pill is clicked.
     var onAddPillClicked: ((NSRect, NSView) -> Void)? = nil
+
+    /// Called when a file section's heading row is clicked or its accessibility
+    /// button is pressed. The argument is the section key.
+    var onSectionToggled: ((String) -> Void)? = nil
+
+    /// Called when the computed section chrome changes (new geometry, new fold
+    /// state, or none at all). The sticky header reads `sectionChrome` from here.
+    var onSectionChromeChanged: (() -> Void)? = nil
 
     /// Whether snapshot-backed annotation actions can run. Existing pills stay
     /// visible while disabled because they still identify commented text.
@@ -129,6 +166,12 @@ final class CommentBadgeOverlay: NSView {
             )
         } else if let attr = borderAttr, let textView = borderTextView {
             updateTableBorders(attr: attr, textView: textView)
+            updateSectionChrome(attr: attr, textView: textView)
+            needsDisplay = true
+        } else if let attr = sectionAttr, let textView = sectionTextView {
+            // A branch-changes document has sections but no marks and no tables,
+            // so neither cache above holds it.
+            updateSectionChrome(attr: attr, textView: textView)
             needsDisplay = true
         }
     }
@@ -140,19 +183,42 @@ final class CommentBadgeOverlay: NSView {
     /// convert into our bounds space (the overlay shares the text view's flipped
     /// origin, but convert explicitly so this stays correct if the frame ever offsets).
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard annotationsInteractive else { return nil }
         let local = convert(point, from: superview)
+        // Ahead of the interactive gate: folding is not an annotation action, and
+        // a tab reopened from the render cache has annotations off, so a check
+        // after the guard would be unreachable exactly then.
+        if sectionChrome.contains(where: { $0.rowRect.contains(local) }) { return self }
+        guard annotationsInteractive else { return nil }
         for pill in pills {
             if pill.rect.contains(local) { return self }
         }
         return nil
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for chrome in sectionChrome {
+            addCursorRect(chrome.rowRect, cursor: .pointingHand)
+        }
+    }
+
     // MARK: - Mouse handling
 
     override func mouseDown(with event: NSEvent) {
+        dispatchClick(at: convert(event.locationInWindow, from: nil))
+    }
+
+    /// Test seam: runs the same dispatch as `mouseDown` for a point in overlay space.
+    func simulateClick(at point: NSPoint) {
+        dispatchClick(at: point)
+    }
+
+    private func dispatchClick(at point: NSPoint) {
+        if let chrome = sectionChrome.first(where: { $0.rowRect.contains(point) }) {
+            onSectionToggled?(chrome.key)
+            return
+        }
         guard annotationsInteractive else { return }
-        let point = convert(event.locationInWindow, from: nil)
         for pill in pills {
             if pill.rect.contains(point) {
                 if let markID = pill.markID {
@@ -178,7 +244,7 @@ final class CommentBadgeOverlay: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         guard window != nil else { return [] }
-        return pillAccessibilityChildren() + materializedTableElements()
+        return pillAccessibilityChildren() + sectionAccessibilityChildren() + materializedTableElements()
     }
 
     // MARK: - AXTable tree (INT-687)
@@ -530,6 +596,52 @@ final class CommentBadgeOverlay: NSView {
         return displayNumber.map { "Comment \($0)" } ?? "Comment"
     }
 
+    /// Test seam: the section buttons an accessibility query would return
+    /// (headless tests have no window, so `accessibilityChildren()` is
+    /// unreachable to them).
+    func sectionAccessibilityChildrenForTesting() -> [NSAccessibilityElement] {
+        sectionAccessibilityChildren()
+    }
+
+    private func sectionAccessibilityChildren() -> [NSAccessibilityElement] {
+        sectionChrome.map { chrome in
+            let element = PillAccessibilityElement()
+            element.setAccessibilityParent(self)
+            element.setAccessibilityRole(.button)
+            // Deliberately not gated on `annotationsInteractive`: folding is not
+            // an annotation action and stays operable on a cached remount.
+            element.setAccessibilityEnabled(true)
+            element.setAccessibilityLabel(
+                Self.sectionAccessibilityLabel(
+                    key: chrome.title, added: chrome.added, removed: chrome.removed))
+            element.setAccessibilityValue(
+                chrome.collapsed
+                    ? String(
+                        localized: "collapsed",
+                        comment: "VoiceOver value for a collapsed branch-changes file section")
+                    : String(
+                        localized: "expanded",
+                        comment: "VoiceOver value for an expanded branch-changes file section"))
+            let rowRect = chrome.rowRect
+            element.frameProvider = { [weak self] in
+                guard let self, let window = self.window else { return .zero }
+                return window.convertToScreen(self.convert(rowRect, to: nil))
+            }
+            let key = chrome.key
+            element.onPress = { [weak self] in self?.onSectionToggled?(key) }
+            return element
+        }
+    }
+
+    /// `key` is the section's DISPLAY title, never its opaque key. "added" and
+    /// "removed" trail a number as labels, not as pluralized nouns, so this
+    /// needs no stringsdict entry.
+    static func sectionAccessibilityLabel(key: String, added: Int, removed: Int) -> String {
+        String(
+            localized: "\(key), \(added) added, \(removed) removed",
+            comment: "VoiceOver label for a branch-changes file section: path, added lines, removed lines")
+    }
+
     // MARK: - Badge update
 
     /// Recompute pill positions from the text layout manager.
@@ -565,6 +677,7 @@ final class CommentBadgeOverlay: NSView {
             tableAXFrames = [:]
             builtTableElements = nil
             tableStructureSignature = []
+            clearSectionChrome()
             needsDisplay = true
             return
         }
@@ -631,7 +744,67 @@ final class CommentBadgeOverlay: NSView {
         }
 
         updateTableBorders(attr: attr, textView: textView)
+        updateSectionChrome(attr: attr, textView: textView)
         needsDisplay = true
+    }
+
+    /// Resolve one chrome entry per branch-changes file heading from the
+    /// `.diffSectionKey` runs. Cheap enough to run on every layout pass: it
+    /// resolves one rect per heading, not per diff line (see the row-wash note
+    /// on `diffTintRows` for why those stay draw-time only).
+    private func updateSectionChrome(attr: NSAttributedString, textView: NSTextView) {
+        let previous = sectionChrome
+        var out: [SectionChrome] = []
+        if let counts = sectionCounts {
+            let width = bounds.width
+            let titles = sectionTitles
+            let collapsed = collapsedSections
+            attr.enumerateAttribute(
+                .diffSectionKey,
+                in: NSRange(location: 0, length: attr.length),
+                options: []
+            ) { value, nsRange, _ in
+                guard let key = value as? String, nsRange.length > 0,
+                    let cell = Self.cellRectInTextView(range: nsRange, in: textView)
+                else { return }
+                // enumerateAttribute reports the widest effective range for the
+                // key, so one heading is normally one callback; merging keeps
+                // the union correct if a run ever splits.
+                if let last = out.last, last.key == key {
+                    out[out.count - 1] = SectionChrome(
+                        key: key, title: last.title,
+                        headingRect: last.headingRect.union(cell.rect), rowRect: last.rowRect,
+                        collapsed: last.collapsed, added: last.added, removed: last.removed)
+                    return
+                }
+                let count = counts[key] ?? (added: 0, removed: 0)
+                out.append(
+                    SectionChrome(
+                        key: key,
+                        title: titles[key] ?? key,
+                        headingRect: cell.rect,
+                        rowRect: NSRect(
+                            x: 0, y: cell.rect.minY, width: width, height: cell.rect.height),
+                        collapsed: collapsed.contains(key),
+                        added: count.added,
+                        removed: count.removed))
+            }
+        }
+        sectionChrome = out
+        sectionAttr = out.isEmpty ? nil : attr
+        sectionTextView = out.isEmpty ? nil : textView
+        guard out != previous else { return }
+        window?.invalidateCursorRects(for: self)
+        onSectionChromeChanged?()
+    }
+
+    private func clearSectionChrome() {
+        sectionAttr = nil
+        sectionTextView = nil
+        guard !sectionChrome.isEmpty else { return }
+        sectionChrome = []
+        window?.invalidateCursorRects(for: self)
+        onSectionChromeChanged?()
     }
 
     /// Recompute table cell border rects from the `.tableCellGrid` attribute ranges.
@@ -723,6 +896,33 @@ final class CommentBadgeOverlay: NSView {
     static func diffTintRows(
         intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
     ) -> [(rect: NSRect, color: NSColor)] {
+        var out: [(rect: NSRect, color: NSColor)] = []
+        for row in diffAttributeRows(.diffLineTint, intersecting: rect, in: textView, width: width) {
+            guard let color = row.value as? NSColor else { continue }
+            if let last = out.last, last.color == color, abs(last.rect.maxY - row.rect.minY) < 1 {
+                out[out.count - 1].rect = last.rect.union(row.rect)
+            } else {
+                out.append((row.rect, color))
+            }
+        }
+        return out
+    }
+
+    /// A 1pt rule at the top of every hunk-header row intersecting `rect`,
+    /// separating one hunk from the lines above it.
+    static func diffHunkRuleRows(
+        intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
+    ) -> [NSRect] {
+        diffAttributeRows(.diffHunkRule, intersecting: rect, in: textView, width: width)
+            .map { NSRect(x: 0, y: $0.rect.minY, width: width, height: 1) }
+    }
+
+    /// Full-width row rects for the layout fragments intersecting `rect` whose
+    /// first character carries `key`, paired with that attribute's value.
+    private static func diffAttributeRows(
+        _ key: NSAttributedString.Key, intersecting rect: NSRect, in textView: NSTextView,
+        width: CGFloat
+    ) -> [(rect: NSRect, value: Any)] {
         guard let layoutManager = textView.textLayoutManager,
             let contentStorage = textView.textContentStorage,
             let storage = textView.textStorage
@@ -736,7 +936,7 @@ final class CommentBadgeOverlay: NSView {
                 for: CGPoint(x: 0, y: max(0, containerRect.minY)))
         else { return [] }
         let documentStart = contentStorage.documentRange.location
-        var out: [(rect: NSRect, color: NSColor)] = []
+        var out: [(rect: NSRect, value: Any)] = []
         layoutManager.enumerateTextLayoutFragments(
             from: first.rangeInElement.location, options: [.ensuresLayout]
         ) { fragment in
@@ -744,14 +944,10 @@ final class CommentBadgeOverlay: NSView {
             if frame.minY > containerRect.maxY { return false }
             let offset = contentStorage.offset(from: documentStart, to: fragment.rangeInElement.location)
             guard offset >= 0, offset < storage.length,
-                let color = storage.attribute(.diffLineTint, at: offset, effectiveRange: nil) as? NSColor
+                let value = storage.attribute(key, at: offset, effectiveRange: nil)
             else { return true }
-            let row = NSRect(x: 0, y: frame.minY + inset.height, width: width, height: frame.height)
-            if let last = out.last, last.color == color, abs(last.rect.maxY - row.minY) < 1 {
-                out[out.count - 1].rect = last.rect.union(row)
-            } else {
-                out.append((row, color))
-            }
+            out.append(
+                (NSRect(x: 0, y: frame.minY + inset.height, width: width, height: frame.height), value))
             return true
         }
         return out
@@ -944,6 +1140,25 @@ final class CommentBadgeOverlay: NSView {
                 tint.color.withAlphaComponent(Self.diffTintAlpha).setFill()
                 tint.rect.fill()
             }
+            if let ruleColor = hunkRuleColor {
+                ruleColor.setFill()
+                for rule in Self.diffHunkRuleRows(
+                    intersecting: dirtyRect, in: textView, width: bounds.width)
+                {
+                    rule.fill()
+                }
+            }
+            if !sectionChrome.isEmpty {
+                let inset = textView.textContainerInset
+                // Pinned to the CLIP width, not this view's: since INT-687 the
+                // text view is max(clip width, widest line), so a wide unwrapped
+                // line would otherwise push the badge outside the visible pane.
+                let clipWidth = textView.enclosingScrollView?.contentView.bounds.width ?? bounds.width
+                for chrome in sectionChrome where chrome.rowRect.intersects(dirtyRect) {
+                    drawChevron(for: chrome, inset: inset)
+                    drawCounts(for: chrome, clipWidth: clipWidth, inset: inset)
+                }
+            }
         }
         // Table borders next, behind pills. NSTextTable is TextKit 1 only, so we
         // draw the grid ourselves. Each entry is a 1pt-thin rule rect — fill it so
@@ -957,6 +1172,68 @@ final class CommentBadgeOverlay: NSView {
         for pill in pills {
             drawPill(at: pill.rect, isAdd: pill.markID == nil)
         }
+    }
+
+    nonisolated static func countsBadgeText(added: Int, removed: Int) -> String {
+        "+\(added) \u{2212}\(removed)"
+    }
+
+    /// First-line height of a section heading, so chrome stays on the first line
+    /// of a heading that wrapped.
+    private static let sectionHeadingLineHeight: CGFloat = {
+        let font = MarkdownAttributedStringBuilder.sectionHeadingFont()
+        return font.ascender - font.descender + font.leading
+    }()
+
+    private static let countsBadgeFont = NSFont.monospacedDigitSystemFont(
+        ofSize: 11, weight: .semibold)
+
+    private func drawChevron(for chrome: SectionChrome, inset: NSSize) {
+        let tint = tableBorderColor ?? .labelColor
+        // ponytail: the symbol is rebuilt per visible heading rather than cached.
+        // System symbol lookup is cheap and only rows in the dirty rect draw;
+        // cache per (appearance, tint) if a scroll profile ever shows it.
+        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [tint]))
+        guard
+            let image = NSImage(
+                systemSymbolName: chrome.collapsed ? "chevron.right" : "chevron.down",
+                accessibilityDescription: nil
+            )?.withSymbolConfiguration(configuration)
+        else { return }
+        let gutter = MarkdownAttributedStringBuilder.sectionHeadingGutter
+        let size = image.size
+        image.draw(
+            in: NSRect(
+                x: inset.width + (gutter - size.width) / 2,
+                y: chrome.headingRect.minY + (Self.sectionHeadingLineHeight - size.height) / 2,
+                width: size.width,
+                height: size.height))
+    }
+
+    private func drawCounts(for chrome: SectionChrome, clipWidth: CGFloat, inset: NSSize) {
+        let text = Self.countsBadgeText(added: chrome.added, removed: chrome.removed)
+        let attributed = NSMutableAttributedString(
+            string: text,
+            attributes: [.font: Self.countsBadgeFont, .foregroundColor: addedCountColor])
+        let minus = (text as NSString).range(of: "\u{2212}")
+        if minus.location != NSNotFound {
+            attributed.addAttribute(
+                .foregroundColor, value: removedCountColor,
+                range: NSRange(
+                    location: minus.location, length: (text as NSString).length - minus.location))
+        }
+        let size = attributed.size()
+        let padding: CGFloat = 4
+        let origin = NSPoint(
+            x: clipWidth - inset.width - size.width,
+            y: chrome.headingRect.minY + (Self.sectionHeadingLineHeight - size.height) / 2)
+        let background = NSRect(
+            x: origin.x - padding, y: origin.y - 1,
+            width: size.width + padding * 2, height: size.height + 2)
+        (tableBorderColor ?? .labelColor).withAlphaComponent(0.08).setFill()
+        NSBezierPath(roundedRect: background, xRadius: 4, yRadius: 4).fill()
+        attributed.draw(at: origin)
     }
 
     private func pillFont() -> NSFont { Self.pillFontStatic() }
