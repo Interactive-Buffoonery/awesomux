@@ -44,6 +44,15 @@ struct BranchDiffStickyHeaderTests {
         #expect(BranchDiffStickyHeaderView.placement(visibleTop: 99, rows: rows, headerHeight: 30) == nil)
     }
 
+    @Test("the counts label is wide enough for both numbers") @MainActor
+    func countsLabelFitsBothNumbers() {
+        let view = BranchDiffStickyHeaderView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
+        view.model = .init(key: "a", title: "a", added: 170, removed: 5, collapsed: false, foldable: true)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.countsFrameForTesting.width >= view.countsRequiredWidthForTesting)
+        #expect(view.countsFrameForTesting.maxX <= 400)
+    }
+
     @Test("the view starts hidden, shows with a model, and is not a separate accessibility element")
     @MainActor
     func viewModelAndAccessibility() {

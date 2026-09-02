@@ -82,6 +82,11 @@ final class BranchDiffStickyHeaderView: NSView {
     /// the subview that used to swallow the click rather than at empty bar.
     var chevronFrameForTesting: NSRect { chevron.frame }
 
+    /// Test seam: the counts label's frame after layout, and the width the
+    /// label needs; a frame narrower than the need clips the removed count.
+    var countsFrameForTesting: NSRect { countsLabel.frame }
+    var countsRequiredWidthForTesting: CGFloat { countsLabel.intrinsicContentSize.width }
+
     /// Click, or the test seam, resolved to the pinned section's key.
     var onActivate: ((String) -> Void)? = nil
 
@@ -147,7 +152,10 @@ final class BranchDiffStickyHeaderView: NSView {
             width: chevronSize.width,
             height: chevronSize.height)
 
-        let countsSize = countsLabel.attributedStringValue.size()
+        // The label's intrinsic size, not the attributed string's: the text
+        // field cell pads the text horizontally, and sizing to the bare string
+        // clipped the removed count off the right edge ("+170" for "+170 −5").
+        let countsSize = countsLabel.intrinsicContentSize
         countsLabel.frame = NSRect(
             x: bounds.maxX - contentInset - countsSize.width,
             y: (bounds.height - countsSize.height) / 2,
