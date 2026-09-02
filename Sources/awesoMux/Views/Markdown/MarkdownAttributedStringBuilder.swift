@@ -163,33 +163,6 @@ enum MarkdownAttributedStringBuilder {
                 if let tint = diffPalette.tint(kind) {
                     result.addAttribute(.diffLineTint, value: tint, range: range)
                 }
-                // Not a color, so outside the guard too. AppKit's header
-                // documents the value as "(NSArray *) - NSString per custom
-                // text attribute"; a bare NSString crashes
-                // `accessibilityAttributedString(for:)` inside AppKit itself
-                // (`-[NSTaggedPointerString count]: unrecognized selector`).
-                switch kind {
-                case .added:
-                    result.addAttribute(
-                        .accessibilityCustomText,
-                        value: [
-                            String(
-                                localized: "added line",
-                                comment: "VoiceOver custom text attribute on an added diff line")
-                        ],
-                        range: range)
-                case .removed:
-                    result.addAttribute(
-                        .accessibilityCustomText,
-                        value: [
-                            String(
-                                localized: "removed line",
-                                comment: "VoiceOver custom text attribute on a removed diff line")
-                        ],
-                        range: range)
-                default:
-                    break
-                }
             }
 
             // Contrast against the terminal surface, not app chrome; inline code

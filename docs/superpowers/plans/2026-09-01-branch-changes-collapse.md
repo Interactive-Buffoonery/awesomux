@@ -472,7 +472,7 @@ Check `RenderedRun.italic` is what the heading's status run carries (the Core bu
 - [ ] **Step 4: Run tests**
 
 Run: `./script/swift-test.sh --filter BranchDiffSectionIndexTests`
-Expected: 10 tests pass (`HunkHeader` is an `Equatable` struct; an optional tuple would not compare with `==`).
+Expected: 9 tests pass (`HunkHeader` is an `Equatable` struct; an optional tuple would not compare with `==`).
 
 - [ ] **Step 5: Format and hand off**
 

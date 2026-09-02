@@ -28,7 +28,7 @@ Make a long branch diff scannable: each file section can be folded to its headin
 
 `BranchDiffSectionIndex` is built from `RenderedDocument.runs` once per render on a branch-changes tab.
 
-Every level-2 heading is a section. The renderer emits one per file, including fence-less headings for pure renames and mode-only changes; those are sections with no body, not foldable, with zero counts, and they still get a sticky-header row so scrolling through a renamed file never leaves the previous file's name pinned. It records:
+Every level-2 heading is a section. The renderer emits one per file, including fence-less headings for pure renames and copies; those are sections with no body, not foldable, with zero counts, and they still get a sticky-header row so scrolling through a renamed file never leaves the previous file's name pinned. Mode-only changes keep their `old mode`/`new mode` lines inside the fence, so they render a fence with no added or removed lines and fold like any other file. It records:
 
 - `key`: the path half of the heading (its non-italic runs, with the trailing separator before the italic status trimmed), so a fold keyed while the file read `— new file` still applies after the file is committed or the language changes. A newline-separated ordinal disambiguates repeated paths; newlines cannot occur in heading text, so no real path can collide. `title` keeps the full heading text for display.
 - `headingRange`: the heading's character range in the joined text, and its run index.
@@ -88,7 +88,7 @@ Transcript tabs and remote snapshots keep their current footers.
 - Persisting collapsed state across relaunch.
 - Side-by-side view, syntax highlighting, editing.
 - Per-heading keyboard toggling inside the text view (Collapse All / Expand All is the keyboard path).
-- Per-line VoiceOver roles: the spike stamped `.accessibilityCustomText` (value MUST be a one-element `[String]`; a bare `String` crashes the accessibility bridge with `-[NSTaggedPointerString count]`) on added and removed diff lines; the attribute survives into `NSTextView.accessibilityAttributedString(for:)` in a headless test; it ships in this PR pending a live VoiceOver listen by the maintainer, and is removed if VoiceOver does not speak it.
+- Per-line VoiceOver roles: a spike stamped `.accessibilityCustomText` (value must be a one-element `[String]`; a bare `String` crashes the accessibility bridge) on added and removed diff lines, and the attribute reached `NSTextView.accessibilityAttributedString(for:)` in a headless test, but a live VoiceOver session never spoke it, so it was removed; VoiceOver still reads the leading `+`/`-` of each line, which is the usable cue; per-line roles remain a follow-up on #570.
 
 ## Testing
 
