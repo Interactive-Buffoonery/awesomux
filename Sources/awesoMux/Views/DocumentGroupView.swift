@@ -210,6 +210,10 @@ struct DocumentGroupView: View {
                     pane: document,
                     cachedRender: tabMemory.render(for: document),
                     initialScrollAnchor: tabMemory.scrollAnchor(for: document),
+                    initialCopyMode: tabMemory.isCopyMode(for: document),
+                    onCopyModeChanged: { isCopyMode in
+                        tabMemory.storeCopyMode(isCopyMode, for: document)
+                    },
                     onCommentCountChanged: { count in
                         if commentResolution.observe(commentCount: count) {
                             // Candidate resolve: wait out the settle window so a

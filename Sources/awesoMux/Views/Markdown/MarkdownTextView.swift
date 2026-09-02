@@ -23,6 +23,35 @@ import SwiftUI
 final class SelectionAwareTextView: NSTextView {
     /// Called after mouseDown's tracking loop finalizes the selection. Args: the text view.
     var onSelectionFinished: ((NSTextView) -> Void)? = nil
+    /// Copy Mode publishes only what is visibly selected, without rich-text
+    /// attributes that can carry hidden review markup or local file URLs.
+    var copiesPlainTextOnly = false
+
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        copiesPlainTextOnly ? [.string] : super.writablePasteboardTypes
+    }
+
+    override func writeSelection(
+        to pasteboard: NSPasteboard,
+        type: NSPasteboard.PasteboardType
+    ) -> Bool {
+        guard copiesPlainTextOnly else {
+            return super.writeSelection(to: pasteboard, type: type)
+        }
+        guard type == .string, let selectedPlainText else { return false }
+        pasteboard.clearContents()
+        return pasteboard.setString(selectedPlainText, forType: .string)
+    }
+
+    override func writeSelection(
+        to pasteboard: NSPasteboard,
+        types: [NSPasteboard.PasteboardType]
+    ) -> Bool {
+        guard copiesPlainTextOnly else {
+            return super.writeSelection(to: pasteboard, types: types)
+        }
+        return writeSelection(to: pasteboard, type: .string)
+    }
 
     override func mouseDown(with event: NSEvent) {
         let before = selectedRange()
@@ -30,6 +59,20 @@ final class SelectionAwareTextView: NSTextView {
         let after = selectedRange()
         guard after.length > 0, after != before else { return }
         onSelectionFinished?(self)
+    }
+
+    private var selectedPlainText: String? {
+        let source = string as NSString
+        let ranges = selectedRanges.compactMap { value -> NSRange? in
+            let range = value.rangeValue
+            guard range.location != NSNotFound,
+                range.length > 0,
+                NSMaxRange(range) <= source.length
+            else { return nil }
+            return range
+        }
+        guard !ranges.isEmpty else { return nil }
+        return ranges.map { source.substring(with: $0) }.joined(separator: "\n")
     }
 }
 
@@ -121,6 +164,9 @@ struct MarkdownTextView: NSViewRepresentable {
     /// Whether snapshot-backed annotation actions can run. Pills remain visible
     /// while false so existing comments still provide location context.
     var annotationsInteractive = true
+    /// When true, copy writes only `.string` so invisible annotation/link
+    /// attributes cannot escape through rich pasteboard representations.
+    var copiesPlainTextOnly = false
 
     // Bigfoot seams
     /// Called when a comment pill is clicked. Args: markID, pill rect in overlay coords, overlay view.
@@ -348,6 +394,7 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         context.coordinator.onSelectionChanged = onSelectionChanged
         context.coordinator.onSourceUpdateDeferred = onSourceUpdateDeferred
+        context.coordinator.installAnnotationVisibilityValidator(in: textView)
 
         // Wire the mouseDown-tracking-loop callback into the coordinator.
         textView.onSelectionFinished = { [weak coordinator = context.coordinator] tv in
@@ -379,6 +426,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.annotationsInteractive = annotationsInteractive
+        textView.copiesPlainTextOnly = copiesPlainTextOnly
 
         // INT-687: pane resizes reach the coordinator through the clip view's
         // frame, which is the one geometry the prose wrap width depends on.
@@ -413,6 +461,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        (textView as? SelectionAwareTextView)?.copiesPlainTextOnly = copiesPlainTextOnly
 
         // Table grid stroke color tracks the adaptive body text color (dimmed) so
         // the grid reads on dark and light terminals. Drawn by the badge overlay
@@ -478,6 +527,7 @@ struct MarkdownTextView: NSViewRepresentable {
         let highlightChanged = context.coordinator.lastHighlightColor != highlightColor
         let hiddenChanged = context.coordinator.lastHiddenAnnotationIDs != hiddenAnnotationIDs
         var didReplaceTextStorage = false
+        var didUpdateAnnotationVisibility = false
         var didDeferSourceUpdate = false
         var foldViewportAnchor: Int? = nil
         if sourceChanged {
@@ -494,7 +544,10 @@ struct MarkdownTextView: NSViewRepresentable {
             // and the value we hand to textStorage are guaranteed to be the same instance.
             let mutableAttr = NSMutableAttributedString(attributedString: attr)
             MarkdownAttributedStringBuilder.applyHighlights(
-                mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
+                mutableAttr,
+                highlightColor: highlightColor,
+                resolvedIDs: doc.resolvedAnnotationIDs
+            )
             let selectedRange = textView.selectedRange()
             let canPreserveSelection = TextStorageSelectionPreservation.canPreserve(
                 selection: selectedRange,
@@ -568,7 +621,25 @@ struct MarkdownTextView: NSViewRepresentable {
                 // against the same collapsed set from `DocumentTabMemory`, so a
                 // captured offset always lands on a visible run.
                 context.coordinator.lastDoc = displayDoc
-                context.coordinator.currentAttr = mutableAttr
+                if !context.coordinator.updateAnnotationVisibility(
+                    in: textView,
+                    hiddenIDs: hiddenAnnotationIDs,
+                    resettingExistingOverrides: true
+                ) {
+                    // TextKit 1 fallback: bake visibility into the storage.
+                    MarkdownAttributedStringBuilder.applyHighlights(
+                        mutableAttr,
+                        highlightColor: highlightColor,
+                        resolvedIDs: doc.resolvedAnnotationIDs,
+                        hiddenIDs: hiddenAnnotationIDs
+                    )
+                    context.coordinator.replaceTextStorage(
+                        mutableAttr,
+                        in: textView,
+                        preserving: preservedRange
+                    )
+                    context.coordinator.noteStorageReplaced()
+                }
                 context.coordinator.sourceUpdateDidApply()
                 context.coordinator.publishSelectionState(in: textView)
 
@@ -587,12 +658,54 @@ struct MarkdownTextView: NSViewRepresentable {
                     }
                 }
             }
-        } else if highlightChanged || hiddenChanged {
-            // Highlight color or resolved-filter changed — re-apply without
-            // rebuilding the full attributed string.
+        } else if highlightChanged {
+            // A theme/accent change updates the stored base colors. This is rare;
+            // visibility changes below stay entirely in TextKit 2's rendering layer.
             if let mutableAttr = context.coordinator.currentAttr {
+                if context.coordinator.updateBaseAnnotationHighlights(
+                    in: textView,
+                    highlightColor: highlightColor,
+                    resolvedIDs: doc.resolvedAnnotationIDs
+                ) {
+                    _ = context.coordinator.updateAnnotationVisibility(
+                        in: textView,
+                        hiddenIDs: hiddenAnnotationIDs,
+                        resettingExistingOverrides: true
+                    )
+                } else {
+                    // Defensive recovery for an unexpected coordinator/storage
+                    // mismatch. Preserve the established full-replacement path.
+                    MarkdownAttributedStringBuilder.applyHighlights(
+                        mutableAttr,
+                        highlightColor: highlightColor,
+                        resolvedIDs: doc.resolvedAnnotationIDs,
+                        hiddenIDs: hiddenAnnotationIDs
+                    )
+                    let selectedRange = textView.selectedRange()
+                    context.coordinator.replaceTextStorage(
+                        mutableAttr,
+                        in: textView,
+                        preserving: selectedRange.length > 0 ? selectedRange : nil
+                    )
+                    didReplaceTextStorage = true
+                    context.coordinator.noteStorageReplaced()
+                }
+                context.coordinator.publishSelectionState(in: textView)
+            }
+        } else if hiddenChanged {
+            if context.coordinator.updateAnnotationVisibility(
+                in: textView,
+                hiddenIDs: hiddenAnnotationIDs
+            ) {
+                didUpdateAnnotationVisibility = true
+            } else if let mutableAttr = context.coordinator.currentAttr {
+                // TextKit 1 fallback retains the established replacement path.
                 MarkdownAttributedStringBuilder.applyHighlights(
-                    mutableAttr, highlightColor: highlightColor, resolvedIDs: doc.resolvedAnnotationIDs, hiddenIDs: hiddenAnnotationIDs)
+                    mutableAttr,
+                    highlightColor: highlightColor,
+                    resolvedIDs: doc.resolvedAnnotationIDs,
+                    hiddenIDs: hiddenAnnotationIDs
+                )
                 let selectedRange = textView.selectedRange()
                 context.coordinator.replaceTextStorage(
                     mutableAttr,
@@ -600,11 +713,8 @@ struct MarkdownTextView: NSViewRepresentable {
                     preserving: selectedRange.length > 0 ? selectedRange : nil
                 )
                 didReplaceTextStorage = true
-                context.coordinator.publishSelectionState(in: textView)
-                // INT-687: this branch replaces the storage too (currentAttr has
-                // no tailIndent baked in), so the prose would silently unwrap on
-                // a highlight/filter toggle without a fresh rewrap pass here.
                 context.coordinator.noteStorageReplaced()
+                context.coordinator.publishSelectionState(in: textView)
             }
         }
         if !didDeferSourceUpdate {
@@ -738,6 +848,19 @@ struct MarkdownTextView: NSViewRepresentable {
                     )
                     coordinator.updateStickyHeader()
                 }
+            } else if didUpdateAnnotationVisibility,
+                let attr = context.coordinator.currentAttr
+            {
+                // Visibility does not move glyphs, so cached layout is already
+                // authoritative. Only filter/recreate annotation pills; table
+                // geometry is unchanged and need not be rescanned.
+                overlay.updateBadges(
+                    attr: attr,
+                    textView: textView,
+                    displayNumbers: Self.spanDisplayNumbers(in: context.coordinator.lastDoc),
+                    hiddenIDs: context.coordinator.lastHiddenAnnotationIDs,
+                    updatesTableBorders: false
+                )
             }
 
             // Compute add pill position from the trailing edge of the current selection,
@@ -799,6 +922,8 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     var lastRelativeLinkBaseURL: URL? = nil
     var lastAllowsDocumentLinks: Bool? = nil
     var currentAttr: NSMutableAttributedString? = nil
+    private var textStorageRevision = 0
+    private var adoptedAttributeRevision: Int? = nil
 
     // Task 5
     weak var textView: NSTextView? = nil
@@ -986,10 +1111,163 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     ) {
         isReplacingTextStorage = true
         textView.textStorage?.setAttributedString(replacement)
+        textStorageRevision &+= 1
+        currentAttr =
+            (replacement as? NSMutableAttributedString)
+            ?? NSMutableAttributedString(attributedString: replacement)
+        adoptedAttributeRevision = textStorageRevision
         if let selectedRange {
             textView.setSelectedRange(selectedRange)
         }
         isReplacingTextStorage = false
+    }
+
+    /// Adopts attributes installed outside `replaceTextStorage`, primarily for
+    /// focused TextKit tests. Production updates use the replacement method so
+    /// storage ownership can be checked in constant time during layout.
+    func adoptCurrentAttributes(_ attributes: NSMutableAttributedString, in textView: NSTextView) -> Bool {
+        guard attributes.length == textView.textStorage?.length else { return false }
+        currentAttr = attributes
+        adoptedAttributeRevision = textStorageRevision
+        return true
+    }
+
+    private func hasAdoptedCurrentAttributes(in textView: NSTextView) -> Bool {
+        guard let currentAttr else { return false }
+        return adoptedAttributeRevision == textStorageRevision
+            && currentAttr.length == textView.textStorage?.length
+    }
+
+    /// Updates stored highlight colors without replacing the live text storage.
+    /// Paragraph wrapping and selection therefore remain intact on theme changes.
+    func updateBaseAnnotationHighlights(
+        in textView: NSTextView,
+        highlightColor: NSColor,
+        resolvedIDs: Set<String>
+    ) -> Bool {
+        guard let currentAttr,
+            let storage = textView.textStorage,
+            hasAdoptedCurrentAttributes(in: textView)
+        else { return false }
+
+        MarkdownAttributedStringBuilder.applyHighlights(
+            currentAttr,
+            highlightColor: highlightColor,
+            resolvedIDs: resolvedIDs
+        )
+        MarkdownAttributedStringBuilder.applyHighlights(
+            storage,
+            highlightColor: highlightColor,
+            resolvedIDs: resolvedIDs
+        )
+        return true
+    }
+
+    /// Hides highlights through TextKit 2 rendering overrides. These attributes
+    /// sit above the backing store and do not invalidate paragraph layout.
+    func installAnnotationVisibilityValidator(in textView: NSTextView) {
+        guard let layoutManager = textView.textLayoutManager else { return }
+        layoutManager.renderingAttributesValidator = { [weak self, weak textView] layoutManager, fragment in
+            guard let self, let textView else { return }
+            self.validateAnnotationVisibility(
+                in: textView,
+                layoutManager: layoutManager,
+                fragment: fragment
+            )
+        }
+    }
+
+    func updateAnnotationVisibility(
+        in textView: NSTextView,
+        hiddenIDs: Set<String>,
+        resettingExistingOverrides: Bool = false
+    ) -> Bool {
+        guard let currentAttr,
+            let layoutManager = textView.textLayoutManager,
+            let contentStorage = textView.textContentStorage,
+            hasAdoptedCurrentAttributes(in: textView)
+        else { return false }
+
+        let changedIDs: Set<String>
+        if resettingExistingOverrides {
+            layoutManager.removeRenderingAttribute(
+                .backgroundColor,
+                for: layoutManager.documentRange
+            )
+            changedIDs = hiddenIDs
+        } else {
+            changedIDs = lastHiddenAnnotationIDs.symmetricDifference(hiddenIDs)
+        }
+        lastHiddenAnnotationIDs = hiddenIDs
+        guard !changedIDs.isEmpty else { return true }
+
+        currentAttr.enumerateAttribute(
+            .markID,
+            in: NSRange(location: 0, length: currentAttr.length),
+            options: []
+        ) { value, range, _ in
+            guard let markID = value as? String,
+                changedIDs.contains(markID),
+                let start = contentStorage.location(
+                    contentStorage.documentRange.location,
+                    offsetBy: range.location
+                ),
+                let end = contentStorage.location(start, offsetBy: range.length),
+                let textRange = NSTextRange(location: start, end: end)
+            else { return }
+            if hiddenIDs.contains(markID) {
+                layoutManager.setRenderingAttributes(
+                    [.backgroundColor: NSNull()],
+                    for: textRange
+                )
+            } else {
+                layoutManager.removeRenderingAttribute(
+                    .backgroundColor,
+                    for: textRange
+                )
+            }
+        }
+        return true
+    }
+
+    private func validateAnnotationVisibility(
+        in textView: NSTextView,
+        layoutManager: NSTextLayoutManager,
+        fragment: NSTextLayoutFragment
+    ) {
+        guard !lastHiddenAnnotationIDs.isEmpty,
+            let currentAttr,
+            let contentStorage = textView.textContentStorage,
+            hasAdoptedCurrentAttributes(in: textView)
+        else { return }
+
+        let documentStart = contentStorage.documentRange.location
+        let start = contentStorage.offset(
+            from: documentStart,
+            to: fragment.rangeInElement.location
+        )
+        let end = contentStorage.offset(
+            from: documentStart,
+            to: fragment.rangeInElement.endLocation
+        )
+        guard start >= 0, end > start, start < currentAttr.length else { return }
+        let fragmentRange = NSRange(
+            location: start,
+            length: min(end, currentAttr.length) - start
+        )
+
+        currentAttr.enumerateAttribute(.markID, in: fragmentRange, options: []) { value, range, _ in
+            guard let markID = value as? String,
+                self.lastHiddenAnnotationIDs.contains(markID),
+                let rangeStart = contentStorage.location(documentStart, offsetBy: range.location),
+                let rangeEnd = contentStorage.location(rangeStart, offsetBy: range.length),
+                let textRange = NSTextRange(location: rangeStart, end: rangeEnd)
+            else { return }
+            layoutManager.setRenderingAttributes(
+                [.backgroundColor: NSNull()],
+                for: textRange
+            )
+        }
     }
 
     func publishSourceUpdateDeferred() {

@@ -33,8 +33,10 @@ import Testing
         let tab = makeTab(path: "/tmp/a.md")
         memory.storeRender(makeRender(source: "a"), for: tab)
         memory.storeScrollAnchor(42, for: tab)
+        memory.storeCopyMode(true, for: tab)
         #expect(memory.render(for: tab)?.loadResult == .loaded(source: "a", snapshot: nil))
         #expect(memory.scrollAnchor(for: tab) == 42)
+        #expect(memory.isCopyMode(for: tab))
     }
 
     @Test func successfulRenderSeedDropsTheFileSnapshot() throws {
@@ -109,6 +111,7 @@ import Testing
         replaced.fileURL = URL(fileURLWithPath: "/tmp/b.md")
         #expect(memory.render(for: replaced) == nil)
         #expect(memory.scrollAnchor(for: replaced) == nil)
+        #expect(!memory.isCopyMode(for: replaced))
 
         // Writing under the new path starts a fresh entry; the old path's
         // memory does not resurface even though the tab id matches.
@@ -123,11 +126,13 @@ import Testing
         let closed = makeTab(path: "/tmp/b.md")
         memory.storeRender(makeRender(source: "a"), for: kept)
         memory.storeScrollAnchor(1, for: kept)
+        memory.storeCopyMode(true, for: kept)
         memory.storeRender(makeRender(source: "b"), for: closed)
 
         memory.prune(keeping: [kept])
         #expect(memory.render(for: kept) != nil)
         #expect(memory.scrollAnchor(for: kept) == 1)
+        #expect(memory.isCopyMode(for: kept))
         #expect(memory.render(for: closed) == nil)
     }
 

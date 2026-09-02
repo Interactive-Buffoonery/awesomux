@@ -701,7 +701,8 @@ final class CommentBadgeOverlay: NSView {
         attr: NSAttributedString,
         textView: NSTextView,
         displayNumbers: [String: Int] = [:],
-        hiddenIDs: Set<String> = []
+        hiddenIDs: Set<String> = [],
+        updatesTableBorders: Bool = true
     ) {
         guard textView.textLayoutManager != nil,
             textView.textContentStorage != nil,
@@ -783,7 +784,9 @@ final class CommentBadgeOverlay: NSView {
             badgeHiddenIDs = hiddenIDs
         }
 
-        updateTableBorders(attr: attr, textView: textView)
+        if updatesTableBorders {
+            updateTableBorders(attr: attr, textView: textView)
+        }
         updateSectionChrome(attr: attr, textView: textView)
         needsDisplay = true
     }

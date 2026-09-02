@@ -1158,6 +1158,9 @@ struct DocumentPaneView: View {
     /// that lags a render can never shadow the current one.
     var collapsedSections: Set<String> = []
     var onSectionToggled: ((String) -> Void)?
+    /// Saves Copy Mode in the parent tab memory so tab and Files round trips
+    /// preserve the user's explicit mode choice.
+    var onCopyModeChanged: (Bool) -> Void
 
     /// Task 6: terminal background propagated by TerminalPaneView so the highlight
     /// contrast is measured against the actual painted surface, not the app chrome.
@@ -1188,6 +1191,10 @@ struct DocumentPaneView: View {
     @State private var selectedSourceSpan: Range<Int>? = nil
     // INT-580 annotation surface state is per-pane and deliberately unpersisted.
     @State private var hideResolved = false
+    /// A copy-friendly presentation for documents whose review is complete.
+    /// Text remains selectable, but resolved markup and comment creation are
+    /// suppressed until the user returns to Review Mode.
+    @State private var isCopyMode = false
     /// The render the document-note sheet was opened against. Captured at open
     /// (like the popovers capture `doc`): the sheet edits against this
     /// snapshot, so an external change trips the stale-source guard instead of
@@ -1237,6 +1244,8 @@ struct DocumentPaneView: View {
         pane: DocumentPane,
         cachedRender: DocumentTabMemory.Render? = nil,
         initialScrollAnchor: Int? = nil,
+        initialCopyMode: Bool = false,
+        onCopyModeChanged: @escaping (Bool) -> Void = { _ in },
         onCommentCountChanged: @escaping (Int) -> Void = { _ in },
         onRenderCompleted: ((DocumentTabMemory.Render) -> Void)? = nil,
         onOpenDocumentLink: ((URL) -> Void)? = nil,
@@ -1257,10 +1266,12 @@ struct DocumentPaneView: View {
         self.onRegisterScrollAnchorCapture = onRegisterScrollAnchorCapture
         self.collapsedSections = collapsedSections
         self.onSectionToggled = onSectionToggled
+        self.onCopyModeChanged = onCopyModeChanged
         _loadResult = State(initialValue: cachedRender?.loadResult)
         _renderedDoc = State(initialValue: cachedRender?.renderedDoc)
         _localSectionIndex = State(initialValue: cachedRender?.sectionIndex)
         _pendingScrollAnchor = State(initialValue: initialScrollAnchor)
+        _isCopyMode = State(initialValue: initialCopyMode)
         _showsOversizeBanner = State(
             initialValue: DocumentOversizePolicy.isOversize(
                 path: pane.fileURL.standardizedFileURL.path))
@@ -1353,6 +1364,22 @@ struct DocumentPaneView: View {
                     .accessibilityLabel("Loading document")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .onChange(of: isCopyMode) { _, copying in
+            onCopyModeChanged(copying)
+            if copying {
+                nsPopover?.close()
+                nsPopover = nil
+            }
+            TerminalAccessibilityAnnouncer.announce(
+                copying
+                    ? String(
+                        localized: "Copy mode enabled. Selecting text will not create comments.",
+                        comment: "VoiceOver announcement when a Markdown document enters copy mode")
+                    : String(
+                        localized: "Review mode enabled. Selecting text can create comments.",
+                        comment: "VoiceOver announcement when a Markdown document leaves copy mode")
+            )
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -1496,6 +1523,13 @@ struct DocumentPaneView: View {
             DocumentOversizePolicy.noteOversize(false, path: path)
             showsOversizeBanner = false
             renderedDoc = doc
+            if isCopyMode,
+                let doc,
+                !DocumentCopyModePolicy.isAvailable(
+                    in: DocumentAnnotationProjection(document: doc))
+            {
+                isCopyMode = false
+            }
             loadResult = result
             // The watcher deliberately retains the captured scroll anchor for
             // every nil snapshot, because the over-cap case keeps the mounted
@@ -1577,14 +1611,27 @@ struct DocumentPaneView: View {
         let snapshot = Self.editableSnapshot(snapshot, isBannerShowing: showsOversizeBanner)
         if let doc = renderedDoc {
             let isReadOnly = !pane.isEditable
-            let annotationsInteractive = snapshot != nil
+            let annotationProjection = DocumentAnnotationProjection(document: doc)
+            let copyModeAvailable =
+                pane.isEditable && DocumentCopyModePolicy.isAvailable(in: annotationProjection)
+            let copyModeActive =
+                pane.isEditable
+                && DocumentCopyModePolicy.isActive(
+                    requested: isCopyMode,
+                    projection: annotationProjection
+                )
+            let annotationsInteractive = snapshot != nil && !copyModeActive
             let spanTouchesMark =
                 selectedSourceSpan.map {
                     SelectionSourceMapping.spanTouchesExistingMark($0, in: doc)
                 } ?? false
             // Hoisted: body re-evaluates per selection event, and these build
             // fresh collections (review: avoid re-deriving them ~6x per pass).
-            let hiddenIDs = hideResolved ? doc.resolvedAnnotationIDs : []
+            let hiddenIDs = DocumentCopyModePolicy.hiddenAnnotationIDs(
+                in: annotationProjection,
+                isCopyMode: copyModeActive,
+                hideResolved: hideResolved
+            )
 
             ZStack {
                 VStack(spacing: 0) {
@@ -1597,8 +1644,12 @@ struct DocumentPaneView: View {
                     }
                     // Editable documents always expose the single document-note
                     // action; snapshots show it only when a note exists.
-                    if !isReadOnly || doc.documentNote != nil || !doc.annotations.isEmpty {
-                        documentAnnotationBar(doc: doc, snapshot: snapshot)
+                    if !isReadOnly || annotationProjection.documentNote != nil || !doc.annotations.isEmpty {
+                        documentAnnotationBar(
+                            doc: doc,
+                            annotationProjection: annotationProjection,
+                            snapshot: snapshot
+                        )
                     }
                     if doc.runs.isEmpty {
                         Text("This document is empty.")
@@ -1616,6 +1667,7 @@ struct DocumentPaneView: View {
                             relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
                             allowsDocumentLinks: !isReadOnly,
                             annotationsInteractive: annotationsInteractive,
+                            copiesPlainTextOnly: copyModeActive,
                             onPillClicked: { markID, pillRect, anchorView in
                                 guard let snapshot else { return }
                                 showCommentPopover(
@@ -1690,7 +1742,16 @@ struct DocumentPaneView: View {
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contextMenu {
-                            if !isReadOnly {
+                            Button("Copy") {
+                                markdownNSTextView?.copy(nil)
+                            }
+                            .disabled(
+                                markdownNSTextView?.selectedRanges.contains {
+                                    $0.rangeValue.length > 0
+                                } != true
+                            )
+
+                            if !isReadOnly && !copyModeActive {
                                 Button("Add Comment") {
                                     guard let snapshot,
                                         let span = selectedSourceSpan, !spanTouchesMark
@@ -1720,14 +1781,24 @@ struct DocumentPaneView: View {
                                 }
                                 .disabled(snapshot == nil || selectedSourceSpan == nil || spanTouchesMark)
 
-                                Button(doc.documentNote == nil ? "Add Document Note…" : "Document Note…") {
+                                Button(
+                                    annotationProjection.documentNote == nil
+                                        ? "Add Document Note…" : "Document Note…"
+                                ) {
                                     guard let snapshot else { return }
                                     documentNoteSheetDoc = doc
                                     documentNoteSheetSnapshot = snapshot
                                 }
                                 .disabled(snapshot == nil)
                             }
-                            Toggle("Hide Resolved Annotations", isOn: $hideResolved)
+                            if copyModeAvailable {
+                                Toggle(
+                                    DocumentCopyModePresentation(isCopyMode: isCopyMode).controlTitle,
+                                    isOn: $isCopyMode
+                                )
+                            } else {
+                                Toggle("Hide Resolved Annotations", isOn: $hideResolved)
+                            }
                         }
                     }
                 }
@@ -1844,12 +1915,22 @@ struct DocumentPaneView: View {
     /// the leading edge and the inline resolved filter on the trailing edge.
     private func documentAnnotationBar(
         doc: RenderedDocument,
+        annotationProjection: DocumentAnnotationProjection,
         snapshot: MarkdownDocumentSnapshot?
     ) -> some View {
-        let documentNote = doc.documentNote
-        let resolvedCount = doc.resolvedAnnotationCount
+        let documentNote = annotationProjection.documentNote
+        let resolvedCount = annotationProjection.resolvedSpanCount
+        let copyModeAvailable =
+            pane.isEditable && DocumentCopyModePolicy.isAvailable(in: annotationProjection)
+        let copyModeActive =
+            pane.isEditable
+            && DocumentCopyModePolicy.isActive(
+                requested: isCopyMode,
+                projection: annotationProjection
+            )
+        let copyModePresentation = DocumentCopyModePresentation(isCopyMode: isCopyMode)
         return HStack {
-            if pane.isEditable || documentNote != nil {
+            if !copyModeActive && (pane.isEditable || documentNote != nil) {
                 Button {
                     guard let snapshot else { return }
                     documentNoteSheetDoc = doc
@@ -1868,22 +1949,39 @@ struct DocumentPaneView: View {
                 .accessibilityLabel(documentNoteAccessibilityLabel(documentNote))
             }
             Spacer()
-            Button {
-                hideResolved.toggle()
-            } label: {
-                Label(
-                    hideResolved ? "Show Resolved" : "Hide Resolved",
-                    systemImage: hideResolved ? "eye" : "eye.slash"
-                )
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(hideResolved ? Color.aw.mauve : Color.aw.text2)
+            if copyModeAvailable {
+                Toggle(isOn: $isCopyMode) {
+                    Label(
+                        copyModePresentation.controlTitle,
+                        systemImage: isCopyMode ? "checkmark.circle.fill" : "circle"
+                    )
+                    .awFont(AwFont.UI.meta)
+                    .fontWeight(.medium)
+                    .foregroundStyle(
+                        isCopyMode ? Color.aw.accentOnChrome(.mauve) : Color.aw.text2
+                    )
+                }
+                .toggleStyle(.button)
+                .buttonStyle(.plain)
+                .help(copyModePresentation.helpText)
+            } else {
+                Button {
+                    hideResolved.toggle()
+                } label: {
+                    Label(
+                        hideResolved ? "Show Resolved" : "Hide Resolved",
+                        systemImage: hideResolved ? "eye" : "eye.slash"
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(hideResolved ? Color.aw.mauve : Color.aw.text2)
+                }
+                .buttonStyle(.plain)
+                .disabled(resolvedCount == 0 && !hideResolved)
+                .help(resolvedAnnotationsHelpText(resolvedCount: resolvedCount))
+                .accessibilityLabel("Hide resolved annotations")
+                .accessibilityValue(hideResolved ? "On" : "Off")
+                .accessibilityAddTraits(.isToggle)
             }
-            .buttonStyle(.plain)
-            .disabled(resolvedCount == 0 && !hideResolved)
-            .help(resolvedAnnotationsHelpText(resolvedCount: resolvedCount))
-            .accessibilityLabel("Hide resolved annotations")
-            .accessibilityValue(hideResolved ? "On" : "Off")
-            .accessibilityAddTraits(.isToggle)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
@@ -1901,6 +1999,11 @@ struct DocumentPaneView: View {
                         localized: "Resolved annotations shown",
                         comment: "VoiceOver announcement when the resolved-annotations filter turns off")
             )
+        }
+        .onChange(of: DocumentCopyModePolicy.isAvailable(in: annotationProjection)) { _, available in
+            if !available {
+                isCopyMode = false
+            }
         }
     }
 

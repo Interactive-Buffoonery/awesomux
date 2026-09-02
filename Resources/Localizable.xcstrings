@@ -1209,6 +1209,9 @@
     "Copy Draft" : {
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
     },
+    "Copy Mode" : {
+      "comment" : "Stable toggle title for copy-friendly document mode."
+    },
     "Copy Path" : {
       "comment" : "Action that copies a session snapshot recovery archive path"
     },
@@ -1223,6 +1226,9 @@
     },
     "Copy URL" : {
 
+    },
+    "Copy mode enabled. Selecting text will not create comments." : {
+      "comment" : "VoiceOver announcement when a Markdown document enters copy mode"
     },
     "Copy the draft before closing." : {
       "comment" : "Document note recovery message when only copying is safe\nNew annotation recovery message when only copying is safe"
@@ -3431,6 +3437,9 @@
     "Return pastes into the terminal. Shift-Return or Option-Return inserts a new line." : {
       "comment" : "Accessibility help describing the composer's Return-key behavior"
     },
+    "Return to commenting" : {
+      "comment" : "Help text for the Copy Mode toggle while it is active."
+    },
     "Returned pane to its source workspace" : {
       "comment" : "VoiceOver announcement after returning a moved pane to the workspace it came from."
     },
@@ -3445,6 +3454,9 @@
     },
     "Review in Advanced" : {
 
+    },
+    "Review mode enabled. Selecting text can create comments." : {
+      "comment" : "VoiceOver announcement when a Markdown document leaves copy mode"
     },
     "Review the group's current local and remote panes, then close it again." : {
       "comment" : "Body of the notice shown when a group changes while its close confirmation is open."
@@ -3599,6 +3611,9 @@
     },
     "Select an agent transcript tab first — Resume acts on the transcript you're reading" : {
       "comment" : "Unavailable reason for resuming when the selected document tab is not an agent transcript"
+    },
+    "Select and copy without creating comments" : {
+      "comment" : "Help text for the Copy Mode toggle while it is inactive."
     },
     "Selenized" : {
 
