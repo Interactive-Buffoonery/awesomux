@@ -11,7 +11,7 @@ Make a long branch diff scannable: each file section can be folded to its headin
 - Counts live in the heading permanently (`+38 −2`), collapsed or expanded, so a row never changes height when toggled.
 - Collapsed state is session memory only: it survives tab switches and in-place refresh, and resets to all-expanded on relaunch.
 - Counts are computed and drawn by the view layer. The renderer, the Markdown on disk, and the cache slot are untouched.
-- Line numbers are not drawn in this pass, but the section index carries per-line old/new numbers so a gutter later is a drawing task, not a re-parse.
+- Line numbers are not drawn in this pass. The section index keeps each hunk's parsed `@@` header (old/new start and length); a gutter later derives every line's number from that in the same walk that counts lines today. Storing per-line numbers now was rejected in review as memory spent on a feature that does not exist.
 - The hunk header keeps its `@@ -a,b +c,d @@` text. The row reads as a divider through a neutral band and a hairline, with no text substitution.
 
 ## Constraints
@@ -28,13 +28,13 @@ Make a long branch diff scannable: each file section can be folded to its headin
 
 `BranchDiffSectionIndex` is built from `RenderedDocument.runs` once per render on a branch-changes tab.
 
-A section starts at a level-2 heading run whose next non-separator run is a `.diffLine` run (a heading over a non-diff fence, or the H1, is not a section). It records:
+Every level-2 heading is a section. The renderer emits one per file, including fence-less headings for pure renames and mode-only changes; those are sections with no body, not foldable, with zero counts, and they still get a sticky-header row so scrolling through a renamed file never leaves the previous file's name pinned. It records:
 
-- `key`: the heading's text (the escaped file path, plus any status suffix). Keys are unique within one document because the renderer emits one heading per file; if two headings collide, the second gets an ordinal suffix so a fold never toggles two sections.
+- `key`: the path half of the heading (its non-italic runs, with the trailing separator before the italic status trimmed), so a fold keyed while the file read `— new file` still applies after the file is committed or the language changes. A newline-separated ordinal disambiguates repeated paths; newlines cannot occur in heading text, so no real path can collide. `title` keeps the full heading text for display.
 - `headingRange`: the heading's character range in the joined text, and its run index.
-- `bodyRuns`: the half-open run-index range from the run after the heading's block separator to the run before the next heading (or the end), inclusive of the fence's own trailing separator so folding leaves no blank line.
+- `bodyRuns`: the half-open run-index range a fold removes: the heading's own trailing block separator, then the fence (diff lines, their line separators, an overflow code run). Not the separator after the fence, so whatever follows (the next heading, or the closing truncation notice, which the renderer appends after the last file) keeps exactly one separator from the heading. Folding the last file therefore never hides the notice.
 - `added`, `removed`: counts of `.diffLine(.added)` / `.diffLine(.removed)` runs in the body.
-- `hunks`: for each `.diffLine(.hunk)` run, its run index, its parsed old/new start lines and lengths, and a per-line array of `(old: Int?, new: Int?)` for the lines that follow it. Parsing is tolerant: `-0,0`, a missing `,len` (length 1), and an unparsable header yield `nil` numbers, never a crash.
+- `hunks`: for each `.diffLine(.hunk)` run, its run index and its parsed header. Parsing is tolerant: `-0,0`, a missing `,len` (length 1), and an unparsable header (nil), never a crash. Lines past the builder's 20 000-line fence cap live in one code run; the index still counts them so the badge stays honest.
 
 The index is a value type with no AppKit imports and is unit-tested directly.
 
@@ -44,7 +44,7 @@ The index is a value type with no AppKit imports and is unit-tested directly.
 
 `MarkdownTextView` gains `collapsedSections: Set<String>` and `onSectionToggled: (String) -> Void`. Its coordinator treats a change to the collapsed set like a text-color change: it rebuilds the attributed string from the folded document through `MarkdownAttributedStringBuilder`, re-runs the overlay update, and restores scroll so the heading that was toggled keeps its viewport position (record the heading's y before the rebuild, scroll by the delta after).
 
-Selection inside a body that is then collapsed is cleared rather than remapped.
+A selection is remapped through its source span after a fold, so selecting text in one file and folding another keeps the selection; a selection inside the folded body is cleared.
 
 ### 3. Chrome, drawn by `CommentBadgeOverlay`
 
@@ -62,7 +62,7 @@ Keyboard: a footer control (section 5) toggles Collapse All / Expand All. It is 
 
 ### 3b. Sticky section header
 
-While a file's body is scrolled under the top edge, that file's heading pins to the top of the viewport as a 30pt bar: chevron, path, counts, on the terminal background with a hairline beneath. The next heading pushes it up as it approaches and takes over once it reaches the edge, so exactly one heading is ever pinned and a heading that is visible in place is never drawn twice. The bar is a plain AppKit view added to the scroll view above the clip view, repositioned from the clip view's bounds-change notification using the overlay's section geometry. Placement is a pure function (visible top, heading rows, header height) and is unit-tested. Clicking the bar scrolls to that heading and toggles the section. VoiceOver sees it as a button with the same label and value as the overlay's heading buttons.
+While a file's body is scrolled under the top edge, that file's heading pins to the top of the viewport as a 30pt bar: chevron, path, counts, on the terminal background with a hairline beneath. The next heading pushes it up as it approaches and takes over once it reaches the edge, so exactly one heading is ever pinned and a heading that is visible in place is never drawn twice. The bar is a plain AppKit view added to the scroll view above the clip view, repositioned from the clip view's bounds-change notification using the overlay's section geometry. Placement is a pure function (visible top, heading rows, header height) and is unit-tested. Clicking the bar scrolls to that heading and toggles the section. The bar is not an accessibility element: the document's own heading text and the overlay's per-heading button already carry that identity, and a third copy per file is noise.
 
 ### 4. State
 
@@ -76,9 +76,9 @@ On refresh the cache file path is unchanged, so the entry survives. Keys that no
 
 - A `Refresh` button (`arrow.clockwise`) styled like the transcript tab's Resume button, with the caption "Read-only generated document" beneath it.
 - Beside it, a `Collapse All` / `Expand All` toggle that flips every section key in the index into or out of the memory set.
-- Disabled, with the reason as caption, when the tab's associated terminal pane cannot be resolved ("This tab's terminal was closed") or a refresh for that pane is in flight (the coordinator already tracks tickets per pane).
+- Disabled, with the reason as caption, when the tab's associated terminal pane cannot be resolved ("This tab's terminal was closed") or a refresh for that pane is in flight. In-flight state comes from the coordinator, which becomes observable and exposes the set of panes with an active ticket, so a menu-started refresh disables the footer button too.
 
-The app's `showBranchChangesForActivePane()` body moves into `showBranchChanges(forPane paneID:)`. The menu command resolves the active pane and calls it; the button resolves the tab's pane through the layout's document-to-terminal association (the same resolution `AgentTranscriptResumeStaging` uses) and calls it. Both routes hit the same coordinator ticket, remote-pane gate, and completion path, so a refresh from the button and a re-invoked menu command are indistinguishable downstream.
+The opener currently reads the session's active pane for the working directory and the remote gate; it takes the pane explicitly instead. The app's `showBranchChangesForActivePane()` body moves into `showBranchChanges(forPane paneID:)`. The menu command resolves the active pane and calls it; the button resolves the tab's pane through the layout's document-to-terminal association (the same resolution `AgentTranscriptResumeStaging` uses) and calls it. Both routes hit the same coordinator ticket, remote-pane gate, and completion path, so a refresh from the button and a re-invoked menu command are indistinguishable downstream.
 
 Transcript tabs and remote snapshots keep their current footers.
 

@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-01-branch-changes-collapse-design.md`
 
+## Execution order and review provenance
+
+This plan passed an architecture review and a cross-model adversarial review on 2026-09-01; their findings are folded in below. Execute in this order, not by task number: **Task 9 (VoiceOver spike) first**, because its result decides an attribute Task 4 stamps; then Tasks 1, 2, 3, 4, 5, 6, 8; **Task 7 (sticky header) last**, after its Step 0 falsification experiment. Tasks 1–6 and 8 are a complete, shippable feature on their own; if Task 7's Step 0 comes back messy, split it into its own PR rather than let it eat the review budget. Task 10 closes.
+
 ## Global Constraints
 
 - macOS 15+, SwiftPM; new tests use Swift Testing (`@Suite`, `@Test`, `#expect`). Overlay/TextKit tests are `@MainActor` and use a headless `NSTextView(usingTextLayoutManager: true)` (pattern in `Tests/awesoMuxTests/MarkdownDiffLineStylingTests.swift`).
@@ -129,32 +133,52 @@ Run: `./script/format.sh Sources/AwesoMuxCore/Markdown/RenderedDocument.swift Te
 
 ```swift
 struct BranchDiffSectionIndex: Equatable {
+    struct HunkHeader: Equatable {   // a struct, not a tuple: Optional<tuple> has no `==`
+        let oldStart: Int, oldLength: Int, newStart: Int, newLength: Int
+    }
     struct Hunk: Equatable {
         let runIndex: Int              // the .diffLine(.hunk) run
-        let oldStart: Int?             // nil when the header does not parse
-        let newStart: Int?
-        /// One entry per following diff line until the next hunk/heading:
-        /// (old, new) line numbers; nil on the side the line is absent from.
-        let lineNumbers: [(old: Int?, new: Int?)]   // implemented as a struct pair, see below
+        let header: HunkHeader?        // nil when the header does not parse
+        // ponytail: no per-line numbering yet. A gutter (spec §6) can derive
+        // every line's old/new number from `header` plus the same walk that
+        // counts lines here; storing tens of thousands of pairs per tab for a
+        // feature that does not exist is memory spent on nothing.
     }
     struct Section: Equatable {
-        let key: String
+        let key: String                // opaque identity, never displayed
+        let title: String              // the full heading text, for the sticky header and VoiceOver
         let headingRuns: Range<Int>    // consecutive .heading(level: 2) runs
-        let bodyRuns: Range<Int>       // first run after the heading's separator ..< next heading (or runs.count)
+        /// Runs a fold removes: the heading's own trailing block separator,
+        /// then the fence (diff lines, their "\n" separators, an overflow
+        /// `.code` run). NOT the "\n\n" after the fence, so whatever follows
+        /// the fence (the next heading, or the closing truncation notice)
+        /// keeps exactly one separator from the heading. Empty for a heading
+        /// with no fence (a pure rename or mode-only change).
+        let bodyRuns: Range<Int>
         let added: Int
         let removed: Int
         let hunks: [Hunk]
+        var isFoldable: Bool { !bodyRuns.isEmpty }
     }
     let sections: [Section]
     init(document: RenderedDocument)
     var keys: [String] { sections.map(\.key) }
     func section(key: String) -> Section?
-    static func key(headingText: String, occurrence: Int) -> String   // occurrence 0 => text; n>0 => "\(text)#\(n+1)"
-    static func parseHunkHeader(_ line: String) -> (oldStart: Int, oldLength: Int, newStart: Int, newLength: Int)?
+    /// The identity text of a heading: its non-italic runs joined, with a
+    /// trailing " — " trimmed. That is the path without the localized status
+    /// suffix (`— _new file_`, `— _renamed from x_`), so a fold survives the
+    /// file being committed (suffix disappears) or the language changing.
+    static func keyText(headingRuns: ArraySlice<RenderedRun>) -> String
+    static func key(keyText: String, occurrence: Int) -> String   // occurrence 0 => text; n>0 => text + "\n" + String(n+1). A newline can never appear in heading text (the renderer strips them), so a literal path like `foo#2` cannot collide with an ordinal.
+    static func parseHunkHeader(_ line: String) -> HunkHeader?
 }
 ```
 
-`lineNumbers` element type is `struct LineNumber: Equatable { let old: Int?; let new: Int? }` (tuples are not `Equatable`).
+A section is EVERY level-2 heading (the renderer emits one per file, including fence-less ones for pure renames); qualification is not "followed by a diff fence" any more. The H1 is level 1 and never matches. Ordinary Markdown never reaches this index because the view only builds it on branch-changes tabs.
+
+Occurrence counting covers every level-2 heading in document order, keyed by `keyText`, and the attributed-string builder (Task 4) counts the same way on the folded document, so the two can never disagree on an ordinal.
+
+Overflow: `AttributedMarkdownBuilder.maximumDiffFenceLines` (20 000) turns the rest of a longer fence into ONE `.code` run. The index counts added/removed lines inside that run too, by splitting its text on newlines and classifying each with `DiffLineKind(line:)`, so the badge stays right on a huge file. Hunks stop at the overflow boundary; say so in a comment.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -170,7 +194,7 @@ struct BranchDiffSectionIndexTests {
         return (doc, BranchDiffSectionIndex(document: doc))
     }
 
-    @Test("one section per H2 heading that is followed by a diff fence; the H1 and prose headings are skipped")
+    @Test("one section per H2 heading; the H1 is skipped; a fence-less heading is a section with no body")
     func sectionsFollowHeadings() {
         let (doc, index) = build("""
         # branch
@@ -198,63 +222,96 @@ struct BranchDiffSectionIndexTests {
         +y
         ```
         """)
-        #expect(index.keys == ["a.swift", "b.swift — new file"])
+        #expect(index.keys == ["a.swift", "notes", "b.swift"])
+        #expect(index.sections.map(\.title) == ["a.swift", "notes", "b.swift — new file"])
         let a = index.sections[0]
         #expect(a.added == 1 && a.removed == 1)
         #expect(doc.runs[a.headingRuns].allSatisfy { $0.style == .heading(level: 2) })
         #expect(doc.runs[a.bodyRuns].contains { $0.style == .diffLine(.added) })
         #expect(!doc.runs[a.bodyRuns].contains { $0.style == .heading(level: 2) })
-        let b = index.sections[1]
+        // The fold starts at the heading's own separator and stops before the "\n\n" after the fence.
+        #expect(a.bodyRuns.lowerBound == a.headingRuns.upperBound)
+        #expect(doc.runs[a.bodyRuns.upperBound].style == .blockSeparator)
+        let notes = index.sections[1]
+        #expect(!notes.isFoldable && notes.added == 0)
+        let b = index.sections[2]
         #expect(b.added == 2 && b.removed == 0)
         #expect(b.bodyRuns.upperBound == doc.runs.count)
     }
 
-    @Test("a heading over a non-diff fence is not a section")
-    func nonDiffFenceIsNotASection() {
-        let (_, index) = build("## x\n\n```swift\nlet a = 1\n```\n")
-        #expect(index.sections.isEmpty)
+    @Test("a pure rename renders a heading with no fence and is a section with no body, from the real renderer")
+    func renameOnlySection() throws {
+        let diff = "diff --git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\ndiff --git a/x.txt b/x.txt\n--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-a\n+b\n"
+        let markdown = BranchChangesRenderer.render(diff: diff, identity: <the fixture identity BranchChangesRendererTests uses>, chrome: <its chrome fixture>, budgetBytes: 100_000)
+        let (_, index) = build(markdown)
+        #expect(index.sections.count == 2)
+        #expect(index.sections[0].title.hasPrefix("new.txt"))
+        #expect(!index.sections[0].isFoldable)
+        #expect(index.sections[1].isFoldable && index.sections[1].added == 1)
     }
 
-    @Test("duplicate heading text gets an ordinal key so one fold never toggles two sections")
+    @Test("the closing truncation notice is outside the last section's body, so folding the last file keeps it visible")
+    func truncationNoticeSurvivesFold() throws {
+        let diff = (0..<2).map { "diff --git a/f\($0).txt b/f\($0).txt\n--- a/f\($0).txt\n+++ b/f\($0).txt\n@@ -1 +1 @@\n-old\n+" + String(repeating: "x", count: 300) + "\n" }.joined()
+        let markdown = BranchChangesRenderer.render(diff: diff, identity: <fixture>, chrome: <fixture>, budgetBytes: 450)
+        #expect(markdown.contains("This diff is incomplete."))
+        let (doc, index) = build(markdown)
+        let last = try #require(index.sections.last)
+        #expect(last.bodyRuns.upperBound < doc.runs.count)
+        let folded = doc.folding(removingRunRanges: [last.bodyRuns])
+        #expect(folded.runs.map(\.text).joined().contains("This diff is incomplete."))
+    }
+
+    @Test("the key is the path without the status suffix, so it survives the suffix disappearing")
+    func keyIgnoresStatusSuffix() {
+        let (_, before) = build("## a.swift — _new file_\n\n```diff\n+x\n```\n")
+        let (_, after) = build("## a.swift\n\n```diff\n+x\n```\n")
+        #expect(before.keys == ["a.swift"] && after.keys == ["a.swift"])
+        #expect(before.sections[0].title == "a.swift — new file")
+    }
+
+    @Test("duplicate heading text gets an ordinal key so one fold never toggles two sections; titles stay plain")
     func duplicateKeys() {
         let (_, index) = build("## same\n\n```diff\n+a\n```\n\n## same\n\n```diff\n+b\n```\n")
-        #expect(index.keys == ["same", "same#2"])
-        #expect(BranchDiffSectionIndex.key(headingText: "same", occurrence: 1) == "same#2")
+        #expect(index.keys == ["same", "same\n2"])
+        #expect(index.sections.map(\.title) == ["same", "same"])
+        #expect(BranchDiffSectionIndex.key(keyText: "same", occurrence: 1) == "same\n2")
+    }
+
+    @Test("a literal #2 in a path is not an ordinal")
+    func literalHashIsSafe() {
+        let (_, index) = build("## x\n\n```diff\n+a\n```\n\n## x\n\n```diff\n+a\n```\n\n## x#2\n\n```diff\n+b\n```\n")
+        #expect(index.keys == ["x", "x\n2", "x#2"])
+    }
+
+    @Test("added and removed lines past the 20 000-line fence cap are still counted")
+    func overflowLinesAreCounted() {
+        let cap = AttributedMarkdownBuilder.maximumDiffFenceLines
+        let body = (0..<(cap + 5)).map { "+\($0)" }.joined(separator: "\n")
+        let (doc, index) = build("## big\n\n```diff\n\(body)\n```\n")
+        #expect(doc.runs.contains { $0.style == .code })          // the overflow run exists
+        #expect(index.sections[0].added == cap + 5)
+        #expect(index.sections[0].removed == 0)
     }
 
     @Test("hunk headers parse, including -0,0 and a missing length")
     func hunkHeaderParsing() {
-        #expect(BranchDiffSectionIndex.parseHunkHeader("@@ -344,10 +345,29 @@ func x") == (344, 10, 345, 29))
-        #expect(BranchDiffSectionIndex.parseHunkHeader("@@ -0,0 +1,5 @@") == (0, 0, 1, 5))
-        #expect(BranchDiffSectionIndex.parseHunkHeader("@@ -7 +7 @@") == (7, 1, 7, 1))
+        typealias H = BranchDiffSectionIndex.HunkHeader
+        #expect(BranchDiffSectionIndex.parseHunkHeader("@@ -344,10 +345,29 @@ func x") == H(oldStart: 344, oldLength: 10, newStart: 345, newLength: 29))
+        #expect(BranchDiffSectionIndex.parseHunkHeader("@@ -0,0 +1,5 @@") == H(oldStart: 0, oldLength: 0, newStart: 1, newLength: 5))
+        #expect(BranchDiffSectionIndex.parseHunkHeader("@@ -7 +7 @@") == H(oldStart: 7, oldLength: 1, newStart: 7, newLength: 1))
         #expect(BranchDiffSectionIndex.parseHunkHeader("@@ garbage @@") == nil)
         #expect(BranchDiffSectionIndex.parseHunkHeader("@@@ -1,2 -3,4 +5,6 @@@") == nil)
     }
 
-    @Test("per-line numbering walks both sides: context advances both, added only new, removed only old")
-    func lineNumbers() {
-        let (_, index) = build("## f\n\n```diff\n@@ -10,3 +20,4 @@\n ctx\n-gone\n+one\n+two\n ctx2\n```\n")
-        let hunk = index.sections[0].hunks[0]
-        #expect(hunk.oldStart == 10 && hunk.newStart == 20)
-        let pairs = hunk.lineNumbers.map { [$0.old, $0.new] }
-        #expect(pairs == [[10, 20], [11, nil], [nil, 21], [nil, 22], [12, 23]])
-    }
-
-    @Test("an unparsable hunk header yields nil numbers and still counts its lines")
+    @Test("an unparsable hunk header yields a nil header and still counts its lines; hunks are recorded in order")
     func unparsableHunkStillCounts() {
-        let (_, index) = build("## f\n\n```diff\n@@ nope @@\n+a\n-b\n```\n")
+        let (_, index) = build("## f\n\n```diff\n@@ nope @@\n+a\n-b\n@@ -50,1 +60,1 @@\n b\n```\n")
         let section = index.sections[0]
         #expect(section.added == 1 && section.removed == 1)
-        #expect(section.hunks[0].oldStart == nil)
-        #expect(section.hunks[0].lineNumbers.allSatisfy { $0.old == nil && $0.new == nil })
-    }
-
-    @Test("meta lines and a second hunk do not leak numbers across hunks")
-    func secondHunkRestarts() {
-        let (_, index) = build("## f\n\n```diff\n@@ -1,1 +1,1 @@\n a\n@@ -50,1 +60,1 @@\n b\n```\n")
-        let hunks = index.sections[0].hunks
-        #expect(hunks.count == 2)
-        #expect(hunks[1].lineNumbers.first?.old == 50 && hunks[1].lineNumbers.first?.new == 60)
+        #expect(section.hunks.count == 2)
+        #expect(section.hunks[0].header == nil)
+        #expect(section.hunks[1].header?.oldStart == 50 && section.hunks[1].header?.newStart == 60)
     }
 }
 ```
@@ -276,25 +333,27 @@ import Foundation
 /// runs the Markdown builder already emits. Pure and AppKit-free so it can be
 /// tested without a text view. Built once per render on branch-changes tabs.
 struct BranchDiffSectionIndex: Equatable {
-    struct LineNumber: Equatable {
-        let old: Int?
-        let new: Int?
+    struct HunkHeader: Equatable {
+        let oldStart: Int
+        let oldLength: Int
+        let newStart: Int
+        let newLength: Int
     }
 
     struct Hunk: Equatable {
         let runIndex: Int
-        let oldStart: Int?
-        let newStart: Int?
-        let lineNumbers: [LineNumber]
+        let header: HunkHeader?
     }
 
     struct Section: Equatable {
         let key: String
+        let title: String
         let headingRuns: Range<Int>
         let bodyRuns: Range<Int>
         let added: Int
         let removed: Int
         let hunks: [Hunk]
+        var isFoldable: Bool { !bodyRuns.isEmpty }
     }
 
     let sections: [Section]
@@ -303,90 +362,99 @@ struct BranchDiffSectionIndex: Equatable {
 
     func section(key: String) -> Section? { sections.first { $0.key == key } }
 
-    /// The second and later headings with identical text get an ordinal, so a
-    /// fold keyed by heading text can never toggle two sections at once.
-    static func key(headingText: String, occurrence: Int) -> String {
-        occurrence == 0 ? headingText : "\(headingText)#\(occurrence + 1)"
+    /// The path half of `path — _status_`: non-italic runs joined, trailing
+    /// " — " trimmed. Stable across the status suffix changing or vanishing.
+    static func keyText(headingRuns: ArraySlice<RenderedRun>) -> String {
+        var text = headingRuns.filter { !$0.italic }.map(\.text).joined()
+        if text.hasSuffix(" — ") { text.removeLast(3) }
+        return text
+    }
+
+    /// The second and later headings with identical key text get an ordinal.
+    /// "\n" separates it because the renderer strips newlines from headings,
+    /// so no real path can collide with an ordinal-bearing key.
+    static func key(keyText: String, occurrence: Int) -> String {
+        occurrence == 0 ? keyText : keyText + "\n" + String(occurrence + 1)
     }
 
     init(document: RenderedDocument) {
         let runs = document.runs
-        var sections: [Section] = []
-        var occurrences: [String: Int] = [:]
+        var headings: [(start: Int, end: Int)] = []
         var i = 0
-        // Heading starts: (first run index, last run index + 1, joined text)
-        var headings: [(start: Int, end: Int, text: String)] = []
         while i < runs.count {
             guard case .heading(level: 2) = runs[i].style else { i += 1; continue }
             var end = i
-            var text = ""
-            while end < runs.count, case .heading(level: 2) = runs[end].style {
-                text += runs[end].text
-                end += 1
-            }
-            headings.append((i, end, text))
+            while end < runs.count, case .heading(level: 2) = runs[end].style { end += 1 }
+            headings.append((i, end))
             i = end
         }
-        for (n, heading) in headings.enumerated() {
-            // Body starts after the heading's block separator, ends at the next heading.
-            var bodyStart = heading.end
-            if bodyStart < runs.count, runs[bodyStart].style == .blockSeparator { bodyStart += 1 }
-            let bodyEnd = n + 1 < headings.count ? headings[n + 1].start : runs.count
-            // Only a heading whose first content run is a diff line is a file section.
-            guard bodyStart < bodyEnd, case .diffLine = runs[bodyStart].style else { continue }
-            let occurrence = occurrences[heading.text, default: 0]
-            occurrences[heading.text] = occurrence + 1
+        var sections: [Section] = []
+        var occurrences: [String: Int] = [:]
+        for heading in headings {
+            let slice = runs[heading.start..<heading.end]
+            let keyText = Self.keyText(headingRuns: slice)
+            let occurrence = occurrences[keyText, default: 0]
+            occurrences[keyText] = occurrence + 1
+            let title = slice.map(\.text).joined()
+            // The fence, if any, starts after the heading's own block separator.
+            var fenceStart = heading.end
+            if fenceStart < runs.count, runs[fenceStart].style == .blockSeparator { fenceStart += 1 }
+            var fenceEnd = fenceStart
             var added = 0, removed = 0
             var hunks: [Hunk] = []
-            var current: (index: Int, old: Int?, new: Int?, lines: [LineNumber])? = nil
-            func flush() {
-                if let c = current {
-                    hunks.append(Hunk(runIndex: c.index, oldStart: c.old, newStart: c.new, lineNumbers: c.lines))
+            if fenceStart < runs.count, case .diffLine = runs[fenceStart].style {
+                scan: while fenceEnd < runs.count {
+                    let run = runs[fenceEnd]
+                    switch run.style {
+                    case .diffLine(let kind):
+                        switch kind {
+                        case .added: added += 1
+                        case .removed: removed += 1
+                        case .hunk: hunks.append(Hunk(runIndex: fenceEnd, header: Self.parseHunkHeader(run.text)))
+                        case .meta, .context: break
+                        }
+                    case .code:
+                        // Past AttributedMarkdownBuilder.maximumDiffFenceLines the
+                        // fence tail is one run; count it so the badge stays honest.
+                        // No hunks here: the run has no per-line geometry.
+                        for line in run.text.split(separator: "\n", omittingEmptySubsequences: false) {
+                            switch DiffLineKind(line: line) {
+                            case .added: added += 1
+                            case .removed: removed += 1
+                            default: break
+                            }
+                        }
+                    case .blockSeparator where run.text == "\n":
+                        break   // a line break inside the fence
+                    default:
+                        break scan   // the "\n\n" after the fence, or the next block
+                    }
+                    fenceEnd += 1
                 }
-                current = nil
             }
-            for r in bodyStart..<bodyEnd {
-                guard case .diffLine(let kind) = runs[r].style else { continue }
-                switch kind {
-                case .hunk:
-                    flush()
-                    let parsed = Self.parseHunkHeader(runs[r].text)
-                    current = (r, parsed?.oldStart, parsed?.newStart, [])
-                case .added:
-                    added += 1
-                    current?.lines.append(LineNumber(old: nil, new: current?.new))
-                    if current?.new != nil { current?.new! += 1 }
-                case .removed:
-                    removed += 1
-                    current?.lines.append(LineNumber(old: current?.old, new: nil))
-                    if current?.old != nil { current?.old! += 1 }
-                case .context:
-                    current?.lines.append(LineNumber(old: current?.old, new: current?.new))
-                    if current?.old != nil { current?.old! += 1 }
-                    if current?.new != nil { current?.new! += 1 }
-                case .meta:
-                    break
-                }
-            }
-            flush()
+            // A fold removes the heading's separator plus the fence, and keeps
+            // the "\n\n" after the fence for whatever follows. A fence-less
+            // heading has an empty range and is not foldable.
+            let bodyRuns = fenceEnd > fenceStart ? heading.end..<fenceEnd : heading.end..<heading.end
             sections.append(Section(
-                key: Self.key(headingText: heading.text, occurrence: occurrence),
+                key: Self.key(keyText: keyText, occurrence: occurrence),
+                title: title,
                 headingRuns: heading.start..<heading.end,
-                bodyRuns: bodyStart..<bodyEnd,
+                bodyRuns: bodyRuns,
                 added: added, removed: removed, hunks: hunks))
         }
         self.sections = sections
     }
 
-    /// `@@ -a[,b] +c[,d] @@…` → (a, b, c, d); a missing length means 1.
-    /// Combined-diff headers (`@@@`) and anything else return nil.
-    static func parseHunkHeader(_ line: String) -> (oldStart: Int, oldLength: Int, newStart: Int, newLength: Int)? {
+    /// `@@ -a[,b] +c[,d] @@…`; a missing length means 1. Combined-diff
+    /// headers (`@@@`) and anything else return nil.
+    static func parseHunkHeader(_ line: String) -> HunkHeader? {
         guard line.hasPrefix("@@ "), !line.hasPrefix("@@@") else { return nil }
         let parts = line.dropFirst(3).split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count >= 2, parts[0].hasPrefix("-"), parts[1].hasPrefix("+"),
             let old = range(parts[0].dropFirst()), let new = range(parts[1].dropFirst())
         else { return nil }
-        return (old.start, old.length, new.start, new.length)
+        return HunkHeader(oldStart: old.start, oldLength: old.length, newStart: new.start, newLength: new.length)
     }
 
     private static func range(_ text: Substring) -> (start: Int, length: Int)? {
@@ -399,12 +467,12 @@ struct BranchDiffSectionIndex: Equatable {
 }
 ```
 
-Note for the implementer: inside the `for r in …` loop, `current?.new! += 1` on an optional tuple does not compile; hold `current` as a small `private struct HunkBuilder { var index: Int; var old: Int?; var new: Int?; var lines: [LineNumber] }` and mutate `current?.old`/`current?.new` with `if let o = current?.old { current?.old = o + 1 }`. Keep the numbering semantics exactly as the tests state.
+Check `RenderedRun.italic` is what the heading's status run carries (the Core builder forwards `Emphasis` inside a heading as `.heading(level: 2)` with `italic: true`; confirm at `AttributedMarkdownBuilder.swift` ~line 327 and in the `## path — _status_` fixture). For the two tests that call `BranchChangesRenderer.render`, take the `identity`/`chrome` fixtures from `Tests/AwesoMuxCoreTests/BranchChangesRendererTests.swift` (copy the two helpers; do not invent new ones).
 
 - [ ] **Step 4: Run tests**
 
 Run: `./script/swift-test.sh --filter BranchDiffSectionIndexTests`
-Expected: 7 tests pass. Note: the `parseHunkHeader` tuple comparisons with `==` compile because both sides are 4-tuples of `Int`.
+Expected: 10 tests pass (`HunkHeader` is an `Equatable` struct; an optional tuple would not compare with `==`).
 
 - [ ] **Step 5: Format and hand off**
 
@@ -462,6 +530,17 @@ Run: `./script/format.sh Sources/awesoMux/Views/Markdown/BranchDiffSectionIndex.
         #expect(memory.collapsedSections(for: tab) == ["a.swift"])
     }
 
+    @Test func collapsedKeysKeyedByPathSurviveAStatusSuffixChange() {
+        // Keyed on the path only (BranchDiffSectionIndex.keyText), so the fold set
+        // stored while the file was `— new file` still applies after a commit.
+        let before = BranchDiffSectionIndex(document: AttributedMarkdownBuilder.build("## a.swift — _new file_\n\n```diff\n+x\n```\n"))
+        let after = BranchDiffSectionIndex(document: AttributedMarkdownBuilder.build("## a.swift\n\n```diff\n+x\n```\n"))
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/g.md")
+        memory.toggleSection(before.keys[0], for: tab)
+        #expect(memory.collapsedSections(for: tab).contains(after.keys[0]))
+    }
+
     @Test func renderCarriesTheSectionIndexItWasGiven() {
         let doc = AttributedMarkdownBuilder.build("## f\n\n```diff\n+a\n```\n")
         let index = BranchDiffSectionIndex(document: doc)
@@ -514,9 +593,13 @@ Update the doc comment at the top of the file: the memory now also holds the fol
 In `DocumentPaneView.swift` at the `Render(...)` construction (line 1342), compute the index only for branch-changes tabs and hand it over:
 
 ```swift
-let sectionIndex = pane.generatedDocumentKind == .branchChanges ? BranchDiffSectionIndex(document: doc) : nil
+// `doc` is `RenderedDocument?` here (a rejected or unreadable file has none).
+let sectionIndex = pane.generatedDocumentKind == .branchChanges ? doc.map(BranchDiffSectionIndex.init(document:)) : nil
+localSectionIndex = sectionIndex     // @State, declared in Task 6; nil on failures so a stale index never outlives its document
 onRenderCompleted?(DocumentTabMemory.Render(loadResult: result, renderedDoc: doc, sectionIndex: sectionIndex))
 ```
+
+Declare `@State private var localSectionIndex: BranchDiffSectionIndex?` on `DocumentPaneView` in this task (Task 6 wires it), seeded in `init` from `cachedRender?.sectionIndex` the same way the cached render seeds `renderedDoc`.
 
 - [ ] **Step 4: Run tests**
 
@@ -536,7 +619,7 @@ Run `./script/format.sh` on the two Swift files changed. Do not commit.
 - Test: `Tests/awesoMuxTests/MarkdownDiffLineStylingTests.swift`
 
 **Interfaces:**
-- Consumes: `BranchDiffSectionIndex` (Task 2), `.key(headingText:occurrence:)`.
+- Consumes: `BranchDiffSectionIndex` (Task 2), `.keyText(headingRuns:)` and `.key(keyText:occurrence:)`.
 - Produces:
   - `NSAttributedString.Key.diffSectionKey` (`"awesomux.diffSectionKey"`, value `NSString`), stamped on every run of a section heading.
   - `NSAttributedString.Key.diffHunkRule` (`"awesomux.diffHunkRule"`, value `NSNumber(true)`), stamped on `.diffLine(.hunk)` runs.
@@ -570,11 +653,11 @@ Run `./script/format.sh` on the two Swift files changed. Do not commit.
         let ns = attributed.string as NSString
         let first = ns.range(of: "a.swift")
         let second = ns.range(of: "a.swift", options: [], range: NSRange(location: first.location + 1, length: ns.length - first.location - 1))
-        #expect(attributed.attribute(.diffSectionKey, at: first.location, effectiveRange: nil) as? String == "a.swift — new file")
-        #expect(attributed.attribute(.diffSectionKey, at: second.location, effectiveRange: nil) as? String == "a.swift — new file#2")
+        #expect(attributed.attribute(.diffSectionKey, at: first.location, effectiveRange: nil) as? String == "a.swift")
+        #expect(attributed.attribute(.diffSectionKey, at: second.location, effectiveRange: nil) as? String == "a.swift\n2")
         // The italic status run is part of the same heading and carries the same key.
         let status = ns.range(of: "new file")
-        #expect(attributed.attribute(.diffSectionKey, at: status.location, effectiveRange: nil) as? String == "a.swift — new file")
+        #expect(attributed.attribute(.diffSectionKey, at: status.location, effectiveRange: nil) as? String == "a.swift")
         let style = try #require(attributed.attribute(.paragraphStyle, at: first.location, effectiveRange: nil) as? NSParagraphStyle)
         #expect(style.firstLineHeadIndent == MarkdownAttributedStringBuilder.sectionHeadingGutter)
         #expect(style.headIndent == MarkdownAttributedStringBuilder.sectionHeadingGutter)
@@ -602,9 +685,13 @@ Add the keys next to `diffLineTint` (line 21):
     static let diffHunkRule = NSAttributedString.Key("awesomux.diffHunkRule")
     /// Leading space reserved on section headings for the fold chevron.
     static let sectionHeadingGutter: CGFloat = 18
+    /// Trailing space reserved on section headings so a long path wraps before
+    /// the counts badge instead of running under it. Wide enough for
+    /// "+99999 −99999" in the badge font plus padding.
+    static let sectionHeadingTrailingReserve: CGFloat = 104
 ```
 
-Add `sectionIndex: BranchDiffSectionIndex? = nil` as the last parameter of `attributedString(for:…)`. The index was built on the UNFOLDED document while `doc` may be folded (Task 6), so its run indices cannot be used here. Derive keys by walking `doc.runs` the same way the index does: group consecutive `.heading(level: 2)` runs, join their text, count occurrences of that text, and form `BranchDiffSectionIndex.key(headingText:occurrence:)`; keep it only when `sectionIndex.section(key:) != nil`. Folding never removes headings, so occurrence ordinals match the index. Implement as:
+Add `sectionIndex: BranchDiffSectionIndex? = nil` as the last parameter of `attributedString(for:…)`. The index was built on the UNFOLDED document while `doc` may be folded (Task 6), so its run indices cannot be used here. Derive keys by walking `doc.runs` the same way the index does: group consecutive `.heading(level: 2)` runs, take `BranchDiffSectionIndex.keyText(headingRuns:)`, count occurrences of that key text over every H2, and form `BranchDiffSectionIndex.key(keyText:occurrence:)`; stamp it only when `sectionIndex.section(key:) != nil` (which is every H2 on a branch-changes document). Folding never removes headings, so occurrence ordinals match the index. Implement as:
 
 ```swift
     /// Heading run index → section key, for the runs of `doc` (which may be a
@@ -616,14 +703,11 @@ Add `sectionIndex: BranchDiffSectionIndex? = nil` as the last parameter of `attr
         while i < doc.runs.count {
             guard case .heading(level: 2) = doc.runs[i].style else { i += 1; continue }
             var end = i
-            var text = ""
-            while end < doc.runs.count, case .heading(level: 2) = doc.runs[end].style {
-                text += doc.runs[end].text
-                end += 1
-            }
+            while end < doc.runs.count, case .heading(level: 2) = doc.runs[end].style { end += 1 }
+            let text = BranchDiffSectionIndex.keyText(headingRuns: doc.runs[i..<end])
             let occurrence = occurrences[text, default: 0]
             occurrences[text] = occurrence + 1
-            let key = BranchDiffSectionIndex.key(headingText: text, occurrence: occurrence)
+            let key = BranchDiffSectionIndex.key(keyText: text, occurrence: occurrence)
             if index.section(key: key) != nil {
                 for r in i..<end { out[r] = key }
             }
@@ -687,6 +771,7 @@ Expected: all previous tests plus 2 new pass.
 ```swift
     struct SectionChrome: Equatable {
         let key: String
+        let title: String            // display text; from `sectionTitles[key]`
         let headingRect: NSRect      // overlay space, full heading line fragment(s)
         let rowRect: NSRect          // full-width click target for the heading's first line
         let collapsed: Bool
@@ -695,6 +780,7 @@ Expected: all previous tests plus 2 new pass.
     }
     /// Inputs for the section chrome. Set before `updateBadges`; nil disables it.
     var sectionCounts: [String: (added: Int, removed: Int)]? = nil
+    var sectionTitles: [String: String] = [:]
     var collapsedSections: Set<String> = []
     var onSectionToggled: ((String) -> Void)? = nil
     /// Tint hues for the counts; set from the builder's DiffPalette by MarkdownTextView.
@@ -705,6 +791,10 @@ Expected: all previous tests plus 2 new pass.
     static func sectionAccessibilityLabel(key: String, added: Int, removed: Int) -> String
     static func countsBadgeText(added: Int, removed: Int) -> String   // "+38 −2" (U+2212 minus)
 ```
+
+- [ ] **Step 0: Falsify the cost model before writing geometry code**
+
+`CommentBadgeOverlay.swift` ~line 717 says, for row tints, that resolving every row's geometry on every relayout "would force full-document layout on every frame of a pane drag". Section chrome resolves one rect per heading and the plan calls it from `layout()`. Measure before building on it: in the test file below, add a test that builds a document with 200 sections (`(0..<200).map { "## f\($0).swift\n\n```diff\n+a\n-b\n```\n" }.joined()`), runs `overlay.updateBadges(attr:textView:)` once to warm layout, then measures a second call with `ContinuousClock().measure { … }` and asserts it is under 16 ms (`#expect(elapsed < .milliseconds(16))`). If it fails: do NOT call `updateSectionChrome` from `layout()`; instead resolve heading Ys once inside `MarkdownTextViewCoordinator.updateDocumentGeometry` (which already forces full layout when the wrap width moves) behind a layout-generation counter and have the overlay read that cache. Record the measured number in the task's hand-off either way.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -726,7 +816,11 @@ struct BranchDiffOverlayChromeTests {
         let overlay = CommentBadgeOverlay(frame: textView.bounds)
         textView.addSubview(overlay)
         overlay.sectionCounts = Dictionary(uniqueKeysWithValues: index.sections.map { ($0.key, ($0.added, $0.removed)) })
+        overlay.sectionTitles = Dictionary(uniqueKeysWithValues: index.sections.map { ($0.key, $0.title) })
         overlay.collapsedSections = collapsed
+        // Cached remounts render with annotations non-interactive (no snapshot);
+        // folding must not depend on that gate.
+        overlay.annotationsInteractive = false
         overlay.updateBadges(attr: attr, textView: textView)
         return (overlay, textView, attr, index)
     }
@@ -764,7 +858,7 @@ struct BranchDiffOverlayChromeTests {
         #expect(CommentBadgeOverlay.countsBadgeText(added: 0, removed: 0) == "+0 \u{2212}0")
     }
 
-    @Test("accessibility children include one button per section with label and value") @MainActor
+    @Test("accessibility children include one enabled button per section with label and value, even with annotations off") @MainActor
     func accessibilityButtons() throws {
         let (overlay, _, _, _) = makeOverlay(twoFiles, collapsed: ["a.swift"])
         let elements = overlay.sectionAccessibilityChildrenForTesting()
@@ -773,6 +867,11 @@ struct BranchDiffOverlayChromeTests {
         #expect(elements[0].accessibilityValue() as? String == "collapsed")
         #expect(elements[1].accessibilityValue() as? String == "expanded")
         #expect(elements[0].accessibilityRole() == .button)
+        #expect(elements[0].isAccessibilityEnabled())
+        var pressed: String?
+        overlay.onSectionToggled = { pressed = $0 }
+        _ = elements[1].accessibilityPerformPress()
+        #expect(pressed == "b.swift")
     }
 
     @Test("hunk rows report a rule rect at the row top") @MainActor
@@ -810,12 +909,12 @@ In `CommentBadgeOverlay.swift`:
             // Consecutive runs of one heading (path + italic status) enumerate
             // as separate ranges when their other attributes differ; merge by key.
             if let last = out.last, last.key == key {
-                out[out.count - 1] = SectionChrome(key: key, headingRect: last.headingRect.union(cell.rect), rowRect: last.rowRect, collapsed: last.collapsed, added: last.added, removed: last.removed)
+                out[out.count - 1] = SectionChrome(key: key, title: last.title, headingRect: last.headingRect.union(cell.rect), rowRect: last.rowRect, collapsed: last.collapsed, added: last.added, removed: last.removed)
                 return
             }
             let count = counts[key] ?? (0, 0)
             let row = NSRect(x: 0, y: cell.rect.minY, width: bounds.width, height: cell.rect.height)
-            out.append(SectionChrome(key: key, headingRect: cell.rect, rowRect: row, collapsed: collapsedSections.contains(key), added: count.added, removed: count.removed))
+            out.append(SectionChrome(key: key, title: sectionTitles[key] ?? key, headingRect: cell.rect, rowRect: row, collapsed: collapsedSections.contains(key), added: count.added, removed: count.removed))
         }
         sectionChrome = out
         sectionAttr = out.isEmpty ? nil : attr
@@ -825,7 +924,7 @@ Call it from both `updateTableBorders` call sites (line 131 in `layout()` and li
 
 `enumerateAttribute` reports the widest effective range for that key regardless of other attributes, so the merge branch is a safety net; keep it.
 
-3. Hit testing: in `hitTest` and `mouseDown`, after the pill loop, check `sectionChrome` `rowRect`s (independent of `annotationsInteractive`; folding is not an annotation action). In `mouseDown`, call `onSectionToggled?(chrome.key)`. Add `override func resetCursorRects()` adding `addCursorRect(chrome.rowRect, cursor: .pointingHand)` for each section, and call `window?.invalidateCursorRects(for: self)` at the end of `updateSectionChrome`.
+3. Hit testing: in BOTH `hitTest` and `mouseDown`, check `sectionChrome` `rowRect`s BEFORE the existing `guard annotationsInteractive` line. That guard returns early, and cached remounts (no snapshot) run with annotations non-interactive, so a check placed after the pill loop would be unreachable exactly when a tab is reopened from memory. Folding is not an annotation action and never consults that flag. In `mouseDown`, call `onSectionToggled?(chrome.key)`. Add `override func resetCursorRects()` adding `addCursorRect(chrome.rowRect, cursor: .pointingHand)` for each section, and call `window?.invalidateCursorRects(for: self)` at the end of `updateSectionChrome`.
 
 `simulateClick(at:)` shares the dispatch with `mouseDown` via a private `func dispatchClick(at point: NSPoint)`.
 
@@ -840,11 +939,11 @@ Call it from both `updateTableBorders` call sites (line 131 in `layout()` and li
             drawCounts(for: chrome)
         }
 ```
-- `diffHunkRuleRows(intersecting:in:width:) -> [NSRect]`: same fragment walk as `diffTintRows` but reading `.diffHunkRule`; returns a 1pt-high rect at each hunk row's `minY` (row rect computed the same way, height 1). Factor the shared walk into a private generic helper if it stays readable; otherwise duplicate the 20 lines and say why in a comment.
+- `diffHunkRuleRows(intersecting:in:width:) -> [NSRect]`: the same fragment walk as `diffTintRows`, reading `.diffHunkRule`, returning a 1pt-high rect at each hunk row's `minY`. Decision made here, not by the implementer: refactor the walk into ONE private static `diffAttributeRows(_ key: NSAttributedString.Key, intersecting:in:width:) -> [(rect: NSRect, value: Any)]` and have both public functions map over it (tints merge consecutive same-color rows; rules take `minY` with height 1). No generics, no duplication.
 - `drawChevron`: `NSImage(systemSymbolName: chrome.collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)` with `NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)`, tinted with `tableBorderColor ?? .labelColor` at full alpha, drawn centred vertically in the heading's first line and horizontally in the gutter: x from `textView.textContainerInset.width` to `+ MarkdownAttributedStringBuilder.sectionHeadingGutter`.
-- `drawCounts`: `countsBadgeText` split into two runs, `+n` in `addedCountColor`, `−m` in `removedCountColor`, font `NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)`, right-aligned so the text ends at `bounds.width - textView.textContainerInset.width`, vertically centred on `chrome.headingRect`'s first line (use `chrome.headingRect.minY + lineHeight/2` where lineHeight is the heading font's line height, so a wrapped heading keeps the badge on its first line). Draw a rounded rect behind both at `Color.aw`-independent `(tableBorderColor ?? .labelColor).withAlphaComponent(0.08)` with 4pt corner radius and 4pt horizontal padding.
+- `drawCounts`: `countsBadgeText` split into two runs, `+n` in `addedCountColor`, `−m` in `removedCountColor`, font `NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)`, right-aligned so the text ends at `visibleWidth - textView.textContainerInset.width` where `visibleWidth = textView.enclosingScrollView?.contentView.bounds.width ?? bounds.width`. The text view is `max(clip width, widest line)` wide since INT-687, so a document with an unwrapped wide line would otherwise push the badge off the right edge of the pane; diff lines wrap and diff documents have no tables, so the two widths normally agree, but pin to the clip regardless. Row rects (`rowRect`) keep `bounds.width` since they are hit targets, not drawings. vertically centred on `chrome.headingRect`'s first line (use `chrome.headingRect.minY + lineHeight/2` where lineHeight is the heading font's line height, so a wrapped heading keeps the badge on its first line). Draw a rounded rect behind both at `Color.aw`-independent `(tableBorderColor ?? .labelColor).withAlphaComponent(0.08)` with 4pt corner radius and 4pt horizontal padding.
 
-5. Accessibility: `sectionAccessibilityChildren()` builds a `PillAccessibilityElement` per chrome (same class as pills; set role `.button`, label from `sectionAccessibilityLabel`, `setAccessibilityValue(chrome.collapsed ? "collapsed" : "expanded")`, live `frameProvider` from `rowRect`, `onPress = { onSectionToggled?(key) }`). Append it in `accessibilityChildren()`: `pillAccessibilityChildren() + sectionAccessibilityChildren() + materializedTableElements()`. Localize: the label and values go through `String(localized:)` with `comment:` (three strings: `"\(key), \(added) added, \(removed) removed"`, `"collapsed"`, `"expanded"`). Count-dependent copy: "added"/"removed" here are labels after a number, not pluralized nouns, so no stringsdict is needed; note that in a comment.
+5. Accessibility: `sectionAccessibilityChildren()` builds a `PillAccessibilityElement` per chrome (same class as pills; set role `.button`, `setAccessibilityEnabled(true)` unconditionally (not `annotationsInteractive`), label from `sectionAccessibilityLabel(key: chrome.title, …)` (the title, never the key), `setAccessibilityValue(chrome.collapsed ? "collapsed" : "expanded")`, live `frameProvider` from `rowRect`, `onPress = { onSectionToggled?(key) }`). Append it in `accessibilityChildren()`: `pillAccessibilityChildren() + sectionAccessibilityChildren() + materializedTableElements()`. Localize: the label and values go through `String(localized:)` with `comment:` (three strings: `"\(key), \(added) added, \(removed) removed"`, `"collapsed"`, `"expanded"`). Count-dependent copy: "added"/"removed" here are labels after a number, not pluralized nouns, so no stringsdict is needed; note that in a comment.
 
 6. `countsBadgeText(added:removed:)`: `"+\(added) \u{2212}\(removed)"`.
 
@@ -877,17 +976,32 @@ Expected: all pass. If the `hitTest` conversion in the test is off by the inset,
 - [ ] **Step 1: Write the failing test** (append to `MarkdownDiffLineStylingTests`)
 
 ```swift
-    @Test("a folded document renders no body text for the collapsed section and keeps the others")
+    @Test("folding removes exactly the body and keeps one block separator between surviving headings")
     func foldedDocumentOmitsCollapsedBody() {
-        let doc = AttributedMarkdownBuilder.build("## a\n\n```diff\n+only-in-a\n```\n\n## b\n\n```diff\n+only-in-b\n```\n")
+        let doc = AttributedMarkdownBuilder.build("## a\n\n```diff\n+only-in-a\n```\n\n## b\n\n```diff\n+only-in-b\n```\n\n## c\n\n```diff\n+only-in-c\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        func text(_ collapsed: Set<String>) -> String {
+            MarkdownAttributedStringBuilder.attributedString(
+                for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: collapsed), textColor: .white, sectionIndex: index).string
+        }
+        // Exact strings, so a fold that eats the heading's separator ("ab") or leaves a double gap fails.
+        #expect(text(["a"]) == "a\n\nb\n\n+only-in-b\n\nc\n\n+only-in-c")
+        #expect(text(["b"]) == "a\n\n+only-in-a\n\nb\n\nc\n\n+only-in-c")
+        #expect(text(["c"]) == "a\n\n+only-in-a\n\nb\n\n+only-in-b\n\nc")
+        #expect(text(["a", "b"]) == "a\n\nb\n\nc\n\n+only-in-c")
+        #expect(text(["a", "b", "c"]) == "a\n\nb\n\nc")
+        #expect(text([]) == MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index).string)
+    }
+
+    @Test("bodyRuns of the last section stop before the document's trailing separator so the joined text has no dangling newline")
+    func lastSectionKeepsNoTrailingSeparator() {
+        // If the exact strings above fail only on the last section, adjust
+        // `bodyRuns.upperBound` for the final section in `BranchDiffSectionIndex`
+        // to exclude a trailing `.blockSeparator` run rather than loosening this test.
+        let doc = AttributedMarkdownBuilder.build("## a\n\n```diff\n+x\n```\n")
         let index = BranchDiffSectionIndex(document: doc)
         let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"])
-        let text = MarkdownAttributedStringBuilder.attributedString(for: folded, textColor: .white, sectionIndex: index).string
-        #expect(!text.contains("only-in-a"))
-        #expect(text.contains("only-in-b"))
-        #expect(text.contains("a"))
-        // Folding the heading's own separator too leaves no blank line before the next heading.
-        #expect(!text.contains("a\n\n\n"))
+        #expect(folded.runs.map(\.text).joined() == "a")
     }
 ```
 
@@ -907,18 +1021,27 @@ b. Add:
     /// The document with every collapsed section's body removed. The index was
     /// built on the unfolded document, and its run ranges address that
     /// document, which is the one this always folds from.
-    static func foldedDocument(_ doc: RenderedDocument, index: BranchDiffSectionIndex?, collapsed: Set<String>) -> RenderedDocument {
+    nonisolated static func foldedDocument(_ doc: RenderedDocument, index: BranchDiffSectionIndex?, collapsed: Set<String>) -> RenderedDocument {
+        // `nonisolated`: MarkdownTextView is @MainActor and the test suite is not.
         guard let index, !collapsed.isEmpty else { return doc }
-        let ranges = index.sections.filter { collapsed.contains($0.key) }.map(\.bodyRuns)
+        let ranges = index.sections.filter { collapsed.contains($0.key) && $0.isFoldable }.map(\.bodyRuns)
         return doc.folding(removingRunRanges: ranges)
     }
 ```
 
 c. `attributedString(for:)` passes `sectionIndex: sectionIndex` to the builder.
 
-d. In `updateNSView`: compute `let displayDoc = Self.foldedDocument(doc, index: sectionIndex, collapsed: collapsedSections)` at the top and use `displayDoc` everywhere the method currently uses `doc` for building and for `lastDoc` (selection mapping must see the folded runs). Keep `docSourceChanged` on `doc.source`. Add `let foldChanged = context.coordinator.lastCollapsedSections != collapsedSections` into `sourceChanged` (not into `docSourceChanged`, so the scroll anchor does not re-fire). Store `lastCollapsedSections = collapsedSections` alongside `lastTextColor`.
+d. In `updateNSView`: compute `let displayDoc = Self.foldedDocument(doc, index: sectionIndex, collapsed: collapsedSections)` at the top. `doc` is used in six places with three meanings; replace exactly these: `attributedString(for: doc)` → `displayDoc` (build), `context.coordinator.lastDoc = doc` → `displayDoc` (run geometry for selection and anchors). Keep `doc.source` (identity, `docSourceChanged`) and both `doc.resolvedAnnotationIDs` uses (annotation data is document-level and unaffected by folding). `Self.spanDisplayNumbers(in: context.coordinator.lastDoc)` stays as is: it reads runs by mark id, and a diff has none.
 
-e. Selection: when `foldChanged`, pass `preserving: nil` (clear the selection) instead of the preserved range.
+Fold cost: a click rebuilds the attributed string and lays the whole document out twice. Measure it once on a max-budget diff during the Task 6 smoke and write the number into a `// ponytail: whole-document rebuild per fold (~N ms at the 1.5 MiB budget); incremental re-layout of the folded range if it ever shows up` comment above the `foldChanged` line. Keep `docSourceChanged` on `doc.source`. Add `let foldChanged = context.coordinator.lastCollapsedSections != collapsedSections || context.coordinator.lastSectionIndex != sectionIndex` into `sourceChanged` (not into `docSourceChanged`, so the scroll anchor does not re-fire). The index term matters on refresh: the source can be identical while the index (and therefore the heading attributes) changed, and without it the rebuild is skipped and `lastDoc` goes stale. Store `lastCollapsedSections` and `lastSectionIndex` alongside `lastTextColor`.
+
+e. Selection on `foldChanged`: the spec keeps a selection outside the folded body and clears one inside it. Passing `preserving: nil` does NOT clear anything: `replaceTextStorage` only calls `setSelectedRange` for a non-nil range, and AppKit keeps the old UTF-16 indices, which after a fold select unrelated text further down. So compute the preserved range from the SOURCE span, which folding does not change: if `selectedSourceSpan` is non-nil, map `lowerBound` and `upperBound` through `SelectionSourceMapping.renderedUTF16Offset(forSourceOffset:in: displayDoc)`; if both map and the mapped text equals the previously selected text, preserve that range; otherwise preserve `NSRange(location: 0, length: 0)`. Then `publishSelectionState(in:)` as the existing path does. Add to `MarkdownDiffLineStylingTests`: a selection inside section b survives folding section a (same text, new offsets); a selection inside a survives nothing (zero-length).
+
+Tab-switch anchor: `scrollAnchorSourceOffset()` captures against `lastDoc`, which is now the folded document, and the restore on remount runs against the same collapsed set from `DocumentTabMemory`, so the captured offset always lands on a visible run. State this in a comment next to `lastDoc = displayDoc`; no code change.
+
+e2. Viewport for fold changes without a heading anchor (Collapse All / Expand All from the footer, or a tab restored with a different collapsed set): before `replaceTextStorage`, if `foldChanged && pendingSectionReanchor == nil`, capture `let anchor = context.coordinator.scrollAnchorSourceOffset()`; after the synchronous `updateBadges`, `scrollToSourceOffset(anchor)` when non-nil. Both helpers already exist (~line 840 and ~892) and map through `lastDoc`, which is the folded document by then; a captured offset inside a now-hidden body falls back to the preceding visible run, which is the heading.
+
+e3. `applyProseWrapWidth` (coordinator, ~line 680) stamps `tailIndent = width` on every non-table paragraph. For a paragraph carrying `.diffSectionKey`, use `width - MarkdownAttributedStringBuilder.sectionHeadingTrailingReserve` instead (check the attribute at `paragraph.location`, the same way `.tableCellGrid` is checked), so a long path wraps before the counts badge instead of running under it. Add one assertion to `BranchDiffOverlayChromeTests`: a 300pt-wide view with a 120-character path heading has `headingRect.maxX <= 300 - inset - reserve + 1`.
 
 f. Overlay wiring in the `if let overlay` block: set `overlay.sectionCounts` (from `sectionIndex`, nil when no index), `overlay.collapsedSections`, `overlay.onSectionToggled = { [weak coordinator] key in coordinator?.handleSectionToggle(key) }`, `overlay.addedCountColor/removedCountColor/hunkRuleColor` from `MarkdownAttributedStringBuilder.DiffPalette(terminalBackground:)` (`added`, `removed`) and `NSColor(Color.aw.border2)` (needs `import struct SwiftUI.Color` at the top if not already imported; check the file's imports, it already imports SwiftUI for `NSViewRepresentable`).
 
@@ -949,9 +1072,9 @@ g. Coordinator:
 ```
 In `updateNSView`, set `context.coordinator.onSectionToggled = onSectionToggled` each pass, and after the synchronous `overlay.updateBadges(...)` call inside `if didReplaceTextStorage`, call `context.coordinator.reanchorAfterFold()` when `foldChanged`.
 
-`DocumentPaneView.swift`: add the three inputs; at the `MarkdownTextView(` call pass `sectionIndex: sectionIndex ?? localSectionIndex`, `collapsedSections: collapsedSections`, `onSectionToggled: onSectionToggled`, where `localSectionIndex` is a `@State private var localSectionIndex: BranchDiffSectionIndex?` set at the same place Task 3 computes the index for the `Render` (so a freshly loaded tab folds before the group has stored the render).
+`DocumentPaneView.swift`: add `collapsedSections` and `onSectionToggled` as inputs (NOT `sectionIndex`: the view owns the index, computed from the document it actually renders and seeded from `cachedRender?.sectionIndex` on remount, so a stale index from the group can never shadow the current one). At the `MarkdownTextView(` call pass `sectionIndex: localSectionIndex`, `collapsedSections: collapsedSections`, `onSectionToggled: onSectionToggled`.
 
-`DocumentGroupView.swift`: at the `DocumentPaneView(` call (line ~210) pass `sectionIndex: tabMemory.sectionIndex(for: document)`, `collapsedSections: tabMemory.collapsedSections(for: document)`, `onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }`.
+`DocumentGroupView.swift`: at the `DocumentPaneView(` call (line ~210) pass `collapsedSections: tabMemory.collapsedSections(for: document)`, `onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }`. The group reads `tabMemory.sectionIndex(for:)` only for the footer's Collapse All keys (Task 8); those may lag one render behind after a refresh, which only affects which keys the toggle writes and is corrected by the next render.
 
 - [ ] **Step 4: Build and run the focused tests**
 
@@ -986,9 +1109,16 @@ final class BranchDiffStickyHeaderView: NSView {
     /// document order, returns (index of the pinned section, y offset ≤ 0 by which
     /// the header is pushed up by the next heading), or nil when no heading is
     /// above the top edge.
-    static func placement(visibleTop: CGFloat, rows: [(minY: CGFloat, maxY: CGFloat)], headerHeight: CGFloat) -> (index: Int, pushOffset: CGFloat)?
+    struct Placement: Equatable { let index: Int; let pushOffset: CGFloat }   // a struct: Optional<tuple> has no `==`
+    static func placement(visibleTop: CGFloat, rows: [(minY: CGFloat, maxY: CGFloat)], headerHeight: CGFloat) -> Placement?
 }
 ```
+
+The bar is NOT an accessibility element (`setAccessibilityElement(false)`): the overlay already exposes one button per heading with the same label and value, and the document text itself carries the heading; a third identity per file is noise, not access (see the panels-have-three-identities note in the repo memory).
+
+- [ ] **Step 0: Falsify the coordinate model before any frame math**
+
+In `makeNSView`, temporarily `print(scrollView.isFlipped, scrollView.contentView.isFlipped, scrollView.clipsToBounds)`, then add the header with a magenta background and a hard-coded `pushOffset` of `-15` and take a screenshot from a dev build. Expected: scroll view not flipped, clip view flipped (its document is), header visible at the TOP of the pane, 15 pt cut off above the edge. If the header appears at the bottom, the sign in `updateStickyHeader` is inverted; if it is not clipped, the pushed header will draw over the annotation bar and needs `clipsToBounds = true` on the scroll view or a mask. Record the three printed values and the observation in the hand-off, remove the prints. If any of this fights back for more than 30 minutes, stop and report: Task 7 becomes its own PR.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1009,20 +1139,16 @@ struct BranchDiffStickyHeaderTests {
 
     @Test("the last heading above the top edge pins with no push")
     func pinsCurrentSection() throws {
-        let p = try #require(BranchDiffStickyHeaderView.placement(visibleTop: 300, rows: rows, headerHeight: 30))
-        #expect(p.index == 0 && p.pushOffset == 0)
-        let q = try #require(BranchDiffStickyHeaderView.placement(visibleTop: 700, rows: rows, headerHeight: 30))
-        #expect(q.index == 1 && q.pushOffset == 0)
+        #expect(BranchDiffStickyHeaderView.placement(visibleTop: 300, rows: rows, headerHeight: 30) == .init(index: 0, pushOffset: 0))
+        #expect(BranchDiffStickyHeaderView.placement(visibleTop: 700, rows: rows, headerHeight: 30) == .init(index: 1, pushOffset: 0))
     }
 
     @Test("the next heading pushes the pinned header up as it approaches, and takes over once it passes")
     func pushesOut() throws {
         // next heading at 500; visible top 480 → 20pt of room for a 30pt header → pushed up 10
-        let p = try #require(BranchDiffStickyHeaderView.placement(visibleTop: 480, rows: rows, headerHeight: 30))
-        #expect(p.index == 0 && p.pushOffset == -10)
+        #expect(BranchDiffStickyHeaderView.placement(visibleTop: 480, rows: rows, headerHeight: 30) == .init(index: 0, pushOffset: -10))
         // heading exactly at the top edge → it is now the pinned one
-        let q = try #require(BranchDiffStickyHeaderView.placement(visibleTop: 500, rows: rows, headerHeight: 30))
-        #expect(q.index == 1 && q.pushOffset == 0)
+        #expect(BranchDiffStickyHeaderView.placement(visibleTop: 500, rows: rows, headerHeight: 30) == .init(index: 1, pushOffset: 0))
     }
 
     @Test("a heading exactly at the top edge is not pinned (it is already visible in place)")
@@ -1032,17 +1158,16 @@ struct BranchDiffStickyHeaderTests {
         #expect(BranchDiffStickyHeaderView.placement(visibleTop: 99, rows: rows, headerHeight: 30) == nil)
     }
 
-    @Test("the view hides without a model and exposes a button with the section label") @MainActor
+    @Test("the view starts hidden, shows with a model, and is not a separate accessibility element") @MainActor
     func viewModelAndAccessibility() {
         let view = BranchDiffStickyHeaderView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
-        #expect(view.isHidden)
+        #expect(view.isHidden)   // set in init, not only in model.didSet (didSet never fires for the initial nil)
         view.model = .init(key: "a.swift", title: "a.swift", added: 3, removed: 1, collapsed: false)
         #expect(!view.isHidden)
-        #expect(view.accessibilityRole() == .button)
-        #expect(view.accessibilityLabel() == "a.swift, 3 added, 1 removed")
+        #expect(view.isAccessibilityElement() == false)
         var activated: String?
         view.onActivate = { activated = $0 }
-        _ = view.accessibilityPerformPress()
+        view.simulateClick()
         #expect(activated == "a.swift")
     }
 }
@@ -1057,7 +1182,7 @@ Expected: compile error.
 
 - [ ] **Step 3: Implement**
 
-`BranchDiffStickyHeaderView.swift`: an `NSView` (not flipped) with an `NSTextField` label (font `MarkdownAttributedStringBuilder.sectionHeadingFont()` scaled down: use `NSFont.systemFont(ofSize: 13, weight: .semibold)` so the bar stays 30pt), a chevron `NSImageView`, and two `NSTextField`s for counts right-aligned; `wantsLayer = true`, `layer.backgroundColor = backgroundColor.cgColor`, 1pt bottom rule drawn in `draw(_:)` with `ruleColor`. `mouseDown` → `onActivate?(model.key)`. Accessibility: `isAccessibilityElement = true`, role `.button`, label via `CommentBadgeOverlay.sectionAccessibilityLabel`, value collapsed/expanded, `accessibilityPerformPress()` calls `onActivate`. `model` didSet: `isHidden = model == nil`, refresh the subviews, `needsDisplay = true`. Implement `placement` exactly as specified.
+`BranchDiffStickyHeaderView.swift`: an `NSView` (not flipped) with an `NSTextField` label (`NSFont.systemFont(ofSize: 13, weight: .semibold)` so the bar stays 30pt), a chevron `NSImageView`, and two `NSTextField`s for counts right-aligned; `wantsLayer = true`, `layer.backgroundColor = backgroundColor.cgColor`, 1pt bottom rule drawn in `draw(_:)` with `ruleColor`. `isHidden = true` in `init`. `mouseDown` → `onActivate?(model.key)`; `func simulateClick()` calls the same private dispatch (test seam). `setAccessibilityElement(false)` in init and mark every subview `setAccessibilityElement(false)` too, so VoiceOver reads the document's own heading and the overlay's button, not a duplicate. `model` didSet: `guard oldValue != model`, `isHidden = model == nil`, refresh the subviews, `needsDisplay = true`. Implement `placement` exactly as specified, returning `Placement`.
 
 `MarkdownTextView.makeNSView`: after `scrollView.documentView = textView`, create the header, `header.isHidden = true`, `scrollView.addSubview(header, positioned: .above, relativeTo: scrollView.contentView)`, keep it in `context.coordinator.stickyHeader`. Enable `scrollView.contentView.postsBoundsChangedNotifications = true` and observe `NSView.boundsDidChangeNotification` on the clip view with selector `clipViewBoundsDidChange(_:)` (same registration style as the existing frame observer). Wire `header.onActivate = { [weak coordinator] key in coordinator?.activateStickyHeader(key) }`.
 
@@ -1073,12 +1198,13 @@ Coordinator:
         let chrome = overlay.sectionChrome
         guard !chrome.isEmpty else { header.model = nil; return }
         let clip = scrollView.contentView
-        let rows = chrome.map { (minY: $0.rowRect.minY, maxY: $0.rowRect.maxY) }
+        // `cachedRows` is rebuilt in the overlay's onSectionChromeChanged callback, not here: this runs per scroll frame.
         guard let placement = BranchDiffStickyHeaderView.placement(
-            visibleTop: clip.bounds.minY, rows: rows, headerHeight: BranchDiffStickyHeaderView.height)
+            visibleTop: clip.bounds.minY, rows: cachedRows, headerHeight: BranchDiffStickyHeaderView.height)
         else { header.model = nil; return }
         let section = chrome[placement.index]
-        header.model = .init(key: section.key, title: section.key, added: section.added, removed: section.removed, collapsed: section.collapsed)
+        let model = BranchDiffStickyHeaderView.Model(key: section.key, title: section.title, added: section.added, removed: section.removed, collapsed: section.collapsed)
+        if header.model != model { header.model = model }
         // Scroll view space is unflipped: y grows upward, the clip's top edge is clip.frame.maxY.
         let width = clip.frame.width
         header.frame = NSRect(x: clip.frame.minX, y: clip.frame.maxY - BranchDiffStickyHeaderView.height - placement.pushOffset, width: width, height: BranchDiffStickyHeaderView.height)
@@ -1093,7 +1219,9 @@ Coordinator:
         handleSectionToggle(key)
     }
 ```
-The `title` shown is the section key; strip a trailing `#n` ordinal for display (`key.replacing(/#\d+$/, with: "")`).
+The title shown is `section.title` (the heading text), never the key; keys are opaque and may carry a `\n` ordinal.
+
+Scroll-path cost: the bounds notification fires per scroll frame. Keep the handler allocation-free on the common path: cache `rows` and the model when `sectionChrome` changes (the overlay exposes `var onSectionChromeChanged: (() -> Void)?`, invoked at the end of `updateSectionChrome`, and the coordinator rebuilds `cachedRows` there), and skip `header.model = …`/frame assignment when neither changed (`Model` is `Equatable`; compare before assigning). Do not coalesce the notification itself: a pinned header that lags the scroll by a runloop turn visibly jitters. With cached rows, `placement` is a linear scan over a few hundred entries at most; leave a `// ponytail: linear scan, binary search if a thousand-file diff makes this show up` comment.
 
 Call `updateStickyHeader()` at the end of the `if didReplaceTextStorage` block in `updateNSView` (after `reanchorAfterFold()`), inside the async `Task` after the second `updateBadges`, and at the end of `updateDocumentGeometry()` (resize). Push header colors from `updateNSView`: `backgroundColor = terminalBackground ?? .windowBackgroundColor`, `titleColor = textColor ?? .labelColor`, counts from the `DiffPalette`, `ruleColor = NSColor(Color.aw.border2)`.
 
@@ -1125,9 +1253,17 @@ Run: `./script/swift-test.sh --filter BranchDiffStickyHeaderTests`. Then `./scri
   - `TerminalPathBarModel.make(pane: TerminalPane, session: TerminalSession, fileManager:homeDirectory:)`; `make(session:)` becomes `make(pane: session.activePane ?? fallback, session: session)`.
   - `BranchChangesOpener.open(session:pane:chrome:claimingSlot:)`; the remote gate and path model read `pane`, not `session.activePane`.
   - `struct BranchChangesRefreshAction { let run: @MainActor (_ paneID: TerminalPane.ID, _ completion: @escaping @MainActor () -> Void) -> Void }` and `extension EnvironmentValues { @Entry var branchChangesRefresh: BranchChangesRefreshAction? }`.
+  - `BranchChangesCoordinator` becomes `@Observable` (it is already a `@MainActor final class` held as `@State` in the app) with `private(set) var refreshingPaneIDs: Set<TerminalPane.ID>`, inserted in `begin(paneID:)` and removed in `finish(_:paneID:)` when no other ticket for that pane is active. It is injected with `.environment(branchChangesCoordinator)` and read by the send bar with `@Environment(BranchChangesCoordinator.self)`, so a menu-started refresh disables the footer button too.
+  - Environment reach: `ContentView.swift:131` documents that the split's `NSHostingController`s are fresh environment roots and re-injects `appSettingsStore`/`updateController` into each pane closure (~line 418). Both new values must be re-injected there the same way (`@Environment(\.branchChangesRefresh)` + `@Environment(BranchChangesCoordinator.self)` read in `ContentView`, then `.environment(\.branchChangesRefresh, branchChangesRefresh)` and `.environment(branchChangesCoordinator)` on the detail content). Without this the footer sees `nil`, looks enabled, and does nothing. Verify by grepping every `.environment(appSettingsStore)` site and mirroring each one.
   - `AwesoMuxApp.showBranchChanges(forPane paneID: TerminalPane.ID, completion: @escaping @MainActor () -> Void = {})`; `showBranchChangesForActivePane()` resolves the active pane and calls it.
   - `DocumentPaneSendBar` new inputs: `var sectionKeys: [String] = []`, `var collapsedSections: Set<String> = []`, `var onSetCollapsedSections: (Set<String>) -> Void = { _ in }`.
   - Pure helper for tests: `enum BranchChangesRefreshPolicy { static func verdict(target: DocumentNudgeTargetResolution, inFlight: Bool) -> Verdict }` with `enum Verdict: Equatable { case ready; case busy; case unavailable(String) }` (the string is the caption).
+
+- [ ] **Step 0: Falsify environment reach before the split**
+
+This is the repository's first `@Entry` (grep confirms none). Add a throwaway `@Entry var branchChangesProbe: Int = 0`, inject `.environment(\.branchChangesProbe, 7)` at `AwesoMuxApp.swift:883` AND in `ContentView`'s detail closure next to `.environment(appSettingsStore)`, print it from `DocumentPaneSendBar.body` in a dev build, and confirm `7` arrives on a branch-changes tab. Remove the probe. If it does not arrive even with the `ContentView` re-injection, fall back to passing the action down by value from `DocumentGroupView` (which already receives `sessionStore` and `runtime`) and say so in the hand-off.
+
+Why not the `AgentTranscriptResumeStaging` pattern the spec cites for the pane resolution: that enum is stateless and takes its collaborators as parameters. The refresh command needs the app's `BranchChangesCoordinator` (`@State` in `AwesoMuxApp`, the ticket authority for latest-wins), `sessionStore`, and the failure-alert presenter, none of which the send bar holds. An environment-delivered closure is the smallest thing that carries all three without making the coordinator a global.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1157,19 +1293,23 @@ struct BranchChangesRefreshActionTests {
 }
 ```
 
-In `BranchChangesOpenerTests.swift` add:
+In `BranchChangesOpenerTests.swift` add a test through the OPENER, not the path-model helper, using the file's existing `SpyGitRunner` and temporary-repository fixtures (see `opener(_:cacheDirectory:)` at line ~62 and the fixtures the other tests use):
 ```swift
-    @Test("the path model built for an explicit pane uses that pane's directory, not the session's active pane")
-    func pathModelUsesExplicitPane() {
-        let active = TerminalPane(title: "a", workingDirectory: "/tmp", executionPlan: .local)
-        let other = TerminalPane(title: "b", workingDirectory: NSHomeDirectory(), executionPlan: .local)
-        var session = TerminalSession(title: "s", workingDirectory: "/tmp")   // use the same fixture helper the file already has for sessions
-        // add both panes so `other` is not the active one (use the file's existing layout helpers)
-        let model = TerminalPathBarModel.make(pane: other, session: session)
-        #expect(model.path == "~")
+    @Test("open(session:pane:) reads the explicit pane, not the session's active pane")
+    func openUsesExplicitPane() async throws {
+        // Active pane: remote plan (would fail with .remotePane if consulted).
+        // Explicit pane: local, inside the fixture repository.
+        let active = TerminalPane(title: "ssh", workingDirectory: "/tmp", executionPlan: <remote plan from the file's fixtures>)
+        let explicit = TerminalPane(title: "zsh", workingDirectory: repository.rootURL.path, executionPlan: .local)
+        let session = <session fixture with both panes, `active` selected>
+        let runner = SpyGitRunner(outcomes: <the successful base-ref + diff outcomes the existing happy-path test uses>)
+        let result = await opener(runner, cacheDirectory: repository.cacheDirectory).open(
+            session: session, pane: explicit, chrome: chrome, claimingSlot: { _ in true })
+        #expect((try? result.get()) != nil)
+        #expect(runner.invocations.allSatisfy { $0.directory == repository.rootURL })
     }
 ```
-Adapt the session/layout fixture to whatever `BranchChangesOpenerTests` already uses to build a session with panes; the assertion is only that the model reflects `other`.
+Fill the angle-bracket placeholders from the fixtures already in that file (read it first; do not invent new fixture types). The assertion that matters is the runner's working directory: it must be the explicit pane's repository, and the remote active pane must not short-circuit the call.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1239,7 +1379,7 @@ d. `AwesoMuxApp.swift`: rename the body of `showBranchChangesForActivePane()` in
 ```
 Keep the sheet-wedge heal and `isAnySheetPresented` gate only on the menu path (the button is inside the window and cannot be reached while a sheet is up). At line 883 add `.environment(\.branchChangesRefresh, BranchChangesRefreshAction { paneID, completion in showBranchChanges(forPane: paneID, completion: completion) })`.
 
-e. `DocumentPaneSendBar`: add `@Environment(\.branchChangesRefresh) private var branchChangesRefresh`, `@State private var refreshInFlight = false`, the three new inputs. Replace the `else if pane.generatedDocumentKind != nil` branch with:
+e. `DocumentPaneSendBar`: add `@Environment(\.branchChangesRefresh) private var branchChangesRefresh`, `@Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator`, the three new inputs. Busy state comes from the coordinator, not a local flag: `inFlight = target.map { branchChangesCoordinator.refreshingPaneIDs.contains($0.id) } ?? false`. Keep a local `@State private var refreshRequested = false` only to debounce a double-click before the coordinator's set updates; clear it in the completion. Replace the `else if pane.generatedDocumentKind != nil` branch with:
 ```swift
             } else if pane.generatedDocumentKind == .branchChanges {
                 branchChangesControls
@@ -1250,7 +1390,7 @@ and:
 ```swift
     private var branchChangesControls: some View {
         let verdict = BranchChangesRefreshPolicy.verdict(
-            target: session.layout.documentNudgeTarget(for: pane.id), inFlight: refreshInFlight)
+            target: session.layout.documentNudgeTarget(for: pane.id), inFlight: refreshRequested || isRefreshingTarget)
         let unavailable: String? = { if case .unavailable(let caption) = verdict { return caption }; return nil }()
         return HStack(spacing: 8) {
             VStack(spacing: 3) {
@@ -1268,6 +1408,8 @@ and:
                     .accessibilityHidden(true)
             }
             if !sectionKeys.isEmpty {
+                // After a refresh adds one file, this reads "Collapse All" again while
+                // the rest stay folded. Cosmetic and self-correcting on the next press.
                 let allCollapsed = Set(sectionKeys).isSubset(of: collapsedSections)
                 Button(allCollapsed
                     ? String(localized: "Expand All", comment: "Send-bar button on a branch changes tab that unfolds every file section")
@@ -1281,11 +1423,16 @@ and:
         .frame(maxWidth: .infinity)
     }
 
+    private var isRefreshingTarget: Bool {
+        guard case .available(let target) = session.layout.documentNudgeTarget(for: pane.id) else { return false }
+        return branchChangesCoordinator.refreshingPaneIDs.contains(target.id)
+    }
+
     private func refresh() {
-        guard !refreshInFlight, let branchChangesRefresh,
+        guard !refreshRequested, !isRefreshingTarget, let branchChangesRefresh,
             case .available(let target) = session.layout.documentNudgeTarget(for: pane.id) else { return }
-        refreshInFlight = true
-        branchChangesRefresh.run(target.id) { refreshInFlight = false }
+        refreshRequested = true
+        branchChangesRefresh.run(target.id) { refreshRequested = false }
     }
 ```
 `SendToAgentButton.Purpose` (line ~724) gains a `.refreshBranchChanges` case; give it the `arrow.clockwise` symbol wherever `Purpose` maps to an icon (read the enum's uses in that struct and mirror `.resumeSession`). If `Purpose` carries no icon, add `systemImage` handling only for this case.
@@ -1294,9 +1441,11 @@ f. `DocumentGroupView.swift` at `DocumentPaneSendBar(`: pass `sectionKeys: tabMe
 
 g. Run `./script/update_string_catalog.sh` and include `Resources/Localizable.xcstrings` in the handoff.
 
+Add a coordinator test (new `Tests/awesoMuxTests/BranchChangesCoordinatorTests.swift` or the existing coordinator suite if one exists; grep first): `begin(paneID:)` inserts the pane into `refreshingPaneIDs`, `finish` of the last active ticket removes it, and `finish` of an older superseded ticket while a newer one is active leaves it in.
+
 - [ ] **Step 4: Run tests and smoke**
 
-Run: `./script/swift-test.sh --filter BranchChangesRefreshActionTests`, `--filter BranchChangesOpenerTests`, `--filter BranchChangesCompletionTests`. Then `./script/build_and_run.sh`: open branch changes from pane A, focus pane B (different repo or none), press Refresh on the tab: the tab re-renders for pane A's repo; snapshot time updates; folds persist. Close pane A: the button disables with "This tab's terminal was closed". Collapse All / Expand All flip every section.
+Run: `./script/swift-test.sh --filter BranchChangesRefreshActionTests`, `--filter BranchChangesOpenerTests`, `--filter BranchChangesCompletionTests`, `--filter BranchChangesCoordinatorTests`. Then `./script/build_and_run.sh`: open branch changes from pane A, focus pane B (different repo or none), press Refresh on the tab: the tab re-renders for pane A's repo; snapshot time updates; folds persist. Close pane A: the button disables with "This tab's terminal was closed". Start a refresh from the Workspace menu and check the footer button is disabled while it runs. Collapse All while scrolled deep into a many-file diff keeps the viewport on the same heading. Collapse All / Expand All flip every section.
 
 - [ ] **Step 5: Format and hand off**
 
@@ -1304,7 +1453,9 @@ Run: `./script/swift-test.sh --filter BranchChangesRefreshActionTests`, `--filte
 
 ---
 
-### Task 9: Spike: per-line VoiceOver roles (bounded, 45 minutes)
+### Task 9: Spike: per-line VoiceOver roles (bounded, 45 minutes) — RUNS FIRST
+
+Runs before Task 1: the diff-line runs it stamps already exist on this branch, and a positive result adds an attribute to Task 4's stamping loop.
 
 **Files:**
 - Modify (only if it works): `Sources/awesoMux/Views/Markdown/MarkdownAttributedStringBuilder.swift` (diff-line branch)
