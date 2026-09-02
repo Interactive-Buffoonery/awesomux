@@ -410,13 +410,15 @@ struct MarkdownTextView: NSViewRepresentable {
         // but must NOT re-fire the scroll anchor, or a theme switch would jump the
         // user back to a stale pendingScrollAnchor left over from the last reload.
         let docSourceChanged = context.coordinator.lastSource != doc.source
-        // ponytail: a fold rebuilds and re-lays out the whole document
-        // (unmeasured; measure on a max-budget diff). Incremental re-layout of
-        // the folded range if it ever shows up. The index term is not redundant
-        // with the source: a
-        // refresh can reproduce an identical source under a changed index, and
-        // skipping the rebuild there would leave `lastDoc` and the heading
-        // attributes stale.
+        // ponytail: a fold rebuilds and re-lays out the WHOLE document, on the
+        // main thread. Measured headless at ~1.2 s for a 20 000-line, ~40 000-run
+        // diff (`foldCycleCostOnALargeDiff`), and the renderer's per-fence cap is
+        // 20 000 lines on its own, so a max-budget diff is a few times that.
+        // Upgrade path: re-lay out only the folded range instead of the whole
+        // document. The index term is not redundant with the source: a refresh
+        // can reproduce an identical source under a changed index, and skipping
+        // the rebuild there would leave `lastDoc` and the heading attributes
+        // stale.
         let foldChanged =
             context.coordinator.lastCollapsedSections != collapsedSections
             || context.coordinator.lastSectionIndex != sectionIndex
@@ -598,6 +600,8 @@ struct MarkdownTextView: NSViewRepresentable {
                     sectionIndex.map { index in
                         Dictionary(uniqueKeysWithValues: index.sections.map { ($0.key, $0.title) })
                     } ?? [:]
+                overlay.foldableKeys =
+                    sectionIndex.map { Set($0.sections.filter(\.isFoldable).map(\.key)) } ?? []
                 let palette = MarkdownAttributedStringBuilder.DiffPalette(
                     terminalBackground: terminalBackground)
                 overlay.addedCountColor = palette.added
@@ -778,8 +782,21 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// Not coalesced onto the next runloop turn, unlike the frame observer: a
     /// pinned header that lags the scroll by a turn visibly jitters.
     @objc func clipViewBoundsDidChange(_ notification: Notification) {
+        if let clip = notification.object as? NSClipView, clip.bounds.origin.x != lastClipOriginX {
+            lastClipOriginX = clip.bounds.origin.x
+            // The counts badges are pinned to the clip's trailing edge while the
+            // overlay scrolls with the document, so a horizontal scroll blits
+            // them out of the pane unless the heading rows redraw. Invalidating
+            // the whole overlay rather than the union of visible heading rows:
+            // AppKit intersects the dirty rect with the visible rect before
+            // calling draw(_:), so the drawn work is the same either way, for
+            // one line instead of a rect walk.
+            badgeOverlay?.needsDisplay = true
+        }
         updateStickyHeader()
     }
+
+    private var lastClipOriginX: CGFloat = 0
 
     func updateStickyHeader() {
         guard let header = stickyHeader, let textView, let overlay = badgeOverlay,
@@ -799,7 +816,8 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         let section = chrome[placement.index]
         let model = BranchDiffStickyHeaderView.Model(
             key: section.key, title: section.title, added: section.added,
-            removed: section.removed, collapsed: section.collapsed)
+            removed: section.removed, collapsed: section.collapsed,
+            foldable: section.foldable)
         if header.model != model { header.model = model }
         // The scroll view's own space is FLIPPED (see makeNSView): its top edge
         // is `clip.frame.minY` and y grows downward, so a `pushOffset` of ≤ 0
@@ -819,6 +837,10 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         else { return }
         let x = scrollView.contentView.bounds.origin.x
         textView.scroll(NSPoint(x: x, y: max(0, chrome.rowRect.minY - 4)))
+        // A fence-less section has nothing to fold, so its pinned header is
+        // navigation only — toggling would flip the chevron and pay a rebuild
+        // for a fold that never happens.
+        guard chrome.foldable else { return }
         handleSectionToggle(key)
     }
 

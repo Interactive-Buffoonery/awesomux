@@ -16,6 +16,10 @@ final class BranchDiffStickyHeaderView: NSView {
         let added: Int
         let removed: Int
         let collapsed: Bool
+        /// Mirrors `CommentBadgeOverlay.SectionChrome.foldable`. False for a
+        /// fence-less section, whose header drops the chevron and stays a
+        /// scroll-to-heading affordance only.
+        let foldable: Bool
     }
 
     /// Where the header sits for a given scroll position. A struct rather than a
@@ -59,6 +63,9 @@ final class BranchDiffStickyHeaderView: NSView {
             refreshContent()
         }
     }
+
+    /// Test seam: headless tests have no window to inspect the drawn chevron.
+    var isChevronHidden: Bool { chevron.isHidden }
 
     /// Click, or the test seam, resolved to the pinned section's key.
     var onActivate: ((String) -> Void)? = nil
@@ -162,8 +169,21 @@ final class BranchDiffStickyHeaderView: NSView {
         onActivate?(key)
     }
 
+    /// A CGColor is resolved against the appearance in force when it was made,
+    /// and the `.windowBackgroundColor` fallback is dynamic — re-resolve it so a
+    /// light/dark flip does not leave the header on the previous appearance's
+    /// surface.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyBackground()
+    }
+
     private func applyBackground() {
-        layer?.backgroundColor = backgroundColor.cgColor
+        // `.cgColor` resolves a dynamic NSColor against the CURRENT drawing
+        // appearance, which is not this view's during an appearance change.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = backgroundColor.cgColor
+        }
     }
 
     private func refreshContent() {
@@ -172,7 +192,8 @@ final class BranchDiffStickyHeaderView: NSView {
         titleLabel.textColor = titleColor
         countsLabel.attributedStringValue = countsAttributedString(
             added: model.added, removed: model.removed)
-        chevron.image = chevronImage(collapsed: model.collapsed)
+        chevron.isHidden = !model.foldable
+        chevron.image = model.foldable ? chevronImage(collapsed: model.collapsed) : nil
         needsLayout = true
         needsDisplay = true
     }

@@ -236,6 +236,52 @@ struct MarkdownDiffLineStylingTests {
             sourceSpan: span, selectedText: "+only-in-a", in: folded, replacement: replacement)
         #expect(preserved == NSRange(location: 0, length: 0))
     }
+
+    /// Regression guard on the cost the `foldChanged` comment in
+    /// `MarkdownTextView.updateNSView` quotes: one fold rebuilds and re-lays out
+    /// the WHOLE document. Folds one section of a 50 × 400-line diff so the
+    /// remaining ~20 000 lines still have to lay out — folding everything would
+    /// measure an almost empty document instead.
+    @Test("one fold cycle on a 50-file, 20k-line diff stays inside its regression ceiling")
+    @MainActor
+    func foldCycleCostOnALargeDiff() throws {
+        let source = (0..<50).map { file in
+            "## file\(file).swift\n\n```diff\n"
+                + (0..<400).map { "+line \($0)" }.joined(separator: "\n")
+                + "\n```\n\n"
+        }.joined()
+        let doc = AttributedMarkdownBuilder.build(source)
+        let index = BranchDiffSectionIndex(document: doc)
+        #expect(index.sections.count == 50)
+
+        let textView = NSTextView(usingTextLayoutManager: true)
+        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        textView.textContainerInset = NSSize(width: 20, height: 20)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let layoutManager = try #require(textView.textLayoutManager)
+
+        // Warm pass, so the measurement below is the fold, not the first layout.
+        textView.textStorage?.setAttributedString(
+            MarkdownAttributedStringBuilder.attributedString(
+                for: doc, textColor: .white, sectionIndex: index))
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+
+        let collapsed: Set<String> = [index.sections[0].key]
+        let elapsed = ContinuousClock().measure {
+            let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: collapsed)
+            let attr = MarkdownAttributedStringBuilder.attributedString(
+                for: folded, textColor: .white, sectionIndex: index)
+            textView.textStorage?.setAttributedString(attr)
+            layoutManager.ensureLayout(for: layoutManager.documentRange)
+        }
+        print("fold cycle: \(elapsed) for \(doc.runs.count) runs")
+        // 4x headroom over the ~1.2 s measured: Swift Testing runs the suite
+        // concurrently and this repo's full run flakes under load, so the guard
+        // is for a 10x blow-up (an accidental per-line pass), not a 2x one.
+        #expect(elapsed < .seconds(5), "fold cycle took \(elapsed)")
+    }
 }
 
 /// WCAG relative-luminance contrast, local to this suite so the assertion

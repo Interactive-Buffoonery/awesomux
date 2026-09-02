@@ -38,6 +38,7 @@ struct BranchDiffOverlayChromeTests {
             uniqueKeysWithValues: index.sections.map { ($0.key, ($0.added, $0.removed)) })
         overlay.sectionTitles = Dictionary(
             uniqueKeysWithValues: index.sections.map { ($0.key, $0.title) })
+        overlay.foldableKeys = Set(index.sections.filter(\.isFoldable).map(\.key))
         overlay.collapsedSections = collapsed
         // Cached remounts render with annotations non-interactive (no snapshot);
         // folding must not depend on that gate.
@@ -54,8 +55,12 @@ struct BranchDiffOverlayChromeTests {
         let source = (0..<200).map { "## f\($0).swift\n\n```diff\n+a\n-b\n```\n" }.joined()
         let (overlay, textView, attr, _) = makeOverlay(source)
         #expect(overlay.sectionChrome.count == 200)
+        // A fresh instance, not `attr`: makeOverlay already ran updateBadges
+        // with that one, so re-passing it would measure a heading-range cache
+        // hit and leave the per-run enumerate outside the measurement.
+        let fresh = NSAttributedString(attributedString: attr)
         let elapsed = ContinuousClock().measure {
-            overlay.updateBadges(attr: attr, textView: textView)
+            overlay.updateBadges(attr: fresh, textView: textView)
         }
         #expect(elapsed < .milliseconds(16), "updateBadges took \(elapsed)")
     }
@@ -85,6 +90,72 @@ struct BranchDiffOverlayChromeTests {
         #expect(toggled == ["b.swift"])
         let between = NSPoint(x: 10, y: overlay.sectionChrome[0].rowRect.maxY + 30)
         #expect(overlay.hitTest(textView.convert(between, from: overlay)) == nil)
+    }
+
+    @Test("a fence-less section keeps its chrome entry but is inert: no click target, no fold state")
+    @MainActor
+    func fenceLessSectionIsNotFoldable() throws {
+        let (overlay, textView, _, _) = makeOverlay(
+            "## renamed.txt\n\n## b.swift\n\n```diff\n+z\n```\n")
+        #expect(overlay.sectionChrome.map(\.key) == ["renamed.txt", "b.swift"])
+        #expect(overlay.sectionChrome[0].foldable == false)
+        #expect(overlay.sectionChrome[1].foldable == true)
+
+        var toggled: [String] = []
+        overlay.onSectionToggled = { toggled.append($0) }
+        let row = overlay.sectionChrome[0].rowRect
+        let inside = NSPoint(x: row.midX, y: row.midY)
+        #expect(overlay.hitTest(textView.convert(inside, from: overlay)) == nil)
+        overlay.simulateClick(at: inside)
+        #expect(toggled.isEmpty)
+
+        let elements = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(elements.count == 2)
+        #expect(elements[0].accessibilityLabel() == "renamed.txt, 0 added, 0 removed")
+        #expect(elements[0].accessibilityValue() == nil)
+        #expect(elements[0].accessibilityRole() == .staticText)
+        #expect(elements[0].accessibilityPerformPress() == false)
+        #expect(toggled.isEmpty)
+        #expect(elements[1].accessibilityRole() == .button)
+        #expect(elements[1].accessibilityValue() as? String == "expanded")
+    }
+
+    @Test("the counts badge stays inside the visible x range after a horizontal scroll")
+    @MainActor
+    func countsBadgeFollowsHorizontalScroll() throws {
+        let (overlay, textView, _, _) = makeOverlay(twoFiles)
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
+        scrollView.documentView = textView
+        // The clip clamps a scroll to the document's frame, so widen the text
+        // view: without room to scroll, and without scrolling far enough that
+        // the pre-fix x (measured from the clip WIDTH, ignoring its origin)
+        // lands left of the visible range, the assertion passes on the bug.
+        textView.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
+        scrollView.contentView.scroll(to: NSPoint(x: 300, y: 0))
+        let clip = scrollView.contentView.bounds
+        #expect(clip.origin.x == 300)
+        let badges = overlay.sectionBadgeRects
+        #expect(badges.count == 2)
+        for badge in badges {
+            #expect(
+                badge.rect.minX >= clip.minX && badge.rect.maxX <= clip.maxX,
+                "badge \(badge.key) at \(badge.rect) is outside visible x range \(clip.minX)…\(clip.maxX)"
+            )
+        }
+    }
+
+    @Test("a section-only document reflows its heading rows on a plain relayout")
+    @MainActor
+    func sectionOnlyDocumentRelayoutsOnResize() {
+        let (overlay, _, _, _) = makeOverlay(twoFiles)
+        #expect(overlay.sectionChrome.allSatisfy { $0.rowRect.width == 400 })
+        var changes = 0
+        overlay.onSectionChromeChanged = { changes += 1 }
+        overlay.frame = NSRect(x: 0, y: 0, width: 600, height: overlay.frame.height)
+        overlay.layout()
+        #expect(overlay.sectionChrome.count == 2)
+        #expect(overlay.sectionChrome.allSatisfy { $0.rowRect.width == 600 })
+        #expect(changes == 1)
     }
 
     @Test("counts badge text uses a real minus and always shows both numbers")
