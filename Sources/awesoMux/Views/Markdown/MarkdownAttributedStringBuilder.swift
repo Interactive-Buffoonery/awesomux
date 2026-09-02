@@ -19,6 +19,13 @@ extension NSAttributedString.Key {
     /// attribute would stop at the last glyph; a diff row reads as a row only
     /// when the tint spans the whole line.
     static let diffLineTint = NSAttributedString.Key("awesomux.diffLineTint")
+
+    /// Present on every run of a branch-changes file heading; value is the
+    /// section key from `BranchDiffSectionIndex`. The overlay draws the chevron
+    /// and counts at this range and toggles the fold on click.
+    static let diffSectionKey = NSAttributedString.Key("awesomux.diffSectionKey")
+    /// Present on hunk-header runs; the overlay draws a hairline above the row.
+    static let diffHunkRule = NSAttributedString.Key("awesomux.diffHunkRule")
 }
 
 /// Identifies which table cell a character range belongs to, for the border pass.
@@ -51,6 +58,13 @@ struct TableCellGrid: Hashable {
 /// source attribute is stored here (INT-567 removed the old `.sourceOffset`
 /// key, which stamped only run-start offsets and nothing read anymore).
 enum MarkdownAttributedStringBuilder {
+    /// Leading space reserved on section headings for the fold chevron.
+    static let sectionHeadingGutter: CGFloat = 18
+    /// Trailing space reserved on section headings so a long path wraps before
+    /// the counts badge instead of running under it. Wide enough for
+    /// "+99999 −99999" in the badge font plus padding.
+    static let sectionHeadingTrailingReserve: CGFloat = 104
+
     private static let bareRelativeMarkdownPathRegex: NSRegularExpression = {
         let escapedExtensions = DocumentURLValidator.allowedExtensions
             .sorted()
@@ -88,21 +102,45 @@ enum MarkdownAttributedStringBuilder {
         }
     }
 
+    /// Heading run index → section key, for the runs of `doc` (which may be a
+    /// folded copy of the document the index was built on).
+    private static func sectionKeysByRun(in doc: RenderedDocument, index: BranchDiffSectionIndex) -> [Int: String] {
+        var out: [Int: String] = [:]
+        var occurrences: [String: Int] = [:]
+        var i = 0
+        while i < doc.runs.count {
+            guard case .heading(level: 2) = doc.runs[i].style else { i += 1; continue }
+            var end = i
+            while end < doc.runs.count, case .heading(level: 2) = doc.runs[end].style { end += 1 }
+            let text = BranchDiffSectionIndex.keyText(headingRuns: doc.runs[i..<end])
+            let occurrence = occurrences[text, default: 0]
+            occurrences[text] = occurrence + 1
+            let key = BranchDiffSectionIndex.key(keyText: text, occurrence: occurrence)
+            if index.section(key: key) != nil {
+                for r in i..<end { out[r] = key }
+            }
+            i = end
+        }
+        return out
+    }
+
     static func attributedString(
         for doc: RenderedDocument,
         textColor: NSColor? = nil,
         terminalBackground: NSColor? = nil,
         relativeLinkBaseURL: URL? = nil,
-        allowsDocumentLinks: Bool = true
+        allowsDocumentLinks: Bool = true,
+        sectionIndex: BranchDiffSectionIndex? = nil
     ) -> NSAttributedString {
         // Pre-join so the backing storage allocates once; appending one
         // attributed substring per run is noticeably expensive on long documents.
         let fullText = doc.runs.map(\.text).joined()
         let result = NSMutableAttributedString(string: fullText)
         let diffPalette = DiffPalette(terminalBackground: terminalBackground)
+        let keyForRun = sectionIndex.map { sectionKeysByRun(in: doc, index: $0) } ?? [:]
 
         var location = 0
-        for run in doc.runs {
+        for (runIndex, run) in doc.runs.enumerated() {
             // NSRange is UTF-16-based; use the NSString length, not Character count.
             let length = (run.text as NSString).length
             guard length > 0 else { continue }
@@ -110,6 +148,13 @@ enum MarkdownAttributedStringBuilder {
             defer { location += length }
 
             result.addAttribute(.font, value: font(for: run), range: range)
+            if let key = keyForRun[runIndex] {
+                result.addAttribute(.diffSectionKey, value: key as NSString, range: range)
+                result.addAttribute(.paragraphStyle, value: sectionHeadingParagraphStyle, range: range)
+            }
+            if case .diffLine(.hunk) = run.style {
+                result.addAttribute(.diffHunkRule, value: NSNumber(value: true), range: range)
+            }
             if case .diffLine(let kind) = run.style {
                 result.addAttribute(.paragraphStyle, value: diffLineParagraphStyle, range: range)
                 // Layout attributes, so outside the color guard below: the
@@ -520,7 +565,8 @@ enum MarkdownAttributedStringBuilder {
             switch kind {
             case .added: return added
             case .removed: return removed
-            case .hunk, .meta, .context: return nil
+            case .hunk: return hunk
+            case .meta, .context: return nil
             }
         }
     }
@@ -557,6 +603,21 @@ enum MarkdownAttributedStringBuilder {
     }()
 
     nonisolated(unsafe) private static let diffLineFont: NSFont = monoFont(bold: false, italic: false)
+
+    /// A branch-changes section heading is indented to clear the fold
+    /// chevron `CommentBadgeOverlay` draws at the leading edge; a wrapped
+    /// heading line indents the same amount so it doesn't run under the
+    /// chevron on the first line only.
+    nonisolated(unsafe) private static let sectionHeadingParagraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.firstLineHeadIndent = sectionHeadingGutter
+        style.headIndent = sectionHeadingGutter
+        return style.copy() as! NSParagraphStyle
+    }()
+
+    /// The H2 font, exposed for the sticky header, which renders the current
+    /// section's heading text outside this builder's run loop.
+    static func sectionHeadingFont() -> NSFont { headingFont(level: 2, italic: false) }
 
     private static func monoFont(bold: Bool, italic: Bool) -> NSFont {
         let base = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: bold ? .bold : .regular)

@@ -144,6 +144,43 @@ struct MarkdownDiffLineStylingTests {
         #expect(top.count == 1)
         #expect(try #require(top.first).rect.height < #require(all.first).rect.height)
     }
+
+    @Test("hunk rows carry the blue tint and a rule marker; context rows carry neither")
+    func hunkRowsAreBanded() throws {
+        let doc = AttributedMarkdownBuilder.build("```diff\n@@ -1,2 +1,2 @@\n ctx\n```\n")
+        let hunk = attributes(ofLine: "@@ -1,2", in: doc)
+        #expect(hunk[.diffLineTint] is NSColor)
+        #expect((hunk[.diffHunkRule] as? NSNumber)?.boolValue == true)
+        #expect(attributes(ofLine: " ctx", in: doc)[.diffHunkRule] == nil)
+        // The hunk tint is distinct from added/removed.
+        let doc2 = AttributedMarkdownBuilder.build("```diff\n@@ -1 +1 @@\n+a\n-b\n```\n")
+        let h = try #require(attributes(ofLine: "@@", in: doc2)[.diffLineTint] as? NSColor)
+        let a = try #require(attributes(ofLine: "+a", in: doc2)[.diffLineTint] as? NSColor)
+        let r = try #require(attributes(ofLine: "-b", in: doc2)[.diffLineTint] as? NSColor)
+        #expect(h != a && h != r)
+    }
+
+    @Test("section headings are keyed and indented when an index is supplied; without one they are untouched")
+    func sectionHeadingsAreKeyed() throws {
+        let doc = AttributedMarkdownBuilder.build(
+            "## a.swift — _new file_\n\n```diff\n+x\n```\n\n## a.swift — _new file_\n\n```diff\n+y\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        let attributed = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index)
+        let ns = attributed.string as NSString
+        let first = ns.range(of: "a.swift")
+        let second = ns.range(
+            of: "a.swift", options: [], range: NSRange(location: first.location + 1, length: ns.length - first.location - 1))
+        #expect(attributed.attribute(.diffSectionKey, at: first.location, effectiveRange: nil) as? String == "a.swift")
+        #expect(attributed.attribute(.diffSectionKey, at: second.location, effectiveRange: nil) as? String == "a.swift\n2")
+        // The italic status run is part of the same heading and carries the same key.
+        let status = ns.range(of: "new file")
+        #expect(attributed.attribute(.diffSectionKey, at: status.location, effectiveRange: nil) as? String == "a.swift")
+        let style = try #require(attributed.attribute(.paragraphStyle, at: first.location, effectiveRange: nil) as? NSParagraphStyle)
+        #expect(style.firstLineHeadIndent == MarkdownAttributedStringBuilder.sectionHeadingGutter)
+        #expect(style.headIndent == MarkdownAttributedStringBuilder.sectionHeadingGutter)
+        let plain = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white)
+        #expect(plain.attribute(.diffSectionKey, at: first.location, effectiveRange: nil) == nil)
+    }
 }
 
 /// WCAG relative-luminance contrast, local to this suite so the assertion
