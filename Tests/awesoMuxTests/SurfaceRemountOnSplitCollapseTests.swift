@@ -113,6 +113,7 @@ struct SurfaceRemountOnSplitCollapseTests {
         container.setScrollerStyleForTesting(.overlay)
         container.mount(surfaceView, isActive: true, contentSize: paneSize)
         container.setScrollerStyleForTesting(.legacy)
+        container.layout()
 
         let surfaceSize = try #require(container.surfaceFrameForTesting?.size)
         #expect(surfaceSize == container.scrollViewportSizeForTesting)
