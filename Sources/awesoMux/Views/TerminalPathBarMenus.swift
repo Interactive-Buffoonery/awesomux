@@ -1,10 +1,8 @@
-import AppKit
-import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-/// Shared chrome for the path bar's in-place foldout menus (open-target and
-/// branches): rounded panel, chrome fill, accent hairline, overlay shadow.
+/// Shared chrome for the path bar's in-place foldout menus: rounded panel,
+/// chrome fill, accent hairline, and overlay shadow.
 private struct PathBarMenuChrome: ViewModifier {
     let accent: Color
 
@@ -20,6 +18,24 @@ private struct PathBarMenuChrome: ViewModifier {
                     .awShadow(.overlay)
                     .accessibilityHidden(true)
             }
+    }
+}
+
+struct RemoteStatusMenu: View {
+    let message: String
+    let accent: Color
+
+    var body: some View {
+        Text(message)
+            .awFont(AwFont.UI.label)
+            .foregroundStyle(Color.aw.text)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(10)
+            .frame(width: 280, alignment: .leading)
+            .modifier(PathBarMenuChrome(accent: accent))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(String(localized: "Remote connection details"))
+            .accessibilityValue(message)
     }
 }
 

@@ -2,9 +2,8 @@ import AppKit
 
 /// Escape-to-dismiss for the path bar's foldout menus.
 ///
-/// The foldouts never take key focus (the terminal keeps first responder by
-/// design), so focus-based handling (`.onExitCommand`) can never fire; a local
-/// key-down monitor catches Escape first. The monitor is class-owned rather
+/// A local key-down monitor catches Escape whether keyboard focus is in the
+/// terminal or on a path-bar button. The monitor is class-owned rather
 /// than a raw token in `@State` because SwiftUI is not contractually required
 /// to send `.onDisappear` before tearing down the view tree (see
 /// `SettingsEscapeMonitor`, which documents the same hazard) — and unlike that

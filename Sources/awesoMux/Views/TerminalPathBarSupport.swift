@@ -1,15 +1,15 @@
-import AppKit
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
 
-/// Which path bar foldout is open. One optional drives both menus so opening
-/// one closes the other and SessionDetailView's click-elsewhere scrim can key
+/// Which path bar foldout is open. One optional drives every foldout so opening
+/// one closes another and SessionDetailView's click-elsewhere scrim can key
 /// on a single `!= nil`.
 enum PathBarMenu: Equatable {
     case openTarget
     case branches
+    case remoteStatus
 }
 
 struct ResolveKey: Equatable {
@@ -59,6 +59,7 @@ struct RemoteIndicatorCopy: Equatable {
     let icon: String
     let help: String
     let accessibilityLabel: String
+    let accessibilityValue: String
     let accessibilityHint: String
 }
 
