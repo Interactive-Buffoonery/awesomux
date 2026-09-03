@@ -496,18 +496,14 @@ struct TerminalPathBarView: View {
         .onChange(of: presentedMenu) { _, newValue in
             // Covers the menu-ABA case `toggleBranchMenu()`'s own guard can't
             // see: nil → open → nil (or a re-open) during the await. Any
-            // change here — this menu's or the open-target menu's — means
-            // the world the pending lookup was snapshotted against no longer
-            // holds, so invalidate unconditionally.
+            // path-bar menu change means the world the pending lookup was
+            // snapshotted against no longer holds, so invalidate
+            // unconditionally.
             branchMenuGeneration += 1
 
-            // Escape-to-dismiss via `PathBarMenuEscapeMonitor` (a local
-            // NSEvent monitor), NOT `.onExitCommand`/`.onKeyPress`: the
-            // foldouts never take key focus — the terminal NSView keeps first
-            // responder by design (focus-stealing chrome has caused documented
-            // surface-blanking bugs) — so focus-based Escape handling can
-            // never fire. The monitor runs only while a menu is presented;
-            // Esc typed into the terminal is untouched otherwise.
+            // A local event monitor handles Escape whether keyboard focus is
+            // in the terminal or on a path-bar button. It runs only while a
+            // menu is open, so other Escape presses still reach the terminal.
             if newValue != nil {
                 escapeMonitor.start { presentedMenu = nil }
             } else {
@@ -523,67 +519,140 @@ struct TerminalPathBarView: View {
     }
 
     private func remoteIndicator(host: String) -> some View {
-        let copy = Self.remoteIndicatorCopy(host: host, health: model.remoteConnectionHealth)
-        return HStack(spacing: 6) {
-            Image(systemName: copy.icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(copy.health == .possiblyStale ? Color.aw.yellow : Color.aw.text3)
-                .accessibilityHidden(true)
+        let copy = Self.remoteIndicatorCopy(
+            host: host,
+            health: model.remoteConnectionHealth,
+            isExpanded: presentedMenu == .remoteStatus
+        )
+        return Button {
+            toggleRemoteStatusMenu()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: copy.icon)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(copy.health == .possiblyStale ? Color.aw.yellow : Color.aw.text3)
+                    .accessibilityHidden(true)
 
-            Text(host)
-                .awFont(AwFont.Mono.meta).fontWeight(.semibold)
-                .foregroundStyle(Color.aw.text2)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                Text(host)
+                    .awFont(AwFont.Mono.meta).fontWeight(.semibold)
+                    .foregroundStyle(Color.aw.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .frame(minHeight: 24)
+            .contentShape(RoundedRectangle(cornerRadius: AwRadius.pill))
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
         .help(copy.help)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(copy.accessibilityLabel)
+        .accessibilityValue(copy.accessibilityValue)
         .accessibilityHint(copy.accessibilityHint)
+        .overlay(alignment: .bottomLeading) {
+            if presentedMenu == .remoteStatus {
+                VStack(alignment: .leading, spacing: 0) {
+                    RemoteStatusMenu(
+                        message: copy.help,
+                        accent: Color.aw.accent(accent)
+                    )
+
+                    Color.clear.frame(height: 24 + AwSpacing.overlayGap)
+                }
+                .zIndex(1)
+            }
+        }
+        .zIndex(presentedMenu == .remoteStatus ? 1 : 0)
+    }
+
+    private func toggleRemoteStatusMenu() {
+        presentedMenu = presentedMenu == .remoteStatus ? nil : .remoteStatus
     }
 
     private nonisolated static func remoteIndicatorCopy(
         host: String,
-        health: RemoteConnectionHealth
+        health: RemoteConnectionHealth,
+        isExpanded: Bool
     ) -> RemoteIndicatorCopy {
-        switch health {
+        let accessibilityValue =
+            isExpanded
+            ? String(
+                localized: "Expanded",
+                comment: "VoiceOver state for visible remote connection details"
+            )
+            : String(
+                localized: "Collapsed",
+                comment: "VoiceOver state for hidden remote connection details"
+            )
+        let accessibilityHint =
+            isExpanded
+            ? String(
+                localized: "Hides remote connection details",
+                comment: "VoiceOver hint for an expanded remote connection details button"
+            )
+            : String(
+                localized: "Shows remote connection details",
+                comment: "VoiceOver hint for a collapsed remote connection details button"
+            )
+
+        return switch health {
         case .active:
             RemoteIndicatorCopy(
                 health: health,
                 icon: "network",
-                help: "Remote session on \(host). Local Path Bar features (git, reveal, copy) are unavailable over SSH.",
-                accessibilityLabel: "Remote session on \(host)",
-                accessibilityHint: "Local path features are unavailable over SSH."
+                help: String(
+                    localized: "Remote session on \(host). Local Path Bar features (git, reveal, copy) are unavailable over SSH.",
+                    comment: "Help for a remote path-bar button; the argument is the SSH host"
+                ),
+                accessibilityLabel: String(
+                    localized: "Remote session on \(host)",
+                    comment: "VoiceOver label for a remote path-bar button; the argument is the SSH host"
+                ),
+                accessibilityValue: accessibilityValue,
+                accessibilityHint: accessibilityHint
             )
         case .possiblyStale:
             RemoteIndicatorCopy(
                 health: health,
                 icon: "exclamationmark.triangle",
-                help: "Network changed; this SSH session may be disconnected until SSH recovers or reports failure.",
-                accessibilityLabel: "Possibly stale remote session on \(host)",
-                accessibilityHint: "Network changed; this SSH session may be disconnected until SSH recovers or reports failure."
+                help: String(
+                    localized: "Network changed; the SSH session on \(host) may be disconnected until SSH recovers or reports failure.",
+                    comment: "Warning for a possibly stale remote path-bar button; the argument is the SSH host"
+                ),
+                accessibilityLabel: String(
+                    localized: "Possibly stale remote session on \(host)",
+                    comment: "VoiceOver label for a possibly stale remote path-bar button; the argument is the SSH host"
+                ),
+                accessibilityValue: accessibilityValue,
+                accessibilityHint: accessibilityHint
             )
         }
     }
 
     nonisolated static func remoteIndicatorCopySnapshot(
         host: String,
-        health: RemoteConnectionHealth
+        health: RemoteConnectionHealth,
+        isExpanded: Bool = false
     ) -> (
         health: RemoteConnectionHealth,
         icon: String,
         help: String,
         accessibilityLabel: String,
+        accessibilityValue: String,
         accessibilityHint: String
     ) {
-        let copy = remoteIndicatorCopy(host: host, health: health)
+        let copy = remoteIndicatorCopy(
+            host: host,
+            health: health,
+            isExpanded: isExpanded
+        )
         return (
             health: copy.health,
             icon: copy.icon,
             help: copy.help,
             accessibilityLabel: copy.accessibilityLabel,
+            accessibilityValue: copy.accessibilityValue,
             accessibilityHint: copy.accessibilityHint
         )
     }

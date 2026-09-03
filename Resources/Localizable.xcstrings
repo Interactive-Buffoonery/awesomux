@@ -1070,7 +1070,7 @@
 
     },
     "Collapsed" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is closed"
+      "comment" : "Accessibility value for the footer total button while the agent activity panel is closed\nVoiceOver state for hidden remote connection details"
     },
     "Collecting" : {
       "comment" : "Diagnostics history state"
@@ -1720,7 +1720,7 @@
       "comment" : "Send-bar button on a branch changes tab that unfolds every file section"
     },
     "Expanded" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is open"
+      "comment" : "Accessibility value for the footer total button while the agent activity panel is open\nVoiceOver state for visible remote connection details"
     },
     "Falling" : {
       "comment" : "Diagnostics resource trend"
@@ -1895,6 +1895,9 @@
     },
     "Hide resolved annotations" : {
 
+    },
+    "Hides remote connection details" : {
+      "comment" : "VoiceOver hint for an expanded remote connection details button"
     },
     "Hides the agent activity panel" : {
       "comment" : "Accessibility hint for the footer total button while the panel is open"
@@ -2322,6 +2325,9 @@
     },
     "Never ask to make SSH managed" : {
 
+    },
+    "Network changed; the SSH session on %arg may be disconnected until SSH recovers or reports failure." : {
+      "comment" : "Warning for a possibly stale remote path-bar button; the argument is the SSH host"
     },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
@@ -2824,6 +2830,9 @@
     "Position, row density, and collapsed-rail behavior." : {
       "comment" : "Sidebar section subtitle"
     },
+    "Possibly stale remote session on %arg" : {
+      "comment" : "VoiceOver label for a possibly stale remote path-bar button; the argument is the SSH host"
+    },
     "Preparing remote file transfer" : {
       "comment" : "Remote handoff initial progress status"
     },
@@ -3110,6 +3119,9 @@
     "Remote Markdown snapshots cannot be edited in awesoMux yet." : {
       "comment" : "Alert body explaining why a remote Markdown snapshot rejects an edit"
     },
+    "Remote connection details" : {
+      "comment" : "VoiceOver label for the remote connection details panel"
+    },
     "Remote file transfer cancelled" : {
       "comment" : "Remote handoff cancellation accessibility status"
     },
@@ -3170,7 +3182,10 @@
       "comment" : "Field caption above the optional remote session name field in the Connect via SSH sheet"
     },
     "Remote session on %arg" : {
-      "comment" : "Tooltip for the remote host badge in a pane title bar."
+      "comment" : "Tooltip for the remote host badge in a pane title bar.\nVoiceOver label for a remote path-bar button; the argument is the SSH host"
+    },
+    "Remote session on %arg. Local Path Bar features (git, reveal, copy) are unavailable over SSH." : {
+      "comment" : "Help for a remote path-bar button; the argument is the SSH host"
     },
     "Remote session unavailable" : {
       "comment" : "Title on the overlay covering a remote-owned pane whose session could not be reached"
@@ -3732,6 +3747,9 @@
     },
     "Show workspace details" : {
 
+    },
+    "Shows remote connection details" : {
+      "comment" : "VoiceOver hint for a collapsed remote connection details button"
     },
     "Shows the agent activity panel" : {
       "comment" : "Accessibility hint for a footer chip that opens the agent activity panel\nAccessibility hint for the footer total button while the panel is closed"

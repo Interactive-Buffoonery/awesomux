@@ -125,18 +125,27 @@ struct TerminalPathBarModelTests {
 
     @Test("stale remote copy uses the network-changed warning")
     func staleRemoteCopy() {
-        let copy = TerminalPathBarView.remoteIndicatorCopySnapshot(
+        let collapsedCopy = TerminalPathBarView.remoteIndicatorCopySnapshot(
             host: "webserver",
             health: .possiblyStale
         )
 
-        #expect(copy.icon == "exclamationmark.triangle")
-        #expect(copy.accessibilityLabel == "Possibly stale remote session on webserver")
+        #expect(collapsedCopy.icon == "exclamationmark.triangle")
+        #expect(collapsedCopy.accessibilityLabel == "Possibly stale remote session on webserver")
         #expect(
-            copy.help
-                == "Network changed; this SSH session may be disconnected until SSH recovers or reports failure."
+            collapsedCopy.help
+                == "Network changed; the SSH session on webserver may be disconnected until SSH recovers or reports failure."
         )
-        #expect(copy.accessibilityHint == copy.help)
+        #expect(collapsedCopy.accessibilityValue == "Collapsed")
+        #expect(collapsedCopy.accessibilityHint == "Shows remote connection details")
+
+        let expandedCopy = TerminalPathBarView.remoteIndicatorCopySnapshot(
+            host: "webserver",
+            health: .possiblyStale,
+            isExpanded: true
+        )
+        #expect(expandedCopy.accessibilityValue == "Expanded")
+        #expect(expandedCopy.accessibilityHint == "Hides remote connection details")
     }
 
     @Test("declared SSH target wins over an observed prompt host")
