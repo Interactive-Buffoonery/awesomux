@@ -100,6 +100,24 @@ struct SurfaceRemountOnSplitCollapseTests {
         #expect(survivorView.lifecycleState.lastAppliedSurfaceBackingState == nil)
     }
 
+    @Test("changing to a legacy scroll bar resizes the mounted render surface")
+    func changingToLegacyScrollerResizesMountedRenderSurface() throws {
+        let fixture = try makeSplitFixture()
+        let window = makeWindow()
+        defer { window.close() }
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        let surfaceView = makeSurvivorView(runtime: runtime, fixture: fixture)
+
+        let container = mountContainer(in: window)
+        container.setScrollerStyleForTesting(.overlay)
+        container.mount(surfaceView, isActive: true, contentSize: paneSize)
+        container.setScrollerStyleForTesting(.legacy)
+
+        let surfaceSize = try #require(container.surfaceFrameForTesting?.size)
+        #expect(surfaceSize == container.scrollViewportSizeForTesting)
+    }
+
     @Test("native teardown replaces a stale hosted render layer")
     func nativeTeardownReplacesStaleHostedRenderLayer() throws {
         let fixture = try makeSplitFixture()
