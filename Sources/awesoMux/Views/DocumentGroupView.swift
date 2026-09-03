@@ -139,6 +139,7 @@ struct DocumentGroupView: View {
                             documentID: tab.id,
                             in: session.id
                         )
+                        SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
                         // Mirror the terminal close X's "Pane closed" announcement:
                         // the close either swaps a neighbor tab in (its own
                         // announcement follows via onChange) or collapses the
@@ -589,16 +590,28 @@ struct DocumentGroupView: View {
         // is gated on `isEditable`, so on a transcript the toggle is a dead end
         // and has to say why rather than fall through to "Show Markdown files
         // in …" — or, worse, to the remote-snapshot sentence for a local file.
-        if document.agentTranscriptIdentity != nil {
+        if document.generatedDocumentKind == .agentTranscript {
             return String(
                 localized: "Rendered agent transcripts can't browse to other files",
                 comment: "Help text for the Files toggle when the visible document is a rendered agent transcript"
+            )
+        }
+        if document.generatedDocumentKind == .branchChanges {
+            return String(
+                localized: "Rendered branch changes can't browse to other files",
+                comment: "Help text for the Files toggle when the visible document is a rendered branch diff"
             )
         }
         if let origin = document.remoteSnapshotOrigin {
             return String(
                 localized: "Remote snapshot from \(origin)",
                 comment: "Help text for the Files toggle when the visible document is a read-only remote snapshot"
+            )
+        }
+        if document.generatedDocumentKind != nil {
+            return String(
+                localized: "Generated documents can't browse to other files",
+                comment: "Help text for the Files toggle when a generated document has unknown provenance"
             )
         }
         if mode == .files {

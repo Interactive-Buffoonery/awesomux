@@ -406,13 +406,29 @@ private struct DocumentTabPill: View {
         // so it is where "this one is a generated, read-only transcript" has to
         // be audible. Without it a rendered transcript is indistinguishable by
         // ear from the user's own editable Markdown sitting next to it.
-        if tab.agentTranscriptIdentity != nil {
+        switch tab.generatedDocumentKind {
+        case .agentTranscript:
             parts.append(
                 String(
                     localized: "rendered transcript, read-only",
                     comment:
                         "Spoken qualifier on a document tab that holds a generated agent transcript"
                 ))
+        case .branchChanges:
+            parts.append(
+                String(
+                    localized: "rendered branch diff, read-only",
+                    comment:
+                        "Spoken qualifier on a document tab that holds a generated branch diff"
+                ))
+        case .unknown:
+            parts.append(
+                String(
+                    localized: "generated document, read-only",
+                    comment: "Spoken qualifier on a document tab whose generated provenance is unknown"
+                ))
+        case nil:
+            break
         }
         if let taskProgress {
             parts.append(

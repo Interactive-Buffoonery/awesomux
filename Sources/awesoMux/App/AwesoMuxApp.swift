@@ -220,6 +220,7 @@ struct AwesoMuxApp: App {
     /// (INT-819). Any selection change from another path invalidates it.
     @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
+    @State private var branchChangesCoordinator = BranchChangesCoordinator()
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -1285,6 +1286,21 @@ struct AwesoMuxApp: App {
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.openAgentTranscript))
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
+                // Gated exactly like its neighbours and no further, for the
+                // same reason: whether this pane HAS a branch diff to show has
+                // several answers, most of which the user can act on, so the
+                // command stays live and explains. No shortcut — the
+                // Reconnect Remote Pane precedent.
+                Button(
+                    String(
+                        localized: "Show Branch Changes",
+                        comment: "Workspace menu item that opens the active pane's branch diff as a document"
+                    )
+                ) {
+                    showBranchChangesForActivePane()
+                }
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
                 Divider()
 
                 Button("Grow Active Pane") {
@@ -2065,19 +2081,19 @@ struct AwesoMuxApp: App {
 
         let displayTitle = Self.sanitizedAlertTitle(displayedTitle)
 
-        let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
-        let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
-        let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+        let inputs = Self.closeWorkspaceConfirmationInputs(
+            session: session,
+            floatingAtRisk: floatingAtRisk,
+            at: now
+        )
 
         let body = DestructivePaneActionConfirmationPolicy.confirmationBody(
             action: .closeWorkspace,
             displayTitle: displayTitle,
-            agentKind: singlePane?.agentKind,
-            sampledComm: singlePane?.sampledComm,
-            riskReason: singlePane?.closeRiskReason(at: now)
-                ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
-                    ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil)),
-            riskyPaneCount: riskyPaneCount
+            agentKind: inputs.singlePane?.agentKind,
+            sampledComm: inputs.singlePane?.sampledComm,
+            riskReason: inputs.riskReason,
+            riskyPaneCount: inputs.riskyPaneCount
         )
 
         return NSAlert.confirmDestructive(
@@ -2151,9 +2167,11 @@ struct AwesoMuxApp: App {
             )
         case .closeWorkspace:
             let floatingAtRisk = floatingPanelController.hasRiskyFloatingSessionsOnClose(for: session.id)
-            let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
-            let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
-            let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+            let inputs = Self.closeWorkspaceConfirmationInputs(
+                session: session,
+                floatingAtRisk: floatingAtRisk,
+                at: now
+            )
             title = String(
                 localized: "Close \(displayTitle)?",
                 comment:
@@ -2162,12 +2180,10 @@ struct AwesoMuxApp: App {
             body = DestructivePaneActionConfirmationPolicy.confirmationBody(
                 action: .closeWorkspace,
                 displayTitle: displayTitle,
-                agentKind: singlePane?.agentKind,
-                sampledComm: singlePane?.sampledComm,
-                riskReason: singlePane?.closeRiskReason(at: now)
-                    ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
-                        ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil)),
-                riskyPaneCount: riskyPaneCount
+                agentKind: inputs.singlePane?.agentKind,
+                sampledComm: inputs.singlePane?.sampledComm,
+                riskReason: inputs.riskReason,
+                riskyPaneCount: inputs.riskyPaneCount
             )
         }
 
@@ -2177,6 +2193,21 @@ struct AwesoMuxApp: App {
             keyboardHint: action.keyboardHint,
             destructiveTitle: action.destructiveButtonTitle
         ) ? .proceed : .userCancelled
+    }
+
+    private static func closeWorkspaceConfirmationInputs(
+        session: TerminalSession,
+        floatingAtRisk: Bool,
+        at now: Date
+    ) -> (singlePane: TerminalPane?, riskReason: QuitRiskReason?, riskyPaneCount: Int) {
+        let riskyPanes = session.panes.filter { $0.isCloseRisk(at: now) }
+        let riskyPaneCount = riskyPanes.count + (floatingAtRisk ? 1 : 0)
+        let singlePane = riskyPanes.count == 1 && !floatingAtRisk ? riskyPanes.first : nil
+        let riskReason =
+            singlePane?.closeRiskReason(at: now)
+            ?? (riskyPanes.contains { $0.closeRiskReason(at: now) == .indeterminate }
+                ? .indeterminate : (riskyPaneCount > 0 ? .liveForegroundProcess : nil))
+        return (singlePane, riskReason, riskyPaneCount)
     }
 
     /// Issue #190 mechanism 3: the confirmation chain used to discard WHY a
@@ -2482,6 +2513,7 @@ struct AwesoMuxApp: App {
                 return
             }
             sessionStore.closeDocumentPane(documentID: selectedTab.id, in: session.id)
+            SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
             // Same announcement as the pill's close X (TerminalPaneView) so the
             // outcome is spoken regardless of which affordance closed the tab.
             TerminalAccessibilityAnnouncer.announce(
@@ -3832,6 +3864,10 @@ struct AwesoMuxApp: App {
 
             switch result {
             case .success(let opened):
+                defer {
+                    AgentTranscriptStore().completeWrite(at: opened.fileURL)
+                    SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+                }
                 guard
                     sessionStore.openDocumentPane(
                         fileURL: opened.fileURL,
@@ -3862,6 +3898,90 @@ struct AwesoMuxApp: App {
                 showAgentTranscriptFailureAlert(failure)
             }
         }
+    }
+
+    /// Renders the active pane's branch diff to Markdown and opens it beside
+    /// the terminal.
+    ///
+    /// The work is a detached task because it is two subprocesses and a render:
+    /// everything it needs is copied out of the pane first, so a pane closing
+    /// mid-render cannot be observed half-way, and the open is re-gated on the
+    /// pane still existing when the result lands.
+    private func showBranchChangesForActivePane() {
+        // Same first line as its neighbours: this command is gated on
+        // `isAnySheetPresented`, so a stale wedge would leave it silently dead.
+        healSheetWedgeBeforeGatedCommand()
+        guard !isAnySheetPresented,
+            let session = sessionStore.selectedSession,
+            let pane = session.layout.pane(id: session.activePaneID)
+        else {
+            return
+        }
+        // The remote gate runs HERE, on the main actor, before any work is
+        // spawned. The opener re-asserts it, but a remote pane must not cost a
+        // detached task and a path-bar filesystem walk to be told no.
+        guard case .local = pane.executionPlan else {
+            showBranchChangesFailureAlert(.remotePane)
+            return
+        }
+        let paneID = pane.id
+        // Latest-wins, on one ticket that orders both the pane's reaction below
+        // and the write to the shared cache slot. Invocations resolve in
+        // whatever order git finishes; without this the slower one's result
+        // lands last, and the tab shows — or reloads from disk — the older diff.
+        let coordinator = branchChangesCoordinator
+        let ticket = coordinator.begin(paneID: paneID)
+        let opener = BranchChangesOpener()
+        let chrome = BranchChangesOpener.localizedChrome()
+
+        let task = Task { @MainActor in
+            defer { coordinator.finish(ticket, paneID: paneID) }
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "Reading branch changes.",
+                    comment: "VoiceOver announcement when rendering a pane's branch diff starts"
+                )
+            )
+            let result = await opener.open(
+                session: session,
+                chrome: chrome,
+                claimingSlot: { coordinator.claimSlot($0, ticket: ticket) }
+            )
+            guard !Task.isCancelled else {
+                BranchChangesCompletion.finalizeWrite(
+                    result,
+                    ticket: ticket,
+                    coordinator: coordinator,
+                    completeWrite: { opener.completeWrite(at: $0) }
+                )
+                SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+                return
+            }
+
+            BranchChangesCompletion.apply(
+                result,
+                paneID: paneID,
+                ticket: ticket,
+                store: sessionStore,
+                coordinator: coordinator,
+                completeWrite: { opener.completeWrite(at: $0) },
+                alert: showBranchChangesFailureAlert
+            )
+            SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+        }
+        coordinator.attach(task, ticket: ticket, paneID: paneID)
+    }
+
+    private func showBranchChangesFailureAlert(_ failure: BranchChangesFailure) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "Can't Show Branch Changes",
+            comment: "Alert title shown when awesoMux cannot open a pane's branch diff.")
+        alert.informativeText = BranchChangesOpener.failureDescription(for: failure)
+        alert.alertStyle = .warning
+        alert.addButton(
+            withTitle: String(localized: "OK", comment: "Button title that dismisses an alert."))
+        alert.runModal()
     }
 
     /// Stages the selected transcript's resume command into its terminal.
@@ -4465,6 +4585,7 @@ struct AwesoMuxApp: App {
             find: presentFindInActivePane,
             scrollbackDump: presentScrollbackDumpForActivePane,
             openAgentTranscript: openAgentTranscriptForActivePane,
+            showBranchChanges: showBranchChangesForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,
             growActivePane: {
                 sessionStore.resizeActiveSplit(by: 0.05)

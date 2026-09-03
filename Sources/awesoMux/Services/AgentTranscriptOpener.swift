@@ -102,12 +102,19 @@ enum AgentTranscriptOpener {
     ) -> Result<URL, AgentTranscriptOpenFailure> {
         switch AgentTranscriptImporter.reopen(prior) {
         case .success(let transcript):
-            return renderAndStore(
+            let result = renderAndStore(
                 transcript,
                 store: store,
                 skippingUnchanged: true,
                 shouldCommit: shouldCommit
             )
+            if case .success(let fileURL) = result {
+                // A refresh already has a live tab referencing this stable
+                // slot, so its generated-cache write lease can end as soon as
+                // the ordered write/skip completes.
+                store.completeWrite(at: fileURL)
+            }
+            return result
         case .failure(let reason): return .failure(.unavailable(reason))
         }
     }

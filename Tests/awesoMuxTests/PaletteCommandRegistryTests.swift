@@ -147,6 +147,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.find.id,
                 KeyboardShortcutCatalog.scrollbackDump.id,
                 KeyboardShortcutCatalog.openAgentTranscript.id,
+                "showBranchChanges",
                 "reconnectRemotePane",
                 KeyboardShortcutCatalog.growActivePane.id,
                 KeyboardShortcutCatalog.shrinkActivePane.id,
@@ -940,6 +941,7 @@ struct PaletteCommandRegistryTests {
             KeyboardShortcutCatalog.find.id,
             KeyboardShortcutCatalog.openMarkdownFile.id,
             KeyboardShortcutCatalog.openAgentTranscript.id,
+            "showBranchChanges",
         ] {
             #expect(
                 try #require(

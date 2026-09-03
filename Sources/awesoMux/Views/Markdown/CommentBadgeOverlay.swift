@@ -43,6 +43,11 @@ final class CommentBadgeOverlay: NSView {
     /// Cell border rects to stroke, in overlay (== text-view flipped) space.
     private var tableBorderRects: [NSRect] = []
 
+    /// Alpha of the full-width row washes behind added/removed diff lines.
+    /// Drawn over the text (this view is a subview of the text view), which is
+    /// why it is low enough that glyphs beneath keep their color to the eye.
+    static let diffTintAlpha: CGFloat = 0.14
+
     /// Per-cell info for accessibility: each table cell's grid position, rect (overlay
     /// space), and text. Lets VoiceOver announce a body cell together with its column
     /// header ("Status: Active") instead of reading the table as a run-on line.
@@ -704,6 +709,54 @@ final class CommentBadgeOverlay: NSView {
         }
     }
 
+    /// Full-width row washes for the diff lines whose layout fragments
+    /// intersect `rect` (overlay space), one rect per run of same-colored
+    /// consecutive lines so a block of additions is one wash with no hairline
+    /// seams where rounding leaves a fraction of a point between rows.
+    ///
+    /// Computed at draw time for the visible rows only, never cached: a diff at
+    /// the renderer's budget has tens of thousands of tinted lines, and resolving
+    /// each one's geometry on every relayout — the way table borders are — would
+    /// force full-document layout on every frame of a pane drag. Each diff line
+    /// is its own paragraph, so its layout fragment starts at the line's first
+    /// character, which is where the tint attribute is read.
+    static func diffTintRows(
+        intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
+    ) -> [(rect: NSRect, color: NSColor)] {
+        guard let layoutManager = textView.textLayoutManager,
+            let contentStorage = textView.textContentStorage,
+            let storage = textView.textStorage
+        else { return [] }
+        let inset = textView.textContainerInset
+        // Fragment frames are in container space; `rect` arrives in overlay
+        // (== text view) space, which is the container offset by the inset.
+        let containerRect = rect.offsetBy(dx: -inset.width, dy: -inset.height)
+        guard
+            let first = layoutManager.textLayoutFragment(
+                for: CGPoint(x: 0, y: max(0, containerRect.minY)))
+        else { return [] }
+        let documentStart = contentStorage.documentRange.location
+        var out: [(rect: NSRect, color: NSColor)] = []
+        layoutManager.enumerateTextLayoutFragments(
+            from: first.rangeInElement.location, options: [.ensuresLayout]
+        ) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            if frame.minY > containerRect.maxY { return false }
+            let offset = contentStorage.offset(from: documentStart, to: fragment.rangeInElement.location)
+            guard offset >= 0, offset < storage.length,
+                let color = storage.attribute(.diffLineTint, at: offset, effectiveRange: nil) as? NSColor
+            else { return true }
+            let row = NSRect(x: 0, y: frame.minY + inset.height, width: width, height: frame.height)
+            if let last = out.last, last.color == color, abs(last.rect.maxY - row.minY) < 1 {
+                out[out.count - 1].rect = last.rect.union(row)
+            } else {
+                out.append((row, color))
+            }
+            return true
+        }
+        return out
+    }
+
     /// Build a clean grid (outer frame + interior column/row rules) from the raw
     /// per-cell text rects. Drawing a padded box per cell looks ragged: cells in a
     /// column have different text widths and the boxes overlap/gap. Instead we snap
@@ -886,7 +939,13 @@ final class CommentBadgeOverlay: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        // Table borders first, behind pills. NSTextTable is TextKit 1 only, so we
+        if let textView = superview as? NSTextView {
+            for tint in Self.diffTintRows(intersecting: dirtyRect, in: textView, width: bounds.width) {
+                tint.color.withAlphaComponent(Self.diffTintAlpha).setFill()
+                tint.rect.fill()
+            }
+        }
+        // Table borders next, behind pills. NSTextTable is TextKit 1 only, so we
         // draw the grid ourselves. Each entry is a 1pt-thin rule rect — fill it so
         // the width stays exactly 1pt (stroking a thin rect doubles the visual line).
         if let borderColor = tableBorderColor, !tableBorderRects.isEmpty {

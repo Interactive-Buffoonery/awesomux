@@ -5,6 +5,34 @@ import Testing
 
 @Suite("SessionRestoreReducer")
 struct SessionRestoreReducerTests {
+    @Test("a reminted document retains unknown generated ownership")
+    func remintedDocumentRetainsUnknownGeneratedOwnership() throws {
+        let tab = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/future-generated.md"),
+            title: "Generated Document",
+            generatedDocumentKind: .unknown
+        )
+        let layout = TerminalPaneLayout.documentGroup(
+            DocumentGroup(tabs: [tab], selectedTabID: tab.id)
+        )
+        var seenSplitIDs: Set<TerminalSplit.ID> = []
+        var seenPaneIDs: Set<TerminalPane.ID> = [tab.id]
+        var seenTerminalSessionIDs: Set<TerminalSessionID> = []
+
+        let result = SessionRestoreReducer.restoredLayout(
+            from: layout,
+            seenSplitIDs: &seenSplitIDs,
+            seenPaneIDs: &seenPaneIDs,
+            seenTerminalSessionIDs: &seenTerminalSessionIDs,
+            transformPane: { $0 }
+        )
+
+        let reminted = try #require(result.layout.firstDocumentGroup?.tabs.first)
+        #expect(reminted.id != tab.id)
+        #expect(reminted.generatedDocumentKind == .unknown)
+        #expect(!reminted.isEditable)
+    }
+
     @Test("a reminted duplicate pane id also gets a fresh daemon and runtime state")
     func duplicatePaneIDResetsDaemonAndRuntimeState() throws {
         let duplicateID = UUID()

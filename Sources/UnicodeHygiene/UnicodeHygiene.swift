@@ -150,7 +150,7 @@ public enum UnicodeHygiene {
 
     // MARK: - Internals
 
-    private static func isUnsafePathScalar(_ scalar: Unicode.Scalar) -> Bool {
+    public static func isUnsafePathScalar(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x0000...0x001F, 0x007F, 0x0080...0x009F:
             return true  // C0, DEL, C1 controls

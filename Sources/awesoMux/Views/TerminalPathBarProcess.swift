@@ -71,6 +71,7 @@ struct BoundedCommandRunner: Sendable {
     var maxOutputBytes: Int
     private let environment: [String: String]
     private let delay: Delay
+    private let beforeLaunch: @Sendable () -> Void
 
     /// The process environment with trusted tool dirs prepended to PATH and the
     /// repo-selection vars scrubbed, computed once. A child may shell out to other
@@ -101,7 +102,8 @@ struct BoundedCommandRunner: Sendable {
         timeout: Duration = .seconds(5),
         maxOutputBytes: Int = 512 * 1024,
         environment: [String: String]? = nil,
-        delay: @escaping Delay = { try await ContinuousClock().sleep(for: $0) }
+        delay: @escaping Delay = { try await ContinuousClock().sleep(for: $0) },
+        beforeLaunch: @escaping @Sendable () -> Void = {}
     ) {
         executableURL =
             executableCandidates
@@ -111,6 +113,7 @@ struct BoundedCommandRunner: Sendable {
         self.maxOutputBytes = maxOutputBytes
         self.environment = environment ?? Self.toolAugmentedEnvironment
         self.delay = delay
+        self.beforeLaunch = beforeLaunch
     }
 
     func run(arguments: [String], inDirectory directory: String) async -> Data? {
@@ -144,6 +147,7 @@ struct BoundedCommandRunner: Sendable {
         let timeout = timeout
         let maxOutputBytes = maxOutputBytes
         let delay = delay
+        let beforeLaunch = beforeLaunch
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<BoundedCommandResult, Never>) in
                 let state = RunState(
@@ -179,8 +183,12 @@ struct BoundedCommandRunner: Sendable {
                     }
                 }
 
+                beforeLaunch()
                 do {
-                    try handle.process.run()
+                    guard try handle.runUnlessCancelled() else {
+                        state.fail()
+                        return
+                    }
                     state.registerTimeoutTask(
                         Task {
                             do { try await delay(timeout) } catch { return }
@@ -199,7 +207,7 @@ struct BoundedCommandRunner: Sendable {
             // Detach so the grace Task does not inherit this cancelled context
             // (an inherited-cancelled Task would skip the delay and may race
             // the kill before the test/harness observes the grace path).
-            handle.terminateIfRunning()
+            handle.cancelLaunchAndTerminateIfRunning()
             Task.detached {
                 try? await delay(.seconds(1))
                 handle.killIfRunning()
@@ -346,18 +354,44 @@ struct BoundedCommandRunner: Sendable {
     /// cancellation closures can reach them across threads. `terminate()`,
     /// `isRunning`, and `kill(2)` are all safe to call off-thread.
     private final class ProcessHandle: @unchecked Sendable {
+        private let lock = NSLock()
         let process = Process()
         let stdout = Pipe()
+        private var cancellationRequested = false
+
+        /// Serializes the cancellation check with `Process.run()`. Without this
+        /// gate cancellation can observe a not-yet-running process and return,
+        /// after which the continuation launches an orphaned child anyway.
+        func runUnlessCancelled() throws -> Bool {
+            try lock.withLock {
+                guard !cancellationRequested else { return false }
+                try process.run()
+                return true
+            }
+        }
+
+        func cancelLaunchAndTerminateIfRunning() {
+            lock.withLock {
+                cancellationRequested = true
+                if process.isRunning {
+                    process.terminate()
+                }
+            }
+        }
 
         func terminateIfRunning() {
-            if process.isRunning {
-                process.terminate()
+            lock.withLock {
+                if process.isRunning {
+                    process.terminate()
+                }
             }
         }
 
         func killIfRunning() {
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
+            lock.withLock {
+                if process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                }
             }
         }
     }

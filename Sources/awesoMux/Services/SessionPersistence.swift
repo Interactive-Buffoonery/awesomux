@@ -493,30 +493,44 @@ enum SessionPersistence {
     struct GeneratedDocumentReferences {
         var remoteMarkdownSnapshots: Set<URL> = []
         var agentTranscripts: Set<URL> = []
+        var branchChanges: Set<URL> = []
     }
 
     static func scheduleGeneratedDocumentPrune(keeping store: SessionStore) {
         let transcriptStore = AgentTranscriptStore()
-        let references = generatedDocumentReferences(keeping: store, transcripts: transcriptStore)
+        let branchChanges = BranchChangesOpener()
+        let references = generatedDocumentReferences(
+            keeping: store,
+            transcripts: transcriptStore,
+            branchChanges: branchChanges
+        )
         let cacheDirectoryURL =
             supportDirectoryURL
             .appending(path: "remote-markdown", directoryHint: .isDirectory)
         RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL)
             .schedulePruneUnreferencedSnapshots(keeping: references.remoteMarkdownSnapshots)
         transcriptStore.schedulePruneUnreferenced(keeping: references.agentTranscripts)
+        branchChanges.schedulePruneUnreferenced(keeping: references.branchChanges)
     }
 
     static func pruneGeneratedDocumentsForTesting(keeping store: SessionStore) {
         let transcriptStore = AgentTranscriptStore()
-        let references = generatedDocumentReferences(keeping: store, transcripts: transcriptStore)
+        let branchChanges = BranchChangesOpener()
+        let references = generatedDocumentReferences(
+            keeping: store,
+            transcripts: transcriptStore,
+            branchChanges: branchChanges
+        )
         RemoteMarkdownSnapshotFetcher()
             .pruneUnreferencedSnapshotsImmediately(keeping: references.remoteMarkdownSnapshots)
         transcriptStore.pruneUnreferencedImmediately(keeping: references.agentTranscripts)
+        branchChanges.pruneUnreferencedImmediately(keeping: references.branchChanges)
     }
 
     static func generatedDocumentReferences(
         keeping store: SessionStore,
-        transcripts: AgentTranscriptStore = AgentTranscriptStore()
+        transcripts: AgentTranscriptStore = AgentTranscriptStore(),
+        branchChanges: BranchChangesOpener = BranchChangesOpener()
     ) -> GeneratedDocumentReferences {
         var references = GeneratedDocumentReferences()
         for group in store.groups {
@@ -524,6 +538,7 @@ enum SessionPersistence {
                 collectGeneratedDocumentURLs(
                     from: session.layout,
                     transcripts: transcripts,
+                    branchChanges: branchChanges,
                     into: &references
                 )
             }
@@ -535,6 +550,7 @@ enum SessionPersistence {
             collectGeneratedDocumentURLs(
                 from: entry.layout,
                 transcripts: transcripts,
+                branchChanges: branchChanges,
                 into: &references
             )
         }
@@ -544,6 +560,7 @@ enum SessionPersistence {
     private static func collectGeneratedDocumentURLs(
         from layout: TerminalPaneLayout,
         transcripts: AgentTranscriptStore,
+        branchChanges: BranchChangesOpener,
         into references: inout GeneratedDocumentReferences
     ) {
         switch layout {
@@ -553,6 +570,11 @@ enum SessionPersistence {
             for tab in group.tabs {
                 if tab.remoteResourceIdentity?.isSupportedRemoteMarkdownSnapshot == true {
                     references.remoteMarkdownSnapshots.insert(tab.fileURL)
+                }
+                // Same union of the two signals as the transcript arm below,
+                // for the same reasons.
+                if tab.branchChangesIdentity != nil || branchChanges.contains(tab.fileURL) {
+                    references.branchChanges.insert(tab.fileURL)
                 }
                 if tab.agentTranscriptIdentity != nil || transcripts.contains(tab.fileURL) {
                     // The union of the two signals, because each covers the
@@ -571,11 +593,13 @@ enum SessionPersistence {
             collectGeneratedDocumentURLs(
                 from: split.first,
                 transcripts: transcripts,
+                branchChanges: branchChanges,
                 into: &references
             )
             collectGeneratedDocumentURLs(
                 from: split.second,
                 transcripts: transcripts,
+                branchChanges: branchChanges,
                 into: &references
             )
         }

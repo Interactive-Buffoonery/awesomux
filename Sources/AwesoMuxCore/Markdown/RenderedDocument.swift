@@ -15,6 +15,55 @@ public enum TableColumnAlignment: Equatable, Sendable {
     case right
 }
 
+// MARK: - DiffLineKind
+
+/// The role of one line inside a ```` ```diff ```` fence, classified from its
+/// unified-diff prefix so the view can color it. Nothing here inspects the
+/// line's content past that prefix.
+public enum DiffLineKind: Equatable, Sendable {
+    case added
+    case removed
+    /// `@@ -a,b +c,d @@` hunk header.
+    case hunk
+    /// Per-file header lines (`diff --git`, `index`, `---`/`+++`, mode and
+    /// rename lines) and `\ No newline at end of file`.
+    case meta
+    case context
+
+    /// Classifies a raw diff line. Prefix-only, on purpose: a line inside a
+    /// hunk is always prefixed with a space, `+`, or `-`, so the file-header
+    /// vocabulary can only match at a hunk boundary — except `--- `/`+++ `,
+    /// which a removed SQL comment or an added `++` line could imitate. Those
+    /// two also require the path shape git prints after them, which narrows
+    /// the collision to content that itself reads `-- a/…` or `++ b/…`; the
+    /// cost of that residual collision is a dimmed line, nothing more.
+    public init(line: Substring) {
+        if line.hasPrefix("@@") {
+            self = .hunk
+        } else if line.hasPrefix("+++ ") || line.hasPrefix("--- ") {
+            let rest = line.dropFirst(4)
+            self =
+                rest.hasPrefix("a/") || rest.hasPrefix("b/") || rest == "/dev/null"
+                ? .meta
+                : (line.hasPrefix("+") ? .added : .removed)
+        } else if line.hasPrefix("+") {
+            self = .added
+        } else if line.hasPrefix("-") {
+            self = .removed
+        } else if line.hasPrefix("\\ ") || Self.metaPrefixes.contains(where: { line.hasPrefix($0) }) {
+            self = .meta
+        } else {
+            self = .context
+        }
+    }
+
+    private static let metaPrefixes = [
+        "diff --git ", "index ", "old mode ", "new mode ", "new file mode ", "deleted file mode ",
+        "similarity index ", "dissimilarity index ", "rename from ", "rename to ", "copy from ",
+        "copy to ", "Binary files ",
+    ]
+}
+
 // MARK: - RunStyle
 
 /// Visual / semantic role of a `RenderedRun`.
@@ -23,6 +72,10 @@ public enum RunStyle: Equatable, Sendable {
     case body
     case heading(level: Int)
     case code
+    /// One line of a ```` ```diff ```` fence. Each line is its own run so the
+    /// view can color and indent it independently; the run text excludes the
+    /// line's newline, which follows as a `.blockSeparator`.
+    case diffLine(DiffLineKind)
     case listBullet
     case listNumber(String)     // e.g. "1.", "2."
     case blockSeparator         // "\n\n" between blocks, " " for soft breaks, "\n" for hard breaks

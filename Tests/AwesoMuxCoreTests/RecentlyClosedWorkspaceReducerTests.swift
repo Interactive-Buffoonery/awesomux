@@ -5,6 +5,32 @@ import Testing
 
 @Suite("RecentlyClosedWorkspaceReducer")
 struct RecentlyClosedWorkspaceReducerTests {
+    @Test("reopen retains unknown generated document ownership")
+    func reopenRetainsUnknownGeneratedDocumentOwnership() throws {
+        let tab = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/future-generated.md"),
+            title: "Generated Document",
+            generatedDocumentKind: .unknown
+        )
+        let layout = TerminalPaneLayout.documentGroup(
+            DocumentGroup(tabs: [tab], selectedTabID: tab.id)
+        )
+        var seenTerminalSessionIDs: Set<TerminalSessionID> = []
+        var seenPaneIDs: Set<TerminalPane.ID> = []
+
+        let reidentified = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
+            layout,
+            indexHint: 0,
+            seenTerminalSessionIDs: &seenTerminalSessionIDs,
+            seenPaneIDs: &seenPaneIDs
+        )
+
+        let reopened = try #require(reidentified.firstDocumentGroup?.tabs.first)
+        #expect(reopened.id != tab.id)
+        #expect(reopened.generatedDocumentKind == .unknown)
+        #expect(!reopened.isEditable)
+    }
+
     @Test("reopen preserves structured synthetic title metadata")
     func reopenPreservesSyntheticTitleMetadata() throws {
         let groupID = UUID()

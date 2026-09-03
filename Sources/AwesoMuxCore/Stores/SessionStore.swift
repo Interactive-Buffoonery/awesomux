@@ -824,6 +824,20 @@ public final class SessionStore {
         return _groups[position.groupIndex].sessions[position.sessionIndex]
     }
 
+    /// The workspace that owns `paneID` right now, wherever it has been moved to.
+    ///
+    /// A pane keeps its id when "Move Pane to New Workspace" rehomes it, so any
+    /// deferred work holding a pane id from earlier has to re-resolve the owner
+    /// rather than trust the workspace it started in — otherwise a live moved
+    /// pane reads as a closed one.
+    ///
+    /// `ponytail: linear scan; the store index is keyed by session id only, and
+    /// this has one deferred-completion caller. Add a pane→session index if a
+    /// per-frame caller ever appears.`
+    public func sessionIDContainingPane(_ paneID: TerminalPane.ID) -> TerminalSession.ID? {
+        _groups.lazy.flatMap(\.sessions).first { $0.layout.pane(id: paneID) != nil }?.id
+    }
+
     /// Sessions currently at risk of losing work on quit. Durable-risk sessions
     /// are cached; freshness-candidate sessions are time-filtered live against
     /// `now` since their risk can lapse purely from elapsed time (INT-420).
@@ -1756,6 +1770,7 @@ public final class SessionStore {
         associatedWith associatedTerminalPaneID: TerminalPane.ID? = nil,
         remoteResourceIdentity: ResourceIdentity? = nil,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
+        branchChangesIdentity: BranchChangesIdentity? = nil,
         associationPolicy: DocumentPaneAssociationPolicy = .captureActivePaneWhenNil
     ) -> DocumentPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
@@ -1773,6 +1788,7 @@ public final class SessionStore {
                 associatedTerminalPaneID: resolvedAssociation,
                 remoteResourceIdentity: remoteResourceIdentity,
                 agentTranscriptIdentity: agentTranscriptIdentity,
+                branchChangesIdentity: branchChangesIdentity,
                 in: session,
                 now: Date(),
                 // A selection swap remounts the document view; while a comment

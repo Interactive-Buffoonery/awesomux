@@ -317,6 +317,47 @@ public struct AwColors: Sendable {
             : Color(nsColor: black)
     }
 
+    /// The palette slots `terminalHue` can resolve. Only what text drawn over
+    /// the terminal surface has needed so far; add a case when a new caller
+    /// needs another slot.
+    public enum AwTerminalHue: Sendable {
+        case red, green, blue
+
+        var keyPath: KeyPath<AwPalette, String> {
+            switch self {
+            case .red: \.red
+            case .green: \.green
+            case .blue: \.blue
+            }
+        }
+    }
+
+    /// A palette hue for text drawn over the terminal surface. The terminal's
+    /// color is independent of app appearance (INT-285), so a `dynamic` token
+    /// keyed off light/dark mode can put Mocha green on a Latte-bright
+    /// terminal at 1.5:1. Like `focusAccent`, but for text, so the floor is
+    /// the 4.5:1 AA text minimum rather than 3:1: the first of the Mocha,
+    /// Latte, and their increased-contrast variants that clears it against
+    /// the actual `terminalBackground` wins, so a light terminal keeps a
+    /// (darker) hue instead of dropping to black; black/white only when no
+    /// variant reads on a mid-tone terminal.
+    public func terminalHue(_ hue: AwTerminalHue, terminalBackground: Color) -> Color {
+        let background =
+            NSColor(terminalBackground).usingColorSpace(.sRGB)
+            ?? NSColor.awHex("#1e1e2e")
+        let candidates = [mocha, latte, mochaHC, latteHC].map {
+            NSColor.awHex($0[keyPath: hue.keyPath])
+        }
+        if let readable = candidates.first(where: { awContrastRatio($0, background) >= 4.5 }) {
+            return Color(nsColor: readable)
+        }
+        let white = NSColor.awHex("#ffffff")
+        let black = NSColor.awHex("#000000")
+        return awContrastRatio(white, background) >= awContrastRatio(black, background)
+            ? Color(nsColor: white)
+            : Color(nsColor: black)
+    }
+
     /// Contrast-floor an arbitrary chrome color against the terminal
     /// background: unchanged if it clears 3:1, otherwise whichever of
     /// black/white reads better. `focusAccent`'s fallback for colors with no
