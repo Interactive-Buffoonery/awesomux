@@ -67,10 +67,11 @@ enum DocumentCopyModePolicy {
 
     static func hiddenAnnotationIDs(
         in projection: DocumentAnnotationProjection,
+        copyModeAvailable: Bool,
         isCopyMode: Bool,
         hideResolved: Bool
     ) -> Set<String> {
-        if isAvailable(in: projection) {
+        if copyModeAvailable {
             return isCopyMode ? projection.resolvedSpanIDs : []
         }
         return hideResolved ? projection.resolvedSpanIDs : []

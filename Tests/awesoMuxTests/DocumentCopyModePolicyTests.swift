@@ -93,6 +93,7 @@ struct DocumentCopyModePolicyTests {
         #expect(
             DocumentCopyModePolicy.hiddenAnnotationIDs(
                 in: DocumentAnnotationProjection(document: doc),
+                copyModeAvailable: true,
                 isCopyMode: true,
                 hideResolved: false
             ) == ["inline"])
@@ -109,12 +110,14 @@ struct DocumentCopyModePolicyTests {
         #expect(
             DocumentCopyModePolicy.hiddenAnnotationIDs(
                 in: DocumentAnnotationProjection(document: doc),
+                copyModeAvailable: false,
                 isCopyMode: false,
                 hideResolved: false
             ).isEmpty)
         #expect(
             DocumentCopyModePolicy.hiddenAnnotationIDs(
                 in: DocumentAnnotationProjection(document: doc),
+                copyModeAvailable: false,
                 isCopyMode: false,
                 hideResolved: true
             ) == ["resolved"])
@@ -128,9 +131,24 @@ struct DocumentCopyModePolicyTests {
         #expect(
             DocumentCopyModePolicy.hiddenAnnotationIDs(
                 in: DocumentAnnotationProjection(document: doc),
+                copyModeAvailable: true,
                 isCopyMode: false,
                 hideResolved: true
             ).isEmpty)
+    }
+
+    @Test("the resolved filter remains active when an external gate disables copy mode")
+    func resolvedFilterRemainsActiveWhenCopyModeIsExternallyUnavailable() {
+        let doc = document(
+            annotations: [annotation(id: "resolved", status: .resolved, anchor: .span)])
+
+        #expect(
+            DocumentCopyModePolicy.hiddenAnnotationIDs(
+                in: DocumentAnnotationProjection(document: doc),
+                copyModeAvailable: false,
+                isCopyMode: false,
+                hideResolved: true
+            ) == ["resolved"])
     }
 
     private func document(annotations: [PlanAnnotation] = []) -> RenderedDocument {

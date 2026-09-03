@@ -1629,6 +1629,7 @@ struct DocumentPaneView: View {
             // fresh collections (review: avoid re-deriving them ~6x per pass).
             let hiddenIDs = DocumentCopyModePolicy.hiddenAnnotationIDs(
                 in: annotationProjection,
+                copyModeAvailable: copyModeAvailable,
                 isCopyMode: copyModeActive,
                 hideResolved: hideResolved
             )
