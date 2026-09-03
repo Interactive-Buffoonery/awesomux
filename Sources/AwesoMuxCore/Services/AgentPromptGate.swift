@@ -59,8 +59,8 @@ public struct AgentForegroundIncarnation: Equatable, Sendable {
 }
 
 public enum AgentPromptGate {
-    /// The v1 provider scope modeled by INT-569. Grok is deliberately
-    /// excluded until the issue's provider list grows.
+    /// The v1 provider scope modeled by INT-569. Grok and generic agents are
+    /// excluded until they can provide a trusted waiting-at-input signal.
     static let supportedProviders: Set<AgentKind> = [
         .claudeCode, .codex, .pi, .openCode,
     ]
@@ -211,6 +211,10 @@ public enum AgentPromptGate {
             }
         case .pi:
             if name == "pi" {
+                return true
+            }
+        case .generic:
+            if AgentProcessRecognition.agentKind(forCommand: observedCommand) == .generic {
                 return true
             }
         case .grok, .shell:

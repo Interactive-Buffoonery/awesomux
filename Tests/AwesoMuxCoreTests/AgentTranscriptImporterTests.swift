@@ -28,7 +28,7 @@ struct AgentTranscriptImporterTests {
                 ) == configHome.appending(path: "sessions", directoryHint: .isDirectory)
             )
         }
-        for unsupported: AgentKind in [.openCode, .grok, .shell] {
+        for unsupported: AgentKind in [.openCode, .grok, .generic, .shell] {
             #expect(
                 AgentTranscriptImporter.transcriptSearchRoot(
                     agentKind: unsupported,

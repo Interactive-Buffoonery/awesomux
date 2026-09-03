@@ -176,7 +176,7 @@ extension AgentKind {
         switch self {
         case .claudeCode, .codex, .openCode, .pi, .grok:
             .running
-        case .shell:
+        case .shell, .generic:
             .idle
         }
     }

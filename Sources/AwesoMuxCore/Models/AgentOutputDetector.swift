@@ -144,6 +144,7 @@ public struct AgentOutputDetector: Sendable {
             || text.contains("❯ claude")
             || containsConfidentOpenCodeIdentity(text, allowsPromptLaunch: true)
             || containsConfidentCodexIdentity(text, allowsPromptLaunch: true)
+            || containsConfidentGenericIdentity(text, allowsPromptLaunch: true)
     }
 
     // `hasGrokIdentity` is threaded through rather than re-derived here: the
@@ -155,6 +156,12 @@ public struct AgentOutputDetector: Sendable {
         allowsGrokIdentity: Bool,
         hasGrokIdentity: Bool
     ) -> AgentKind? {
+        // Generic checked before Claude so a Muse/Cursor pane that mentions
+        // "claude code" in prose does not get hijacked. Generic is prompt-anchored
+        // (or banner-anchored for Muse) so plain prose mentioning these CLIs is safe.
+        if containsConfidentGenericIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {
+            return .generic
+        }
         if containsConfidentClaudeIdentity(text) {
             return .claudeCode
         }
@@ -217,6 +224,44 @@ public struct AgentOutputDetector: Sendable {
             return false
         }
         return text.contains("$ opencode") || text.contains("❯ opencode")
+    }
+
+    private func containsConfidentGenericIdentity(
+        _ text: String,
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        if containsVersionedMuseBanner(text) {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+            ["$ ", "❯ "].contains { marker in
+                guard let markerRange = line.range(of: marker) else {
+                    return false
+                }
+                let command = line[markerRange.upperBound...]
+                    .prefix { !$0.isWhitespace }
+                return AgentProcessRecognition.agentKind(forCommand: String(command)) == .generic
+            }
+        }
+    }
+
+    private func containsVersionedMuseBanner(_ text: String) -> Bool {
+        text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count == 3, parts[0] == "muse", parts[1] == "code" else {
+                return false
+            }
+            let rawVersion = parts[2]
+            let version = rawVersion.first == "v" ? rawVersion.dropFirst() : rawVersion[...]
+            let components = version.split(separator: ".", omittingEmptySubsequences: false)
+            return components.count >= 2
+                && components.allSatisfy { component in
+                    !component.isEmpty && component.allSatisfy { $0.isASCII && $0.isNumber }
+                }
+        }
     }
 
     private func containsNeedsAttentionPrompt(_ text: String) -> Bool {

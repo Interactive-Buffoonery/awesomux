@@ -36,7 +36,7 @@ public enum AgentTranscriptImporter {
             case .claudeCode: self = .claudeCode
             case .codex: self = .codex
             case .pi: self = .pi
-            case .openCode, .grok, .shell: return nil
+            case .openCode, .grok, .shell, .generic: return nil
             }
         }
 

@@ -179,6 +179,47 @@ struct AgentPluginTemplateRendererTests {
         }
     }
 
+    @Test("render fails and removes its copied tree when private permissions cannot be set")
+    func renderFailsWhenCopiedTreeCannotBeMadePrivate() throws {
+        try Self.withTemporaryDirectory { support in
+            let target =
+                support
+                .appending(path: "AgentIntegrations/rendered/claude_code", directoryHint: .isDirectory)
+            let renderer = AgentPluginTemplateRenderer(
+                resourcesDirectoryURL: Self.packageResourcesURL,
+                supportDirectoryURL: support,
+                fileManager: RendererPermissionFailingFileManager(path: target.path)
+            )
+
+            #expect(
+                throws: AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
+                    target,
+                    CocoaError(.fileWriteNoPermission).localizedDescription
+                )
+            ) {
+                try renderer.render(
+                    provider: .claudeCode,
+                    setup: AgentIntegrationSetup(enabled: true),
+                    helperPath: AgentHookHelperPath(
+                        path: "/abs/awesoMuxAgentHook",
+                        isDevelopmentBundle: false
+                    )
+                )
+            }
+            #expect(!FileManager.default.fileExists(atPath: target.path))
+        }
+    }
+
+    @Test("private directory failure has a readable action message")
+    func privateDirectoryFailureHasReadableMessage() {
+        let error = AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
+            URL(fileURLWithPath: "/private/rendered-plugin"),
+            CocoaError(.fileWriteNoPermission).localizedDescription
+        )
+
+        #expect(error.localizedDescription == "awesoMux couldn’t make its rendered plugin directory private")
+    }
+
     @Test("disabled setup cannot render")
     func disabledSetupCannotRender() throws {
         try Self.withTemporaryDirectory { support in
@@ -444,5 +485,21 @@ struct AgentPluginTemplateRendererTests {
             stderr: captured.stderr,
             exitCode: process.terminationStatus
         )
+    }
+}
+
+private final class RendererPermissionFailingFileManager: FileManager {
+    let path: String
+
+    init(path: String) {
+        self.path = path
+        super.init()
+    }
+
+    override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        if path == self.path {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.setAttributes(attributes, ofItemAtPath: path)
     }
 }

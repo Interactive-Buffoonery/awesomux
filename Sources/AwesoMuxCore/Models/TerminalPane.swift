@@ -37,9 +37,13 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// Runtime-only one-shot state for the automatic managed-workspace offer.
     /// The safely observed target remains available for an explicit conversion.
     public var hasConsumedManagedSSHWorkspaceOffer: Bool
-    /// Runtime-only submitted SSH target waiting for the terminal title to prove
-    /// the pane actually became remote.
+    /// Runtime-only submitted SSH target retained for explicit managed conversion
+    /// while terminal signals try to prove the pane actually became remote.
     public var pendingRemoteSSHTarget: String?
+    /// True after process sampling observes work started for the pending SSH
+    /// command. An idle sample may clear the target only after this transition,
+    /// so the normal pre-exec idle-shell window cannot discard it.
+    public var hasObservedPendingRemoteSSHProcess: Bool
     /// Runtime-only health for the current remote connection. This is intentionally
     /// excluded from persistence with `remoteHost`; restored panes start active
     /// until live terminal signals prove they are remote/stale.
@@ -62,7 +66,8 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     public var hasManagedSSHObservation: Bool {
         executionPlan == .local
             && (remoteHost != nil || remoteSSHTarget != nil
-                || hasConsumedManagedSSHWorkspaceOffer)
+                || hasConsumedManagedSSHWorkspaceOffer
+                || hasObservedPendingRemoteSSHProcess)
     }
 
     // Agent state moved down from `TerminalSession` (INT-504): runtime events are
@@ -140,6 +145,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         remoteSSHTarget: String? = nil,
         hasConsumedManagedSSHWorkspaceOffer: Bool = false,
         pendingRemoteSSHTarget: String? = nil,
+        hasObservedPendingRemoteSSHProcess: Bool = false,
         remoteConnectionHealth: RemoteConnectionHealth = .active,
         remoteWorkingDirectory: String? = nil,
         liveTerminalTitle: String? = nil,
@@ -173,6 +179,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.remoteSSHTarget = remoteSSHTarget
         self.hasConsumedManagedSSHWorkspaceOffer = hasConsumedManagedSSHWorkspaceOffer
         self.pendingRemoteSSHTarget = pendingRemoteSSHTarget
+        self.hasObservedPendingRemoteSSHProcess = hasObservedPendingRemoteSSHProcess
         self.remoteConnectionHealth = remoteConnectionHealth
         self.remoteWorkingDirectory = remoteWorkingDirectory
         self.liveTerminalTitle = liveTerminalTitle

@@ -22,7 +22,7 @@ struct AgentTranscriptLiveRefreshTests {
         for provider: AgentKind in [.claudeCode, .codex, .pi] {
             #expect(AgentTranscriptLiveRefresh.supports(agentKind: provider))
         }
-        for unsupported: AgentKind in [.openCode, .grok, .shell] {
+        for unsupported: AgentKind in [.openCode, .grok, .generic, .shell] {
             #expect(!AgentTranscriptLiveRefresh.supports(agentKind: unsupported))
         }
     }

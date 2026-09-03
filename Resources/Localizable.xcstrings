@@ -560,7 +560,7 @@
       "comment" : "Diagnostics settings section subtitle"
     },
     "Agent" : {
-      "comment" : "Diagnostics process type"
+      "comment" : "Diagnostics process type\nGeneric display name for an unsupported AI coding agent\nGeneric name for a non-integrated coding agent in an accessibility label."
     },
     "Agent activity" : {
       "comment" : "Accessibility label for the sidebar agent activity panel"
@@ -3019,6 +3019,9 @@
     "Reconnecting…" : {
       "comment" : "Disabled button label shown on the remote-disconnected overlay while a manual reconnect is in flight\nTitle on the remote-pane overlay while a manual reconnect is in flight"
     },
+    "Reconnects using the captured SSH destination through awesoMux. This workspace and its other panes stay open." : {
+      "comment" : "Explanation when offering to reconnect an ordinary SSH pane as managed"
+    },
     "Record shortcut for %arg" : {
 
     },
@@ -4286,9 +4289,6 @@
     "This request mixes character scripts and may be disguised." : {
       "comment" : "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
     },
-    "This restarts the current SSH connection through awesoMux. This workspace and its other panes stay open." : {
-      "comment" : "Explanation when offering to reconnect an ordinary SSH pane as managed"
-    },
     "This session is still running and can’t be resumed" : {
       "comment" : "Unavailable reason for resuming a session while an agent still holds the terminal"
     },
@@ -4719,6 +4719,12 @@
     },
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
+    },
+    "awesoMux couldn’t make its install directory private" : {
+      "comment" : "Agent integration private directory permission update error"
+    },
+    "awesoMux couldn’t make its rendered plugin directory private" : {
+      "comment" : "Rendered agent plugin private directory permission update error"
     },
     "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process." : {
       "comment" : "Body of the close-pane confirmation dialog when pane activity is unverifiable.",

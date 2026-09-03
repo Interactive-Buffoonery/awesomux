@@ -66,6 +66,7 @@ struct AgentStateDesignSystemTests {
             .openCode: .openCode,
             .pi: .pi,
             .grok: .grok,
+            .generic: .generic,
             .shell: .shell
         ]
 

@@ -93,7 +93,7 @@ public enum AgentTranscriptResumePolicy {
             return "codex resume \(sessionID)"
         case .pi:
             return "pi --session \(sessionID)"
-        case .openCode, .grok, .shell:
+        case .openCode, .grok, .shell, .generic:
             return nil
         }
     }

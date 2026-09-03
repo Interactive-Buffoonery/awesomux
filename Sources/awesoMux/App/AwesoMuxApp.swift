@@ -2704,7 +2704,7 @@ struct AwesoMuxApp: App {
 
     private var selectedManagedSSHConversionTarget: RemoteTarget? {
         guard let session = sessionStore.selectedSession else { return nil }
-        return sessionStore.managedSSHConversionTarget(
+        return sessionStore.managedSSHConversionSuggestion(
             sessionID: session.id,
             paneID: session.activePaneID
         )
@@ -3426,7 +3426,7 @@ struct AwesoMuxApp: App {
         else {
             return false
         }
-        return sessionStore.managedSSHConversionTarget(
+        return sessionStore.managedSSHConversionSuggestion(
             sessionID: session.id,
             paneID: session.activePaneID
         ) != nil
@@ -5481,7 +5481,7 @@ struct SSHWorkspaceConnectRequest: Identifiable, Sendable {
             }
         guard let session,
             sessionStore.selectedSessionID == session.id,
-            let target = sessionStore.managedSSHConversionTarget(
+            let target = sessionStore.managedSSHConversionSuggestion(
                 sessionID: session.id,
                 paneID: session.activePaneID
             )

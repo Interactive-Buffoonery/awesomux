@@ -48,6 +48,7 @@ struct PaneChangeClassificationTests {
             ("remoteSSHTarget", { $0.remoteSSHTarget = "other" }),
             ("hasConsumedManagedSSHWorkspaceOffer", { $0.hasConsumedManagedSSHWorkspaceOffer = true }),
             ("pendingRemoteSSHTarget", { $0.pendingRemoteSSHTarget = nil }),
+            ("hasObservedPendingRemoteSSHProcess", { $0.hasObservedPendingRemoteSSHProcess = true }),
             ("remoteWorkingDirectory", { $0.remoteWorkingDirectory = "/srv/other" }),
             ("remoteConnectionHealth", { $0.remoteConnectionHealth = .possiblyStale }),
             ("progressReport", { $0.progressReport = nil }),

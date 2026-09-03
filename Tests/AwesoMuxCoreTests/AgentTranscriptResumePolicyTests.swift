@@ -118,7 +118,9 @@ private func localTerminal() -> TerminalPane {
     /// a live agent, Resume needs the agent GONE. Denied loudly and by name —
     /// a resume command staged at Claude's prompt is pasted as chat.
     @Test func deniedWhileAnAgentHoldsTheForeground() {
-        for (comm, expected) in [("claude", AgentKind.claudeCode), ("codex", .codex)] {
+        for (comm, expected) in [
+            ("claude", AgentKind.claudeCode), ("codex", .codex), ("muse", .generic),
+        ] {
             #expect(
                 AgentTranscriptResumePolicy.verdict(
                     target: .available(localTerminal()),

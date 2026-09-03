@@ -11,7 +11,6 @@ multi-window manager or tmux replacement.
 Read the documentation for the area you will change before editing:
 
 - Orientation and glossary: [`CONTEXT.md`](CONTEXT.md)
-- Checkout-local notes, when present: `.agents/AGENTS.md`
 - Architecture and decisions: [`docs/architecture.md`](docs/architecture.md) and
   [`docs/adr/`](docs/adr/)
 - Build, test, and contribution workflow: [`README.md`](README.md),
@@ -67,6 +66,7 @@ architecture without checking.
   notes, private links, credentials, or private tracker references. Draft new
   roadmap issues for maintainer review; do not restructure synchronized roadmap
   issues without approval, and preserve labels.
+- When using Linear in this checkout, use workspace `interactive-buffoonery` and team `INT`.
 - In public text, use neutral terms such as “review” or “code review findings”;
   do not name internal reviewer personas.
 

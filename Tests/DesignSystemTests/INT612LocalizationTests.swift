@@ -18,6 +18,17 @@ struct INT612LocalizationTests {
             ) == "⟦⟦running⟧:⟦Shell⟧⟧")
     }
 
+    @Test("generic agent resolves its spoken name from localization")
+    func genericAgentUsesExplicitBundleAndLocale() throws {
+        let bundle = try #require(Self.bundle)
+
+        #expect(
+            AwAgentIcon.generic.localizedAccessibilityName(
+                bundle: bundle,
+                locale: Locale(identifier: "zz")
+            ) == "⟦Agent⟧")
+    }
+
     private static var bundle: Bundle? {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

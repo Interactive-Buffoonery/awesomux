@@ -248,7 +248,7 @@ enum PaletteCommandRegistry {
         let selected = sessionStore.selectedSession
         let presentedSelectedTitle = selectedWorkspaceTitle ?? selected?.title
         let managedSSHConversionTarget = selected.flatMap {
-            sessionStore.managedSSHConversionTarget(
+            sessionStore.managedSSHConversionSuggestion(
                 sessionID: $0.id,
                 paneID: $0.activePaneID
             )

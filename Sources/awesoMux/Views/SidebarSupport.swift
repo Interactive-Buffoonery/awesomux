@@ -178,6 +178,8 @@ extension AgentKind {
             .pi
         case .grok:
             .grok
+        case .generic:
+            .generic
         case .shell:
             .shell
         }
