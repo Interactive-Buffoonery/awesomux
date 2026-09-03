@@ -121,6 +121,234 @@ struct MarkdownDiffLineStylingTests {
         #expect(top.count == 1)
         #expect(try #require(top.first).rect.height < #require(all.first).rect.height)
     }
+
+    @Test("hunk rows carry the blue tint and a rule marker; context rows carry neither")
+    func hunkRowsAreBanded() throws {
+        let doc = AttributedMarkdownBuilder.build("```diff\n@@ -1,2 +1,2 @@\n ctx\n```\n")
+        let hunk = attributes(ofLine: "@@ -1,2", in: doc)
+        #expect(hunk[.diffLineTint] is NSColor)
+        #expect((hunk[.diffHunkRule] as? NSNumber)?.boolValue == true)
+        #expect(attributes(ofLine: " ctx", in: doc)[.diffHunkRule] == nil)
+        // The hunk tint is distinct from added/removed.
+        let doc2 = AttributedMarkdownBuilder.build("```diff\n@@ -1 +1 @@\n+a\n-b\n```\n")
+        let h = try #require(attributes(ofLine: "@@", in: doc2)[.diffLineTint] as? NSColor)
+        let a = try #require(attributes(ofLine: "+a", in: doc2)[.diffLineTint] as? NSColor)
+        let r = try #require(attributes(ofLine: "-b", in: doc2)[.diffLineTint] as? NSColor)
+        #expect(h != a && h != r)
+    }
+
+    @Test("section headings are keyed and indented when an index is supplied; without one they are untouched")
+    func sectionHeadingsAreKeyed() throws {
+        let doc = AttributedMarkdownBuilder.build(
+            "## a.swift — _new file_\n\n```diff\n+x\n```\n\n## a.swift — _new file_\n\n```diff\n+y\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        let attributed = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index)
+        let ns = attributed.string as NSString
+        let first = ns.range(of: "a.swift")
+        let second = ns.range(
+            of: "a.swift", options: [], range: NSRange(location: first.location + 1, length: ns.length - first.location - 1))
+        #expect(attributed.attribute(.diffSectionKey, at: first.location, effectiveRange: nil) as? String == "a.swift")
+        #expect(attributed.attribute(.diffSectionKey, at: second.location, effectiveRange: nil) as? String == "a.swift\n2")
+        // The italic status run is part of the same heading and carries the same key.
+        let status = ns.range(of: "new file")
+        #expect(attributed.attribute(.diffSectionKey, at: status.location, effectiveRange: nil) as? String == "a.swift")
+        let style = try #require(attributed.attribute(.paragraphStyle, at: first.location, effectiveRange: nil) as? NSParagraphStyle)
+        #expect(style.firstLineHeadIndent == MarkdownAttributedStringBuilder.sectionHeadingGutter)
+        #expect(style.headIndent == MarkdownAttributedStringBuilder.sectionHeadingGutter)
+        let plain = MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white)
+        #expect(plain.attribute(.diffSectionKey, at: first.location, effectiveRange: nil) == nil)
+    }
+    // MARK: - Folding
+
+    @Test("folding removes exactly the body and keeps one block separator between surviving headings")
+    func foldedDocumentOmitsCollapsedBody() {
+        let doc = AttributedMarkdownBuilder.build(
+            "## a\n\n```diff\n+only-in-a\n```\n\n## b\n\n```diff\n+only-in-b\n```\n\n## c\n\n```diff\n+only-in-c\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        func text(_ collapsed: Set<String>) -> String {
+            MarkdownAttributedStringBuilder.attributedString(
+                for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: collapsed), textColor: .white, sectionIndex: index
+            ).string
+        }
+        // Exact strings, so a fold that eats the heading's separator ("ab") or leaves a double gap fails.
+        #expect(text(["a"]) == "a\n\nb\n\n+only-in-b\n\nc\n\n+only-in-c")
+        #expect(text(["b"]) == "a\n\n+only-in-a\n\nb\n\nc\n\n+only-in-c")
+        #expect(text(["c"]) == "a\n\n+only-in-a\n\nb\n\n+only-in-b\n\nc")
+        #expect(text(["a", "b"]) == "a\n\nb\n\nc\n\n+only-in-c")
+        #expect(text(["a", "b", "c"]) == "a\n\nb\n\nc")
+        #expect(text([]) == MarkdownAttributedStringBuilder.attributedString(for: doc, textColor: .white, sectionIndex: index).string)
+        // No index at all, and a collapsed key whose section has no fence to
+        // remove, both fold nothing rather than trimming a neighbour's runs.
+        #expect(MarkdownTextView.foldedDocument(doc, index: nil, collapsed: ["a"]).runs == doc.runs)
+        let renameOnly = AttributedMarkdownBuilder.build("## x\n\n## y\n\n```diff\n+only-in-y\n```\n")
+        let renameIndex = BranchDiffSectionIndex(document: renameOnly)
+        #expect(renameIndex.section(key: "x")?.isFoldable == false)
+        #expect(
+            MarkdownTextView.foldedDocument(renameOnly, index: renameIndex, collapsed: ["x"]).runs
+                == renameOnly.runs)
+    }
+
+    @Test("bodyRuns of the last section stop before the document's trailing separator so the joined text has no dangling newline")
+    func lastSectionKeepsNoTrailingSeparator() {
+        let doc = AttributedMarkdownBuilder.build("## a\n\n```diff\n+x\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"])
+        #expect(folded.runs.map(\.text).joined() == "a")
+    }
+
+    // MARK: - Selection remap across a fold
+
+    private static let threeSections =
+        "## a\n\n```diff\n+only-in-a\n```\n\n## b\n\n```diff\n+only-in-b\n```\n\n## c\n\n```diff\n+only-in-c\n```\n"
+
+    /// Rendered strings for `doc` before and after applying `collapsed`, plus the
+    /// range `preservedSelectionRange` maps `selection` to.
+    private func remap(
+        _ selection: NSRange, in doc: RenderedDocument, index: BranchDiffSectionIndex,
+        from before: Set<String> = [], to after: Set<String>
+    ) -> (replacement: NSString, preserved: NSRange) {
+        let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: after)
+        let replacement = MarkdownAttributedStringBuilder.attributedString(
+            for: folded, textColor: .white, sectionIndex: index)
+        return (
+            replacement.string as NSString,
+            MarkdownTextView.preservedSelectionRange(
+                selection, in: doc, index: index, from: before, to: after,
+                replacementLength: replacement.length)
+        )
+    }
+
+    @Test("a selection below the folded body keeps its text at its new offsets")
+    func selectionBelowFoldSurvivesWithNewOffsets() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded = MarkdownAttributedStringBuilder.attributedString(
+            for: doc, textColor: .white, sectionIndex: index)
+        let before = (unfolded.string as NSString).range(of: "+only-in-b")
+
+        let (replacement, preserved) = remap(before, in: doc, index: index, to: ["a"])
+        #expect(preserved.length == before.length)
+        #expect(preserved.location != before.location)
+        #expect(replacement.substring(with: preserved) == "+only-in-b")
+    }
+
+    @Test("a selection inside the folded body collapses to a caret at the fold point")
+    func selectionInsideFoldClears() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded = MarkdownAttributedStringBuilder.attributedString(
+            for: doc, textColor: .white, sectionIndex: index)
+        let before = (unfolded.string as NSString).range(of: "+only-in-a")
+
+        let (replacement, preserved) = remap(before, in: doc, index: index, to: ["a"])
+        #expect(preserved.length == 0)
+        // The fold point, not offset 0: that is where a subsequent Shift-click
+        // extends from, and the top of the document is not where the user was.
+        #expect(preserved.location == NSMaxRange(replacement.range(of: "a")))
+    }
+
+    /// The bug the source-span round trip had: diff lines are non-contiguous in
+    /// source, so a selection spanning several of them snapped out to the whole
+    /// fence and was then discarded — by a fold in an entirely different file.
+    @Test("a multi-line selection inside one file survives folding another file")
+    func multiLineSelectionSurvivesUnrelatedFold() throws {
+        let source =
+            "## a\n\n```diff\n+a1\n+a2\n```\n\n## b\n\n```diff\n+b1\n+b2\n+b3\n```\n"
+        let doc = AttributedMarkdownBuilder.build(source)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded =
+            MarkdownAttributedStringBuilder.attributedString(
+                for: doc, textColor: .white, sectionIndex: index
+            ).string as NSString
+        let start = unfolded.range(of: "+b1")
+        let end = unfolded.range(of: "+b3")
+        let selection = NSRange(location: start.location, length: NSMaxRange(end) - start.location)
+        let selected = unfolded.substring(with: selection)
+        #expect(selected.contains("\n"), "the fixture must span more than one line")
+
+        let (replacement, preserved) = remap(selection, in: doc, index: index, to: ["a"])
+        #expect(preserved.length == selection.length)
+        #expect(replacement.substring(with: preserved) == selected)
+    }
+
+    @Test("a caret below the fold moves with the text instead of resetting to the top")
+    func caretBelowFoldKeepsItsPosition() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let unfolded =
+            MarkdownAttributedStringBuilder.attributedString(
+                for: doc, textColor: .white, sectionIndex: index
+            ).string as NSString
+        let caret = NSRange(location: unfolded.range(of: "+only-in-c").location, length: 0)
+
+        let (replacement, preserved) = remap(caret, in: doc, index: index, to: ["a"])
+        #expect(preserved.length == 0)
+        #expect(preserved.location != 0)
+        #expect(preserved.location == replacement.range(of: "+only-in-c").location)
+    }
+
+    @Test("unfolding shifts a selection below the restored body forward")
+    func selectionShiftsForwardOnUnfold() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let foldedString =
+            MarkdownAttributedStringBuilder.attributedString(
+                for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: ["a"]),
+                textColor: .white, sectionIndex: index
+            ).string as NSString
+        let before = foldedString.range(of: "+only-in-b")
+
+        let (replacement, preserved) = remap(before, in: doc, index: index, from: ["a"], to: [])
+        #expect(preserved.length == before.length)
+        #expect(preserved.location > before.location)
+        #expect(replacement.substring(with: preserved) == "+only-in-b")
+    }
+
+    /// Regression guard on the cost the `foldChanged` comment in
+    /// `MarkdownTextView.updateNSView` quotes: one fold rebuilds and re-lays out
+    /// the WHOLE document. Folds one section of a 50 × 400-line diff so the
+    /// remaining ~20 000 lines still have to lay out — folding everything would
+    /// measure an almost empty document instead.
+    @Test("one fold cycle on a 50-file, 20k-line diff stays inside its regression ceiling")
+    @MainActor
+    func foldCycleCostOnALargeDiff() throws {
+        let source = (0..<50).map { file in
+            "## file\(file).swift\n\n```diff\n"
+                + (0..<400).map { "+line \($0)" }.joined(separator: "\n")
+                + "\n```\n\n"
+        }.joined()
+        let doc = AttributedMarkdownBuilder.build(source)
+        let index = BranchDiffSectionIndex(document: doc)
+        #expect(index.sections.count == 50)
+
+        let textView = NSTextView(usingTextLayoutManager: true)
+        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        textView.textContainerInset = NSSize(width: 20, height: 20)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let layoutManager = try #require(textView.textLayoutManager)
+
+        // Warm pass, so the measurement below is the fold, not the first layout.
+        textView.textStorage?.setAttributedString(
+            MarkdownAttributedStringBuilder.attributedString(
+                for: doc, textColor: .white, sectionIndex: index))
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+
+        let collapsed: Set<String> = [index.sections[0].key]
+        let elapsed = ContinuousClock().measure {
+            let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: collapsed)
+            let attr = MarkdownAttributedStringBuilder.attributedString(
+                for: folded, textColor: .white, sectionIndex: index)
+            textView.textStorage?.setAttributedString(attr)
+            layoutManager.ensureLayout(for: layoutManager.documentRange)
+        }
+        print("fold cycle: \(elapsed) for \(doc.runs.count) runs")
+        // 4x headroom over the ~1.2 s measured: Swift Testing runs the suite
+        // concurrently and this repo's full run flakes under load, so the guard
+        // is for a 10x blow-up (an accidental per-line pass), not a 2x one.
+        #expect(elapsed < .seconds(5), "fold cycle took \(elapsed)")
+    }
 }
 
 /// WCAG relative-luminance contrast, local to this suite so the assertion

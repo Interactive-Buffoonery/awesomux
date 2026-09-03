@@ -295,7 +295,9 @@ struct DocumentGroupView: View {
                     },
                     onRegisterScrollAnchorCapture: { capture in
                         scrollAnchorCapture = (document.id, capture)
-                    }
+                    },
+                    collapsedSections: tabMemory.collapsedSections(for: document),
+                    onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }
                 )
                 .id(document.fileURL.standardizedFileURL.path)
                 DocumentPaneSendBar(
@@ -303,7 +305,10 @@ struct DocumentGroupView: View {
                     session: session,
                     runtime: runtime,
                     showAllResolvedNotice: $showAllResolvedNotice,
-                    onCompose: { presentComposer() }
+                    onCompose: { presentComposer() },
+                    sectionKeys: tabMemory.sectionIndex(for: document)?.keys ?? [],
+                    collapsedSections: tabMemory.collapsedSections(for: document),
+                    onSetCollapsedSections: { tabMemory.setCollapsedSections($0, for: document) }
                 )
                 // Fresh identity per tab so a failure state (Peach button) from
                 // one tab never bleeds into the next tab's healthy send bar. A

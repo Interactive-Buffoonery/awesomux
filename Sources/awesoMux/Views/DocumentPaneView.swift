@@ -28,6 +28,13 @@ struct DocumentPaneSendBar: View {
     /// shell activity flips.
     let onCompose: () -> Void
 
+    /// Branch-diff file-section keys in document order, and this tab's folded
+    /// set — the footer's Collapse All / Expand All writes the whole set back
+    /// through `onSetCollapsedSections`. Empty on every other document kind.
+    var sectionKeys: [String] = []
+    var collapsedSections: Set<String> = []
+    var onSetCollapsedSections: (Set<String>) -> Void = { _ in }
+
     /// Whether the last nudge attempt found no live surface — shown briefly so the
     /// user knows the action failed rather than silently no-oping.
     @State private var nudgeFailed = false
@@ -49,6 +56,14 @@ struct DocumentPaneSendBar: View {
     // indirection, so enabling an integration recomputes `body` immediately
     // instead of waiting on an unrelated render (CodeRabbit finding).
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(\.branchChangesRefresh) private var branchChangesRefresh
+    /// Optional on purpose: the terminal panels host this bar from their own
+    /// environment roots, which do not carry the app's coordinator. A missing
+    /// coordinator means no busy state, never a crash.
+    @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator: BranchChangesCoordinator?
+    /// Bridges the gap between the click and the coordinator's set updating, so
+    /// a double-click cannot start two runs. Cleared in the refresh completion.
+    @State private var refreshRequested = false
 
     /// INT-569 field diagnostics: the one line that says why a send bar is
     /// disabled. Each individual probe already names its own guard, but nothing
@@ -264,6 +279,144 @@ struct DocumentPaneSendBar: View {
         )
     }
 
+    // MARK: - Branch changes footer
+
+    /// Refresh re-runs the comparison for the terminal this tab was generated
+    /// from, which is not necessarily the active pane. The structural
+    /// resolution is used deliberately — unlike Send to Agent, re-running git
+    /// needs a live local terminal, not a receptive agent.
+    private var branchChangesControls: some View {
+        // One layout walk per render; the busy check reuses the same resolution.
+        let target = session.layout.documentNudgeTarget(for: pane.id)
+        let verdict = BranchChangesRefreshPolicy.verdict(
+            target: target,
+            inFlight: refreshRequested || isRefreshing(target)
+        )
+        let unavailable: String? = {
+            if case .unavailable(let caption) = verdict { return caption }
+            return nil
+        }()
+        // One row of equal-height buttons with the caption under both: the
+        // caption belongs to the row, not to Refresh, or Collapse All ends up
+        // vertically centred against a two-line neighbour.
+        return VStack(spacing: 3) {
+            HStack(spacing: 8) {
+                // Only Refresh needs the app's command; Collapse All needs
+                // nothing from the environment, so a hosting root without the
+                // action (the terminal panels) keeps today's label and still
+                // gets the folds.
+                if branchChangesRefresh == nil {
+                    readOnlyGeneratedDocumentLabel
+                } else {
+                    SendToAgentButton(
+                        purpose: .refreshBranchChanges,
+                        title: String(
+                            localized: "Refresh",
+                            comment:
+                                "Send-bar button title on a branch changes tab that re-runs the comparison"
+                        ),
+                        failed: false,
+                        isBusy: verdict == .busy,
+                        unavailableDescription: unavailable,
+                        action: refresh
+                    )
+                    .frame(height: 28)
+                }
+                if !sectionKeys.isEmpty {
+                    // After a refresh adds one file, this reads "Collapse All"
+                    // again while the rest stay folded. Cosmetic and
+                    // self-correcting on the next press.
+                    let allCollapsed = Set(sectionKeys).isSubset(of: collapsedSections)
+                    Button {
+                        onSetCollapsedSections(allCollapsed ? [] : Set(sectionKeys))
+                    } label: {
+                        Text(
+                            allCollapsed
+                                ? String(
+                                    localized: "Expand All",
+                                    comment:
+                                        "Send-bar button on a branch changes tab that unfolds every file section"
+                                )
+                                : String(
+                                    localized: "Collapse All",
+                                    comment:
+                                        "Send-bar button on a branch changes tab that folds every file section"
+                                )
+                        )
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.aw.mauve)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        // Same plate as `SendToAgentButton` (mauve at 0.15 over a
+                        // 1pt mauve rule, 6pt corners), so the row reads as one
+                        // control family rather than a system button beside a
+                        // custom one.
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.aw.mauve.opacity(0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.aw.mauve, lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            if branchChangesRefresh != nil {
+                Text(
+                    unavailable
+                        ?? String(
+                            localized: "Read-only generated document",
+                            comment: "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
+                        )
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Color.aw.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityHidden(true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var readOnlyGeneratedDocumentLabel: some View {
+        Label(
+            String(
+                localized: "Read-only generated document",
+                comment: "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
+            ),
+            systemImage: "lock"
+        )
+        .lineLimit(1)
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(Color.aw.text2)
+        .frame(maxWidth: .infinity, minHeight: 28)
+    }
+
+    private func isRefreshing(_ resolution: DocumentNudgeTargetResolution) -> Bool {
+        guard case .available(let target) = resolution,
+            let branchChangesCoordinator
+        else { return false }
+        return branchChangesCoordinator.refreshingPaneIDs.contains(target.id)
+    }
+
+    private func refresh() {
+        // Click time resolves afresh: the layout may have moved since the render.
+        guard !refreshRequested,
+            !isRefreshing(session.layout.documentNudgeTarget(for: pane.id)),
+            let branchChangesRefresh,
+            case .available(let target) = session.layout.documentNudgeTarget(for: pane.id)
+        else { return }
+        refreshRequested = true
+        // The tab's own id travels with the run: if the user closes this tab
+        // while git is still going, the completion must not resurrect it.
+        branchChangesRefresh.run(target.id, pane.id) { refreshRequested = false }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             if let origin = pane.remoteSnapshotOrigin {
@@ -279,12 +432,10 @@ struct DocumentPaneSendBar: View {
                 // beside it: a transcript is not editable, so it can hold no
                 // review comments, and Send to Agent would have nothing to send.
                 resumeControl(identity: identity)
+            } else if pane.generatedDocumentKind == .branchChanges {
+                branchChangesControls
             } else if pane.generatedDocumentKind != nil {
-                Label("Read-only generated document", systemImage: "lock")
-                    .lineLimit(1)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.aw.text2)
-                    .frame(maxWidth: .infinity, minHeight: 28)
+                readOnlyGeneratedDocumentLabel
             } else {
                 // Resolve once per render: the resolution issues a live foreground
                 // probe, and the title, the unavailable description, and the
@@ -695,11 +846,13 @@ private struct SendToAgentButton: NSViewRepresentable {
     enum Purpose {
         case sendToAgent
         case resumeSession
+        case refreshBranchChanges
 
         var symbolName: String {
             switch self {
             case .sendToAgent: "paperplane.fill"
             case .resumeSession: "play.fill"
+            case .refreshBranchChanges: "arrow.clockwise"
             }
         }
 
@@ -716,6 +869,39 @@ private struct SendToAgentButton: NSViewRepresentable {
                     localized:
                         "pastes this session's resume command into the terminal without running it",
                     comment: "Accessibility/tooltip phrase describing what the transcript resume button does"
+                )
+            case .refreshBranchChanges:
+                String(
+                    localized: "re-runs the branch comparison for this tab's terminal",
+                    comment: "Accessibility/tooltip phrase describing what the branch changes refresh button does"
+                )
+            }
+        }
+
+        /// Spoken copy while an attempt is in flight. Per purpose: the busy
+        /// state is the one label that names what the button is actually
+        /// waiting on, so a shared sentence speaks the wrong thing on every
+        /// purpose but the one it was written for.
+        var busyDescription: String {
+            switch self {
+            case .sendToAgent:
+                // Send is never busy today — `isBusy` is left at its default at
+                // that call site, because the compose sheet, not the button,
+                // owns the wait. Kept exhaustive rather than fatal so a future
+                // busy Send speaks something honest instead of trapping.
+                String(
+                    localized: "sending",
+                    comment: "Accessibility phrase while the document send button is mid-send"
+                )
+            case .resumeSession:
+                String(
+                    localized: "checking this session's log",
+                    comment: "Accessibility phrase while a Resume attempt probes the provider's session log"
+                )
+            case .refreshBranchChanges:
+                String(
+                    localized: "re-running the comparison",
+                    comment: "Accessibility phrase while a branch changes Refresh is re-running git"
                 )
             }
         }
@@ -784,8 +970,8 @@ private struct SendToAgentButton: NSViewRepresentable {
                     )
                     : isBusy
                         ? String(
-                            localized: "\(title) — checking this session's log",
-                            comment: "Accessibility label for the send bar button while a Resume attempt probes the provider's session log"
+                            localized: "\(title) — \(purpose.busyDescription)",
+                            comment: "Accessibility label for the send bar button while its attempt is in flight"
                         )
                         : String(
                             localized: "\(title) — \(purpose.affordanceDescription)",
@@ -966,6 +1152,12 @@ struct DocumentPaneView: View {
     /// Surfaces the coordinator's scroll-anchor capture to the group view so it
     /// can snapshot the outgoing tab's position on a tab switch (INT-748 PR2).
     var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)?
+    /// Collapsed branch-diff section keys, owned by the group's tab memory.
+    /// The index itself is NOT an input: this view owns it (`localSectionIndex`),
+    /// computed from the document it actually renders, so a group-held index
+    /// that lags a render can never shadow the current one.
+    var collapsedSections: Set<String> = []
+    var onSectionToggled: ((String) -> Void)?
 
     /// Task 6: terminal background propagated by TerminalPaneView so the highlight
     /// contrast is measured against the actual painted surface, not the app chrome.
@@ -973,6 +1165,10 @@ struct DocumentPaneView: View {
 
     @State private var loadResult: DocumentLoader.LoadResult? = nil
     @State private var renderedDoc: RenderedDocument? = nil
+    /// Task 6 reads this to drive fold state; declared here since it comes from
+    /// the same render pass as `renderedDoc`. `nil` on branch-changes tabs
+    /// whose load rejected or errored, and always nil off that pane kind.
+    @State private var localSectionIndex: BranchDiffSectionIndex? = nil
     /// True while the file on disk is over the size cap and the last whole
     /// render is being held on screen behind `DocumentOversizeBanner`.
     ///
@@ -1047,7 +1243,9 @@ struct DocumentPaneView: View {
         onRevision: @escaping (LineDiffCount.ExternalEdit) -> Void = { _ in },
         annotationHandoffProvider: (() -> AnnotationHandoffPresentation)? = nil,
         onSendAnnotation: @escaping (String, [String]) -> Void = { _, _ in },
-        onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil
+        onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil,
+        collapsedSections: Set<String> = [],
+        onSectionToggled: ((String) -> Void)? = nil
     ) {
         self.pane = pane
         self.onCommentCountChanged = onCommentCountChanged
@@ -1057,8 +1255,11 @@ struct DocumentPaneView: View {
         self.annotationHandoffProvider = annotationHandoffProvider
         self.onSendAnnotation = onSendAnnotation
         self.onRegisterScrollAnchorCapture = onRegisterScrollAnchorCapture
+        self.collapsedSections = collapsedSections
+        self.onSectionToggled = onSectionToggled
         _loadResult = State(initialValue: cachedRender?.loadResult)
         _renderedDoc = State(initialValue: cachedRender?.renderedDoc)
+        _localSectionIndex = State(initialValue: cachedRender?.sectionIndex)
         _pendingScrollAnchor = State(initialValue: initialScrollAnchor)
         _showsOversizeBanner = State(
             initialValue: DocumentOversizePolicy.isOversize(
@@ -1339,7 +1540,12 @@ struct DocumentPaneView: View {
             if !result.isRejectedForSize,
                 Self.sourceChanged(doc, priorDoc)
             {
-                onRenderCompleted?(DocumentTabMemory.Render(loadResult: result, renderedDoc: doc))
+                // `doc` is `RenderedDocument?` here (a rejected or unreadable
+                // file has none).
+                let sectionIndex = pane.generatedDocumentKind == .branchChanges ? doc.map(BranchDiffSectionIndex.init(document:)) : nil
+                localSectionIndex = sectionIndex  // nil on failures so a stale index never outlives its document
+                onRenderCompleted?(
+                    DocumentTabMemory.Render(loadResult: result, renderedDoc: doc, sectionIndex: sectionIndex))
             }
             // Report the comment count only on a real render — an unreadable or
             // rejected file (doc == nil) is not "all comments resolved", so we
@@ -1477,7 +1683,10 @@ struct DocumentPaneView: View {
                                 onRegisterScrollAnchorCapture?(capture)
                             },
                             onOpenDocumentLink: onOpenDocumentLink,
-                            hiddenAnnotationIDs: hiddenIDs
+                            hiddenAnnotationIDs: hiddenIDs,
+                            sectionIndex: localSectionIndex,
+                            collapsedSections: collapsedSections,
+                            onSectionToggled: onSectionToggled
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contextMenu {

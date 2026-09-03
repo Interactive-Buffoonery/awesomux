@@ -22,6 +22,9 @@ import Foundation
 /// URL), and serving the old file's render or scroll offset there would show
 /// wrong content. Reads validate the path; `prune(keeping:)` drops entries
 /// whose tab is gone or whose file changed.
+///
+/// Also holds each tab's collapsed branch-diff section keys — session-only,
+/// never persisted, and pinned to the same path as everything else here.
 struct DocumentTabMemory {
     struct Render {
         private enum Seed {
@@ -31,10 +34,12 @@ struct DocumentTabMemory {
         }
 
         private let seed: Seed
+        let sectionIndex: BranchDiffSectionIndex?
 
         init(
             loadResult: DocumentLoader.LoadResult,
-            renderedDoc: RenderedDocument?
+            renderedDoc: RenderedDocument?,
+            sectionIndex: BranchDiffSectionIndex? = nil
         ) {
             switch loadResult {
             case .loaded:
@@ -47,6 +52,7 @@ struct DocumentTabMemory {
             case let .readError(message):
                 seed = .readError(message)
             }
+            self.sectionIndex = sectionIndex
         }
 
         var loadResult: DocumentLoader.LoadResult {
@@ -73,6 +79,7 @@ struct DocumentTabMemory {
         let sourcePath: String
         var render: Render?
         var scrollAnchor: Int?
+        var collapsedSections: Set<String> = []
     }
 
     private var entries: [DocumentPane.ID: Entry] = [:]
@@ -83,6 +90,30 @@ struct DocumentTabMemory {
 
     func scrollAnchor(for tab: DocumentPane) -> Int? {
         entry(for: tab)?.scrollAnchor
+    }
+
+    func collapsedSections(for tab: DocumentPane) -> Set<String> {
+        // The struct is torn down or re-pointed on a workspace switch; the
+        // registry is what makes twenty folded files still folded on return.
+        entry(for: tab)?.collapsedSections
+            ?? FoldRegistry.shared.keys(for: tab.id, path: tab.fileURL.standardizedFileURL.path)
+    }
+
+    func sectionIndex(for tab: DocumentPane) -> BranchDiffSectionIndex? {
+        entry(for: tab)?.render?.sectionIndex
+    }
+
+    mutating func setCollapsedSections(_ keys: Set<String>, for tab: DocumentPane) {
+        var entry = matchingOrFresh(for: tab)
+        entry.collapsedSections = keys
+        entries[tab.id] = entry
+        FoldRegistry.shared.store(keys, for: tab.id, path: entry.sourcePath)
+    }
+
+    mutating func toggleSection(_ key: String, for tab: DocumentPane) {
+        var keys = collapsedSections(for: tab)
+        if keys.contains(key) { keys.remove(key) } else { keys.insert(key) }
+        setCollapsedSections(keys, for: tab)
     }
 
     mutating func storeRender(_ render: Render, for tab: DocumentPane) {
@@ -119,6 +150,40 @@ struct DocumentTabMemory {
     }
 
     private func matchingOrFresh(for tab: DocumentPane) -> Entry {
-        entry(for: tab) ?? Entry(sourcePath: tab.fileURL.standardizedFileURL.path)
+        if let entry = entry(for: tab) { return entry }
+        let path = tab.fileURL.standardizedFileURL.path
+        var fresh = Entry(sourcePath: path)
+        fresh.collapsedSections = FoldRegistry.shared.keys(for: tab.id, path: path)
+        return fresh
+    }
+}
+
+/// Process-lifetime home for fold state, keyed by tab id and pinned to the
+/// tab's path like every `DocumentTabMemory` entry. `DocumentTabMemory` is
+/// `@State` on the group view, which SwiftUI tears down or re-points on a
+/// workspace switch, and a user who folded twenty files expects them folded
+/// when they come back. Renders and scroll anchors deliberately stay with the
+/// view (they are large and cheap to rebuild); a set of keys is neither.
+///
+/// ponytail: never pruned. A closed tab's id never comes back, so the cost
+/// of a stale entry is a few strings; prune from the tab-close path if a
+/// long session ever makes that matter.
+final class FoldRegistry: @unchecked Sendable {
+    static let shared = FoldRegistry()
+
+    private let lock = NSLock()
+    private var folds: [DocumentPane.ID: (path: String, keys: Set<String>)] = [:]
+
+    func keys(for id: DocumentPane.ID, path: String) -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = folds[id], entry.path == path else { return [] }
+        return entry.keys
+    }
+
+    func store(_ keys: Set<String>, for id: DocumentPane.ID, path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        folds[id] = (path, keys)
     }
 }

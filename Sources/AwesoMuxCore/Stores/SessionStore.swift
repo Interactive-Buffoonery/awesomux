@@ -838,6 +838,15 @@ public final class SessionStore {
         _groups.lazy.flatMap(\.sessions).first { $0.layout.pane(id: paneID) != nil }?.id
     }
 
+    /// Whether any workspace still holds this document tab. Deferred work that
+    /// captured a tab id has to re-resolve it the same way `sessionIDContainingPane`
+    /// re-resolves a pane: the tab can be closed, and so can the workspace under it.
+    public func containsDocumentTab(_ tabID: DocumentPane.ID) -> Bool {
+        _groups.lazy.flatMap(\.sessions).contains {
+            $0.layout.firstDocumentGroup?.tab(id: tabID) != nil
+        }
+    }
+
     /// Sessions currently at risk of losing work on quit. Durable-risk sessions
     /// are cached; freshness-candidate sessions are time-filtered live against
     /// `now` since their risk can lapse purely from elapsed time (INT-420).

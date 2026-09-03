@@ -132,6 +132,23 @@ struct TerminalPathBarModel: Equatable, Sendable {
                 workingDirectory: session.workingDirectory,
                 executionPlan: .local
             )
+        return make(
+            pane: pane,
+            session: session,
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
+    }
+
+    /// The same resolution for a caller that already knows which pane it means —
+    /// a generated document tab refreshing for the terminal it came from, which
+    /// need not be the session's active pane.
+    static func make(
+        pane: TerminalPane,
+        session: TerminalSession,
+        fileManager: FileManager = .default,
+        homeDirectory: URL = TerminalPathBarModel.defaultHomeDirectory
+    ) -> TerminalPathBarModel {
         if let remoteModel = remoteModel(for: pane) {
             return remoteModel
         }

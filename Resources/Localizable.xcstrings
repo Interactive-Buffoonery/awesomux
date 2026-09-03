@@ -319,7 +319,7 @@
       }
     },
     "%arg — %arg" : {
-      "comment" : "Accessibility label for the document send bar's call-to-action button\nTooltip for the document send bar's call-to-action button",
+      "comment" : "Accessibility label for the document send bar's call-to-action button\nAccessibility label for the send bar button while its attempt is in flight\nTooltip for the document send bar's call-to-action button",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -334,9 +334,6 @@
     },
     "%arg — Show in Activity Panel" : {
 
-    },
-    "%arg — checking this session's log" : {
-      "comment" : "Accessibility label for the send bar button while a Resume attempt probes the provider's session log"
     },
     "%arg — unavailable: %arg" : {
       "comment" : "Accessibility label for the document send button when its target is ineligible\nAccessibility label for the send button after an attempt failed, naming the reason",
@@ -358,6 +355,17 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$arg, %2$arg"
+          }
+        }
+      }
+    },
+    "%arg, %arg added, %arg removed" : {
+      "comment" : "VoiceOver label for a branch-changes file section: path, added lines, removed lines",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, %2$arg added, %3$arg removed"
           }
         }
       }
@@ -1055,6 +1063,9 @@
     "Closing this group removes its SSH creation default %arg. Its panes are local." : {
       "comment" : "SSH-default loss line for closing a populated group whose panes are all local."
     },
+    "Collapse All" : {
+      "comment" : "Send-bar button on a branch changes tab that folds every file section"
+    },
     "Collapse/Expand Sidebar" : {
 
     },
@@ -1704,6 +1715,9 @@
     },
     "Exit status: %arg" : {
 
+    },
+    "Expand All" : {
+      "comment" : "Send-bar button on a branch changes tab that unfolds every file section"
     },
     "Expanded" : {
       "comment" : "Accessibility value for the footer total button while the agent activity panel is open"
@@ -2950,7 +2964,7 @@
       "comment" : "Alert title when the user tries to annotate a generated agent transcript"
     },
     "Read-only generated document" : {
-
+      "comment" : "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
     },
     "Read-only remote Markdown snapshot from %arg" : {
 
@@ -3037,7 +3051,7 @@
       }
     },
     "Refresh" : {
-      "comment" : "Refresh Worktree Manager action."
+      "comment" : "Refresh Worktree Manager action.\nSend-bar button title on a branch changes tab that re-runs the comparison"
     },
     "Refresh Markdown files" : {
 
@@ -3047,6 +3061,9 @@
     },
     "Refresh failed. The last successful process snapshot is still shown." : {
       "comment" : "Diagnostics failed refresh status"
+    },
+    "Refresh needs a local terminal" : {
+      "comment" : "Caption under a disabled Refresh button on a branch changes tab whose terminal is remote"
     },
     "Refreshing" : {
       "comment" : "Diagnostics refresh button busy state"
@@ -4295,6 +4312,9 @@
     "This session's log is no longer available, so it can't be resumed" : {
       "comment" : "Unavailable reason for resuming a session whose provider log has been deleted"
     },
+    "This tab's terminal was closed" : {
+      "comment" : "Caption under a disabled Refresh button on a branch changes tab whose terminal no longer exists"
+    },
     "This terminal" : {
       "comment" : "Fallback subject in clipboard confirmation dialogs when the pane has no title."
     },
@@ -4798,8 +4818,14 @@
     "awesoMux, background sessions, shells, agents, and command-bridge daemons." : {
       "comment" : "Diagnostics settings section subtitle"
     },
+    "checking this session's log" : {
+      "comment" : "Accessibility phrase while a Resume attempt probes the provider's session log"
+    },
     "click to pin · end session" : {
 
+    },
+    "collapsed" : {
+      "comment" : "VoiceOver value for a collapsed branch-changes file section"
     },
     "column header" : {
       "comment" : "VoiceOver label for an empty table header cell"
@@ -4812,6 +4838,9 @@
     },
     "dismiss" : {
 
+    },
+    "expanded" : {
+      "comment" : "VoiceOver value for an expanded branch-changes file section"
     },
     "file outgrew the limit" : {
       "comment" : "Document banner kicker when a local file grows past the size cap"
@@ -4911,6 +4940,12 @@
     "promote" : {
       "comment" : "Footer pill label for promoting the Terminal Companion to a workspace."
     },
+    "re-running the comparison" : {
+      "comment" : "Accessibility phrase while a branch changes Refresh is re-running git"
+    },
+    "re-runs the branch comparison for this tab's terminal" : {
+      "comment" : "Accessibility/tooltip phrase describing what the branch changes refresh button does"
+    },
     "remote on %arg" : {
       "comment" : "VoiceOver action fragment naming the remote host for a pane."
     },
@@ -4928,6 +4963,9 @@
     },
     "running work" : {
       "comment" : "Activity noun in the quit dialog body when both agents and shell processes are at risk."
+    },
+    "sending" : {
+      "comment" : "Accessibility phrase while the document send button is mid-send"
     },
     "sends your review comments to this document's terminal" : {
       "comment" : "Accessibility/tooltip phrase describing what the document send button does"

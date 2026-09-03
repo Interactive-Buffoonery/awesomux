@@ -141,4 +141,71 @@ import Testing
         memory.prune(keeping: [replaced])
         #expect(memory.render(for: tab) == nil)
     }
+
+    @Test func collapsedSectionsToggleAndReadBackForTheSamePath() {
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/c.md")
+        #expect(memory.collapsedSections(for: tab).isEmpty)
+        memory.toggleSection("a.swift", for: tab)
+        memory.toggleSection("b.swift", for: tab)
+        memory.toggleSection("a.swift", for: tab)
+        #expect(memory.collapsedSections(for: tab) == ["b.swift"])
+        memory.setCollapsedSections(["x", "y"], for: tab)
+        #expect(memory.collapsedSections(for: tab) == ["x", "y"])
+    }
+
+    @Test func collapsedSectionsDropWhenTheTabShowsAnotherFile() {
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/d.md")
+        memory.toggleSection("a.swift", for: tab)
+        var moved = tab
+        moved.fileURL = URL(fileURLWithPath: "/tmp/other.md")
+        #expect(memory.collapsedSections(for: moved).isEmpty)
+        memory.prune(keeping: [moved])
+        // Prune drops the view-local entry, not the fold state: folds are pinned
+        // to (id, path) and outlive the group view so a workspace switch keeps
+        // them. Asking for the old path again gets the old folds back.
+        #expect(memory.collapsedSections(for: tab) == ["a.swift"])
+    }
+
+    @Test func collapsedSectionsSurviveARenderStoreForTheSamePath() {
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/e.md")
+        memory.toggleSection("a.swift", for: tab)
+        memory.storeRender(makeRender(source: "refreshed"), for: tab)
+        #expect(memory.collapsedSections(for: tab) == ["a.swift"])
+    }
+
+    @Test func collapsedKeysKeyedByPathSurviveAStatusSuffixChange() {
+        // Keyed on the path only (BranchDiffSectionIndex.keyText), so the fold set
+        // stored while the file was `— new file` still applies after a commit.
+        let before = BranchDiffSectionIndex(document: AttributedMarkdownBuilder.build("## a.swift — _new file_\n\n```diff\n+x\n```\n"))
+        let after = BranchDiffSectionIndex(document: AttributedMarkdownBuilder.build("## a.swift\n\n```diff\n+x\n```\n"))
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/g.md")
+        memory.toggleSection(before.keys[0], for: tab)
+        #expect(memory.collapsedSections(for: tab).contains(after.keys[0]))
+    }
+
+    @Test func collapsedSectionsOutliveTheMemoryStructForTheSamePath() {
+        // A workspace switch rebuilds the group view and its @State memory; the
+        // folds must come back for the same tab id and path, and not for another path.
+        let tab = makeTab(path: "/tmp/h.md")
+        var first = DocumentTabMemory()
+        first.toggleSection("a.swift", for: tab)
+        let second = DocumentTabMemory()
+        #expect(second.collapsedSections(for: tab) == ["a.swift"])
+        let moved = DocumentPane(id: tab.id, fileURL: URL(fileURLWithPath: "/tmp/other.md"), title: "other.md")
+        #expect(second.collapsedSections(for: moved).isEmpty)
+    }
+
+    @Test func renderCarriesTheSectionIndexItWasGiven() {
+        let doc = AttributedMarkdownBuilder.build("## f\n\n```diff\n+a\n```\n")
+        let index = BranchDiffSectionIndex(document: doc)
+        let render = DocumentTabMemory.Render(loadResult: .loaded(source: doc.source, snapshot: nil), renderedDoc: doc, sectionIndex: index)
+        var memory = DocumentTabMemory()
+        let tab = makeTab(path: "/tmp/f.md")
+        memory.storeRender(render, for: tab)
+        #expect(memory.sectionIndex(for: tab)?.keys == ["f"])
+    }
 }

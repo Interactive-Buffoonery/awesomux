@@ -14,9 +14,15 @@ import Foundation
 enum BranchChangesCompletion {
     /// - Parameter alert: injected rather than called directly because the
     ///   production alert is a modal `NSAlert`, which a test process cannot run.
+    /// - Parameter originatingDocumentID: the branch-changes tab whose Refresh
+    ///   started this run, when a tab did. If that tab is gone by the time the
+    ///   render lands, the bytes are still finalized but no tab opens — closing
+    ///   a tab mid-refresh must not resurrect it. Nil (menu, palette, command
+    ///   palette) always opens.
     static func apply(
         _ result: Result<OpenedBranchChanges, BranchChangesFailure>,
         paneID: TerminalPane.ID,
+        originatingDocumentID: DocumentPane.ID? = nil,
         ticket: Int,
         store: SessionStore,
         coordinator: BranchChangesCoordinator,
@@ -30,6 +36,9 @@ enum BranchChangesCompletion {
             completeWrite: completeWrite
         )
         guard coordinator.isCurrent(ticket, paneID: paneID) else { return }
+        // Same silence as `.superseded` below, and for the same reason: the
+        // write is done, and there is no longer a surface this run belongs to.
+        if let originatingDocumentID, !store.containsDocumentTab(originatingDocumentID) { return }
 
         switch result {
         case .failure(.superseded):

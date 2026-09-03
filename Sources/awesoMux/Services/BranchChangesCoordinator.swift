@@ -1,5 +1,6 @@
 import AwesoMuxCore
 import Foundation
+import Observation
 
 /// Owns the complete lifetime of Show Branch Changes work.
 ///
@@ -8,6 +9,7 @@ import Foundation
 /// legitimately request the same cache slot. Keeping both concerns here makes
 /// cancellation and high-water cleanup follow the tasks that can still finish.
 @MainActor
+@Observable
 final class BranchChangesCoordinator {
     private struct PaneTask {
         let ticket: Int
@@ -18,8 +20,17 @@ final class BranchChangesCoordinator {
     private var paneTickets: [TerminalPane.ID: Int] = [:]
     private var paneTasks: [TerminalPane.ID: PaneTask] = [:]
     private var activeTickets: Set<Int> = []
+    /// Live tickets per pane. A pane is "refreshing" exactly while it has one,
+    /// which is not the same as owning the newest ticket: a superseded run is
+    /// still spending a subprocess, and the footer button must stay disabled
+    /// until every run for that pane has retired.
+    private var inFlightTickets: [TerminalPane.ID: Set<Int>] = [:]
     private var registeredTickets: [URL: Int] = [:]
     nonisolated private let slots = BranchChangesSlotRegistry()
+
+    /// Panes with a Show Branch Changes run in flight. Drives the Refresh
+    /// button's busy state, so a menu-started run disables the footer too.
+    var refreshingPaneIDs: Set<TerminalPane.ID> { Set(inFlightTickets.keys) }
 
     /// Starts a new pane generation and cancels the task it replaces.
     func begin(paneID: TerminalPane.ID) -> Int {
@@ -27,6 +38,7 @@ final class BranchChangesCoordinator {
         nextTicket += 1
         paneTickets[paneID] = nextTicket
         activeTickets.insert(nextTicket)
+        inFlightTickets[paneID, default: []].insert(nextTicket)
         return nextTicket
     }
 
@@ -48,6 +60,10 @@ final class BranchChangesCoordinator {
     /// the minimum live ticket is the proof that makes removal safe.
     func finish(_ ticket: Int, paneID: TerminalPane.ID) {
         activeTickets.remove(ticket)
+        inFlightTickets[paneID]?.remove(ticket)
+        if inFlightTickets[paneID]?.isEmpty == true {
+            inFlightTickets.removeValue(forKey: paneID)
+        }
         if paneTasks[paneID]?.ticket == ticket {
             paneTasks.removeValue(forKey: paneID)
         }

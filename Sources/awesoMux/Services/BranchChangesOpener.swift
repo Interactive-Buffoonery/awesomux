@@ -148,6 +148,7 @@ struct BranchChangesOpener: Sendable {
     ///   to pass is a gate that is dead in production and green in tests.
     func open(
         session: TerminalSession,
+        pane: TerminalPane,
         chrome: BranchChangesRenderer.Chrome,
         claimingSlot: @Sendable (String) -> Bool
     ) async -> Result<OpenedBranchChanges, BranchChangesFailure> {
@@ -156,11 +157,11 @@ struct BranchChangesOpener: Sendable {
         // that decides whether a local subprocess is meaningful at all, and a
         // gate that lives only at one call site is a gate the next call site
         // forgets.
-        guard case .local = session.activePane?.executionPlan ?? .local else {
+        guard case .local = pane.executionPlan else {
             return .failure(.remotePane)
         }
 
-        let model = TerminalPathBarModel.make(session: session)
+        let model = TerminalPathBarModel.make(pane: pane, session: session)
         guard model.repoRootPath != nil else { return .failure(.noRepository) }
         guard let validatedRoot = model.validatedRepoRootPath else {
             return .failure(.unvalidatedRepository)
