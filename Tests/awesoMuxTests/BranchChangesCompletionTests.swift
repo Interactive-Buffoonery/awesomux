@@ -242,6 +242,17 @@ struct BranchChangesCompletionTests {
             activePaneID: terminal.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        // The tab existed when the refresh started; the user closed it while git ran.
+        let closed = try #require(
+            store.openDocumentPane(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appending(path: "awesomux-closed-\(UUID().uuidString).branch-changes.md"),
+                in: session.id,
+                associatedWith: terminal.id
+            )
+        )
+        store.closeDocumentPane(documentID: closed, in: session.id)
+        #expect(!store.containsDocumentTab(closed))
         let coordinator = BranchChangesCoordinator()
         let ticket = coordinator.begin(paneID: terminal.id)
         let result = try render(markdown: "# closed\n")
@@ -251,8 +262,7 @@ struct BranchChangesCompletionTests {
         BranchChangesCompletion.apply(
             .success(result),
             paneID: terminal.id,
-            // A tab id the store never held: the user closed it while git ran.
-            originatingDocumentID: UUID(),
+            originatingDocumentID: closed,
             ticket: ticket,
             store: store,
             coordinator: coordinator,

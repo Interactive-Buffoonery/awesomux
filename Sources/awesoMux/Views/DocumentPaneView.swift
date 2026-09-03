@@ -286,9 +286,11 @@ struct DocumentPaneSendBar: View {
     /// resolution is used deliberately — unlike Send to Agent, re-running git
     /// needs a live local terminal, not a receptive agent.
     private var branchChangesControls: some View {
+        // One layout walk per render; the busy check reuses the same resolution.
+        let target = session.layout.documentNudgeTarget(for: pane.id)
         let verdict = BranchChangesRefreshPolicy.verdict(
-            target: session.layout.documentNudgeTarget(for: pane.id),
-            inFlight: refreshRequested || isRefreshingTarget
+            target: target,
+            inFlight: refreshRequested || isRefreshing(target)
         )
         let unavailable: String? = {
             if case .unavailable(let caption) = verdict { return caption }
@@ -395,15 +397,18 @@ struct DocumentPaneSendBar: View {
         .frame(maxWidth: .infinity, minHeight: 28)
     }
 
-    private var isRefreshingTarget: Bool {
-        guard case .available(let target) = session.layout.documentNudgeTarget(for: pane.id),
+    private func isRefreshing(_ resolution: DocumentNudgeTargetResolution) -> Bool {
+        guard case .available(let target) = resolution,
             let branchChangesCoordinator
         else { return false }
         return branchChangesCoordinator.refreshingPaneIDs.contains(target.id)
     }
 
     private func refresh() {
-        guard !refreshRequested, !isRefreshingTarget, let branchChangesRefresh,
+        // Click time resolves afresh: the layout may have moved since the render.
+        guard !refreshRequested,
+            !isRefreshing(session.layout.documentNudgeTarget(for: pane.id)),
+            let branchChangesRefresh,
             case .available(let target) = session.layout.documentNudgeTarget(for: pane.id)
         else { return }
         refreshRequested = true
