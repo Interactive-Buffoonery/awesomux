@@ -718,17 +718,19 @@ struct MarkdownTextViewAnnotationVisibilityTests {
 
     @Test("visibility update refuses mismatched backing strings")
     func visibilityUpdateRejectsMismatchedStorage() {
-        let textView = NSTextView()
-        textView.string = "newer text"
+        let textView = NSTextView(usingTextLayoutManager: true)
+        let attr = NSMutableAttributedString(string: "current text")
+        textView.textStorage?.setAttributedString(attr)
         let coordinator = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
-        coordinator.currentAttr = NSMutableAttributedString(string: "older text")
+        #expect(coordinator.adoptCurrentAttributes(attr, in: textView))
+        textView.string = "different length"
 
         #expect(
             !coordinator.updateAnnotationVisibility(
                 in: textView,
                 hiddenIDs: []
             ))
-        #expect(textView.string == "newer text")
+        #expect(textView.string == "different length")
     }
 
     private func hasBackgroundRemovalOverride(in textView: NSTextView) -> Bool {

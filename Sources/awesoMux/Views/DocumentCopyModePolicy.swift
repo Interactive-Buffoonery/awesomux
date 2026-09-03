@@ -41,7 +41,7 @@ struct DocumentAnnotationProjection: Equatable {
             }
             if annotation.status == .open {
                 hasOpenAnnotations = true
-            } else if annotation.anchor == .span {
+            } else if annotation.status == .resolved, annotation.anchor == .span {
                 resolvedSpanIDs.insert(annotation.id)
             }
         }

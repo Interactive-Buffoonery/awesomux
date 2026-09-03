@@ -667,7 +667,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     highlightColor: highlightColor,
                     resolvedIDs: doc.resolvedAnnotationIDs
                 ) {
-                    _ = context.coordinator.updateAnnotationVisibility(
+                    didUpdateAnnotationVisibility = context.coordinator.updateAnnotationVisibility(
                         in: textView,
                         hiddenIDs: hiddenAnnotationIDs,
                         resettingExistingOverrides: true

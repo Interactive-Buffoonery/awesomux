@@ -106,6 +106,7 @@ import Testing
         let tab = makeTab(path: "/tmp/a.md")
         memory.storeRender(makeRender(source: "a"), for: tab)
         memory.storeScrollAnchor(42, for: tab)
+        memory.storeCopyMode(true, for: tab)
 
         var replaced = tab
         replaced.fileURL = URL(fileURLWithPath: "/tmp/b.md")
