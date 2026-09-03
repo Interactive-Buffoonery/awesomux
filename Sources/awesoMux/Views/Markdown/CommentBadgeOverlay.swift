@@ -191,16 +191,17 @@ final class CommentBadgeOverlay: NSView {
 
     // MARK: - Hit testing
 
-    /// Return self for pill rects so mouseDown fires; nil elsewhere so clicks
-    /// pass through to the text view. `point` arrives in the SUPERVIEW's space, so
-    /// convert into our bounds space (the overlay shares the text view's flipped
-    /// origin, but convert explicitly so this stays correct if the frame ever offsets).
+    /// Return self for pill and fold-chevron rects so mouseDown fires; nil elsewhere
+    /// so clicks pass through to the text view. `point` arrives in the SUPERVIEW's
+    /// space, so convert into our bounds space (the overlay shares the text view's
+    /// flipped origin, but convert explicitly so this stays correct if the frame
+    /// ever offsets).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
         // Ahead of the interactive gate: folding is not an annotation action, and
         // a tab reopened from the render cache has annotations off, so a check
         // after the guard would be unreachable exactly then.
-        if sectionChrome.contains(where: { $0.foldable && $0.rowRect.contains(local) }) {
+        if sectionChrome.contains(where: { sectionToggleRect(for: $0)?.contains(local) == true }) {
             return self
         }
         guard annotationsInteractive else { return nil }
@@ -213,7 +214,9 @@ final class CommentBadgeOverlay: NSView {
     override func resetCursorRects() {
         super.resetCursorRects()
         for chrome in sectionChrome where chrome.foldable {
-            addCursorRect(chrome.rowRect, cursor: .pointingHand)
+            if let rect = sectionToggleRect(for: chrome) {
+                addCursorRect(rect, cursor: .pointingHand)
+            }
         }
     }
 
@@ -229,7 +232,9 @@ final class CommentBadgeOverlay: NSView {
     }
 
     private func dispatchClick(at point: NSPoint) {
-        if let chrome = sectionChrome.first(where: { $0.foldable && $0.rowRect.contains(point) }) {
+        if let chrome = sectionChrome.first(where: {
+            sectionToggleRect(for: $0)?.contains(point) == true
+        }) {
             onSectionToggled?(chrome.key)
             return
         }
@@ -244,6 +249,15 @@ final class CommentBadgeOverlay: NSView {
                 return
             }
         }
+    }
+
+    private func sectionToggleRect(for chrome: SectionChrome) -> NSRect? {
+        guard chrome.foldable, let textView = superview as? NSTextView else { return nil }
+        return NSRect(
+            x: textView.textContainerInset.width,
+            y: chrome.headingRect.minY,
+            width: MarkdownAttributedStringBuilder.sectionHeadingGutter,
+            height: Self.sectionHeadingLineHeight)
     }
 
     // MARK: - Accessibility
@@ -701,7 +715,8 @@ final class CommentBadgeOverlay: NSView {
         attr: NSAttributedString,
         textView: NSTextView,
         displayNumbers: [String: Int] = [:],
-        hiddenIDs: Set<String> = []
+        hiddenIDs: Set<String> = [],
+        updatesTableBorders: Bool = true
     ) {
         guard textView.textLayoutManager != nil,
             textView.textContentStorage != nil,
@@ -783,7 +798,9 @@ final class CommentBadgeOverlay: NSView {
             badgeHiddenIDs = hiddenIDs
         }
 
-        updateTableBorders(attr: attr, textView: textView)
+        if updatesTableBorders {
+            updateTableBorders(attr: attr, textView: textView)
+        }
         updateSectionChrome(attr: attr, textView: textView)
         needsDisplay = true
     }

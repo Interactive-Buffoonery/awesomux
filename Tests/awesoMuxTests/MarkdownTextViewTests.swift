@@ -589,6 +589,166 @@ struct ApplyHighlightsTests {
     }
 }
 
+@Suite("MarkdownTextView in-place annotation visibility")
+@MainActor
+struct MarkdownTextViewAnnotationVisibilityTests {
+    @Test("copy mode exports only visible plain text")
+    func copyModeExportsOnlyPlainText() {
+        let textView = SelectionAwareTextView(usingTextLayoutManager: true)
+        let localURL = URL(fileURLWithPath: "/Users/example/private/customer.md")
+        textView.textStorage?.setAttributedString(
+            NSAttributedString(
+                string: "customer response",
+                attributes: [
+                    .backgroundColor: NSColor.systemYellow,
+                    .link: localURL,
+                    .markID: "resolved-comment",
+                ]
+            )
+        )
+        textView.setSelectedRange(NSRange(location: 0, length: textView.string.utf16.count))
+        textView.copiesPlainTextOnly = true
+
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("MarkdownTextViewCopyMode-\(UUID().uuidString)")
+        )
+        defer { pasteboard.clearContents() }
+
+        #expect(textView.writablePasteboardTypes == [.string])
+        #expect(
+            textView.writeSelection(
+                to: pasteboard,
+                types: textView.writablePasteboardTypes
+            )
+        )
+        #expect(pasteboard.string(forType: .string) == "customer response")
+        #expect(pasteboard.data(forType: .rtf) == nil)
+        #expect(pasteboard.string(forType: .fileURL) == nil)
+        #expect(!(pasteboard.string(forType: .string)?.contains(localURL.path) ?? true))
+    }
+
+    @Test("visibility changes preserve text selection geometry and paragraph wrapping")
+    func visibilityChangesPreserveDocumentState() throws {
+        let doc = AttributedMarkdownBuilder.build(
+            "Before <mark>customer response</mark><!-- USER COMMENT 1: reviewed --> after"
+        )
+        let attr = NSMutableAttributedString(
+            attributedString: MarkdownAttributedStringBuilder.attributedString(for: doc)
+        )
+        MarkdownAttributedStringBuilder.applyHighlights(
+            attr,
+            highlightColor: .systemYellow,
+            resolvedIDs: ["1"]
+        )
+
+        let textView = NSTextView(usingTextLayoutManager: true)
+        textView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        textView.textStorage?.setAttributedString(attr)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.tailIndent = 520
+        textView.textStorage?.addAttribute(
+            .paragraphStyle,
+            value: paragraphStyle,
+            range: NSRange(location: 0, length: attr.length)
+        )
+        let selection = NSRange(location: 7, length: 8)
+        textView.setSelectedRange(selection)
+        let frame = textView.frame
+
+        let coordinator = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
+        #expect(coordinator.adoptCurrentAttributes(attr, in: textView))
+        coordinator.installAnnotationVisibilityValidator(in: textView)
+
+        #expect(
+            coordinator.updateAnnotationVisibility(
+                in: textView,
+                hiddenIDs: ["1"]
+            ))
+        #expect(textView.string == attr.string)
+        #expect(textView.selectedRange() == selection)
+        #expect(textView.frame == frame)
+        let hiddenStyle = try #require(
+            textView.textStorage?.attribute(
+                .paragraphStyle,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSParagraphStyle
+        )
+        #expect(hiddenStyle.tailIndent == 520)
+        let markRange = (textView.string as NSString).range(of: "customer response")
+        #expect(
+            textView.textStorage?.attribute(
+                .backgroundColor,
+                at: markRange.location,
+                effectiveRange: nil
+            ) != nil
+        )
+        #expect(attr.attribute(.backgroundColor, at: markRange.location, effectiveRange: nil) != nil)
+        #expect(hasBackgroundRemovalOverride(in: textView))
+
+        let layoutManager = try #require(textView.textLayoutManager)
+        layoutManager.invalidateRenderingAttributes(for: layoutManager.documentRange)
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        #expect(hasBackgroundRemovalOverride(in: textView))
+
+        #expect(
+            coordinator.updateAnnotationVisibility(
+                in: textView,
+                hiddenIDs: []
+            ))
+        #expect(textView.selectedRange() == selection)
+        let shownStyle = try #require(
+            textView.textStorage?.attribute(
+                .paragraphStyle,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSParagraphStyle
+        )
+        #expect(shownStyle.tailIndent == 520)
+        #expect(
+            textView.textStorage?.attribute(
+                .backgroundColor,
+                at: markRange.location,
+                effectiveRange: nil
+            ) != nil
+        )
+        #expect(attr.attribute(.backgroundColor, at: markRange.location, effectiveRange: nil) != nil)
+        #expect(!hasBackgroundRemovalOverride(in: textView))
+    }
+
+    @Test("visibility update refuses mismatched backing strings")
+    func visibilityUpdateRejectsMismatchedStorage() {
+        let textView = NSTextView(usingTextLayoutManager: true)
+        let attr = NSMutableAttributedString(string: "current text")
+        textView.textStorage?.setAttributedString(attr)
+        let coordinator = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
+        #expect(coordinator.adoptCurrentAttributes(attr, in: textView))
+        textView.string = "different length"
+
+        #expect(
+            !coordinator.updateAnnotationVisibility(
+                in: textView,
+                hiddenIDs: []
+            ))
+        #expect(textView.string == "different length")
+    }
+
+    private func hasBackgroundRemovalOverride(in textView: NSTextView) -> Bool {
+        guard let layoutManager = textView.textLayoutManager else { return false }
+        var found = false
+        layoutManager.enumerateRenderingAttributes(
+            from: layoutManager.documentRange.location,
+            reverse: false
+        ) { _, attributes, _ in
+            if attributes[.backgroundColor] is NSNull {
+                found = true
+            }
+            return !found
+        }
+        return found
+    }
+}
+
 // MARK: - Bigfoot: CommentBadgeOverlay pill geometry (INT-562)
 
 /// The pill is a DRAWN decoration placed after the trailing edge of a mark's last
@@ -727,8 +887,8 @@ struct ScrollAnchorRestoreTests {
         let attr = NSMutableAttributedString(
             attributedString: MarkdownAttributedStringBuilder.attributedString(for: doc)
         )
-        coordinator.currentAttr = attr
         textView.textStorage?.setAttributedString(attr)
+        #expect(coordinator.adoptCurrentAttributes(attr, in: textView))
         guard let layoutManager = textView.textLayoutManager else {
             Issue.record("expected a TextKit 2 text view")
             return

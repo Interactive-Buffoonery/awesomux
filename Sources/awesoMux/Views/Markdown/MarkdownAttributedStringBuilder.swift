@@ -420,6 +420,8 @@ enum MarkdownAttributedStringBuilder {
         resolvedIDs: Set<String> = [],
         hiddenIDs: Set<String> = []
     ) {
+        attr.beginEditing()
+        defer { attr.endEditing() }
         attr.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: attr.length))
 
         // Resolved annotations swap to a neutral gray — a categorical hue

@@ -2,7 +2,7 @@ import AwesoMuxCore
 import Foundation
 
 /// Session-memory for the document tab strip (INT-748 PR2): the last rendered
-/// document and scroll anchor per open tab, held as `@State` by
+/// document, scroll anchor, and copy-mode state per open tab, held as `@State` by
 /// `DocumentGroupView` and never persisted.
 ///
 /// The render entries exist so switching back to a tab shows its content
@@ -80,6 +80,7 @@ struct DocumentTabMemory {
         var render: Render?
         var scrollAnchor: Int?
         var collapsedSections: Set<String> = []
+        var isCopyMode = false
     }
 
     private var entries: [DocumentPane.ID: Entry] = [:]
@@ -116,6 +117,10 @@ struct DocumentTabMemory {
         setCollapsedSections(keys, for: tab)
     }
 
+    func isCopyMode(for tab: DocumentPane) -> Bool {
+        entry(for: tab)?.isCopyMode ?? false
+    }
+
     mutating func storeRender(_ render: Render, for tab: DocumentPane) {
         var entry = matchingOrFresh(for: tab)
         entry.render = render
@@ -127,6 +132,12 @@ struct DocumentTabMemory {
     mutating func storeScrollAnchor(_ anchor: Int?, for tab: DocumentPane) {
         var entry = matchingOrFresh(for: tab)
         entry.scrollAnchor = anchor
+        entries[tab.id] = entry
+    }
+
+    mutating func storeCopyMode(_ isCopyMode: Bool, for tab: DocumentPane) {
+        var entry = matchingOrFresh(for: tab)
+        entry.isCopyMode = isCopyMode
         entries[tab.id] = entry
     }
 

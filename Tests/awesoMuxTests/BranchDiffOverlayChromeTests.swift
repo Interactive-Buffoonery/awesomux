@@ -148,16 +148,26 @@ struct BranchDiffOverlayChromeTests {
         #expect(overlay.sectionChrome.allSatisfy { $0.rowRect.minX == 0 && $0.rowRect.width == 400 })
     }
 
-    @Test("the heading row hit-tests to the overlay and a click toggles that key; body rows pass through")
+    @Test("the chevron toggles its section while the heading text and body pass through")
     @MainActor
-    func headingRowClickToggles() {
+    func chevronClickToggles() {
         let (overlay, textView, _, _) = makeOverlay(twoFiles)
         var toggled: [String] = []
         overlay.onSectionToggled = { toggled.append($0) }
         let row = overlay.sectionChrome[1].rowRect
-        let inside = NSPoint(x: row.midX, y: row.midY)
-        #expect(overlay.hitTest(textView.convert(inside, from: overlay)) === overlay)
-        overlay.simulateClick(at: inside)
+        let chevron = NSPoint(
+            x: textView.textContainerInset.width
+                + MarkdownAttributedStringBuilder.sectionHeadingGutter / 2,
+            y: row.midY)
+        #expect(overlay.hitTest(textView.convert(chevron, from: overlay)) === overlay)
+        overlay.simulateClick(at: chevron)
+        #expect(toggled == ["b.swift"])
+        let headingText = NSPoint(
+            x: textView.textContainerInset.width
+                + MarkdownAttributedStringBuilder.sectionHeadingGutter + 10,
+            y: row.midY)
+        #expect(overlay.hitTest(textView.convert(headingText, from: overlay)) == nil)
+        overlay.simulateClick(at: headingText)
         #expect(toggled == ["b.swift"])
         let between = NSPoint(x: 10, y: overlay.sectionChrome[0].rowRect.maxY + 30)
         #expect(overlay.hitTest(textView.convert(between, from: overlay)) == nil)
