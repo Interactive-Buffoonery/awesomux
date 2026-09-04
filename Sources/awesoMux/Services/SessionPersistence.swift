@@ -176,15 +176,33 @@ enum SessionPersistence {
     }()
     struct Environment: Sendable {
         var supportDirectoryURL: URL
+        var sleep: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
+        var beforeAutomaticWrite: @Sendable () async -> Void = {}
     }
 
     nonisolated(unsafe) private static var environment = Environment(
         supportDirectoryURL: AppRuntimeProfile.current.supportDirectoryURL
     )
-    private static var pendingWrite: Task<Void, Never>?
+    // Readable by tests so a deliberately stalled writer can be drained.
+    private(set) static var pendingWrite: Task<Void, Never>?
+    private static var scheduledCheckpoint: Task<Void, Never>?
+    private struct Checkpoint: Sendable {
+        var snapshot: SessionSnapshot
+        var capturedAt: Date
+        var completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)?
+    }
+    private static var latestCheckpoint: Checkpoint?
+
+    private static func cancelAutomaticWrites() {
+        scheduledCheckpoint?.cancel()
+        scheduledCheckpoint = nil
+        latestCheckpoint = nil
+        pendingWrite?.cancel()
+        pendingWrite = nil
+    }
     /// Non-nil = a snapshot on disk is protected against automatic writes.
     ///
-    /// The sites that raise it cancel `pendingWrite` through this `didSet`
+    /// The sites that raise it cancel scheduled and in-flight writes through this `didSet`
     /// rather than each doing it themselves: `save` hands its captured snapshot
     /// to a detached task that cannot re-read this flag from off the MainActor,
     /// so a warning raised anywhere inside the debounce window would otherwise
@@ -201,10 +219,10 @@ enum SessionPersistence {
     /// `SessionStore`, from `validateSnapshotOnDiskIfNeeded` and from
     /// `validateSnapshotForNewlyEnabledRestore`. Neither widens this ceiling.
     /// The first runs only while `hasValidatedSnapshotOnDisk` is false. Both
-    /// sites that clear that latch cancel `pendingWrite` in the same breath —
+    /// sites that clear that latch cancel automatic writes in the same breath —
     /// `restoreWorkspacesDidTurnOff` and `resetWriteState` — so a false latch
     /// means no debounced write is outstanding. The second cancels
-    /// `pendingWrite` itself before re-entering `load()`.
+    /// automatic writes before re-entering `load()`.
     ///
     /// What neither can stop is a write already past the cancellation check
     /// inside `writeSnapshot`'s lock while `load()` reads and archives. Closing
@@ -215,8 +233,7 @@ enum SessionPersistence {
     private static var blockedRecoveryWarningID: UUID? {
         didSet {
             guard blockedRecoveryWarningID != nil else { return }
-            pendingWrite?.cancel()
-            pendingWrite = nil
+            cancelAutomaticWrites()
         }
     }
     private static var activeRecoveryReplacementWarningID: UUID?
@@ -648,30 +665,40 @@ enum SessionPersistence {
         return maxDepth
     }
 
-    /// Coalesces high-frequency mutations (title/cwd updates that fire on every
-    /// shell prompt) into a single atomic write. `snapshot()` is O(1) on the
-    /// MainActor side because `[SessionGroup]` is COW, so eager capture is
-    /// cheap and lets the detached Task stay isolation-free. The exception is
-    /// the first call after a launch that skipped `load` — that one reads and
-    /// may archive the file on disk before it schedules anything.
+    /// Coalesces mutations into fixed 500 ms windows. Later requests replace
+    /// the payload without moving the deadline, so continuous title changes
+    /// cannot starve structural checkpoints. This bounds scheduling delay, not
+    /// executor availability or successful disk I/O. COW makes capture cheap.
     static func save(
         _ store: SessionStore,
         completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
     ) {
         validateSnapshotOnDiskIfNeeded()
-        // No `pendingWrite` can outlive the gate going up: every transition into
-        // the blocked state cancels one. See `blockedRecoveryWarningID`.
         guard blockedRecoveryWarningID == nil else { return }
-        let snapshot = store.snapshot()
-        let snapshotCapturedAt = Date()
-        pendingWrite?.cancel()
-        pendingWrite = Task.detached(priority: .utility) {
-            try? await Task.sleep(for: debounceInterval)
+        latestCheckpoint = Checkpoint(snapshot: store.snapshot(), capturedAt: Date(), completion: completion)
+        guard scheduledCheckpoint == nil else { return }
+        let environment = readEnvironment()
+        scheduledCheckpoint = Task { @MainActor in
+            try? await environment.sleep(debounceInterval)
             guard !Task.isCancelled else { return }
-            let result = writeSnapshot(snapshot, isCancelled: { Task.isCancelled })
-            guard !Task.isCancelled else { return }
-            clearUnsavedIncidentAnchor(after: result, resolvedSnapshotCapturedAt: snapshotCapturedAt)
-            await completion?(result)
+            scheduledCheckpoint = nil
+            guard let checkpoint = latestCheckpoint else { return }
+            latestCheckpoint = nil
+            // Cancel only when dispatching a newer checkpoint, never on each
+            // incoming change. The write lock's cancellation check orders these
+            // writes exactly as it orders automatic writes against quit flush.
+            pendingWrite?.cancel()
+            pendingWrite = Task.detached(priority: .utility) {
+                await environment.beforeAutomaticWrite()
+                guard !Task.isCancelled else { return }
+                let result = writeSnapshot(checkpoint.snapshot, isCancelled: { Task.isCancelled })
+                guard !Task.isCancelled else { return }
+                clearUnsavedIncidentAnchor(after: result, resolvedSnapshotCapturedAt: checkpoint.capturedAt)
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    checkpoint.completion?(result)
+                }
+            }
         }
     }
 
@@ -749,10 +776,7 @@ enum SessionPersistence {
         capturingEncodedSnapshot: (Data) -> Void = { _ in }
     ) -> Result<Void, RecoverySnapshotReplacementError> {
         validateSnapshotOnDiskIfNeeded()
-        if let task = pendingWrite {
-            pendingWrite = nil
-            task.cancel()
-        }
+        cancelAutomaticWrites()
         if recoveryWriteCoordinator.hasActiveWrite {
             whileWaitingForRecoveryWrite()
         }
@@ -881,10 +905,7 @@ enum SessionPersistence {
         // scheduled moments ago could still fire into that window. Cancelling
         // closes the schedulable half; the rest is the ceiling documented on
         // `blockedRecoveryWarningID`.
-        if let task = pendingWrite {
-            pendingWrite = nil
-            task.cancel()
-        }
+        cancelAutomaticWrites()
         return load(generatedDocumentPrune: { _ in }).recoveryWarning
     }
 
@@ -924,10 +945,7 @@ enum SessionPersistence {
     /// opting out leaves a write in flight that would clobber the very snapshot
     /// the opt-out exists to preserve.
     static func restoreWorkspacesDidTurnOff() {
-        if let task = pendingWrite {
-            pendingWrite = nil
-            task.cancel()
-        }
+        cancelAutomaticWrites()
         // Re-arm validation. Nothing watches the file while restore is off, so
         // it may be replaced or corrupted before the user opts back in; a
         // once-per-process latch would let that land un-archived.
@@ -1551,11 +1569,13 @@ enum SessionPersistence {
 
     static func withTemporarySupportDirectoryAsync<T>(
         _ url: URL,
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) },
+        beforeAutomaticWrite: @escaping @Sendable () async -> Void = {},
         operation: () async throws -> T
     ) async rethrows -> T {
         let previousEnvironment = readEnvironment()
         resetWriteState()
-        writeEnvironment(Environment(supportDirectoryURL: url))
+        writeEnvironment(Environment(supportDirectoryURL: url, sleep: sleep, beforeAutomaticWrite: beforeAutomaticWrite))
         defer {
             resetWriteState()
             writeEnvironment(previousEnvironment)
@@ -1577,10 +1597,7 @@ enum SessionPersistence {
     }
 
     private static func resetWriteState() {
-        if let task = pendingWrite {
-            pendingWrite = nil
-            task.cancel()
-        }
+        cancelAutomaticWrites()
         lastWrittenDigestLock.lock()
         digestWriteGate = StableDataDigestWriteGate()
         lastWrittenDigestLock.unlock()

@@ -32,7 +32,7 @@ identifier and write to `Application Support/awesoMux-dev-<id>/session-state.jso
 This extends the same isolation guarantee to concurrent builds from multiple
 worktrees while preserving the primary checkout's existing dev state.
 
-Writes are **debounced** to coalesce rapid edits. **Corruption or oversize files** are handled defensively: log, archive or drop the bad file where appropriate, and start from a fresh store rather than crash on decode.
+Writes are **coalesced in fixed 500 ms windows**, taking the latest requested snapshot without restarting the window on each edit. This bounds automatic checkpoint scheduling under continuous changes; executor delays and disk I/O can still delay or prevent a successful write. **Corruption or oversize files** are handled defensively: log, archive or drop the bad file where appropriate, and start from a fresh store rather than crash on decode.
 
 Restore passes sanitize **display names**, **paths**, **layout depth**, and **duplicate group names** so tampered snapshots cannot violate UI invariants.
 
