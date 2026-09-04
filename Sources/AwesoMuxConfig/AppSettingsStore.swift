@@ -38,6 +38,7 @@ public final class AppSettingsStore {
     private let legacySnapshotProvider: () -> LegacySettingsSnapshot?
     private let diagnosticEventHandler: (AppSettingsDiagnosticEvent) -> Void
     private let watchDebounceNanoseconds: UInt64
+    @ObservationIgnored private var watchGeneration = UUID()
     @ObservationIgnored private var watcher: ConfigDirectoryWatcher?
     @ObservationIgnored private var watchedReloadTask: Task<Void, Never>?
     /// Tracks `unknownTopLevelTables` from the most recently observed
@@ -231,17 +232,21 @@ public final class AppSettingsStore {
             return
         }
 
+        let generation = UUID()
+        watchGeneration = generation
         watcher = ConfigDirectoryWatcher(
-            directoryURL: configURL.deletingLastPathComponent(),
+            fileStore: fileStore,
             onChange: { [weak self] in
                 Task { @MainActor in
-                    self?.scheduleWatchedReload()
+                    guard let self, self.watchGeneration == generation else { return }
+                    self.scheduleWatchedReload()
                 }
             }
         )
     }
 
     public func stopWatching() {
+        watchGeneration = UUID()
         watcher?.cancel()
         watcher = nil
         watchedReloadTask?.cancel()
@@ -299,15 +304,15 @@ public final class AppSettingsStore {
     private func scheduleWatchedReload() {
         watchedReloadTask?.cancel()
         isExternalReloadPending = true
-        watchedReloadTask = Task { @MainActor [watchDebounceNanoseconds] in
+        watchedReloadTask = Task { @MainActor [weak self, watchDebounceNanoseconds] in
             do {
                 try await Task.sleep(nanoseconds: watchDebounceNanoseconds)
             } catch {
-                isExternalReloadPending = false
                 return
             }
 
-            handleWatchedConfigDirectoryChange()
+            guard !Task.isCancelled else { return }
+            self?.handleWatchedConfigDirectoryChange()
         }
     }
 
