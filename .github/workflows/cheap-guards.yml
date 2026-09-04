@@ -60,3 +60,6 @@ jobs:
 
       - name: Ghostty license pins
         run: ./script/check_ghostty_license_pins.sh
+
+      - name: Ghostty source extension tests
+        run: python3 script/test_prepare_ghostty_source.py

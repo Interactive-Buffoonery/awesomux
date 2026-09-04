@@ -312,7 +312,16 @@ ZIG_BIN="$(select_zig "$GHOSTTY_REQUIRED_ZIG_VERSION")"
 
 require_metal_toolchain
 
-cd "$GHOSTTY_DIR"
+# Generated sources are disposable and stay out of the shared artifact cache.
+# Each build owns its scratch directory, so cleanup cannot remove another build.
+GHOSTTY_SOURCE_SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-ghostty-source.XXXXXX")"
+cleanup_ghostty_source() {
+  rm -rf "$GHOSTTY_SOURCE_SCRATCH"
+}
+trap cleanup_ghostty_source EXIT
+GHOSTTY_BUILD_DIR="$(python3 "$ROOT_DIR/script/prepare_ghostty_source.py" --destination "$GHOSTTY_SOURCE_SCRATCH")"
+GHOSTTY_EXTENSION_FINGERPRINT="$(python3 "$ROOT_DIR/script/prepare_ghostty_source.py" --fingerprint)"
+cd "$GHOSTTY_BUILD_DIR"
 
 rm -rf "$AWESOMUX_INSTALL_DIR" "$AWESOMUX_ZIG_CACHE_DIR" "$AWESOMUX_ZIG_GLOBAL_CACHE_DIR"
 
@@ -335,6 +344,14 @@ ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build \
   -Demit-xcframework=true \
   -Demit-macos-app=false \
   -Dxcframework-target=native
+
+# Exercise the same terminal implementation and fixed writer that the exported
+# host API uses, including history grown while renderer updates are suppressed.
+ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test-lib-vt \
+  --cache-dir "$AWESOMUX_ZIG_CACHE_DIR" \
+  -Doptimize="$AWESOMUX_GHOSTTY_OPTIMIZE" \
+  -Demit-lib-vt=true \
+  -Dtest-filter=awesomux-scrollback --summary all
 
 if [[ ! -d "$GHOSTTY_BUILT_SHARE_DIR" ]]; then
   echo "Ghostty build completed without required artifacts." >&2
@@ -365,6 +382,7 @@ done
 STAGING_DIR="$ARTIFACT_DIR/.staging.$$"
 cleanup_staging() {
   local status=$?
+  cleanup_ghostty_source
   rm -rf "$STAGING_DIR"
   if [[ $status -ne 0 ]]; then
     echo "[build_ghostty_xcframework] publish did not complete; $ARTIFACT_DIR may be partial (stamps removed, so consumers will rebuild). Re-run this script or script/ensure_ghostty_artifacts.sh to recover." >&2
@@ -385,7 +403,7 @@ mkdir -p "$STAGING_DIR/share"
 ditto "$GHOSTTY_BUILT_SHARE_DIR" "$STAGING_DIR/share"
 
 rm -f "$ARTIFACT_DIR/.built-from-sha" "$ARTIFACT_DIR/.built-optimize" \
-  "$ARTIFACT_DIR/.built-zig-version"
+  "$ARTIFACT_DIR/.built-zig-version" "$ARTIFACT_DIR/.built-awesomux-extension"
 if [[ -e "$GHOSTTY_XCFRAMEWORK" ]]; then
   mv "$GHOSTTY_XCFRAMEWORK" "$GHOSTTY_XCFRAMEWORK.old"
 fi
@@ -418,6 +436,8 @@ printf '%s\n' "$AWESOMUX_GHOSTTY_OPTIMIZE" > "$ARTIFACT_DIR/.built-optimize.tmp"
 mv "$ARTIFACT_DIR/.built-optimize.tmp" "$ARTIFACT_DIR/.built-optimize"
 "$ZIG_BIN" version > "$ARTIFACT_DIR/.built-zig-version.tmp"
 mv "$ARTIFACT_DIR/.built-zig-version.tmp" "$ARTIFACT_DIR/.built-zig-version"
+printf '%s\n' "$GHOSTTY_EXTENSION_FINGERPRINT" > "$ARTIFACT_DIR/.built-awesomux-extension.tmp"
+mv "$ARTIFACT_DIR/.built-awesomux-extension.tmp" "$ARTIFACT_DIR/.built-awesomux-extension"
 
 echo "Built $GHOSTTY_XCFRAMEWORK"
 echo "Staged Ghostty link archives in $GHOSTTY_XCFRAMEWORK:"

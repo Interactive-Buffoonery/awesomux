@@ -1,6 +1,9 @@
 import Foundation
 
 struct ScrollbackDumpPolicy {
+    // Includes decompressed terminal pages, not just the output string.
+    static let maximumNativePageBytes = 16 * 1_024 * 1_024
+
     struct Limits: Equatable {
         let maximumEstimatedBytes: UInt64
         let maximumRows: UInt64

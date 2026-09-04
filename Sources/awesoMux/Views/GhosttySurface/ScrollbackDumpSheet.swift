@@ -124,13 +124,13 @@ struct ScrollbackDumpSheet: View {
         case .tooLarge, .nativeResultTooLarge:
             String(
                 localized:
-                    "This pane’s scrollback is too large to open safely. Choose Done, then scroll in the terminal or use Find (⌘F) to search its history.",
+                    "This pane’s scrollback is too large to open safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history.",
                 comment: "Explanation shown when Show Scrollback blocks a large terminal history"
             )
         case .unknownSize:
             String(
                 localized:
-                    "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or use Find (⌘F) to search its history.",
+                    "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history.",
                 comment: "Explanation shown when Show Scrollback cannot safely estimate terminal history size"
             )
         case .rowCountChanged:

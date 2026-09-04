@@ -677,7 +677,7 @@ jobs:
           # v1 prefix is the manual poison-cache invalidation lever. Key shape
           # matches prepare-native (release-tests warms this entry) so a green
           # test gate avoids a cold Ghostty rebuild in signing.
-          key: ghostty-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }}-${{ steps.ghostty-pin.outputs.swift_pin }}-${{ steps.xcode.outputs.xcode_id }}
+          key: ghostty-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-pin.outputs.ghostty_sha }}-${{ hashFiles('native/ghostty/**', 'script/prepare_ghostty_source.py', 'Sources/GhosttyKit/AwesoMuxGhostty.h') }}-${{ env.AWESOMUX_GHOSTTY_OPTIMIZE }}-${{ steps.ghostty-pin.outputs.swift_pin }}-${{ steps.xcode.outputs.xcode_id }}
 
       - name: Build or validate Ghostty artifacts
         run: ./script/ensure_ghostty_artifacts.sh

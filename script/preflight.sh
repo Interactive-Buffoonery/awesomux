@@ -16,6 +16,7 @@ python3 -B "$ROOT_DIR/script/test_swift_test_report.py"
 "$ROOT_DIR/script/format.sh" --lint
 "$ROOT_DIR/script/test-review-automation.sh"
 "$ROOT_DIR/script/check_ghostty_archive_drift.sh"
+python3 "$ROOT_DIR/script/test_prepare_ghostty_source.py"
 "$ROOT_DIR/script/test-ghostty-license-pins.sh"
 "$ROOT_DIR/script/check_ghostty_license_pins.sh"
 "$ROOT_DIR/script/test-ghostty-third-party-licenses.sh"

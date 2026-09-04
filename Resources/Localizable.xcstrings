@@ -4363,7 +4363,7 @@
     "This pane's working directory isn't inside a git repository, so there is no branch to compare." : {
       "comment" : "Branch diff failure when the pane's directory is not in a repository"
     },
-    "This pane’s scrollback is too large to open safely. Choose Done, then scroll in the terminal or use Find (⌘F) to search its history." : {
+    "This pane’s scrollback is too large to open safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history." : {
       "comment" : "Explanation shown when Show Scrollback blocks a large terminal history"
     },
     "This pane’s scrollback size changed while awesoMux was preparing it. Choose Done, wait a moment, then try again." : {
@@ -4809,7 +4809,7 @@
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
-    "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or use Find (⌘F) to search its history." : {
+    "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history." : {
       "comment" : "Explanation shown when Show Scrollback cannot safely estimate terminal history size"
     },
     "awesoMux couldn’t make its install directory private" : {

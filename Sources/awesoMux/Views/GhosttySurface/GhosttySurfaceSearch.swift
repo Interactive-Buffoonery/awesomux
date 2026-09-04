@@ -217,7 +217,7 @@ extension GhosttySurfaceNSView {
                         self.searchState.finishScrollbackDump(.loaded(text: text), request: request)
                     case .tooLarge:
                         Self.terminalDiagnosticsLogger.warning(
-                            "scrollback-dump native result exceeded the safety limit pane=\(self.paneID.uuidString.prefix(8), privacy: .public)"
+                            "scrollback-dump native safety limit blocked the read pane=\(self.paneID.uuidString.prefix(8), privacy: .public)"
                         )
                         self.finishBlockedScrollbackDump(
                             reason: .nativeResultTooLarge,
@@ -268,53 +268,22 @@ extension GhosttySurfaceNSView {
         )
     }
 
-    private enum FullScrollbackReadResult {
-        case loaded(String)
-        case tooLarge
-        case failed
-    }
-
-    private func fullScrollbackText() -> FullScrollbackReadResult {
+    private func fullScrollbackText() -> ScrollbackDumpReader.Result {
         guard let surface else {
             return .failed
         }
-
-        var text = ghostty_text_s()
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(
-                tag: GHOSTTY_POINT_SCREEN,
-                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-                x: 0,
-                y: 0
-            ),
-            bottom_right: ghostty_point_s(
-                tag: GHOSTTY_POINT_SCREEN,
-                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-                x: 0,
-                y: 0
-            ),
-            rectangle: false
-        )
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return .failed
+        let limits = ScrollbackDumpPolicy.Limits.default
+        return ScrollbackDumpReader.read(maximumBytes: Int(limits.maximumNativeTextBytes)) { buffer, written in
+            awesomux_surface_read_scrollback(
+                surface,
+                Int(limits.maximumRows),
+                Int(limits.maximumEstimatedBytes / limits.estimatedBytesPerCell),
+                ScrollbackDumpPolicy.maximumNativePageBytes,
+                buffer.baseAddress!,
+                buffer.count,
+                &written
+            )
         }
-        defer { ghostty_surface_free_text(surface, &text) }
-
-        let byteCount = UInt64(text.text_len)
-        guard ScrollbackDumpPolicy.acceptsNativeText(byteCount: byteCount) else {
-            return .tooLarge
-        }
-        guard byteCount > 0 else {
-            return .loaded("")
-        }
-        guard let bytes = text.text else {
-            return .failed
-        }
-        let buffer = UnsafeBufferPointer(
-            start: UnsafeRawPointer(bytes).assumingMemoryBound(to: UInt8.self),
-            count: Int(byteCount)
-        )
-        return .loaded(String(decoding: buffer, as: UTF8.self))
     }
 
     private func performSearchBinding(needle: String) {
