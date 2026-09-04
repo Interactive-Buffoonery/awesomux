@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
 usage() {
     cat <<'EOF'
@@ -48,6 +49,7 @@ case "$group" in
         ;;
     sidebar)
         filter="^($sidebar_pattern)/"
+        export AWESOMUX_APPKIT_TEST_HOST=1
         ;;
     nontiming)
         skip="^($timing_pattern|$sidebar_pattern)/"
@@ -66,9 +68,12 @@ case "$group" in
             exit 2
         fi
         "$ROOT_DIR/script/test.sh" zmx
-        "$ROOT_DIR/script/test.sh" timing
-        "$ROOT_DIR/script/test.sh" sidebar --skip-build
-        exec "$ROOT_DIR/script/test.sh" nontiming --skip-build
+        report_dir="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-test-reports.XXXXXX")"
+        echo "Swift test reports: $report_dir"
+        "$ROOT_DIR/script/test.sh" timing --xunit-output "$report_dir/timing.xml"
+        "$ROOT_DIR/script/test.sh" sidebar --skip-build --xunit-output "$report_dir/sidebar.xml"
+        "$ROOT_DIR/script/test.sh" nontiming --skip-build --xunit-output "$report_dir/nontiming.xml"
+        exit 0
         ;;
     -h|--help|help)
         usage
@@ -84,4 +89,39 @@ esac
 args=()
 [[ -n "$filter" ]] && args+=(--filter "$filter")
 [[ -n "$skip" ]] && args+=(--skip "$skip")
-exec "$ROOT_DIR/script/swift-test.sh" "${args[@]}" "$@"
+case "$group" in
+    timing|sidebar|nontiming)
+        report_path=''
+        expects_report_path=false
+        for argument in "$@"; do
+            case "$argument" in
+                -h|--help|-l|--list-tests|list|--version)
+                    exec "$ROOT_DIR/script/swift-test.sh" "${args[@]}" "$@"
+                    ;;
+            esac
+            if [[ "$expects_report_path" == true ]]; then
+                report_path="$argument"
+                expects_report_path=false
+            elif [[ "$argument" == --xunit-output ]]; then
+                expects_report_path=true
+            elif [[ "$argument" == --xunit-output=* ]]; then
+                report_path="${argument#--xunit-output=}"
+            fi
+        done
+        if [[ "$expects_report_path" == true ]]; then
+            echo "--xunit-output requires a path." >&2
+            exit 2
+        fi
+        if [[ -z "$report_path" ]]; then
+            report_dir="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-test-reports.XXXXXX")"
+            report_path="$report_dir/$group.xml"
+            args+=(--xunit-output "$report_path")
+            echo "Swift test reports: $report_dir"
+        fi
+        "$ROOT_DIR/script/swift-test.sh" "${args[@]}" "$@"
+        exec python3 "$ROOT_DIR/script/check_swift_test_report.py" --swiftpm-output "$report_path"
+        ;;
+    *)
+        exec "$ROOT_DIR/script/swift-test.sh" "${args[@]}" "$@"
+        ;;
+esac

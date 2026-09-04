@@ -100,6 +100,20 @@ suites. `nontiming` contains the remaining tests (`all` minus `timing` and
 the same three Swift shards sequentially, reusing the first Swift shard's build
 for the other two.
 
+The sidebar shard enables the test-only AppKit host with
+`AWESOMUX_APPKIT_TEST_HOST=1`. It starts `NSApplication` before tests run so
+AppKit event-loop stops cannot end Swift's async main loop before the test
+report is written. Use the same environment variable for focused hosted sidebar
+tests through `./script/swift-test.sh`. The host does not run in the app or in
+the separate XCTest process.
+
+The `timing`, `sidebar`, and `nontiming` entry points validate reports for both
+local and CI runs. Without `--xunit-output`, reports go in a temporary directory
+printed at startup; `all` puts all three reports in one directory.
+Each Swift shard must produce a complete report with at least one executed
+Swift Testing case. An exit status of zero without a complete report fails
+the gate; the reports remain available for diagnosis.
+
 `./script/test.sh all` intentionally rejects additional `swift test` arguments:
 the old fallback ran every test in one process and could exhaust AppKit's
 dispatch-thread limit. Use `zmx`, `timing`, `sidebar`, and `nontiming` explicitly when
