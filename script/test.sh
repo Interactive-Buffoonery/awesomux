@@ -94,15 +94,21 @@ case "$group" in
         report_path=''
         expects_report_path=false
         for argument in "$@"; do
+            if [[ "$expects_report_path" == true ]]; then
+                if [[ "$argument" == -* || -z "$argument" ]]; then
+                    echo "--xunit-output requires a path." >&2
+                    exit 2
+                fi
+                report_path="$argument"
+                expects_report_path=false
+                continue
+            fi
             case "$argument" in
                 -h|--help|-l|--list-tests|list|--version)
                     exec "$ROOT_DIR/script/swift-test.sh" "${args[@]}" "$@"
                     ;;
             esac
-            if [[ "$expects_report_path" == true ]]; then
-                report_path="$argument"
-                expects_report_path=false
-            elif [[ "$argument" == --xunit-output ]]; then
+            if [[ "$argument" == --xunit-output ]]; then
                 expects_report_path=true
             elif [[ "$argument" == --xunit-output=* ]]; then
                 report_path="${argument#--xunit-output=}"
@@ -119,7 +125,7 @@ case "$group" in
             echo "Swift test reports: $report_dir"
         fi
         "$ROOT_DIR/script/swift-test.sh" "${args[@]}" "$@"
-        exec python3 "$ROOT_DIR/script/check_swift_test_report.py" --swiftpm-output "$report_path"
+        exec python3 "$ROOT_DIR/script/check_swift_test_report.py" --swiftpm-output -- "$report_path"
         ;;
     *)
         exec "$ROOT_DIR/script/swift-test.sh" "${args[@]}" "$@"

@@ -1,6 +1,13 @@
 #import <AppKit/AppKit.h>
 #include <stdlib.h>
 #include <string.h>
+#include "AwesoMuxAppKitTestHost.h"
+
+static bool hostStarted = false;
+
+bool awesomuxAppKitTestHostIsRunning(void) {
+    return hostStarted && NSApplication.sharedApplication.isRunning;
+}
 
 __attribute__((constructor))
 static void installAppKitTestHost(void) {
@@ -12,6 +19,7 @@ static void installAppKitTestHost(void) {
     // uses run-loop stops while delivering events; Swift's async-main loop
     // treats a stop as process completion. NSApplication owns those stops.
     CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes, ^{
+        hostStarted = true;
         [NSApplication.sharedApplication run];
     });
 }
