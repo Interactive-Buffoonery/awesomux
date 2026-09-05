@@ -12,7 +12,7 @@ final class ScrollbackReadCoordinator {
         surfaceID: UInt,
         operation: @escaping @Sendable () -> ScrollbackDumpReader.Result
     ) async -> ScrollbackDumpReader.Result {
-        guard pendingReload == nil, active.insert(surfaceID).inserted else { return .failed }
+        guard pendingReload == nil, active.insert(surfaceID).inserted else { return .busy }
         defer {
             active.remove(surfaceID)
             pendingFrees.removeValue(forKey: surfaceID)?()

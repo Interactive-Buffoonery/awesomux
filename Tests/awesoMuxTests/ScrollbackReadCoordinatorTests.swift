@@ -30,7 +30,7 @@ struct ScrollbackReadCoordinatorTests {
             Issue.record("must not start a new read while reload is pending")
             return .failed
         }
-        #expect(rejected == .failed)
+        #expect(rejected == .busy)
         release.signal()
         #expect(await task.value == .loaded("complete"))
         #expect(events == ["free", "reload"])
@@ -57,7 +57,7 @@ struct ScrollbackReadCoordinatorTests {
             Issue.record("must not run a second extraction for the same surface")
             return .loaded("unexpected")
         }
-        #expect(result == .failed)
+        #expect(result == .busy)
         release.signal()
         #expect(await task.value == .tooLarge)
         #expect(await coordinator.read(surfaceID: 1) { .loaded("next") } == .loaded("next"))

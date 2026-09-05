@@ -35,6 +35,7 @@ struct ScrollbackDumpPolicy {
         case tooLarge
         case rowCountChanged
         case nativeResultTooLarge
+        case readInProgress
     }
 
     static func decision(

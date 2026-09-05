@@ -507,6 +507,9 @@
     "A preset named “%arg” already exists in this project." : {
       "comment" : "Alert text when saving over an existing layout preset."
     },
+    "A previous scrollback read is still finishing. Choose Done, wait a moment, then try again." : {
+      "comment" : "Explanation when Show Scrollback is retried before its previous native read finishes"
+    },
     "About awesoMux" : {
       "comment" : "Accessibility label for the About panel"
     },
@@ -3608,6 +3611,9 @@
     },
     "Scrollback is ready." : {
       "comment" : "VoiceOver announcement when Show Scrollback finishes loading terminal history"
+    },
+    "Scrollback was not opened because a previous read is still finishing." : {
+      "comment" : "VoiceOver announcement when a previous Show Scrollback read is still running"
     },
     "Scrollback was not opened because it is too large." : {
       "comment" : "VoiceOver announcement when Show Scrollback blocks a large terminal history"

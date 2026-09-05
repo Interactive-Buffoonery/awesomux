@@ -3,6 +3,7 @@ enum ScrollbackDumpReader {
         case loaded(String)
         case tooLarge
         case failed
+        case busy
     }
 
     static func read(

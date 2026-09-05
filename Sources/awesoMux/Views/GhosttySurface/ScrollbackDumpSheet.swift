@@ -138,6 +138,11 @@ struct ScrollbackDumpSheet: View {
                     "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history.",
                 comment: "Explanation shown when Show Scrollback cannot safely estimate terminal history size"
             )
+        case .readInProgress:
+            String(
+                localized: "A previous scrollback read is still finishing. Choose Done, wait a moment, then try again.",
+                comment: "Explanation when Show Scrollback is retried before its previous native read finishes"
+            )
         case .rowCountChanged:
             String(
                 localized:
@@ -209,6 +214,11 @@ private extension ScrollbackDumpPresentation {
             String(
                 localized: "Scrollback was not opened because its size could not be measured.",
                 comment: "VoiceOver announcement when Show Scrollback cannot estimate terminal history size"
+            )
+        case .readInProgress:
+            String(
+                localized: "Scrollback was not opened because a previous read is still finishing.",
+                comment: "VoiceOver announcement when a previous Show Scrollback read is still running"
             )
         case .rowCountChanged:
             String(

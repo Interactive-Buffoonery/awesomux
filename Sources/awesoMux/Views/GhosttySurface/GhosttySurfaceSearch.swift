@@ -226,10 +226,9 @@ extension GhosttySurfaceNSView {
                         case let .loaded(text):
                             self.searchState.finishScrollbackDump(.loaded(text: text), request: request)
                         case .tooLarge:
-                            Self.terminalDiagnosticsLogger.warning(
-                                "scrollback-dump native safety limit blocked the read pane=\(self.paneID.uuidString.prefix(8), privacy: .public)"
-                            )
                             self.finishBlockedScrollbackDump(reason: .nativeResultTooLarge, request: request)
+                        case .busy:
+                            self.finishBlockedScrollbackDump(reason: .readInProgress, request: request)
                         case .failed:
                             self.searchState.finishScrollbackDump(.failed, request: request)
                         }
@@ -270,6 +269,9 @@ extension GhosttySurfaceNSView {
         reason: ScrollbackDumpPolicy.BlockReason,
         request: UInt64
     ) {
+        Self.terminalDiagnosticsLogger.info(
+            "scrollback-dump blocked reason=\(String(describing: reason), privacy: .public) pane=\(self.paneID.uuidString.prefix(8), privacy: .public)"
+        )
         searchState.finishScrollbackDump(
             .blocked(reason: reason),
             request: request
