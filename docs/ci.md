@@ -92,7 +92,10 @@ one process regardless of the `swift test --parallel` flag; when those
 blocking calls and ~4600 unrelated tests share one process on a
 CPU-constrained hosted runner, the shared Swift Concurrency thread pool starves
 and even unrelated tests can miss real-clock deadlines. Isolating those suites
-removes that cross-suite contention. The `sidebar` shard separately bounds
+removes that cross-suite contention. The timing shard also includes
+`MarkdownDiffLineStylingTests`, whose large-document fold measures real layout
+time against a performance ceiling; running it alongside thousands of tests
+measures contention as well as layout cost. The `sidebar` shard separately bounds
 concurrent AppKit animation waits; those suites can reach the dispatch thread
 soft limit when scheduled with the rest of the target even without the timing
 suites. `nontiming` contains the remaining tests (`all` minus `timing` and
