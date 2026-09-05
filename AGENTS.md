@@ -59,6 +59,9 @@ architecture without checking.
   explicit user approval.
 - Do not publish issues, open PRs, push commits, or post review comments or
   replies without direct human approval of that action and its content.
+- Approval already given in the current task remains valid for that action and
+  content; do not ask for it again. Complete local investigation, edits, and
+  validation before requesting any missing publication approval.
 - Only the issue assignee pushes to its branch or updates its PR unless
   ownership is handed off. Other contributors review on GitHub and reply to the
   specific review thread.
@@ -108,11 +111,23 @@ Choose checks proportional to the change and report exactly what ran:
   apply. Keep automated tests, full preflight, and manual macOS/UI/accessibility
   checks as separate evidence; one does not imply another passed.
 
+### Sandbox failures
+
+- Local investigation, edits, builds, and tests needed for the requested task
+  do not need a separate conversational approval.
+- If a repository script fails with `sandbox_apply: Operation not permitted`,
+  or access to a required cache, local service, or network is sandbox-blocked,
+  retry through the tool's supported escalation path with a narrow command and
+  reason. Do not repeat the unchanged command in the same sandbox.
+- Keep using the repository scripts. An access failure is not a failing test;
+  report the result of the elevated run, or the actual escalation denial.
+
 ## Pull requests
 
 - Plan in an issue when appropriate and link the PR to it.
 - Before opening a PR, ask the contributor to choose the AI assistance level:
-  `none`, `light`, `moderate`, or `substantial`. Never infer it from tool usage.
+  `none`, `light`, `moderate`, or `substantial`, unless they already chose it for
+  this contribution. Never infer it from tool usage.
 - Read [`.github/pull_request_template.md`](.github/pull_request_template.md) in
   full and preserve its exact required headings. Remove placeholder comments,
   include real validation results, and explicitly name checks not run and why.
