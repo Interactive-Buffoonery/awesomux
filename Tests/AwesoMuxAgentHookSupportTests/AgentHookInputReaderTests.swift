@@ -31,6 +31,7 @@ struct AgentHookInputReaderTests {
         // Keep the byte-cap contract independent of pipe backpressure and the
         // reader's separate idle-timeout behavior.
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-hook-input")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let inputData = Data(
             repeating: UInt8(ascii: "x"),
             count: AgentHookCommand.maximumInputByteCount + 10
@@ -84,6 +85,7 @@ struct AgentHookInputReaderTests {
         // A ready regular file guarantees the short final read without making
         // the result depend on a background writer's scheduling.
         let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-hook-input")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let inputURL = temporaryDirectory.url.appending(path: "input.json")
         try payload.write(to: inputURL)
         let inputHandle = try FileHandle(forReadingFrom: inputURL)
