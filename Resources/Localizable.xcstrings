@@ -1329,7 +1329,7 @@
       "comment" : "Unavailable reason for resuming a session when foreground process evidence is unavailable"
     },
     "Couldn’t Read Scrollback" : {
-
+      "comment" : "Heading when Show Scrollback cannot read terminal history"
     },
     "Couldn’t connect. The workspace is no longer available." : {
       "comment" : "Error shown when a managed SSH connection request targets a workspace that no longer exists"
@@ -2849,7 +2849,7 @@
       "comment" : "Remote handoff initial progress status"
     },
     "Preparing scrollback…" : {
-
+      "comment" : "Loading message while Show Scrollback reads terminal history"
     },
     "Preset Saved" : {
       "comment" : "Alert title confirming a layout preset was saved."
@@ -3601,7 +3601,7 @@
 
     },
     "Scrollback Not Opened" : {
-
+      "comment" : "Heading when Show Scrollback blocks a history that cannot be read safely"
     },
     "Scrollback copied." : {
       "comment" : "VoiceOver announcement confirming the scrollback sheet's Copy button wrote to the clipboard"

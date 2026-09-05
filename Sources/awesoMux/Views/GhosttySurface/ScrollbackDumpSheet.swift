@@ -58,7 +58,7 @@ struct ScrollbackDumpSheet: View {
             VStack(spacing: 12) {
                 ProgressView()
                     .controlSize(.large)
-                Text("Preparing scrollback…")
+                Text(String(localized: "Preparing scrollback…", comment: "Loading message while Show Scrollback reads terminal history"))
                     .awFont(AwFont.UI.body)
                     .foregroundStyle(Color.aw.text3)
             }
@@ -87,7 +87,7 @@ struct ScrollbackDumpSheet: View {
                     .font(.system(size: 28))
                     .foregroundStyle(Color.aw.text3)
                     .accessibilityHidden(true)
-                Text("Couldn’t Read Scrollback")
+                Text(String(localized: "Couldn’t Read Scrollback", comment: "Heading when Show Scrollback cannot read terminal history"))
                     .awFont(AwFont.UI.title)
                     .foregroundStyle(Color.aw.text)
                     .accessibilityAddTraits(.isHeader)
@@ -105,10 +105,15 @@ struct ScrollbackDumpSheet: View {
     private func blockedContent(reason: ScrollbackDumpPolicy.BlockReason) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Label("Scrollback Not Opened", systemImage: "exclamationmark.triangle")
-                    .awFont(AwFont.UI.title)
-                    .foregroundStyle(Color.aw.text)
-                    .accessibilityAddTraits(.isHeader)
+                Label(
+                    String(
+                        localized: "Scrollback Not Opened",
+                        comment: "Heading when Show Scrollback blocks a history that cannot be read safely"),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .awFont(AwFont.UI.title)
+                .foregroundStyle(Color.aw.text)
+                .accessibilityAddTraits(.isHeader)
                 Text(blockedMessage(for: reason))
                     .awFont(AwFont.UI.body)
                     .foregroundStyle(Color.aw.text3)
