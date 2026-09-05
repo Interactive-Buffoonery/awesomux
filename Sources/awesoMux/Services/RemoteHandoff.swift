@@ -13,6 +13,11 @@ enum RemoteHandoff {
     static let maximumReceiptByteCount = 4 * 1024
     static let maximumDecodedPixelCount = 32 * 1024 * 1024
 
+    static func target(for executionPlan: PaneExecutionPlan) -> RemoteTarget? {
+        guard case .ssh(let execution) = executionPlan, execution.persistenceOwner == .localAmx else { return nil }
+        return execution.target
+    }
+
     enum Candidate: Equatable, Sendable {
         case markdown(URL)
         case png(Data)
@@ -440,10 +445,7 @@ extension GhosttySurfaceNSView {
             RemoteHandoff.presentBusy(window: window)
             return
         }
-        guard case .ssh(let execution) = pane.executionPlan,
-            execution.persistenceOwner == .localAmx
-        else { return }
-        let remote = execution.target
+        guard let remote = RemoteHandoff.target(for: pane.executionPlan) else { return }
 
         let authority = RemoteHandoff.Authority(
             appSessionID: sessionID,

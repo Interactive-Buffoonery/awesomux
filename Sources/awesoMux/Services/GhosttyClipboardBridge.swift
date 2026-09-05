@@ -124,7 +124,7 @@ extension GhosttyRuntime {
 
             let pasteboardContent = TerminalPasteboardString.content(from: NSPasteboard.general)
 
-            if view.pane.executionPlan.remoteTarget != nil,
+            if RemoteHandoff.target(for: view.pane.executionPlan) != nil,
                 let pasteboardContent,
                 let candidate = TerminalPasteboardString.remoteHandoffCandidate(from: pasteboardContent)
             {
