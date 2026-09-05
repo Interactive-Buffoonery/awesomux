@@ -2317,6 +2317,9 @@
     "Needs input, from %arg" : {
       "comment" : "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
     },
+    "Network changed; the SSH session on %arg may be disconnected until SSH recovers or reports failure." : {
+      "comment" : "Warning for a possibly stale remote path-bar button; the argument is the SSH host"
+    },
     "Never" : {
       "comment" : "Menu bar visibility choice"
     },
@@ -2331,9 +2334,6 @@
     },
     "Never ask to make SSH managed" : {
 
-    },
-    "Network changed; the SSH session on %arg may be disconnected until SSH recovers or reports failure." : {
-      "comment" : "Warning for a possibly stale remote path-bar button; the argument is the SSH host"
     },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
@@ -4131,6 +4131,9 @@
     },
     "The live saved file changed while awesoMux was reopening it, and awesoMux could not preserve the version it had already read. Automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes could not be archived"
+    },
+    "The pane closed before the transcript could open." : {
+      "comment" : "VoiceOver announcement when the initiating pane closes during transcript rendering"
     },
     "The pane closed while awesoMux was preparing the changes." : {
       "comment" : "Branch diff failure when the originating pane went away mid-render"

@@ -280,6 +280,21 @@ final class GhosttySurfaceContainerView: NSView {
         return mountedSurfaceView
     }
 
+    #if DEBUG
+        var surfaceFrameForTesting: NSRect? {
+            ownedSurfaceView?.frame
+        }
+
+        var scrollViewportSizeForTesting: CGSize {
+            scrollView.contentSize
+        }
+
+        func setScrollerStyleForTesting(_ style: NSScroller.Style) {
+            scrollView.scrollerStyle = style
+            scrollView.autohidesScrollers = style == .overlay
+        }
+    #endif
+
     private func postFocusReadinessIfMounted(_ surfaceView: GhosttySurfaceNSView) {
         guard mountedSurfaceView === surfaceView,
             surfaceView.scrollContainer === self,
@@ -299,8 +314,11 @@ final class GhosttySurfaceContainerView: NSView {
         defer { isSynchronizingLayout = false }
 
         scrollView.frame = bounds
-        ownedSurfaceView?.frame.size = scrollView.bounds.size
-        documentView.frame.size.width = scrollView.bounds.width
+        // Legacy scroll bars consume part of `bounds`. The AppKit render view
+        // and Ghostty's backing size must describe the same visible viewport.
+        let viewportSize = scrollView.contentSize
+        ownedSurfaceView?.frame.size = viewportSize
+        documentView.frame.size.width = viewportSize.width
 
         synchronizeScrollView()
         synchronizeSurfaceView()

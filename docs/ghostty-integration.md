@@ -4,9 +4,13 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `31bdcd5a79639bbac97c1a94e0f41d0f5ff84ca2` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `492300cad104195411d12217dd22f1cd05f31376` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
+> The current pin also includes upstream keyboard encoding fixes for
+> modifyOtherKeys 2 and non-ASCII Alt prefixes, plus reduced per-terminal
+> memory allocation. The C integration header and dependency versions are unchanged.
+>
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
 > (`#13209`/`#13220`/`#13226` — parser-bound IO plus print/CSI fast paths).
