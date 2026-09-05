@@ -112,6 +112,10 @@ case "$group" in
                 expects_report_path=true
             elif [[ "$argument" == --xunit-output=* ]]; then
                 report_path="${argument#--xunit-output=}"
+                if [[ -z "$report_path" ]]; then
+                    echo "--xunit-output requires a path." >&2
+                    exit 2
+                fi
             fi
         done
         if [[ "$expects_report_path" == true ]]; then
