@@ -70,11 +70,4 @@ struct ScrollbackDumpPolicy {
 
         return .allow
     }
-
-    static func acceptsNativeText(
-        byteCount: UInt64,
-        limits: Limits = .default
-    ) -> Bool {
-        byteCount <= limits.maximumNativeTextBytes
-    }
 }

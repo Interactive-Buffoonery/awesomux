@@ -180,10 +180,4 @@ struct ScrollbackDumpPolicyTests {
 
         #expect(decision == .block(.tooLarge))
     }
-
-    @Test("native text is rejected before Swift and TextKit when it overruns")
-    func rejectsNativeTextOverrun() {
-        #expect(ScrollbackDumpPolicy.acceptsNativeText(byteCount: 250, limits: limits))
-        #expect(!ScrollbackDumpPolicy.acceptsNativeText(byteCount: 251, limits: limits))
-    }
 }
