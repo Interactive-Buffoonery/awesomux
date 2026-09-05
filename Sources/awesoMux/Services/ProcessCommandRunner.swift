@@ -5,7 +5,10 @@ import Foundation
 
 /// Real `CommandRunner` backed by `Process`. Execs the binary directly (no
 /// shell), drains stdout and stderr fully so a chatty child can't deadlock on a
-/// full pipe, and terminates the process if it overruns `timeout`.
+/// full pipe, and bounds child execution plus output collection by `timeout`.
+/// Timeout/cancellation sends SIGTERM to a live child, escalating to SIGKILL
+/// after one second. Collection stops when that child exits or is killed;
+/// descendants are not signaled.
 ///
 /// The environment is built explicitly from a minimal base plus the caller's
 /// keys (contract §3): a bundled `.app` inherits launchd's stripped `PATH`, so a
@@ -118,11 +121,12 @@ struct ProcessCommandRunner: CommandRunner {
         execution.process.standardOutput = execution.stdoutPipe
         execution.process.standardError = execution.stderrPipe
 
-        // Drain both streams to EOF on background threads. Both reads return once
-        // the child exits (or is killed on timeout) and the write ends close.
-        let stdoutTask = Self.readToEnd(execution.stdoutPipe.fileHandleForReading)
-        let stderrTask = Self.readToEnd(execution.stderrPipe.fileHandleForReading)
+        // Each reader owns its descriptor until EOF or an explicit stop. A
+        // descendant can retain a writer even after the direct child exits.
+        let stdoutTask = Task { await execution.stdoutReader.readToEnd() }
+        let stderrTask = Task { await execution.stderrReader.readToEnd() }
 
+        let resume = SingleResume()
         let timeoutState = TimeoutState()
         let cancellationState = CancellationState()
         let timeout = timeout
@@ -131,110 +135,131 @@ struct ProcessCommandRunner: CommandRunner {
         let spawn = spawn
         let terminateAfterCancellation: @Sendable () -> Void = {
             execution.terminate()
+            if !execution.process.isRunning {
+                execution.stopReading()
+                resume.resume(returning: ())
+            }
             cancellationState.armEscalation {
-                try? await delay(.seconds(1))
+                do { try await delay(.seconds(1)) } catch { return }
                 execution.kill()
+                execution.stopReading()
+                resume.resume(returning: ())
             }
         }
 
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let resume = SingleResume(continuation)
+        defer {
+            timeoutState.finish()
+            cancellationState.finish()
+        }
 
-                execution.process.terminationHandler = { _ in
-                    timeoutState.finish()
-                    cancellationState.finish()
-                    resume.resume(returning: ())
-                }
+        return try await withTaskCancellationHandler {
+            do {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    resume.install(continuation)
 
-                guard !Task.isCancelled, !cancellationState.isCancelled else {
-                    _ = cancellationState.cancel()
-                    try? execution.stdoutPipe.fileHandleForWriting.close()
-                    try? execution.stderrPipe.fileHandleForWriting.close()
-                    resume.resume(throwing: CancellationError())
-                    return
-                }
+                    execution.process.terminationHandler = { _ in
+                        if timeoutState.didTimeOut || cancellationState.isCancelled {
+                            execution.stopReading()
+                        }
+                        resume.resume(returning: ())
+                    }
 
-                schedule {
-                    guard !cancellationState.isCancelled else {
-                        timeoutState.finish()
-                        cancellationState.finish()
+                    guard !Task.isCancelled, !cancellationState.isCancelled else {
+                        _ = cancellationState.cancel()
                         try? execution.stdoutPipe.fileHandleForWriting.close()
                         try? execution.stderrPipe.fileHandleForWriting.close()
                         resume.resume(throwing: CancellationError())
                         return
                     }
-                    do {
-                        try spawn(execution.process)
-                        if cancellationState.didSpawn(cancelledNow: false) {
-                            // Cancellation may arrive while spawn is blocked, when
-                            // the cancellation handler has no child to terminate yet.
-                            terminateAfterCancellation()
-                        } else {
-                            timeoutState.arm {
-                                do { try await delay(timeout) } catch { return }
-                                guard timeoutState.claimTimeout(if: { execution.process.isRunning }) else { return }
-                                execution.terminate()  // SIGTERM
-                                do { try await delay(.seconds(1)) } catch { return }
-                                execution.kill()  // SIGKILL
-                            }
-                        }
-                    } catch {
-                        timeoutState.finish()
-                        cancellationState.finish()
-                        // A failed spawn leaves parent-owned pipe writers open. Close
-                        // them before resuming so both drains reach EOF.
-                        try? execution.stdoutPipe.fileHandleForWriting.close()
-                        try? execution.stderrPipe.fileHandleForWriting.close()
-                        if cancellationState.isCancelled {
+
+                    schedule {
+                        guard !cancellationState.isCancelled else {
+                            timeoutState.finish()
+                            cancellationState.finish()
+                            try? execution.stdoutPipe.fileHandleForWriting.close()
+                            try? execution.stderrPipe.fileHandleForWriting.close()
                             resume.resume(throwing: CancellationError())
-                        } else {
-                            resume.resume(
-                                throwing: CommandRunnerError.spawnFailed(
-                                    executable,
-                                    reason: error.localizedDescription
-                                ))
+                            return
+                        }
+                        do {
+                            try spawn(execution.process)
+                            if cancellationState.didSpawn(cancelledNow: false) {
+                                // Cancellation may arrive while spawn is blocked, when
+                                // the cancellation handler has no child to terminate yet.
+                                terminateAfterCancellation()
+                            } else {
+                                timeoutState.arm {
+                                    do { try await delay(timeout) } catch { return }
+                                    guard timeoutState.claimTimeout(if: { !execution.isComplete }) else {
+                                        // Foundation can drop or delay the exit callback. Once
+                                        // the child and readers finish, preserve its real result.
+                                        if execution.isComplete { resume.resume(returning: ()) }
+                                        return
+                                    }
+                                    execution.terminate()  // SIGTERM
+                                    if !execution.process.isRunning {
+                                        execution.stopReading()
+                                        resume.resume(returning: ())
+                                    }
+                                    do { try await delay(.seconds(1)) } catch { return }
+                                    execution.kill()  // SIGKILL
+                                    execution.stopReading()
+                                    resume.resume(returning: ())
+                                }
+                            }
+                        } catch {
+                            timeoutState.finish()
+                            cancellationState.finish()
+                            // A failed spawn leaves parent-owned pipe writers open. Close
+                            // them before resuming so both drains reach EOF.
+                            try? execution.stdoutPipe.fileHandleForWriting.close()
+                            try? execution.stderrPipe.fileHandleForWriting.close()
+                            if cancellationState.isCancelled {
+                                resume.resume(throwing: CancellationError())
+                            } else {
+                                resume.resume(
+                                    throwing: CommandRunnerError.spawnFailed(
+                                        executable,
+                                        reason: error.localizedDescription
+                                    ))
+                            }
                         }
                     }
                 }
+            } catch {
+                execution.stopReading()
+                _ = await stdoutTask.value
+                _ = await stderrTask.value
+                throw error
             }
+
+            let stdout = await stdoutTask.value
+            let stderr = await stderrTask.value
+
+            timeoutState.finish()
+
+            // Both the exit callback and the bounded fallback resume returning.
+            // Without this check a cancelled run would hand back a CommandResult whose
+            // signal-derived non-zero exit is indistinguishable from a present binary
+            // that ran and failed — collapsing two of the three failure channels the
+            // contract (§3) keeps separate. Cancellation must throw, not return.
+            try Task.checkCancellation()
+
+            if timeoutState.didTimeOut {
+                throw CommandRunnerError.timedOut(executable, timeout)
+            }
+
+            return CommandResult(
+                exitCode: execution.process.terminationStatus,
+                stdout: String(decoding: stdout, as: UTF8.self),
+                stderr: String(decoding: stderr, as: UTF8.self)
+            )
         } onCancel: {
             // If spawn is still blocked, didSpawn() starts this escalation once
             // there is a child. Starting the grace before then could waste it on
             // no pid and leave a later TERM-ignoring child running forever.
             if cancellationState.cancel() {
                 terminateAfterCancellation()
-            }
-        }
-
-        let stdout = await stdoutTask.value
-        let stderr = await stderrTask.value
-
-        // A cancelled run reaches here via the termination handler resuming
-        // *returning* (onCancel SIGTERM'd the child, which fired the handler).
-        // Without this check the function would hand back a CommandResult whose
-        // signal-derived non-zero exit is indistinguishable from a present binary
-        // that ran and failed — collapsing two of the three failure channels the
-        // contract (§3) keeps separate. Cancellation must throw, not return.
-        try Task.checkCancellation()
-
-        if timeoutState.didTimeOut {
-            throw CommandRunnerError.timedOut(executable, timeout)
-        }
-
-        return CommandResult(
-            exitCode: execution.process.terminationStatus,
-            stdout: String(decoding: stdout, as: UTF8.self),
-            stderr: String(decoding: stderr, as: UTF8.self)
-        )
-    }
-
-    private static func readToEnd(_ handle: FileHandle) -> Task<Data, Never> {
-        Task {
-            await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .utility).async {
-                    continuation.resume(returning: handle.readDataToEndOfFile())
-                }
             }
         }
     }
@@ -328,9 +353,8 @@ private final class CancellationState: @unchecked Sendable {
 
 // MARK: - TimeoutState
 
-/// Arms the timeout only after spawn and coordinates it with immediate process
-/// termination. If termination wins the lock before `arm`, no task is created;
-/// if the deadline wins, the termination handler preserves that classification.
+/// Arms the deadline after spawn and keeps it active until child exit and both
+/// output readers have completed. Child exit alone does not finish the operation.
 private final class TimeoutState: @unchecked Sendable {
     private let lock = NSLock()
     private var task: Task<Void, Never>?
@@ -347,13 +371,12 @@ private final class TimeoutState: @unchecked Sendable {
         lock.unlock()
     }
 
-    func claimTimeout(if childIsRunning: () -> Bool) -> Bool {
+    func claimTimeout(if operationIsPending: () -> Bool) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        // Process may have exited before Foundation dispatches its termination
-        // handler. Do not let handler latency turn that completed child into a
-        // timeout merely because `finished` has not been set yet.
-        guard !finished, childIsRunning() else { return false }
+        // Foundation may report isRunning=false before delivering its exit
+        // callback. Completed output plus an exited child must remain success.
+        guard !finished, operationIsPending() else { return false }
         timedOut = true
         return true
     }
@@ -383,6 +406,22 @@ private final class ProcessExecution: @unchecked Sendable {
     let process = Process()
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
+    let stdoutReader: ProcessCommandOutputReader
+    let stderrReader: ProcessCommandOutputReader
+
+    init() {
+        stdoutReader = ProcessCommandOutputReader(stdoutPipe.fileHandleForReading)
+        stderrReader = ProcessCommandOutputReader(stderrPipe.fileHandleForReading)
+    }
+
+    var isComplete: Bool {
+        !process.isRunning && stdoutReader.isFinished && stderrReader.isFinished
+    }
+
+    func stopReading() {
+        stdoutReader.stop()
+        stderrReader.stop()
+    }
 
     func terminate() {
         if process.isRunning {
@@ -397,17 +436,76 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 }
 
+// MARK: - ProcessCommandOutputReader
+
+/// The serial queue owns the buffer and descriptor. Cancellation is thread-safe,
+/// but only the source's cancellation handler closes the descriptor, after any
+/// in-flight read has returned. Each stream has its own queue and drains independently.
+final class ProcessCommandOutputReader: @unchecked Sendable {
+    private let handle: FileHandle
+    private let queue = DispatchQueue(label: "awesomux.command-output", qos: .utility)
+    private let source: DispatchSourceRead
+    private var data = Data()
+    private var started = false
+    private var stopRequested = false
+    private let completionLock = NSLock()
+    private var finished = false
+
+    var isFinished: Bool { completionLock.withLock { finished } }
+
+    init(_ handle: FileHandle) {
+        self.handle = handle
+        source = DispatchSource.makeReadSource(fileDescriptor: handle.fileDescriptor, queue: queue)
+    }
+
+    func readToEnd() async -> Data {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let descriptor = self.handle.fileDescriptor
+                let flags = fcntl(descriptor, F_GETFL)
+                let configured = flags >= 0 && fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0
+                self.source.setEventHandler {
+                    var buffer = [UInt8](repeating: 0, count: 16_384)
+                    let count = Darwin.read(descriptor, &buffer, buffer.count)
+                    if count > 0 {
+                        self.data.append(contentsOf: buffer.prefix(count))
+                    } else if count == 0 || (errno != EINTR && errno != EAGAIN) {
+                        self.source.cancel()
+                    }
+                }
+                self.source.setCancelHandler {
+                    try? self.handle.close()
+                    self.source.setEventHandler(handler: nil)
+                    self.source.setCancelHandler(handler: nil)
+                    self.completionLock.withLock { self.finished = true }
+                    continuation.resume(returning: self.data)
+                }
+                self.started = true
+                self.source.activate()
+                if self.stopRequested || !configured { self.source.cancel() }
+            }
+        }
+    }
+
+    func stop() {
+        queue.async {
+            self.stopRequested = true
+            if self.started { self.source.cancel() }
+        }
+    }
+}
+
 // MARK: - SingleResume
 
-/// Guards a checked continuation against a double resume. The termination handler
-/// and the `run()` failure path are mutually exclusive, but the guard keeps the
-/// invariant explicit rather than load-bearing on that reasoning.
+/// The callback, deadline, cancellation, and spawn failure paths race to release
+/// the same wait. The continuation is installed before any spawn is scheduled,
+/// so none of those paths can resume it before installation.
 private final class SingleResume: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, Error>?
 
-    init(_ continuation: CheckedContinuation<Void, Error>) {
-        self.continuation = continuation
+    func install(_ continuation: CheckedContinuation<Void, Error>) {
+        lock.withLock { self.continuation = continuation }
     }
 
     func resume(returning value: Void) {
