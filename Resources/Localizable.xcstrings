@@ -3618,9 +3618,6 @@
     "Scrollback was not opened because it is too large." : {
       "comment" : "VoiceOver announcement when Show Scrollback blocks a large terminal history"
     },
-    "Scrollback was not opened because its size changed while it was being prepared." : {
-      "comment" : "VoiceOver announcement when the scrollback row count changes while Show Scrollback is preparing"
-    },
     "Scrollback was not opened because its size could not be measured." : {
       "comment" : "VoiceOver announcement when Show Scrollback cannot estimate terminal history size"
     },
@@ -4372,9 +4369,6 @@
     "This pane’s scrollback is too large to open safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history." : {
       "comment" : "Explanation shown when Show Scrollback blocks a large terminal history"
     },
-    "This pane’s scrollback size changed while awesoMux was preparing it. Choose Done, wait a moment, then try again." : {
-      "comment" : "Explanation shown when the scrollback row count changes while Show Scrollback is preparing"
-    },
     "This paste could run a command before you finish pasting. Paste anyway?" : {
       "comment" : "Title of the unsafe-paste confirmation dialog."
     },
@@ -4825,7 +4819,7 @@
       "comment" : "Rendered agent plugin private directory permission update error"
     },
     "awesoMux couldn’t read this pane’s scrollback. The terminal itself is still available." : {
-
+      "comment" : "Recovery explanation when Show Scrollback fails while the terminal remains usable"
     },
     "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process." : {
       "comment" : "Body of the close-pane confirmation dialog when pane activity is unverifiable.",

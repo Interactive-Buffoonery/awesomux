@@ -91,10 +91,14 @@ struct ScrollbackDumpSheet: View {
                     .awFont(AwFont.UI.title)
                     .foregroundStyle(Color.aw.text)
                     .accessibilityAddTraits(.isHeader)
-                Text("awesoMux couldn’t read this pane’s scrollback. The terminal itself is still available.")
-                    .awFont(AwFont.UI.body)
-                    .foregroundStyle(Color.aw.text3)
-                    .multilineTextAlignment(.center)
+                Text(
+                    String(
+                        localized: "awesoMux couldn’t read this pane’s scrollback. The terminal itself is still available.",
+                        comment: "Recovery explanation when Show Scrollback fails while the terminal remains usable")
+                )
+                .awFont(AwFont.UI.body)
+                .foregroundStyle(Color.aw.text3)
+                .multilineTextAlignment(.center)
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -142,12 +146,6 @@ struct ScrollbackDumpSheet: View {
             String(
                 localized: "A previous scrollback read is still finishing. Choose Done, wait a moment, then try again.",
                 comment: "Explanation when Show Scrollback is retried before its previous native read finishes"
-            )
-        case .rowCountChanged:
-            String(
-                localized:
-                    "This pane’s scrollback size changed while awesoMux was preparing it. Choose Done, wait a moment, then try again.",
-                comment: "Explanation shown when the scrollback row count changes while Show Scrollback is preparing"
             )
         }
     }
@@ -219,11 +217,6 @@ private extension ScrollbackDumpPresentation {
             String(
                 localized: "Scrollback was not opened because a previous read is still finishing.",
                 comment: "VoiceOver announcement when a previous Show Scrollback read is still running"
-            )
-        case .rowCountChanged:
-            String(
-                localized: "Scrollback was not opened because its size changed while it was being prepared.",
-                comment: "VoiceOver announcement when the scrollback row count changes while Show Scrollback is preparing"
             )
         }
     }

@@ -14,7 +14,6 @@ enum SurfaceSearchNavigationDirection {
 }
 
 extension GhosttySurfaceNSView {
-    private static let scrollbackDumpStabilityDelay: DispatchTimeInterval = .milliseconds(150)
 
     func presentSearch() {
         if !performBindingAction("start_search") {
@@ -150,10 +149,10 @@ extension GhosttySurfaceNSView {
         }
         runtime.setScrollbackDumpSheetPresented(true, for: paneID)
 
-        let initial = scrollbackDumpPolicyInput(didRowCountChange: false)
+        let initial = scrollbackDumpPolicyInput()
         switch ScrollbackDumpPolicy.decision(for: initial) {
         case .allow:
-            scheduleScrollbackDumpRead(initial: initial, request: request)
+            scheduleScrollbackDumpRead(request: request)
         case let .block(reason):
             finishBlockedScrollbackDump(reason: reason, request: request)
         }
@@ -187,7 +186,6 @@ extension GhosttySurfaceNSView {
     }
 
     private func scheduleScrollbackDumpRead(
-        initial: ScrollbackDumpPolicy.Input,
         request: UInt64
     ) {
         let expectedSurface = surface
@@ -205,9 +203,7 @@ extension GhosttySurfaceNSView {
                     return
                 }
 
-                let current = self.scrollbackDumpPolicyInput(
-                    didRowCountChange: initial.totalRows != self.scrollbar?.total
-                )
+                let current = self.scrollbackDumpPolicyInput()
                 switch ScrollbackDumpPolicy.decision(for: current) {
                 case let .block(reason):
                     self.finishBlockedScrollbackDump(reason: reason, request: request)
@@ -237,21 +233,15 @@ extension GhosttySurfaceNSView {
             }
         }
         scrollbackDumpWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.scrollbackDumpStabilityDelay,
-            execute: workItem
-        )
+        DispatchQueue.main.async(execute: workItem)
     }
 
-    private func scrollbackDumpPolicyInput(
-        didRowCountChange: Bool
-    ) -> ScrollbackDumpPolicy.Input {
+    private func scrollbackDumpPolicyInput() -> ScrollbackDumpPolicy.Input {
         guard let surface else {
             return .init(
                 totalRows: nil,
                 currentColumns: 0,
-                widestObservedColumns: widestObservedScrollbackColumns,
-                didRowCountChange: didRowCountChange
+                widestObservedColumns: widestObservedScrollbackColumns
             )
         }
         let size = ghostty_surface_size(surface)
@@ -260,8 +250,7 @@ extension GhosttySurfaceNSView {
         return .init(
             totalRows: scrollbar?.total,
             currentColumns: columns,
-            widestObservedColumns: widestObservedScrollbackColumns,
-            didRowCountChange: didRowCountChange
+            widestObservedColumns: widestObservedScrollbackColumns
         )
     }
 

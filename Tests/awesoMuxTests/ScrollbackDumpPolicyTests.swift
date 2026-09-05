@@ -16,8 +16,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: 9,
                 currentColumns: 10,
-                widestObservedColumns: 10,
-                didRowCountChange: false
+                widestObservedColumns: 10
             ),
             limits: limits
         )
@@ -31,8 +30,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: 10,
                 currentColumns: 10,
-                widestObservedColumns: 10,
-                didRowCountChange: false
+                widestObservedColumns: 10
             ),
             limits: limits
         )
@@ -46,8 +44,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: 11,
                 currentColumns: 10,
-                widestObservedColumns: 10,
-                didRowCountChange: false
+                widestObservedColumns: 10
             ),
             limits: limits
         )
@@ -61,8 +58,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: 101,
                 currentColumns: 1,
-                widestObservedColumns: 1,
-                didRowCountChange: false
+                widestObservedColumns: 1
             ),
             limits: limits
         )
@@ -76,8 +72,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: 6,
                 currentColumns: 10,
-                widestObservedColumns: 20,
-                didRowCountChange: false
+                widestObservedColumns: 20
             ),
             limits: limits
         )
@@ -92,8 +87,7 @@ struct ScrollbackDumpPolicyTests {
                 for: .init(
                     totalRows: nil,
                     currentColumns: 10,
-                    widestObservedColumns: 10,
-                    didRowCountChange: false
+                    widestObservedColumns: 10
                 ),
                 limits: limits
             ) == .block(.unknownSize)
@@ -103,8 +97,7 @@ struct ScrollbackDumpPolicyTests {
                 for: .init(
                     totalRows: 10,
                     currentColumns: 0,
-                    widestObservedColumns: 0,
-                    didRowCountChange: false
+                    widestObservedColumns: 0
                 ),
                 limits: limits
             ) == .block(.unknownSize)
@@ -117,8 +110,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: 0,
                 currentColumns: 10,
-                widestObservedColumns: 10,
-                didRowCountChange: false
+                widestObservedColumns: 10
             ),
             limits: limits
         )
@@ -126,19 +118,20 @@ struct ScrollbackDumpPolicyTests {
         #expect(decision == .allow)
     }
 
-    @Test("blocks a pane whose row count changed while preparing")
-    func blocksChangedRowCount() {
-        let decision = ScrollbackDumpPolicy.decision(
-            for: .init(
-                totalRows: 5,
-                currentColumns: 10,
-                widestObservedColumns: 10,
-                didRowCountChange: true
-            ),
-            limits: limits
-        )
-
-        #expect(decision == .block(.rowCountChanged))
+    @Test("fresh row counts accept growing small histories and reject oversized ones")
+    func growingHistoryUsesCurrentSize() {
+        for rows in [UInt64(1), 5, 9, 10] {
+            #expect(
+                ScrollbackDumpPolicy.decision(
+                    for: .init(totalRows: rows, currentColumns: 10, widestObservedColumns: 10),
+                    limits: limits
+                ) == .allow)
+        }
+        #expect(
+            ScrollbackDumpPolicy.decision(
+                for: .init(totalRows: 11, currentColumns: 10, widestObservedColumns: 10),
+                limits: limits
+            ) == .block(.tooLarge))
     }
 
     @Test("overflow fails closed instead of trapping")
@@ -147,8 +140,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: .max,
                 currentColumns: .max,
-                widestObservedColumns: .max,
-                didRowCountChange: false
+                widestObservedColumns: .max
             ),
             limits: .init(
                 maximumEstimatedBytes: .max,
@@ -167,8 +159,7 @@ struct ScrollbackDumpPolicyTests {
             for: .init(
                 totalRows: UInt64.max / 2,
                 currentColumns: 1,
-                widestObservedColumns: 1,
-                didRowCountChange: false
+                widestObservedColumns: 1
             ),
             limits: .init(
                 maximumEstimatedBytes: .max,

@@ -22,7 +22,6 @@ struct ScrollbackDumpPolicy {
         let totalRows: UInt64?
         let currentColumns: UInt64
         let widestObservedColumns: UInt64
-        let didRowCountChange: Bool
     }
 
     enum Decision: Equatable {
@@ -33,7 +32,6 @@ struct ScrollbackDumpPolicy {
     enum BlockReason: Equatable {
         case unknownSize
         case tooLarge
-        case rowCountChanged
         case nativeResultTooLarge
         case readInProgress
     }
@@ -47,9 +45,6 @@ struct ScrollbackDumpPolicy {
         }
         guard input.currentColumns > 0, input.widestObservedColumns > 0 else {
             return .block(.unknownSize)
-        }
-        guard !input.didRowCountChange else {
-            return .block(.rowCountChanged)
         }
         guard totalRows <= limits.maximumRows else {
             return .block(.tooLarge)
