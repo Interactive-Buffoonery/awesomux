@@ -3813,8 +3813,8 @@ struct AwesoMuxApp: App {
     /// The render is a detached task because it is real work: up to 32 MiB read
     /// and converted, measured at 0.34 s for a 27 MB Claude session. Everything
     /// the render needs is copied out of the pane first, so a pane closing
-    /// mid-render cannot be observed half-way — `openDocumentPane` fails closed
-    /// on a session that is gone.
+    /// mid-render cannot be observed half-way. Completion resolves the pane's
+    /// current owner and discards the open if that pane has closed.
     private func openAgentTranscriptForActivePane() {
         // Same first line as Show Scrollback: this command is gated on
         // `isAnySheetPresented`, so a stale wedge would leave it silently dead.
@@ -3844,7 +3844,6 @@ struct AwesoMuxApp: App {
         }
         let executionPlan = pane.executionPlan
         let reportedSessionID = identity?.sessionID
-        let sessionID = session.id
         let paneID = pane.id
 
         Task { @MainActor in
@@ -3875,41 +3874,14 @@ struct AwesoMuxApp: App {
                 return .failure(firstFailure ?? .unavailable(.notFound))
             }.value
 
-            switch result {
-            case .success(let opened):
-                defer {
-                    AgentTranscriptStore().completeWrite(at: opened.fileURL)
-                    SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
-                }
-                guard
-                    sessionStore.openDocumentPane(
-                        fileURL: opened.fileURL,
-                        in: sessionID,
-                        associatedWith: paneID,
-                        agentTranscriptIdentity: opened.identity
-                    ) != nil
-                else {
-                    // The workspace went away while the transcript rendered.
-                    // No alert — there is nothing left to act on, and the user
-                    // closed it themselves — but silence would read as a dead
-                    // command to anyone listening.
-                    TerminalAccessibilityAnnouncer.announce(
-                        String(
-                            localized: "The workspace closed before the transcript could open.",
-                            comment: "VoiceOver announcement when a rendered transcript has no workspace left to open into"
-                        )
-                    )
-                    return
-                }
-                TerminalAccessibilityAnnouncer.announce(
-                    String(
-                        localized: "\(opened.identity.agentKind.displayName) transcript opened.",
-                        comment: "VoiceOver announcement after a rendered agent transcript opens in a document tab"
-                    )
-                )
-            case .failure(let failure):
-                showAgentTranscriptFailureAlert(failure)
-            }
+            AgentTranscriptCompletion.apply(
+                result,
+                paneID: paneID,
+                store: sessionStore,
+                completeWrite: { AgentTranscriptStore().completeWrite(at: $0) },
+                schedulePrune: { SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore) },
+                alert: showAgentTranscriptFailureAlert
+            )
         }
     }
 
