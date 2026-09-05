@@ -67,12 +67,49 @@ struct PublicSeedSourceScriptTests {
         #expect(result.output.contains("check_public_seed_source: clean."))
     }
 
+    @Test("ignored dist binaries remain excluded across repeated runs")
+    func ignoredDistArtifactsRemainExcludedAcrossRuns() throws {
+        let result = try runGuard(
+            publicText: "public",
+            ignoredDistText: "\0/Users/" + "sarah/project\0",
+            repetitions: 2
+        )
+
+        #expect(result.status == 0)
+        #expect(result.output == String(repeating: "check_public_seed_source: clean.\n", count: 2))
+        #expect(result.error.isEmpty)
+    }
+
+    @Test("nonignored untracked sources remain scanned")
+    func untrackedSourcesRemainScanned() throws {
+        let result = try runGuard(publicText: "/Users/" + "sarah/project")
+
+        #expect(result.status == 1)
+        #expect(result.error.contains("real maintainer fixture path or host"))
+    }
+
+    @Test(
+        "ordinary and PCRE2 matches report only filenames for source and binary files",
+        arguments: ["/Users/" + "sarah/project", "https://linear.app/" + "interactive-buffoonery/project/private-plan"],
+        [false, true])
+    func matchesReportOnlyFilenames(marker: String, binary: Bool) throws {
+        let contents = "private-payload-before " + marker + " private-payload-after"
+        let result = try runGuard(publicText: binary ? "\0" + contents + "\0" : contents)
+
+        #expect(result.status == 1)
+        #expect(result.output == "PUBLIC.md\n")
+        #expect(!result.error.contains(marker))
+        #expect(!result.error.contains("private-payload"))
+        #expect(!result.error.contains("\0"))
+    }
+
     @Test("ripgrep execution errors fail the guard")
     func ripgrepExecutionErrorsFailTheGuard() throws {
         let result = try runGuard(publicText: "public", failingRipgrep: true)
 
         #expect(result.status == 1)
-        #expect(result.error.contains("public seed source scan failed"))
+        #expect(result.error.contains("public seed source scan failed for pattern:"))
+        #expect(result.error.contains("public seed source scan failed for PCRE2 pattern:"))
         #expect(result.error.contains("simulated rg failure"))
     }
 
@@ -126,6 +163,8 @@ struct PublicSeedSourceScriptTests {
         failingRipgrep: Bool = false,
         ignoredUntrackedText: String? = nil,
         trackedIgnoredText: String? = nil,
+        ignoredDistText: String? = nil,
+        repetitions: Int = 1,
         purgedDirectory: String? = nil,
         purgedFileText: String = "",
         purgedPathKind: PurgedPathKind = .directory
@@ -158,6 +197,13 @@ struct PublicSeedSourceScriptTests {
             }
         }
 
+        if let ignoredDistText {
+            try Data("dist/\n".utf8).write(to: root.appending(path: ".gitignore"))
+            let bundleDirectory = root.appending(path: "dist/awesoMux.app/Contents/MacOS", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+            try Data(ignoredDistText.utf8).write(to: bundleDirectory.appending(path: "awesoMux"))
+        }
+
         if let purgedDirectory {
             let path = root.appending(path: purgedDirectory, directoryHint: .isDirectory)
             switch purgedPathKind {
@@ -176,9 +222,7 @@ struct PublicSeedSourceScriptTests {
             }
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [copiedScript.path]
+        var environment = ProcessInfo.processInfo.environment
         if failingRipgrep {
             let binDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
@@ -188,16 +232,22 @@ struct PublicSeedSourceScriptTests {
                 [.posixPermissions: 0o755],
                 ofItemAtPath: ripgrep.path
             )
-            var environment = ProcessInfo.processInfo.environment
             environment["PATH"] = "\(binDirectory.path):\(environment["PATH"] ?? "")"
-            process.environment = environment
         }
-        let captured = try captureOutput(of: process)
-        return ShellResult(
-            status: process.terminationStatus,
-            output: captured.stdout,
-            error: captured.stderr
-        )
+        var status: Int32 = 0
+        var output = ""
+        var error = ""
+        for _ in 0..<repetitions {
+            let run = Process()
+            run.executableURL = URL(fileURLWithPath: "/bin/bash")
+            run.arguments = [copiedScript.path]
+            run.environment = environment
+            let captured = try captureOutput(of: run)
+            status = max(status, run.terminationStatus)
+            output += captured.stdout
+            error += captured.stderr
+        }
+        return ShellResult(status: status, output: output, error: error)
     }
 
     private func runGit(_ arguments: [String], at root: URL) throws {

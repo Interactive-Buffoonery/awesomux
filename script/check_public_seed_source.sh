@@ -37,7 +37,7 @@ failed=0
 check_pattern() {
     local message="$1"
     local pattern="$2"
-    if rg -n --hidden --text "$pattern" "${public_surface_paths[@]}"; then
+    if rg --files-with-matches --hidden --text "$pattern" "${public_surface_paths[@]}"; then
         echo "error: $message" >&2
         failed=1
     else
@@ -52,7 +52,7 @@ check_pattern() {
 check_pcre2_pattern() {
     local message="$1"
     local pattern="$2"
-    if rg -n --hidden --text --pcre2 "$pattern" "${public_surface_paths[@]}"; then
+    if rg --files-with-matches --hidden --text --pcre2 "$pattern" "${public_surface_paths[@]}"; then
         echo "error: $message" >&2
         failed=1
     else
