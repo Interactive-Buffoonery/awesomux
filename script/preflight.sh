@@ -10,6 +10,7 @@ cd "$ROOT_DIR"
 "$ROOT_DIR/script/check_plural_guards.sh"
 "$ROOT_DIR/script/update_string_catalog.sh" --check
 "$ROOT_DIR/script/test-test-wait-guard.sh"
+python3 -B "$ROOT_DIR/script/test_swift_test_report.py"
 "$ROOT_DIR/script/check_test_waits.sh"
 "$ROOT_DIR/script/test-format.sh"
 "$ROOT_DIR/script/format.sh" --lint

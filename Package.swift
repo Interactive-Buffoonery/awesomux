@@ -147,6 +147,11 @@ import PackageDescription
                 dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore"],
                 path: "Tests/AwesoMuxTestSupport"
             ),
+            .target(
+                name: "AwesoMuxAppKitTestHost",
+                path: "Tests/AwesoMuxAppKitTestHost",
+                linkerSettings: [.linkedFramework("AppKit")]
+            ),
             .systemLibrary(
                 name: "GhosttyKit",
                 path: "Sources/GhosttyKit"
@@ -217,7 +222,9 @@ import PackageDescription
             ),
             .testTarget(
                 name: "awesoMuxTests",
-                dependencies: ["awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport", "DesignSystem"]
+                dependencies: [
+                    "awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport", "AwesoMuxAppKitTestHost", "DesignSystem",
+                ]
             ),
             .testTarget(
                 name: "AwesoMuxTestSupportTests",

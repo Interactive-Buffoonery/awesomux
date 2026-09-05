@@ -885,6 +885,10 @@ struct BuildAndRunScriptTests {
     }
 
     private static func runGhosttySHAStampSnippet() throws -> ShellResult {
+        // Keep cleanup outside the child: macOS trash can wait on desktop services
+        // after the shell's assertions have already succeeded.
+        let directory = try TemporaryDirectory(prefix: "awesomux-sha-stamp")
+        defer { withExtendedLifetime(directory) {} }
         let script = try contents(of: "script/ensure_ghostty_artifacts.sh")
         let function = try ghosttySHAStampFunction(from: script)
         let bash = """
@@ -893,8 +897,7 @@ struct BuildAndRunScriptTests {
 
             ROOT_DIR=/tmp/awesomux-sha-stamp-test
             REQUIRE_GHOSTTY_PIN_MATCH=1
-            ARTIFACT_DIR="$(mktemp -d)"
-            trap 'trash "$ARTIFACT_DIR"' EXIT
+            ARTIFACT_DIR="$AWESOMUX_SHA_STAMP_TEST_DIR"
             expected_sha=0123456789abcdef0123456789abcdef01234567
 
             git() { printf '%s\n' "$expected_sha"; }
@@ -913,6 +916,9 @@ struct BuildAndRunScriptTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", bash]
+        var environment = ProcessInfo.processInfo.environment
+        environment["AWESOMUX_SHA_STAMP_TEST_DIR"] = directory.url.path
+        process.environment = environment
         let captured = try captureOutput(of: process)
 
         return ShellResult(

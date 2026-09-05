@@ -100,8 +100,11 @@ enum AgentPluginDeployedCopyInspector {
         fileManager: FileManager = .default,
         ladderProbe: LadderProbe? = nil
     ) -> Bool {
-        let deployedBase = maskHelperPaths(deployed)
-        let renderedBase = maskHelperPaths(rendered)
+        guard let deployedJSON = canonicalHookObject(deployed),
+            let renderedJSON = canonicalHookObject(rendered)
+        else { return true }
+        let deployedBase = maskHelperPaths(deployedJSON)
+        let renderedBase = maskHelperPaths(renderedJSON)
         // Identical after path-masking — including identical bundle ids — is
         // drift-free without probing anything (the common healthy case).
         if deployedBase == renderedBase {
@@ -109,6 +112,15 @@ enum AgentPluginDeployedCopyInspector {
         }
         return maskBundleIDsIfResolvable(deployedBase, data: deployed, ladderProbe: ladderProbe)
             != maskBundleIDsIfResolvable(renderedBase, data: rendered, ladderProbe: ladderProbe)
+    }
+
+    // JSON object order and formatting are not hook behavior. Normalize before
+    // masking environment-specific strings; preserve array order and command text.
+    private static func canonicalHookObject(_ data: Data) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
     /// Masks baked absolute helper paths, whichever build wrote them: absolute
