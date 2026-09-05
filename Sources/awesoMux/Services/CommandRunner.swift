@@ -53,6 +53,6 @@ enum CommandRunnerError: Error, Equatable, Sendable {
     /// The path is executable but the spawn itself failed for another reason
     /// (permissions, fork failure). Kept distinct from a missing binary.
     case spawnFailed(String, reason: String)
-    /// The process ran past its timeout and was terminated.
+    /// Child execution or output collection exceeded the timeout.
     case timedOut(String, Duration)
 }

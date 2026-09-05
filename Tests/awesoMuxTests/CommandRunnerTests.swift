@@ -377,6 +377,148 @@ struct ProcessCommandRunnerTests {
         }
     }
 
+    @Test("inherited pipe writers remain bounded after parent exit", arguments: [false, true], [false, true])
+    func inheritedWritersAreBounded(stderr: Bool, cancel: Bool) async throws {
+        let fixture = try InheritedWriterFixture()
+        defer { fixture.cleanup() }
+        let observation = SpawnObservation()
+        let delays = ProcessDelayGate()
+        defer { delays.advanceOneCycle() }
+        let completed = EventRecorder<Void>()
+        let runner = ProcessCommandRunner(
+            timeout: .seconds(60),
+            delay: { try await delays.wait(for: $0) },
+            spawn: { process in
+                fixture.attach(to: process)
+                try observation.run(process)
+            }
+        )
+        let run = Task.detached {
+            let result: Result<CommandResult, Error>
+            do {
+                result = .success(
+                    try await runner.run(
+                        executable: "/bin/sh",
+                        args: fixture.arguments(stderr: stderr),
+                        env: [:], cwd: nil
+                    ))
+            } catch {
+                result = .failure(error)
+            }
+            await completed.record(())
+            return result
+        }
+        // Independent of Swift task cancellation and the injected clock: a
+        // broken runner cannot keep this fixture's pipe writer alive forever.
+        let watchdog = DispatchWorkItem { fixture.cleanup() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: watchdog)
+        defer { watchdog.cancel() }
+
+        let exited = await waitUntilEventually { observation.hasExited }
+        #expect(exited)
+        guard exited else { return }
+        #expect(await Self.waitForFile(fixture.readyFile))
+        #expect(await completed.values.isEmpty)
+        #expect(fixture.writerIsAlive)
+        if cancel {
+            run.cancel()
+        } else {
+            #expect(await waitUntil { !delays.requestedDurations.isEmpty })
+            delays.advanceOneCycle()
+        }
+        let finished = await completed.waitForCount(1, deadline: .seconds(2))
+        #expect(finished, "run must finish while the inherited writer is still alive")
+        #expect(fixture.writerIsAlive)
+        guard finished else { return }
+        let result = await run.value
+        if cancel {
+            #expect(throws: CancellationError.self) { try result.get() }
+        } else {
+            #expect(throws: CommandRunnerError.timedOut("/bin/sh", .seconds(60))) { try result.get() }
+        }
+        fixture.cleanup()
+        fixture.cleanup()
+        #expect(await Self.waitForFile(fixture.exitedFile), "fixture cleanup must release its inherited writer through EOF")
+    }
+
+    @Test("cancellation lets the child flush output during its TERM grace")
+    func cancellationPreservesOutputDuringGrace() async throws {
+        let ready = Self.temporaryReadyFile()
+        let cleaned = Self.temporaryReadyFile()
+        defer {
+            try? FileManager.default.removeItem(at: ready)
+            try? FileManager.default.removeItem(at: cleaned)
+        }
+        let observation = SpawnObservation()
+        defer { observation.forceKill() }
+        let runner = ProcessCommandRunner(spawn: { try observation.run($0) })
+        let watchdog = DispatchWorkItem { observation.forceKill() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: watchdog)
+        defer { watchdog.cancel() }
+        let run = Task.detached {
+            try await runner.run(
+                executable: "/bin/sh",
+                args: [
+                    "-c",
+                    "trap 'i=0; while [ $i -lt 10000 ]; do echo cleanup; i=$((i+1)); done; : > \"$2\"; exit 0' TERM; : > \"$1\"; while :; do :; done",
+                    "sh", ready.path, cleaned.path,
+                ],
+                env: [:], cwd: nil
+            )
+        }
+        #expect(await Self.waitForFile(ready))
+        run.cancel()
+        await #expect(throws: CancellationError.self) { try await run.value }
+        #expect(FileManager.default.fileExists(atPath: cleaned.path), "closing readers early interrupts TERM cleanup with SIGPIPE")
+    }
+
+    @Test("delayed exit notification does not time out an already drained command")
+    func delayedExitNotificationPreservesSuccess() async throws {
+        let runner = ProcessCommandRunner(
+            timeout: .milliseconds(500),
+            spawn: { process in
+                let handler = process.terminationHandler
+                process.terminationHandler = { child in
+                    // Delay Foundation's notification beyond the deadline while
+                    // leaving the real child-exit and pipe-EOF signals intact.
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                        handler?(child)
+                    }
+                }
+                try process.run()
+            }
+        )
+        let result = try await runner.run(executable: "/bin/echo", args: ["done"], env: [:], cwd: nil)
+        #expect(result.exitCode == 0)
+        #expect(result.stdout == "done\n")
+    }
+
+    @Test("output arriving after parent exit is collected before the deadline")
+    func collectsLateOutput() async throws {
+        let runner = ProcessCommandRunner(timeout: .seconds(10))
+        let result = try await runner.run(
+            executable: "/bin/sh",
+            args: ["-c", "( /bin/sleep 0.1; printf late-out; printf late-err >&2 ) & printf early; exit 0"],
+            env: [:], cwd: nil
+        )
+        #expect(result.exitCode == 0)
+        #expect(result.stdout == "earlylate-out")
+        #expect(result.stderr == "late-err")
+    }
+
+    @Test("both streams retain complete output larger than pipe capacity")
+    func completeLargeOutput() async throws {
+        let runner = ProcessCommandRunner(timeout: .seconds(10))
+        let result = try await runner.run(
+            executable: "/bin/sh",
+            args: ["-c", "i=0; while [ $i -lt 20000 ]; do printf 'stdout line\\n'; printf 'stderr line\\n' >&2; i=$((i+1)); done"],
+            env: [:], cwd: nil
+        )
+        #expect(result.exitCode == 0)
+        #expect(result.stdout == String(repeating: "stdout line\n", count: 20000))
+        #expect(result.stderr == String(repeating: "stderr line\n", count: 20000))
+    }
+
     @Test("caller env keys reach the child and a default PATH is always present")
     func environmentCarriesCallerKeysAndPath() async throws {
         let runner = ProcessCommandRunner()
@@ -462,6 +604,54 @@ struct ProcessCommandRunnerTests {
     }
 }
 
+/// The orphan keeps an inherited output pipe open while reading a fixture-owned
+/// input pipe. Closing our writer releases it without signaling a reusable PID.
+private final class InheritedWriterFixture: @unchecked Sendable {
+    let directory: URL
+    let readyFile: URL
+    let exitedFile: URL
+    private let control = Pipe()
+    private let lock = NSLock()
+    private var cleaned = false
+
+    init() throws {
+        directory = FileManager.default.temporaryDirectory.appending(path: "runner-writer-\(UUID().uuidString)")
+        readyFile = directory.appending(path: "ready")
+        exitedFile = directory.appending(path: "exited")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    deinit {
+        cleanup()
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func attach(to process: Process) {
+        process.standardInput = control
+    }
+
+    func arguments(stderr: Bool) -> [String] {
+        let redirect = stderr ? "1>/dev/null" : "2>/dev/null"
+        // Preserve stdin on fd 3 because the shell redirects a background job's
+        // stdin to /dev/null. read is a builtin, so cleanup leaves no grandchild.
+        let script = "exec 3<&0; (: > \"$1\"; IFS= read -r line <&3; : > \"$2\") \(redirect) & echo ready; exit 0"
+        return ["-c", script, "sh", readyFile.path, exitedFile.path]
+    }
+
+    var writerIsAlive: Bool {
+        FileManager.default.fileExists(atPath: readyFile.path)
+            && !FileManager.default.fileExists(atPath: exitedFile.path)
+    }
+
+    func cleanup() {
+        lock.withLock {
+            guard !cleaned else { return }
+            cleaned = true
+            try? control.fileHandleForWriting.close()
+        }
+    }
+}
+
 private enum TestSpawnError: Error {
     case failed
 }
@@ -470,6 +660,10 @@ private final class SpawnObservation: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
     private var invoked = false
+
+    var hasExited: Bool {
+        lock.withLock { process.map { $0.processIdentifier > 0 && !$0.isRunning } ?? false }
+    }
 
     var wasInvoked: Bool {
         lock.withLock { invoked }
