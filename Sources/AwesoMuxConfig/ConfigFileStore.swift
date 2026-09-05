@@ -224,7 +224,7 @@ public struct ConfigFileStore: Sendable {
     /// writes land at the symlink target. Returns the original URL when
     /// the path is not a symlink, doesn't exist, or the destination can't
     /// be read.
-    private func resolvedConfigURL() -> URL {
+    func resolvedConfigURL() -> URL {
         guard let destination = try? FileManager.default.destinationOfSymbolicLink(
             atPath: configURL.path
         ) else {
