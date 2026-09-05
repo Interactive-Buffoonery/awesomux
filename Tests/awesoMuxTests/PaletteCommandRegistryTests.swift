@@ -802,19 +802,22 @@ struct PaletteCommandRegistryTests {
             ).isEnabled == store.canReturnPaneToSourceWorkspace(sessionID: movedID))
     }
 
-    @Test("Acknowledge command derives enablement from selected session")
+    @Test("Notification commands preserve attention and unread conditions", arguments: [false, true], [0, 1])
     @MainActor
-    func acknowledgeCommandDerivesEnablementFromStore() throws {
+    func notificationCommandsDeriveEnablementFromStore(needsAttention: Bool, unreadCount: Int) throws {
         let session = TerminalSession(
-            title: "Needs me",
+            title: "Notifications",
             workingDirectory: "/tmp",
             agentKind: .claudeCode,
-            agentState: .running
+            agentState: .running,
+            unreadNotificationCount: unreadCount
         )
         let store = SessionStore(groups: [
             SessionGroup(name: "Code", sessions: [session])
         ])
-        store.markSessionNeedsAttention(id: session.id)
+        if needsAttention {
+            store.markSessionNeedsAttention(id: session.id, unreadNotificationDelta: 0)
+        }
 
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
@@ -822,7 +825,12 @@ struct PaletteCommandRegistryTests {
             actions: .noop
         )
 
-        #expect(try #require(PaletteCommandRegistry.command(id: "acknowledgeWorkspace", in: commands)).isEnabled)
+        #expect(
+            try #require(PaletteCommandRegistry.command(id: "acknowledgeWorkspace", in: commands)).isEnabled
+                == (needsAttention || unreadCount > 0))
+        #expect(
+            try #require(PaletteCommandRegistry.command(id: "clearAllNotifications", in: commands)).isEnabled
+                == (unreadCount > 0))
     }
 
     @Test("Clear Workspace is registered and gated on selection")
