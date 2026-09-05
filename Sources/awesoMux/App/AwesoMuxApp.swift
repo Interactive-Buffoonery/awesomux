@@ -1155,12 +1155,12 @@ struct AwesoMuxApp: App {
                     }
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.acknowledgeWorkspace))
-                .disabled(!selectedSessionNeedsAcknowledgement)
+                .disabled(!selectedSessionNeedsAcknowledgement || isAnySheetPresented)
 
                 Button("Clear All Notifications") {
                     sessionStore.acknowledgeAllSessions()
                 }
-                .disabled(sessionStore.unreadNotificationTotal == 0)
+                .disabled(sessionStore.unreadNotificationTotal == 0 || isAnySheetPresented)
 
                 Divider()
 
