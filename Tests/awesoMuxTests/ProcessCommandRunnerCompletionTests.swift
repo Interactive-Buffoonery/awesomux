@@ -4,6 +4,35 @@ import Testing
 @testable import awesoMux
 
 extension ProcessCommandRunnerTests {
+    @Test("output reader completes when stopped before startup")
+    func outputReaderStoppedBeforeStartupCompletes() async throws {
+        let pipe = Pipe()
+        defer { try? pipe.fileHandleForWriting.close() }
+        let reader = ProcessCommandOutputReader(pipe.fileHandleForReading)
+        let completed = EventRecorder<Data>()
+        reader.stop()
+        reader.stop()
+        Task.detached { await completed.record(await reader.readToEnd()) }
+
+        #expect(await completed.waitForCount(1, deadline: .seconds(3)))
+        #expect(await completed.values == [Data()])
+        #expect(reader.isFinished)
+    }
+
+    @Test("output reader stop races safely with startup", arguments: 0..<25)
+    func outputReaderStopDuringStartupCompletes(iteration _: Int) async throws {
+        let pipe = Pipe()
+        defer { try? pipe.fileHandleForWriting.close() }
+        let reader = ProcessCommandOutputReader(pipe.fileHandleForReading)
+        let completed = EventRecorder<Data>()
+        Task.detached { await completed.record(await reader.readToEnd()) }
+        reader.stop()
+
+        #expect(await completed.waitForCount(1, deadline: .seconds(3)))
+        #expect(await completed.values == [Data()])
+        #expect(reader.isFinished)
+    }
+
     @Test("missing exit callback preserves a completed command's output and status", arguments: [0, 7])
     func missingExitCallbackPreservesResult(exitCode: Int32) async throws {
         let notification = WithheldTerminationNotification()

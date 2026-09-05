@@ -406,12 +406,12 @@ private final class ProcessExecution: @unchecked Sendable {
     let process = Process()
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
-    let stdoutReader: PipeReader
-    let stderrReader: PipeReader
+    let stdoutReader: ProcessCommandOutputReader
+    let stderrReader: ProcessCommandOutputReader
 
     init() {
-        stdoutReader = PipeReader(stdoutPipe.fileHandleForReading)
-        stderrReader = PipeReader(stderrPipe.fileHandleForReading)
+        stdoutReader = ProcessCommandOutputReader(stdoutPipe.fileHandleForReading)
+        stderrReader = ProcessCommandOutputReader(stderrPipe.fileHandleForReading)
     }
 
     var isComplete: Bool {
@@ -436,16 +436,18 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 }
 
-// MARK: - PipeReader
+// MARK: - ProcessCommandOutputReader
 
 /// The serial queue owns the buffer and descriptor. Cancellation is thread-safe,
 /// but only the source's cancellation handler closes the descriptor, after any
 /// in-flight read has returned. Each stream has its own queue and drains independently.
-private final class PipeReader: @unchecked Sendable {
+final class ProcessCommandOutputReader: @unchecked Sendable {
     private let handle: FileHandle
     private let queue = DispatchQueue(label: "awesomux.command-output", qos: .utility)
     private let source: DispatchSourceRead
     private var data = Data()
+    private var started = false
+    private var stopRequested = false
     private let completionLock = NSLock()
     private var finished = false
 
@@ -478,16 +480,18 @@ private final class PipeReader: @unchecked Sendable {
                     self.completionLock.withLock { self.finished = true }
                     continuation.resume(returning: self.data)
                 }
-                // A stop can arrive before this task starts. Activating even an
-                // already-cancelled source still delivers its cleanup handler.
+                self.started = true
                 self.source.activate()
-                if !configured { self.source.cancel() }
+                if self.stopRequested || !configured { self.source.cancel() }
             }
         }
     }
 
     func stop() {
-        source.cancel()
+        queue.async {
+            self.stopRequested = true
+            if self.started { self.source.cancel() }
+        }
     }
 }
 
