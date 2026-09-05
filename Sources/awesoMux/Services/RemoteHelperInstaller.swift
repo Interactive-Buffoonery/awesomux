@@ -180,6 +180,11 @@ enum RemoteHelperInstaller {
         return digest
     }
 
+    private enum DownloadResult: Sendable {
+        case checksum(Data)
+        case binary(URL)
+    }
+
     static func acquireHelper(
         for platform: Platform,
         version: String,
@@ -201,12 +206,38 @@ enum RemoteHelperInstaller {
             guard let artifact = releaseArtifact(version: version, architecture: architecture) else {
                 throw Failure.releaseArtifactUnavailable
             }
+            var downloadedFile: URL?
+            defer {
+                if let downloadedFile { try? fileManager.removeItem(at: downloadedFile) }
+            }
             let checksumData: Data
             let downloadedURL: URL
             do {
-                async let checksum = dataDownload(artifact.checksumURL)
-                async let binary = fileDownload(artifact.binaryURL)
-                (checksumData, downloadedURL) = try await (checksum, binary)
+                checksumData = try await withThrowingTaskGroup(of: DownloadResult.self) { group in
+                    group.addTask { .checksum(try await dataDownload(artifact.checksumURL)) }
+                    group.addTask { .binary(try await fileDownload(artifact.binaryURL)) }
+                    var checksum: Data?
+                    do {
+                        while let result = try await group.next() {
+                            switch result {
+                            case .checksum(let data): checksum = data
+                            case .binary(let url): downloadedFile = url
+                            }
+                        }
+                    } catch {
+                        group.cancelAll()
+                        // Drain completed siblings so their temporary files retain a cleanup owner.
+                        while let result = await group.nextResult() {
+                            if case .success(.binary(let url)) = result { downloadedFile = url }
+                        }
+                        throw error
+                    }
+                    try Task.checkCancellation()
+                    guard let checksum else { throw Failure.releaseArtifactUnavailable }
+                    return checksum
+                }
+                guard let file = downloadedFile else { throw Failure.releaseArtifactUnavailable }
+                downloadedURL = file
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -545,6 +576,7 @@ enum RemoteHelperInstaller {
         let binDirectory = shellQuote(binDirectoryPath)
         let destination = shellQuote(destinationPath)
         let temporaryTemplate = shellQuote(binDirectoryPath + "/.helper.XXXXXXXX")
+        // GNU stat can emit stdout before rejecting BSD flags; discard failed probe output.
         var commands = [
             "umask 077",
             "home=\(home)",
@@ -553,9 +585,9 @@ enum RemoteHelperInstaller {
             "destination=\(destination)",
             "fail_unsafe_layout() { /bin/cat >/dev/null; printf '%s\\n' \(shellQuote(unsafeRemoteLayoutToken)); exit 0; }",
             "uid=$(/usr/bin/id -u) || exit 1",
-            "stat_owner() { /usr/bin/stat -f '%u' \"$1\" 2>/dev/null || /usr/bin/stat -c '%u' \"$1\" 2>/dev/null; }",
-            "stat_mode() { /usr/bin/stat -f '%Lp' \"$1\" 2>/dev/null || /usr/bin/stat -c '%a' \"$1\" 2>/dev/null; }",
-            "stat_size() { /usr/bin/stat -f '%z' \"$1\" 2>/dev/null || /usr/bin/stat -c '%s' \"$1\" 2>/dev/null; }",
+            "stat_owner() { if stat_value=$(/usr/bin/stat -f '%u' \"$1\" 2>/dev/null); then printf '%s\\n' \"$stat_value\"; else /usr/bin/stat -c '%u' \"$1\" 2>/dev/null; fi; }",
+            "stat_mode() { if stat_value=$(/usr/bin/stat -f '%Lp' \"$1\" 2>/dev/null); then printf '%s\\n' \"$stat_value\"; else /usr/bin/stat -c '%a' \"$1\" 2>/dev/null; fi; }",
+            "stat_size() { if stat_value=$(/usr/bin/stat -f '%z' \"$1\" 2>/dev/null); then printf '%s\\n' \"$stat_value\"; else /usr/bin/stat -c '%s' \"$1\" 2>/dev/null; fi; }",
             "[ -d \"$home\" ] && [ ! -L \"$home\" ] || fail_unsafe_layout",
             "[ \"$(stat_owner \"$home\")\" = \"$uid\" ] || fail_unsafe_layout",
             "ensure_private_dir() { dir=$1; if [ -e \"$dir\" ] || [ -L \"$dir\" ]; then [ ! -L \"$dir\" ] && [ -d \"$dir\" ] || fail_unsafe_layout; else /bin/mkdir -m 700 \"$dir\" || exit 1; fi; [ \"$(stat_owner \"$dir\")\" = \"$uid\" ] && [ \"$(stat_mode \"$dir\")\" = 700 ] || fail_unsafe_layout; }",
@@ -584,9 +616,78 @@ enum RemoteHelperInstaller {
         return commands.joined(separator: "; ")
     }
 
+    enum HandoffHelperOutcome: Equatable {
+        case readyToTransfer
+        case retryPaste
+        case cancelled
+    }
+
+    @MainActor
+    static func prepareHandoffHelper(
+        remote: RemoteTarget,
+        controlPath: String,
+        remoteHome: String,
+        helperPath: String,
+        window: NSWindow?,
+        authorityIsCurrent: @escaping @MainActor () -> Bool,
+        version: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+        capabilityProbe: @escaping @MainActor (RemoteTarget, String, String) async throws -> Capability = {
+            try await capability(remote: $0, controlPath: $1, helperPath: $2)
+        },
+        platformProbe: @escaping @MainActor (RemoteTarget, String) async throws -> Platform = {
+            try await probePlatform(remote: $0, controlPath: $1)
+        },
+        acquisition: @escaping @MainActor (Platform, String) async throws -> AcquiredHelper = {
+            try await acquireHelper(for: $0, version: $1)
+        },
+        confirmation: @escaping @MainActor (ApprovalAction, RemoteTarget, NSWindow?) async -> Bool = {
+            await presentConfirmation(action: $0, remote: $1, window: $2)
+        },
+        installOperation: @escaping @MainActor (PreparedHelper, RemoteTarget, String, String) async throws -> Void = {
+            try await install(helper: $0, remote: $1, controlPath: $2, remoteHome: $3)
+        },
+        successPresentation: @escaping @MainActor (NSWindow?) -> Void = {
+            presentSuccess(window: $0)
+        }
+    ) async throws -> HandoffHelperOutcome {
+        try checkAuthority(authorityIsCurrent)
+        let capability = try await capabilityProbe(remote, controlPath, helperPath)
+        try checkAuthority(authorityIsCurrent)
+        guard let action = capability.approvalAction else {
+            if capability == .supported { return .readyToTransfer }
+            throw Failure.helperProbeFailed
+        }
+        let platform = try await platformProbe(remote, controlPath)
+        try checkAuthority(authorityIsCurrent)
+        let outcome = try await performApprovedInstallation(
+            acquisition: { try await acquisition(platform, version) },
+            action: action,
+            remote: remote,
+            controlPath: controlPath,
+            remoteHome: remoteHome,
+            helperPath: helperPath,
+            window: window,
+            authorityIsCurrent: authorityIsCurrent,
+            confirmation: confirmation,
+            installOperation: installOperation,
+            capabilityProbe: capabilityProbe,
+            successPresentation: successPresentation
+        )
+        // Installing a helper does not approve transferring the captured clipboard item.
+        return outcome == .installed ? .retryPaste : .cancelled
+    }
+
+    @MainActor
+    static func checkAuthority(_ authorityIsCurrent: @MainActor () -> Bool) throws {
+        try Task.checkCancellation()
+        guard authorityIsCurrent() else {
+            throw RemoteHandoff.Failure.destinationChanged
+        }
+    }
+
     @MainActor
     static func performApprovedInstallation(
-        helper: PreparedHelper,
+        acquisition: @escaping @MainActor () async throws -> AcquiredHelper,
         action: ApprovalAction,
         remote: RemoteTarget,
         controlPath: String,
@@ -619,29 +720,25 @@ enum RemoteHelperInstaller {
             presentSuccess(window: window)
         }
     ) async throws -> WorkflowOutcome {
-        guard authorityIsCurrent() else {
-            throw RemoteHandoff.Failure.destinationChanged
-        }
-        guard await confirmation(action, remote, window) else {
-            return .cancelled
-        }
-        try Task.checkCancellation()
-        guard authorityIsCurrent() else {
-            throw RemoteHandoff.Failure.destinationChanged
-        }
+        try checkAuthority(authorityIsCurrent)
+        let approved = await confirmation(action, remote, window)
+        try checkAuthority(authorityIsCurrent)
+        guard approved else { return .cancelled }
 
-        try await installOperation(helper, remote, controlPath, remoteHome)
-        try Task.checkCancellation()
-        switch try await capabilityProbe(remote, controlPath, helperPath) {
+        let acquired = try await acquisition()
+        defer { acquired.cleanup() }
+        try checkAuthority(authorityIsCurrent)
+        try await installOperation(acquired.prepared, remote, controlPath, remoteHome)
+        try checkAuthority(authorityIsCurrent)
+        let capability = try await capabilityProbe(remote, controlPath, helperPath)
+        try checkAuthority(authorityIsCurrent)
+        switch capability {
         case .supported:
             break
         case .probeFailed:
             throw Failure.verificationFailed
         case .missing, .incompatible:
             throw Failure.installedHelperIncompatible
-        }
-        guard authorityIsCurrent() else {
-            throw RemoteHandoff.Failure.destinationChanged
         }
         successPresentation(window)
         return .installed
@@ -849,7 +946,7 @@ enum RemoteHelperInstaller {
             alert.messageText = String(
                 localized: "Remote helper installation is unavailable", comment: "Unsupported remote helper platform title")
             alert.informativeText = String(
-                localized: "The bundled helper requires an Apple Silicon destination running macOS 15 or later.",
+                localized: "The remote helper supports Apple Silicon Macs running macOS 15 or later, and Linux on aarch64 or x86_64.",
                 comment: "Unsupported remote helper platform explanation")
         case .platformProbeFailed:
             alert.messageText = String(localized: "Could not check the remote platform", comment: "Remote platform probe failure title")

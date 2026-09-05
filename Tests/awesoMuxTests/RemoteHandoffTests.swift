@@ -10,6 +10,17 @@ import Testing
 @MainActor
 @Suite("Remote clipboard handoff", .serialized)
 struct RemoteHandoffTests {
+    @Test("only managed local-owned SSH panes claim remote file pastes")
+    func handoffEligibility() throws {
+        let remote = try #require(RemoteTarget(parsing: "me@example"))
+        let namedSession = try #require(RemoteSessionName(rawValue: "example"))
+        #expect(RemoteHandoff.target(for: .local) == nil)
+        #expect(RemoteHandoff.target(for: .ssh(SSHExecution(target: remote))) == remote)
+        #expect(
+            RemoteHandoff.target(for: .ssh(SSHExecution(target: remote, remoteSessionName: namedSession))) == nil
+        )
+    }
+
     @Test("clipboard priority and remote classification follow the decision table")
     func clipboardClassification() throws {
         let directory = try TemporaryDirectory(prefix: "handoff-classifier")
