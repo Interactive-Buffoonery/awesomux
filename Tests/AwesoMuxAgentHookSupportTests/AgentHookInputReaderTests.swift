@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 @testable import AwesoMuxAgentHookSupport
+import AwesoMuxTestSupport
 
 @Suite
 struct AgentHookInputReaderTests {
@@ -27,44 +28,30 @@ struct AgentHookInputReaderTests {
 
     @Test
     func stopsAfterMaximumPlusOneBytes() throws {
-        let pipe = try Self.makePipe()
-        defer {
-            close(pipe.read)
-        }
-
+        // Keep the byte-cap contract independent of pipe backpressure and the
+        // reader's separate idle-timeout behavior.
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-hook-input")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
         let inputData = Data(
             repeating: UInt8(ascii: "x"),
             count: AgentHookCommand.maximumInputByteCount + 10
         )
-        let firstWriteCompleted = DispatchSemaphore(value: 0)
-        let writeFinished = DispatchGroup()
-        writeFinished.enter()
-        DispatchQueue.global().async {
-            var didSignalFirstWrite = false
-            defer {
-                if !didSignalFirstWrite {
-                    firstWriteCompleted.signal()
-                }
-                close(pipe.write)
-                writeFinished.leave()
-            }
-
-            try? Self.writeAll(inputData, to: pipe.write) {
-                didSignalFirstWrite = true
-                firstWriteCompleted.signal()
+        let inputURL = temporaryDirectory.url.appending(path: "input.json")
+        try inputData.write(to: inputURL)
+        let inputHandle = try FileHandle(forReadingFrom: inputURL)
+        defer {
+            #expect(throws: Never.self) {
+                try inputHandle.close()
             }
         }
-        firstWriteCompleted.wait()
 
         let input = AgentHookInputReader.read(
-            fileDescriptor: pipe.read,
+            fileDescriptor: inputHandle.fileDescriptor,
             maximumByteCount: AgentHookCommand.maximumInputByteCount,
-            idleTimeoutMilliseconds: 25
+            idleTimeoutMilliseconds: 0
         )
 
         #expect(input.count == AgentHookCommand.maximumInputByteCount + 1)
-        try Self.drainUntilEOF(from: pipe.read)
-        writeFinished.wait()
     }
 
     @Test
@@ -90,48 +77,31 @@ struct AgentHookInputReaderTests {
     /// instead of `bytesRead`) would show up as trailing zeros here.
     @Test
     func multiChunkReadAcrossReusedBufferReturnsExactPayload() throws {
-        let pipe = try Self.makePipe()
-        defer {
-            close(pipe.read)
-        }
-
         let payloadByteCount = 4096 + 37
         var payload = Data(capacity: payloadByteCount)
         for index in 0..<payloadByteCount {
             payload.append(UInt8((index * 31 + 5) % 253))
         }
-        // Gate on the first write landing so the reader never hits its idle
-        // timeout before any data exists (the flake a bare 250 ms window had
-        // under a fully loaded test run); the generous idle ceiling costs
-        // nothing on the happy path because EOF ends the read.
-        let firstWriteCompleted = DispatchSemaphore(value: 0)
-        let writeFinished = DispatchGroup()
-        writeFinished.enter()
-        DispatchQueue.global().async {
-            var didSignalFirstWrite = false
-            defer {
-                if !didSignalFirstWrite {
-                    firstWriteCompleted.signal()
-                }
-                close(pipe.write)
-                writeFinished.leave()
-            }
-
-            try? Self.writeAll(payload, to: pipe.write) {
-                didSignalFirstWrite = true
-                firstWriteCompleted.signal()
+        // A ready regular file guarantees the short final read without making
+        // the result depend on a background writer's scheduling.
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-hook-input")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let inputURL = temporaryDirectory.url.appending(path: "input.json")
+        try payload.write(to: inputURL)
+        let inputHandle = try FileHandle(forReadingFrom: inputURL)
+        defer {
+            #expect(throws: Never.self) {
+                try inputHandle.close()
             }
         }
-        firstWriteCompleted.wait()
 
         let input = AgentHookInputReader.read(
-            fileDescriptor: pipe.read,
+            fileDescriptor: inputHandle.fileDescriptor,
             maximumByteCount: AgentHookCommand.maximumInputByteCount,
-            idleTimeoutMilliseconds: 2_000
+            idleTimeoutMilliseconds: 0
         )
 
         #expect(input == payload)
-        writeFinished.wait()
     }
 
     private static func makePipe() throws -> (read: Int32, write: Int32) {
@@ -142,14 +112,9 @@ struct AgentHookInputReaderTests {
         return (read: fds[0], write: fds[1])
     }
 
-    private static func writeAll(
-        _ data: Data,
-        to fileDescriptor: Int32,
-        afterFirstWrite: (() -> Void)? = nil
-    ) throws {
+    private static func writeAll(_ data: Data, to fileDescriptor: Int32) throws {
         try data.withUnsafeBytes { rawBuffer in
             var offset = 0
-            var didNotifyFirstWrite = false
             while offset < rawBuffer.count {
                 let byteCount = min(4096, rawBuffer.count - offset)
                 let bytesWritten = Darwin.write(
@@ -160,31 +125,11 @@ struct AgentHookInputReaderTests {
 
                 if bytesWritten > 0 {
                     offset += bytesWritten
-                    if !didNotifyFirstWrite {
-                        didNotifyFirstWrite = true
-                        afterFirstWrite?()
-                    }
                 } else if bytesWritten < 0 && errno == EINTR {
                     continue
                 } else {
                     throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
                 }
-            }
-        }
-    }
-
-    private static func drainUntilEOF(from fileDescriptor: Int32) throws {
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while true {
-            let bytesRead = Darwin.read(fileDescriptor, &buffer, buffer.count)
-            if bytesRead == 0 {
-                return
-            } else if bytesRead > 0 {
-                continue
-            } else if errno == EINTR {
-                continue
-            } else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
         }
     }
