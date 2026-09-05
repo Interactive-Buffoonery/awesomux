@@ -440,7 +440,10 @@ extension GhosttySurfaceNSView {
             RemoteHandoff.presentBusy(window: window)
             return
         }
-        guard let remote = pane.executionPlan.remoteTarget else { return }
+        guard case .ssh(let execution) = pane.executionPlan,
+            execution.persistenceOwner == .localAmx
+        else { return }
+        let remote = execution.target
 
         let authority = RemoteHandoff.Authority(
             appSessionID: sessionID,
@@ -472,92 +475,70 @@ extension GhosttySurfaceNSView {
                 progressIndicator.removeFromSuperview()
                 self?.lifecycleState.remoteHandoffTask = nil
             }
+            let authorityIsCurrent: @MainActor () -> Bool = { [weak self] in
+                guard let self,
+                    self.runtime.cachedSurfaceView(for: authority.paneID) === self,
+                    self.surface != nil,
+                    let currentPane = self.sessionStore
+                        .session(id: authority.appSessionID)?
+                        .layout.pane(id: authority.paneID)
+                else { return false }
+                return RemoteHandoff.authorityMatches(authority, pane: currentPane)
+            }
             do {
+                try RemoteHelperInstaller.checkAuthority(authorityIsCurrent)
                 let source = try await RemoteHandoff.prepare(candidate)
                 cleanupSource = source
-                try Task.checkCancellation()
+                try RemoteHelperInstaller.checkAuthority(authorityIsCurrent)
                 let controlPath = AmxBackend.sshControlPath()
                 let remoteHome = await GhosttySurfaceNSView.cachedRemoteHome(
                     controlPath: controlPath,
                     remote: authority.remote
                 )
-                try Task.checkCancellation()
+                try RemoteHelperInstaller.checkAuthority(authorityIsCurrent)
                 guard let remoteHome,
                     !UnicodeHygiene.containsUnsafePathScalars(remoteHome)
                 else {
                     throw RemoteHandoff.Failure.unsupportedHelper
                 }
                 let helperPath = BridgeAttachDecision.helperPath(remoteHome: remoteHome)
-                let capability = try await RemoteHelperInstaller.capability(
+                let helperOutcome = try await RemoteHelperInstaller.prepareHandoffHelper(
                     remote: authority.remote,
                     controlPath: controlPath,
-                    helperPath: helperPath
+                    remoteHome: remoteHome,
+                    helperPath: helperPath,
+                    window: originatingWindow,
+                    authorityIsCurrent: authorityIsCurrent
                 )
-                try Task.checkCancellation()
-                switch capability {
-                case .supported:
+                try RemoteHelperInstaller.checkAuthority(authorityIsCurrent)
+                switch helperOutcome {
+                case .readyToTransfer:
                     break
-                case .probeFailed:
-                    throw RemoteHelperInstaller.Failure.helperProbeFailed
-                case .missing, .incompatible:
-                    let platform = try await RemoteHelperInstaller.probePlatform(
-                        remote: authority.remote,
-                        controlPath: controlPath
+                case .retryPaste:
+                    return
+                case .cancelled:
+                    TerminalAccessibilityAnnouncer.announce(
+                        String(
+                            localized: "Remote helper installation cancelled",
+                            comment: "Remote helper installation cancellation accessibility status")
                     )
-                    guard platform == .macOSArm64 else {
-                        throw RemoteHelperInstaller.Failure.unsupportedPlatform
-                    }
-                    guard let bundledHelperURL = RemoteHelperInstaller.bundledHelperURL() else {
-                        throw RemoteHelperInstaller.Failure.bundledHelperUnavailable
-                    }
-                    let helper = try await RemoteHelperInstaller.prepareBundledHelper(at: bundledHelperURL)
-                    guard let action = capability.approvalAction else {
-                        throw RemoteHelperInstaller.Failure.installationFailed
-                    }
-                    let outcome = try await RemoteHelperInstaller.performApprovedInstallation(
-                        helper: helper,
-                        action: action,
-                        remote: authority.remote,
-                        controlPath: controlPath,
-                        remoteHome: remoteHome,
-                        helperPath: helperPath,
-                        window: originatingWindow,
-                        authorityIsCurrent: { [weak self] in
-                            guard let self,
-                                let currentPane = self.sessionStore
-                                    .session(id: authority.appSessionID)?
-                                    .layout.pane(id: authority.paneID)
-                            else {
-                                return false
-                            }
-                            return RemoteHandoff.authorityMatches(authority, pane: currentPane)
-                        }
-                    )
-                    if outcome == .cancelled {
-                        TerminalAccessibilityAnnouncer.announce(
-                            String(
-                                localized: "Remote helper installation cancelled",
-                                comment: "Remote helper installation cancellation accessibility status")
-                        )
-                    }
                     return
                 }
 
                 let proposedDirectory = "~/.awesomux/handoffs/\(authority.terminalSessionID.rawValue)/"
-                guard
-                    await RemoteHandoff.confirmationProvider(
-                        authority.remote,
-                        source.displayName,
-                        proposedDirectory,
-                        originatingWindow
-                    )
-                else {
+                let approved = await RemoteHandoff.confirmationProvider(
+                    authority.remote,
+                    source.displayName,
+                    proposedDirectory,
+                    originatingWindow
+                )
+                try RemoteHelperInstaller.checkAuthority(authorityIsCurrent)
+                guard approved else {
                     TerminalAccessibilityAnnouncer.announce(
                         String(localized: "Remote file transfer cancelled", comment: "Remote handoff cancellation accessibility status")
                     )
                     return
                 }
-                try Task.checkCancellation()
 
                 let receipt = try await RemoteHandoff.transfer(
                     source: source,
@@ -566,6 +547,7 @@ extension GhosttySurfaceNSView {
                     helperPath: helperPath,
                     sessionID: authority.terminalSessionID
                 )
+                try RemoteHelperInstaller.checkAuthority(authorityIsCurrent)
                 guard
                     let remotePath = RemoteHandoff.validatedReceiptPath(
                         receipt,
@@ -598,13 +580,13 @@ extension GhosttySurfaceNSView {
             } catch is CancellationError {
                 return
             } catch let failure as RemoteHandoff.Failure {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, authorityIsCurrent() else { return }
                 RemoteHandoff.failurePresenter(failure, originatingWindow)
             } catch let failure as RemoteHelperInstaller.Failure {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, authorityIsCurrent() else { return }
                 RemoteHelperInstaller.presentFailure(failure, window: originatingWindow)
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, authorityIsCurrent() else { return }
                 RemoteHandoff.failurePresenter(.transferFailed, originatingWindow)
             }
         }
