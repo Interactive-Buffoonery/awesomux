@@ -4025,9 +4025,6 @@
     "The bridge handshake did not complete." : {
       "comment" : "Bridge doctor failure reason"
     },
-    "The bundled helper requires an Apple Silicon destination running macOS 15 or later." : {
-      "comment" : "Unsupported remote helper platform explanation"
-    },
     "The bundled remote helper is unavailable" : {
       "comment" : "Bundled helper unavailable title"
     },
@@ -4185,6 +4182,9 @@
     },
     "The remote helper returned an unsafe response" : {
       "comment" : "Remote handoff unsafe response error title"
+    },
+    "The remote helper supports Apple Silicon Macs running macOS 15 or later, and Linux on aarch64 or x86_64." : {
+      "comment" : "Unsupported remote helper platform explanation"
     },
     "The repository changed while awesoMux was reading it, so the diff wouldn't have matched the branch it names. Try again." : {
       "comment" : "Branch diff failure when HEAD moved between the start and end of the read"

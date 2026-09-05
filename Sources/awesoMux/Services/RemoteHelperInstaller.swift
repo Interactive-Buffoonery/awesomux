@@ -946,7 +946,7 @@ enum RemoteHelperInstaller {
             alert.messageText = String(
                 localized: "Remote helper installation is unavailable", comment: "Unsupported remote helper platform title")
             alert.informativeText = String(
-                localized: "The bundled helper requires an Apple Silicon destination running macOS 15 or later.",
+                localized: "The remote helper supports Apple Silicon Macs running macOS 15 or later, and Linux on aarch64 or x86_64.",
                 comment: "Unsupported remote helper platform explanation")
         case .platformProbeFailed:
             alert.messageText = String(localized: "Could not check the remote platform", comment: "Remote platform probe failure title")
