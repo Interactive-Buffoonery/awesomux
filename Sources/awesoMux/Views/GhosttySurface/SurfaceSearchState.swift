@@ -9,7 +9,8 @@ final class SurfaceSearchState {
     var selected: Int?
     var total: Int?
     var focusRequestSerial = 0
-    var scrollbackDumpText: String?
+    private(set) var scrollbackDump: ScrollbackDumpPresentation?
+    private var scrollbackDumpRequest = UInt64.zero
 
     var matchSummary: SurfaceSearchMatchSummary {
         SurfaceSearchMatchSummary(selected: selected, total: total)
@@ -65,12 +66,53 @@ final class SurfaceSearchState {
         self.selected = normalized
     }
 
-    func presentScrollbackDump(_ text: String) {
-        scrollbackDumpText = text
+    func beginScrollbackDump() -> UInt64? {
+        guard scrollbackDump == nil else { return nil }
+        scrollbackDumpRequest &+= 1
+        scrollbackDump = .loading
+        return scrollbackDumpRequest
+    }
+
+    func finishScrollbackDump(
+        _ presentation: ScrollbackDumpPresentation,
+        request: UInt64
+    ) {
+        guard request == scrollbackDumpRequest, scrollbackDump != nil else {
+            return
+        }
+        scrollbackDump = presentation
+    }
+
+    func isCurrentScrollbackDumpRequest(_ request: UInt64) -> Bool {
+        request == scrollbackDumpRequest && scrollbackDump != nil
     }
 
     func dismissScrollbackDump() {
-        scrollbackDumpText = nil
+        scrollbackDump = nil
+        scrollbackDumpRequest &+= 1
+    }
+}
+
+enum ScrollbackDumpPresentation: Equatable {
+    case loading
+    case loaded(text: String)
+    case blocked(reason: ScrollbackDumpPolicy.BlockReason)
+    case failed
+
+    var copyPayload: String? {
+        switch self {
+        case .loading, .blocked, .failed:
+            nil
+        case let .loaded(text):
+            text.isEmpty ? nil : text
+        }
+    }
+
+    var copyButtonTitle: String {
+        String(
+            localized: "Copy",
+            comment: "Button that copies the text shown in the scrollback sheet"
+        )
     }
 }
 

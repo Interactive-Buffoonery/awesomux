@@ -507,6 +507,9 @@
     "A preset named “%arg” already exists in this project." : {
       "comment" : "Alert text when saving over an existing layout preset."
     },
+    "A previous scrollback read is still finishing. Choose Done, wait a moment, then try again." : {
+      "comment" : "Explanation when Show Scrollback is retried before its previous native read finishes"
+    },
     "About awesoMux" : {
       "comment" : "Accessibility label for the About panel"
     },
@@ -1201,7 +1204,7 @@
 
     },
     "Copy" : {
-      "comment" : "Terminal context menu item that copies the selection"
+      "comment" : "Button that copies the text shown in the scrollback sheet\nTerminal context menu item that copies the selection"
     },
     "Copy Branch" : {
 
@@ -1269,6 +1272,9 @@
     "Could not reach %arg, or the session ended." : {
       "comment" : "Description under the remote-owned session overlay title, naming the remote host"
     },
+    "Could not read this pane's scrollback." : {
+      "comment" : "VoiceOver announcement when Show Scrollback cannot read the terminal history"
+    },
     "Could not turn off Open at Login. Open System Settings > General > Login Items and remove awesoMux, then try again. %arg" : {
       "comment" : "Error shown when unregistering awesoMux as a login item fails."
     },
@@ -1324,6 +1330,9 @@
     },
     "Couldn't verify what's running in this transcript's terminal" : {
       "comment" : "Unavailable reason for resuming a session when foreground process evidence is unavailable"
+    },
+    "Couldn’t Read Scrollback" : {
+      "comment" : "Heading when Show Scrollback cannot read terminal history"
     },
     "Couldn’t connect. The workspace is no longer available." : {
       "comment" : "Error shown when a managed SSH connection request targets a workspace that no longer exists"
@@ -2478,7 +2487,7 @@
       "comment" : "VoiceOver announcement when Cmd-Shift-T is invoked but the recently-closed cache is empty or fully expired."
     },
     "No scrollback to show." : {
-      "comment" : "Empty state in the Show Scrollback sheet when the pane returned no scrollback"
+      "comment" : "Empty state in the Show Scrollback sheet when the pane returned no scrollback\nVoiceOver announcement when Show Scrollback finishes with no terminal history"
     },
     "No supported editors are installed. Install one, or add it below, for the Open control to work." : {
 
@@ -2841,6 +2850,9 @@
     },
     "Preparing remote file transfer" : {
       "comment" : "Remote handoff initial progress status"
+    },
+    "Preparing scrollback…" : {
+      "comment" : "Loading message while Show Scrollback reads terminal history"
     },
     "Preset Saved" : {
       "comment" : "Alert title confirming a layout preset was saved."
@@ -3591,8 +3603,23 @@
     "Scrollback" : {
 
     },
+    "Scrollback Not Opened" : {
+      "comment" : "Heading when Show Scrollback blocks a history that cannot be read safely"
+    },
     "Scrollback copied." : {
       "comment" : "VoiceOver announcement confirming the scrollback sheet's Copy button wrote to the clipboard"
+    },
+    "Scrollback is ready." : {
+      "comment" : "VoiceOver announcement when Show Scrollback finishes loading terminal history"
+    },
+    "Scrollback was not opened because a previous read is still finishing." : {
+      "comment" : "VoiceOver announcement when a previous Show Scrollback read is still running"
+    },
+    "Scrollback was not opened because it is too large." : {
+      "comment" : "VoiceOver announcement when Show Scrollback blocks a large terminal history"
+    },
+    "Scrollback was not opened because its size could not be measured." : {
+      "comment" : "VoiceOver announcement when Show Scrollback cannot estimate terminal history size"
     },
     "Search" : {
 
@@ -4132,6 +4159,9 @@
     "The live saved file changed while awesoMux was reopening it, and awesoMux could not preserve the version it had already read. Automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes could not be archived"
     },
+    "The pane changed, so Show Scrollback was canceled. Try again." : {
+      "comment" : "VoiceOver announcement when a terminal surface is replaced while Show Scrollback is loading"
+    },
     "The pane closed before the transcript could open." : {
       "comment" : "VoiceOver announcement when the initiating pane closes during transcript rendering"
     },
@@ -4335,6 +4365,9 @@
     },
     "This pane's working directory isn't inside a git repository, so there is no branch to compare." : {
       "comment" : "Branch diff failure when the pane's directory is not in a repository"
+    },
+    "This pane’s scrollback is too large to open safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history." : {
+      "comment" : "Explanation shown when Show Scrollback blocks a large terminal history"
     },
     "This paste could run a command before you finish pasting. Paste anyway?" : {
       "comment" : "Title of the unsafe-paste confirmation dialog."
@@ -4776,11 +4809,17 @@
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
+    "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history." : {
+      "comment" : "Explanation shown when Show Scrollback cannot safely estimate terminal history size"
+    },
     "awesoMux couldn’t make its install directory private" : {
       "comment" : "Agent integration private directory permission update error"
     },
     "awesoMux couldn’t make its rendered plugin directory private" : {
       "comment" : "Rendered agent plugin private directory permission update error"
+    },
+    "awesoMux couldn’t read this pane’s scrollback. The terminal itself is still available." : {
+      "comment" : "Recovery explanation when Show Scrollback fails while the terminal remains usable"
     },
     "awesoMux couldn’t verify whether this pane is busy. Closing it may stop a running process." : {
       "comment" : "Body of the close-pane confirmation dialog when pane activity is unverifiable.",

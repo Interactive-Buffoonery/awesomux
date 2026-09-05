@@ -359,12 +359,15 @@ extension GhosttyRuntime {
             return true
 
         case GHOSTTY_ACTION_SCROLLBAR:
-            guard let view = surfaceView(from: target) else {
+            guard let view = surfaceView(from: target),
+                let callbackSurface = target.target.surface
+            else {
                 return false
             }
 
             let scrollbar = action.action.scrollbar
             Task { @MainActor in
+                guard view.surface == callbackSurface else { return }
                 view.updateScrollbar(
                     total: scrollbar.total,
                     offset: scrollbar.offset,

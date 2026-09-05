@@ -97,6 +97,10 @@ _ghostty_artifacts_present() {
   [[ -f "$dir/share/terminfo/78/xterm-ghostty" ]] || return 1
   [[ -d "$dir/share/ghostty/shell-integration" ]] || return 1
   [[ -f "$dir/.built-zig-version" ]] || return 1
+  local expected_extension
+  expected_extension="$(python3 "$ROOT_DIR/script/prepare_ghostty_source.py" --fingerprint)"
+  [[ -f "$dir/.built-awesomux-extension" ]] || return 1
+  [[ "$(cat "$dir/.built-awesomux-extension")" == "$expected_extension" ]] || return 1
   _ghostty_optimize_stamp_matches "$dir" || return 1
   _ghostty_sha_stamp_matches "$dir" || return 1
   return 0

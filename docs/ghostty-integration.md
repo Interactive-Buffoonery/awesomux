@@ -66,6 +66,45 @@ Stray `.staging*` or `*.old` entries under `.build/ghostty/` are leftovers
 from an interrupted run — safe to delete, and cleaned up automatically on the
 next build.
 
+## Bounded Show Scrollback read
+
+Show Scrollback uses the awesoMux-only `awesomux_surface_read_scrollback`
+extension declared in `Sources/GhosttyKit/AwesoMuxGhostty.h`. The ordinary
+Ghostty text APIs remain unchanged for other callers.
+
+`script/prepare_ghostty_source.py` creates a generated clone of the pinned
+source in disposable build scratch, adds the checked-in
+`native/ghostty/` extension, and registers its native regression tests.
+The build removes its scratch directory on exit, so source copies do not
+accumulate in the artifact cache. It never edits `vendor/ghostty` or changes
+its pin. The extension is
+compiled with Ghostty so it can hold the renderer mutex across both size
+validation and formatting, using the current terminal rather than asynchronous
+scrollbar callbacks.
+
+Admission limits are 8,192 rows, 262,144 cells, and 16 MiB of terminal page
+backing storage. Page metadata is checked without decompressing history.
+Accepted history is formatted into a caller-owned 4 MiB fixed buffer. A write
+that exceeds that buffer rejects the entire dump; partial text is discarded.
+The page budget also bounds the decompression work for an accepted read.
+These bounds control extraction work and storage; they are not a wall-clock
+latency guarantee under arbitrary CPU or renderer-lock contention.
+
+The extension's content fingerprint is part of artifact validation and CI
+cache keys. An older library without this API cannot satisfy the build.
+The library build runs the native `awesomux-scrollback` tests before publishing
+artifacts. Ghostty updates must pass those tests and the extension injection
+check; see [ADR 0034](adr/0034-native-scrollback-safety-boundary.md).
+
+Extraction runs on a worker. The main-actor coordinator keeps the native surface
+and its app alive until that worker finishes, defers surface frees and runtime
+reload, and rejects overlapping reads on the same surface. UI completion checks
+the request and surface identity again so dismissed or replaced panes cannot
+receive stale results. Cancellation does not interrupt a native read.
+
+Large-history viewing is separate work. This API succeeds only for a complete
+history within the limits; it does not silently truncate or paginate.
+
 ## Runtime Resources
 
 `script/build_and_run.sh` stages Ghostty's generated `zig-out/share` tree into

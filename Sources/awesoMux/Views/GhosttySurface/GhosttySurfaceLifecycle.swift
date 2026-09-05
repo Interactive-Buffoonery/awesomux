@@ -749,6 +749,11 @@ extension GhosttySurfaceNSView {
             state.geometry.scale
         )
         ghostty_surface_set_size(surface, state.geometry.width, state.geometry.height)
+        let nativeSize = ghostty_surface_size(surface)
+        widestObservedScrollbackColumns = max(
+            widestObservedScrollbackColumns,
+            UInt64(nativeSize.columns)
+        )
         logNativeSurfaceSizeDiagnostics(event: "surface-native-size-after-set")
         pushSurfaceOcclusion(surface, isVisible: state.isVisible, source: "backing-state-apply")
         lifecycleState.lastAppliedSurfaceBackingState = state

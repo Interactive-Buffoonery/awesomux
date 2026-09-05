@@ -5,6 +5,67 @@ import Testing
 @MainActor
 @Suite("Surface search state")
 struct SurfaceSearchStateTests {
+    @Test("scrollback dump moves from loading to loaded for the active request")
+    func scrollbackDumpLoadsForActiveRequest() throws {
+        let state = SurfaceSearchState()
+        let request = try #require(state.beginScrollbackDump())
+
+        #expect(state.scrollbackDump == .loading)
+
+        state.finishScrollbackDump(.loaded(text: "history"), request: request)
+
+        #expect(state.scrollbackDump == .loaded(text: "history"))
+        #expect(state.scrollbackDump?.copyPayload == "history")
+    }
+
+    @Test("scrollback dump distinguishes an empty result from a failed read")
+    func scrollbackDumpDistinguishesEmptyAndFailure() throws {
+        let state = SurfaceSearchState()
+        let emptyRequest = try #require(state.beginScrollbackDump())
+        state.finishScrollbackDump(.loaded(text: ""), request: emptyRequest)
+
+        #expect(state.scrollbackDump == .loaded(text: ""))
+
+        state.dismissScrollbackDump()
+        let failedRequest = try #require(state.beginScrollbackDump())
+        state.finishScrollbackDump(.failed, request: failedRequest)
+
+        #expect(state.scrollbackDump == .failed)
+    }
+
+    @Test("dismissing scrollback invalidates work that finishes later")
+    func dismissingScrollbackInvalidatesStaleWork() throws {
+        let state = SurfaceSearchState()
+        let request = try #require(state.beginScrollbackDump())
+
+        state.dismissScrollbackDump()
+        state.finishScrollbackDump(.loaded(text: "stale"), request: request)
+
+        #expect(state.scrollbackDump == nil)
+    }
+
+    @Test("a blocked scrollback cannot copy")
+    func blockedScrollbackCannotCopy() throws {
+        let state = SurfaceSearchState()
+        let request = try #require(state.beginScrollbackDump())
+        state.finishScrollbackDump(
+            .blocked(reason: .tooLarge),
+            request: request
+        )
+
+        #expect(state.scrollbackDump?.copyPayload == nil)
+        #expect(state.scrollbackDump?.copyButtonTitle == "Copy")
+    }
+
+    @Test("repeated scrollback commands do not create duplicate requests")
+    func repeatedScrollbackCommandsDoNotDuplicate() throws {
+        let state = SurfaceSearchState()
+        _ = try #require(state.beginScrollbackDump())
+
+        #expect(state.beginScrollbackDump() == nil)
+        #expect(state.scrollbackDump == .loading)
+    }
+
     @Test("matches with no selection display a dash, not zero")
     func matchesWithoutSelectionDisplayDash() {
         let state = SurfaceSearchState()
