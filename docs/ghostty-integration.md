@@ -96,6 +96,12 @@ The library build runs the native `awesomux-scrollback` tests before publishing
 artifacts. Ghostty updates must pass those tests and the extension injection
 check; see [ADR 0034](adr/0034-native-scrollback-safety-boundary.md).
 
+Extraction runs on a worker. The main-actor coordinator keeps the native surface
+and its app alive until that worker finishes, defers surface frees and runtime
+reload, and rejects overlapping reads on the same surface. UI completion checks
+the request and surface identity again so dismissed or replaced panes cannot
+receive stale results. Cancellation does not interrupt a native read.
+
 Large-history viewing is separate work. This API succeeds only for a complete
 history within the limits; it does not silently truncate or paginate.
 

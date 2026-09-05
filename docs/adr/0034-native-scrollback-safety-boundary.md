@@ -35,8 +35,12 @@ regression suite before publishing a rebuilt library.
 - The native code depends on internal Ghostty types. Pin updates must compile
   it and pass its tests; build preparation rejects an incompatible injection
   point instead of silently omitting the safety check.
-- Reading remains synchronous under Ghostty's renderer lock. Work and memory
-  are bounded, but this does not promise a fixed response time on every machine.
+- Extraction runs off the main actor under Ghostty's renderer lock. A main-actor
+  coordinator permits one read per surface and defers surface destruction and
+  runtime reload until active reads return. Cancellation drops the UI result;
+  it does not release native ownership while extraction is still running.
+- Work and memory are bounded, but renderer-lock contention does not have a
+  fixed deadline. Other native calls that require the same lock may still wait.
 - A separate feature can offer recent output or paging for large histories.
   That work must preserve this native safety boundary and clearly describe any
   omitted text. VoiceOver's separate history API remains tracked in #523.

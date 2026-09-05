@@ -212,19 +212,27 @@ extension GhosttySurfaceNSView {
                 case let .block(reason):
                     self.finishBlockedScrollbackDump(reason: reason, request: request)
                 case .allow:
-                    switch self.fullScrollbackText() {
-                    case let .loaded(text):
-                        self.searchState.finishScrollbackDump(.loaded(text: text), request: request)
-                    case .tooLarge:
-                        Self.terminalDiagnosticsLogger.warning(
-                            "scrollback-dump native safety limit blocked the read pane=\(self.paneID.uuidString.prefix(8), privacy: .public)"
-                        )
-                        self.finishBlockedScrollbackDump(
-                            reason: .nativeResultTooLarge,
-                            request: request
-                        )
-                    case .failed:
-                        self.searchState.finishScrollbackDump(.failed, request: request)
+                    Task { @MainActor [self] in
+                        guard self.searchState.isCurrentScrollbackDumpRequest(request),
+                            self.surface == expectedSurface,
+                            let surface = self.surface
+                        else { return }
+                        let result = await self.fullScrollbackText(surface: surface)
+                        guard self.searchState.isCurrentScrollbackDumpRequest(request),
+                            self.surface == expectedSurface,
+                            self.runtime.cachedSurfaceView(for: self.paneID) === self
+                        else { return }
+                        switch result {
+                        case let .loaded(text):
+                            self.searchState.finishScrollbackDump(.loaded(text: text), request: request)
+                        case .tooLarge:
+                            Self.terminalDiagnosticsLogger.warning(
+                                "scrollback-dump native safety limit blocked the read pane=\(self.paneID.uuidString.prefix(8), privacy: .public)"
+                            )
+                            self.finishBlockedScrollbackDump(reason: .nativeResultTooLarge, request: request)
+                        case .failed:
+                            self.searchState.finishScrollbackDump(.failed, request: request)
+                        }
                     }
                 }
             }
@@ -268,21 +276,23 @@ extension GhosttySurfaceNSView {
         )
     }
 
-    private func fullScrollbackText() -> ScrollbackDumpReader.Result {
-        guard let surface else {
-            return .failed
-        }
+    private func fullScrollbackText(surface: ghostty_surface_t) async -> ScrollbackDumpReader.Result {
+        // Only the worker dereferences this address. The coordinator defers
+        // surface free and app reload until it has returned to the main actor.
+        let address = UInt(bitPattern: surface)
         let limits = ScrollbackDumpPolicy.Limits.default
-        return ScrollbackDumpReader.read(maximumBytes: Int(limits.maximumNativeTextBytes)) { buffer, written in
-            awesomux_surface_read_scrollback(
-                surface,
-                Int(limits.maximumRows),
-                Int(limits.maximumEstimatedBytes / limits.estimatedBytesPerCell),
-                ScrollbackDumpPolicy.maximumNativePageBytes,
-                buffer.baseAddress!,
-                buffer.count,
-                &written
-            )
+        return await runtime.scrollbackReadCoordinator.read(surfaceID: address) {
+            ScrollbackDumpReader.read(maximumBytes: Int(limits.maximumNativeTextBytes)) { buffer, written in
+                awesomux_surface_read_scrollback(
+                    UnsafeMutableRawPointer(bitPattern: address),
+                    Int(limits.maximumRows),
+                    Int(limits.maximumEstimatedBytes / limits.estimatedBytesPerCell),
+                    ScrollbackDumpPolicy.maximumNativePageBytes,
+                    buffer.baseAddress!,
+                    buffer.count,
+                    &written
+                )
+            }
         }
     }
 

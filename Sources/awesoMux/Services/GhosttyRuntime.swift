@@ -1420,7 +1420,16 @@ final class GhosttyRuntime {
         )
     }
 
+    let scrollbackReadCoordinator = ScrollbackReadCoordinator()
+
     func freeSurface(_ surface: ghostty_surface_t) {
+        if scrollbackReadCoordinator.deferFree(
+            surfaceID: UInt(bitPattern: surface),
+            operation: { [self] in freeSurface(surface) }
+        ) {
+            return
+        }
+
         #if DEBUG
             let surfaceAddress = UInt(bitPattern: UnsafeRawPointer(surface))
             assert(
@@ -1512,6 +1521,11 @@ final class GhosttyRuntime {
     }
 
     func reload() {
+        if scrollbackReadCoordinator.deferReload(operation: { [self] in reload() }) {
+            discardAllSurfaces()
+            return
+        }
+
         #if DEBUG
             logSurfaceCacheEvent("reload-start")
         #endif

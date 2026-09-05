@@ -1,5 +1,5 @@
 enum ScrollbackDumpReader {
-    enum Result: Equatable {
+    enum Result: Equatable, Sendable {
         case loaded(String)
         case tooLarge
         case failed
