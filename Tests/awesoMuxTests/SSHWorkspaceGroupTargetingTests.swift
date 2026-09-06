@@ -155,6 +155,20 @@ struct SSHWorkspaceGroupTargetingTests {
         #expect(execution.sessionName == nil)
     }
 
+    @Test("only a nonempty session name declares remote ownership")
+    func remoteOwnershipDisclosureGate() throws {
+        #expect(!SSHWorkspaceConnectFields.declaresRemoteSession(sessionName: ""))
+        #expect(!SSHWorkspaceConnectFields.declaresRemoteSession(sessionName: "   "))
+        #expect(!SSHWorkspaceConnectFields.declaresRemoteSession(sessionName: "\r\n"))
+        #expect(SSHWorkspaceConnectFields.declaresRemoteSession(sessionName: "my-session"))
+        #expect(SSHWorkspaceConnectFields.declaresRemoteSession(sessionName: " my-session "))
+        #expect(
+            SSHWorkspaceConnectFields.execution(destination: "my-server", sessionName: "\r\n")
+                == SSHExecution(target: try #require(RemoteTarget(parsing: "my-server")))
+        )
+        #expect(SSHWorkspaceConnectFields.sessionNameMessage(for: "\r\n") == nil)
+    }
+
     @Test("invalid fields resolve to no execution and explain themselves")
     func invalidFieldsAreRejected() {
         #expect(
