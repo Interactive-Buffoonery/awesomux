@@ -183,6 +183,7 @@ struct WorktreeManagerModelTests {
         let groupID = UUID()
         var capturedAddGroupID: UUID?
         let model = makeModel(
+            groups: { [SessionGroup(id: groupID, name: "work", sessions: [])] },
             currentGroupID: { groupID },
             add: { _, _, id in
                 capturedAddGroupID = id; return nil
@@ -195,7 +196,39 @@ struct WorktreeManagerModelTests {
             Issue.record("Expected failed open")
             return
         }
+        #expect(outcome == .failed("The current workspace group is no longer available."))
         #expect(capturedAddGroupID == groupID)
+    }
+
+    @Test("open tells users to create a group when none exists")
+    func openExplainsHowToRecoverWithoutGroups() async {
+        var addCalls = 0
+        let model = makeModel(add: { _, _, _ in
+            addCalls += 1
+            return UUID()
+        })
+
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+
+        #expect(outcome == .failed("Create a workspace group from the Workspace menu, then try again."))
+        #expect(addCalls == 0)
+    }
+
+    @Test("open tells users to select a group when groups exist")
+    func openExplainsHowToRecoverWithoutSelection() async {
+        var addCalls = 0
+        let model = makeModel(
+            groups: { [SessionGroup(name: "work", sessions: [])] },
+            add: { _, _, _ in
+                addCalls += 1
+                return UUID()
+            }
+        )
+
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+
+        #expect(outcome == .failed("Select a workspace group, then try again."))
+        #expect(addCalls == 0)
     }
 
     @Test("open revalidates repository identity before focusing or creating")
