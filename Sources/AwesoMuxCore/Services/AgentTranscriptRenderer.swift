@@ -653,11 +653,14 @@ public enum AgentTranscriptRenderer {
 
         switch kind {
         case "message":
+            let role = payload["role"] as? String ?? "message"
+            // Codex emits harness setup as explicit non-conversation roles.
+            guard role != "system", role != "developer" else { return nil }
             return turn(
-                role: payload["role"] as? String ?? "message",
+                role: role,
                 detail: nil,
                 isSidechain: false,
-                body: plainText(from: payload["content"])
+                body: plainText(from: role == "user" ? codexUserContent(payload) : payload["content"])
             )
         case "agent_message":
             return turn(
@@ -695,6 +698,23 @@ public enum AgentTranscriptRenderer {
             // `tool_search_call`, `tool_search_output`, `web_search_call`, and
             // every payload type a future release adds.
             return nil
+        }
+    }
+
+    /// Codex writes provider-owned content kinds aligned with user content items.
+    /// Missing or malformed provenance stays visible so legacy user input is never guessed away.
+    private static func codexUserContent(_ payload: [String: Any]) -> Any? {
+        guard let content = payload["content"] as? [Any],
+            let metadata = payload["internal_chat_message_metadata_passthrough"] as? [String: Any],
+            let kinds = metadata["content_item_kinds"] as? [String],
+            kinds.count == content.count
+        else { return payload["content"] }
+
+        return zip(content, kinds).compactMap { item, kind -> Any? in
+            switch kind {
+            case "agents_md.instructions", "environments.environment_context": return nil
+            default: return item
+            }
         }
     }
 
