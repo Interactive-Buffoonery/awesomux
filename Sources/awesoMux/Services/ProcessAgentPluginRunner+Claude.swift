@@ -1,5 +1,6 @@
 import AwesoMuxConfig
 import Foundation
+import SecureFileIO
 
 // MARK: - Claude Code path
 
@@ -103,6 +104,12 @@ extension ProcessAgentPluginRunner {
         }
 
         guard let entry = entries.first(where: { $0.matches(ref) }) else {
+            if claudeSettingsEnablePlugin(ref: ref, setup: setup) {
+                return AgentPluginStatusReport(
+                    status: .needsRepair(
+                        "Claude settings enable the awesoMux status plugin, but Claude does not list it; Repair to reinstall it"
+                    ))
+            }
             return AgentPluginStatusReport(status: .notInstalled)
         }
 
@@ -134,6 +141,28 @@ extension ProcessAgentPluginRunner {
         }
 
         return AgentPluginStatusReport(status: .enabled)
+    }
+
+    /// Claude's list is authoritative except for its known omission of an
+    /// enabled plugin whose marketplace can no longer resolve. The settings
+    /// check is bounded and fail-closed so arbitrary user config cannot block a
+    /// routine status probe or turn unreadable state into a repair claim.
+    private func claudeSettingsEnablePlugin(
+        ref: AgentPluginMarketplaceRef,
+        setup: AgentIntegrationSetup
+    ) -> Bool {
+        let settingsURL = claudeConfigHome(setup: setup).appending(path: "settings.json")
+        guard
+            let contents = try? SecureFileReader.read(
+                at: settingsURL,
+                maximumBytes: 1_048_576,
+                symlinkPolicy: .resolve
+            ),
+            let settings = try? JSONDecoder().decode(ClaudePluginSettings.self, from: contents.data)
+        else {
+            return false
+        }
+        return settings.enabledPlugins?[ref.pluginRef] == true
     }
 
     /// Outcome of comparing the entry's deployed cache copy against a fresh
@@ -526,6 +555,10 @@ extension ProcessAgentPluginRunner {
 enum ClaudeInstalledPresence: Equatable, Sendable {
     case absent
     case installed(installPath: String?)
+}
+
+private struct ClaudePluginSettings: Decodable {
+    let enabledPlugins: [String: Bool]?
 }
 
 /// One entry from `claude plugin list --json`. The shape carries at least a
