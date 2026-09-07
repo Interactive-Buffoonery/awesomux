@@ -52,6 +52,13 @@ public enum AgentHookCommand {
         let eventName: String?
         switch invocation {
         case .hookPayload(let provider):
+            // Claude Code marks commands launched from its child session. Its
+            // environment reaches nested `codex exec`, whose lifecycle hooks
+            // would otherwise claim the enclosing Claude pane's JSONL stream.
+            guard !(provider == .codex && environment["CLAUDE_CODE_CHILD_SESSION"] == "1") else {
+                log(provider: provider, eventName: nil, category: "nested-child-session")
+                return 0
+            }
             guard stdin.count <= maximumInputByteCount else {
                 log(provider: provider, eventName: nil, category: "oversized-input")
                 return 0
