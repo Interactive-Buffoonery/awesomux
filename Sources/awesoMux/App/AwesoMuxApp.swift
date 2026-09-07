@@ -1462,13 +1462,17 @@ struct AwesoMuxApp: App {
             }
 
             CommandGroup(replacing: .help) {
-                Button(keyboardCheatsheetMenuTitle) {
+                Button("Keyboard Shortcuts") {
+                    // A real `.keyboardShortcut` auto-repeats its action while
+                    // held. Keep this scoped to the menu action so Settings and
+                    // palette callers never depend on ambient `NSApp.currentEvent`.
+                    guard !(NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.isARepeat == true) else {
+                        ShortcutDiagnostics.log("stage=keyboardCheatsheetMenuAction repeat=true action=ignore")
+                        return
+                    }
                     toggleKeyboardCheatsheet()
                 }
-                // Interceptor-only by design: Cmd-/ still routes through
-                // `AwesoMuxApplication.sendEvent`'s `KeyboardCheatsheetShortcut`
-                // branch. Migrating it to a real `.keyboardShortcut` (the fix
-                // Command Palette got in INT-643) is a separate follow-up.
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.showKeyboardCheatsheet))
                 .disabled(isAnySheetPresented)
 
                 // Same URL and picker as the sidebar footer's feedback menu
@@ -2860,10 +2864,6 @@ struct AwesoMuxApp: App {
 
     private var sidebarVisibilityMenuTitle: String {
         SidebarVisibilityActionTitle.resolve(isHidden: isSidebarPersistentlyHidden)
-    }
-
-    private var keyboardCheatsheetMenuTitle: String {
-        "Keyboard Shortcuts    \(shortcut(KeyboardShortcutCatalog.showKeyboardCheatsheet).displaySymbol)"
     }
 
     private func closeActivePaneOrWindow() {
