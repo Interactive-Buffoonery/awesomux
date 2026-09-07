@@ -708,6 +708,9 @@
     "Auto-cleanup" : {
 
     },
+    "Auto-cleanup is off." : {
+      "comment" : "Session Manager footer accessibility summary when auto-cleanup is disabled"
+    },
     "BSD Notice" : {
       "comment" : "Button opening a BSD license notice"
     },
@@ -1166,6 +1169,9 @@
     },
     "Configuration was reset after the file was removed" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Configure auto-cleanup in Settings" : {
+      "comment" : "Session Manager button that opens the auto-cleanup controls in Terminal settings"
     },
     "Configure ›" : {
 
@@ -2832,6 +2838,9 @@
     },
     "Pinned sessions are exempt from auto-cleanup." : {
 
+    },
+    "Pinned sessions are exempt." : {
+      "comment" : "Session Manager footer accessibility summary for pinned sessions"
     },
     "Pinned, from %arg" : {
       "comment" : "Spoken on a pinned sidebar workspace — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."

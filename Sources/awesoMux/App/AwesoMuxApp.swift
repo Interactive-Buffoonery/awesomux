@@ -624,6 +624,9 @@ struct AwesoMuxApp: App {
                     firstRunTourController.appSettingsStore = appSettingsStore
                     firstRunTourController.onOpenAgentSettings = { openSettingsWindow(section: .agents) }
                 sessionManagerController.appSettingsStore = appSettingsStore
+                    sessionManagerController.onConfigureAutoCleanup = {
+                        openSettingsWindow(section: .terminal)
+                    }
                 worktreeManagerController.appSettingsStore = appSettingsStore
                 appDelegate.bind(
                     sessionStore: sessionStore,
