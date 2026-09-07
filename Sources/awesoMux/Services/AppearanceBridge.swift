@@ -90,9 +90,8 @@ extension AppearanceBridge {
 
 extension AwUIFontResolver {
     /// Build a resolver from a raw `appearance.ui_font` value using the cached
-    /// installed-proportional-family index. Kept in the app target so
-    /// `DesignSystem` stays AppKit-agnostic; `DesignSystem` owns the fallback
-    /// policy (`init(rawFamily:canonicalFamily:)`), this only supplies the probe.
+    /// installed-proportional-family index. `DesignSystem` owns the fallback
+    /// policy (`init(rawFamily:canonicalFamily:)`); this supplies the AppKit probe.
     ///
     /// The match is case-insensitive and returns the catalog's own spelling:
     /// `Font.custom`/`NSFontManager` resolve family names case-insensitively, so
@@ -100,8 +99,9 @@ extension AwUIFontResolver {
     /// and the picker must label it as installed — not silently fall back.
     @MainActor
     static func resolvedForSystem(rawFamily: String) -> AwUIFontResolver {
-        let index = SettingsFontFamily.proportionalFamilyIndex()
-        return AwUIFontResolver(rawFamily: rawFamily) { index[$0.lowercased()] }
+        AwUIFontResolver(rawFamily: rawFamily) {
+            SettingsFontFamily.proportionalFamilyIndex()[$0.lowercased()]
+        }
     }
 }
 
