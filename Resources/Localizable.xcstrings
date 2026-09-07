@@ -1378,6 +1378,9 @@
         }
       }
     },
+    "Create a workspace group from the Workspace menu, then try again." : {
+      "comment" : "Worktree Manager open recovery when no workspace group exists."
+    },
     "Create a workspace with %arg, or reopen the last one you closed." : {
       "comment" : "Empty-state guidance when a recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the empty-state guidance with reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
     },
@@ -3659,6 +3662,9 @@
     },
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
+    },
+    "Select a workspace group, then try again." : {
+      "comment" : "Worktree Manager open recovery when no workspace group is selected."
     },
     "Select an agent transcript tab first — Resume acts on the transcript you're reading" : {
       "comment" : "Unavailable reason for resuming when the selected document tab is not an agent transcript"
