@@ -228,6 +228,35 @@ that isolation is the GC ownership boundary, not a bug.
 Note `$TMPDIR` ends with a slash on macOS and is per-user; both sides of the
 pairing must be the same user.
 
+## Investigating launch-time cleanup
+
+Launch-time garbage collection records daemon reap dispatches and successful
+orphan attach-client signals at notice level in the macOS unified log under
+subsystem `awesomux.daemon`, category `gc`. Query retained records after a
+relaunch with:
+
+```sh
+/usr/bin/log show --last 1d --style compact \
+  --predicate 'subsystem == "awesomux.daemon" AND category == "gc"'
+```
+
+Daemon dispatch records include the session ID, shell PID, creation epoch, and
+reason (`unreachable idle unattached daemon`). Attach-client records include the
+PID, session ID, and signal (`SIGTERM` or escalation to `SIGKILL`). These
+records omit command lines, working directories, and terminal contents.
+They are subject to macOS log retention; they are not a permanent audit archive.
+
+A dispatch or successful signal does not prove that a process exited. The
+daemon summary reports how many targeted session names are absent from the
+final list; an unavailable or malformed final list reports an unknown outcome.
+Attach-client summaries count successful TERM signals, not confirmed exits.
+Errors include failed reap dispatches and failed signals.
+
+Cleanup records do not restore a terminated process or its scrollback. If a
+session is still listed, the profile-scoped `history` command above can inspect
+its surviving scrollback. Retain relevant log records when reporting an
+unexpected session loss.
+
 ## Trust boundary
 
 All panes of one user + app profile are a single security domain: the sockets
