@@ -49,9 +49,9 @@ public enum FuzzyMatcher {
         // start would yield a much higher score (e.g. `cod` in
         // `cxxxxxxxxx Code` — greedy locks onto the bare `c` and misses the
         // contiguous word-boundary `Cod` run). Try every viable starting
-        // anchor and keep the best result. O(n²) worst case; sidebar
-        // haystacks are short (titles, abbreviated paths) so this is well
-        // within budget on every keystroke.
+        // anchor and keep the best result. A failed greedy alignment proves
+        // later anchors cannot match; successful repeated prefixes can still
+        // be quadratic. `ponytail:` add DP only if that becomes measured.
         var best: FuzzyMatchResult?
         var cursor = haystack.startIndex
         while cursor < haystack.endIndex {
@@ -64,6 +64,8 @@ public enum FuzzyMatcher {
                     if best.map({ candidate.score > $0.score }) ?? true {
                         best = candidate
                     }
+                } else {
+                    break
                 }
             }
             cursor = haystack.index(after: cursor)

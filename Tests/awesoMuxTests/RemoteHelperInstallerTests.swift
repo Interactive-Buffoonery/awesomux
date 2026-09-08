@@ -294,7 +294,7 @@ struct RemoteHelperInstallerTests {
         var events: [String] = []
 
         let outcome = try await RemoteHelperInstaller.performApprovedInstallation(
-            helper: prepared,
+            acquisition: { .init(prepared: prepared, cleanupDirectory: nil) },
             action: .update,
             remote: remote,
             controlPath: "/tmp/control/%C",
@@ -333,7 +333,8 @@ struct RemoteHelperInstallerTests {
         )
 
         #expect(outcome == .installed)
-        #expect(events == ["authority", "confirmation", "authority", "install", "verify", "authority", "success"])
+        #expect(
+            events == ["authority", "confirmation", "authority", "authority", "install", "authority", "verify", "authority", "success"])
     }
 
     @MainActor
@@ -347,7 +348,7 @@ struct RemoteHelperInstallerTests {
         var installCount = 0
 
         let cancelled = try await RemoteHelperInstaller.performApprovedInstallation(
-            helper: prepared,
+            acquisition: { .init(prepared: prepared, cleanupDirectory: nil) },
             action: .install,
             remote: remote,
             controlPath: "/tmp/control/%C",
@@ -366,7 +367,7 @@ struct RemoteHelperInstallerTests {
         var authorityCheckCount = 0
         await #expect(throws: RemoteHandoff.Failure.destinationChanged) {
             try await RemoteHelperInstaller.performApprovedInstallation(
-                helper: prepared,
+                acquisition: { .init(prepared: prepared, cleanupDirectory: nil) },
                 action: .install,
                 remote: remote,
                 controlPath: "/tmp/control/%C",
@@ -398,7 +399,7 @@ struct RemoteHelperInstallerTests {
 
         await #expect(throws: RemoteHelperInstaller.Failure.verificationFailed) {
             try await RemoteHelperInstaller.performApprovedInstallation(
-                helper: prepared,
+                acquisition: { .init(prepared: prepared, cleanupDirectory: nil) },
                 action: .install,
                 remote: remote,
                 controlPath: "/tmp/control/%C",

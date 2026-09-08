@@ -4,6 +4,15 @@ import Testing
 @Suite("FuzzyMatcher")
 struct FuzzyMatchTests {
 
+    @Test("failed later anchor retains an earlier match")
+    func failedLaterAnchorRetainsEarlierMatch() throws {
+        let haystack = "aaab"
+        let result = try #require(FuzzyMatcher.match(query: "aab", in: haystack))
+        #expect(result.ranges.map { String(haystack[$0]) } == ["a", "a", "b"])
+        #expect(result.score == 12)
+        #expect(result.ranges.map { haystack.distance(from: haystack.startIndex, to: $0.lowerBound) } == [0, 1, 3])
+    }
+
     @Test("Empty query returns nil")
     func emptyQueryReturnsNil() {
         #expect(FuzzyMatcher.match(query: "", in: "anything") == nil)
