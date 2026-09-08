@@ -51,7 +51,9 @@ final class IDEReorderSession {
 
 /// Like PaneDragSource, use AppKit's end callback for Escape and off-window drops.
 struct IDEPriorityDragSource: NSViewRepresentable {
-    static let contentType = UTType(exportedAs: "com.interactivebuffoonery.awesomux.ide-priority")
+    // Custom types can prevent SwiftUI from receiving AppKit drag hover events.
+    // Match the registered text type used by the sidebar and pane drag sources.
+    static let contentType = UTType.utf8PlainText
     let bundleID: String
     let image: NSImage
     let begin: () -> (() -> Void)
