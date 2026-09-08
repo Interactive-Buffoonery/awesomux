@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import SwiftUI
 @testable import awesoMux
 
@@ -8,6 +9,74 @@ import SwiftUI
 
 @Suite("MarkdownAttributedStringBuilder")
 struct MarkdownTextViewTests {
+
+    @Test("hosted view refreshes canonically equivalent source bytes")
+    @MainActor
+    func hostedViewRefreshesCanonicallyEquivalentSourceBytes() async throws {
+        let nfc = "café word"
+        let nfd = "cafe\u{301} word"
+        let fixture = MarkdownTextViewSourceIdentityFixture(source: nfc)
+        let hosted = SidebarHostedTestHarness.makeWindow(
+            rootView: MarkdownTextViewSourceIdentityHost(fixture: fixture),
+            frame: NSRect(x: 0, y: 0, width: 400, height: 200)
+        )
+        defer { hosted.window.close() }
+
+        #expect(await waitUntil { fixture.textView != nil })
+        let textView = try #require(fixture.textView)
+        let coordinator = try #require(textView.delegate as? MarkdownTextViewCoordinator)
+        #expect(textView.string.utf8.elementsEqual(nfc.utf8))
+        #expect(coordinator.lastDoc?.source.utf8.elementsEqual(nfc.utf8) == true)
+
+        fixture.source = nfd
+        hosted.hostingView.rootView = MarkdownTextViewSourceIdentityHost(fixture: fixture)
+        hosted.hostingView.layoutSubtreeIfNeeded()
+        #expect(await waitUntilEventually { textView.string.utf8.elementsEqual(nfd.utf8) })
+        #expect(fixture.textView === textView)
+        #expect(coordinator.lastDoc?.source.utf8.elementsEqual(nfd.utf8) == true)
+
+        textView.setSelectedRange(NSRange(location: 6, length: 4))
+        coordinator.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
+        #expect(await waitUntil { fixture.selectedSourceSpan == 7..<11 })
+        let span = try #require(fixture.selectedSourceSpan)
+        let annotation = try #require(
+            PlanAnnotationWriter.insertingAnnotation(
+                in: nfd, span: span, author: .user, payload: "note", id: "nfdword"
+            ))
+        #expect(annotation.source.utf8.starts(with: "cafe\u{301} <mark>word</mark>".utf8))
+
+        fixture.copiesPlainTextOnly = true
+        hosted.hostingView.rootView = MarkdownTextViewSourceIdentityHost(fixture: fixture)
+        hosted.hostingView.layoutSubtreeIfNeeded()
+        #expect(
+            await waitUntilEventually {
+                fixture.textView === textView
+                    && (textView as? SelectionAwareTextView)?.copiesPlainTextOnly == true
+            })
+        #expect((textView as? SelectionAwareTextView)?.copiesPlainTextOnly == true)
+        #expect(textView.selectedRange() == NSRange(location: 6, length: 4))
+
+        fixture.source = nfc
+        hosted.hostingView.rootView = MarkdownTextViewSourceIdentityHost(fixture: fixture)
+        hosted.hostingView.layoutSubtreeIfNeeded()
+        #expect(await waitUntilEventually { textView.string.utf8.elementsEqual(nfc.utf8) })
+        #expect(fixture.textView === textView)
+        #expect(coordinator.lastDoc?.source.utf8.elementsEqual(nfc.utf8) == true)
+
+        textView.setSelectedRange(NSRange(location: 5, length: 4))
+        coordinator.textViewDidChangeSelection(
+            Notification(name: NSTextView.didChangeSelectionNotification, object: textView)
+        )
+        #expect(await waitUntil { fixture.selectedSourceSpan == 6..<10 })
+        let reverseSpan = try #require(fixture.selectedSourceSpan)
+        let reverseAnnotation = try #require(
+            PlanAnnotationWriter.insertingAnnotation(
+                in: nfc, span: reverseSpan, author: .user, payload: "note", id: "nfcword"
+            ))
+        #expect(reverseAnnotation.source.utf8.starts(with: "café <mark>word</mark>".utf8))
+    }
 
     @Test("selection changes coalesce to the final state per run-loop turn")
     @MainActor
@@ -485,7 +554,7 @@ struct MarkdownTextViewDocumentLinkWiringTests {
     }
 }
 
-// MARK: - Task 5: applyHighlights tests
+// MARK: - Highlight rendering tests
 
 /// These tests operate directly on `NSMutableAttributedString` — no view
 /// instantiated, no layout manager required. They exercise the contract that
@@ -906,5 +975,42 @@ struct ScrollAnchorRestoreTests {
         #expect(
             scrollView.contentView.bounds.origin.y > 100,
             "mid-paragraph restore must scroll to the containing wrapped line, not the paragraph top")
+    }
+}
+
+@MainActor
+private final class MarkdownTextViewSourceIdentityFixture {
+    var source: String
+    var copiesPlainTextOnly = false
+    var selectedSourceSpan: Range<Int>?
+    var textView: NSTextView?
+
+    init(source: String) {
+        self.source = source
+    }
+}
+
+@MainActor
+private struct MarkdownTextViewSourceIdentityHost: View {
+    let fixture: MarkdownTextViewSourceIdentityFixture
+    let sourceBytes: [UInt8]
+    let copiesPlainTextOnly: Bool
+
+    init(fixture: MarkdownTextViewSourceIdentityFixture) {
+        self.fixture = fixture
+        sourceBytes = Array(fixture.source.utf8)
+        copiesPlainTextOnly = fixture.copiesPlainTextOnly
+    }
+
+    var body: some View {
+        MarkdownTextView(
+            doc: AttributedMarkdownBuilder.build(String(decoding: sourceBytes, as: UTF8.self)),
+            selectedSourceSpan: Binding(
+                get: { fixture.selectedSourceSpan },
+                set: { fixture.selectedSourceSpan = $0 }
+            ),
+            copiesPlainTextOnly: copiesPlainTextOnly,
+            onTextViewAvailable: { fixture.textView = $0 }
+        )
     }
 }
