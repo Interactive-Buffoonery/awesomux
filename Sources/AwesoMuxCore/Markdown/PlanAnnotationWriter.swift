@@ -35,6 +35,7 @@ public enum PlanAnnotationWriter {
         let document = Document(parsing: source)
         let sourceByteCount = source.utf8.count
         var result: [LocatedMarker] = []
+        var sourceBytes: [UInt8]?
 
         func byteRange(of node: any Markup) -> Range<Int>? {
             guard let r = node.range,
@@ -62,7 +63,8 @@ public enum PlanAnnotationWriter {
                 guard let lineStart = mapper.utf8Offset(forLine: lineNumber, column: 1) else { continue }
                 let lineEnd = mapper.utf8Offset(forLine: lineNumber + 1, column: 1).map { $0 - 1 }
                     ?? sourceByteCount
-                let lineText = byteSlice(source, lineStart..<lineEnd)
+                if sourceBytes == nil { sourceBytes = Array(source.utf8) }
+                let lineText = String(decoding: sourceBytes![lineStart..<lineEnd], as: UTF8.self)
                 guard let lo = lineText.range(of: "<!--"),
                       let hi = lineText.range(of: "-->", options: .backwards),
                       lo.lowerBound < hi.upperBound else { continue }
@@ -321,13 +323,6 @@ public enum PlanAnnotationWriter {
             .trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: "\\|", with: "|")
         return (n, note)
-    }
-
-    // MARK: - Byte helpers
-
-    private static func byteSlice(_ source: String, _ range: Range<Int>) -> String {
-        let bytes = Array(source.utf8)
-        return String(decoding: bytes[range], as: UTF8.self)
     }
 
     /// Apply edits back-to-front against one shared byte buffer, so earlier

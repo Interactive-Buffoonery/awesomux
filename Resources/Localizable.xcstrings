@@ -1340,6 +1340,17 @@
     "Couldn’t Read Scrollback" : {
       "comment" : "Heading when Show Scrollback cannot read terminal history"
     },
+    "Couldn’t connect or undo the saved managed SSH preference. Review it in Settings." : {
+      "comment" : "Error when a failed SSH submission cannot roll back its remembered preference",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t connect or undo the saved managed SSH preference. Review it in Settings."
+          }
+        }
+      }
+    },
     "Couldn’t connect. The workspace is no longer available." : {
       "comment" : "Error shown when a managed SSH connection request targets a workspace that no longer exists"
     },
