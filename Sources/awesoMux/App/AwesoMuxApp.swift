@@ -390,6 +390,7 @@ struct AwesoMuxApp: App {
             //
             // Any future animation in this root view should check
             // `@Environment(\.accessibilityReduceMotion)` before animating.
+            let hasBlockingRecoveryWarning = recoveryWarning?.preventsInitialSave == true
             let rootContent = ContentView(
                 sessionStore: sessionStore,
                 ghosttyRuntime: ghosttyRuntime,
@@ -412,8 +413,15 @@ struct AwesoMuxApp: App {
                     didSucceed: recoveryReplacementSuccessID != nil
                 ),
                 onReviewRecoveryWarning: reviewRecoveryWarning,
-                hasSessionSaveFailure: sessionSaveFailure != nil,
-                onRetrySessionSave: saveSessionIfRestoreEnabled,
+                hasSessionSaveFailure: sessionSaveFailure != nil || hasBlockingRecoveryWarning,
+                hasBlockingRecoveryWarning: hasBlockingRecoveryWarning,
+                onRetrySessionSave: {
+                    if hasBlockingRecoveryWarning {
+                        reviewRecoveryWarning()
+                    } else {
+                        saveSessionIfRestoreEnabled()
+                    }
+                },
                 onOpenQuickSettings: requestQuickSettings,
                 onShowWelcomeTour: { firstRunTourController.show() },
                 onToggleCommandPalette: toggleCommandPalette,
@@ -674,8 +682,20 @@ struct AwesoMuxApp: App {
                     }
             }
 
-            let rootContentAfterGroupsWatch =
+            let rootContentAfterSaveStatus =
                 rootContentAfterAppear
+                .onChange(of: sessionSaveFailure) { _, failure in
+                    guard failure == .warningNotActive,
+                        let warning = SessionPersistence.activeRecoveryWarning,
+                        recoveryWarning?.id != warning.id
+                    else { return }
+                    recoveryWarning = warning
+                    recoveryWarningAppearedMidSession = true
+                    didPresentRecoveryWarning = false
+                }
+
+            let rootContentAfterGroupsWatch =
+                rootContentAfterSaveStatus
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
@@ -5571,7 +5591,7 @@ extension AwesoMuxApp {
             return
         }
         SessionPersistence.save(store) { result in
-            record(result, in: failure)
+            recordSessionSaveResult(result, in: failure)
         }
     }
 
@@ -5598,10 +5618,10 @@ extension AwesoMuxApp {
     private func handleSessionSaveResult(
         _ result: Result<Void, SessionPersistence.RecoverySnapshotReplacementError>
     ) {
-        Self.record(result, in: $sessionSaveFailure)
+        Self.recordSessionSaveResult(result, in: $sessionSaveFailure)
     }
 
-    private static func record(
+    static func recordSessionSaveResult(
         _ result: Result<Void, SessionPersistence.RecoverySnapshotReplacementError>,
         in failure: Binding<SessionPersistence.RecoverySnapshotReplacementError?>
     ) {
@@ -5609,7 +5629,6 @@ extension AwesoMuxApp {
         case .success:
             failure.wrappedValue = nil
         case let .failure(error):
-            guard error != .warningNotActive else { return }
             failure.wrappedValue = error
         }
     }
@@ -5626,8 +5645,8 @@ extension AwesoMuxApp {
     }
 
     /// The setting's two edges are not symmetric. Turning it ON is a chance to
-    /// tell the user that the snapshot on disk is unreadable — `save` validates
-    /// regardless, but has no return path to the UI. Turning it OFF has to drop
+    /// tell the user that the snapshot on disk is unreadable before a save
+    /// attempts the same validation. Turning it OFF has to drop
     /// a write the debouncer already captured, which no longer re-reads the
     /// setting, and re-arm validation so a later opt-in re-inspects a file that
     /// may have changed while nothing was watching it.
@@ -5680,16 +5699,15 @@ extension AwesoMuxApp {
             if shouldAcknowledgeRecoveryWarning(
                 decision: decision,
                 allowsAutomaticWritesAfterAcknowledgement:
-                    warning.allowsAutomaticWritesAfterAcknowledgement
+                    SessionPersistence.canAcknowledgeRecoveryWarning(warning)
             ) {
-                if SessionPersistence.acknowledgeRecoveryWarning(
+                Self.acknowledgeRecoveryWarning(
                     warning,
                     thenSaving: appSettingsStore.general.value.restoreWorkspaces
                         ? sessionStore : nil,
-                    completion: handleSessionSaveResult
-                ) {
-                    recoveryWarning = nil
-                }
+                    recoveryWarning: $recoveryWarning,
+                    failure: $sessionSaveFailure
+                )
             } else if !warning.preventsInitialSave {
                 recoveryWarning = nil
             }
@@ -5697,6 +5715,27 @@ extension AwesoMuxApp {
         }
 
         beginRecoveryReplacement(warning)
+    }
+
+    @MainActor
+    static func acknowledgeRecoveryWarning(
+        _ warning: SessionPersistence.SessionRecoveryWarning,
+        thenSaving store: SessionStore?,
+        recoveryWarning: Binding<SessionPersistence.SessionRecoveryWarning?>,
+        failure: Binding<SessionPersistence.RecoverySnapshotReplacementError?>
+    ) {
+        guard
+            SessionPersistence.acknowledgeRecoveryWarning(
+                warning,
+                thenSaving: store,
+                completion: { recordSessionSaveResult($0, in: failure) }
+            )
+        else { return }
+        // The catch-up save can synchronously revalidate the file and raise a new gate.
+        recoveryWarning.wrappedValue = SessionPersistence.activeRecoveryWarning
+        if recoveryWarning.wrappedValue == nil {
+            failure.wrappedValue = nil
+        }
     }
 
     private func beginRecoveryReplacement(
