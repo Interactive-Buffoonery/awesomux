@@ -277,6 +277,36 @@ struct TOMLConfigCodecTests {
         #expect(decoded.workspaces.managedSSHAlwaysManageAllDestinations)
     }
 
+    @Test("128 always-managed destinations round-trip", arguments: [false, true])
+    func alwaysManagedDestinationsAtTableLimitRoundTrip(remote: Bool) throws {
+        let entries = Dictionary(
+            uniqueKeysWithValues: (0..<128).map {
+                ("user@host\($0).example.com", ManagedSSHAlwaysManagedEntry(sessionName: remote ? "work" : nil))
+            })
+        let config = AwesoMuxConfig(workspaces: WorkspaceConfig(managedSSHAlwaysManaged: entries))
+
+        let data = try codec.encode(config)
+        let decoded = try codec.decode(data)
+
+        #expect(decoded.workspaces.managedSSHAlwaysManaged == entries)
+    }
+
+    @Test("129 always-managed destinations are rejected before writing", arguments: [false, true])
+    func alwaysManagedDestinationsOverTableLimitRejected(remote: Bool) throws {
+        let entries = Dictionary(
+            uniqueKeysWithValues: (0..<129).map {
+                ("user@host\($0).example.com", ManagedSSHAlwaysManagedEntry(sessionName: remote ? "work" : nil))
+            })
+        let config = AwesoMuxConfig(workspaces: WorkspaceConfig(managedSSHAlwaysManaged: entries))
+        let expectedError = ConfigLoadError.invalidValue(
+            path: "workspaces.managed_ssh_always_managed",
+            message: "Always-managed SSH destinations must contain at most 128 entries"
+        )
+
+        #expect(throws: expectedError) { try codec.encode(config) }
+        #expect(throws: expectedError) { try codec.encodeString(config) }
+    }
+
     @Test("an always-managed destination survives a config the app rewrites")
     func alwaysManagedSurvivesRewrite() throws {
         // Both characters that force quoting, and the dot is the one that

@@ -9,6 +9,7 @@ private let configLogger = Logger(
 
 public struct TOMLConfigCodec: Sendable {
     static let maxInputSize = 256 * 1024
+    static let maxTableKeys = 128
     static var inputTooLargeError: ConfigLoadError {
         .invalidValue(path: "$", message: "Input exceeds maximum size of \(maxInputSize) bytes")
     }
@@ -577,11 +578,8 @@ public struct TOMLConfigCodec: Sendable {
         guard let data = try encodeString(config).data(using: .utf8) else {
             throw .invalidValue(path: "$", message: "Unable to encode config as UTF-8")
         }
-        // Symmetric with the decode cap: refuse to write a config bigger
-        // than the parser is willing to read back. Today the schema is
-        // fixed-size and this is unreachable; once any field grows into a
-        // list (recent workspaces, palette overrides), this guard prevents
-        // a self-bricking config that the next launch can't load.
+        // Refuse to write a config bigger than the parser can read back.
+        // Growable tables also enforce the per-table key cap in validate().
         guard data.count <= Self.maxInputSize else {
             throw .invalidValue(
                 path: "$",
@@ -736,7 +734,7 @@ public struct TOMLConfigCodec: Sendable {
         decoder.limits = TOMLDecoder.DecodingLimits(
             maxInputSize: Self.maxInputSize,
             maxDepth: 16,
-            maxTableKeys: 128,
+            maxTableKeys: Self.maxTableKeys,
             maxArrayLength: 256,
             maxStringLength: 8 * 1024
         )
