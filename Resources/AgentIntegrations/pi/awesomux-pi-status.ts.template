@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { spawn } from "node:child_process"
 
+const HOOK_TIMEOUT_MS = 1_000
+
 const AWESOMUX_PROTOCOL = "awesomux-agent-v1"
 
 type HookEventName =
@@ -35,14 +37,23 @@ async function emitAwesoMuxHook(
             stdio: ["pipe", "ignore", "ignore"],
         })
 
-        child.once("error", () => resolve())
-        child.once("close", () => resolve())
+        const finish = () => {
+            clearTimeout(timeout)
+            resolve()
+        }
+        const timeout = setTimeout(() => {
+            child.kill("SIGKILL")
+            finish()
+        }, HOOK_TIMEOUT_MS)
+        child.once("error", finish)
+        child.once("close", finish)
         child.stdin.once("error", () => {})
 
         try {
             child.stdin.end(payload)
         } catch {
-            resolve()
+            child.kill("SIGKILL")
+            finish()
         }
     })
 }

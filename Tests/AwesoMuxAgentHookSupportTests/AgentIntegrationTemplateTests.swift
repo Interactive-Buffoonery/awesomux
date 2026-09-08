@@ -133,6 +133,31 @@ struct AgentIntegrationTemplateTests {
     }
 
     @Test
+    func piTemplateBoundsHungHelpersAndPreservesNormalEvents() throws {
+        let root = try Self.packageRootURL()
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-pi-timeout")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let templateURL = temporaryDirectory.url.appendingPathComponent("extension.ts")
+        let template = try Self.contents(
+            of: "Resources/AgentIntegrations/pi/awesomux-pi-status.ts.template"
+        )
+        try Data(template.utf8).write(to: templateURL)
+        let node = try #require(
+            Self.executableOnPath("node"),
+            "Node with TypeScript stripping is required to evaluate the bundled Pi status template"
+        )
+        let process = Process()
+        process.executableURL = node
+        process.arguments = [
+            "--experimental-strip-types",
+            root.appendingPathComponent("Tests/Fixtures/pi-hook-timeout.mjs").path,
+            templateURL.path,
+        ]
+        let output = try captureOutput(of: process)
+        #expect(process.terminationStatus == 0, "Pi timeout harness failed: \(output.stderr)")
+    }
+
+    @Test
     func piTemplateDoesNotForwardSensitiveProviderPayloads() throws {
         let template = try Self.contents(
             of: "Resources/AgentIntegrations/pi/awesomux-pi-status.ts.template"
