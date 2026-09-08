@@ -512,7 +512,10 @@ struct WorkspaceSettingsPane: View {
                     ideReorder.end(id: id, currentPriority: idePriority, commit: commitOrder)
                 }
             }
-            // Leave the remove button's hit area with SwiftUI.
+            // Force the source view to fill the row: an NSViewRepresentable
+            // in an `.overlay` can otherwise collapse to its intrinsic
+            // (zero) size. Trailing padding leaves the remove button with SwiftUI.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.trailing, 32)
             .accessibilityHidden(true)
         }
