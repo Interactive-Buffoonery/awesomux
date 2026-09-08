@@ -98,38 +98,29 @@ struct LocalGitRepositoryLocator: Sendable {
     }
 
     func locate(startingAt startingURL: URL) async -> GitRepositoryLocationOutcome {
-        guard var directory = nearestExistingDirectory(to: startingURL) else {
+        guard let directory = nearestExistingDirectory(to: startingURL) else {
             return .notRepository
         }
 
-        while true {
-            let bareResult = await runner.run(
-                arguments: ["rev-parse", "--is-bare-repository"],
-                inDirectory: directory
-            )
-            switch bareResult {
-            case .success(let data):
-                guard let value = strictUTF8(data)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-                    return .failure(.malformedOutput)
-                }
-                if value == "true" {
-                    return .bareRepository
-                }
-                guard value == "false" else {
-                    return .failure(.malformedOutput)
-                }
-                break
-            case .nonZeroExit:
-                let parent = directory.deletingLastPathComponent()
-                guard parent.path != directory.path else {
-                    return .notRepository
-                }
-                directory = parent
-                continue
-            default:
-                return .failure(mapFailure(bareResult))
+        let bareResult = await runner.run(
+            arguments: ["rev-parse", "--is-bare-repository"],
+            inDirectory: directory
+        )
+        switch bareResult {
+        case .success(let data):
+            guard let value = strictUTF8(data)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return .failure(.malformedOutput)
             }
-            break
+            if value == "true" {
+                return .bareRepository
+            }
+            guard value == "false" else {
+                return .failure(.malformedOutput)
+            }
+        case .nonZeroExit:
+            return .notRepository
+        default:
+            return .failure(mapFailure(bareResult))
         }
 
         let contextResult = await runner.run(

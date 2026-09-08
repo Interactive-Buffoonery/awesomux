@@ -122,34 +122,34 @@ enum TextStorageSelectionPreservation {
 
 /// NSViewRepresentable wrapper over a selectable, non-editable `NSTextView`
 /// backed by `MarkdownAttributedStringBuilder`. Selection→source mapping lives
-/// in Task 4 (SelectionSourceMapping); this view exposes the seam via
+/// in `SelectionSourceMapping`; this view exposes the seam via
 /// `selectedSourceSpan`.
 ///
 /// ## INVARIANT
 /// The `NSTextView`'s text storage string equals
 /// `doc.runs.map(\.text).joined()` — no badge or markup characters inserted.
-/// Highlights are `.backgroundColor` attributes only (Task 5); badges are
-/// drawn by `CommentBadgeOverlay` (Task 5), a sibling overlay view.
+/// Highlights are `.backgroundColor` attributes only; badges are drawn by
+/// `CommentBadgeOverlay`, a sibling overlay view.
 ///
-/// ## Task seams
-/// - `selectedSourceSpan` (Task 4): coordinator sets this from
-///   `textViewDidChangeSelection`. Carries `nil` until SelectionSourceMapping
-///   is wired in Task 4.
-/// - `highlightColor` (Task 5): highlight tint for `<mark>` runs.
+/// ## Inputs and callbacks
+/// - `selectedSourceSpan`: coordinator sets this from
+///   `textViewDidChangeSelection`. Nil when the current selection has no safe
+///   source span.
+/// - `highlightColor`: highlight tint for `<mark>` runs.
 /// - `onPillClicked` (Bigfoot): callback when a comment `•••` pill is clicked.
 /// - `onAddPillClicked` (Bigfoot): callback when the add `•••` pill is clicked.
 /// - `annotationsInteractive`: disables annotation actions while their source snapshot reloads.
 /// - `selectionTouchesMark` (Bigfoot): suppresses the add pill when true.
 /// - `onTextViewAvailable` (Bigfoot): surfaces NSTextView reference for popover anchoring.
-/// - `scrollAnchorOffset` (Task 7): source offset to scroll-to on appear.
+/// - `scrollAnchorOffset`: source offset to scroll-to on appear.
 @MainActor
 struct MarkdownTextView: NSViewRepresentable {
     let doc: RenderedDocument
 
-    /// Task 4 seam: the selected source span in UTF-8 byte offsets.
+    /// Selected source span in UTF-8 byte offsets.
     @Binding var selectedSourceSpan: Range<Int>?
 
-    // Task 5/6/7 seams
+    // Rendering and scrolling inputs.
     var highlightColor: NSColor = .systemYellow.withAlphaComponent(0.3)
     /// Adaptive text color derived from the terminal background (INT-562 dark-on-dark fix).
     var textColor: NSColor? = nil
@@ -198,7 +198,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
     var scrollAnchorOffset: Int? = nil
 
-    /// Task 7: called from `makeNSView`/`updateNSView` with a closure that captures
+    /// Called from `makeNSView`/`updateNSView` with a closure that captures
     /// the coordinator's `scrollAnchorSourceOffset()` method.
     var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil
 
@@ -408,9 +408,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
 
-        // Task 5 / Bigfoot: badge overlay. Pills are the only popover trigger —
-        // clicking the highlighted text selects normally; only the •••  pill opens
-        // the comment popover. Hit-testing and mouseDown live in CommentBadgeOverlay.
+        // Comment and add pills open their associated popovers; selection finalization
+        // can also open the composer. Pill hit-testing lives in CommentBadgeOverlay.
         //
         // The overlay is a subview OF THE TEXT VIEW (not the clip view): it then
         // rides the documentView as it scrolls, and shares the text view's flipped
@@ -451,7 +450,7 @@ struct MarkdownTextView: NSViewRepresentable {
         // Surface the NSTextView reference to the parent for popover anchoring.
         onTextViewAvailable?(textView)
 
-        // Task 7: register the scroll-anchor capture closure with the parent view.
+        // Register the scroll-anchor capture closure with the parent view.
         onRegisterScrollAnchorCapture?({ [weak coordinator = context.coordinator] in
             coordinator?.scrollAnchorSourceOffset()
         })
@@ -502,7 +501,9 @@ struct MarkdownTextView: NSViewRepresentable {
         // the attributed string (color is baked in) and recompute badges (relayout) —
         // but must NOT re-fire the scroll anchor, or a theme switch would jump the
         // user back to a stale pendingScrollAnchor left over from the last reload.
-        let docSourceChanged = context.coordinator.lastSource != doc.source
+        // String equality hides normalization-only rewrites that change source offsets.
+        // ponytail: O(source bytes) per update; use a byte-aware revision if UI profiling warrants it.
+        let docSourceChanged = !(context.coordinator.lastSource?.utf8.elementsEqual(doc.source.utf8) ?? false)
         // ponytail: a fold rebuilds and re-lays out the WHOLE document, on the
         // main thread. Measured headless at ~1.2 s for a 20 000-line, ~40 000-run
         // diff (`foldCycleCostOnALargeDiff`), and the renderer's per-fence cap is
@@ -538,7 +539,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let displayDoc = Self.foldedDocument(
                 doc, index: sectionIndex, collapsed: collapsedSections)
             let attr = attributedString(for: displayDoc)
-            // Task 5: apply highlight backgrounds BEFORE setting on the text storage.
+            // Apply highlight backgrounds before setting the text storage.
             // applyHighlights mutates attr in place — no characters inserted.
             // Always wrap in a fresh NSMutableAttributedString so coordinator.currentAttr
             // and the value we hand to textStorage are guaranteed to be the same instance.
@@ -643,7 +644,7 @@ struct MarkdownTextView: NSViewRepresentable {
                 context.coordinator.sourceUpdateDidApply()
                 context.coordinator.publishSelectionState(in: textView)
 
-                // Task 7: source-anchored scroll — only on a real content reload, never on
+                // Source-anchored scroll — only on a real content reload, never on
                 // a textColor-only restyle (which would re-apply a stale anchor).
                 //
                 // A pass that reloads AND folds has two claims on the viewport.
@@ -730,7 +731,7 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.onOpenDocumentLink = onOpenDocumentLink
         context.coordinator.onSectionToggled = onSectionToggled
 
-        // Task 7: the sticky header repeats a heading row, so it takes the same
+        // The sticky header repeats a heading row, so it takes the same
         // surface, body and diff hues the document itself is drawn with.
         if sectionIndex != nil {
             context.coordinator.installStickyHeaderIfNeeded(in: scrollView)
@@ -746,12 +747,12 @@ struct MarkdownTextView: NSViewRepresentable {
             header.contentInset = textView.textContainerInset.width
         }
 
-        // Task 7: re-register the capture closure on every update pass.
+        // Re-register the capture closure on every update pass.
         onRegisterScrollAnchorCapture?({ [weak coordinator = context.coordinator] in
             coordinator?.scrollAnchorSourceOffset()
         })
 
-        // Task 5 + Bigfoot: reposition and update callbacks on the badge overlay.
+        // Reposition and update callbacks on the badge overlay.
         // The overlay autoresizes with the text view's bounds (it's a subview), so we
         // don't reset its frame here. Its space == the text view's flipped space.
         if let overlay = context.coordinator.badgeOverlay {
@@ -925,7 +926,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     private var textStorageRevision = 0
     private var adoptedAttributeRevision: Int? = nil
 
-    // Task 5
+    // Rendered-text view and badge overlay.
     weak var textView: NSTextView? = nil
     weak var badgeOverlay: CommentBadgeOverlay? = nil
 
@@ -939,7 +940,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     // INT-748 PR2: document links inherit the host tab's terminal association.
     var onOpenDocumentLink: ((URL) -> Void)? = nil
 
-    // Task 6: branch-changes folding.
+    // Branch-changes folding.
     var lastCollapsedSections: Set<String> = []
     var lastSectionIndex: BranchDiffSectionIndex? = nil
     var onSectionToggled: ((String) -> Void)? = nil
@@ -956,7 +957,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         onSectionToggled?(key)
     }
 
-    // Task 7: sticky section header.
+    // Sticky section header.
     weak var stickyHeader: BranchDiffStickyHeaderView? = nil
 
     /// Built on the first update pass that carries a section index, not in
@@ -1535,7 +1536,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         return true
     }
 
-    // MARK: - Scroll anchor (Task 7)
+    // MARK: - Scroll anchor
 
     /// Reads the UTF-8 source offset of the top visible glyph in the scroll view.
     func scrollAnchorSourceOffset() -> Int? {
