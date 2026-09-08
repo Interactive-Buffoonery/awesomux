@@ -517,17 +517,17 @@
             <key>NSStringFormatValueTypeKey</key>
             <string>lld</string>
             <key>zero</key>
-            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <string>Auto-cleanup after %lld days idle.</string>
             <key>one</key>
-            <string>Auto-cleanup after %lld day idle. Configure in Preferences.</string>
+            <string>Auto-cleanup after %lld day idle.</string>
             <key>two</key>
-            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <string>Auto-cleanup after %lld days idle.</string>
             <key>few</key>
-            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <string>Auto-cleanup after %lld days idle.</string>
             <key>many</key>
-            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <string>Auto-cleanup after %lld days idle.</string>
             <key>other</key>
-            <string>Auto-cleanup after %lld days idle. Configure in Preferences.</string>
+            <string>Auto-cleanup after %lld days idle.</string>
         </dict>
     </dict>
     <key>accessibility.settings.fontSizePoints</key>

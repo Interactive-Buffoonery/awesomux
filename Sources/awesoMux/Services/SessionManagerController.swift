@@ -25,11 +25,19 @@ final class SessionManagerController {
     // bridge (accent, glow, UI font, text scale). Without it the panel hosts a
     // detached SwiftUI tree that wouldn't scale with the text-size setting.
     @ObservationIgnored var appSettingsStore: AppSettingsStore?
+    @ObservationIgnored var onConfigureAutoCleanup: () -> Void = {}
+    @ObservationIgnored private let presentPanel: @MainActor (FloatingSwiftUIPanelWindow) -> Void
 
     private(set) var isVisible = false
 
     static let defaultSize = CGSize(width: 860, height: 600)
     private static let screenInset: CGFloat = 16
+
+    init(
+        presentPanel: @escaping @MainActor (FloatingSwiftUIPanelWindow) -> Void = { $0.presentAndFocus() }
+    ) {
+        self.presentPanel = presentPanel
+    }
 
     func toggle(
         model: SessionManagerModel,
@@ -61,7 +69,7 @@ final class SessionManagerController {
         panel.hostSwiftUIContent(makeRootView(model: model))
 
         position(panel, relativeTo: parentWindow)
-        panel.presentAndFocus()
+        presentPanel(panel)
         isVisible = true
         model.startPolling()
         postAnnouncement(
@@ -86,6 +94,11 @@ final class SessionManagerController {
         isDismissing = false
     }
 
+    func configureAutoCleanup() {
+        dismiss()
+        onConfigureAutoCleanup()
+    }
+
     func hideIfKeyWindow() -> Bool {
         guard isVisible, focusState.isKeyWindow else { return false }
         dismiss()
@@ -100,6 +113,9 @@ final class SessionManagerController {
             onJump: { [weak self] id in
                 self?.onJump(id)
                 self?.dismiss()
+            },
+            onConfigureAutoCleanup: { [weak self] in
+                self?.configureAutoCleanup()
             }
         )
         if let appSettingsStore {

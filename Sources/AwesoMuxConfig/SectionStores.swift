@@ -48,7 +48,9 @@ public final class SectionSlice<Value: Equatable>: SectionStore {
         if let coordinator {
             var candidate = coordinator.config
             candidate[keyPath: keyPath] = next
-            guard coordinator.attemptPersist(candidate) else { return }
+            guard let accepted = coordinator.attemptPersist(candidate) else { return }
+            coordinator.apply(accepted)
+            return
         }
         value = next
     }
