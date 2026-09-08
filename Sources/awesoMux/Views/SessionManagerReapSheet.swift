@@ -67,7 +67,7 @@ struct SessionManagerReapSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
-                Text("$ amx kill \(SessionManagerPanel.shortIDSuffix(row.id))…")
+                ConsentTextView(text: "$ amx kill \(row.id.rawValue) --force", maximumHeight: 120)
                     .awFont(AwFont.Mono.meta)
                     .foregroundStyle(Color.aw.text3)
                     .frame(maxWidth: .infinity, alignment: .leading)
