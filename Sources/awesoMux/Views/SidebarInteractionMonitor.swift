@@ -9,6 +9,8 @@ final class SidebarInteractionMonitor {
     private let notificationCenter: NotificationCenter
     private let isAccessibilityRefreshRelevant: () -> Bool
     nonisolated(unsafe) private var observations: [NSObjectProtocol] = []
+    private let accessibilityRefreshDelay: () async throws -> Void
+    private var accessibilityRefreshTask: Task<Void, Never>?
     private var onActiveChange: ((Bool) -> Void)?
     private var pointerInside = false
     private var sidebarMenuTracking = false
@@ -23,6 +25,7 @@ final class SidebarInteractionMonitor {
         focusedAccessibilityElement: FocusedAccessibilityElement? = nil,
         notificationCenter: NotificationCenter = .default,
         isAccessibilityRefreshRelevant: @escaping () -> Bool = { true },
+        accessibilityRefreshDelay: (() async throws -> Void)? = nil,
         onActiveChange: @escaping (Bool) -> Void
     ) {
         self.sidebarRoot = sidebarRoot
@@ -30,12 +33,17 @@ final class SidebarInteractionMonitor {
             focusedAccessibilityElement ?? { NSApp.accessibilityFocusedUIElement }
         self.notificationCenter = notificationCenter
         self.isAccessibilityRefreshRelevant = isAccessibilityRefreshRelevant
+        self.accessibilityRefreshDelay =
+            accessibilityRefreshDelay ?? {
+                try await ContinuousClock().sleep(for: .milliseconds(100))
+            }
         self.onActiveChange = onActiveChange
         observeNotifications()
         refresh(includeAccessibilityFocus: isAccessibilityRefreshRelevant())
     }
 
     deinit {
+        accessibilityRefreshTask?.cancel()
         observations.forEach(notificationCenter.removeObserver)
     }
 
@@ -57,6 +65,7 @@ final class SidebarInteractionMonitor {
     func detach() {
         guard !isDetached else { return }
         isDetached = true
+        cancelAccessibilityRefresh()
         observations.forEach(notificationCenter.removeObserver)
         observations.removeAll()
         sidebarMenuTracking = false
@@ -81,7 +90,8 @@ final class SidebarInteractionMonitor {
                     guard let self,
                         notification.object as? NSWindow === self.sidebarRoot?.window
                     else { return }
-                    self.refresh(includeAccessibilityFocus: self.lastAccessibilityFocused)
+                    self.refresh(includeAccessibilityFocus: false)
+                    self.scheduleAccessibilityRefresh()
                 }
             })
         observations.append(
@@ -127,6 +137,30 @@ final class SidebarInteractionMonitor {
             })
     }
 
+    private func scheduleAccessibilityRefresh() {
+        guard !isDetached, lastAccessibilityFocused, accessibilityRefreshTask == nil else { return }
+        let delay = accessibilityRefreshDelay
+        // Keep the first deadline in a burst so continuous output cannot defer focus loss forever.
+        accessibilityRefreshTask = Task { [weak self] in
+            do {
+                try await delay()
+            } catch {
+                if !Task.isCancelled {
+                    self?.accessibilityRefreshTask = nil
+                }
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.accessibilityRefreshTask = nil
+            self.refresh(includeAccessibilityFocus: true)
+        }
+    }
+
+    private func cancelAccessibilityRefresh() {
+        accessibilityRefreshTask?.cancel()
+        accessibilityRefreshTask = nil
+    }
+
     private var keyboardFocused: Bool {
         guard let root = sidebarRoot, let responder = root.window?.firstResponder as? NSView else {
             return false
@@ -152,6 +186,7 @@ final class SidebarInteractionMonitor {
     private func refresh(includeAccessibilityFocus: Bool = true) {
         guard !isDetached else { return }
         if includeAccessibilityFocus {
+            cancelAccessibilityRefresh()
             lastAccessibilityFocused = accessibilityFocused
         }
         publish(
@@ -161,6 +196,7 @@ final class SidebarInteractionMonitor {
 
     private func clearForWindowLoss() {
         guard !isDetached else { return }
+        cancelAccessibilityRefresh()
         sidebarMenuTracking = false
         lastAccessibilityFocused = false
         if lastActive {

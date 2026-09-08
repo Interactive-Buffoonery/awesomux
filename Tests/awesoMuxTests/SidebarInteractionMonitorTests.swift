@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxTestSupport
 import Testing
 @testable import awesoMux
 
@@ -120,7 +121,8 @@ struct SidebarInteractionMonitorTests {
     }
 
     @Test("accessibility parent chain reaching sidebar reports active")
-    func accessibilityParentChain() {
+    func accessibilityParentChain() async {
+        let gate = TestScheduler()
         let center = NotificationCenter()
         let root = NSView()
         let child = NSView()
@@ -133,13 +135,16 @@ struct SidebarInteractionMonitorTests {
             sidebarRoot: root,
             focusedAccessibilityElement: { focused },
             notificationCenter: center,
+            accessibilityRefreshDelay: { await gate.wait(for: .milliseconds(100)) },
             onActiveChange: { changes.append($0) })
 
         center.post(name: NSWindow.didUpdateNotification, object: window)
         focused = nil
         center.post(name: NSWindow.didUpdateNotification, object: window)
 
-        #expect(changes == [true, false])
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        gate.advance()
+        #expect(await waitUntil { changes == [true, false] })
         monitor.detach()
     }
 
@@ -183,6 +188,172 @@ struct SidebarInteractionMonitorTests {
         center.post(name: NSMenu.didBeginTrackingNotification, object: nil)
         center.post(name: NSMenu.didEndTrackingNotification, object: nil)
         #expect(accessibilityQueryCount == 4)
+    }
+
+    @Test("window update bursts coalesce AX queries without delaying keyboard focus")
+    func windowUpdatesCoalesceAccessibilityQueries() async {
+        let gate = TestScheduler()
+        let center = NotificationCenter()
+        let content = NSView()
+        let root = NSView()
+        let keyboardFocus = FocusView()
+        root.addSubview(keyboardFocus)
+        content.addSubview(root)
+        let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = content
+        let otherWindow = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        var focused: Any? = root
+        var queries = 0
+        let monitor = SidebarInteractionMonitor(
+            sidebarRoot: root,
+            focusedAccessibilityElement: {
+                queries += 1
+                return focused
+            },
+            notificationCenter: center,
+            accessibilityRefreshDelay: { await gate.wait(for: .milliseconds(100)) },
+            onActiveChange: { _ in })
+        defer { monitor.detach() }
+        #expect(queries == 1)
+
+        center.post(name: NSWindow.didUpdateNotification, object: otherWindow)
+        await Task.yield()
+        #expect(gate.sleepCallCount == 0)
+        for _ in 0..<100 {
+            center.post(name: NSWindow.didUpdateNotification, object: window)
+        }
+        #expect(queries == 1)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        #expect(gate.sleepCallCount == 1)
+        gate.advanceOneCycle()
+        #expect(await waitUntil { queries == 2 })
+        #expect(monitor.isActive)
+
+        for _ in 0..<100 {
+            center.post(name: NSWindow.didUpdateNotification, object: window)
+        }
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        focused = nil
+        #expect(window.makeFirstResponder(keyboardFocus))
+        gate.advanceOneCycle()
+        #expect(await waitUntil { queries == 3 })
+        #expect(monitor.isActive)
+        #expect(window.makeFirstResponder(window))
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(!monitor.isActive)
+        #expect(queries == 3)
+    }
+
+    @Test("pending AX refresh cannot publish after detach or key-window loss", arguments: [false, true])
+    func pendingRefreshIsCancelled(detach: Bool) async {
+        let gate = TestScheduler()
+        var delayCompleted = false
+        let center = NotificationCenter()
+        let root = NSView()
+        let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = root
+        var queries = 0
+        var changes: [Bool] = []
+        let monitor = SidebarInteractionMonitor(
+            sidebarRoot: root,
+            focusedAccessibilityElement: {
+                queries += 1
+                return root
+            },
+            notificationCenter: center,
+            accessibilityRefreshDelay: {
+                await gate.wait(for: .milliseconds(100))
+                delayCompleted = true
+            },
+            onActiveChange: { changes.append($0) })
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        if detach {
+            monitor.detach()
+        } else {
+            center.post(name: NSWindow.didResignKeyNotification, object: window)
+        }
+        gate.advance()
+        #expect(await waitUntil { delayCompleted })
+        #expect(queries == 1)
+        #expect(changes == [true, false])
+        #expect(!monitor.isActive)
+        monitor.detach()
+    }
+
+    @Test("explicit AX focus checks bypass a pending window refresh")
+    func explicitFocusCheckRemainsImmediate() async {
+        let gate = TestScheduler()
+        var delayCompleted = false
+        let center = NotificationCenter()
+        let root = NSView()
+        let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = root
+        var focused: Any? = root
+        var queries = 0
+        let monitor = SidebarInteractionMonitor(
+            sidebarRoot: root,
+            focusedAccessibilityElement: {
+                queries += 1
+                return focused
+            },
+            notificationCenter: center,
+            accessibilityRefreshDelay: {
+                await gate.wait(for: .milliseconds(100))
+                delayCompleted = true
+            },
+            onActiveChange: { _ in })
+        defer { monitor.detach() }
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        focused = nil
+        #expect(!monitor.hasAccessibilityFocus)
+        #expect(!monitor.isActive)
+        #expect(queries == 2)
+        gate.advance()
+        #expect(await waitUntil { delayCompleted })
+        #expect(queries == 2)
+    }
+
+    @Test("thrown AX refresh delay still allows later window queries")
+    func thrownDelayDoesNotSuppressLaterAccessibilityRefresh() async {
+        struct DelayError: Error {}
+        let gate = TestScheduler()
+        let center = NotificationCenter()
+        let root = NSView()
+        let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = root
+        var focused: Any? = root
+        var queries = 0
+        var delayShouldThrow = true
+        let monitor = SidebarInteractionMonitor(
+            sidebarRoot: root,
+            focusedAccessibilityElement: {
+                queries += 1
+                return focused
+            },
+            notificationCenter: center,
+            accessibilityRefreshDelay: {
+                if delayShouldThrow {
+                    delayShouldThrow = false
+                    throw DelayError()
+                }
+                await gate.wait(for: .milliseconds(100))
+            },
+            onActiveChange: { _ in })
+        defer { monitor.detach() }
+        #expect(queries == 1)
+
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { !delayShouldThrow })
+        #expect(queries == 1)
+
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        focused = nil
+        gate.advanceOneCycle()
+        #expect(await waitUntil { queries == 2 })
+        #expect(!monitor.isActive)
     }
 
     @Test("accessibility parent traversal reaches sidebar beyond 32 virtual elements")
