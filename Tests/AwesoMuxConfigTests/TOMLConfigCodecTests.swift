@@ -1,10 +1,21 @@
 import Foundation
 import Testing
+import TOML
 @testable import AwesoMuxConfig
 
 @Suite("TOMLConfigCodec")
 struct TOMLConfigCodecTests {
     private let codec = TOMLConfigCodec()
+
+    private struct ParsedUnknownHeaders: Decodable {
+        let external: [String: [String: Bool]]
+        let literalExternalTool: [String: Bool]
+
+        enum CodingKeys: String, CodingKey {
+            case external
+            case literalExternalTool = "external.tool"
+        }
+    }
 
     @Test("default config encodes successfully")
     func defaultConfigEncodesSuccessfully() throws {
@@ -769,6 +780,65 @@ struct TOMLConfigCodecTests {
         #expect(reDecoded.unknownTopLevelTables["external_tool"]?.contains("enabled = true") == true)
     }
 
+    @Test("quoted unknown table headers remain valid and distinct")
+    func quotedUnknownTableHeadersRemainValidAndDistinct() throws {
+        let toml =
+            Self.defaultTOML + """
+
+                [external.tool]
+                bare = true
+
+                ["external.tool"]
+                quoted = true
+
+                ["external tool"]
+                spaced = true
+
+                [""]
+                empty = true
+
+                ["éxternal"]
+                unicode = true
+
+                [external."tool space"]
+                partial = true
+
+                ["name]#"]
+                brackets = true
+
+                ["quote\\\"key"]
+                escaped = true
+                """
+
+        let decoded = try codec.decode(toml)
+        let reEncoded = try codec.encodeString(decoded)
+        let reDecoded = try codec.decode(reEncoded)
+
+        let parsed = try TOMLDecoder().decode(ParsedUnknownHeaders.self, from: reEncoded)
+
+        #expect(decoded.unknownTopLevelTables["external.tool"]?.contains("bare = true") == true)
+        #expect(decoded.unknownTopLevelTables[#""external.tool""#]?.contains("quoted = true") == true)
+        #expect(decoded.unknownTopLevelTables[#""external tool""#]?.contains("spaced = true") == true)
+        #expect(decoded.unknownTopLevelTables[#""""#]?.contains("empty = true") == true)
+        #expect(decoded.unknownTopLevelTables[#""éxternal""#]?.contains("unicode = true") == true)
+        #expect(decoded.unknownTopLevelTables[#"external."tool space""#]?.contains("partial = true") == true)
+        #expect(decoded.unknownTopLevelTables[#""name]#""#]?.contains("brackets = true") == true)
+        #expect(decoded.unknownTopLevelTables[#""quote\"key""#]?.contains("escaped = true") == true)
+        #expect(decoded.unknownTopLevelTables.count == 8)
+        #expect(reEncoded.contains("[external.tool]"))
+        #expect(reEncoded.contains(#"["external.tool"]"#))
+        #expect(reEncoded.contains(#"["external tool"]"#))
+        #expect(reEncoded.contains(#"[""]"#))
+        #expect(reEncoded.contains(#"["éxternal"]"#))
+        #expect(reEncoded.contains(#"[external."tool space"]"#))
+        #expect(reEncoded.contains(#"["name]#"]"#))
+        #expect(reEncoded.contains(#"["quote\"key"]"#))
+        #expect(reDecoded.unknownTopLevelTables.count == 8)
+        #expect(parsed.external["tool"]?["bare"] == true)
+        #expect(parsed.literalExternalTool["quoted"] == true)
+        #expect(try codec.encodeString(reDecoded) == reEncoded)
+    }
+
     @Test("quoted table keys containing brackets end the preceding unknown table")
     func quotedTableKeysContainingBracketsEndPrecedingUnknownTable() throws {
         let cases = [
@@ -1313,6 +1383,74 @@ struct TOMLConfigCodecTests {
         #expect(clipboardRange.lowerBound < customRange.lowerBound)
         #expect(customRange.lowerBound < confirmRange.lowerBound)
         #expect(throws: Never.self) { try codec.decode(reEncoded) }
+    }
+
+    @Test("leading preserved terminal lines do not shift multiline placement")
+    func leadingPreservedTerminalLinesDoNotShiftMultilinePlacement() throws {
+        let replacement = [
+            "",
+            "   ",
+            "custom_note = \"\"\"",
+            "first line",
+            "\"\"\"",
+            #"copy_on_select = "off""#,
+            #"clipboard_write_policy = "ask""#,
+            "confirm_clipboard_read = true",
+        ].joined(separator: "\n")
+        let toml = Self.defaultTOML.replacing(
+            """
+            clipboard_write_policy = "ask"
+            confirm_clipboard_read = true
+            """,
+            with: replacement
+        )
+
+        let decoded = try codec.decode(toml)
+        let reEncoded = try codec.encodeString(decoded)
+        let reDecoded = try codec.decode(reEncoded)
+        let thirdEncoded = try codec.encodeString(reDecoded)
+        let thirdDecoded = try codec.decode(thirdEncoded)
+        let fourthEncoded = try codec.encodeString(thirdDecoded)
+
+        #expect(
+            reEncoded.contains(
+                """
+                custom_note = \"\"\"
+                first line
+                \"\"\"
+                copy_on_select = "off"
+                """))
+        #expect(reDecoded.terminal.copyOnSelect == .off)
+        #expect(try codec.encodeString(reDecoded) == reEncoded)
+        #expect(thirdEncoded == reEncoded)
+        #expect(fourthEncoded == reEncoded)
+
+        let appearanceReplacement = [
+            "",
+            "   ",
+            "custom_note = '''",
+            "first line",
+            "'''",
+            "glow_strength = 0.4",
+        ].joined(separator: "\n")
+        let appearanceTOML = Self.defaultTOML.replacing(
+            "glow_strength = 0.65",
+            with: appearanceReplacement
+        )
+        let appearanceDecoded = try codec.decode(appearanceTOML)
+        let appearanceReEncoded = try codec.encodeString(appearanceDecoded)
+        let appearanceReDecoded = try codec.decode(appearanceReEncoded)
+
+        #expect(
+            appearanceReEncoded.contains(
+                """
+                custom_note = '''
+                first line
+                '''
+                glow_strength = 0.4
+                """))
+        #expect(appearanceReDecoded.appearance.glowStrength == 0.4)
+        #expect(try codec.encodeString(appearanceReDecoded) == appearanceReEncoded)
     }
 
     @Test("terminal config inherit emits no copy-on-select override")

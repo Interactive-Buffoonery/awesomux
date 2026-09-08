@@ -41,15 +41,14 @@ public struct MarkdownFrontMatter: Equatable, Sendable {
         startingAt startIndex: String.Index,
         byteOffset: Int
     ) -> (startIndex: String.Index, text: String, nextIndex: String.Index, nextOffset: Int) {
-        let lineEnd = source[startIndex...].firstIndex(of: "\n") ?? source.endIndex
-        let textEnd: String.Index
-        if lineEnd > startIndex, source[source.index(before: lineEnd)] == "\r" {
-            textEnd = source.index(before: lineEnd)
-        } else {
-            textEnd = lineEnd
-        }
+        let lineEnd = source[startIndex...].firstIndex(where: { $0 == "\n" || $0 == "\r\n" }) ?? source.endIndex
         let nextIndex = lineEnd == source.endIndex ? source.endIndex : source.index(after: lineEnd)
         let nextOffset = byteOffset + source[startIndex..<nextIndex].utf8.count
+        var textEnd = lineEnd
+        // A final line can end in a lone CR without an LF.
+        if textEnd > startIndex, source[source.index(before: textEnd)] == "\r" {
+            textEnd = source.index(before: textEnd)
+        }
         return (startIndex, String(source[startIndex..<textEnd]), nextIndex, nextOffset)
     }
 
@@ -67,7 +66,7 @@ public struct MarkdownFrontMatter: Equatable, Sendable {
 
     private static func trimmedTrailingNewlines(_ text: String) -> String {
         var result = text
-        while result.last == "\n" || result.last == "\r" {
+        while result.last == "\n" || result.last == "\r" || result.last == "\r\n" {
             result.removeLast()
         }
         return result

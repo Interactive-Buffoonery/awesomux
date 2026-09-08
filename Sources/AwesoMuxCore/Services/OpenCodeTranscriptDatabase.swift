@@ -156,6 +156,16 @@ public enum OpenCodeTranscriptDatabase {
         var candidateCount = 0
         var sourceByteCount = 0
         var sourceBudgetExceeded = false
+        var currentID: String?
+        var currentData: Data?
+        var currentParts: [OpenCodeTranscriptSnapshot.Part] = []
+
+        func flushCurrentMessage() {
+            guard let currentID else { return }
+            descendingMessages.append(
+                OpenCodeTranscriptSnapshot.Message(id: currentID, data: currentData, parts: currentParts)
+            )
+        }
         while true {
             let step = sqlite3_step(statement)
             if step == SQLITE_DONE { break }
@@ -165,7 +175,7 @@ public enum OpenCodeTranscriptDatabase {
             guard rowCount <= partLimit else { continue }
 
             let id = string(at: 0, in: statement)
-            let isNewMessage = descendingMessages.last?.id != id
+            let isNewMessage = currentID != id
             let retainedRowBytes =
                 Int(sqlite3_column_bytes(statement, 2))
                 + (isNewMessage ? Int(sqlite3_column_bytes(statement, 1)) : 0)
@@ -179,24 +189,16 @@ public enum OpenCodeTranscriptDatabase {
                 data: data(at: 2, in: statement),
                 byteCount: Int(sqlite3_column_int64(statement, 3))
             )
-            if descendingMessages.last?.id == id {
-                var message = descendingMessages.removeLast()
-                message = OpenCodeTranscriptSnapshot.Message(
-                    id: message.id,
-                    data: message.data,
-                    parts: message.parts + [part]
-                )
-                descendingMessages.append(message)
+            if currentID == id {
+                currentParts.append(part)
             } else {
-                descendingMessages.append(
-                    OpenCodeTranscriptSnapshot.Message(
-                        id: id,
-                        data: data(at: 1, in: statement),
-                        parts: [part]
-                    )
-                )
+                flushCurrentMessage()
+                currentID = id
+                currentData = data(at: 1, in: statement)
+                currentParts = [part]
             }
         }
+        flushCurrentMessage()
 
         let messages = descendingMessages.reversed().map { message in
             OpenCodeTranscriptSnapshot.Message(

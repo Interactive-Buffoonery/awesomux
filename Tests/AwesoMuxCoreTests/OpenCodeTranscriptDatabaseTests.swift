@@ -7,6 +7,12 @@ import Testing
 
 @Suite("OpenCode transcript database", .serialized)
 struct OpenCodeTranscriptDatabaseTests {
+    private func text(in part: OpenCodeTranscriptSnapshot.Part) throws -> String {
+        let data = try #require(part.data)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try #require(object["text"] as? String)
+    }
+
     @Test("an exact session reads committed WAL rows in chronological order")
     func readsLiveWALByExactSessionID() throws {
         let fixture = try Fixture()
@@ -234,6 +240,76 @@ struct OpenCodeTranscriptDatabaseTests {
         }
         #expect(retainedBytes <= 500)
     }
+
+    @Test("multi-part messages retain chronological grouping and part order")
+    func preservesMultiPartMessageOrder() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        try fixture.insertSession("ses_target")
+        try fixture.insertMessage(
+            id: "msg_old", sessionID: "ses_target", time: 1,
+            role: "user", partID: "part_old", part: ["type": "text", "text": "old"]
+        )
+        try fixture.insertMessage(
+            id: "msg_new", sessionID: "ses_target", time: 2,
+            role: "assistant", partID: "part_1", part: ["type": "text", "text": "first"]
+        )
+        try fixture.insertPart(
+            id: "part_2", messageID: "msg_new", sessionID: "ses_target", time: 3,
+            part: ["type": "text", "text": "second"]
+        )
+        try fixture.insertPart(
+            id: "part_3", messageID: "msg_new", sessionID: "ses_target", time: 4,
+            part: ["type": "text", "text": "third"]
+        )
+
+        let snapshot = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome, sessionID: "ses_target"
+        ).get()
+
+        #expect(snapshot.messages.map(\.id) == ["msg_old", "msg_new"])
+        #expect(try snapshot.messages[1].parts.map { try text(in: $0) } == ["first", "second", "third"])
+    }
+
+    @Test("part and byte caps retain a partial newest message")
+    func capsRetainPartialNewestMessage() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        try fixture.insertSession("ses_target")
+        try fixture.insertMessage(
+            id: "msg_new", sessionID: "ses_target", time: 1,
+            role: "assistant", partID: "part_1", part: ["type": "text", "text": "first"]
+        )
+        try fixture.insertPart(
+            id: "part_2", messageID: "msg_new", sessionID: "ses_target", time: 2,
+            part: ["type": "text", "text": "second"]
+        )
+        try fixture.insertPart(
+            id: "part_3", messageID: "msg_new", sessionID: "ses_target", time: 3,
+            part: ["type": "text", "text": "third"]
+        )
+
+        let cappedParts = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome, sessionID: "ses_target", maximumParts: 2
+        ).get()
+        #expect(cappedParts.messages.map(\.id) == ["msg_new"])
+        #expect(cappedParts.messages[0].parts.count == 2)
+        #expect(try cappedParts.messages[0].parts.map { try text(in: $0) } == ["second", "third"])
+
+        let complete = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome, sessionID: "ses_target"
+        ).get()
+        let message = try #require(complete.messages.first)
+        let messageData = try #require(message.data)
+        let newestPartData = try #require(message.parts.last?.data)
+        let byteCap = messageData.count + newestPartData.count
+        let cappedBytes = try OpenCodeTranscriptDatabase.read(
+            dataHome: fixture.dataHome, sessionID: "ses_target", maximumSourceBytes: byteCap
+        ).get()
+        #expect(cappedBytes.messages.map(\.id) == ["msg_new"])
+        #expect(cappedBytes.messages[0].parts.count == 1)
+        #expect(try text(in: cappedBytes.messages[0].parts[0]) == "third")
+    }
 }
 
 private final class Fixture {
@@ -286,6 +362,16 @@ private final class Fixture {
     }
 
     func insertForeignPart(
+        id: String,
+        messageID: String,
+        sessionID: String,
+        time: Int,
+        part: [String: Any]
+    ) throws {
+        try insertPart(id: id, messageID: messageID, sessionID: sessionID, time: time, part: part)
+    }
+
+    func insertPart(
         id: String,
         messageID: String,
         sessionID: String,
