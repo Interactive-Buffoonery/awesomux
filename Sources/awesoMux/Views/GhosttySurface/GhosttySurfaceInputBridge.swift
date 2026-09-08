@@ -1,4 +1,6 @@
 import AppKit
+import AwesoMuxBridgeProtocol
+import AwesoMuxCore
 import GhosttyKit
 
 extension GhosttySurfaceNSView: NSUserInterfaceValidations {
@@ -1149,6 +1151,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         )
         let isCommandSubmit = action == GHOSTTY_ACTION_PRESS
             && Self.isCommandSubmitKey(event, text: text)
+        let submittedAtObservedShellPrompt =
+            isCommandSubmit
+            && promptMarkerIsAwayFromPrompt() == false
         prepareShellActivityCommandSubmit(
             shouldRefreshShellActivity: shouldRefreshShellActivity
         )
@@ -1167,7 +1172,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                 event: event,
                 text: text,
                 handled: handled,
-                isCommandSubmit: isCommandSubmit
+                isCommandSubmit: isCommandSubmit,
+                submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
             )
             scheduleShellActivityRefreshIfCommandSubmitted(
                 handled: handled,
@@ -1185,7 +1191,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             event: event,
             text: text,
             handled: handled,
-            isCommandSubmit: isCommandSubmit
+            isCommandSubmit: isCommandSubmit,
+            submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
         )
         scheduleShellActivityRefreshIfCommandSubmitted(
             handled: handled,
@@ -1206,7 +1213,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         event: NSEvent,
         text: String?,
         handled: Bool,
-        isCommandSubmit: Bool
+        isCommandSubmit: Bool,
+        submittedAtObservedShellPrompt: Bool
     ) {
         guard handled, action == GHOSTTY_ACTION_PRESS else {
             return
@@ -1216,10 +1224,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             let command = inputState.submittedSSHCommandBuffer
             inputState.resetSubmittedSSHCommandCapture()
             if !command.isEmpty {
-                sessionStore.noteSubmittedCommand(
-                    sessionID: sessionID,
-                    paneID: paneID,
-                    command: command
+                recordSubmittedCommand(
+                    command,
+                    submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
                 )
             }
             return
@@ -1247,6 +1254,42 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         {
             inputState.disableSubmittedSSHCommandCapture()
         }
+    }
+
+    static func shouldResetAgentIdentityForSubmittedSSH(
+        command: String,
+        agentKind: AgentKind,
+        submittedAtObservedShellPrompt: Bool
+    ) -> Bool {
+        submittedAtObservedShellPrompt
+            && agentKind != .shell
+            && RemoteSSHCommandTarget.isSSHCommand(command)
+    }
+
+    func recordSubmittedCommand(
+        _ command: String,
+        submittedAtObservedShellPrompt: Bool
+    ) {
+        let liveAgentKind =
+            sessionStore.session(id: sessionID)?
+            .layout.pane(id: paneID)?.agentKind ?? .shell
+        if Self.shouldResetAgentIdentityForSubmittedSSH(
+            command: command,
+            agentKind: liveAgentKind,
+            submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
+        ) {
+            applyAgentRuntimeEvent(
+                AgentRuntimeEvent(
+                    source: .unknown,
+                    executionState: .idle,
+                    phase: .sessionEnd
+                ))
+        }
+        sessionStore.noteSubmittedCommand(
+            sessionID: sessionID,
+            paneID: paneID,
+            command: command
+        )
     }
 
     /// Sends IME-committed preedit text as its own key event, deliberately

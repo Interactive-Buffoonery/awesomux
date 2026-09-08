@@ -66,6 +66,125 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(!GhosttySurfaceNSView.isPossibleSubmittedSSHCommandPrefix("echo ssh devbox"))
     }
 
+    @Test("Return and keypad Enter both submit captured commands")
+    func returnKeysSubmitCapturedCommands() {
+        #expect(
+            GhosttySurfaceNSView.isCommandSubmitKey(
+                keyEvent(keyCode: 0x24, modifiers: [], characters: "\r"),
+                text: "\r"
+            ))
+        #expect(
+            GhosttySurfaceNSView.isCommandSubmitKey(
+                keyEvent(keyCode: 0x4C, modifiers: [.numericPad], characters: "\r"),
+                text: "\r"
+            ))
+    }
+
+    @Test("only SSH submitted at a shell prompt clears stale agent identity")
+    func staleAgentResetRequiresSSHAtShellPrompt() {
+        #expect(
+            GhosttySurfaceNSView.shouldResetAgentIdentityForSubmittedSSH(
+                command: "ssh devbox",
+                agentKind: .claudeCode,
+                submittedAtObservedShellPrompt: true
+            ))
+        #expect(
+            !GhosttySurfaceNSView.shouldResetAgentIdentityForSubmittedSSH(
+                command: "ssh devbox",
+                agentKind: .shell,
+                submittedAtObservedShellPrompt: true
+            ))
+        #expect(
+            !GhosttySurfaceNSView.shouldResetAgentIdentityForSubmittedSSH(
+                command: "ssh devbox",
+                agentKind: .claudeCode,
+                submittedAtObservedShellPrompt: false
+            ))
+        #expect(
+            !GhosttySurfaceNSView.shouldResetAgentIdentityForSubmittedSSH(
+                command: "echo ssh devbox",
+                agentKind: .claudeCode,
+                submittedAtObservedShellPrompt: true
+            ))
+        #expect(
+            GhosttySurfaceNSView.shouldResetAgentIdentityForSubmittedSSH(
+                command: "ssh -o ProxyCommand=helper devbox",
+                agentKind: .claudeCode,
+                submittedAtObservedShellPrompt: true
+            ))
+    }
+
+    @Test("SSH submitted at a shell prompt resets the pane before tracking remote work")
+    func submittedSSHResetsStaleAgentIdentity() throws {
+        let (store, session, pane, view) = agentFixture()
+        view.terminalEventState.hasObservedAgentActivity = true
+
+        view.recordSubmittedCommand(
+            "ssh devbox",
+            submittedAtObservedShellPrompt: true
+        )
+        store.updatePane(
+            sessionID: session.id,
+            paneID: pane.id,
+            title: "alice@example-remote: ~"
+        )
+
+        let updatedPane = try #require(store.session(id: session.id)?.layout.pane(id: pane.id))
+        #expect(updatedPane.agentKind == .shell)
+        #expect(updatedPane.agentExecutionState == .idle)
+        #expect(updatedPane.remoteSSHTarget == "devbox")
+        #expect(updatedPane.remoteHost == "example-remote")
+        #expect(!view.terminalEventState.hasObservedAgentActivity)
+    }
+
+    @Test("SSH outside a proven shell prompt does not reset agent identity")
+    func submittedSSHOutsideShellPromptKeepsAgentIdentity() throws {
+        let (store, session, pane, view) = agentFixture()
+
+        view.recordSubmittedCommand(
+            "ssh devbox",
+            submittedAtObservedShellPrompt: false
+        )
+
+        let updatedPane = try #require(store.session(id: session.id)?.layout.pane(id: pane.id))
+        #expect(updatedPane.agentKind == .claudeCode)
+        #expect(updatedPane.pendingRemoteSSHTarget == "devbox")
+    }
+
+    private func agentFixture() -> (
+        SessionStore,
+        TerminalSession,
+        TerminalPane,
+        GhosttySurfaceNSView
+    ) {
+        let pane = TerminalPane(
+            title: "claude",
+            workingDirectory: "~",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "agent",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "awesoMux", sessions: [session])])
+        let view = GhosttyRuntime().surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+        view.applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .claudeCode,
+                executionState: .waiting,
+                phase: .sessionStart
+            ))
+        return (store, session, pane, view)
+    }
+
     @Test("Ctrl-C clears and re-arms capture")
     func controlCClearsAndRearmsCapture() {
         let inputState = GhosttySurfaceInputState()
