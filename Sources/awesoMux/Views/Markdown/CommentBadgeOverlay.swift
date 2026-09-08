@@ -91,6 +91,16 @@ final class CommentBadgeOverlay: NSView {
 
     private(set) var sectionChrome: [SectionChrome] = []
 
+    /// The section currently repeated in the sticky header. That header is
+    /// the sole VoiceOver identity for the pinned file; omitting it here
+    /// avoids a duplicate button for the same heading.
+    var pinnedSectionKey: String? {
+        didSet {
+            guard oldValue != pinnedSectionKey else { return }
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+        }
+    }
+
     /// Cached inputs so a plain relayout recomputes heading geometry, mirroring
     /// the border cache. Cleared for documents with no sections.
     private weak var sectionTextView: NSTextView?
@@ -646,45 +656,53 @@ final class CommentBadgeOverlay: NSView {
     private var sectionStructureSignature: [Int] = []
 
     private func sectionAccessibilityChildren() -> [NSAccessibilityElement] {
-        if let builtSectionElements { return builtSectionElements }
-        let elements = sectionChrome.enumerated().map { position, chrome -> PillAccessibilityElement in
-            let element = PillAccessibilityElement()
-            element.setAccessibilityParent(self)
-            // A fence-less section has nothing to fold, so it is announced as
-            // static text rather than a disabled button: "dimmed" would imply a
-            // fold that is momentarily unavailable, when there is none at all.
-            element.setAccessibilityRole(chrome.foldable ? .button : .staticText)
-            // Deliberately not gated on `annotationsInteractive`: folding is not
-            // an annotation action and stays operable on a cached remount.
-            element.setAccessibilityEnabled(true)
-            element.setAccessibilityLabel(
-                Self.sectionAccessibilityLabel(
-                    title: chrome.title, added: chrome.added, removed: chrome.removed))
-            element.frameProvider = { [weak self] in
-                guard let self, let window = self.window,
-                    position < self.sectionChrome.count
-                else { return .zero }
-                let current = self.sectionChrome[position]
-                return window.convertToScreen(self.convert(current.rowRect, to: nil))
-            }
-            if chrome.foldable {
-                element.valueProvider = { [weak self] in
-                    guard let self, position < self.sectionChrome.count else { return nil }
-                    return self.sectionChrome[position].collapsed
-                        ? String(
-                            localized: "collapsed",
-                            comment: "VoiceOver value for a collapsed branch-changes file section")
-                        : String(
-                            localized: "expanded",
-                            comment: "VoiceOver value for an expanded branch-changes file section")
+        let elements: [NSAccessibilityElement]
+        if let builtSectionElements {
+            elements = builtSectionElements
+        } else {
+            let built = sectionChrome.enumerated().map { position, chrome -> PillAccessibilityElement in
+                let element = PillAccessibilityElement()
+                element.setAccessibilityParent(self)
+                // A fence-less section has nothing to fold, so it is announced as
+                // static text rather than a disabled button: "dimmed" would imply a
+                // fold that is momentarily unavailable, when there is none at all.
+                element.setAccessibilityRole(chrome.foldable ? .button : .staticText)
+                // Deliberately not gated on `annotationsInteractive`: folding is not
+                // an annotation action and stays operable on a cached remount.
+                element.setAccessibilityEnabled(true)
+                element.setAccessibilityLabel(
+                    Self.sectionAccessibilityLabel(
+                        title: chrome.title, added: chrome.added, removed: chrome.removed))
+                element.frameProvider = { [weak self] in
+                    guard let self, let window = self.window,
+                        position < self.sectionChrome.count
+                    else { return .zero }
+                    let current = self.sectionChrome[position]
+                    return window.convertToScreen(self.convert(current.rowRect, to: nil))
                 }
-                let key = chrome.key
-                element.onPress = { [weak self] in self?.onSectionToggled?(key) }
+                if chrome.foldable {
+                    element.valueProvider = { [weak self] in
+                        guard let self, position < self.sectionChrome.count else { return nil }
+                        return self.sectionChrome[position].collapsed
+                            ? String(
+                                localized: "collapsed",
+                                comment: "VoiceOver value for a collapsed branch-changes file section")
+                            : String(
+                                localized: "expanded",
+                                comment: "VoiceOver value for an expanded branch-changes file section")
+                    }
+                    let key = chrome.key
+                    element.onPress = { [weak self] in self?.onSectionToggled?(key) }
+                }
+                return element
             }
-            return element
+            builtSectionElements = built
+            elements = built
         }
-        builtSectionElements = elements
-        return elements
+        guard let pinnedSectionKey else { return elements }
+        return zip(sectionChrome, elements).compactMap { chrome, element in
+            chrome.key == pinnedSectionKey ? nil : element
+        }
     }
 
     /// `title` is the section's DISPLAY title, never its opaque key. "added" and

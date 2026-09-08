@@ -329,6 +329,9 @@ private struct DocumentTabPill: View {
             .buttonStyle(.plain)
             .focusable()
             .focused($isKeyboardFocused)
+            // Suppress the system ring; the accent `awFocusRing` below is the
+            // keyboard-only focus indicator.
+            .focusEffectDisabled()
             .awFocusRing(isKeyboardFocused, cornerRadius: 5)
             .foregroundStyle(titleColor)
             .accessibilityLabel(accessibilityLabel)

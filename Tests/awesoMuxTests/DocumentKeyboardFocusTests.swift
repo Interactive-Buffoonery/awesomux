@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxCore
+import SwiftUI
 import Testing
 @testable import awesoMux
 
@@ -102,7 +103,7 @@ struct DocumentKeyboardFocusTests {
         #expect(window.firstResponder === other)
     }
 
-    @Test(arguments: [NSEvent.EventType.keyDown, .leftMouseDown])
+    @Test(arguments: [NSEvent.EventType.keyDown, .leftMouseDown, .scrollWheel])
     func newInputCancelsDelayedHandoffEvenWithUnchangedResponder(type: NSEvent.EventType) throws {
         let window = makeWindow()
         let original = SelectionAwareTextView(frame: .zero)
@@ -113,20 +114,7 @@ struct DocumentKeyboardFocusTests {
         let id = UUID()
         let handoff = DocumentFocusHandoff()
         handoff.request(id, in: window)
-        let event: NSEvent
-        if type == .keyDown {
-            event = try #require(
-                NSEvent.keyEvent(
-                    with: type, location: .zero, modifierFlags: [], timestamp: 1,
-                    windowNumber: window.windowNumber, context: nil, characters: "x",
-                    charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
-        } else {
-            event = try #require(
-                NSEvent.mouseEvent(
-                    with: type, location: .zero, modifierFlags: [], timestamp: 1,
-                    windowNumber: window.windowNumber, context: nil, eventNumber: 1,
-                    clickCount: 1, pressure: 1))
-        }
+        let event = try makeSubsequentInputEvent(type: type, window: window)
         handoff.handleSubsequentInput(event)
         handoff.register(incoming, for: id)
         #expect(!handoff.completeIfReady())
@@ -165,6 +153,80 @@ struct DocumentKeyboardFocusTests {
         #expect(activated == "file")
     }
 
+    @Test func pinnedHeadingIgnoresKeyRepeat() throws {
+        let window = makeWindow()
+        let header = BranchDiffStickyHeaderView(frame: .zero)
+        window.contentView?.addSubview(header)
+        header.model = .init(
+            key: "file", title: "file.swift", added: 1, removed: 0, collapsed: false, foldable: true)
+        var activations = 0
+        header.onActivate = { _ in activations += 1 }
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: " ",
+                charactersIgnoringModifiers: " ", isARepeat: true, keyCode: 49))
+        header.keyDown(with: event)
+        #expect(activations == 0)
+    }
+
+    @Test func pinnedHeadingPassesModifiedTabThrough() throws {
+        let window = makeWindow()
+        window.autorecalculatesKeyViewLoop = false
+        let header = BranchDiffStickyHeaderView(frame: .zero)
+        let next = FocusButton(title: "Next", target: nil, action: nil)
+        window.contentView?.addSubview(header)
+        window.contentView?.addSubview(next)
+        header.model = .init(
+            key: "file", title: "file.swift", added: 1, removed: 0, collapsed: false, foldable: true)
+        header.nextKeyView = next
+        next.nextKeyView = header
+        var activated: String?
+        header.onActivate = { activated = $0 }
+        #expect(window.makeFirstResponder(header))
+        header.keyDown(with: try tab([.control, .option]))
+        #expect(activated == nil)
+        #expect(window.makeFirstResponder(header))
+        header.keyDown(with: try tab([]))
+        #expect(window.firstResponder === next)
+    }
+
+    @Test func emptyDocumentTextViewCompletesHandoff() {
+        let window = makeWindow()
+        let text = SelectionAwareTextView(frame: .zero)
+        text.isEditable = false
+        text.isSelectable = true
+        text.string = ""
+        window.contentView?.addSubview(text)
+        let id = UUID()
+        let handoff = DocumentFocusHandoff()
+        handoff.request(id, in: window)
+        handoff.register(text, for: id)
+        #expect(handoff.completeIfReady())
+        #expect(window.firstResponder === text)
+    }
+
+    @Test func pinnedHeadingVoiceOverActivationReturnsFocusToText() {
+        let window = makeWindow()
+        let text = SelectionAwareTextView(frame: window.contentView!.bounds)
+        text.isEditable = false
+        text.isSelectable = true
+        let other = FocusButton(title: "Other", target: nil, action: nil)
+        let header = BranchDiffStickyHeaderView(frame: .zero)
+        header.model = .init(
+            key: "file", title: "file.swift", added: 1, removed: 0, collapsed: false, foldable: true)
+        window.contentView?.addSubview(text)
+        window.contentView?.addSubview(other)
+        window.contentView?.addSubview(header)
+        #expect(window.makeFirstResponder(other))
+        let coordinator = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
+        coordinator.textView = text
+        coordinator.stickyHeader = header
+        header.isAccessibilityFocusedForTesting = true
+        coordinator.returnFocusFromPinnedHeadingIfNeeded()
+        #expect(window.firstResponder === text)
+    }
+
     private func makeWindow() -> NSWindow {
         _ = NSApplication.shared
         return FocusWindow(
@@ -178,5 +240,34 @@ struct DocumentKeyboardFocusTests {
                 with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
                 windowNumber: 0, context: nil, characters: "\t", charactersIgnoringModifiers: "\t",
                 isARepeat: false, keyCode: 48))
+    }
+
+    private func makeSubsequentInputEvent(
+        type: NSEvent.EventType, window: NSWindow
+    ) throws -> NSEvent {
+        switch type {
+        case .keyDown:
+            return try #require(
+                NSEvent.keyEvent(
+                    with: type, location: .zero, modifierFlags: [], timestamp: 1,
+                    windowNumber: window.windowNumber, context: nil, characters: "x",
+                    charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
+        case .scrollWheel:
+            let cgEvent = try #require(
+                CGEvent(
+                    scrollWheelEvent2Source: nil,
+                    units: .pixel,
+                    wheelCount: 1,
+                    wheel1: 1,
+                    wheel2: 0,
+                    wheel3: 0))
+            return try #require(NSEvent(cgEvent: cgEvent))
+        default:
+            return try #require(
+                NSEvent.mouseEvent(
+                    with: type, location: .zero, modifierFlags: [], timestamp: 1,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                    clickCount: 1, pressure: 1))
+        }
     }
 }

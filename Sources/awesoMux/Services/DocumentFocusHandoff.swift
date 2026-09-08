@@ -19,7 +19,7 @@ final class DocumentFocusHandoff {
         requestResponder = window.firstResponder
         requestedTabID = tabID
         inputMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         ) { [weak self] event in
             self?.handleSubsequentInput(event)
             return event
@@ -42,9 +42,14 @@ final class DocumentFocusHandoff {
     isolated deinit { cancel() }
 
     func handleSubsequentInput(_ event: NSEvent) {
-        guard event.window === requestWindow else { return }
+        // Ignore input that is explicitly for another window. A nil window still
+        // counts: some constructed scroll events never resolve a window, and a
+        // later gesture in this app still supersedes the pending selection.
+        if let eventWindow = event.window, eventWindow !== requestWindow {
+            return
+        }
         switch event.type {
-        case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
+        case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
             // A new action supersedes the earlier selection, even if it leaves
             // the same terminal as first responder while the document loads.
             cancel()

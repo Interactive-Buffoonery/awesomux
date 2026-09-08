@@ -218,6 +218,9 @@ struct MarkdownTextView: NSViewRepresentable {
     var selectionTouchesMark: Bool = false
     /// Called once with the NSTextView reference so the parent can anchor NSPopovers.
     var onTextViewAvailable: ((NSTextView) -> Void)? = nil
+    /// VoiceOver label for the document text. Empty documents override the
+    /// generic default so tab-selection handoff still has a named target.
+    var textAccessibilityLabel: String = "Document content"
 
     /// Fix 3 (INT-562): called when the user FINALISES a text selection (mouseUp with a
     /// non-empty range that does not touch an existing mark). Args: source span, trailing
@@ -444,7 +447,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // Accessibility: a non-editable, selectable document.
         textView.setAccessibilityRole(.staticText)
-        textView.setAccessibilityLabel("Document content")
+        textView.setAccessibilityLabel(textAccessibilityLabel)
         scrollView.setAccessibilityElement(false)
 
         scrollView.documentView = textView
@@ -501,6 +504,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        textView.setAccessibilityLabel(textAccessibilityLabel)
         (textView as? SelectionAwareTextView)?.copiesPlainTextOnly = copiesPlainTextOnly
 
         // Table grid stroke color tracks the adaptive body text color (dimmed) so
@@ -1081,6 +1085,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
                 headerHeight: BranchDiffStickyHeaderView.height)
         else {
             header.model = nil
+            overlay.pinnedSectionKey = nil
             return
         }
         let section = chrome[placement.index]
@@ -1089,6 +1094,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             removed: section.removed, collapsed: section.collapsed,
             foldable: section.foldable)
         if header.model != model { header.model = model }
+        overlay.pinnedSectionKey = section.key
         // The scroll view's own space is FLIPPED (see installStickyHeaderIfNeeded): its top edge
         // is `clip.frame.minY` and y grows downward, so a `pushOffset` of ≤ 0
         // ("move up") is added, not subtracted.
@@ -1100,15 +1106,24 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         if header.frame != frame { header.frame = frame }
     }
 
+    func returnFocusFromPinnedHeadingIfNeeded() {
+        guard let textView else { return }
+        let header = stickyHeader
+        guard
+            textView.window?.firstResponder === header
+                || header?.isAccessibilityFocused() == true
+        else { return }
+        textView.window?.makeFirstResponder(textView)
+        textView.setAccessibilityFocused(true)
+        NSAccessibility.post(element: textView, notification: .focusedUIElementChanged)
+    }
+
     func activateStickyHeader(_ key: String) {
         guard let textView, let overlay = badgeOverlay,
             let chrome = overlay.sectionChrome.first(where: { $0.key == key }),
             let scrollView = textView.enclosingScrollView
         else { return }
-        if textView.window?.firstResponder === stickyHeader {
-            textView.window?.makeFirstResponder(textView)
-            textView.setAccessibilityFocused(true)
-        }
+        returnFocusFromPinnedHeadingIfNeeded()
         let x = scrollView.contentView.bounds.origin.x
         textView.scroll(NSPoint(x: x, y: max(0, chrome.rowRect.minY - 4)))
         // A fence-less section has nothing to fold, so its pinned header is

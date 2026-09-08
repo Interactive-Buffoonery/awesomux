@@ -84,6 +84,8 @@ final class BranchDiffStickyHeaderView: NSView {
     /// Test seam: the chevron's own frame, so a hit-test assertion can aim at
     /// the subview that used to swallow the click rather than at empty bar.
     var chevronFrameForTesting: NSRect { chevron.frame }
+    /// Test seam: VoiceOver focus is not observable in a headless window.
+    var isAccessibilityFocusedForTesting: Bool?
 
     /// Test seam: the counts label's frame after layout, and the width the
     /// label needs; a frame narrower than the need clips the removed count.
@@ -233,13 +235,17 @@ final class BranchDiffStickyHeaderView: NSView {
         return true
     }
 
+    override func isAccessibilityFocused() -> Bool {
+        isAccessibilityFocusedForTesting ?? super.isAccessibilityFocused()
+    }
+
     override func keyDown(with event: NSEvent) {
         if DocumentKeyViewTraversal.handle(event, in: window) { return }
-        if event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
-            event.keyCode == 36 || event.keyCode == 49
-        {
+        let commandModifiers = event.modifierFlags.intersection([.command, .control, .option])
+        if commandModifiers.isEmpty, event.keyCode == 36 || event.keyCode == 49 {
+            guard !event.isARepeat else { return }
             activate()
-        } else if event.keyCode == 48 {
+        } else if event.keyCode == 48, commandModifiers.isEmpty {
             if event.modifierFlags.contains(.shift) {
                 window?.selectPreviousKeyView(self)
             } else {

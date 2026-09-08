@@ -1655,13 +1655,9 @@ struct DocumentPaneView: View {
                             snapshot: snapshot
                         )
                     }
-                    if doc.runs.isEmpty {
-                        Text("This document is empty.")
-                            .foregroundStyle(.secondary)
-                            .font(.callout)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .accessibilityLabel("\(pane.title) is empty")
-                    } else {
+                    // Empty documents still mount the text view so tab-selection
+                    // handoff has a key-view target. The overlay is visual only.
+                    ZStack {
                         MarkdownTextView(
                             doc: doc,
                             selectedSourceSpan: $selectedSourceSpan,
@@ -1700,6 +1696,9 @@ struct DocumentPaneView: View {
                                 markdownNSTextView = tv
                                 onTextViewAvailable?(tv)
                             },
+                            textAccessibilityLabel: doc.runs.isEmpty
+                                ? String(localized: "\(pane.title) is empty")
+                                : "Document content",
                             // Fix 3 (INT-562): auto-present compose popover when the user
                             // finalizes a selection (mouseUp with a non-empty, non-mark-touching
                             // span). Guard: don't re-present if a popover is already open (covers
@@ -1775,7 +1774,8 @@ struct DocumentPaneView: View {
                                         let centRect = NSRect(
                                             x: visibleInTV.midX - 10,
                                             y: visibleInTV.midY - 10,
-                                            width: 20, height: 20
+                                            width: 20,
+                                            height: 20
                                         )
                                         showComposePopover(
                                             span: span,
@@ -1806,6 +1806,14 @@ struct DocumentPaneView: View {
                             } else {
                                 Toggle("Hide Resolved Annotations", isOn: $hideResolved)
                             }
+                        }
+                        if doc.runs.isEmpty {
+                            Text("This document is empty.")
+                                .foregroundStyle(.secondary)
+                                .font(.callout)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                         }
                     }
                 }
