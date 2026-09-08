@@ -217,6 +217,37 @@ struct AppSettingsStoreTests {
         #expect(throws: Never.self) { try codec.decode(reread) }
     }
 
+    @Test("UI settings change keeps leading terminal extras outside multiline values")
+    func updateKeepsLeadingTerminalExtrasOutsideMultilineValues() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        let onDisk = [
+            "[terminal]",
+            "",
+            "   ",
+            #"copy_on_select = "off""#,
+            "custom_note = \"\"\"",
+            "first line",
+            "\"\"\"",
+        ].joined(separator: "\n")
+        try fixture.writeConfig(onDisk)
+        let store = AppSettingsStore(fileStore: fixture.store, legacySnapshotProvider: { nil })
+        store.bootstrap()
+
+        store.update { $0.terminal.copyOnSelect = .on }
+
+        let reread = try String(contentsOf: fixture.configURL, encoding: .utf8)
+        let redecoded = try codec.decode(reread)
+        #expect(
+            reread.contains(
+                """
+                custom_note = \"\"\"
+                first line
+                \"\"\"
+                """))
+        #expect(redecoded.terminal.copyOnSelect == .on)
+    }
+
     @Test("reload from disk loads valid external changes")
     func reloadFromDiskLoadsValidExternalChanges() throws {
         let fixture = try TemporaryAppSettingsFixture()
