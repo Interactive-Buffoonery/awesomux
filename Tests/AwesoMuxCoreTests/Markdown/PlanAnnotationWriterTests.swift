@@ -274,4 +274,27 @@ struct PlanAnnotationWriterTests {
         })
         #expect(out.contains("> <!-- AMX id=w8p2 by=user status=resolved: rollback missing -->"))
     }
+
+    @Test("HTML markers keep Unicode byte ranges and fence opacity")
+    func htmlMarkersKeepUnicodeByteRanges() throws {
+        let marker = "<!-- AMX id=w8p2 by=user: café -->"
+        let source = "préface\n> \(marker)\n\n```html\n<!-- AMX id=fake by=user: example -->\n```\n"
+        let markerRange = try #require(source.range(of: marker))
+        let markerStart = try #require(markerRange.lowerBound.samePosition(in: source.utf8))
+        let expectedStart = source.utf8.distance(
+            from: source.utf8.startIndex,
+            to: markerStart
+        )
+
+        let markers = PlanAnnotationWriter.locatedMarkers(in: source)
+
+        #expect(markers.count == 1)
+        #expect(markers[0].byteRange == expectedStart..<(expectedStart + marker.utf8.count))
+        let output = try #require(
+            PlanAnnotationWriter.updatingAnnotation(id: "w8p2", in: source) {
+                $0.status = .resolved
+            })
+        #expect(output.contains("<!-- AMX id=w8p2 by=user status=resolved: café -->"))
+        #expect(output.contains("<!-- AMX id=fake by=user: example -->"))
+    }
 }
