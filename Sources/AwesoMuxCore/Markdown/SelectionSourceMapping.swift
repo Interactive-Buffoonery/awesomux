@@ -15,6 +15,11 @@ public enum SelectionSourceMapping {
             covered.append((run, (lo - runRange.lowerBound)..<(hi - runRange.lowerBound)))
         }
         guard !covered.isEmpty else { return nil }
+        // Reject invalid UTF-16 endpoints before markup fallback could widen them.
+        guard let firstCovered = covered.first, let lastCovered = covered.last,
+            let lowerByteOffset = utf8Len(firstCovered.run.text, upTo: firstCovered.utf16InRun.lowerBound),
+            let upperByteOffset = utf8Len(lastCovered.run.text, upTo: lastCovered.utf16InRun.upperBound)
+        else { return nil }
 
         // Cross-cell guard: a <mark> cannot span a table cell boundary (the `|`
         // delimiters are markup, not part of any cell's source). Table-cell runs
@@ -69,9 +74,8 @@ public enum SelectionSourceMapping {
             $0.run.sourceRange!.upperBound == $1.run.sourceRange!.lowerBound
         }
         if allPrecise && contiguous {
-            let first = covered.first!, last = covered.last!
-            let lo = first.run.sourceRange!.lowerBound + utf8Len(first.run.text, upTo: first.utf16InRun.lowerBound)
-            let hi = last.run.sourceRange!.lowerBound + utf8Len(last.run.text, upTo: last.utf16InRun.upperBound)
+            let lo = firstCovered.run.sourceRange!.lowerBound + lowerByteOffset
+            let hi = lastCovered.run.sourceRange!.lowerBound + upperByteOffset
             return lo < hi ? lo..<hi : nil
         }
         // Markup-crossing or non-precise → snap to enclosing top-level constructs (markup-safe).
@@ -94,10 +98,12 @@ public enum SelectionSourceMapping {
         return false
     }
 
-    private static func utf8Len(_ text: String, upTo utf16Index: Int) -> Int {
-        guard utf16Index > 0 else { return 0 }
-        let u = Array(text.utf16)
-        return String(utf16CodeUnits: u, count: min(utf16Index, u.count)).utf8.count
+    private static func utf8Len(_ text: String, upTo utf16Index: Int) -> Int? {
+        guard utf16Index >= 0,
+            let index = text.utf16.index(text.utf16.startIndex, offsetBy: utf16Index, limitedBy: text.utf16.endIndex),
+            let utf8Index = index.samePosition(in: text.utf8)
+        else { return nil }
+        return text.utf8.distance(from: text.utf8.startIndex, to: utf8Index)
     }
 
     // MARK: - Scroll-anchor mapping (INT-567)
