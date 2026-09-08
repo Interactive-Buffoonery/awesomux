@@ -599,35 +599,34 @@ extension SessionPersistenceSerializationDomainTests {
 
     @Test("raising the recovery gate cancels a write that is already scheduled")
     func recoveryGateCancelsAlreadyScheduledWrite() async throws {
-        try await Self.withTemporarySupportDirectoryAsync { tempDir in
-            try FileManager.default.createDirectory(
-                at: tempDir,
-                withIntermediateDirectories: true
-            )
-            let snapshotURL = tempDir.appending(path: "session-state.json")
-            let corruptedData = Data("{not-json".utf8)
-            try corruptedData.write(to: snapshotURL)
-
-            // The completion is the load-bearing assertion, not the bytes: it
-            // fires only once `writeSnapshot` has run, whatever directory the
-            // process-wide support-directory environment named by then. The byte
-            // check alone would pass vacuously if a concurrent suite swapped
-            // that environment during the wait below.
-            await confirmation("no write lands on the protected snapshot", expectedCount: 0) { wrote in
-                // A debounced write is already in flight when the gate goes up.
-                // The guard in `save` cannot see it: that write was scheduled
-                // while automatic writes were still allowed.
+            let directory = try TemporaryDirectory(prefix: "recovery-gate-cancellation")
+            let scheduler = TestScheduler()
+            let writeGate = AsyncGate()
+            defer { writeGate.open() }
+            try await SessionPersistence.withTemporarySupportDirectoryAsync(
+                directory.url,
+                sleep: { await scheduler.wait(for: $0) },
+                beforeAutomaticWrite: { await writeGate.wait() }
+            ) {
                 SessionPersistence.save(
                     SessionStore(restoring: Self.snapshot(groupName: "in flight"))
-                ) { _ in wrote() }
+                ) { _ in Issue.record("cancelled write completed") }
+                #expect(await waitUntil { scheduler.sleeperCount == 1 })
+                scheduler.advanceOneCycle()
+                #expect(await waitUntil { writeGate.waiterCount == 1 })
+                let pendingWrite = try #require(SessionPersistence.pendingWrite)
+                #expect(!pendingWrite.isCancelled)
+
+                let snapshotURL = directory.url.appending(path: "session-state.json")
+                let corruptedData = Data("{not-json".utf8)
+                try corruptedData.write(to: snapshotURL)
                 let result = SessionPersistence.load()
                 #expect(result.recoveryWarning?.preventsInitialSave == true)
+                #expect(pendingWrite.isCancelled)
+                #expect(SessionPersistence.pendingWrite == nil)
 
-                // Well past the debounce interval, so an uncancelled write has
-                // had its chance to clobber the protected snapshot.
-                try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
-            }
-
+                writeGate.open()
+                await pendingWrite.value
             #expect(try Data(contentsOf: snapshotURL) == corruptedData)
         }
     }
@@ -739,12 +738,18 @@ extension SessionPersistenceSerializationDomainTests {
             // Deliberately no `load()`: that is precisely what launching with
             // restore disabled skips.
             try await confirmation(
-                "no write lands on the never-validated snapshot",
-                expectedCount: 0
-            ) { wrote in
+                    "the unvalidated save reports its recovery gate",
+                    expectedCount: 1
+                ) { blocked in
                 SessionPersistence.save(
                     SessionStore(restoring: Self.snapshot(groupName: "live session"))
-                ) { _ in wrote() }
+                    ) { result in
+                        guard case .failure(.warningNotActive) = result else {
+                            Issue.record("expected the recovery gate to refuse the save")
+                            return
+                        }
+                        blocked()
+                    }
 
                 // Deterministic half, asserted before any waiting: an
                 // unvalidated save must have archived the bytes it refused to
@@ -755,9 +760,8 @@ extension SessionPersistenceSerializationDomainTests {
                 let archiveURL = try #require(archives.first)
                 #expect(try Data(contentsOf: archiveURL) == corruptedData)
 
-                // Timing half: a save that scheduled instead of refusing lands
-                // one debounce interval later, so the byte check below would
-                // pass vacuously without this.
+                    // A wrongly scheduled write has time to land before the final
+                    // byte check; a second completion also fails this confirmation.
                 try? await Task.sleep(for: SessionPersistence.debounceInterval * 3)
             }
 
@@ -829,7 +833,97 @@ extension SessionPersistenceSerializationDomainTests {
         }
     }
 
-    @Test("acknowledgement keeps writes blocked when the archived snapshot path was replaced")
+        @Test("blocked saves report the active recovery warning without touching the original")
+        func blockedSaveReportsRecoveryWarning() throws {
+            try Self.withTemporarySupportDirectory { tempDir in
+                let snapshotURL = tempDir.appending(path: "session-state.json")
+                try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                let original = Data("{not-json".utf8)
+                try original.write(to: snapshotURL)
+                let store = SessionStore(restoring: Self.snapshot(groupName: "current"))
+                var completions = 0
+                for _ in 0..<2 {
+                    SessionPersistence.save(store) { result in
+                        if case .failure(.warningNotActive) = result { completions += 1 }
+                    }
+                }
+                #expect(completions == 2)
+                let warning = try #require(SessionPersistence.activeRecoveryWarning)
+                #expect(warning.preventsInitialSave)
+                #expect(try Data(contentsOf: snapshotURL) == original)
+                #expect(try Data(contentsOf: #require(warning.archivedSnapshotURL)) == original)
+            }
+        }
+
+        @Test("deleting a protected snapshot permits acknowledgement for every warning kind", arguments: 0..<3)
+        func deletedSnapshotCanResumeSaving(kind: Int) throws {
+            try Self.withTemporarySupportDirectory { tempDir in
+                let snapshotURL = tempDir.appending(path: "session-state.json")
+                try Self.write(Self.snapshot(groupName: kind == 2 ? "ops\u{202E}" : "original"), to: tempDir)
+                if kind == 0 { try Data("{not-json".utf8).write(to: snapshotURL) }
+                let result = SessionPersistence.load(afterSnapshotOpen: {
+                    if kind != 0 {
+                        try FileManager.default.removeItem(at: snapshotURL)
+                        try Data("replacement".utf8).write(to: snapshotURL, options: .atomic)
+                    }
+                })
+                let warning = try #require(result.recoveryWarning)
+                #expect(SessionPersistence.activeRecoveryWarning?.id == warning.id)
+                switch (kind, warning.kind) {
+                case (0, .archivedSnapshot), (1, .snapshotConflict), (2, .sanitizedRestore): break
+                default: Issue.record("unexpected recovery warning kind")
+                }
+                if kind != 0 {
+                    #expect(!SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
+                    #expect(try Data(contentsOf: snapshotURL) == Data("replacement".utf8))
+                }
+                try FileManager.default.removeItem(at: snapshotURL)
+                #expect(SessionPersistence.canAcknowledgeRecoveryWarning(warning))
+                #expect(SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
+                #expect(SessionPersistence.activeRecoveryWarning == nil)
+                let store = SessionStore(restoring: Self.snapshot(groupName: "resumed"))
+                try SessionPersistence.flush(store).get()
+                #expect(try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL)).groups.map(\.name) == ["resumed"])
+            }
+        }
+
+        @Test("conflicted and sanitized snapshots can be explicitly replaced in app", arguments: [false, true])
+        func blockedWarningCanBeExplicitlyReplaced(sanitized: Bool) async throws {
+            try await Self.withTemporarySupportDirectoryAsync { tempDir in
+                let snapshotURL = tempDir.appending(path: "session-state.json")
+                try Self.write(Self.snapshot(groupName: sanitized ? "ops\u{202E}" : "original"), to: tempDir)
+                let result = SessionPersistence.load(afterSnapshotOpen: {
+                    try FileManager.default.removeItem(at: snapshotURL)
+                    try Data("replacement".utf8).write(to: snapshotURL, options: .atomic)
+                })
+                let warning = try #require(result.recoveryWarning)
+                #expect(!SessionPersistence.canAcknowledgeRecoveryWarning(warning))
+                let store = SessionStore(restoring: Self.snapshot(groupName: "approved"))
+                try await SessionPersistence.replaceSnapshotAfterRecovery(
+                    with: store, warning: warning, generatedDocumentPrune: { _ in }
+                ).get()
+                #expect(SessionPersistence.activeRecoveryWarning == nil)
+                #expect(try SessionSnapshot.decode(from: Data(contentsOf: snapshotURL)).groups.map(\.name) == ["approved"])
+                try SessionPersistence.flush(store).get()
+            }
+        }
+
+        @Test("a dangling replacement symlink is not treated as a deleted snapshot")
+        func danglingSymlinkKeepsRecoveryGate() throws {
+            try Self.withTemporarySupportDirectory { tempDir in
+                let snapshotURL = tempDir.appending(path: "session-state.json")
+                try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                try Data("{not-json".utf8).write(to: snapshotURL)
+                let warning = try #require(SessionPersistence.load().recoveryWarning)
+                try FileManager.default.removeItem(at: snapshotURL)
+                try FileManager.default.createSymbolicLink(at: snapshotURL, withDestinationURL: tempDir.appending(path: "missing"))
+                #expect(!SessionPersistence.canAcknowledgeRecoveryWarning(warning))
+                #expect(!SessionPersistence.acknowledgeRecoveryWarning(warning, thenSaving: nil))
+                #expect(SessionPersistence.activeRecoveryWarning?.id == warning.id)
+            }
+        }
+
+        @Test("acknowledgement keeps writes blocked when the archived snapshot path was replaced")
     func acknowledgementKeepsWritesBlockedAfterPathReplacement() throws {
         try Self.withTemporarySupportDirectory { tempDir in
             let snapshotURL = tempDir.appending(path: "session-state.json")

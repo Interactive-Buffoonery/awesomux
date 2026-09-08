@@ -243,9 +243,15 @@ struct ContentView: View {
                             Label("Workspace Saving Paused", systemImage: "externaldrive.badge.exclamationmark")
                         }
                         .buttonStyle(.borderedProminent)
-                        .help("Retry saving the current workspaces")
+                        .help(
+                            hasRecoveryWarning
+                                ? Text("Review how awesoMux should handle the protected saved workspace file")
+                                : Text("Retry saving the current workspaces")
+                        )
                         .accessibilityHint(
-                            "Workspace changes are not being saved. Close or simplify workspaces, then retry."
+                            hasRecoveryWarning
+                                ? Text("Choose whether to keep the protected saved file or replace it with current workspaces")
+                                : Text("Workspace changes are not being saved. Close or simplify workspaces, then retry.")
                         )
                     }
                     switch recoveryReplacementIndicatorState {

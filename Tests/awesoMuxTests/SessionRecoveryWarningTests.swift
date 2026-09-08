@@ -1,12 +1,23 @@
 import AppKit
 import AwesoMuxCore
 import Foundation
+import SwiftUI
 import Testing
 @testable import awesoMux
 
 @MainActor
 @Suite("SessionRecoveryWarning")
 struct SessionRecoveryWarningTests {
+    @Test("a blocked save reaches the view failure state and success clears it")
+    func blockedSaveIsVisible() {
+        var failure: SessionPersistence.RecoverySnapshotReplacementError?
+        let binding = Binding(get: { failure }, set: { failure = $0 })
+        AwesoMuxApp.recordSessionSaveResult(.failure(.warningNotActive), in: binding)
+        #expect(failure == .warningNotActive)
+        AwesoMuxApp.recordSessionSaveResult(.success(()), in: binding)
+        #expect(failure == nil)
+    }
+
     @Test("recovery replacement indicator distinguishes review, progress, and success")
     func recoveryReplacementIndicatorStates() {
         #expect(

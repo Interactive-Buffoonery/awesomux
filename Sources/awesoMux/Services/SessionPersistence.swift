@@ -240,10 +240,14 @@ enum SessionPersistence {
     /// False until `load` has inspected whatever is on disk. See
     /// `validateSnapshotOnDiskIfNeeded`.
     private static var hasValidatedSnapshotOnDisk = false
-    /// The warning from a validation that ran at the write chokepoint, where
-    /// there is no caller to hand it to. Lets the settings toggle still surface
-    /// a gate that a save raised first.
+    /// Retains the warning for the active gate so save completions and the
+    /// settings toggle can surface a warning raised by any validation path.
     private static var lastRaisedRecoveryWarning: SessionRecoveryWarning?
+    static var activeRecoveryWarning: SessionRecoveryWarning? {
+        guard lastRaisedRecoveryWarning?.id == blockedRecoveryWarningID else { return nil }
+        return lastRaisedRecoveryWarning
+    }
+
     nonisolated private static let recoveryWriteCoordinator = RecoverySnapshotWriteCoordinator()
     nonisolated(unsafe) private static var digestWriteGate = StableDataDigestWriteGate()
 
@@ -337,6 +341,7 @@ enum SessionPersistence {
         }
     ) -> LoadResult {
         blockedRecoveryWarningID = nil
+        lastRaisedRecoveryWarning = nil
         // Set before any early return: every exit below has inspected the path,
         // including the one where nothing is there to inspect.
         hasValidatedSnapshotOnDisk = true
@@ -484,6 +489,7 @@ enum SessionPersistence {
                 )
             )
             if result.recoveryWarning?.preventsInitialSave == true {
+                lastRaisedRecoveryWarning = result.recoveryWarning
                 blockedRecoveryWarningID = result.recoveryWarning?.id
             } else {
                 generatedDocumentPrune(restored.store)
@@ -674,7 +680,10 @@ enum SessionPersistence {
         completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
     ) {
         validateSnapshotOnDiskIfNeeded()
-        guard blockedRecoveryWarningID == nil else { return }
+        guard blockedRecoveryWarningID == nil else {
+            completion?(.failure(.warningNotActive))
+            return
+        }
         latestCheckpoint = Checkpoint(snapshot: store.snapshot(), capturedAt: Date(), completion: completion)
         guard scheduledCheckpoint == nil else { return }
         let environment = readEnvironment()
@@ -934,9 +943,8 @@ enum SessionPersistence {
         // replacement has resolved.
         guard activeRecoveryReplacementWarningID == nil else { return }
         guard !hasValidatedSnapshotOnDisk else { return }
-        // Kept rather than discarded: this runs from `save`, which has no
-        // return path to the UI, and the toggle handler would otherwise find
-        // the snapshot already validated and have nothing to show.
+        // Keep the warning available to the save completion and settings
+        // toggle even though the restored store is discarded.
         lastRaisedRecoveryWarning = load(generatedDocumentPrune: { _ in }).recoveryWarning
     }
 
@@ -952,6 +960,23 @@ enum SessionPersistence {
         hasValidatedSnapshotOnDisk = false
     }
 
+    static func canAcknowledgeRecoveryWarning(_ warning: SessionRecoveryWarning) -> Bool {
+        guard blockedRecoveryWarningID == warning.id,
+            activeRecoveryReplacementWarningID == nil
+        else { return false }
+        // Only ENOENT means the user removed the protected file. A dangling
+        // symlink or an unreadable path must still require explicit replacement.
+        var status = stat()
+        if lstat(snapshotURL.path, &status) != 0 {
+            return errno == ENOENT
+        }
+        guard warning.allowsAutomaticWritesAfterAcknowledgement,
+            let identity = warning.protectedSnapshotIdentity
+        else { return false }
+        return UInt64(status.st_dev) == identity.device
+            && UInt64(status.st_ino) == identity.inode
+    }
+
     /// - Parameter store: the state to persist once the gate is released, or
     ///   `nil` to only release it. Acknowledgement is reachable long after
     ///   launch through the recovery-review affordance, by which point the user
@@ -963,14 +988,7 @@ enum SessionPersistence {
         thenSaving store: SessionStore?,
         completion: (@MainActor @Sendable (Result<Void, RecoverySnapshotReplacementError>) -> Void)? = nil
     ) -> Bool {
-        guard
-            blockedRecoveryWarningID == warning.id,
-            warning.allowsAutomaticWritesAfterAcknowledgement,
-            let protectedSnapshotIdentity = warning.protectedSnapshotIdentity,
-            snapshotPathMatches(protectedSnapshotIdentity)
-        else {
-            return false
-        }
+        guard canAcknowledgeRecoveryWarning(warning) else { return false }
         blockedRecoveryWarningID = nil
         // Symmetric with `replaceSnapshotAfterRecovery`: releasing the gate is
         // not persistence. Without this the acknowledged state waits for some
@@ -1159,6 +1177,7 @@ enum SessionPersistence {
             ),
             protectedSnapshotIdentity: protectedSnapshotIdentity
         )
+        lastRaisedRecoveryWarning = warning
         blockedRecoveryWarningID = warning.id
         return LoadResult(
             store: SessionStore(),
@@ -1191,6 +1210,7 @@ enum SessionPersistence {
             ),
             protectedSnapshotIdentity: protectedSnapshotIdentity
         )
+        lastRaisedRecoveryWarning = warning
         blockedRecoveryWarningID = warning.id
         return LoadResult(store: store, recoveryWarning: warning)
     }
