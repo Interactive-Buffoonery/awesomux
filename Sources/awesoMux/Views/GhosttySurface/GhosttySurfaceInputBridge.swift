@@ -43,6 +43,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             ghostty_surface_set_focus(surface, false)
         }
         if didResign {
+            setAccessibilityFocused(false)
             runtime.setSecureInputFocused(false, for: paneID)
         }
 
@@ -50,6 +51,11 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        if sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
+            DocumentKeyViewTraversal.handle(event, in: window)
+        {
+            return
+        }
         guard let surface else {
             interpretKeyEvents([event])
             return

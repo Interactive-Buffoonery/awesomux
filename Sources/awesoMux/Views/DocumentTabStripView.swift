@@ -14,7 +14,7 @@ import SwiftUI
 /// pre-existing mismatch this strip doesn't resolve.
 ///
 /// Tab *selection* is a plain SwiftUI button: it mutates only `selectedTabID`,
-/// never remounts a terminal surface, so first-responder theft is harmless.
+/// hands keyboard and accessibility focus to the selected document.
 /// Per-tab *close* is `PaneCloseButton` (NSButton, `refusesFirstResponder`):
 /// closing the last tab collapses the split and remounts the terminal surface,
 /// which only reclaims keyboard focus when the first responder is vacant — a
@@ -42,7 +42,7 @@ struct DocumentTabStripView: View {
     let onToggleFiles: () -> Void
 
     /// The strip owns the focus-accent reservation terminal panes render as a
-    /// separate band: documents never take keyboard focus, so the extra 4pt is
+    /// separate band. The extra 4pt is
     /// plain chrome. Folding it in lets pills center within the full visual
     /// bar (INT-738 round 3 — anything centered in a 24pt sub-band of the
     /// 28pt chrome reads bottom-aligned) while a document pane's total chrome
@@ -303,6 +303,7 @@ private struct DocumentTabPill: View {
     let onClose: () -> Void
 
     @State private var isHovering = false
+    @FocusState private var isKeyboardFocused: Bool
 
     var body: some View {
         HStack(spacing: 0) {
@@ -326,6 +327,9 @@ private struct DocumentTabPill: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusable()
+            .focused($isKeyboardFocused)
+            .awFocusRing(isKeyboardFocused, cornerRadius: 5)
             .foregroundStyle(titleColor)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityAddTraits(isSelected ? .isSelected : [])

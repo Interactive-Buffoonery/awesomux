@@ -50,6 +50,7 @@ Everything scoped to a pane inside the selected workspace: splits, close/rename,
 | ⌥⌘1…⌥⌘6 | Focus Pane 1…6 | All six rows are always present, each disabled past the live pane count. Same reasoning as the ⌘1…⌘9 jump rows — an unrendered row would release its chord. Stops at six because that is already past comfortable pane density; splits themselves are unbounded, and **Previous / Next Pane** reach anything beyond six. Targeting a live pane that is already active still moves keyboard focus into its terminal. A pane covered by its reconnect screen becomes active without focusing the unavailable terminal beneath it. |
 | ⌥⌘↑ ⌥⌘↓ ⌥⌘← ⌥⌘→ | Move Pane Up / Down / Left / Right | Moves the active pane to that workspace edge; disabled when the move would be a no-op |
 | ⌥⌘S | Swap Pane With Next | Keyboard parity for the center-zone drag-swap |
+| ⌃Tab / ⌃⇧Tab | Next / Previous Keyboard Control | From a terminal with documents open, leaves terminal input and follows the window's key-view loop. Tab selection controls and document text participate; plain Tab still belongs to the shell. |
 | ⌃⌘[ | Previous Document Tab | Requires multiple document tabs |
 | ⌃⌘] | Next Document Tab | Requires multiple document tabs |
 | ⌃⌘W | Close Document Tab | Requires at least one document tab; the strip's per-tab close control refuses first responder, so this is the keyboard route |
@@ -119,3 +120,15 @@ In **DEBUG** builds, the Workspace menu may include developer-only items without
 | Debug: Set Active Workspace Waiting | Sets the selected workspace to `waiting` without incrementing unread count; use this to inspect the quiet pause glyph and `Waiting` accessibility labels. |
 
 The normal `./script/build_and_run.sh` launch builds release by default, so these menu items are absent there. Use a DEBUG binary, for example `./script/build_and_run.sh debug`, or stage a debug binary into `dist/awesoMux.app` before opening it.
+
+### Reading documents by keyboard
+
+Use Control-Tab to leave terminal input and reach the document tab strip. Tab
+through the titles to enumerate documents, then press Space to select one.
+Selecting a tab, including with Control-Command-[ or Control-Command-], moves
+keyboard and VoiceOver focus to its text. Use normal text navigation and
+selection keys to read and copy; Tab and Shift-Tab leave the text viewer.
+
+In branch changes, scroll the document to pin a file heading. The pinned heading
+is also a keyboard stop: Return or Space scrolls its original heading into view
+and toggles its fold, then returns focus to the text.

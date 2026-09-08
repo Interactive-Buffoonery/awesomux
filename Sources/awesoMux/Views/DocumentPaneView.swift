@@ -1126,6 +1126,7 @@ struct DocumentPaneView: View {
     @MainActor static var selfWriteRegistry = MarkdownSelfWriteRegistry()
 
     let pane: DocumentPane
+    var onTextViewAvailable: ((NSTextView) -> Void)? = nil
     /// Reports the document's comment count on every (re)load so the send bar can
     /// surface the all-comments-resolved notice on the `> 0 -> 0` transition
     /// (INT-683). Defaulted so existing call sites and previews stay unchanged.
@@ -1242,6 +1243,7 @@ struct DocumentPaneView: View {
     @MainActor
     init(
         pane: DocumentPane,
+        onTextViewAvailable: ((NSTextView) -> Void)? = nil,
         cachedRender: DocumentTabMemory.Render? = nil,
         initialScrollAnchor: Int? = nil,
         initialCopyMode: Bool = false,
@@ -1257,6 +1259,7 @@ struct DocumentPaneView: View {
         onSectionToggled: ((String) -> Void)? = nil
     ) {
         self.pane = pane
+        self.onTextViewAvailable = onTextViewAvailable
         self.onCommentCountChanged = onCommentCountChanged
         self.onRenderCompleted = onRenderCompleted
         self.onOpenDocumentLink = onOpenDocumentLink
@@ -1693,7 +1696,10 @@ struct DocumentPaneView: View {
                                 )
                             },
                             selectionTouchesMark: spanTouchesMark || isReadOnly || !annotationsInteractive,
-                            onTextViewAvailable: { tv in markdownNSTextView = tv },
+                            onTextViewAvailable: { tv in
+                                markdownNSTextView = tv
+                                onTextViewAvailable?(tv)
+                            },
                             // Fix 3 (INT-562): auto-present compose popover when the user
                             // finalizes a selection (mouseUp with a non-empty, non-mark-touching
                             // span). Guard: don't re-present if a popover is already open (covers

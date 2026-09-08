@@ -27,6 +27,31 @@ final class SelectionAwareTextView: NSTextView {
     /// attributes that can carry hidden review markup or local file URLs.
     var copiesPlainTextOnly = false
 
+    override var acceptsFirstResponder: Bool { isSelectable }
+    override var canBecomeKeyView: Bool {
+        isSelectable && window != nil && !isHiddenOrHasHiddenAncestor
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { (enclosingScrollView as? DocumentTextScrollView)?.showsDocumentFocus = true }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { (enclosingScrollView as? DocumentTextScrollView)?.showsDocumentFocus = false }
+        return accepted
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if DocumentKeyViewTraversal.handle(event, in: window) { return }
+        super.keyDown(with: event)
+    }
+
+    override func insertTab(_ sender: Any?) { window?.selectNextKeyView(sender) }
+    override func insertBacktab(_ sender: Any?) { window?.selectPreviousKeyView(sender) }
+
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
         copiesPlainTextOnly ? [.string] : super.writablePasteboardTypes
     }
@@ -115,6 +140,22 @@ enum TextStorageSelectionPreservation {
         }
 
         return true
+    }
+}
+
+@MainActor
+final class DocumentTextScrollView: NSScrollView {
+    var showsDocumentFocus = false {
+        didSet {
+            wantsLayer = true
+            layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
+            layer?.borderWidth = showsDocumentFocus ? 2 : 0
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
     }
 }
 
@@ -349,7 +390,7 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = DocumentTextScrollView()
         scrollView.hasVerticalScroller = true
         // INT-687: wide tables overflow horizontally instead of wrapping at the
         // pane edge. autohidesScrollers keeps the horizontal bar invisible for
@@ -1064,6 +1105,10 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             let chrome = overlay.sectionChrome.first(where: { $0.key == key }),
             let scrollView = textView.enclosingScrollView
         else { return }
+        if textView.window?.firstResponder === stickyHeader {
+            textView.window?.makeFirstResponder(textView)
+            textView.setAccessibilityFocused(true)
+        }
         let x = scrollView.contentView.bounds.origin.x
         textView.scroll(NSPoint(x: x, y: max(0, chrome.rowRect.minY - 4)))
         // A fence-less section has nothing to fold, so its pinned header is

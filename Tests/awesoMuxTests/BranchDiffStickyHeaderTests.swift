@@ -53,7 +53,7 @@ struct BranchDiffStickyHeaderTests {
         #expect(view.countsFrameForTesting.maxX <= 400)
     }
 
-    @Test("the view starts hidden, shows with a model, and is not a separate accessibility element")
+    @Test("the view starts hidden and exposes its keyboard control with a model")
     @MainActor
     func viewModelAndAccessibility() {
         let view = BranchDiffStickyHeaderView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
@@ -62,7 +62,9 @@ struct BranchDiffStickyHeaderTests {
             key: "a.swift", title: "a.swift", added: 3, removed: 1, collapsed: false,
             foldable: true)
         #expect(!view.isHidden)
-        #expect(view.isAccessibilityElement() == false)
+        #expect(view.isAccessibilityElement())
+        #expect(view.accessibilityRole() == .button)
+        #expect(view.accessibilityValue() as? String == "expanded")
         var activated: String?
         view.onActivate = { activated = $0 }
         view.simulateClick()

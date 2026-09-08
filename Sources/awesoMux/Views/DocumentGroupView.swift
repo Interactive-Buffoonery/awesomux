@@ -51,6 +51,7 @@ struct DocumentGroupView: View {
 
     @State private var mode: DocumentPaneMode = .document
     @State private var fileBrowserFocusRequestID: UUID?
+    @State private var documentFocus = DocumentFocusHandoff()
     // INT-754: composer presentation is owned here, ABOVE DocumentPaneSendBar's
     // shell-activity-keyed `.id`, so a target-pane activity flip that rebuilds the
     // send bar can't tear the open composer down and lose the in-flight draft. The
@@ -155,6 +156,7 @@ struct DocumentGroupView: View {
                     // never fires for it.
                     if tabID == group.selectedTabID {
                         setFilesVisible(false)
+                        documentFocus.request(tabID)
                         return
                     }
                     documentTabActions.perform {
@@ -216,6 +218,7 @@ struct DocumentGroupView: View {
             case .document:
                 DocumentPaneView(
                     pane: document,
+                    onTextViewAvailable: { documentFocus.register($0, for: document.id) },
                     cachedRender: tabMemory.render(for: document),
                     initialScrollAnchor: tabMemory.scrollAnchor(for: document),
                     initialCopyMode: tabMemory.isCopyMode(for: document),
@@ -372,6 +375,9 @@ struct DocumentGroupView: View {
         // modifiers give no ordering guarantee, and pruning before capturing
         // would resurrect a just-closed tab's memory entry).
         .onChange(of: group) { oldGroup, newGroup in
+            if oldGroup.selectedTabID != newGroup.selectedTabID {
+                documentFocus.request(newGroup.selectedTabID)
+            }
             if oldGroup.selectedTabID != newGroup.selectedTabID,
                 let oldSelectedTabID = oldGroup.selectedTabID
             {
@@ -448,6 +454,7 @@ struct DocumentGroupView: View {
         // the 500 ms window still pending — and its announcement is a side
         // effect VoiceOver would speak for a document that no longer exists.
         .onDisappear {
+            documentFocus.cancel()
             settleTask?.cancel()
             documentTabActions.clearFileBrowserRequest(
                 in: session.id,
