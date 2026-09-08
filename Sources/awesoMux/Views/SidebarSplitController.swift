@@ -116,6 +116,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
     private let overlayPresentationTranslation: (() -> CGFloat?)?
     private let interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement?
     private let interactionNotificationCenter: NotificationCenter
+    private let interactionAccessibilityRefreshDelay: (() async throws -> Void)?
     private let addLocalMouseMovedMonitor: AddLocalMouseMovedMonitor
     private let removeLocalMouseMovedMonitor: RemoveLocalMouseMovedMonitor
     private let currentMouseLocation: CurrentMouseLocation
@@ -183,6 +184,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         overlayAnimationRunner: SidebarOverlayAnimator.AnimationRunner? = nil,
         interactionFocusedAccessibilityElement: SidebarInteractionMonitor.FocusedAccessibilityElement? = nil,
         interactionNotificationCenter: NotificationCenter = .default,
+        interactionAccessibilityRefreshDelay: (() async throws -> Void)? = nil,
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         addLocalMouseMovedMonitor: @escaping AddLocalMouseMovedMonitor = NSEvent.addLocalMonitorForEvents,
         removeLocalMouseMovedMonitor: @escaping RemoveLocalMouseMovedMonitor = NSEvent.removeMonitor,
@@ -195,6 +197,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         self.overlayAnimationRunner = overlayAnimationRunner
         self.interactionFocusedAccessibilityElement = interactionFocusedAccessibilityElement
         self.interactionNotificationCenter = interactionNotificationCenter
+        self.interactionAccessibilityRefreshDelay = interactionAccessibilityRefreshDelay
         self.workspaceNotificationCenter = workspaceNotificationCenter
         self.addLocalMouseMovedMonitor = addLocalMouseMovedMonitor
         self.removeLocalMouseMovedMonitor = removeLocalMouseMovedMonitor
@@ -1115,6 +1118,7 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
                 guard let self, case .overlay = self.hostMode else { return false }
                 return true
             },
+            accessibilityRefreshDelay: interactionAccessibilityRefreshDelay,
             onActiveChange: { [weak self] active in
                 self?.onSidebarInteractionChanged?(active)
             })

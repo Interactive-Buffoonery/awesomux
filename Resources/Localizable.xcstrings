@@ -705,6 +705,9 @@
     "Auto-cleanup" : {
 
     },
+    "Auto-cleanup is off." : {
+      "comment" : "Session Manager footer accessibility summary when auto-cleanup is disabled"
+    },
     "BSD Notice" : {
       "comment" : "Button opening a BSD license notice"
     },
@@ -1164,6 +1167,9 @@
     "Configuration was reset after the file was removed" : {
       "comment" : "Diagnostics event summary"
     },
+    "Configure auto-cleanup in Settings" : {
+      "comment" : "Session Manager button that opens the auto-cleanup controls in Terminal settings"
+    },
     "Configure ›" : {
 
     },
@@ -1331,6 +1337,17 @@
     "Couldn’t Read Scrollback" : {
       "comment" : "Heading when Show Scrollback cannot read terminal history"
     },
+    "Couldn’t connect or undo the saved managed SSH preference. Review it in Settings." : {
+      "comment" : "Error when a failed SSH submission cannot roll back its remembered preference",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t connect or undo the saved managed SSH preference. Review it in Settings."
+          }
+        }
+      }
+    },
     "Couldn’t connect. The workspace is no longer available." : {
       "comment" : "Error shown when a managed SSH connection request targets a workspace that no longer exists"
     },
@@ -1368,6 +1385,9 @@
           }
         }
       }
+    },
+    "Create a workspace group from the Workspace menu, then try again." : {
+      "comment" : "Worktree Manager open recovery when no workspace group exists."
     },
     "Create a workspace with %arg, or reopen the last one you closed." : {
       "comment" : "Empty-state guidance when a recently closed workspace can be reopened. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N.\nSpoken form of the empty-state guidance with reopen offered. Argument is the New Workspace shortcut spelled out, e.g. Command N."
@@ -2830,6 +2850,9 @@
     "Pinned sessions are exempt from auto-cleanup." : {
 
     },
+    "Pinned sessions are exempt." : {
+      "comment" : "Session Manager footer accessibility summary for pinned sessions"
+    },
     "Pinned, from %arg" : {
       "comment" : "Spoken on a pinned sidebar workspace — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
     },
@@ -3647,6 +3670,9 @@
     },
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
+    },
+    "Select a workspace group, then try again." : {
+      "comment" : "Worktree Manager open recovery when no workspace group is selected."
     },
     "Select an agent transcript tab first — Resume acts on the transcript you're reading" : {
       "comment" : "Unavailable reason for resuming when the selected document tab is not an agent transcript"
@@ -4644,6 +4670,9 @@
     },
     "Why remove? (optional)" : {
       "comment" : "Placeholder for an optional deletion rationale"
+    },
+    "With a remote session name, awesoMux won’t show agent activity in the sidebar, update the Path Bar’s working folder, support amx send or amx history, or warn before closing a pane with a command still running." : {
+      "comment" : "Disclosure listing features unavailable when the remote host owns the named session"
     },
     "Working" : {
 

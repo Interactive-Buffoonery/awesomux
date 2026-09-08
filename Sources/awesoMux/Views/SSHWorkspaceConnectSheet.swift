@@ -11,16 +11,17 @@ struct SSHWorkspaceConnectionSubmission {
     /// submissions only. A remote-owned session runs with no local `amx` daemon
     /// in front of it, so it must neither require the global command-bridge
     /// setting nor turn it on behind the user's back.
+    @discardableResult
     mutating func submit(
         execution: SSHExecution?,
         isCommandBridgeEnabled: Bool,
         enableCommandBridge: () -> Bool,
         connect: (SSHExecution) -> Bool,
         announce: (String) -> Void
-    ) {
-        guard !isConnecting, let execution else { return }
+    ) -> Bool {
+        guard !isConnecting, let execution else { return false }
         if execution.persistenceOwner == .localAmx, !isCommandBridgeEnabled, !enableCommandBridge() {
-            return
+            return false
         }
         isConnecting = true
         errorMessage = nil
@@ -32,8 +33,9 @@ struct SSHWorkspaceConnectionSubmission {
             )
             errorMessage = message
             announce(message)
-            return
+            return false
         }
+        return true
     }
 }
 
@@ -108,6 +110,17 @@ struct SSHWorkspaceConnectSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Label(
+                    String(
+                        localized:
+                            "With a remote session name, awesoMux won’t show agent activity in the sidebar, update the Path Bar’s working folder, support amx send or amx history, or warn before closing a pane with a command still running.",
+                        comment: "Disclosure listing features unavailable when the remote host owns the named session"
+                    ),
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             // `preferenceErrorMessage` first: it reports the outcome of an
             // action the user just took, while `validationMessage` is ambient
@@ -179,8 +192,10 @@ struct SSHWorkspaceConnectSheet: View {
         )
     }
 
-    private func connect(_ execution: SSHExecution?) {
-        submission.submit(
+    @discardableResult
+    private func connect(_ execution: SSHExecution?) -> Bool {
+        preferenceErrorMessage = nil
+        return submission.submit(
             execution: execution,
             isCommandBridgeEnabled: backgroundSessionsEnabled,
             enableCommandBridge: enableBackgroundSessions,
@@ -279,53 +294,30 @@ struct SSHWorkspaceConnectSheet: View {
         }
     }
 
-    /// Saving the preference and connecting are one intent: "always" answers
-    /// this prompt too. A failed save keeps the sheet open instead, mirroring
-    /// how the never-ask actions behave when persistence fails.
     private func alwaysManageThisDestination(execution: SSHExecution?) {
-        guard let execution else { return }
-        preferenceErrorMessage = nil
-        guard !rememberIsBlockedByInvalidConfig() else { return }
-        // Record the persistence owner alongside the destination. Storing the
-        // destination alone meant a remote-owned session reconnected through a
-        // local amx daemon on every later connect, whatever the user chose here.
-        appSettingsStore.workspaces.update {
-            _ = ManagedSSHOfferPolicy.addAlwaysManagedDestination(
-                destination,
-                sessionName: execution.sessionName,
-                to: &$0
-            )
-        }
-        guard
-            let target = SSHWorkspaceDestinationValidation.target(from: destination),
-            ManagedSSHOfferPolicy.records(
-                target: target,
-                sessionName: execution.sessionName,
-                in: appSettingsStore.workspaces.value
-            )
-        else {
-            showPreferenceSaveError()
-            return
-        }
-        connect(execution)
+        rememberAndConnect(execution: execution, preference: .destination)
     }
 
     private func alwaysManageAnyDestination(execution: SSHExecution?) {
-        guard let execution else { return }
+        rememberAndConnect(execution: execution, preference: .allDestinations)
+    }
+
+    private func rememberAndConnect(execution: SSHExecution?, preference: ManagedSSHConnectionPreference) {
+        guard !submission.isConnecting, let execution else { return }
         preferenceErrorMessage = nil
         guard !rememberIsBlockedByInvalidConfig() else { return }
-        // Turning the blanket grant on also lifts a blanket decline: leaving
-        // `managedSSHOffersEnabled` false would make this choice inert, since
-        // a blanket decline now outranks a blanket grant.
-        appSettingsStore.workspaces.update {
-            $0.managedSSHAlwaysManageAllDestinations = true
-            $0.managedSSHOffersEnabled = true
-        }
-        guard appSettingsStore.workspaces.value.managedSSHAlwaysManageAllDestinations else {
+        switch preference.submit(execution: execution, store: appSettingsStore, connect: { connect(execution) }) {
+        case .finished:
+            break
+        case .saveFailed:
             showPreferenceSaveError()
-            return
+        case .rollbackFailed:
+            preferenceErrorMessage = String(
+                localized: "Couldn’t connect or undo the saved managed SSH preference. Review it in Settings.",
+                comment: "Error when a failed SSH submission cannot roll back its remembered preference"
+            )
+            TerminalAccessibilityAnnouncer.announceSettingsError(preferenceErrorMessage)
         }
-        connect(execution)
     }
 
     private func neverAskForThisDestination() {
@@ -451,7 +443,8 @@ struct SSHWorkspaceConnectSheet: View {
     private func enableBackgroundSessions() -> Bool {
         appSettingsStore.terminal.update { $0.commandBridgeEnabled = true }
         guard backgroundSessionsEnabled else {
-            TerminalAccessibilityAnnouncer.announceSettingsError(settingsErrorMessage)
+            preferenceErrorMessage = settingsErrorMessage
+            TerminalAccessibilityAnnouncer.announceSettingsError(preferenceErrorMessage)
             return false
         }
         return true

@@ -22,6 +22,16 @@ struct LocalGitRepositoryLocatorTests {
         )
     }
 
+    @Test("a missing working directory falls back to its nearest existing parent")
+    func missingWorkingDirectory() async throws {
+        let fixture = try GitRepositoryFixture()
+        defer { fixture.remove() }
+        let missing = fixture.repository.appending(path: "missing/nested", directoryHint: .isDirectory)
+
+        let context = try #require((await Self.makeLocator().locate(startingAt: missing)).context)
+        #expect(context.invocationRoot == fixture.repository.resolvingSymlinksInPath())
+    }
+
     @Test("a linked worktree shares canonical common-git-dir identity")
     func linkedWorktree() async throws {
         let fixture = try GitRepositoryFixture()
@@ -56,6 +66,30 @@ struct LocalGitRepositoryLocatorTests {
 
         let context = try #require((await Self.makeLocator().locate(startingAt: nested)).context)
         #expect(context.invocationRoot == nested.resolvingSymlinksInPath())
+    }
+
+    @Test("broken nested git metadata does not select its parent repository")
+    func brokenNestedMetadataDoesNotSelectParentRepository() async throws {
+        let fixture = try GitRepositoryFixture()
+        defer { fixture.remove() }
+        let broken = fixture.repository.appending(path: "broken", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+        try "gitdir: /no/such/git/directory\n".write(
+            to: broken.appending(path: ".git"), atomically: false, encoding: .utf8)
+
+        #expect(await Self.makeLocator().locate(startingAt: broken) == .notRepository)
+    }
+
+    @Test("a non-repository runs one discovery command")
+    func nonRepositoryRunsOneDiscoveryCommand() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-no-repo-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let runner = CountingLocalGitRunner()
+
+        #expect(await LocalGitRepositoryLocator(runner: runner).locate(startingAt: directory) == .notRepository)
+        #expect(runner.count == 1)
     }
 
     @Test("a symlinked starting path resolves to the same canonical identity")
@@ -155,4 +189,18 @@ private final class GitRepositoryFixture {
 
 private enum FixtureError: Error {
     case gitFailed([String], Int32)
+}
+
+private final class CountingLocalGitRunner: LocalGitCommandRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var invocations = 0
+
+    var count: Int { lock.withLock { invocations } }
+
+    func run(arguments: [String], inDirectory directory: URL) async -> BoundedCommandResult {
+        lock.withLock {
+            invocations += 1
+            return .nonZeroExit(128)
+        }
+    }
 }

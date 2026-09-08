@@ -88,14 +88,8 @@ final class DocumentFileWatcher {
         // `cancel()` is safe to call from any context; it enqueues the
         // cancel handler on the source's own queue.
         //
-        // Swift 6 isolation note: `DocumentFileWatcher` is `@MainActor` and the
-        // source target queue IS DispatchQueue.main, so `source?.cancel()` here
-        // is isolation-safe (cancel() is a non-isolated DispatchSource call).
-        // The project builds WARNING-FREE under Swift 6 — no refactor needed.
-        // Normal teardown is via `stop()`/`onDisappear`; deinit is a backstop.
+        // The source targets DispatchQueue.main, matching this MainActor type.
         source?.cancel()
-        // Fix I4: also cancel the pending debounce task so it does not linger
-        // ~100 ms after the watcher is released.
         debounceTask?.cancel()
     }
 

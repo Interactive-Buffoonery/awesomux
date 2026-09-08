@@ -56,4 +56,51 @@ struct MarkdownFrontMatterTests {
         #expect(frontMatter.metadataText == "name: example")
         #expect(frontMatter.body == "Body")
     }
+
+    @Test("parses CRLF front matter without changing body bytes")
+    func crlfFrontMatterPreservesBodyBytes() throws {
+        let source = "---\r\nname: example\r\n---\r\nBody\r\n"
+        let frontMatter = try #require(MarkdownFrontMatter.parse(source))
+        #expect(frontMatter.metadataText == "name: example")
+        #expect(frontMatter.body.utf8.elementsEqual("Body\r\n".utf8))
+        #expect(frontMatter.fullRange == 0..<"---\r\nname: example\r\n---\r\n".utf8.count)
+
+        let document = AttributedMarkdownBuilder.build(source)
+        let bodyRuns = document.runs.filter { $0.style == .body && $0.text == "Body" }
+
+        #expect(document.runs.filter { $0.style == .frontMatter }.map(\.text) == ["name: example"])
+        #expect(bodyRuns.count == 1)
+        #expect(bodyRuns.first?.sourceRange?.lowerBound == frontMatter.fullRange.upperBound)
+    }
+
+    @Test("a final closing delimiter can end in a lone CR", arguments: ["---", "..."])
+    func finalClosingDelimiterWithLoneCarriageReturn(closer: String) throws {
+        let source = "---\nname: example\n\(closer)\r"
+        let frontMatter = try #require(MarkdownFrontMatter.parse(source))
+        #expect(frontMatter.metadataText == "name: example")
+        #expect(frontMatter.body.isEmpty)
+        #expect(frontMatter.fullRange == 0..<source.utf8.count)
+    }
+
+    @Test("mixed line endings retain exact metadata range and body bytes")
+    func mixedLineEndingsPreserveSourceBytes() throws {
+        let prefix = "---\r\nname: example\n...\r\n"
+        let source = prefix + "Body\r\n"
+
+        let frontMatter = try #require(MarkdownFrontMatter.parse(source))
+
+        #expect(frontMatter.metadataText == "name: example")
+        #expect(frontMatter.fullRange == 0..<prefix.utf8.count)
+        #expect(frontMatter.body.utf8.elementsEqual("Body\r\n".utf8))
+    }
+
+    @Test("empty and unclosed front matter remain distinct")
+    func emptyAndUnclosedFrontMatter() throws {
+        let empty = "---\r\n---\r\nBody"
+        let frontMatter = try #require(MarkdownFrontMatter.parse(empty))
+        #expect(frontMatter.metadataText.isEmpty)
+        #expect(frontMatter.body == "Body")
+        #expect(frontMatter.fullRange == 0..<"---\r\n---\r\n".utf8.count)
+        #expect(MarkdownFrontMatter.parse("---\r\nname: example\r\nBody") == nil)
+    }
 }

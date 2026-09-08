@@ -79,6 +79,140 @@ struct AgentHookCommandTests {
         #expect(event.timestamp != nil)
     }
 
+    @Test("nested Codex lifecycle hooks write nothing")
+    func nestedCodexLifecycleHooksWriteNothing() throws {
+        let hookNames = [
+            "SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+            "PostToolUse", "SubagentStart", "SubagentStop", "Stop", "SessionEnd",
+            "StopFailure", "Notification",
+        ]
+
+        for hookName in hookNames {
+            let temp = try Self.temporaryEventFile()
+            defer { temp.remove() }
+            let status = AgentHookCommand.run(
+                arguments: ["--provider", "codex"],
+                environment: [
+                    "AWESOMUX_AGENT_EVENT_FILE": temp.file.path,
+                    "CLAUDE_CODE_CHILD_SESSION": "1",
+                ],
+                stdin: Self.hookPayload(hookName)
+            )
+
+            #expect(status == 0)
+            #expect(try Data(contentsOf: temp.file).isEmpty)
+        }
+    }
+
+    @Test(arguments: [nil, "", "0"])
+    func nonNestedCodexLifecycleHookStillWrites(childSession: String?) throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        var environment = ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path]
+        environment["CLAUDECODE"] = "1"
+        if let childSession {
+            environment["CLAUDE_CODE_CHILD_SESSION"] = childSession
+        }
+
+        let status = AgentHookCommand.run(
+            arguments: ["--provider", "codex"],
+            environment: environment,
+            stdin: Self.hookPayload("SessionStart")
+        )
+
+        #expect(status == 0)
+        #expect(try Self.readSingleEvent(from: temp.file) != nil)
+    }
+
+    @Test("Claude hooks and explicit Codex open-document remain visible")
+    func nestedContextDoesNotSuppressClaudeOrOpenDocument() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        let environment = [
+            "AWESOMUX_AGENT_EVENT_FILE": temp.file.path,
+            "CLAUDE_CODE_CHILD_SESSION": "1",
+        ]
+
+        #expect(
+            AgentHookCommand.run(
+                arguments: ["--provider", "claude-code"],
+                environment: environment,
+                stdin: Self.hookPayload("SessionStart")
+            ) == 0)
+        #expect(
+            AgentHookCommand.run(
+                arguments: ["open-document", "--provider", "codex", "/tmp/notes.md"],
+                environment: environment,
+                stdin: Data()
+            ) == 0)
+
+        let lines = try String(contentsOf: temp.file, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { AgentRuntimeEvent.parse(data: Data($0.utf8)) }
+        #expect(lines.map(\.phase) == [.sessionStart, .openDocument])
+        #expect(lines.map(\.kind) == [.claudeCode, .codex])
+    }
+
+    @Test("nested ingress cannot claim a fresh pane before an explicit document and direct Codex lifecycle")
+    @MainActor
+    func nestedIngressPreservesFreshPaneIdentityUntilDirectCodexLifecycle() throws {
+        let temp = try Self.temporaryEventFile()
+        defer { temp.remove() }
+        let environment = [
+            "AWESOMUX_AGENT_EVENT_FILE": temp.file.path,
+            "CLAUDE_CODE_CHILD_SESSION": "1",
+        ]
+        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .shell)
+        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
+
+        #expect(
+            AgentHookCommand.run(
+                arguments: ["--provider", "codex"],
+                environment: environment,
+                stdin: Self.hookPayload("SessionStart", providerSessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
+            ) == 0)
+        #expect(try Data(contentsOf: temp.file).isEmpty)
+        #expect(store.agentProviderSessionID(for: session.activePaneID) == nil)
+        #expect(store.lastEndedAgentTranscriptIdentity(for: session.activePaneID) == nil)
+
+        #expect(
+            AgentHookCommand.run(
+                arguments: ["open-document", "--provider", "codex", "/tmp/notes.md"],
+                environment: environment,
+                stdin: Data()
+            ) == 0)
+        let documentEvent = try #require(try Self.readSingleEvent(from: temp.file))
+        _ = store.applyAgentRuntimeEvent(documentEvent, to: session.id, paneID: session.activePaneID)
+        #expect(store.session(id: session.id)?.agentKind == .shell)
+        #expect(store.agentProviderSessionID(for: session.activePaneID) == nil)
+        #expect(store.lastEndedAgentTranscriptIdentity(for: session.activePaneID) == nil)
+
+        let directEnvironment = ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path]
+        let codexSessionID = "9a8b7c6d-5e4f-4321-9876-543210fedcba"
+        #expect(
+            AgentHookCommand.run(
+                arguments: ["--provider", "codex"],
+                environment: directEnvironment,
+                stdin: Self.hookPayload("SessionStart", providerSessionID: codexSessionID)
+            ) == 0)
+        let startEvent = try #require(try Self.readEvents(from: temp.file).last)
+        #expect(store.applyAgentRuntimeEvent(startEvent, to: session.id, paneID: session.activePaneID))
+        #expect(store.agentProviderSessionID(for: session.activePaneID) == codexSessionID)
+
+        #expect(
+            AgentHookCommand.run(
+                arguments: ["--provider", "codex"],
+                environment: directEnvironment,
+                stdin: Self.hookPayload("SessionEnd", providerSessionID: codexSessionID)
+            ) == 0)
+        let endEvent = try #require(try Self.readEvents(from: temp.file).last)
+        #expect(store.applyAgentRuntimeEvent(endEvent, to: session.id, paneID: session.activePaneID))
+        #expect(
+            store.lastEndedAgentTranscriptIdentity(for: session.activePaneID)
+                == AgentTranscriptIdentity(agentKind: .codex, sessionID: codexSessionID)
+        )
+    }
+
     @Test
     func openDocumentSkipsStandardInputRead() {
         #expect(
@@ -1090,6 +1224,12 @@ struct AgentHookCommandTests {
     private static func readSingleEvent(from file: URL) throws -> AgentRuntimeEvent? {
         let data = try Data(contentsOf: file)
         return AgentRuntimeEvent.parse(data: data.trimmingTrailingNewline())
+    }
+
+    private static func readEvents(from file: URL) throws -> [AgentRuntimeEvent] {
+        try String(contentsOf: file, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { AgentRuntimeEvent.parse(data: Data($0.utf8)) }
     }
 }
 

@@ -101,32 +101,6 @@ final class AwesoMuxApplication: NSApplication {
             return
         }
 
-        if KeyboardCheatsheetShortcut.matches(event) {
-            guard canHandleAppShortcut else {
-                ShortcutDiagnostics.log("stage=sendEvent keyboardCheatsheet=true blocked=modalOrNoWindow")
-                super.sendEvent(event)
-                return
-            }
-
-            ShortcutDiagnostics.log("stage=sendEvent keyboardCheatsheet=true action=toggleKeyboardCheatsheet")
-            NotificationCenter.default.post(
-                name: .awesoMuxKeyboardCheatsheetRequested,
-                object: self
-            )
-            return
-        }
-
-        if KeyboardCheatsheetShortcut.isRepeat(ofKeyboardCheatsheetChord: event) {
-            guard canHandleAppShortcut else {
-                ShortcutDiagnostics.log("stage=sendEvent keyboardCheatsheet=false repeat=true blocked=modalOrNoWindow")
-                super.sendEvent(event)
-                return
-            }
-
-            ShortcutDiagnostics.log("stage=sendEvent keyboardCheatsheet=false repeat=true action=ignore")
-            return
-        }
-
         // Promote a terminal panel into the workspace (Cmd-Return). Routing
         // from the event's window keeps child-window Companion events attached
         // to their source even when AppKit reports the primary window as key.

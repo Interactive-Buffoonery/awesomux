@@ -2087,6 +2087,7 @@ struct SidebarPresentationBehaviorTests {
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
         store.saveHidden(true)
         let gate = TestScheduler()
+        let accessibilityGate = TestScheduler()
         let model = SidebarPresentationModel(store: store, delay: { await gate.wait(for: $0) })
         let center = NotificationCenter()
         let sidebar = NSViewController()
@@ -2099,6 +2100,7 @@ struct SidebarPresentationBehaviorTests {
             detail: NSViewController(),
             interactionFocusedAccessibilityElement: { focusedAccessibilityElement },
             interactionNotificationCenter: center,
+            interactionAccessibilityRefreshDelay: { await accessibilityGate.wait(for: .milliseconds(100)) },
             applicationIsActive: { true })
         controller.onSidebarInteractionChanged = model.sidebarInteractionChanged
         controller.loadViewIfNeeded()
@@ -2132,6 +2134,8 @@ struct SidebarPresentationBehaviorTests {
 
         focusedAccessibilityElement = nil
         center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { accessibilityGate.sleeperCount == 1 })
+        accessibilityGate.advanceOneCycle()
         #expect(await waitUntil { gate.sleepCallCount == sleepCountAfterRescue + 1 })
         gate.advanceOneCycle()
         #expect(await waitUntil { model.proximityState == .dormant })
@@ -3693,6 +3697,7 @@ struct SidebarPresentationBehaviorTests {
         let store = SidebarPresentationPreferenceStore(defaults: defaults)
         store.saveHidden(true)
         let gate = TestScheduler()
+        let accessibilityGate = TestScheduler()
         let model = SidebarPresentationModel(store: store, delay: { await gate.wait(for: $0) })
         let center = NotificationCenter()
         let sidebar = NSViewController()
@@ -3704,7 +3709,8 @@ struct SidebarPresentationBehaviorTests {
             sidebar: sidebar,
             detail: NSViewController(),
             interactionFocusedAccessibilityElement: { focusedAccessibilityElement },
-            interactionNotificationCenter: center)
+            interactionNotificationCenter: center,
+            interactionAccessibilityRefreshDelay: { await accessibilityGate.wait(for: .milliseconds(100)) })
         controller.onSidebarInteractionChanged = model.sidebarInteractionChanged
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 1_200, height: 800)
@@ -3729,6 +3735,8 @@ struct SidebarPresentationBehaviorTests {
 
         focusedAccessibilityElement = nil
         center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { accessibilityGate.sleeperCount == 1 })
+        accessibilityGate.advanceOneCycle()
         #expect(await waitUntil { gate.sleeperCount == 1 })
         gate.advance()
         #expect(await waitUntil { model.proximityState == .dormant })

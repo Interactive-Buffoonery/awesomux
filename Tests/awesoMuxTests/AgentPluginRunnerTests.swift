@@ -28,6 +28,143 @@ struct AgentPluginRunnerTests {
         }
     }
 
+    @Test("Claude: enabled settings entry omitted from list needs repair")
+    func claudeEnabledSettingsEntryOmittedFromListNeedsRepair() async throws {
+        try await Self.withRunner { runner, command, _ in
+            try Self.writeClaudeSettings(
+                enabled: true,
+                to: Self.defaultClaudeSettingsURL(home: runner.homeDirectoryURL)
+            )
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "[]"))
+
+            let report = await runner.status(provider: .claudeCode, setup: Self.enabled)
+
+            guard case .needsRepair = report.status else {
+                Issue.record("expected needsRepair, got \(report.status)")
+                return
+            }
+            #expect(report.status.allowsRepair)
+            #expect(report.diagnostics == nil)
+        }
+    }
+
+    @Test("Claude: omitted entry follows the configured settings home")
+    func claudeOmittedEntryUsesConfiguredSettingsHome() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let customHome = runner.homeDirectoryURL.appending(path: "custom-claude", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: customHome, withIntermediateDirectories: true)
+            try Self.writeClaudeSettings(
+                enabled: true,
+                to: Self.defaultClaudeSettingsURL(home: runner.homeDirectoryURL)
+            )
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "[]"))
+
+            let setup = AgentIntegrationSetup(enabled: true, configHome: customHome.path)
+            #expect((await runner.status(provider: .claudeCode, setup: setup)).status == .notInstalled)
+
+            try Self.writeClaudeSettings(enabled: true, to: customHome.appending(path: "settings.json"))
+            guard case .needsRepair = (await runner.status(provider: .claudeCode, setup: setup)).status else {
+                Issue.record("expected needsRepair from the configured home")
+                return
+            }
+        }
+    }
+
+    @Test("Claude: omitted entry follows the recorded settings home")
+    func claudeOmittedEntryUsesRecordedSettingsHome() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let recordedHome = runner.homeDirectoryURL.appending(path: "recorded-claude", directoryHint: .isDirectory)
+            let liveHome = runner.homeDirectoryURL.appending(path: "live-claude", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: recordedHome, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: liveHome, withIntermediateDirectories: true)
+            let recordedSetup = AgentIntegrationSetup(enabled: true, configHome: recordedHome.path)
+            let tree = try runner.renderedTree(provider: .claudeCode, setup: recordedSetup)
+            let ref = try runner.marketplaceRef(provider: .claudeCode)
+            try runner.recordInstall(provider: .claudeCode, setup: recordedSetup, tree: tree, ref: ref)
+            try Self.writeClaudeSettings(
+                pluginRef: ref.pluginRef,
+                enabled: true,
+                to: recordedHome.appending(path: "settings.json")
+            )
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "[]"))
+
+            let report = await runner.status(
+                provider: .claudeCode,
+                setup: AgentIntegrationSetup(enabled: true, configHome: liveHome.path)
+            )
+
+            guard case .needsRepair = report.status else {
+                Issue.record("expected needsRepair from the recorded home")
+                return
+            }
+            #expect(report.note?.contains(recordedHome.path) == true)
+            #expect(report.note?.contains(liveHome.path) == true)
+        }
+    }
+
+    @Test(arguments: ["invalid JSON", "disabled", "numeric", "different ref", "oversized"])
+    func claudeOmittedEntryWithInconclusiveSettingsStaysNotInstalled(name: String) async throws {
+        try await Self.withRunner { runner, command, _ in
+            let data: Data
+            switch name {
+            case "invalid JSON":
+                data = Data("{".utf8)
+            case "disabled":
+                data = Self.claudeSettingsData(enabled: false)
+            case "numeric":
+                data = Data(#"{"enabledPlugins":{"\#(Self.claudeRef.pluginRef)":1}}"#.utf8)
+            case "different ref":
+                data = Self.claudeSettingsData(
+                    pluginRef: "other-\(Self.claudeRef.pluginName)@\(Self.claudeRef.marketplaceName)"
+                )
+            case "oversized":
+                data = Self.claudeSettingsData(paddingToAtLeast: 1_048_577)
+            default:
+                Issue.record("unexpected fixture \(name)")
+                return
+            }
+            try Self.writeClaudeSettings(data, to: Self.defaultClaudeSettingsURL(home: runner.homeDirectoryURL))
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "[]"))
+
+            let report = await runner.status(provider: .claudeCode, setup: Self.enabled)
+
+            #expect(report.status == .notInstalled, "\(name) settings must not claim repair")
+        }
+    }
+
+    @Test("Claude: omitted entry with non-regular settings stays not-installed")
+    func claudeOmittedEntryWithDirectorySettingsStaysNotInstalled() async throws {
+        try await Self.withRunner { runner, command, _ in
+            try FileManager.default.createDirectory(
+                at: Self.defaultClaudeSettingsURL(home: runner.homeDirectoryURL),
+                withIntermediateDirectories: true
+            )
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "[]"))
+
+            #expect((await runner.status(provider: .claudeCode, setup: Self.enabled)).status == .notInstalled)
+        }
+    }
+
+    @Test("Claude: omitted entry reads a symlinked settings file")
+    func claudeOmittedEntryReadsSymlinkedSettings() async throws {
+        try await Self.withRunner { runner, command, _ in
+            let target = runner.homeDirectoryURL.appending(path: "dotfiles/claude-settings.json")
+            try Self.writeClaudeSettings(enabled: true, to: target)
+            let settingsURL = Self.defaultClaudeSettingsURL(home: runner.homeDirectoryURL)
+            try FileManager.default.createDirectory(
+                at: settingsURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createSymbolicLink(at: settingsURL, withDestinationURL: target)
+            command.stub(args: ["plugin", "list", "--json"], result: .ok(stdout: "[]"))
+
+            guard case .needsRepair = (await runner.status(provider: .claudeCode, setup: Self.enabled)).status else {
+                Issue.record("expected needsRepair through the settings symlink")
+                return
+            }
+        }
+    }
+
     @Test("Claude: entry enabled with no errors maps to enabled")
     func claudeEnabled() async throws {
         try await Self.withRunner { runner, command, _ in
@@ -2314,6 +2451,41 @@ struct AgentPluginRunnerTests {
     // MARK: - Fixtures
 
     static let enabled = AgentIntegrationSetup(enabled: true)
+
+    static func defaultClaudeSettingsURL(home: URL) -> URL {
+        home
+            .appending(path: ".claude", directoryHint: .isDirectory)
+            .appending(path: "settings.json")
+    }
+
+    static func writeClaudeSettings(
+        pluginRef: String = claudeRef.pluginRef,
+        enabled: Bool,
+        to url: URL
+    ) throws {
+        try writeClaudeSettings(
+            claudeSettingsData(pluginRef: pluginRef, enabled: enabled),
+            to: url
+        )
+    }
+
+    static func claudeSettingsData(
+        pluginRef: String = claudeRef.pluginRef,
+        enabled: Bool = true,
+        paddingToAtLeast minimumByteCount: Int = 0
+    ) -> Data {
+        let json = "{\"enabledPlugins\":{\"\(pluginRef)\":\(enabled)}}"
+        let padding = String(repeating: " ", count: max(0, minimumByteCount - json.utf8.count))
+        return Data((json + padding).utf8)
+    }
+
+    static func writeClaudeSettings(_ data: Data, to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
+    }
 
     static func claudeList(
         enabled: Bool,

@@ -48,6 +48,7 @@ struct DocumentFileBrowserView: View {
     }
 
     var body: some View {
+        let contents = rootURL != nil && !isSearching ? directoryContents : nil
         VStack(spacing: 0) {
             browserToolbar
             Rectangle()
@@ -59,13 +60,13 @@ struct DocumentFileBrowserView: View {
                     .fill(Color.aw.border2.opacity(0.45))
                     .frame(height: 0.5)
             }
-            if rootURL != nil && !isSearching {
-                directoryBar
+            if let contents {
+                directoryBar(contents: contents)
                 Rectangle()
                     .fill(Color.aw.border2.opacity(0.45))
                     .frame(height: 0.5)
             }
-            browserContent
+            browserContent(contents: contents)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.aw.surface.terminal)
@@ -173,7 +174,7 @@ struct DocumentFileBrowserView: View {
         .opacity(rootURL == nil ? 0.45 : 1)
     }
 
-    private var directoryBar: some View {
+    private func directoryBar(contents: MarkdownDirectoryContents) -> some View {
         HStack(spacing: 6) {
             Button {
                 currentDirectory = ""
@@ -207,7 +208,7 @@ struct DocumentFileBrowserView: View {
 
             Spacer(minLength: 8)
 
-            if let parent = directoryContents.parentRelativePath {
+            if let parent = contents.parentRelativePath {
                 Button {
                     currentDirectory = parent
                 } label: {
@@ -233,7 +234,7 @@ struct DocumentFileBrowserView: View {
     }
 
     @ViewBuilder
-    private var browserContent: some View {
+    private func browserContent(contents: MarkdownDirectoryContents?) -> some View {
         if rootURL == nil {
             DocumentFileBrowserEmptyState(
                 systemImage: "folder.badge.questionmark",
@@ -249,57 +250,62 @@ struct DocumentFileBrowserView: View {
                 title: "No Markdown files",
                 detail: rootURL?.path ?? ""
             )
-        } else if isSearching && !isLoading && visibleHits.isEmpty {
-            DocumentFileBrowserEmptyState(
-                systemImage: "magnifyingglass",
-                title: "No matching files",
-                detail: query
-            )
         } else if isSearching {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(visibleHits, id: \.entry.id) { hit in
-                        DocumentFileBrowserFileRow(
-                            entry: hit.entry,
-                            isCurrent: hit.entry.url.standardizedFileURL
-                                == currentFileURL.standardizedFileURL,
-                            action: {
-                                open(hit.entry)
-                            }
-                        )
+            let hits = visibleHits
+            if !isLoading && hits.isEmpty {
+                DocumentFileBrowserEmptyState(
+                    systemImage: "magnifyingglass",
+                    title: "No matching files",
+                    detail: query
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(hits, id: \.entry.id) { hit in
+                            DocumentFileBrowserFileRow(
+                                entry: hit.entry,
+                                isCurrent: hit.entry.url.standardizedFileURL
+                                    == currentFileURL.standardizedFileURL,
+                                action: {
+                                    open(hit.entry)
+                                }
+                            )
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
             }
-        } else if directoryContents.directories.isEmpty && directoryContents.files.isEmpty {
-            DocumentFileBrowserEmptyState(
-                systemImage: "folder",
-                title: "Empty folder",
-                detail: currentDirectory.isEmpty ? rootDisplayName : currentDirectory
-            )
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(directoryContents.directories) { directory in
-                        DocumentFileBrowserDirectoryRow(
-                            directory: directory,
-                            action: {
-                                currentDirectory = directory.relativePath
-                            }
-                        )
+        } else if let contents {
+            if contents.directories.isEmpty && contents.files.isEmpty {
+                DocumentFileBrowserEmptyState(
+                    systemImage: "folder",
+                    title: "Empty folder",
+                    detail: currentDirectory.isEmpty ? rootDisplayName : currentDirectory
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(contents.directories) { directory in
+                            DocumentFileBrowserDirectoryRow(
+                                directory: directory,
+                                action: {
+                                    currentDirectory = directory.relativePath
+                                }
+                            )
+                        }
+                        ForEach(contents.files, id: \.id) { entry in
+                            DocumentFileBrowserFileRow(
+                                entry: entry,
+                                isCurrent: entry.url.standardizedFileURL
+                                    == currentFileURL.standardizedFileURL,
+                                action: {
+                                    open(entry)
+                                }
+                            )
+                        }
                     }
-                    ForEach(directoryContents.files, id: \.id) { entry in
-                        DocumentFileBrowserFileRow(
-                            entry: entry,
-                            isCurrent: entry.url.standardizedFileURL
-                                == currentFileURL.standardizedFileURL,
-                            action: {
-                                open(entry)
-                            }
-                        )
-                    }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
             }
         }
     }
