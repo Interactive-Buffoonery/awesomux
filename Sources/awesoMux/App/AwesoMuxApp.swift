@@ -390,6 +390,7 @@ struct AwesoMuxApp: App {
             //
             // Any future animation in this root view should check
             // `@Environment(\.accessibilityReduceMotion)` before animating.
+            let hasBlockingRecoveryWarning = recoveryWarning?.preventsInitialSave == true
             let rootContent = ContentView(
                 sessionStore: sessionStore,
                 ghosttyRuntime: ghosttyRuntime,
@@ -412,9 +413,10 @@ struct AwesoMuxApp: App {
                     didSucceed: recoveryReplacementSuccessID != nil
                 ),
                 onReviewRecoveryWarning: reviewRecoveryWarning,
-                hasSessionSaveFailure: sessionSaveFailure != nil || recoveryWarning?.preventsInitialSave == true,
+                hasSessionSaveFailure: sessionSaveFailure != nil || hasBlockingRecoveryWarning,
+                hasBlockingRecoveryWarning: hasBlockingRecoveryWarning,
                 onRetrySessionSave: {
-                    if recoveryWarning?.preventsInitialSave == true {
+                    if hasBlockingRecoveryWarning {
                         reviewRecoveryWarning()
                     } else {
                         saveSessionIfRestoreEnabled()
@@ -5699,15 +5701,13 @@ extension AwesoMuxApp {
                 allowsAutomaticWritesAfterAcknowledgement:
                     SessionPersistence.canAcknowledgeRecoveryWarning(warning)
             ) {
-                if SessionPersistence.acknowledgeRecoveryWarning(
+                Self.acknowledgeRecoveryWarning(
                     warning,
                     thenSaving: appSettingsStore.general.value.restoreWorkspaces
                         ? sessionStore : nil,
-                    completion: handleSessionSaveResult
-                ) {
-                    recoveryWarning = nil
-                    sessionSaveFailure = nil
-                }
+                    recoveryWarning: $recoveryWarning,
+                    failure: $sessionSaveFailure
+                )
             } else if !warning.preventsInitialSave {
                 recoveryWarning = nil
             }
@@ -5715,6 +5715,27 @@ extension AwesoMuxApp {
         }
 
         beginRecoveryReplacement(warning)
+    }
+
+    @MainActor
+    static func acknowledgeRecoveryWarning(
+        _ warning: SessionPersistence.SessionRecoveryWarning,
+        thenSaving store: SessionStore?,
+        recoveryWarning: Binding<SessionPersistence.SessionRecoveryWarning?>,
+        failure: Binding<SessionPersistence.RecoverySnapshotReplacementError?>
+    ) {
+        guard
+            SessionPersistence.acknowledgeRecoveryWarning(
+                warning,
+                thenSaving: store,
+                completion: { recordSessionSaveResult($0, in: failure) }
+            )
+        else { return }
+        // The catch-up save can synchronously revalidate the file and raise a new gate.
+        recoveryWarning.wrappedValue = SessionPersistence.activeRecoveryWarning
+        if recoveryWarning.wrappedValue == nil {
+            failure.wrappedValue = nil
+        }
     }
 
     private func beginRecoveryReplacement(

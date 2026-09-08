@@ -83,6 +83,7 @@ struct ContentView: View {
     let recoveryReplacementIndicatorState: RecoveryReplacementIndicatorState
     let onReviewRecoveryWarning: () -> Void
     let hasSessionSaveFailure: Bool
+    let hasBlockingRecoveryWarning: Bool
     let onRetrySessionSave: () -> Void
     let onOpenQuickSettings: () -> Void
     let onShowWelcomeTour: () -> Void
@@ -244,12 +245,12 @@ struct ContentView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .help(
-                            hasRecoveryWarning
+                            hasBlockingRecoveryWarning
                                 ? Text("Review how awesoMux should handle the protected saved workspace file")
                                 : Text("Retry saving the current workspaces")
                         )
                         .accessibilityHint(
-                            hasRecoveryWarning
+                            hasBlockingRecoveryWarning
                                 ? Text("Choose whether to keep the protected saved file or replace it with current workspaces")
                                 : Text("Workspace changes are not being saved. Close or simplify workspaces, then retry.")
                         )
