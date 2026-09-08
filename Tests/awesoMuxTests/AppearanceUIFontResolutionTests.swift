@@ -51,6 +51,14 @@ struct AppearanceUIFontResolutionTests {
 
     @Test("the stored \"system\" sentinel resolves to the system font")
     func systemSentinelFallsBack() {
+        SettingsFontCatalog.cachedProportional = nil
+        SettingsFontCatalog.cachedProportionalIndex = nil
+        defer {
+            SettingsFontCatalog.cachedProportional = nil
+            SettingsFontCatalog.cachedProportionalIndex = nil
+        }
         #expect(AwUIFontResolver.resolvedForSystem(rawFamily: "system").family == nil)
+        #expect(SettingsFontCatalog.cachedProportional == nil)
+        #expect(SettingsFontCatalog.cachedProportionalIndex == nil)
     }
 }

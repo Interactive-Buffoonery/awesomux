@@ -39,10 +39,13 @@ adds the marketplace and installs the plugin. This asymmetry is the origin of th
 
 1. **Structured CLI/RPC output is the source of truth; human-editable files are
    inputs, not parse targets.** Status is read from `claude plugin list --json` and
-   the Codex app-server `hooks/list` RPC. `~/.claude/settings.json` and
-   `$CODEX_HOME/config.toml` are treated as files the user may have hand-edited —
-   never as the thing awesoMux parses to decide state. Rationale: the providers own
-   their state shape; their CLIs are the only stable contract.
+   the Codex app-server `hooks/list` RPC. One narrow Claude exception applies only
+   after a successful CLI list omits awesoMux: a bounded safe read may inspect the
+   exact user-scoped `enabledPlugins` Boolean to classify a `true` value as
+   contradictory state requiring repair. `~/.claude/settings.json` and
+   `$CODEX_HOME/config.toml` otherwise remain files the user may have hand-edited —
+   not parse targets for status. Rationale: the providers own their state shape;
+   their CLIs are the only stable contract.
 
 2. **Install is separate from trust, and awesoMux never trusts on the user's
    behalf.** awesoMux renders and installs behind an explicit confirmation, but it

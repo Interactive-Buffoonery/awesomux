@@ -342,6 +342,22 @@ permission-resolved hook when an approved command begins running. awesoMux keeps
 the permission state while the prompt remains visible, then lets focused,
 visible active-work evidence retract it once the prompt screen is gone.
 
+When Claude Code launches a nested `codex` command, current Claude Code marks
+that child with `CLAUDE_CODE_CHILD_SESSION=1`. The Codex helper drops automatic
+lifecycle-hook payloads only when that value is exactly `1`, before they can
+claim the enclosing Claude pane's event stream. Claude events and explicit Codex
+`open-document` commands continue to use the stream, subject to the existing app
+consent, provider, and lifecycle gates; an open-document event does not itself
+claim agent identity. The app also removes this launcher provenance from fresh
+pane environments, and `amx attach` explicitly unsets it as boundary hygiene.
+
+This protection is limited to current Codex hook ingress. Older Claude Code
+versions, environments where the marker is absent or scrubbed, remote shells,
+and existing long-lived shells or daemons may still retain an inherited marker or
+produce the old behavior. awesoMux does not alter those user sessions. Start a
+new shell or replace the affected daemon manually; for a deliberately independent
+nested Codex command, use `env -u CLAUDE_CODE_CHILD_SESSION codex …`.
+
 `SessionEnd` resets the tile the way it does for every other provider: Codex
 now shares the local-agent mapping, so a quit Codex session drops its glyph and
 state back to shell instead of leaving a stuck agent tile that only the passive

@@ -73,21 +73,9 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// not block their caller; a generated-document write is a local write of a
     /// couple of MiB at most, from a user-initiated command.
     ///
-    /// **One global lock and one global authored registry, across every cache
-    /// directory — deliberately, not pending.** An earlier note here said to
-    /// key both by directory once a second cache existed. A second cache now
-    /// does exist (branch changes beside agent transcripts) and the shared
-    /// pair is still correct, for two independent reasons. The authored registry
-    /// holds absolute standardized paths, and a prune deletes only entries it
-    /// enumerated inside its own validated directory, so a path authored into
-    /// one cache can never match anything another cache's prune is looking at
-    /// — the sets are disjoint by construction, and unioning them costs a
-    /// membership test against a handful of strings. And the lock's only job is
-    /// to order filesystem operations against each other; splitting it would
-    /// buy concurrency between two caches that are each written at most once
-    /// per user-initiated command. `ponytail: one lock for both caches; key it
-    /// by directory if a cache ever appears whose writes are long enough to
-    /// make the other cache wait on them.`
+    /// The shared authored registry uses absolute paths; each prune stays inside
+    /// its validated directory. One lock orders filesystem operations across caches.
+    /// `ponytail:` key locks by directory if cross-cache contention is measured.
     nonisolated private static let cacheLock = NSLock()
 
     private struct AuthoredPathState {

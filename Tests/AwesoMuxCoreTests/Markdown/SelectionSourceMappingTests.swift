@@ -15,6 +15,43 @@ struct SelectionSourceMappingTests {
         #expect(sub(src, span) == "loa")
     }
 
+    @Test("surrogate-split selection endpoints are rejected")
+    func surrogateSplitEndpointsAreRejected() throws {
+        let source = "😀"
+        let doc = AttributedMarkdownBuilder.build(source)
+
+        #expect(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 0..<1, in: doc) == nil)
+        #expect(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 1..<2, in: doc) == nil)
+        let twoEmoji = AttributedMarkdownBuilder.build("😀😀")
+        #expect(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 1..<3, in: twoEmoji) == nil)
+        let span = try #require(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 0..<2, in: doc))
+        #expect(span == 0..<4)
+    }
+
+    @Test("surrogate-split markup-crossing selections are rejected before snapping")
+    func surrogateSplitMarkupCrossingIsRejected() {
+        let doc = AttributedMarkdownBuilder.build("😀 **bold**")
+
+        #expect(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 1..<7, in: doc) == nil)
+    }
+
+    @Test("valid Unicode scalar selections map exactly and preserve bytes when annotated")
+    func unicodeScalarSelectionsAndAnnotationInsertion() throws {
+        let combining = AttributedMarkdownBuilder.build("e\u{301}x")
+        #expect(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 1..<2, in: combining) == 1..<3)
+        let accented = AttributedMarkdownBuilder.build("éx")
+        #expect(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 0..<1, in: accented) == 0..<2)
+
+        let source = "😀 test"
+        let document = AttributedMarkdownBuilder.build(source)
+        let span = try #require(SelectionSourceMapping.sourceSpan(forSelectedUTF16: 0..<2, in: document))
+        let output = try #require(
+            PlanAnnotationWriter.insertingAnnotation(
+                in: source, span: span, author: .user, payload: "keep emoji", id: "w8p2"
+            ))
+        #expect(output.source == "<mark>😀</mark><!-- AMX id=w8p2 by=user: keep emoji --> test")
+    }
+
     @Test("selection crossing markup snaps to whole constructs — never splits the syntax")
     func crossingMarkupSnaps() {
         let src = "a **b** c"   // rendered "a b c"

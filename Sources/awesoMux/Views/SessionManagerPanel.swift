@@ -168,6 +168,7 @@ struct SessionManagerPanel: View {
     /// Selects the workspace/pane that owns a daemon, then dismisses. Wired by
     /// the app to the same selection path the command palette uses.
     let onJump: (TerminalSessionID) -> Void
+    let onConfigureAutoCleanup: () -> Void
 
     /// Orphan (abandoned/expired) row awaiting the cheap inline confirm.
     @State private var inlineConfirmID: TerminalSessionID?
@@ -554,26 +555,41 @@ struct SessionManagerPanel: View {
     private var footer: some View {
         HStack(spacing: 14) {
             HStack(spacing: 7) {
-                Image(systemName: "clock.badge.xmark")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.aw.textFaint)
-                Text("Auto-cleanup")
-                    .foregroundStyle(Color.aw.text3)
-                Text(capChipText)
-                    .awFont(AwFont.Mono.kbd)
-                    .foregroundStyle(Color.aw.text)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.pill))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AwRadius.pill)
-                            .stroke(Color.aw.border2, lineWidth: 0.5)
-                    }
-                // Non-functional pointer to Preferences — the real cap UI is Task 11.
-                Text("Configure ›")
-                    .foregroundStyle(Color.aw.accent)
+                HStack(spacing: 7) {
+                    Image(systemName: "clock.badge.xmark")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.aw.textFaint)
+                    Text("Auto-cleanup")
+                        .foregroundStyle(Color.aw.text3)
+                    Text(capChipText)
+                        .awFont(AwFont.Mono.kbd)
+                        .foregroundStyle(Color.aw.text)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.pill))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: AwRadius.pill)
+                                .stroke(Color.aw.border2, lineWidth: 0.5)
+                        }
+                }
+                .awFont(AwFont.UI.meta)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(autoCleanupAccessibilityLabel)
+
+                Button(action: onConfigureAutoCleanup) {
+                    Text("Configure ›")
+                        .awFont(AwFont.UI.meta)
+                        .foregroundStyle(Color.aw.accent)
+                        .frame(minHeight: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    String(
+                        localized: "Configure auto-cleanup in Settings",
+                        comment: "Session Manager button that opens the auto-cleanup controls in Terminal settings"
+                    ))
             }
-            .awFont(AwFont.UI.meta)
 
             HStack(spacing: 6) {
                 Image(systemName: "pin.fill")
@@ -583,6 +599,12 @@ struct SessionManagerPanel: View {
                     .awFont(AwFont.UI.meta)
                     .foregroundStyle(Color.aw.text3)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                String(
+                    localized: "Pinned sessions are exempt.",
+                    comment: "Session Manager footer accessibility summary for pinned sessions"
+                ))
 
             Spacer(minLength: 0)
 
@@ -595,6 +617,7 @@ struct SessionManagerPanel: View {
                 Text("dismiss").foregroundStyle(Color.aw.textFaint)
             }
             .awFont(AwFont.Mono.kbd)
+            .accessibilityElement(children: .combine)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -602,8 +625,7 @@ struct SessionManagerPanel: View {
         .overlay(alignment: .top) {
             Rectangle().fill(Color.aw.border).frame(height: 0.5)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(footerAccessibilityLabel)
+        .accessibilityElement(children: .contain)
     }
 
     /// Chip text reflecting the real cap config — "off" on the default (disabled)
@@ -613,12 +635,14 @@ struct SessionManagerPanel: View {
         return cap.enabled ? "\(cap.days)d idle" : "off"
     }
 
-    private var footerAccessibilityLabel: String {
+    private var autoCleanupAccessibilityLabel: String {
         let cap = model.capSummary
-        let policy = cap.enabled
+        return cap.enabled
             ? LocalizedPluralStrings.sessionManagerAutoCleanupDays(count: cap.days)
-            : "Auto-cleanup is off. Configure in Preferences."
-        return "\(policy) Pinned sessions are exempt."
+            : String(
+                localized: "Auto-cleanup is off.",
+                comment: "Session Manager footer accessibility summary when auto-cleanup is disabled"
+            )
     }
 }
 

@@ -242,9 +242,12 @@ enum AmxBackend {
     /// spec's `AWESOMUX_AGENT_*` is enumerated via
     /// `AgentRuntimeEnvironmentKey.paneScopedKeys`, the app's own definition
     /// of every pane-scoped key it injects (a future key added there is
-    /// scrubbed here automatically).
+    /// scrubbed here automatically). The Claude child-session unset is
+    /// defense in depth for daemon boundaries; app startup sanitation is the
+    /// primary fresh-pane boundary.
     private static func environmentScrubTokens(remote: RemoteTarget?) -> [String] {
         var tokens = [
+            "-u CLAUDE_CODE_CHILD_SESSION",
             "-u ZMX_SESSION",
             "-u ZMX_SESSION_PREFIX",
             "-u ZMX_LOG_MODE",

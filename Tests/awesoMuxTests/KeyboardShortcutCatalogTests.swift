@@ -1017,17 +1017,26 @@ struct KeyboardShortcutCatalogTests {
     @Test("keyboard cheatsheet matcher tracks repeat state")
     @MainActor
     func keyboardCheatsheetMatcherTracksRepeatState() {
+        let binding = KeyboardShortcutCatalog.showKeyboardCheatsheet
+        let key = String(binding.key.character)
+        let event = makeKeyEvent(
+            modifierFlags: binding.modifiers.eventFlags,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            keyCode: 0x2C
+        )
         let repeatEvent = makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "/",
-            charactersIgnoringModifiers: "/",
+            modifierFlags: binding.modifiers.eventFlags,
+            characters: key,
+            charactersIgnoringModifiers: key,
             isARepeat: true,
             keyCode: 0x2C
         )
 
+        #expect(event != nil)
         #expect(repeatEvent != nil)
+        #expect(KeyboardCheatsheetShortcut.matches(event!))
         #expect(!KeyboardCheatsheetShortcut.matches(repeatEvent!))
-        #expect(KeyboardCheatsheetShortcut.isRepeat(ofKeyboardCheatsheetChord: repeatEvent!))
     }
 
     @Test("keyboard cheatsheet panel dismissal preserves search typing")

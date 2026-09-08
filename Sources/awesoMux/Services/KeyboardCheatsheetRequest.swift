@@ -14,10 +14,6 @@ enum KeyboardCheatsheetShortcut {
         return matched
     }
 
-    static func isRepeat(ofKeyboardCheatsheetChord event: NSEvent) -> Bool {
-        isKeyboardCheatsheetChord(event) && event.isARepeat
-    }
-
     static func shouldDismissPanelForUnhandledKey(_ event: NSEvent, firstResponder: NSResponder?) -> Bool {
         event.type == .keyDown
             && !event.isARepeat
