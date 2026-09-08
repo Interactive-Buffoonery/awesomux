@@ -463,8 +463,7 @@ final class GhosttyRuntime {
 
         // Popup and floating panels carry their own SessionStore, so refresh
         // once per DISTINCT store — sampling only the first view's store would
-        // starve every other store's passive busy/idle catch-up (review
-        // finding, three lanes convergent).
+        // starve every other store's passive busy/idle catch-up.
         var refreshedStores = Set<ObjectIdentifier>()
         for surfaceView in visibleSurfaceViews {
             let store = surfaceView.sessionStore

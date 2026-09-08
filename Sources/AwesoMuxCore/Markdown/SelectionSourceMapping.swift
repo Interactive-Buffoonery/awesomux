@@ -6,15 +6,24 @@ public enum SelectionSourceMapping {
         guard !sel.isEmpty else { return nil }
         var cursor = 0
         var covered: [(run: RenderedRun, utf16InRun: Range<Int>)] = []
-        for run in doc.runs {
+        var firstCoveredRunIndex: Int?
+        var lastCoveredRunIndex: Int?
+        for (index, run) in doc.runs.enumerated() {
             let len = run.text.utf16.count
             let runRange = cursor..<(cursor + len); cursor += len
             guard run.sourceRange != nil else { continue }
             let lo = max(runRange.lowerBound, sel.lowerBound), hi = min(runRange.upperBound, sel.upperBound)
             guard lo < hi else { continue }
             covered.append((run, (lo - runRange.lowerBound)..<(hi - runRange.lowerBound)))
+            if firstCoveredRunIndex == nil { firstCoveredRunIndex = index }
+            lastCoveredRunIndex = index
         }
         guard !covered.isEmpty else { return nil }
+        // Reject invalid UTF-16 endpoints before markup fallback could widen them.
+        guard let firstCovered = covered.first, let lastCovered = covered.last,
+            let lowerByteOffset = utf8Len(firstCovered.run.text, upTo: firstCovered.utf16InRun.lowerBound),
+            let upperByteOffset = utf8Len(lastCovered.run.text, upTo: lastCovered.utf16InRun.upperBound)
+        else { return nil }
 
         // Cross-cell guard: a <mark> cannot span a table cell boundary (the `|`
         // delimiters are markup, not part of any cell's source). Table-cell runs
@@ -35,27 +44,8 @@ public enum SelectionSourceMapping {
         // Thematic breaks emit NO run — they use emitSeparator(), so they appear as "\n\n"
         // separators in the run sequence and are caught by the separator scan below.
         //
-        // Index-based scan: we need to locate the first and last covered run by scanning again
-        // with a cursor so we can identify the inter-run slice by index.
         if covered.count >= 2 {
-            // Re-scan doc.runs to find the global indices of the first and last covered runs.
-            // A covered run is the first run in `covered` whose sourceRange and text match the
-            // next entry we're looking for. Use a second cursor scan to find the index range.
-            var scanCursor = 0
-            var firstGlobalIndex: Int? = nil
-            var lastGlobalIndex: Int? = nil
-            for (globalIdx, run) in doc.runs.enumerated() {
-                let len = run.text.utf16.count
-                let runRange = scanCursor..<(scanCursor + len)
-                scanCursor += len
-                guard run.sourceRange != nil else { continue }
-                let clo = max(runRange.lowerBound, sel.lowerBound)
-                let chi = min(runRange.upperBound, sel.upperBound)
-                guard clo < chi else { continue }
-                if firstGlobalIndex == nil { firstGlobalIndex = globalIdx }
-                lastGlobalIndex = globalIdx
-            }
-            if let first = firstGlobalIndex, let last = lastGlobalIndex, last > first {
+            if let first = firstCoveredRunIndex, let last = lastCoveredRunIndex, last > first {
                 // Check the runs strictly between first and last for block boundaries.
                 let between = doc.runs[(first + 1)..<last]
                 if between.contains(where: { $0.text == "\n\n" }) { return nil }
@@ -69,9 +59,8 @@ public enum SelectionSourceMapping {
             $0.run.sourceRange!.upperBound == $1.run.sourceRange!.lowerBound
         }
         if allPrecise && contiguous {
-            let first = covered.first!, last = covered.last!
-            let lo = first.run.sourceRange!.lowerBound + utf8Len(first.run.text, upTo: first.utf16InRun.lowerBound)
-            let hi = last.run.sourceRange!.lowerBound + utf8Len(last.run.text, upTo: last.utf16InRun.upperBound)
+            let lo = firstCovered.run.sourceRange!.lowerBound + lowerByteOffset
+            let hi = lastCovered.run.sourceRange!.lowerBound + upperByteOffset
             return lo < hi ? lo..<hi : nil
         }
         // Markup-crossing or non-precise → snap to enclosing top-level constructs (markup-safe).
@@ -94,10 +83,12 @@ public enum SelectionSourceMapping {
         return false
     }
 
-    private static func utf8Len(_ text: String, upTo utf16Index: Int) -> Int {
-        guard utf16Index > 0 else { return 0 }
-        let u = Array(text.utf16)
-        return String(utf16CodeUnits: u, count: min(utf16Index, u.count)).utf8.count
+    private static func utf8Len(_ text: String, upTo utf16Index: Int) -> Int? {
+        guard utf16Index >= 0,
+            let index = text.utf16.index(text.utf16.startIndex, offsetBy: utf16Index, limitedBy: text.utf16.endIndex),
+            let utf8Index = index.samePosition(in: text.utf8)
+        else { return nil }
+        return text.utf8.distance(from: text.utf8.startIndex, to: utf8Index)
     }
 
     // MARK: - Scroll-anchor mapping (INT-567)

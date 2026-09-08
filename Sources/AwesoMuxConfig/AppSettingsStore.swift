@@ -149,23 +149,20 @@ public final class AppSettingsStore {
     public func update(_ transform: (inout AwesoMuxConfig) -> Void) {
         var working = config
         transform(&working)
-        guard attemptPersist(working) else { return }
-        apply(working)
+        guard let accepted = attemptPersist(working) else { return }
+        apply(accepted)
     }
 
     /// Called by section stores with a CANDIDATE composed config. Returns
-    /// true when the section store should commit its new value (save
-    /// succeeded, or persistence is currently disabled because the disk
-    /// file is invalid). Returns false when save failed validation — the
-    /// section store keeps its old value so memory and disk stay
-    /// consistent.
-    func attemptPersist(_ candidate: AwesoMuxConfig) -> Bool {
+    /// the accepted config when the section store should commit its new value.
+    /// A nil result leaves the section store unchanged after a save failure.
+    func attemptPersist(_ candidate: AwesoMuxConfig) -> AwesoMuxConfig? {
         guard !isDiskConfigInvalid else {
             // Disk is currently flagged invalid; UI still allows tweaks
             // (they'll persist once the user clears the invalid-file
             // banner via Replace). Permit the section-store mutation
             // through without writing to disk.
-            return true
+            return candidate
         }
 
         // Bump the schema marker to the current supported version on
@@ -179,14 +176,11 @@ public final class AppSettingsStore {
 
         do {
             try saveToDisk(withCurrentSchema)
-            if advanced.value.configSchemaVersion != AdvancedConfig.supportedConfigSchemaVersion {
-                advanced.value = withCurrentSchema.advanced
-            }
             latestError = nil
-            return true
+            return withCurrentSchema
         } catch {
             latestError = .save(error)
-            return false
+            return nil
         }
     }
 
@@ -218,7 +212,10 @@ public final class AppSettingsStore {
 
     public func replaceInvalidFileWithCurrentConfig() {
         do {
-            try saveToDisk(config)
+            var accepted = config
+            accepted.advanced.configSchemaVersion = AdvancedConfig.supportedConfigSchemaVersion
+            try saveToDisk(accepted)
+            apply(accepted)
             latestError = nil
             isDiskConfigInvalid = false
             loadSource = .existingFile
@@ -282,7 +279,7 @@ public final class AppSettingsStore {
     /// Distributes a whole `AwesoMuxConfig` to the section stores,
     /// skipping equal-valued assignments so SwiftUI only invalidates the
     /// sections that actually changed.
-    private func apply(_ newConfig: AwesoMuxConfig) {
+    func apply(_ newConfig: AwesoMuxConfig) {
         if general.value != newConfig.general { general.value = newConfig.general }
         if appearance.value != newConfig.appearance { appearance.value = newConfig.appearance }
         if notifications.value != newConfig.notifications { notifications.value = newConfig.notifications }

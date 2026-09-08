@@ -1,21 +1,14 @@
 import AwesoMuxCore
 import Foundation
 
-/// Session-memory for the document tab strip (INT-748 PR2): the last rendered
-/// document, scroll anchor, and copy-mode state per open tab, held as `@State` by
-/// `DocumentGroupView` and never persisted.
+/// Session-memory for the document tab strip: scroll anchor, copy-mode state,
+/// and fold state per open tab, held as `@State` by `DocumentGroupView`.
 ///
-/// The render entries exist so switching back to a tab shows its content
-/// immediately instead of remounting into a spinner while the whole TextKit
-/// pipeline rebuilds — the seeded view still re-reads the file in the
-/// background (its watcher was off while hidden) and swaps in changes.
-///
-/// Memory ceiling: one entry per open tab. A successful entry holds the
-/// rendered runs and one source copy inside `RenderedDocument`; failures keep
-/// only their small error details. The source is bounded by
-/// `DocumentURLValidator.maxFileSizeBytes`, and entries drop when their tab
-/// closes. ponytail: no LRU cap — add one if real-world use shows that dozens
-/// of open max-size rendered documents make resident size matter.
+/// Only the most recently completed render is retained. Remounting that tab
+/// can paint immediately while re-reading the file in the background; other
+/// tabs rebuild from disk and restore their lightweight navigation state.
+/// This bounds retained rendered documents to one per group regardless of
+/// how many tabs are open, without estimating attributed-run memory costs.
 ///
 /// Every entry is keyed by tab id AND pinned to the tab's standardized file
 /// path: the inline Files browser replaces a tab's file in place (same id, new
@@ -84,6 +77,7 @@ struct DocumentTabMemory {
     }
 
     private var entries: [DocumentPane.ID: Entry] = [:]
+    private var renderedTabID: DocumentPane.ID?
 
     func render(for tab: DocumentPane) -> Render? {
         entry(for: tab)?.render
@@ -122,9 +116,13 @@ struct DocumentTabMemory {
     }
 
     mutating func storeRender(_ render: Render, for tab: DocumentPane) {
+        if let renderedTabID, renderedTabID != tab.id {
+            entries[renderedTabID]?.render = nil
+        }
         var entry = matchingOrFresh(for: tab)
         entry.render = render
         entries[tab.id] = entry
+        renderedTabID = tab.id
     }
 
     /// `nil` clears the anchor — a tab left scrolled to the top should reopen
@@ -149,6 +147,9 @@ struct DocumentTabMemory {
             uniquingKeysWith: { first, _ in first }
         )
         entries = entries.filter { id, entry in paths[id] == entry.sourcePath }
+        if let renderedTabID, entries[renderedTabID]?.render == nil {
+            self.renderedTabID = nil
+        }
     }
 
     private func entry(for tab: DocumentPane) -> Entry? {

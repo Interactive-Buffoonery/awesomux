@@ -26,7 +26,7 @@ struct AmxBackendAttachCommandTests {
         // (they are scrubbed only on the ssh-crossing remote variant).
         #expect(
             command == "'/usr/bin/env' "
-                + "-u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
+                + "-u CLAUDE_CODE_CHILD_SESSION -u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
                 + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN "
                 + "'ZMX_DIR=/tmp/amx' 'ZMX_DIR_MODE=700' "
                 + "'/Apps/awesoMux.app/Contents/MacOS/amx' attach 'abc123-def'")
@@ -54,6 +54,7 @@ struct AmxBackendAttachCommandTests {
         #expect(command.contains("/%C'"))
         #expect(command.contains("ControlPersist=60"))
         #expect(command.contains("ConnectTimeout=10"))
+        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
         #expect(command.contains("ServerAliveInterval=15"))
         // The user's SSH config remains authoritative.
         #expect(!command.contains("ForwardAgent"))
@@ -70,6 +71,49 @@ struct AmxBackendAttachCommandTests {
                 socketDirectory: "/tmp/amx"
             ))
         #expect(!command.contains("ssh"))
+        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
+    }
+
+    @Test("remote status attach scrubs inherited Claude child context")
+    func remoteStatusAttachScrubsClaudeChildContext() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-remote-status"))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/opt/awesomux/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                status: AmxStatusChannel(
+                    fileURL: URL(fileURLWithPath: "/tmp/amx/status.jsonl"),
+                    token: "token"
+                ),
+                remote: RemoteTarget(user: "alice", host: "box")!
+            )
+        )
+
+        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
+        #expect(command.contains("-u AWESOMUX_AGENT_EVENT_FILE"))
+    }
+
+    @Test("bridge status attach scrubs inherited Claude child context")
+    func bridgeStatusAttachScrubsClaudeChildContext() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-bridge"))
+        let command = try #require(
+            AmxBackend.bridgeAttachCommand(
+                executablePath: "/opt/awesomux/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                status: AmxStatusChannel(
+                    fileURL: URL(fileURLWithPath: "/tmp/amx/status.jsonl"),
+                    token: "token"
+                ),
+                remote: RemoteTarget(user: "alice", host: "box")!,
+                stateFilePath: "/tmp/bridge-state.json",
+                helperPath: "/opt/awesomux/bridge"
+            )
+        )
+
+        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
+        #expect(command.contains("-u AWESOMUX_AGENT_EVENT_FILE"))
     }
 
     @Test("single-quotes an executable path containing spaces")
@@ -581,6 +625,7 @@ struct AmxBackendAttachCommandStatusTests {
         // shellQuote wraps the whole KEY=VALUE string, matching the existing ZMX_DIR style.
         #expect(command?.contains("'AMX_STATUS_FILE=/tmp/amx/abc123-status-deadbeef.status.jsonl'") == true)
         #expect(command?.contains("'AMX_STATUS_TOKEN=deadbeef01234567deadbeef01234567'") == true)
+        #expect(command?.contains("-u CLAUDE_CODE_CHILD_SESSION") == true)
     }
 
     @Test("still scrubs ZMX_SESSION* and pins ZMX_DIR when status channel is present")
@@ -600,6 +645,7 @@ struct AmxBackendAttachCommandStatusTests {
         #expect(command?.contains("-u ZMX_SESSION") == true)
         #expect(command?.contains("-u ZMX_SESSION_PREFIX") == true)
         #expect(command?.contains("-u ZMX_LOG_MODE") == true)
+        #expect(command?.contains("-u CLAUDE_CODE_CHILD_SESSION") == true)
         // ZMX_DIR must be pinned to the given socket directory
         #expect(command?.contains("'ZMX_DIR=/tmp/amx'") == true)
     }
@@ -759,7 +805,7 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
     /// The scrubbed `env` prefix, up to the local shell that wraps the ssh run.
     private static var expectedPrefix: String {
         "'/usr/bin/env' "
-            + "-u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
+            + "-u CLAUDE_CODE_CHILD_SESSION -u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
             + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN "
             + "-u AWESOMUX_AGENT_EVENT_PROTOCOL -u AWESOMUX_SESSION_ID -u AWESOMUX_PANE_ID "
             + "-u AWESOMUX_AGENT_EVENT_FILE -u AWESOMUX_AGENT_HOOK "
@@ -895,6 +941,7 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
         #expect(command.contains("'ssh'"))
         #expect(!command.contains("'/bin/sh'"))
         #expect(!command.contains("printf"))
+        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
     }
 
     @Test("forces a remote PTY")

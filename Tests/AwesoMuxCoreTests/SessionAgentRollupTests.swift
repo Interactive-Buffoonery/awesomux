@@ -113,6 +113,33 @@ struct SessionAgentRollupTests {
         #expect(rollup?.winningPaneID == a.id)
     }
 
+    @Test("nested layouts skip document groups without changing terminal order")
+    func nestedLayoutKeepsTerminalTraversalOrder() {
+        let first = TerminalPane(
+            title: "first", workingDirectory: "~", agentKind: .claudeCode, agentExecutionState: .done, executionPlan: .local)
+        let second = TerminalPane(
+            title: "second", workingDirectory: "~", agentKind: .codex, attentionReason: .permissionPrompt, executionPlan: .local)
+        let document = DocumentPane(fileURL: URL(fileURLWithPath: "/tmp/rollup.md"), title: "rollup.md")
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: .split(
+                    TerminalSplit(
+                        orientation: .horizontal,
+                        first: .pane(first),
+                        second: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id))
+                    )),
+                second: .pane(second)
+            ))
+        let session = TerminalSession(title: "split", workingDirectory: "~", layout: layout, activePaneID: first.id)
+
+        let rollup = session.agentRollup()
+
+        #expect(session.panes.map(\.id) == [first.id, second.id])
+        #expect(rollup.winningPaneID == second.id)
+        #expect(rollup.attentionPaneIDs == [second.id])
+    }
+
     @Test("Empty input yields nil (a session always has >= 1 pane)")
     func emptyIsNil() {
         #expect(SessionAgentRollup.from([]) == nil)

@@ -39,6 +39,64 @@ import Testing
         #expect(memory.isCopyMode(for: tab))
     }
 
+    @Test func visitingManyTabsRetainsOnlyTheLatestRender() {
+        var memory = DocumentTabMemory()
+        let tabs = (0..<32).map { makeTab(path: "/tmp/document-\($0).md") }
+        for (index, tab) in tabs.enumerated() {
+            memory.storeRender(makeRender(source: "document \(index)"), for: tab)
+            #expect(tabs.filter { memory.render(for: $0) != nil }.count == 1)
+            #expect(memory.render(for: tab)?.renderedDoc?.source == "document \(index)")
+        }
+
+        let revisited = tabs[0]
+        memory.storeRender(makeRender(source: "reloaded"), for: revisited)
+        #expect(memory.render(for: revisited)?.renderedDoc?.source == "reloaded")
+        #expect(memory.render(for: tabs[31]) == nil)
+    }
+
+    @Test func evictionPreservesNavigationStateAndDropsTheSectionIndex() {
+        var memory = DocumentTabMemory()
+        let first = makeTab(path: "/tmp/first.md")
+        let second = makeTab(path: "/tmp/second.md")
+        let doc = AttributedMarkdownBuilder.build("## f\n\n```diff\n+a\n```\n")
+        memory.storeRender(
+            DocumentTabMemory.Render(
+                loadResult: .loaded(source: doc.source, snapshot: nil),
+                renderedDoc: doc,
+                sectionIndex: BranchDiffSectionIndex(document: doc)
+            ), for: first
+        )
+        memory.storeScrollAnchor(42, for: first)
+        memory.storeCopyMode(true, for: first)
+        memory.setCollapsedSections(["f"], for: first)
+
+        memory.storeRender(makeRender(source: "second"), for: second)
+        #expect(memory.render(for: first) == nil)
+        #expect(memory.sectionIndex(for: first) == nil)
+        #expect(memory.scrollAnchor(for: first) == 42)
+        #expect(memory.isCopyMode(for: first))
+        #expect(memory.collapsedSections(for: first) == ["f"])
+
+        memory.storeScrollAnchor(7, for: first)
+        #expect(memory.render(for: second) != nil)
+        #expect(memory.render(for: first) == nil)
+    }
+
+    @Test func failureEvictsThePreviousRenderAndCanBeReplaced() {
+        var memory = DocumentTabMemory()
+        let first = makeTab(path: "/tmp/first.md")
+        let second = makeTab(path: "/tmp/second.md")
+        memory.storeRender(makeRender(source: "first"), for: first)
+        memory.storeRender(
+            DocumentTabMemory.Render(loadResult: .rejected(.tooLarge), renderedDoc: nil),
+            for: second
+        )
+        #expect(memory.render(for: first) == nil)
+        #expect(memory.render(for: second)?.loadResult == .rejected(.tooLarge))
+        memory.storeRender(makeRender(source: "recovered"), for: second)
+        #expect(memory.render(for: second)?.renderedDoc?.source == "recovered")
+    }
+
     @Test func successfulRenderSeedDropsTheFileSnapshot() throws {
         var memory = DocumentTabMemory()
         let temporaryDirectory = FileManager.default.temporaryDirectory
@@ -125,10 +183,10 @@ import Testing
         var memory = DocumentTabMemory()
         let kept = makeTab(path: "/tmp/a.md")
         let closed = makeTab(path: "/tmp/b.md")
+        memory.storeRender(makeRender(source: "b"), for: closed)
         memory.storeRender(makeRender(source: "a"), for: kept)
         memory.storeScrollAnchor(1, for: kept)
         memory.storeCopyMode(true, for: kept)
-        memory.storeRender(makeRender(source: "b"), for: closed)
 
         memory.prune(keeping: [kept])
         #expect(memory.render(for: kept) != nil)

@@ -364,6 +364,188 @@ import Testing
         #expect(rendered.renderedRecordCount == 2)
     }
 
+    @Test("Codex omits only annotated setup content and explicit setup roles")
+    func codexOmitsAnnotatedSetupContent() throws {
+        let instructions = "# AGENTS.md instructions for /tmp\n<INSTRUCTIONS>SETUP-INSTRUCTIONS</INSTRUCTIONS>"
+        let environment = "<environment_context>SETUP-ENVIRONMENT</environment_context>"
+        let taggedUserInput = "<environment_context>USER-TYPED-TAG</environment_context>"
+        let identicalTag = "<environment_context>USER-TYPED-IDENTICAL-TAG</environment_context>"
+        let rendered = renderCodex([
+            try jsonLine([
+                "type": "response_item",
+                "payload": [
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        ["type": "input_text", "text": instructions],
+                        ["type": "input_text", "text": "GENUINE-USER-TURN"],
+                        ["type": "input_text", "text": environment],
+                    ],
+                    "internal_chat_message_metadata_passthrough": [
+                        "content_item_kinds": [
+                            "agents_md.instructions",
+                            "user.text",
+                            "environments.environment_context",
+                        ]
+                    ],
+                ],
+            ]),
+            try jsonLine([
+                "type": "response_item",
+                "payload": [
+                    "type": "message",
+                    "role": "system",
+                    "content": "SYSTEM-SETUP",
+                ],
+            ]),
+            try jsonLine([
+                "type": "response_item",
+                "payload": [
+                    "type": "message",
+                    "role": "developer",
+                    "content": "DEVELOPER-SETUP",
+                ],
+            ]),
+            try jsonLine([
+                "type": "response_item",
+                "payload": [
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [["type": "output_text", "text": "ASSISTANT-KEPT"]],
+                    "internal_chat_message_metadata_passthrough": [
+                        "content_item_kinds": ["agents_md.instructions"]
+                    ],
+                ],
+            ]),
+            try jsonLine([
+                "type": "response_item",
+                "payload": [
+                    "type": "message",
+                    "role": "other",
+                    "content": taggedUserInput,
+                ],
+            ]),
+            try jsonLine([
+                "type": "response_item",
+                "payload": [
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        ["type": "input_text", "text": identicalTag],
+                        ["type": "input_text", "text": identicalTag],
+                    ],
+                    "internal_chat_message_metadata_passthrough": [
+                        "content_item_kinds": [
+                            "environments.environment_context",
+                            "user.text",
+                        ]
+                    ],
+                ],
+            ]),
+        ])
+
+        #expect(!rendered.text.contains(instructions))
+        #expect(!rendered.text.contains(environment))
+        #expect(!rendered.text.contains("SYSTEM-SETUP"))
+        #expect(!rendered.text.contains("DEVELOPER-SETUP"))
+        #expect(rendered.text.contains("GENUINE-USER-TURN"))
+        #expect(rendered.text.contains("ASSISTANT-KEPT"))
+        #expect(rendered.text.contains(taggedUserInput))
+        #expect(occurrences(of: identicalTag, in: rendered.text) == 1)
+        let user = try #require(rendered.text.firstRange(of: "GENUINE-USER-TURN"))
+        let assistant = try #require(rendered.text.firstRange(of: "ASSISTANT-KEPT"))
+        let other = try #require(rendered.text.firstRange(of: taggedUserInput))
+        #expect(user.lowerBound < assistant.lowerBound)
+        #expect(assistant.lowerBound < other.lowerBound)
+    }
+
+    @Test("Codex preserves user content when setup provenance is incomplete or unknown")
+    func codexPreservesUntrustedSetupProvenance() throws {
+        let legacy = "<environment_context>LEGACY-TAG-ONLY</environment_context>"
+        let fixtures: [[String: Any]] = [
+            ["content": legacy],
+            [
+                "content": [["type": "input_text", "text": "MALFORMED-OUTER-METADATA"]],
+                "internal_chat_message_metadata_passthrough": NSNull(),
+            ],
+            [
+                "content": [["type": "input_text", "text": "NULL-METADATA"]],
+                "internal_chat_message_metadata_passthrough": ["content_item_kinds": NSNull()],
+            ],
+            [
+                "content": [["type": "input_text", "text": "UNKNOWN-KIND"]],
+                "internal_chat_message_metadata_passthrough": ["content_item_kinds": ["future.setup"]],
+            ],
+            [
+                "content": [["type": "input_text", "text": "EMPTY-KIND"]],
+                "internal_chat_message_metadata_passthrough": ["content_item_kinds": [""]],
+            ],
+            [
+                "content": [["type": "input_text", "text": "MALFORMED-KIND"]],
+                "internal_chat_message_metadata_passthrough": ["content_item_kinds": [7]],
+            ],
+            [
+                "content": [
+                    ["type": "input_text", "text": "MISMATCH-FIRST"],
+                    ["type": "input_text", "text": "MISMATCH-TRAILING"],
+                ],
+                "internal_chat_message_metadata_passthrough": ["content_item_kinds": ["agents_md.instructions"]],
+            ],
+        ]
+        let lines = try fixtures.map { fixture in
+            try jsonLine([
+                "type": "response_item",
+                "payload": fixture.merging(["type": "message", "role": "user"]) { current, _ in current },
+            ])
+        }
+        let rendered = renderCodex(lines)
+
+        for text in [
+            legacy, "MALFORMED-OUTER-METADATA", "NULL-METADATA", "UNKNOWN-KIND", "EMPTY-KIND", "MALFORMED-KIND", "MISMATCH-FIRST",
+            "MISMATCH-TRAILING",
+        ] {
+            #expect(rendered.text.contains(text))
+        }
+    }
+
+    @Test("a setup-only Codex tail widens until it finds a conversation turn")
+    func codexSetupOnlyTailGrowsToConversation() throws {
+        let setup = String(repeating: "S", count: 8_000)
+        let setupRecord = try jsonLine([
+            "type": "response_item",
+            "payload": [
+                "type": "message",
+                "role": "user",
+                "content": [["type": "input_text", "text": setup]],
+                "internal_chat_message_metadata_passthrough": [
+                    "content_item_kinds": ["agents_md.instructions"]
+                ],
+            ],
+        ])
+        let setupOnly = renderCodex([setupRecord])
+        #expect(setupOnly.renderedRecordCount == 0)
+        #expect(setupOnly.text.contains("No conversation turns could be rendered"))
+
+        let (transcript, directory) = try openTranscript(
+            lines: [
+                #"{"type":"response_item","payload":{"type":"message","role":"user","content":"EARLIER-GENUINE-TURN"}}"#,
+                setupRecord,
+            ],
+            agentKind: .codex
+        )
+        defer { withExtendedLifetime(directory) {} }
+
+        let text = try AgentTranscriptRenderer.render(
+            transcript,
+            chrome: .unlocalizedFallback(agentKind: .codex),
+            initialWindowBytes: 512,
+            maximumWindowBytes: 1 << 16
+        ).get()
+        #expect(text.contains("EARLIER-GENUINE-TURN"))
+        #expect(!text.contains(setup))
+        #expect(!text.contains("No conversation turns could be rendered"))
+    }
+
     // MARK: - Fence containment
 
     @Test("content-borne fences and USER COMMENT markers cannot forge an annotation")
