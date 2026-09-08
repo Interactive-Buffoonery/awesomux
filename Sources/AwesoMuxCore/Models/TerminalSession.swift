@@ -227,7 +227,8 @@ public extension TerminalSession {
     /// the sidebar glyph follows the pane that earned the loudest state instead of
     /// the active pane (INT-504 R1).
     func agentRollup(at now: Date = Date()) -> SessionAgentRollup {
-        let snapshots = panes.map { $0.agentSnapshot(at: now) }
+        var snapshots: [PaneAgentSnapshot] = []
+        forEachPane { snapshots.append($0.agentSnapshot(at: now)) }
         return SessionAgentRollup.from(snapshots)
             ?? SessionAgentRollup(
                 state: .idle,
