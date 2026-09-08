@@ -4663,6 +4663,9 @@
     "Why remove? (optional)" : {
       "comment" : "Placeholder for an optional deletion rationale"
     },
+    "With a remote session name, awesoMux won’t show agent activity in the sidebar, update the Path Bar’s working folder, support amx send or amx history, or warn before closing a pane with a command still running." : {
+      "comment" : "Disclosure listing features unavailable when the remote host owns the named session"
+    },
     "Working" : {
 
     },

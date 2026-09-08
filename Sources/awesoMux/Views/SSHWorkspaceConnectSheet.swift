@@ -108,6 +108,17 @@ struct SSHWorkspaceConnectSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Label(
+                    String(
+                        localized:
+                            "With a remote session name, awesoMux won’t show agent activity in the sidebar, update the Path Bar’s working folder, support amx send or amx history, or warn before closing a pane with a command still running.",
+                        comment: "Disclosure listing features unavailable when the remote host owns the named session"
+                    ),
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             // `preferenceErrorMessage` first: it reports the outcome of an
             // action the user just took, while `validationMessage` is ambient
