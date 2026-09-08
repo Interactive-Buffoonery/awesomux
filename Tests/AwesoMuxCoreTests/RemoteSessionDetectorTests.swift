@@ -164,10 +164,12 @@ struct RemoteSessionDetectorTests {
 @MainActor
 @Suite("SessionStore remote-session tracking")
 struct SessionStoreRemoteSessionTests {
-    private func makeStore() -> (SessionStore, TerminalSession.ID, TerminalPane.ID) {
+    private func makeStore(
+        workingDirectory: String = "/Users/me/project"
+    ) -> (SessionStore, TerminalSession.ID, TerminalPane.ID) {
         let session = TerminalSession(
             title: "shell",
-            workingDirectory: "/Users/me/project",
+            workingDirectory: workingDirectory,
             agentKind: .shell,
             agentState: .idle
         )
@@ -209,6 +211,135 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteWorkingDirectory(store, pid) == nil)
         #expect(remoteConnectionHealth(store, pid) == .active)
         #expect(store.index.remotePaneIDs == Set([pid]))
+    }
+
+    @Test("a local directory title containing @ does not become a remote host")
+    func normalizedDirectoryTitleWithAtStaysLocal() {
+        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Ｄｅｖｅｌｏｐｍｅｎｔ＠a8c")
+
+        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c")
+
+        #expect(remoteHost(store, pid) == nil)
+        #expect(store.index.remotePaneIDs.isEmpty)
+        #expect(store.selectedSession?.layout.pane(id: pid)?.title == "Development@a8c")
+        store.updatePane(sessionID: sid, paneID: pid, title: "✳ Claude Code")
+        #expect(remoteHost(store, pid) == nil)
+    }
+
+    @Test("sanitized clipped directory title containing @ stays local")
+    func sanitizedClippedDirectoryTitleWithAtStaysLocal() {
+        let title = String(repeating: "x", count: 190) + "@a8c: ~" + String(repeating: "y", count: 10)
+        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/\(title)")
+
+        store.updatePane(sessionID: sid, paneID: pid, title: title)
+
+        #expect(remoteHost(store, pid) == nil)
+        #expect(store.selectedSession?.layout.pane(id: pid)?.title == SessionStore.sanitizedTitle(title))
+    }
+
+    @Test("an incoming validated local cwd title does not consume pending SSH")
+    func incomingLocalDirectoryTitleStaysLocal() throws {
+        let parent = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        let directory = parent.appendingPathComponent("Incoming@a8c")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let (store, sid, pid) = makeStore()
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-a")
+
+        store.updatePane(
+            sessionID: sid,
+            paneID: pid,
+            title: "Incoming@a8c",
+            workingDirectory: directory.path
+        )
+
+        #expect(remoteHost(store, pid) == nil)
+        let pane = store.selectedSession?.layout.pane(id: pid)
+        #expect(pane?.workingDirectory == "/Users/me/project")
+        #expect(pane?.pendingRemoteSSHTarget == "host-a")
+        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
+    }
+
+    @Test("a prompt extending the directory basename still identifies a remote host")
+    func directoryNamedPromptWithPathIsRemote() {
+        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Development@a8c")
+
+        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c: ~")
+
+        #expect(remoteHost(store, pid) == "a8c")
+        #expect(store.index.remotePaneIDs == Set([pid]))
+    }
+
+    @Test("a matching directory title still updates the live channel while frozen")
+    func frozenDirectoryTitleStaysLocal() {
+        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Frozen@a8c")
+        #expect(store.renamePane(sessionID: sid, paneID: pid, title: "Pinned"))
+
+        store.updatePane(sessionID: sid, paneID: pid, title: "Frozen@a8c")
+
+        let pane = store.selectedSession?.layout.pane(id: pid)
+        #expect(pane?.title == "Pinned")
+        #expect(pane?.liveTerminalTitle == "Frozen@a8c")
+        #expect(pane?.remoteHost == nil)
+    }
+
+    @Test("a matching directory title preserves a pending SSH target until a real prompt")
+    func pendingSSHDirectoryTitleDoesNotPromote() {
+        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Development@a8c")
+        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-a")
+
+        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c")
+
+        #expect(remoteHost(store, pid) == nil)
+        #expect(store.selectedSession?.layout.pane(id: pid)?.pendingRemoteSSHTarget == "host-a")
+        #expect(remoteSSHTarget(store, pid) == nil)
+
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@host-a: ~")
+        #expect(remoteHost(store, pid) == "host-a")
+        #expect(remoteSSHTarget(store, pid) == "host-a")
+    }
+
+    @Test("a matching directory title keeps an established remote host sticky")
+    func directoryTitleKeepsEstablishedRemoteHost() {
+        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Development@a8c")
+        store.updatePane(sessionID: sid, paneID: pid, title: "alice@webserver: ~/app")
+        store.markRemotePanesPossiblyStale()
+        #expect(remoteConnectionHealth(store, pid) == .possiblyStale)
+
+        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c")
+
+        #expect(remoteHost(store, pid) == "webserver")
+        #expect(remoteConnectionHealth(store, pid) == .active)
+    }
+
+    @Test("declared SSH panes still observe a matching remote prompt")
+    func declaredSSHDirectoryNamedPromptStillUpdatesRemoteHealth() throws {
+        let target = try #require(RemoteTarget(parsing: "buildbox"))
+        let pane = TerminalPane(
+            title: "shell",
+            workingDirectory: "/Users/me/Development@a8c",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "g", sessions: [session])],
+            selectedSessionID: session.id
+        )
+        store.localHostnames = ["mymac"]
+        store.markRemotePanesPossiblyStale()
+
+        store.updatePane(sessionID: session.id, paneID: pane.id, title: "Development@a8c")
+
+        let updated = store.selectedSession?.layout.pane(id: pane.id)
+        #expect(updated?.executionPlan == .ssh(SSHExecution(target: target)))
+        #expect(updated?.remoteHost == "a8c")
+        #expect(updated?.remotePresentationHost == "buildbox")
+        #expect(updated?.remoteConnectionHealth == .active)
     }
 
     @Test("submitted ssh target is promoted when the pane becomes remote")

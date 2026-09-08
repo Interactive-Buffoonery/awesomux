@@ -43,34 +43,13 @@ struct SidebarStatusFooter: View {
             settingsButton
             feedbackMenu
 
-            ForEach(visibleStates, id: \.self) { state in
-                if let count = counts[state], count > 0 {
-                    Button {
-                        onToggleActivityPanel(state.agentDisplayState)
-                    } label: {
-                        HStack(spacing: 6) {
-                            StatusDot(state)
-                            Text("\(count)")
-                                .monospacedDigit()
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .awFont(AwFont.Mono.meta)
-                    .foregroundStyle(Color.aw.text3)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(LocalizedPluralStrings.footerAgentsInState(
-                        count: count,
-                        stateLabel: state.label.lowercased()
-                    ))
-                    .accessibilityHint(String(localized: "Shows the agent activity panel", comment: "Accessibility hint for a footer chip that opens the agent activity panel"))
-                    // The label leads because the dot+count chip carries no
-                    // text of its own — the tooltip is the only place a
-                    // sighted user gets the state by name.
-                    .help("\(state.label) — Show in Activity Panel")
-                }
+            ViewThatFits(in: .horizontal) {
+                stateButtonCluster(compact: false)
+                    .fixedSize(horizontal: true, vertical: false)
+                stateButtonCluster(compact: true)
+                    .fixedSize(horizontal: true, vertical: false)
             }
+            .layoutPriority(-1)
 
             Spacer(minLength: 4)
 
@@ -105,7 +84,7 @@ struct SidebarStatusFooter: View {
                 : String(localized: "Show Agent Activity", comment: "Tooltip for the footer total button while the agent activity panel is closed"))
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 7)
         .frame(minHeight: AwSpacing.footerChrome)
     }
 
@@ -144,6 +123,57 @@ struct SidebarStatusFooter: View {
         }
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func stateButtonCluster(compact: Bool) -> some View {
+        HStack(spacing: 4) {
+            ForEach(visibleStates, id: \.self) { state in
+                if let count = counts[state], count > 0 {
+                    stateButton(state: state, count: count, compact: compact)
+                }
+            }
+        }
+    }
+
+    private func stateButton(state: AwState, count: Int, compact: Bool) -> some View {
+        Button {
+            onToggleActivityPanel(state.agentDisplayState)
+        } label: {
+            if compact {
+                StatusDot(state)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            } else {
+                HStack(spacing: 6) {
+                    StatusDot(state)
+                    Text("\(count)")
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .awFont(AwFont.Mono.meta)
+        .foregroundStyle(Color.aw.text3)
+        .padding(.horizontal, compact ? 0 : 8)
+        .padding(.vertical, compact ? 0 : 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            LocalizedPluralStrings.footerAgentsInState(
+                count: count,
+                stateLabel: state.label.lowercased()
+            )
+        )
+        .accessibilityHint(
+            String(
+                localized: "Shows the agent activity panel",
+                comment: "Accessibility hint for a footer chip that opens the agent activity panel")
+        )
+        // The label leads because the dot+count chip carries no text of its
+        // own — the tooltip is the only place a sighted user gets the state
+        // by name.
+        .help("\(state.label) — Show in Activity Panel")
     }
 
     private var settingsButton: some View {

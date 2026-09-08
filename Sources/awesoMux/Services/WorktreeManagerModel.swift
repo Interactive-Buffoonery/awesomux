@@ -285,10 +285,17 @@ final class WorktreeManagerModel {
         }
 
         guard let groupID = destinationGroupID ?? currentGroupID() else {
+            if groups().isEmpty {
+                return .failed(
+                    String(
+                        localized: "Create a workspace group from the Workspace menu, then try again.",
+                        comment: "Worktree Manager open recovery when no workspace group exists."
+                    ))
+            }
             return .failed(
                 String(
-                    localized: "The current workspace group is no longer available.",
-                    comment: "Worktree Manager open failure when its target group disappeared."
+                    localized: "Select a workspace group, then try again.",
+                    comment: "Worktree Manager open recovery when no workspace group is selected."
                 ))
         }
         guard

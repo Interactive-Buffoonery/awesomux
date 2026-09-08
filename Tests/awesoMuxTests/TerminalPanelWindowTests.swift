@@ -45,6 +45,25 @@ struct TerminalPanelWindowTests {
         #expect(fixture.promotionCount == 0)
     }
 
+    @Test("application does not intercept the Keyboard Shortcuts menu shortcut")
+    func applicationDoesNotInterceptKeyboardShortcutsShortcut() throws {
+        let fixture = PromotionFixture(attachedToParent: true)
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .awesoMuxKeyboardCheatsheetRequested,
+            object: fixture.application,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        fixture.application.sendEvent(try fixture.keyboardCheatsheetEvent())
+        fixture.application.sendEvent(try fixture.keyboardCheatsheetEvent(isARepeat: true))
+
+        #expect(notificationCount == 0)
+    }
+
     @Test("application blocks promotion while the terminal panel owns a sheet")
     func applicationBlocksPromotionForTerminalPanelSheet() throws {
         let fixture = PromotionFixture(attachedToParent: true)
@@ -291,6 +310,22 @@ private final class PromotionFixture {
                 charactersIgnoringModifiers: "\r",
                 isARepeat: isARepeat,
                 keyCode: UInt16(kVK_Return)
+            ))
+    }
+
+    func keyboardCheatsheetEvent(isARepeat: Bool = false) throws -> NSEvent {
+        try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: panel.windowNumber,
+                context: nil,
+                characters: "/",
+                charactersIgnoringModifiers: "/",
+                isARepeat: isARepeat,
+                keyCode: UInt16(kVK_ANSI_Slash)
             ))
     }
 

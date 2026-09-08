@@ -81,7 +81,7 @@ awesomux/                         ← marketplace root (we render/own this)
                 └── SKILL.md       ← document/annotation convention (ADR-0012 addendum, INT-684)
 ```
 
-`marketplace.json` minimum: `{ "name": "awesomux", "owner": {...}, "plugins": [ { "name":
+`marketplace.json` minimum: `{ "name": "awesomux-claude", "owner": {...}, "plugins": [ { "name":
 "awesomux-claude-status", "source": "./plugins/awesomux-claude-status", "description": "…" } ] }`.
 `plugin.json` minimum: `{ "name": "awesomux-claude-status", "version": "x.y.z", "hooks":
 "./hooks/hooks.json" }`. Components (the `hooks/` dir) live at plugin **root**, only the
@@ -89,18 +89,18 @@ manifest sits in `.claude-plugin/`. (Source: `plugins-reference`, `plugin-market
 
 ### 1.2 Command contract
 
-Plugin ref is always `awesomux-claude-status@awesomux`. Default scope is `user`; the
+Plugin ref is always `awesomux-claude-status@awesomux-claude`. Default scope is `user`; the
 runner pins `--scope user` explicitly (global-only install per ADR 0010).
 
 | Op | Command | Required env | Notes |
 | --- | --- | --- | --- |
 | Register catalog | `claude plugin marketplace add <marketplace-root-or-marketplace.json>` | `PATH` to `claude` | Idempotent-ish; adding an already-known marketplace is not a hard failure but re-validates. Local path or path to the `marketplace.json` both accepted. |
 | Validate catalog | `claude plugin validate <marketplace-root>` | — | Pre-flight: checks schema, duplicate names, source path traversal, version mismatch. Run before `add` to convert a malformed render into a clean failure. |
-| Install | `claude plugin install awesomux-claude-status@awesomux --scope user` | `PATH` | Writes `enabledPlugins["awesomux-claude-status@awesomux"] = true` into the scope's `settings.json`. |
-| Uninstall | `claude plugin uninstall awesomux-claude-status@awesomux --scope user` | `PATH` | Removes from `enabledPlugins`. |
-| Disable (keep installed) | `claude plugin disable awesomux-claude-status@awesomux` | `PATH` | Fails if an enabled plugin depends on it (we have none). |
-| Enable | `claude plugin enable awesomux-claude-status@awesomux` | `PATH` | |
-| De-register catalog | `claude plugin marketplace remove awesomux --scope user` | `PATH` | Full uninstall = uninstall plugin, then remove marketplace. |
+| Install | `claude plugin install awesomux-claude-status@awesomux-claude --scope user` | `PATH` | Writes `enabledPlugins["awesomux-claude-status@awesomux-claude"] = true` into the scope's `settings.json`. |
+| Uninstall | `claude plugin uninstall awesomux-claude-status@awesomux-claude --scope user` | `PATH` | Removes from `enabledPlugins`. |
+| Disable (keep installed) | `claude plugin disable awesomux-claude-status@awesomux-claude` | `PATH` | Fails if an enabled plugin depends on it (we have none). |
+| Enable | `claude plugin enable awesomux-claude-status@awesomux-claude` | `PATH` | |
+| De-register catalog | `claude plugin marketplace remove awesomux-claude --scope user` | `PATH` | Full uninstall = uninstall plugin, then remove marketplace. |
 | **Status (authoritative)** | `claude plugin list --json` | `PATH` | Machine-readable. Parse per §1.3. |
 
 **Clean reinstall (INT-651, INT-882).** `claude plugin install` keys its cache on the plugin
@@ -135,7 +135,7 @@ present binary as a hard failure of that op (surface stderr verbatim).
 **Status level — drive off `claude plugin list --json`.** Each plugin entry carries at
 least `name`, `version`, a marketplace/source, an enabled flag, and an `errors` array
 (documented for dependency/load errors; treat as the general per-plugin error channel).
-Decision table for our entry (`awesomux-claude-status@awesomux`):
+Decision table for our entry (`awesomux-claude-status@awesomux-claude`):
 
 | Observed | Status |
 | --- | --- |
@@ -145,7 +145,7 @@ Decision table for our entry (`awesomux-claude-status@awesomux`):
 | Entry present, enabled true, `errors` empty, deployed copy differs with a reachable helper | **Update available** |
 | Entry present, enabled true, `errors` empty, deployed copy differs and its baked helper is unreachable | **Needs repair** (the hook exits 127 on every event) |
 | Deployed location unavailable/unreadable, entry enabled true, `errors` empty; recorded digest ≠ bundled source or missing | **Update available** (was Needs repair before INT-882: the plugin runs; staleness is not breakage) |
-| Marketplace known but our plugin entry absent, **and** `enabledPlugins` in `settings.json` still references it | **Needs repair** (re-install) |
+| Our plugin entry absent, but the exact ref is explicitly `true` in user-scoped `settings.json` | **Needs repair** (re-install) |
 | Entry present but `errors` non-empty (manifest/hooks path bad, plugin failed to load), or `claude plugin validate` fails on our rendered catalog | **Needs repair** |
 | Marketplace not yet added / plugin never installed | Not-installed (offer install) |
 
@@ -165,8 +165,12 @@ post-action guidance rather than a steady status. (Source: `discover-plugins`.)
 **Where state lands.** `--scope user` → `~/.claude/settings.json`; `--scope project` →
 `.claude/settings.json`; `--scope local` → gitignored local settings. Keys:
 `enabledPlugins` (`"name@marketplace": bool`) and `extraKnownMarketplaces`. The runner
-treats `claude plugin list --json` as the source of truth and these files as
-human-editable inputs, not as the parse target. (Source: `settings`, `plugin-marketplaces`.)
+treats `claude plugin list --json` as the source of truth, with one narrow
+exception: after a successful list omits our entry, it reads only the exact
+user-scoped `enabledPlugins` Boolean through a bounded safe reader. A true value
+is contradictory state and maps to **Needs repair**; absent, unreadable, malformed,
+or non-true settings remain Not-installed. (Source: `settings`,
+`plugin-marketplaces`.)
 
 ---
 
@@ -385,8 +389,9 @@ that JSON is the only non-interactive status source.
   than a bare error on every tool call. Durable relocation (rewriting the baked
   path on launch) is follow-up scope, not this contract.
 - **Prefer structured reads.** `claude plugin list --json`, Codex `hooks/list`,
-  and `grok plugin list --json` are the parse targets. Treat human-editable
-  files (`settings.json`, `config.toml`) as inputs the user may have changed,
+  and `grok plugin list --json` are the parse targets, with the narrow Claude
+  settings exception in §1.3. Otherwise treat human-editable files
+  (`settings.json`, `config.toml`) as inputs the user may have changed,
   not as the status source of truth.
 - **Verify provider-side reality before bookkeeping (INT-882).** Install
   records and digests describe awesoMux's own history; they cannot see what

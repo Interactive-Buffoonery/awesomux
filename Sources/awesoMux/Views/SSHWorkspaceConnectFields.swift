@@ -15,7 +15,7 @@ enum SSHWorkspaceConnectFields {
         sessionName rawSessionName: String
     ) -> SSHExecution? {
         guard let target = SSHWorkspaceDestinationValidation.target(from: destination) else { return nil }
-        let trimmedName = rawSessionName.trimmingCharacters(in: .whitespaces)
+        let trimmedName = rawSessionName.trimmingCharacters(in: .whitespacesAndNewlines)
         // No session name is the local-amx default: awesoMux keeps the session
         // alive on this side of the connection.
         guard !trimmedName.isEmpty else { return SSHExecution(target: target) }
@@ -27,14 +27,14 @@ enum SSHWorkspaceConnectFields {
     /// rest of the sheet's input is known to be valid — the copy that promises
     /// to enable background sessions keys off this, not off a full submission.
     static func declaresRemoteSession(sessionName: String) -> Bool {
-        !sessionName.trimmingCharacters(in: .whitespaces).isEmpty
+        !sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Names its field: it shares one message slot with the destination's, so
     /// heard out of visual context an unprefixed message would not say which
     /// field it is about.
     static func sessionNameMessage(for text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, RemoteSessionName(rawValue: trimmed) == nil else { return nil }
         return String(
             localized:

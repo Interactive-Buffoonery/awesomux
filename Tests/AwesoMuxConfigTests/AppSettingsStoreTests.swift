@@ -86,6 +86,56 @@ struct AppSettingsStoreTests {
         #expect(store.latestError == nil)
     }
 
+    @Test("saving a v1 config publishes the normalized schema")
+    func savingV1ConfigPublishesNormalizedSchema() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        var v1 = AwesoMuxConfig.defaultValue
+        v1.advanced.configSchemaVersion = 1
+        try fixture.writeConfig(try codec.encodeString(v1))
+        let store = AppSettingsStore(fileStore: fixture.store, legacySnapshotProvider: { nil })
+        store.bootstrap()
+
+        store.update { $0.appearance.theme = .dark }
+        let decoded = try codec.decode(Data(contentsOf: fixture.configURL))
+
+        #expect(store.config.advanced.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+        #expect(decoded.advanced.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+    }
+
+    @Test("advanced slice cannot restore an old schema after save")
+    func advancedSliceCannotRestoreOldSchema() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        let store = AppSettingsStore(fileStore: fixture.store, legacySnapshotProvider: { nil })
+        store.bootstrap()
+
+        store.advanced.update { $0.configSchemaVersion = 1 }
+        let decoded = try codec.decode(Data(contentsOf: fixture.configURL))
+
+        #expect(store.advanced.value.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+        #expect(decoded.advanced.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+    }
+
+    @Test("appearance slice publishes schema normalization from a v1 config")
+    func appearanceSlicePublishesNormalizedSchema() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        var v1 = AwesoMuxConfig.defaultValue
+        v1.advanced.configSchemaVersion = 1
+        try fixture.writeConfig(try codec.encodeString(v1))
+        let store = AppSettingsStore(fileStore: fixture.store, legacySnapshotProvider: { nil })
+        store.bootstrap()
+
+        store.appearance.update { $0.theme = .dark }
+        let decoded = try codec.decode(Data(contentsOf: fixture.configURL))
+
+        #expect(store.config.appearance.theme == .dark)
+        #expect(decoded.appearance.theme == .dark)
+        #expect(store.advanced.value.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+        #expect(decoded.advanced.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+    }
+
     @Test("agent integration section store writes setup paths")
     func agentIntegrationSectionStoreWritesSetupPaths() throws {
         let fixture = try TemporaryAppSettingsFixture()
@@ -167,6 +217,37 @@ struct AppSettingsStoreTests {
         #expect(throws: Never.self) { try codec.decode(reread) }
     }
 
+    @Test("UI settings change keeps leading terminal extras outside multiline values")
+    func updateKeepsLeadingTerminalExtrasOutsideMultilineValues() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        let onDisk = [
+            "[terminal]",
+            "",
+            "   ",
+            #"copy_on_select = "off""#,
+            "custom_note = \"\"\"",
+            "first line",
+            "\"\"\"",
+        ].joined(separator: "\n")
+        try fixture.writeConfig(onDisk)
+        let store = AppSettingsStore(fileStore: fixture.store, legacySnapshotProvider: { nil })
+        store.bootstrap()
+
+        store.update { $0.terminal.copyOnSelect = .on }
+
+        let reread = try String(contentsOf: fixture.configURL, encoding: .utf8)
+        let redecoded = try codec.decode(reread)
+        #expect(
+            reread.contains(
+                """
+                custom_note = \"\"\"
+                first line
+                \"\"\"
+                """))
+        #expect(redecoded.terminal.copyOnSelect == .on)
+    }
+
     @Test("reload from disk loads valid external changes")
     func reloadFromDiskLoadsValidExternalChanges() throws {
         let fixture = try TemporaryAppSettingsFixture()
@@ -230,6 +311,49 @@ struct AppSettingsStoreTests {
         #expect(store.loadSource == .existingFile)
         #expect(store.latestError == nil)
         #expect(!store.isDiskConfigInvalid)
+    }
+
+    @Test("replacing an invalid v1 config writes the current schema")
+    func replacingInvalidV1ConfigWritesCurrentSchema() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        var v1 = AwesoMuxConfig.defaultValue
+        v1.advanced.configSchemaVersion = 1
+        try fixture.writeConfig(try codec.encodeString(v1))
+        let store = AppSettingsStore(fileStore: fixture.store, legacySnapshotProvider: { nil })
+        store.bootstrap()
+        try fixture.writeConfig("[appearance]\ntheme =")
+        store.reloadFromDisk()
+
+        store.replaceInvalidFileWithCurrentConfig()
+        let decoded = try codec.decode(Data(contentsOf: fixture.configURL))
+
+        #expect(store.config.advanced.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+        #expect(decoded.advanced.configSchemaVersion == AdvancedConfig.supportedConfigSchemaVersion)
+    }
+
+    @Test("failed invalid-file replacement preserves v1 memory and invalid disk bytes")
+    func failedReplacementPreservesMemoryAndDisk() throws {
+        let fixture = try TemporaryAppSettingsFixture()
+        defer { fixture.cleanUp() }
+        var v1 = AwesoMuxConfig.defaultValue
+        v1.advanced.configSchemaVersion = 1
+        try fixture.writeConfig(try codec.encodeString(v1))
+        let store = AppSettingsStore(fileStore: fixture.store, legacySnapshotProvider: { nil })
+        store.bootstrap()
+        let invalidBytes = Data("[appearance]\ntheme =".utf8)
+        try invalidBytes.write(to: fixture.configURL)
+        store.reloadFromDisk()
+        let previous = store.config
+        let failure = ConfigFileStoreError.cannotWrite(fixture.configURL, message: "denied")
+        store.saveToDisk = { _ throws(ConfigFileStoreError) in throw failure }
+
+        store.replaceInvalidFileWithCurrentConfig()
+
+        #expect(store.config == previous)
+        #expect(store.isDiskConfigInvalid)
+        #expect(store.latestError == .save(failure))
+        #expect(try Data(contentsOf: fixture.configURL) == invalidBytes)
     }
 
     @Test("GUI update while disk config is invalid does not clobber invalid file")

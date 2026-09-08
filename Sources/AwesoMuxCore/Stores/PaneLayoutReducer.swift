@@ -787,6 +787,15 @@ struct PaneLayoutReducer: Sendable {
         // Terminals may re-emit identical OSC title/cwd reports every frame.
         // Keep a snapshot so redundant reports do not rebuild the layout.
         let originalPane = pane
+        let validatedLocalWorkingDirectory: String?
+        switch pane.executionPlan {
+        case .local:
+            validatedLocalWorkingDirectory = workingDirectory.flatMap {
+                WorkingDirectoryValidator.validatedReportedDirectory($0)
+            }
+        case .ssh:
+            validatedLocalWorkingDirectory = nil
+        }
 
         if let title {
             let sanitized = SessionStoreText.sanitizedTitle(title)
@@ -798,20 +807,34 @@ struct PaneLayoutReducer: Sendable {
                     title: sanitized,
                     localNames: localHostnames
                 ) {
-                    pane.remoteHost = host
-                    if let pendingTarget = pane.pendingRemoteSSHTarget {
-                        pane.remoteSSHTarget = pendingTarget
-                        pane.hasConsumedManagedSSHWorkspaceOffer = false
-                        pane.pendingRemoteSSHTarget = nil
-                        pane.hasObservedPendingRemoteSSHProcess = false
-                    } else if originalPane.remoteHost != host {
-                        pane.remoteSSHTarget = nil
-                        pane.hasConsumedManagedSSHWorkspaceOffer = false
+                    let directoryBasename = SessionStoreText.sanitizedTitle(
+                        ((validatedLocalWorkingDirectory ?? pane.workingDirectory) as NSString)
+                            .lastPathComponent
+                    )
+                    let isLocalDirectoryTitle =
+                        pane.executionPlan == .local
+                        && sanitized == directoryBasename
+                    // A directory basename can look exactly like user@host; it is
+                    // not new remote evidence. A canonicalized symlink's basename
+                    // can differ from its original-path title.
+                    if !isLocalDirectoryTitle {
+                        pane.remoteHost = host
+                        if let pendingTarget = pane.pendingRemoteSSHTarget {
+                            pane.remoteSSHTarget = pendingTarget
+                            pane.hasConsumedManagedSSHWorkspaceOffer = false
+                            pane.pendingRemoteSSHTarget = nil
+                            pane.hasObservedPendingRemoteSSHProcess = false
+                        } else if originalPane.remoteHost != host {
+                            pane.remoteSSHTarget = nil
+                            pane.hasConsumedManagedSSHWorkspaceOffer = false
+                        }
                     }
-                    if pane.remoteConnectionHealth != .active {
-                        pane.remoteForegroundLivenessSnapshot = nil
+                    if pane.remoteHost != nil {
+                        if pane.remoteConnectionHealth != .active {
+                            pane.remoteForegroundLivenessSnapshot = nil
+                        }
+                        pane.remoteConnectionHealth = .active
                     }
-                    pane.remoteConnectionHealth = .active
                 }
 
                 if !pane.isTitleUserEdited {
@@ -830,9 +853,7 @@ struct PaneLayoutReducer: Sendable {
                 }
             case .local:
                 guard pane.pendingRemoteSSHTarget == nil else { break }
-                if let localDirectory = WorkingDirectoryValidator.validatedReportedDirectory(
-                    workingDirectory
-                ) {
+                if let localDirectory = validatedLocalWorkingDirectory {
                     pane.workingDirectory = localDirectory
                     pane.remoteHost = nil
                     pane.remoteSSHTarget = nil

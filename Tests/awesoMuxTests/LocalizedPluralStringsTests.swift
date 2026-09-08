@@ -163,13 +163,13 @@ struct LocalizedPluralStringsTests {
             LocalizedPluralStrings.sessionManagerAutoCleanupDays(
                 count: 1,
                 bundle: Self.resourcesBundle
-            ) == "Auto-cleanup after 1 day idle. Configure in Preferences."
+            ) == "Auto-cleanup after 1 day idle."
         )
         #expect(
             LocalizedPluralStrings.sessionManagerAutoCleanupDays(
                 count: 7,
                 bundle: Self.resourcesBundle
-            ) == "Auto-cleanup after 7 days idle. Configure in Preferences."
+            ) == "Auto-cleanup after 7 days idle."
         )
         #expect(
             LocalizedPluralStrings.settingsFontSizePoints(

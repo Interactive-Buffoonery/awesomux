@@ -22,6 +22,9 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
     public static let inheritedTerminalContextKeys = [
         // awesoMux owns this identity string; never inherit a parent's value.
         "AWESOMUX",
+        // Agent provenance can be inherited from the launcher; startup unsets
+        // it and per-surface merges must never deliberately re-inject it.
+        "CLAUDE_CODE_CHILD_SESSION",
         "MOSHI_SESSION",
         "SSH_CLIENT",
         "SSH_CONNECTION",
@@ -132,9 +135,10 @@ public struct TerminalAppearancePreferences: Equatable, Sendable {
         return environment
     }
 
-    /// Merges `environment` with awesoMux's terminal-identity environment,
+    /// Merges caller-supplied `environment` with awesoMux's terminal-identity environment,
     /// with awesoMux's identity keys and inherited container-terminal
-    /// markers always winning over caller-supplied values.
+    /// markers always winning over caller-supplied values. It does not scrub
+    /// awesoMux's inherited process environment; app startup owns that boundary.
     ///
     /// This is a deliberate public-API contract — awesoMux owns the terminal
     /// identity it advertises to spawned shells because letting a stale

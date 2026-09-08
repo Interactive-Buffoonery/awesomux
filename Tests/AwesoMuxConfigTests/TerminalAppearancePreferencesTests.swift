@@ -175,6 +175,7 @@ struct TerminalAppearancePreferencesTests {
 
         let merged = preferences.environmentForTerminalSpawn(merging: [
             "AWESOMUX_SESSION_ID": "session-1",
+            "CLAUDE_CODE_CHILD_SESSION": "1",
             "AWESOMUX": "0",
             "COLORFGBG": "15;0",
             "COLORTERM": "24bit",
@@ -192,6 +193,7 @@ struct TerminalAppearancePreferencesTests {
         ])
 
         #expect(merged["AWESOMUX_SESSION_ID"] == "session-1")
+        #expect(merged["CLAUDE_CODE_CHILD_SESSION"] == nil)
         #expect(merged["AWESOMUX"] == "1")
         #expect(merged["COLORFGBG"] == "0;15")
         #expect(merged["COLORTERM"] == "truecolor")

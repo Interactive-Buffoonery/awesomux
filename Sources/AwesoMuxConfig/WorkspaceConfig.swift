@@ -241,6 +241,13 @@ public extension WorkspaceConfig {
 
 extension WorkspaceConfig {
     func validate() throws(ConfigLoadError) {
+        guard managedSSHAlwaysManaged.count <= TOMLConfigCodec.maxTableKeys else {
+            throw .invalidValue(
+                path: "workspaces.managed_ssh_always_managed",
+                message: "Always-managed SSH destinations must contain at most \(TOMLConfigCodec.maxTableKeys) entries"
+            )
+        }
+
         let normalized = Self.normalizedDefaultGroup(defaultGroup)
         guard defaultGroup == normalized else {
             throw .invalidValue(

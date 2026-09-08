@@ -71,13 +71,13 @@ The sidebar trio, the compact terminal surfaces, the command palette, and Sessio
 | ⌘K | **Show Command Palette** / **Hide Command Palette** | Searches workspaces and actions; disabled while a sheet is open. Registered only as this menu item's key equivalent, which auto-repeats while held, so the menu action carries a repeat guard that swallows the repeats |
 | ⇧⌘S | Session Manager | Shows or hides the Session Manager over the main window; disabled while a sheet is open |
 
-⌃⌘S, ⌘\\, and ⇧⌘\\ (plus ⌘/ below) are the four chords intercepted in `AwesoMuxApplication.sendEvent` before main-menu routing, so for those the menu's key equivalent is display-only. Every other chord on this page registers only as a main-menu key equivalent.
+⌃⌘S, ⌘\\, and ⇧⌘\\ are intercepted in `AwesoMuxApplication.sendEvent` before main-menu routing, so for those the menu's key equivalent is display-only. Every other chord on this page registers only as a main-menu key equivalent.
 
 ## Keyboard cheatsheet
 
 | Shortcut | Menu item | Notes |
 | --- | --- | --- |
-| ⌘/ | **Keyboard Shortcuts** | Opens the searchable shortcuts overlay |
+| ⌘/ | **Keyboard Shortcuts** | Native Help-menu key equivalent; opens the searchable shortcuts overlay and is disabled while a sheet is open |
 
 The cheatsheet is also reachable from **Settings → Keys → Show cheatsheet**. Its entries are grouped from `KeyboardShortcutCatalog.settingsSections`, so the Settings pane and overlay share the same shortcut source of truth.
 
