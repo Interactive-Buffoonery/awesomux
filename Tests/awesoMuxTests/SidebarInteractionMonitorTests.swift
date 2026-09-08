@@ -315,6 +315,47 @@ struct SidebarInteractionMonitorTests {
         #expect(queries == 2)
     }
 
+    @Test("thrown AX refresh delay still allows later window queries")
+    func thrownDelayDoesNotSuppressLaterAccessibilityRefresh() async {
+        struct DelayError: Error {}
+        let gate = TestScheduler()
+        let center = NotificationCenter()
+        let root = NSView()
+        let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = root
+        var focused: Any? = root
+        var queries = 0
+        var delayShouldThrow = true
+        let monitor = SidebarInteractionMonitor(
+            sidebarRoot: root,
+            focusedAccessibilityElement: {
+                queries += 1
+                return focused
+            },
+            notificationCenter: center,
+            accessibilityRefreshDelay: {
+                if delayShouldThrow {
+                    delayShouldThrow = false
+                    throw DelayError()
+                }
+                await gate.wait(for: .milliseconds(100))
+            },
+            onActiveChange: { _ in })
+        defer { monitor.detach() }
+        #expect(queries == 1)
+
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { !delayShouldThrow })
+        #expect(queries == 1)
+
+        center.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(await waitUntil { gate.sleeperCount == 1 })
+        focused = nil
+        gate.advanceOneCycle()
+        #expect(await waitUntil { queries == 2 })
+        #expect(!monitor.isActive)
+    }
+
     @Test("accessibility parent traversal reaches sidebar beyond 32 virtual elements")
     func deepAccessibilityParentChain() {
         let root = NSView()

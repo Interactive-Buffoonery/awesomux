@@ -145,6 +145,9 @@ final class SidebarInteractionMonitor {
             do {
                 try await delay()
             } catch {
+                if !Task.isCancelled {
+                    self?.accessibilityRefreshTask = nil
+                }
                 return
             }
             guard !Task.isCancelled, let self else { return }
