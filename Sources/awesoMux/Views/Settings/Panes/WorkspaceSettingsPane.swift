@@ -10,7 +10,7 @@ struct WorkspaceSettingsPane: View {
     @State private var draftDefaultGroup = ""
     @FocusState private var defaultGroupFocused: Bool
     @State private var installedIDEs: [InstalledIDE] = []
-    @State private var draggingBundleID: String?
+    @State private var ideReorder = IDEReorderSession()
     @State private var sshDestinationListKind: ManagedSSHOfferDestinationSheet.DestinationListKind?
 
     private var defaultGroup: String {
@@ -26,7 +26,7 @@ struct WorkspaceSettingsPane: View {
     }
 
     private var orderedInstalledIDEs: [InstalledIDE] {
-        IDEChoice.ordered(installed: installedIDEs, priority: idePriority)
+        IDEChoice.ordered(installed: installedIDEs, priority: ideReorder.order ?? idePriority)
     }
 
     var body: some View {
@@ -107,6 +107,8 @@ struct WorkspaceSettingsPane: View {
             openInIDESection
             managedSSHSection
         }
+        .onDisappear { ideReorder.cancel() }
+        .onChange(of: idePriority) { _, _ in ideReorder.cancel() }
         .task { await refreshInstalledIDEs() }
         .onReceive(
             NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
@@ -498,26 +500,25 @@ struct WorkspaceSettingsPane: View {
             }
             ideRow(ide, isDefault: isDefault)
         }
-        .opacity(draggingBundleID == ide.bundleIdentifier ? 0.4 : 1)
-        .onDrag {
-            draggingBundleID = ide.bundleIdentifier
-            return NSItemProvider(object: ide.bundleIdentifier as NSString)
-        } preview: {
-            ideRow(ide, isDefault: isDefault)
-                .frame(width: Self.listMaxWidth)
-                .background(
-                    RoundedRectangle(cornerRadius: AwRadius.button)
-                        .fill(Color.aw.surface.elevated)
+        .opacity(ideReorder.draggingBundleID == ide.bundleIdentifier ? 0.4 : 1)
+        .overlay(alignment: .leading) {
+            IDEPriorityDragSource(bundleID: ide.bundleIdentifier, image: NSWorkspace.shared.icon(forFile: ide.applicationURL.path)) {
+                let id = ideReorder.begin(
+                    bundleID: ide.bundleIdentifier,
+                    order: orderedInstalledIDEs.map(\.bundleIdentifier),
+                    priority: idePriority
                 )
+                return {
+                    ideReorder.end(id: id, currentPriority: idePriority, commit: commitOrder)
+                }
+            }
+            // Leave the remove button's hit area with SwiftUI.
+            .padding(.trailing, 32)
+            .accessibilityHidden(true)
         }
         .onDrop(
-            of: [.text],
-            delegate: IDEReorderDropDelegate(
-                targetBundleID: ide.bundleIdentifier,
-                draggingBundleID: $draggingBundleID,
-                order: orderedInstalledIDEs.map(\.bundleIdentifier),
-                commit: commitOrder
-            )
+            of: [IDEPriorityDragSource.contentType],
+            delegate: IDEReorderDropDelegate(targetBundleID: ide.bundleIdentifier, session: ideReorder)
         )
     }
 
@@ -570,10 +571,12 @@ struct WorkspaceSettingsPane: View {
     }
 
     private func commitOrder(_ order: [String]) {
+        ideReorder.cancel()
         appSettingsStore.workspaces.update { $0.defaultIDEPriority = order }
     }
 
     private func removeEditor(_ ide: InstalledIDE) {
+        ideReorder.cancel()
         var order = orderedInstalledIDEs.map(\.bundleIdentifier)
         order.removeAll { $0 == ide.bundleIdentifier }
         commitOrder(order)
@@ -587,6 +590,7 @@ struct WorkspaceSettingsPane: View {
     }
 
     private func addEditor() {
+        ideReorder.cancel()
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.application]
         panel.allowsMultipleSelection = false
@@ -621,30 +625,17 @@ struct WorkspaceSettingsPane: View {
     }
 }
 
-/// Reorders the priority list live as a dragged row hovers another. Moving the
-/// dragged id in front of (or behind, past the midpoint) the hovered target and
-/// committing on each `dropEntered` makes the whole row slide during the drag —
-/// the plain `List.onMove` insertion line doesn't. The commit persists the full
-/// ordered list so the top stays unambiguous.
+/// Hover changes only the draft; the AppKit source owns gesture termination.
 private struct IDEReorderDropDelegate: DropDelegate {
     let targetBundleID: String
-    @Binding var draggingBundleID: String?
-    let order: [String]
-    let commit: ([String]) -> Void
+    let session: IDEReorderSession
+
+    func validateDrop(info: DropInfo) -> Bool {
+        session.draggingBundleID != nil
+    }
 
     func dropEntered(info: DropInfo) {
-        guard let dragging = draggingBundleID,
-              dragging != targetBundleID,
-              let fromIndex = order.firstIndex(of: dragging),
-              let toIndex = order.firstIndex(of: targetBundleID) else {
-            return
-        }
-        var reordered = order
-        reordered.remove(at: fromIndex)
-        let insertionIndex = reordered.firstIndex(of: targetBundleID)
-            .map { fromIndex < toIndex ? $0 + 1 : $0 } ?? reordered.count
-        reordered.insert(dragging, at: insertionIndex)
-        commit(reordered)
+        session.move(over: targetBundleID)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -652,7 +643,6 @@ private struct IDEReorderDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        draggingBundleID = nil
-        return true
+        session.draggingBundleID != nil
     }
 }
