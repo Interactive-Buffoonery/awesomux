@@ -110,6 +110,51 @@ struct BridgePermissionCoordinatorTests {
 
     // MARK: - App-side cap
 
+    @Test("consent field focus preserves deliberate prompt shortcuts until focus leaves")
+    func consentFieldFocusPreservesPromptGrant() async {
+        let h = makeHarness()
+        await deliver(request(id: "r1", expiresAtOffset: 1000), generation: gen(1), to: h)
+        let monitor = BridgePermissionKeyMonitor()
+        defer { monitor.stop() }
+        h.coordinator.requestFocus()
+
+        for region: BridgePermissionPromptFocusRegion in [.banner, .tool, .target, .tool, .banner] {
+            monitor.updateFocus(region, coordinator: h.coordinator)
+            #expect(monitor.isMonitoring)
+            #expect(h.coordinator.promptFocused)
+            #expect(BridgePermissionPromptKey.action(forKeyCode: 53, focused: h.coordinator.promptFocused) == .deny)
+            #expect(BridgePermissionPromptKey.action(forKeyCode: 36, focused: h.coordinator.promptFocused) == nil)
+            #expect(
+                BridgePermissionPromptKey.action(
+                    forKeyCode: 36, modifierFlags: .command, focused: h.coordinator.promptFocused
+                ) == .allow)
+        }
+
+        monitor.updateFocus(nil, coordinator: h.coordinator)
+        #expect(!monitor.isMonitoring)
+        #expect(!h.coordinator.promptFocused)
+        monitor.updateFocus(.target, coordinator: h.coordinator)
+        #expect(!h.coordinator.promptFocused)
+        #expect(BridgePermissionPromptKey.action(forKeyCode: 0, focused: h.coordinator.promptFocused) == nil)
+        #expect(h.decisions.writes.isEmpty)
+    }
+
+    @Test("entering a consent field without a deliberate grant cannot allow the prompt")
+    func consentFieldFocusDoesNotCreatePromptGrant() async {
+        let h = makeHarness()
+        await deliver(request(id: "r1", expiresAtOffset: 1000), generation: gen(1), to: h)
+        let monitor = BridgePermissionKeyMonitor()
+        defer { monitor.stop() }
+        monitor.updateFocus(.target, coordinator: h.coordinator)
+        #expect(!h.coordinator.promptFocused)
+        #expect(
+            BridgePermissionPromptKey.action(
+                forKeyCode: 36, modifierFlags: .command, focused: h.coordinator.promptFocused
+            ) == nil)
+        #expect(h.decisions.writes.isEmpty)
+        #expect(h.coordinator.activePrompt?.id == "r1")
+    }
+
     @Test("app-twin cap denies the 5th request with an immediate deny frame and never enqueues it")
     func appTwinCapDeniesFifth() async {
         let h = makeHarness()

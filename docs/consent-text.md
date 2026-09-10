@@ -8,13 +8,17 @@ and Home/End explicitly; Tab leaves the scroll area for the next control.
 
 - Permission banners give the tool and target the full pane width below the
   actions. Their scroll areas are capped at 60 and 120 points respectively.
+  Moving focus between the banner, tool, and target retains the prompt's
+  deliberate keyboard focus grant. Leaving the whole prompt clears it.
 - Blocked-link dialogs keep the complete URL and decoded details in a 400 by
   280 point scroll area, including the Unicode/punycode comparison when needed.
   Unsafe invisible and directional characters are still scrubbed; removing a
   display length cap must not remove the anti-spoofing sanitation.
 - Reap previews show the same full ID and `--force` argument used by the backend.
   The identifier grammar permits only lowercase ASCII letters, digits, and
-  hyphens, so the displayed argument needs no shell quoting.
+  hyphens, so the displayed argument needs no shell quoting. Its 46-byte limit
+  keeps the complete command small enough for selectable wrapping text without
+  a scroll container.
 
 ## Remaining exception: destructive dialog titles
 
