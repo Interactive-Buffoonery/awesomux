@@ -172,6 +172,9 @@ enum DaemonGarbageCollector {
         await withTaskGroup(of: Void.self) { group in
             for target in targets {
                 group.addTask {
+                    log.notice(
+                        "daemon GC: dispatching reap session=\(target.id.rawValue, privacy: .public) shell_pid=\(target.pid) created=\(target.createdEpoch) reason=unreachable idle unattached daemon"
+                    )
                     if !(await AmxBackend.killSession(target.id)) {
                         log.error("reap dispatch failed for \(target.id.rawValue, privacy: .public) pid=\(target.pid)")
                     }
@@ -181,9 +184,15 @@ enum DaemonGarbageCollector {
 
         // Honest accounting: re-list and count how many targets are actually gone,
         // since `amx kill` exiting 0 does not guarantee the daemon died.
-        let remaining = Set((await AmxBackend.listSessions()).map(\.id))
+        guard let remainingOutput = await AmxBackend.listSessionsRawOutput(),
+            let remainingDaemons = DaemonGCPlan.parseAmxListStrict(remainingOutput)
+        else {
+            log.error("daemon GC: reap outcome unknown; final session list unavailable or unparseable")
+            return
+        }
+        let remaining = Set(remainingDaemons.map(\.id))
         let reaped = targets.filter { !remaining.contains($0.id) }.count
-        log.info("daemon GC: \(reaped)/\(targets.count) orphan daemon(s) confirmed reaped")
+        log.notice("daemon GC: \(reaped)/\(targets.count) targeted session(s) absent from final list")
     }
 
     /// Terminates leaked `amx attach` clients reparented to launchd
@@ -284,7 +293,7 @@ enum DaemonGarbageCollector {
         guard !confirmed.isEmpty else { return }
 
         let signaled = await signalConfirmedOrphanAttachClients(confirmed)
-        log.info("daemon GC: signaled \(signaled)/\(confirmed.count) orphan attach client(s)")
+        log.notice("daemon GC: signaled \(signaled)/\(confirmed.count) orphan attach client(s)")
     }
 
     /// Revalidates both liveness and the complete sampled process identity at
@@ -314,6 +323,9 @@ enum DaemonGarbageCollector {
                 log.error("orphan attach signal failed for pid=\(expected.pid): errno=\(errnoValue)")
                 continue
             }
+            log.notice(
+                "orphan attach GC: sent SIGTERM pid=\(expected.pid) session=\(expected.sessionArgument ?? "unknown", privacy: .public) reason=leaked attach client"
+            )
             terminated.append(expected)
         }
 
@@ -329,7 +341,14 @@ enum DaemonGarbageCollector {
                 let current = samples.first(where: { $0.pid == expected.pid }),
                 DaemonGCPlan.isSameAttachProcess(current, as: expected)
             else { continue }
-            _ = await signalProcess(expected.pid, SIGKILL)
+            guard await signalProcess(expected.pid, SIGKILL) == 0 else {
+                let errnoValue = errno
+                log.error("orphan attach SIGKILL failed for pid=\(expected.pid): errno=\(errnoValue)")
+                continue
+            }
+            log.notice(
+                "orphan attach GC: sent SIGKILL pid=\(expected.pid) session=\(expected.sessionArgument ?? "unknown", privacy: .public) reason=survived TERM grace"
+            )
         }
         return terminated.count
     }
