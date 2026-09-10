@@ -4,12 +4,14 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `82938b633ba646db38591d969c3c526332bd7e65` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
-> The current pin also includes upstream keyboard encoding fixes for
-> modifyOtherKeys 2 and non-ASCII Alt prefixes, plus reduced per-terminal
-> memory allocation. The C integration header and dependency versions are unchanged.
+> The current pin also includes upstream fixes for safe empty-output pointers
+> in the libghostty C API, a renderer draw-mutex/display-link deadlock, cloning
+> repeatable commands, Windows terminal memory reclamation and path safety, and
+> reusable VT uucode tables. Ghostty's package pins and the audited ReleaseFast
+> archive-member inventory are unchanged.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
