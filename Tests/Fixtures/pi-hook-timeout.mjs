@@ -44,8 +44,13 @@ try {
     assert.deepEqual(await children.at(-1).closed, { code: 0, signal: null })
 
     writeFileSync(helper, `#!${process.execPath}\nprocess.on("SIGTERM", () => {}); setInterval(() => {}, 1000);\n`)
+    const hungStartedAt = performance.now()
     await handlers.get("tool_execution_start")({}, context)
     assert.deepEqual(await children.at(-1).closed, { code: null, signal: "SIGKILL" })
+    assert.ok(
+        performance.now() - hungStartedAt < 1_500,
+        "Pi hook exceeded its one-second deadline plus 500ms scheduling tolerance",
+    )
 
     process.env.AWESOMUX_AGENT_HOOK = join(directory, "missing-helper")
     await handlers.get("session_shutdown")({}, context)

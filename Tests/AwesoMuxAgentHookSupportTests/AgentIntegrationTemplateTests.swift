@@ -144,7 +144,15 @@ struct AgentIntegrationTemplateTests {
         try Data(template.utf8).write(to: templateURL)
         let node = try #require(
             Self.executableOnPath("node"),
-            "Node with TypeScript stripping is required to evaluate the bundled Pi status template"
+            "Node 22.6 or newer is required to evaluate the bundled Pi status template"
+        )
+        let capabilityProbe = Process()
+        capabilityProbe.executableURL = node
+        capabilityProbe.arguments = ["--experimental-strip-types", "--eval", ""]
+        let probeOutput = try captureOutput(of: capabilityProbe)
+        try #require(
+            capabilityProbe.terminationStatus == 0,
+            "Node at \(node.path) must support --experimental-strip-types (Node 22.6+): \(probeOutput.stderr)"
         )
         let process = Process()
         process.executableURL = node

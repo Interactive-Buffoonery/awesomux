@@ -25,6 +25,7 @@ EOF
 # Markdown diff styling includes a real-clock layout performance ceiling; keep
 # that workload out of the thousands of concurrent nontiming tests too.
 timing_pattern='AwesoMuxConfigTests\.AppSettingsSymlinkWatchTests|awesoMuxTests\.(ProcessCommandRunnerTests|BoundedCommandRunnerTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentPluginRunnerTests|AgentTranscriptLiveRefreshWatchTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests|RemoteHandoffTests|MarkdownDiffLineStylingTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.(EventRecorderTests|ProcessBoundedWaitTests)'
+timing_test_pattern='AwesoMuxAgentHookSupportTests\.AgentIntegrationTemplateTests/piTemplateBoundsHungHelpersAndPreservesNormalEvents(\(|$)'
 sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
 
 group="${1:-}"
@@ -47,14 +48,14 @@ case "$group" in
         filter='^awesoMuxTests\.'
         ;;
     timing)
-        filter="^($timing_pattern)/"
+        filter="^(($timing_pattern)/|$timing_test_pattern)"
         ;;
     sidebar)
         filter="^($sidebar_pattern)/"
         export AWESOMUX_APPKIT_TEST_HOST=1
         ;;
     nontiming)
-        skip="^($timing_pattern|$sidebar_pattern)/"
+        skip="^(($timing_pattern|$sidebar_pattern)/|$timing_test_pattern)"
         ;;
     zmx)
         if [[ "$#" -ne 0 ]]; then

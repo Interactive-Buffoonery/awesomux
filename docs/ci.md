@@ -27,6 +27,12 @@ The strongest pre-PR gate remains local:
 ./script/preflight.sh
 ```
 
+Native preparation installs Node.js 24 for Swift test fixtures. Local
+contributors need Node.js 22.6 or newer on `PATH`. The Pi integration regression
+test validates support for
+`--experimental-strip-types` before evaluating the bundled TypeScript template;
+an unsupported runtime fails with an explicit prerequisite diagnostic.
+
 It runs the fast guards, the complete Swift suite, and the existing staged-app
 build, signing, and launch verification. Run focused native groups with:
 
@@ -87,7 +93,9 @@ failure and keeps zmx's toolchain independent from the app's Ghostty toolchain.
 
 `timing` isolates the suites that make real, synchronous, blocking OS calls
 (Unix-socket handshakes, subprocesses, file watchers, file locks) into their
-own `swift test` process. Swift Testing schedules `@Test`s concurrently within
+own `swift test` process. The Pi hook deadline fixture runs in this shard too,
+so its real one-second helper timeout is measured without the bulk suite.
+Swift Testing schedules `@Test`s concurrently within
 one process regardless of the `swift test --parallel` flag; when those
 blocking calls and ~4600 unrelated tests share one process on a
 CPU-constrained hosted runner, the shared Swift Concurrency thread pool starves
