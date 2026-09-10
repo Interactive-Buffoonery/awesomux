@@ -17,6 +17,9 @@ struct PaletteCommand: Identifiable {
     let keywords: [String]
     let shortcut: KeyBinding?
     let isEnabled: Bool
+    /// False when this command has no meaning in the current selection.
+    /// Unlike temporary execution blockers, this removes its registry entry.
+    let isContextuallyAvailable: Bool
     let selectionScope: PaletteCommandSelectionScope
     let run: @MainActor () -> Void
 
@@ -27,6 +30,7 @@ struct PaletteCommand: Identifiable {
         keywords: [String],
         shortcut: KeyBinding?,
         isEnabled: Bool,
+        isContextuallyAvailable: Bool = true,
         selectionScope: PaletteCommandSelectionScope,
         run: @escaping @MainActor () -> Void
     ) {
@@ -36,6 +40,7 @@ struct PaletteCommand: Identifiable {
         self.keywords = keywords
         self.shortcut = shortcut
         self.isEnabled = isEnabled
+        self.isContextuallyAvailable = isContextuallyAvailable
         self.selectionScope = selectionScope
         self.run = run
     }
@@ -593,11 +598,9 @@ enum PaletteCommandRegistry {
                 subtitle: selectedTranscriptTab?.title,
                 keywords: ["agent", "transcript", "resume", "session", "claude", "codex", "pi"],
                 shortcut: KeyboardShortcutCatalog.resumeAgentSession,
-                // Enabled whenever a workspace is, matching the menu item. When
-                // it was gated on the selected tab the palette still listed it
-                // and running it did nothing — no feedback at all. It now runs
-                // and names the reason.
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                // The menu keeps its broader gate to consume the shortcut.
+                isContextuallyAvailable: selectedTranscriptTab != nil,
                 selectionScope: .documentTab,
                 run: actions.resumeAgentSession
             ),
@@ -1049,7 +1052,7 @@ enum PaletteCommandRegistry {
                 })
         }
 
-        return commands.map { command in
+        return commands.filter(\.isContextuallyAvailable).map { command in
             guard let shortcut = command.shortcut else { return command }
             return PaletteCommand(
                 id: command.id,
@@ -1058,6 +1061,7 @@ enum PaletteCommandRegistry {
                 keywords: command.keywords,
                 shortcut: KeyboardShortcutCatalog.resolved(shortcut, keyboard: keyboard),
                 isEnabled: command.isEnabled,
+                isContextuallyAvailable: command.isContextuallyAvailable,
                 selectionScope: command.selectionScope,
                 run: command.run
             )

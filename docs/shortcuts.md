@@ -81,6 +81,18 @@ The sidebar trio, the compact terminal surfaces, the command palette, and Sessio
 
 The cheatsheet is also reachable from **Settings → Keys → Show cheatsheet**. Its entries are grouped from `KeyboardShortcutCatalog.settingsSections`, so the Settings pane and overlay share the same shortcut source of truth.
 
+Palette commands can declare `isContextuallyAvailable` separately from
+`isEnabled`. The registry omits commands whose context does not apply: **Resume
+Agent Session** appears only while the selected document tab is a transcript.
+The cheatsheet still lists it, and registry tests construct that transcript
+context to verify discoverability. Its menu item keeps its existing workspace
+and sheet gate so the shortcut is consumed without a transcript selected.
+
+**Rename Workspace** retains its registry entry when no workspace is selected
+or a sheet is open, with `isEnabled` set to false. Those states temporarily
+block execution. The search surface currently filters disabled commands too;
+contextual availability does not change that existing presentation behavior.
+
 ## Ghostty config keybinds
 
 awesoMux loads Ghostty config for terminal behavior and appearance, but Ghostty `keybind` entries are not a second awesoMux app-command surface. Use the shortcuts above, the menus, or the command palette for awesoMux app, workspace, and pane actions.

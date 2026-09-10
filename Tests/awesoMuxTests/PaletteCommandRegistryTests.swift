@@ -1,3 +1,4 @@
+import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 import Testing
@@ -59,67 +60,90 @@ struct PaletteCommandRegistryTests {
         }
     }
 
-    /// The keyboard route to Resume, which the send-bar button cannot provide:
-    /// it refuses first responder (INT-562) and so is unreachable with Full
-    /// Keyboard Access. Scoped to the SELECTED tab, because Resume stages that
-    /// document's own session.
-    @Test("Resume Agent Session stays enabled without a transcript tab")
+    @Test("Resume is available only for the selected transcript tab", arguments: [false, true])
     @MainActor
-    func resumeAgentSessionIsEnabledOnlyForASelectedTranscriptTab() throws {
-        func isEnabled(withIdentity: Bool) throws -> Bool {
-            let terminal = TerminalPane(
-                title: "zsh", workingDirectory: "/tmp/repo", executionPlan: .local)
-            let identity = AgentTranscriptIdentity(
+    func resumeRequiresSelectedTranscript(isSheetPresented: Bool) throws {
+        for store in [
+            SessionStore(groups: []),
+            SessionStore(groups: [SessionGroup(name: "g", sessions: [TerminalSession(title: "shell", workingDirectory: "/tmp")])]),
+            Self.transcriptStore(selectTranscript: false),
+        ] {
+            let commands = PaletteCommandRegistry.commands(
+                sessionStore: store,
+                availability: .init(isAnySheetPresented: isSheetPresented),
+                actions: .noop
+            )
+            #expect(PaletteCommandRegistry.command(id: KeyboardShortcutCatalog.resumeAgentSession.id, in: commands) == nil)
+            let results = PaletteSearch.results(groups: [], commands: commands, rawQuery: "> resume")
+            #expect(!results.flattened.contains { $0.id == "command.resumeAgentSession" })
+        }
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: Self.transcriptStore(),
+            availability: .init(isAnySheetPresented: isSheetPresented),
+            actions: .noop
+        )
+        let resume = try #require(PaletteCommandRegistry.command(id: KeyboardShortcutCatalog.resumeAgentSession.id, in: commands))
+        #expect(resume.isEnabled == !isSheetPresented)
+        #expect(resume.selectionScope == .documentTab)
+        let results = PaletteSearch.results(groups: [], commands: commands, rawQuery: "> resume")
+        #expect(results.flattened.contains { $0.id == "command.resumeAgentSession" } == !isSheetPresented)
+    }
+
+    @Test("Rename Workspace remains discoverable when blocked")
+    @MainActor
+    func renameWorkspaceRemainsDiscoverableWhenBlocked() throws {
+        // Renaming still has meaning without a selection or during a sheet;
+        // these are temporary execution blockers, not a different context.
+        for store in [SessionStore(groups: []), Self.transcriptStore()] {
+            let commands = PaletteCommandRegistry.commands(
+                sessionStore: store,
+                availability: .init(isAnySheetPresented: true),
+                actions: .noop
+            )
+            let rename = try #require(PaletteCommandRegistry.command(id: KeyboardShortcutCatalog.renameWorkspace.id, in: commands))
+            #expect(!rename.isEnabled)
+        }
+    }
+
+    @MainActor
+    private static func transcriptStore(selectTranscript: Bool = true) -> SessionStore {
+        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp/repo", executionPlan: .local)
+        let transcript = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/cache/transcript.md"),
+            title: "Transcript",
+            associatedTerminalPaneID: terminal.id,
+            agentTranscriptIdentity: AgentTranscriptIdentity(
                 agentKind: .claudeCode,
                 sessionID: "DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD"
             )
-            let tab = DocumentPane(
-                fileURL: URL(fileURLWithPath: "/tmp/cache/abc.transcript.md"),
-                title: "doc",
-                associatedTerminalPaneID: terminal.id,
-                agentTranscriptIdentity: withIdentity ? identity : nil
-            )
-            let session = TerminalSession(
-                title: "w",
-                workingDirectory: "/tmp/repo",
-                layout: .split(
-                    TerminalSplit(
-                        orientation: .vertical,
-                        first: .pane(terminal),
-                        second: .documentGroup(DocumentGroup(tabs: [tab], selectedTabID: tab.id))
-                    )),
-                activePaneID: terminal.id
-            )
-            let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
-            store.selectedSessionID = session.id
-            let commands = PaletteCommandRegistry.commands(
-                sessionStore: store,
-                availability: .init(),
-                actions: .noop
-            )
-            return try #require(
-                PaletteCommandRegistry.command(
-                    id: KeyboardShortcutCatalog.resumeAgentSession.id,
-                    in: commands
-                )
-            ).isEnabled
-        }
-
-        // Enabled BOTH ways, deliberately. Gating this on the selected tab was
-        // the original shape and it cost two user-visible bugs: a disabled
-        // SwiftUI command does not consume its key equivalent, so ⌃⌘R fell
-        // through to libghostty and echoed a CSI-u sequence into the shell,
-        // and the palette listed the command while running it did nothing.
-        // It now runs in both states and reports `.noTranscriptSelected` when
-        // there is nothing to resume.
-        #expect(try isEnabled(withIdentity: true))
-        #expect(try isEnabled(withIdentity: false))
+        )
+        let markdown = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/cache/notes.md"),
+            title: "Notes",
+            associatedTerminalPaneID: terminal.id
+        )
+        let session = TerminalSession(
+            title: "w",
+            workingDirectory: "/tmp/repo",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(terminal),
+                    second: .documentGroup(
+                        DocumentGroup(
+                            tabs: [transcript, markdown],
+                            selectedTabID: selectTranscript ? transcript.id : markdown.id
+                        ))
+                )),
+            activePaneID: terminal.id
+        )
+        return SessionStore(groups: [SessionGroup(name: "g", sessions: [session])], selectedSessionID: session.id)
     }
 
     @Test("Registry covers menu-equivalent command IDs")
     @MainActor
     func registryCoversMenuEquivalentCommands() {
-        let store = SessionStore(groups: [])
+        let store = Self.transcriptStore()
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
             availability: .init(),
@@ -505,22 +529,30 @@ struct PaletteCommandRegistryTests {
         }
     }
 
-    @Test("Registry covers every cheatsheet shortcut row")
+    @Test("Registry covers every cheatsheet shortcut row in its applicable context", arguments: [false, true])
     @MainActor
-    func registryCoversEveryCheatsheetShortcutRow() {
-        let store = SessionStore(groups: [])
+    func registryCoversEveryCheatsheetShortcutRow(rebindResume: Bool) throws {
+        let store = Self.transcriptStore()
+        let keyboard = KeyboardConfig(
+            shortcuts: rebindResume
+                ? [
+                    "resumeAgentSession": ShortcutBindingConfig(key: "k", modifiers: [.command, .option])
+                ] : [:])
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
             availability: .init(),
-            actions: .noop
+            actions: .noop,
+            keyboard: keyboard
         )
         let commandIDs = Set(commands.map(\.id))
         let cheatsheetEntryIDs = Set(
-            KeyboardShortcutCatalog.settingsSections
+            KeyboardShortcutCatalog.settingsSections(keyboard: keyboard)
                 .flatMap(\.entries)
                 .map(\.id))
 
         #expect(cheatsheetEntryIDs.isSubset(of: commandIDs))
+        let resume = try #require(PaletteCommandRegistry.command(id: "resumeAgentSession", in: commands))
+        #expect(resume.shortcut?.displaySymbol == (rebindResume ? "⌥⌘K" : "⌃⌘R"))
     }
 
     @Test("Open Markdown File advertises command o")
@@ -904,23 +936,7 @@ struct PaletteCommandRegistryTests {
     @Test("selection-resolved commands declare their snapshot scope")
     @MainActor
     func selectionResolvedCommandsDeclareSnapshotScope() throws {
-        let first = TerminalPane(title: "first", workingDirectory: "/tmp", executionPlan: .local)
-        let second = TerminalPane(title: "second", workingDirectory: "/tmp", executionPlan: .local)
-        let session = TerminalSession(
-            title: "Split",
-            workingDirectory: "/tmp",
-            layout: .split(
-                TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(first),
-                    second: .pane(second)
-                )),
-            activePaneID: first.id
-        )
-        let store = SessionStore(
-            groups: [SessionGroup(name: "Code", sessions: [session])],
-            selectedSessionID: session.id
-        )
+        let store = Self.transcriptStore()
         let commands = PaletteCommandRegistry.commands(
             sessionStore: store,
             availability: .init(),
