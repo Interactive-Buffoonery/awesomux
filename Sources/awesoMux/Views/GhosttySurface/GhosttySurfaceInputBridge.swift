@@ -1211,7 +1211,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
     /// Best-effort safety/presentation signal: printable input, Backspace, and
     /// Ctrl-C line resets are observed. Navigation, completion, history, paste,
-    /// and unmodeled editing disable capture until the next submit or Ctrl-C.
+    /// and unmodeled editing disable capture until Ctrl-C or typing on a fresh
+    /// line; Enter re-arms capture but does not reconstruct ignored input.
     /// Terminal modes and custom `stty` bindings are not modeled.
     /// The declared `PaneExecutionPlan` remains the authority
     /// for remote work.
@@ -1266,11 +1267,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     static func shouldResetAgentIdentityForSubmittedSSH(
         command: String,
         agentKind: AgentKind,
-        submittedAtObservedShellPrompt: Bool
+        submittedAtObservedShellPrompt: Bool,
+        isSSHCommand: Bool? = nil
     ) -> Bool {
         submittedAtObservedShellPrompt
             && agentKind != .shell
-            && RemoteSSHCommandTarget.isSSHCommand(command)
+            && (isSSHCommand ?? RemoteSSHCommandTarget.isSSHCommand(command))
     }
 
     func recordSubmittedCommand(
@@ -1280,10 +1282,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         let liveAgentKind =
             sessionStore.session(id: sessionID)?
             .layout.pane(id: paneID)?.agentKind ?? .shell
+        let isSSHCommand = RemoteSSHCommandTarget.isSSHCommand(command)
         if Self.shouldResetAgentIdentityForSubmittedSSH(
             command: command,
             agentKind: liveAgentKind,
-            submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
+            submittedAtObservedShellPrompt: submittedAtObservedShellPrompt,
+            isSSHCommand: isSSHCommand
         ) {
             applyAgentRuntimeEvent(
                 AgentRuntimeEvent(
