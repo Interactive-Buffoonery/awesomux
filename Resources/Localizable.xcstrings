@@ -1804,6 +1804,9 @@
     "Focus" : {
       "comment" : "Accessibility action for focusing an open worktree workspace.\nFocus an already-open worktree workspace."
     },
+    "Focus Permission Prompt" : {
+
+    },
     "Focus Sidebar" : {
 
     },

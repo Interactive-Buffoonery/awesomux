@@ -35,6 +35,27 @@ struct NotificationMenuCommandTests {
         )
     }
 
+    @Test("Permission prompt focus uses one native menu and palette action")
+    func permissionPromptFocusHasNativeShortcut() throws {
+        let source = try SourceContract.source(at: "Sources/awesoMux/App/AwesoMuxApp.swift")
+        let menu = try SourceContract.declarationBody(
+            after: "Button(\"Focus Permission Prompt\") {",
+            in: source,
+            path: "Sources/awesoMux/App/AwesoMuxApp.swift"
+        )
+        #expect(menu.contains("focusPermissionPrompt()"))
+        #expect(source.contains(".keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusPermissionPrompt))"))
+        #expect(source.contains("focusPermissionPrompt: focusPermissionPrompt,"))
+        let command = try SourceContract.declarationBody(
+            after: "private func focusPermissionPrompt() {",
+            in: source,
+            path: "Sources/awesoMux/App/AwesoMuxApp.swift"
+        )
+        #expect(command.contains("guard !isAnySheetPresented,"))
+        #expect(command.contains("coordinator.activePrompt != nil"))
+        #expect(command.contains("target.1.requestFocus()"))
+    }
+
     @Test("Keyboard Shortcuts uses a native Help-menu shortcut")
     func keyboardShortcutsUsesNativeHelpMenuShortcut() throws {
         let source = try SourceContract.source(at: "Sources/awesoMux/App/AwesoMuxApp.swift")
