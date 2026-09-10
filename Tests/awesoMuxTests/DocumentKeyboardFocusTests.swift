@@ -176,7 +176,7 @@ struct DocumentKeyboardFocusTests {
         #expect(window.firstResponder === other)
     }
 
-    @Test(arguments: [NSEvent.EventType.keyDown, .leftMouseDown, .scrollWheel])
+    @Test(arguments: [NSEvent.EventType.keyDown, .leftMouseDown])
     func newInputCancelsDelayedHandoffEvenWithUnchangedResponder(type: NSEvent.EventType) throws {
         let window = makeWindow()
         let original = SelectionAwareTextView(frame: .zero)
@@ -194,6 +194,23 @@ struct DocumentKeyboardFocusTests {
         #expect(window.firstResponder === original)
 
         handoff.request(id, in: window)
+        #expect(handoff.completeIfReady())
+        #expect(window.firstResponder === incoming)
+    }
+
+    @Test func windowlessScrollDoesNotCancelDelayedHandoff() throws {
+        let window = makeWindow()
+        let original = SelectionAwareTextView(frame: .zero)
+        let incoming = SelectionAwareTextView(frame: .zero)
+        window.contentView?.addSubview(original)
+        window.contentView?.addSubview(incoming)
+        #expect(window.makeFirstResponder(original))
+        let id = UUID()
+        let handoff = DocumentFocusHandoff()
+        handoff.request(id, in: window)
+        let event = try makeSubsequentInputEvent(type: .scrollWheel, window: window)
+        handoff.handleSubsequentInput(event)
+        handoff.register(incoming, for: id)
         #expect(handoff.completeIfReady())
         #expect(window.firstResponder === incoming)
     }

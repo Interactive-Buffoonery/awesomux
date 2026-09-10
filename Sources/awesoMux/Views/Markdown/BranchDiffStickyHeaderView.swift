@@ -226,7 +226,10 @@ final class BranchDiffStickyHeaderView: NSView {
         return super.resignFirstResponder()
     }
 
-    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        guard let model else { return nil }
+        return model.foldable ? .button : .staticText
+    }
     override func accessibilityLabel() -> String? {
         guard let model else { return nil }
         return CommentBadgeOverlay.sectionAccessibilityLabel(

@@ -58,7 +58,11 @@ final class DocumentFocusHandoff {
             return
         }
         switch event.type {
-        case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
+        case .scrollWheel:
+            // Synthetic scroll events can lack a window; ignore those so they
+            // do not cancel a pending handoff the user did not intend to abort.
+            if event.window === requestWindow { cancel() }
+        case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
             // A new action supersedes the earlier selection, even if it leaves
             // the same terminal as first responder while the document loads.
             cancel()
@@ -78,7 +82,6 @@ final class DocumentFocusHandoff {
         guard let requestedTabID, requestedTabID == registeredTabID,
             let textView, let window = textView.window, window === requestWindow
         else { return false }
-        cancel()
         guard window.isKeyWindow, window.attachedSheet == nil else { return false }
         let responder = window.firstResponder
         // A removed outgoing viewer can briefly leave the window vacant or
@@ -88,6 +91,7 @@ final class DocumentFocusHandoff {
                 || responder == nil || responder === window || responder is GhosttySurfaceNSView
         else { return false }
         guard window.makeFirstResponder(textView) else { return false }
+        cancel()
         textView.setAccessibilityFocused(true)
         NSAccessibility.post(element: textView, notification: .focusedUIElementChanged)
         return true
