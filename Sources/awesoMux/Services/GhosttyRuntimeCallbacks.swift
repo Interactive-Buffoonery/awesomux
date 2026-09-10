@@ -485,19 +485,8 @@ extension GhosttyRuntime {
         openDocumentHandler?(url)
     }
 
-    /// Maximum URL string length displayed in the modal body. Pasted
-    /// or attacker-crafted multi-kilobyte URLs would otherwise blow out
-    /// the dialog layout.
-    private static let urlBodyDisplayCap = 200
-
-    /// Maximum length for any user-controllable substring interpolated
-    /// into the alert body (workspace title, mailto recipient,
-    /// userinfo, etc.). Prevents a single field from dominating the
-    /// dialog or pushing other lines off-screen.
-    private static let bodyFieldDisplayCap = 120
-
     /// Sanitizes a user-controllable substring before interpolation
-    /// into `NSAlert.informativeText`. Replaces every codepoint that
+    /// into the alert details. Replaces every codepoint that
     /// could forge a line-break, line-direction flip, or invisible
     /// gap in the dialog body with a single space — Foundation's
     /// percent-decoding of URL components turns `%0A` (LF),
@@ -506,8 +495,7 @@ extension GhosttyRuntime {
     /// their literal codepoints, any of which would render as a fake
     /// line break or directional flip in the dialog and let an
     /// attacker forge a "Full URL: https://safe.example" line that
-    /// hides the real resolved host. Truncates to
-    /// `bodyFieldDisplayCap` at the end.
+    /// hides the real resolved host.
     private static func sanitizedForAlertBody(_ value: String) -> String {
         let scrubbed = value.unicodeScalars.map { scalar -> Character in
             if isUnsafeAlertBodyScalar(scalar) {
@@ -515,10 +503,7 @@ extension GhosttyRuntime {
             }
             return Character(scalar)
         }
-        let oneLine = String(scrubbed)
-        return oneLine.count > bodyFieldDisplayCap
-            ? String(oneLine.prefix(bodyFieldDisplayCap)) + "…"
-            : oneLine
+        return String(scrubbed)
     }
 
     @MainActor
@@ -540,22 +525,32 @@ extension GhosttyRuntime {
             return (sanitizedForAlertBody(display), sanitizedForAlertBody(puny))
         }()
 
-        // The comparison rides as the alert's accessory view so it spans the
-        // dialog's content width below the body copy. NSAlert sizes itself
-        // to the accessory frame; the width cap keeps a 120-char sanitized
-        // host wrapping instead of stretching the alert across the screen.
-        let accessoryView: NSView? = hostComparison.map { pair in
-            let hosting = NSHostingView(
-                rootView: BlockedURLHostComparisonView(
-                    displayHost: pair.display,
-                    punycodeHost: pair.punycode
-                )
-                .frame(maxWidth: 400)
-                .awUIFont(AwUIFontRuntime.current)
-            )
-            hosting.setFrameSize(hosting.fittingSize)
-            return hosting
-        }
+        let body = blockConfirmBody(
+            for: url,
+            reason: reason,
+            displayHost: displayHost,
+            punycodeHost: punycodeHost,
+            includeHostLines: hostComparison == nil
+        )
+        let accessoryView = NSHostingView(
+            rootView: ConsentScrollView(maximumHeight: 280) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(body)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                    if let pair = hostComparison {
+                        BlockedURLHostComparisonView(
+                            displayHost: pair.display,
+                            punycodeHost: pair.punycode
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: 400, height: 280, alignment: .top)
+            .awUIFont(AwUIFontRuntime.current)
+        )
+        accessoryView.setFrameSize(NSSize(width: 400, height: 280))
 
         // Presented through NSAlert.confirmDestructive — the same dialog as
         // every other destructive confirm in the app (live-smoke direction:
@@ -572,13 +567,7 @@ extension GhosttyRuntime {
                 localized: "Security warning: \(blockConfirmTitle(for: reason))",
                 comment: "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
             ),
-            body: blockConfirmBody(
-                for: url,
-                reason: reason,
-                displayHost: displayHost,
-                punycodeHost: punycodeHost,
-                includeHostLines: hostComparison == nil
-            ),
+            body: "",
             keyboardHint: String(
                 localized: "Press ⌘Return to open. Return or Esc cancels.",
                 comment: "Keyboard hint line on the OSC 8 hyperlink confirmation dialog."
@@ -792,19 +781,17 @@ extension GhosttyRuntime {
         lines.append("")
         lines.append(
             String(
-                localized: "Full URL: \(truncatedURLString(for: url))",
-                comment: "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
+                localized: "Full URL: \(fullURLString(for: url))",
+                comment: "Line of the OSC 8 confirmation dialog body showing the full URL. Argument is the URL string."
             ))
         return lines.joined(separator: "\n")
     }
 
-    private static func truncatedURLString(for url: URL) -> String {
+    private static func fullURLString(for url: URL) -> String {
         let raw = url.absoluteString.unicodeScalars.map { scalar -> Character in
             isUnsafeAlertBodyScalar(scalar) ? " " : Character(scalar)
         }
-        let rawString = String(raw)
-        guard rawString.count > urlBodyDisplayCap else { return rawString }
-        return String(rawString.prefix(urlBodyDisplayCap)) + "…"
+        return String(raw)
     }
 
     nonisolated static func closeSurface(

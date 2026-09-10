@@ -5,6 +5,12 @@ import DesignSystem
 import SwiftUI
 import UnicodeHygiene
 
+enum BridgePermissionPromptFocusRegion: Hashable {
+    case banner
+    case tool
+    case target
+}
+
 /// The in-pane permission banner (INT-698, binding contributor ruling): a
 /// `NeedsInputBar`-style strip on the remote pane showing the requested tool +
 /// target, Allow/Deny buttons, and a queue badge when more prompts wait. Not a
@@ -32,7 +38,7 @@ import UnicodeHygiene
 ///   `NSEvent` key monitor active only while the banner is deliberately focused
 ///   (the documented-gotcha alternative to `.onExitCommand`) — so a terminal
 ///   user's Escape (vim) is untouched until they move focus to the prompt.
-/// - **Full `target` reaches assistive tech** even when the visible text elides,
+/// - **Full `target` is visible and reaches assistive tech**,
 ///   via the accessibility label. The queued count is exposed to AT through the
 ///   stringsdict plural and shown as a badge.
 struct BridgePermissionPromptView: View {
@@ -40,9 +46,11 @@ struct BridgePermissionPromptView: View {
     let onFocusReturned: () -> Void
 
     @AccessibilityFocusState private var promptAccessibilityFocused: Bool
-    @FocusState private var bannerFocused: Bool
+    @FocusState private var focusedRegion: BridgePermissionPromptFocusRegion?
     @State private var keyMonitor = BridgePermissionKeyMonitor()
     @State private var presentedPromptID: String?
+
+    private var promptHasFocus: Bool { focusedRegion != nil }
 
     init(
         coordinator: BridgePermissionCoordinator,
@@ -60,30 +68,15 @@ struct BridgePermissionPromptView: View {
                     // banner grabs focus. Bumped by `requestFocus()` (the palette /
                     // shortcut command), never on arrival.
                     .onChange(of: coordinator.focusRequestToken) {
-                        bannerFocused = true
+                        focusedRegion = .banner
                         promptAccessibilityFocused = true
                     }
                     .onAppear { presentedPromptID = prompt.id }
                     // Escape monitor is live only while the banner is deliberately
                     // focused, so a terminal user's Escape stays with the terminal
                     // until they move focus here.
-                    .onChange(of: bannerFocused) { _, focused in
-                        if focused {
-                            keyMonitor.start(coordinator: coordinator)
-                        } else {
-                            keyMonitor.stop()
-                            // Focus returned to the terminal (Tab/click away) —
-                            // clear the coordinator's own focused flag directly.
-                            // Don't rely on SwiftUI resetting `bannerFocused` on
-                            // the banner's disappear/reappear cycle across
-                            // prompts to keep this in sync; that's a stale-state
-                            // risk, so the coordinator's flag has its own
-                            // explicit clear here as well as in `publish()`.
-                            // Blur deliberately performs no focus handoff: the
-                            // user moved focus on purpose, so it stays wherever
-                            // they put it.
-                            coordinator.clearPromptFocus()
-                        }
+                    .onChange(of: focusedRegion) { _, region in
+                        keyMonitor.updateFocus(region, coordinator: coordinator)
                     }
             }
         }
@@ -94,7 +87,7 @@ struct BridgePermissionPromptView: View {
             // lives outside the conditional so it also sees the final prompt
             // disappear.
             guard let previous, previous.id != current?.id else { return }
-            bannerFocused = false
+            focusedRegion = nil
             promptAccessibilityFocused = false
             keyMonitor.stop()
             coordinator.clearPromptFocus()
@@ -102,7 +95,7 @@ struct BridgePermissionPromptView: View {
             presentedPromptID = current?.id
         }
         .onDisappear {
-            bannerFocused = false
+            focusedRegion = nil
             promptAccessibilityFocused = false
             keyMonitor.stop()
             // The prompt can disappear without a SwiftUI focus transition when
@@ -130,27 +123,75 @@ struct BridgePermissionPromptView: View {
 
     @ViewBuilder
     private func banner(_ prompt: BridgePermissionCoordinator.ActivePrompt) -> some View {
-        HStack(spacing: 12) {
-            StatusDot(.needs)
-                // Decorative: meaning is in the description element + buttons.
-                // Leaving it visible under `.contain` parked VO on an unlabeled
-                // graphic (accessibility review finding B3).
-                .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                StatusDot(.needs)
+                    // Decorative: meaning is in the description element + buttons.
+                    // Leaving it visible under `.contain` parked VO on an unlabeled
+                    // graphic (accessibility review finding B3).
+                    .accessibilityHidden(true)
 
-            Text("permission needed")
-                .awFont(AwFont.Mono.kicker)
-                .tracking(1.1)
-                .textCase(.uppercase)
-                .foregroundStyle(Color.aw.text)
-                .lineLimit(1)
-                .layoutPriority(0)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(prompt.tool)
-                    .awFont(AwFont.Mono.meta)
+                Text("permission needed")
+                    .awFont(AwFont.Mono.kicker)
+                    .tracking(1.1)
+                    .textCase(.uppercase)
                     .foregroundStyle(Color.aw.text)
                     .lineLimit(1)
+                    .layoutPriority(0)
+                    .accessibilityHidden(true)
+
+                Spacer(minLength: 12)
+
+                if coordinator.queuedCount > 0 {
+                    queueBadge(coordinator.queuedCount)
+                }
+
+                PermissionActionButton(
+                    title: String(localized: "Deny", comment: "Button that denies a remote agent's permission request"),
+                    accessibilityLabel: String(
+                        localized: "Deny permission request. Escape when focused.",
+                        comment: "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
+                    ),
+                    tint: Color.aw.text,
+                    action: { coordinator.deny(id: prompt.id) }
+                )
+                // 24×24 minimum hit target (WCAG 2.5.8), matching PaneCloseButton —
+                // the `.rounded` bezel renders under 24pt tall by default and the
+                // row's 46pt minHeight only centers the shrunk button, it doesn't
+                // grow it.
+                .frame(minWidth: 24, minHeight: 24)
+                .help(
+                    String(
+                        localized: "Deny (Escape when focused)",
+                        comment: "Tooltip for the deny button on the remote permission banner"
+                    )
+                )
+                .layoutPriority(1)
+
+                PermissionActionButton(
+                    title: String(localized: "Allow", comment: "Button that allows a remote agent's permission request"),
+                    accessibilityLabel: String(
+                        localized: "Allow permission request. Command-Return when focused.",
+                        comment: "Accessibility label for the allow button on the remote permission banner, including keyboard shortcut"
+                    ),
+                    tint: Color.aw.status.needs,
+                    action: { coordinator.allow(id: prompt.id) }
+                )
+                .frame(minWidth: 24, minHeight: 24)
+                .help(
+                    String(
+                        localized: "Allow (Command-Return when focused)",
+                        comment: "Tooltip for the allow button on the remote permission banner"
+                    )
+                )
+                .layoutPriority(1)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                ConsentTextView(text: prompt.tool, maximumHeight: 60)
+                    .id(prompt.id)
+                    .focused($focusedRegion, equals: .tool)
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(Color.aw.text)
                 HStack(spacing: 4) {
                     if Self.hasSuspiciousText(tool: prompt.tool, target: prompt.target, summary: prompt.summary) {
                         // Homograph-spoof signal: the request text mixes writing
@@ -160,27 +201,26 @@ struct BridgePermissionPromptView: View {
                         // container's AX label; hidden here to avoid a double read.
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(Color.aw.status.needs)
-                            .help(String(
-                                localized: "This request mixes character scripts and may be disguised.",
-                                comment: "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
-                            ))
+                            .help(
+                                String(
+                                    localized: "This request mixes character scripts and may be disguised.",
+                                    comment:
+                                        "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
+                                )
+                            )
                             .accessibilityHidden(true)
                     }
-                    Text(prompt.target)
+                    ConsentTextView(text: prompt.target, maximumHeight: 120)
+                        .id(prompt.id)
+                        .focused($focusedRegion, equals: .target)
                         .awFont(AwFont.Mono.meta)
                         .foregroundStyle(Color.aw.text2)
-                        // Elide visually; the full target reaches AT via the label
-                        // below and sighted mouse users via the tooltip.
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(prompt.target)
                 }
             }
             .layoutPriority(1)
-            // One AX element carrying the FULL (never elided) target, so the
-            // confused-deputy defense holds; the Allow/Deny buttons stay as their
-            // OWN reachable AX elements via the container's `.contain` below.
-            .accessibilityElement(children: .ignore)
+            // Keep the scroll regions reachable for assistive navigation as
+            // well as the full description on their containing group.
+            .accessibilityElement(children: .contain)
             .accessibilityLabel(
                 Self.accessibilityLabel(
                     tool: prompt.tool,
@@ -190,49 +230,8 @@ struct BridgePermissionPromptView: View {
                 )
             )
             .accessibilityFocused($promptAccessibilityFocused)
-
-            Spacer(minLength: 12)
-
-            if coordinator.queuedCount > 0 {
-                queueBadge(coordinator.queuedCount)
-            }
-
-            PermissionActionButton(
-                title: String(localized: "Deny", comment: "Button that denies a remote agent's permission request"),
-                accessibilityLabel: String(
-                    localized: "Deny permission request. Escape when focused.",
-                    comment: "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
-                ),
-                tint: Color.aw.text,
-                action: { coordinator.deny(id: prompt.id) }
-            )
-            // 24×24 minimum hit target (WCAG 2.5.8), matching PaneCloseButton —
-            // the `.rounded` bezel renders under 24pt tall by default and the
-            // row's 46pt minHeight only centers the shrunk button, it doesn't
-            // grow it.
-            .frame(minWidth: 24, minHeight: 24)
-            .help(String(
-                localized: "Deny (Escape when focused)",
-                comment: "Tooltip for the deny button on the remote permission banner"
-            ))
-            .layoutPriority(1)
-
-            PermissionActionButton(
-                title: String(localized: "Allow", comment: "Button that allows a remote agent's permission request"),
-                accessibilityLabel: String(
-                    localized: "Allow permission request. Command-Return when focused.",
-                    comment: "Accessibility label for the allow button on the remote permission banner, including keyboard shortcut"
-                ),
-                tint: Color.aw.status.needs,
-                action: { coordinator.allow(id: prompt.id) }
-            )
-            .frame(minWidth: 24, minHeight: 24)
-            .help(String(
-                localized: "Allow (Command-Return when focused)",
-                comment: "Tooltip for the allow button on the remote permission banner"
-            ))
-            .layoutPriority(1)
         }
+        .padding(.vertical, 8)
         .padding(.leading, 16)
         .padding(.trailing, 12)
         .frame(minHeight: 46)
@@ -259,7 +258,7 @@ struct BridgePermissionPromptView: View {
             // arrival.
             RoundedRectangle(cornerRadius: 2)
                 .stroke(Color.aw.text, lineWidth: 2)
-                .opacity(bannerFocused ? 1 : 0)
+                .opacity(promptHasFocus ? 1 : 0)
                 .accessibilityHidden(true)
         }
         // `.contain` (NOT `.combine`): the full-target description element above
@@ -275,7 +274,7 @@ struct BridgePermissionPromptView: View {
         .accessibilityAction(named: Text("Deny")) { coordinator.deny(id: prompt.id) }
         .focusable(true)
         .focusEffectDisabled()
-        .focused($bannerFocused)
+        .focused($focusedRegion, equals: .banner)
     }
 
     private func queueBadge(_ count: Int) -> some View {
@@ -397,6 +396,24 @@ final class BridgePermissionKeyMonitor {
     /// guarantee `onDisappear` on every teardown path) neither retains the
     /// coordinator nor denies Escape app-wide — a leaked monitor stays inert.
     private weak var coordinator: BridgePermissionCoordinator?
+
+    var isMonitoring: Bool { token != nil }
+
+    func updateFocus(
+        _ region: BridgePermissionPromptFocusRegion?,
+        coordinator: BridgePermissionCoordinator
+    ) {
+        guard region != nil else {
+            stop()
+            coordinator.clearPromptFocus()
+            return
+        }
+        // Moving between the banner and its consent fields preserves the
+        // existing deliberate focus grant; entering them cannot create one.
+        if self.coordinator !== coordinator {
+            start(coordinator: coordinator)
+        }
+    }
 
     func start(coordinator: BridgePermissionCoordinator) {
         stop()

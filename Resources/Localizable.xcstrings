@@ -10,9 +10,6 @@
     " daemon? It has no owner — nothing restores it." : {
 
     },
-    "$ amx kill %arg…" : {
-
-    },
     "%1$@ %2$lld" : {
       "comment" : "Generated title for an unnamed workspace. Arguments are the agent or shell name and a positive index.",
       "localizations" : {
@@ -1807,6 +1804,9 @@
     "Focus" : {
       "comment" : "Accessibility action for focusing an open worktree workspace.\nFocus an already-open worktree workspace."
     },
+    "Focus Permission Prompt" : {
+
+    },
     "Focus Sidebar" : {
 
     },
@@ -1844,7 +1844,7 @@
       "comment" : "Explanation of the terminal link-opening security boundary"
     },
     "Full URL: %arg" : {
-      "comment" : "Line of the OSC 8 confirmation dialog body showing the full (possibly truncated) URL. Argument is the URL string."
+      "comment" : "Line of the OSC 8 confirmation dialog body showing the full URL. Argument is the URL string."
     },
     "GPL v2" : {
       "comment" : "Button opening the GPL version 2 text"

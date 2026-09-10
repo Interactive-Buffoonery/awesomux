@@ -30,7 +30,7 @@ extension NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
-        alert.informativeText = body + "\n\n" + keyboardHint
+        alert.informativeText = [body, keyboardHint].filter { !$0.isEmpty }.joined(separator: "\n\n")
         alert.accessoryView = accessoryView
         let cancelButton = alert.addButton(withTitle: cancelTitle)
         if let cancelAccessibilityLabel {

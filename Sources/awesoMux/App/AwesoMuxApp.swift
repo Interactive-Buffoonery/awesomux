@@ -1180,6 +1180,12 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.acknowledgeWorkspace))
                 .disabled(!selectedSessionNeedsAcknowledgement || isAnySheetPresented)
 
+                Button("Focus Permission Prompt") {
+                    focusPermissionPrompt()
+                }
+                .keyboardShortcut(shortcut(KeyboardShortcutCatalog.focusPermissionPrompt))
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
+
                 Button("Clear All Notifications") {
                     sessionStore.acknowledgeAllSessions()
                 }
@@ -4497,6 +4503,36 @@ struct AwesoMuxApp: App {
         return String(prefix) + "..."
     }
 
+    private func focusPermissionPrompt() {
+        guard !isAnySheetPresented,
+            let sessionID = sessionStore.selectedSessionID,
+            let session = sessionStore.session(id: sessionID)
+        else {
+            return
+        }
+        let candidates =
+            [session.activePaneID]
+            + session.layout.paneIDs.filter { $0 != session.activePaneID }
+        guard
+            let target = candidates.lazy.compactMap({ paneID -> (TerminalPane.ID, BridgePermissionCoordinator)? in
+                guard let terminalSessionID = session.layout.pane(id: paneID)?.terminalSessionID,
+                    let coordinator = ghosttyRuntime.bridgeCoordinatorStore.coordinator(for: terminalSessionID),
+                    coordinator.activePrompt != nil
+                else {
+                    return nil
+                }
+                return (paneID, coordinator)
+            }).first
+        else {
+            return
+        }
+        sessionStore.setActivePane(id: target.0, in: sessionID)
+        // Mount the newly selected pane's banner before changing its
+        // focus token; otherwise an inactive sibling would miss the
+        // onChange edge during the same render transaction.
+        DispatchQueue.main.async { target.1.requestFocus() }
+    }
+
     private func currentPaletteCommands(selectedWorkspaceTitle: String? = nil) -> [PaletteCommand] {
         sidebarCommandTargetAvailability.refresh()
         let presentedWorkspaceTitle =
@@ -4668,34 +4704,7 @@ struct AwesoMuxApp: App {
                     sessionStore.acknowledgeAllPanes(in: id)
                 }
             },
-            focusPermissionPrompt: {
-                guard let sessionID = sessionStore.selectedSessionID,
-                    let session = sessionStore.session(id: sessionID)
-                else {
-                    return
-                }
-                let candidates =
-                    [session.activePaneID]
-                    + session.layout.paneIDs.filter { $0 != session.activePaneID }
-                guard
-                    let target = candidates.lazy.compactMap({ paneID -> (TerminalPane.ID, BridgePermissionCoordinator)? in
-                        guard let terminalSessionID = session.layout.pane(id: paneID)?.terminalSessionID,
-                            let coordinator = ghosttyRuntime.bridgeCoordinatorStore.coordinator(for: terminalSessionID),
-                            coordinator.activePrompt != nil
-                        else {
-                            return nil
-                        }
-                        return (paneID, coordinator)
-                    }).first
-                else {
-                    return
-                }
-                sessionStore.setActivePane(id: target.0, in: sessionID)
-                // Mount the newly selected pane's banner before changing its
-                // focus token; otherwise an inactive sibling would miss the
-                // onChange edge during the same render transaction.
-                DispatchQueue.main.async { target.1.requestFocus() }
-            },
+            focusPermissionPrompt: focusPermissionPrompt,
             clearAllNotifications: {
                 sessionStore.acknowledgeAllSessions()
             },
