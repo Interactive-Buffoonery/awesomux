@@ -428,18 +428,26 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         to inputState: GhosttySurfaceInputState
     ) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard modifiers.contains(.control),
-            modifiers.isDisjoint(with: [.command, .option, .shift])
-        else {
+        switch event.keyCode {
+        case 48, 53, 115, 116, 117, 119, 121, 123, 124, 125, 126:
+            // Completion, vi mode, navigation, history, and forward deletion
+            // can change the line without matching the captured append order.
+            inputState.disableSubmittedSSHCommandCapture()
+            return true
+        default:
+            break
+        }
+        if modifiers.contains(.option) {
+            inputState.disableSubmittedSSHCommandCapture()
+            return true
+        }
+        guard modifiers.contains(.control) else {
             return false
         }
-        switch event.characters {
-        case "\u{3}":  // Ctrl-C cancels the whole line.
+        if modifiers.isDisjoint(with: [.command, .option, .shift]), event.characters == "\u{3}" {
             inputState.resetSubmittedSSHCommandCapture()
-        case "\u{15}":  // Ctrl-U may leave a suffix when the cursor is mid-line.
+        } else {
             inputState.disableSubmittedSSHCommandCapture()
-        default:
-            return false
         }
         return true
     }
@@ -1202,12 +1210,11 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     /// Best-effort safety/presentation signal: printable input, Backspace, and
-    /// Ctrl-C line resets and Ctrl-U invalidations are observed, but cursor movement,
-    /// history, terminal modes, custom `stty` bindings, and readline/zsh editing
-    /// are not modeled. The declared `PaneExecutionPlan` remains the authority
+    /// Ctrl-C line resets are observed. Navigation, completion, history, paste,
+    /// and unmodeled editing disable capture until the next submit or Ctrl-C.
+    /// Terminal modes and custom `stty` bindings are not modeled.
+    /// The declared `PaneExecutionPlan` remains the authority
     /// for remote work.
-    /// ponytail: Ctrl-U disables capture until submit because tracking its
-    /// retained suffix safely requires authoritative line state.
     func observeSubmittedSSHCommandInput(
         action: ghostty_input_action_e,
         event: NSEvent,
@@ -1304,6 +1311,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         text: String,
         surface: ghostty_surface_t
     ) -> Bool {
+        if !text.isEmpty { inputState.disableSubmittedSSHCommandCapture() }
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
         keyEvent.keycode = 0
@@ -1427,14 +1435,15 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // Ghostty's unsafe-paste confirmation resolves asynchronously inside
         // libghostty with no callback out to us, so a paste the user cancels at
         // that sheet still marks answered; the next real prompt re-raises it.
-        if accepted,
-            Self.bindingActionDeliversUserText(action),
-            Self.pasteActionHasContent(action)
-        {
-            markNeedsAttentionPromptAnswered()
-        }
+        observeBindingAction(action, accepted: accepted, hasContent: Self.pasteActionHasContent(action))
 
         return accepted
+    }
+
+    func observeBindingAction(_ action: String, accepted: Bool, hasContent: Bool) {
+        guard accepted, Self.bindingActionDeliversUserText(action) else { return }
+        inputState.disableSubmittedSSHCommandCapture()
+        if hasContent { markNeedsAttentionPromptAnswered() }
     }
 
     func writeFromChrome(_ text: String) {
@@ -1446,6 +1455,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         guard let surface, !text.isEmpty else {
             return
         }
+
+        inputState.disableSubmittedSSHCommandCapture()
 
         // The other non-`keyDown` way user text reaches the agent: a text drop
         // (`performDragOperation` → `insertText`), dictation / the character

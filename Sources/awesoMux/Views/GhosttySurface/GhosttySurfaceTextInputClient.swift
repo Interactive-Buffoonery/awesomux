@@ -47,6 +47,8 @@ extension GhosttySurfaceNSView: @preconcurrency NSTextInputClient {
             inputState.markedText = NSMutableAttributedString()
         }
 
+        if hasMarkedText() { inputState.disableSubmittedSSHCommandCapture() }
+
         if inputState.keyTextAccumulator == nil {
             syncPreedit()
         }

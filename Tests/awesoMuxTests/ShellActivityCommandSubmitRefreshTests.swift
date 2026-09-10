@@ -1,6 +1,7 @@
 import AppKit
 import AwesoMuxCore
 import Foundation
+import GhosttyKit
 import Testing
 @testable import awesoMux
 
@@ -216,7 +217,7 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(inputState.submittedSSHCommandCaptureDisabled)
     }
 
-    @Test("unrelated command, control, and unmodified keys do not change capture")
+    @Test("command and unmodified keys do not change capture")
     func unrelatedKeysDoNotChangeCapture() {
         let inputState = GhosttySurfaceInputState()
         inputState.submittedSSHCommandBuffer = "ssh devbox"
@@ -239,14 +240,78 @@ struct ShellActivityCommandSubmitRefreshTests {
                 to: inputState
             )
         )
-        #expect(
-            !GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
-                keyEvent(keyCode: 0x00, modifiers: [.control], characters: "\u{1}"),
-                to: inputState
-            )
-        )
         #expect(inputState.submittedSSHCommandBuffer == "ssh devbox")
         #expect(!inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test("line editing invalidates capture instead of resetting identity from stale text")
+    func editedSSHLineDoesNotResetAgentIdentity() {
+        let (store, session, pane, view) = agentFixture()
+        func input(keyCode: UInt16, text: String?, submit: Bool = false) {
+            view.observeSubmittedSSHCommandInput(
+                action: GHOSTTY_ACTION_PRESS,
+                event: keyEvent(keyCode: keyCode, modifiers: [], characters: text ?? ""),
+                text: text, handled: true, isCommandSubmit: submit,
+                submittedAtObservedShellPrompt: true
+            )
+        }
+        input(keyCode: 0, text: "ssh host")
+        input(keyCode: 115, text: nil)
+        input(keyCode: 0, text: "claude ")
+        input(keyCode: 36, text: "\r", submit: true)
+        #expect(store.session(id: session.id)?.layout.pane(id: pane.id)?.agentKind == .claudeCode)
+        #expect(!view.inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test(
+        "navigation and readline controls invalidate capture",
+        arguments: [
+            (UInt16(123), NSEvent.ModifierFlags(), ""),
+            (UInt16(126), NSEvent.ModifierFlags(), ""),
+            (UInt16(48), NSEvent.ModifierFlags(), "\t"),
+            (UInt16(0), NSEvent.ModifierFlags.control, "\u{1}"),
+            (UInt16(27), NSEvent.ModifierFlags([.control, .shift]), "\u{1f}"),
+            (UInt16(11), NSEvent.ModifierFlags.option, "b"),
+        ])
+    func unmodeledEditingDisablesCapture(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, text: String) {
+        let inputState = GhosttySurfaceInputState()
+        inputState.submittedSSHCommandBuffer = "ssh host"
+        #expect(
+            GhosttySurfaceNSView.applySubmittedSSHCommandLineControl(
+                keyEvent(keyCode: keyCode, modifiers: modifiers, characters: text), to: inputState
+            ))
+        #expect(inputState.submittedSSHCommandBuffer.isEmpty)
+        #expect(inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test("IME composition prevents a later SSH-shaped suffix from resetting identity")
+    func composedPrefixInvalidatesCapture() {
+        let (store, session, pane, view) = agentFixture()
+        view.setMarkedText("prefix ", selectedRange: NSRange(location: 7, length: 0), replacementRange: NSRange())
+        view.unmarkText()
+        for (keyCode, text, submit) in [(UInt16(0), "ssh host", false), (UInt16(36), "\r", true)] {
+            view.observeSubmittedSSHCommandInput(
+                action: GHOSTTY_ACTION_PRESS,
+                event: keyEvent(keyCode: keyCode, modifiers: [], characters: text),
+                text: text, handled: true, isCommandSubmit: submit,
+                submittedAtObservedShellPrompt: true
+            )
+        }
+        #expect(store.session(id: session.id)?.layout.pane(id: pane.id)?.agentKind == .claudeCode)
+        #expect(!view.inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test("accepted paste invalidates capture even without string clipboard content")
+    func acceptedNonStringPasteInvalidatesCapture() {
+        let (_, _, _, view) = agentFixture()
+        view.inputState.submittedSSHCommandBuffer = "ssh host"
+        view.observeBindingAction("paste_from_clipboard", accepted: false, hasContent: false)
+        #expect(view.inputState.submittedSSHCommandBuffer == "ssh host")
+        view.observeBindingAction("copy_to_clipboard", accepted: true, hasContent: true)
+        #expect(view.inputState.submittedSSHCommandBuffer == "ssh host")
+        view.observeBindingAction("paste_from_clipboard", accepted: true, hasContent: false)
+        #expect(view.inputState.submittedSSHCommandBuffer.isEmpty)
+        #expect(view.inputState.submittedSSHCommandCaptureDisabled)
     }
 
     private func keyEvent(
