@@ -1561,6 +1561,9 @@
     "Document Note" : {
 
     },
+    "Document content" : {
+      "comment" : "Accessibility label for a document text view with content"
+    },
     "Document note" : {
       "comment" : "Accessibility label for the document note sheet"
     },

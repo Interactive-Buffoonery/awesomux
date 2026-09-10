@@ -332,7 +332,7 @@ private struct DocumentTabPill: View {
             // Suppress the system ring; the accent `awFocusRing` below is the
             // keyboard-only focus indicator.
             .focusEffectDisabled()
-            .onKeyPress(keys: [.space], phases: .down) { press in
+            .onKeyPress(keys: [.space, .return], phases: .down) { press in
                 guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
                 select()
                 return .handled
@@ -396,7 +396,6 @@ private struct DocumentTabPill: View {
     }
 
     private func select() {
-        isKeyboardFocused = false
         onSelect()
     }
 

@@ -100,7 +100,10 @@ struct DocumentKeyboardFocusTests {
         #expect(window.firstResponder === original)
 
         window.contentView?.addSubview(incoming)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        let deadline = Date().addingTimeInterval(1)
+        while window.firstResponder !== incoming, Date() < deadline {
+            RunLoop.main.run(until: min(deadline, Date().addingTimeInterval(0.01)))
+        }
         #expect(window.firstResponder === incoming)
     }
 
@@ -295,6 +298,45 @@ struct DocumentKeyboardFocusTests {
         header.isAccessibilityFocusedForTesting = true
         coordinator.returnFocusFromPinnedHeadingIfNeeded()
         #expect(window.firstResponder === text)
+    }
+
+    private final class AccessibilityFocusTextView: NSTextView {
+        var onAccessibilityFocus: (() -> Void)?
+
+        override func setAccessibilityFocused(_ focused: Bool) {
+            if focused { onAccessibilityFocus?() }
+            super.setAccessibilityFocused(focused)
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func hidingPinnedHeadingRestoresIndependentFocus(keyboardFocused: Bool, accessibilityFocused: Bool) {
+        let window = makeWindow()
+        let scroll = NSScrollView(frame: window.contentView!.bounds)
+        let text = AccessibilityFocusTextView(frame: scroll.bounds)
+        scroll.documentView = text
+        let header = BranchDiffStickyHeaderView(frame: .zero)
+        let other = FocusButton(title: "Other", target: nil, action: nil)
+        window.contentView?.addSubview(scroll)
+        window.contentView?.addSubview(other)
+        scroll.addSubview(header)
+        header.model = .init(
+            key: "file", title: "file.swift", added: 1, removed: 0, collapsed: false, foldable: true)
+        header.isAccessibilityFocusedForTesting = accessibilityFocused
+        #expect(window.makeFirstResponder(keyboardFocused ? header : other))
+        var accessibilityTransfers = 0
+        text.onAccessibilityFocus = {
+            #expect(!header.isHidden)
+            accessibilityTransfers += 1
+        }
+
+        header.model = nil
+
+        #expect(header.isHidden)
+        #expect(window.firstResponder === (keyboardFocused || accessibilityFocused ? text : other))
+        #expect(accessibilityTransfers == (accessibilityFocused ? 1 : 0))
+        header.model = nil
+        #expect(accessibilityTransfers == (accessibilityFocused ? 1 : 0))
     }
 
     private func makeWindow() -> NSWindow {

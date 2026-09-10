@@ -66,10 +66,17 @@ final class BranchDiffStickyHeaderView: NSView {
     var model: Model? {
         didSet {
             guard oldValue != model else { return }
-            if model == nil, window?.firstResponder === self,
-                let scrollView = superview as? NSScrollView
+            if model == nil, let scrollView = superview as? NSScrollView,
+                let documentView = scrollView.documentView
             {
-                window?.makeFirstResponder(scrollView.documentView)
+                let hadAccessibilityFocus = isAccessibilityFocused()
+                if window?.firstResponder === self {
+                    window?.makeFirstResponder(documentView)
+                }
+                if hadAccessibilityFocus {
+                    documentView.setAccessibilityFocused(true)
+                    NSAccessibility.post(element: documentView, notification: .focusedUIElementChanged)
+                }
             }
             isHidden = model == nil
             // The pointing-hand rect covers the whole bar, so it has to come and

@@ -1698,7 +1698,9 @@ struct DocumentPaneView: View {
                             },
                             textAccessibilityLabel: doc.runs.isEmpty
                                 ? String(localized: "\(pane.title) is empty")
-                                : "Document content",
+                                : String(
+                                    localized: "Document content",
+                                    comment: "Accessibility label for a document text view with content"),
                             // Fix 3 (INT-562): auto-present compose popover when the user
                             // finalizes a selection (mouseUp with a non-empty, non-mark-touching
                             // span). Guard: don't re-present if a popover is already open (covers

@@ -58,6 +58,17 @@ struct DocumentPointerTargetTests {
         )
     }
 
+    @Test("tab activation supports Return and leaves focus to the guarded handoff")
+    func tabActivationFocusWiring() throws {
+        let strip = try Self.source("Views/DocumentTabStripView.swift")
+        let pill = try Self.block(from: "private struct DocumentTabPill", through: "private var titleColor", in: strip)
+        #expect(pill.contains(".onKeyPress(keys: [.space, .return], phases: .down)"))
+        #expect(pill.contains("press.modifiers.subtracting(.capsLock).isEmpty"))
+        #expect(!pill.contains("isKeyboardFocused = false"))
+        let select = try Self.block(from: "private func select()", through: "private var titleColor", in: strip)
+        #expect(select.contains("onSelect()"))
+    }
+
     private static func source(_ relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

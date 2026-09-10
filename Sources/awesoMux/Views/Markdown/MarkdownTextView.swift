@@ -226,7 +226,9 @@ struct MarkdownTextView: NSViewRepresentable {
     var onTextViewAvailable: ((NSTextView) -> Void)? = nil
     /// VoiceOver label for the document text. Empty documents override the
     /// generic default so tab-selection handoff still has a named target.
-    var textAccessibilityLabel: String = "Document content"
+    var textAccessibilityLabel: String = String(
+        localized: "Document content",
+        comment: "Accessibility label for a document text view with content")
 
     /// Fix 3 (INT-562): called when the user FINALISES a text selection (mouseUp with a
     /// non-empty range that does not touch an existing mark). Args: source span, trailing
