@@ -1,10 +1,43 @@
 import AwesoMuxCore
+import Foundation
 import Testing
 @testable import awesoMux
 
 @Suite(.serialized)
 @MainActor
 struct DocumentComposeTabActionHandlerTests {
+    @Test("only explicit tab navigation publishes a document focus request")
+    func documentOpensPreserveFocusUntilUserSelectsTab() throws {
+        defer { DocumentComposeGuard.isComposing = { false } }
+        DocumentComposeGuard.isComposing = { false }
+        let session = TerminalSession(title: "test", workingDirectory: "~")
+        let store = SessionStore(groups: [SessionGroup(name: "test", sessions: [session])])
+        let handler = DocumentComposeTabActionHandler()
+        let first = try #require(store.openDocumentPane(fileURL: URL(fileURLWithPath: "/tmp/first.md"), in: session.id))
+        let second = try #require(store.openDocumentPane(fileURL: URL(fileURLWithPath: "/tmp/second.md"), in: session.id))
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup?.selectedTabID == second)
+        #expect(handler.focusRequest == nil)
+
+        handler.selectTab(first, in: session.id, store: store)
+        let request = try #require(handler.focusRequest)
+        #expect(request.sessionID == session.id)
+        #expect(request.tabID == first)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup?.selectedTabID == first)
+
+        _ = store.openDocumentPane(fileURL: URL(fileURLWithPath: "/tmp/second.md"), in: session.id)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup?.selectedTabID == second)
+        #expect(handler.focusRequest == request)
+        handler.selectTab(second, in: session.id, store: store)
+        #expect(handler.focusRequest?.tabID == second)
+        #expect(handler.focusRequest?.id != request.id)
+
+        let previousRequest = handler.focusRequest
+        DocumentComposeGuard.isComposing = { true }
+        handler.selectTab(first, in: session.id, store: store)
+        #expect(handler.focusRequest == previousRequest)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup?.selectedTabID == second)
+    }
+
     @Test("view tab actions preserve drafts and coalesce announcements")
     func protectedViewTabActions() throws {
         defer { DocumentComposeGuard.isComposing = { false } }

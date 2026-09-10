@@ -30,7 +30,7 @@ struct DocumentPointerTargetTests {
     func protectedTabWiringAndTransition() throws {
         let groupView = try Self.source("Views/DocumentGroupView.swift")
         let selection = try Self.block(from: "onSelectTab:", through: "onCloseTab:", in: groupView)
-        #expect(selection.contains("documentTabActions.perform"))
+        #expect(selection.contains("documentTabActions.selectTab(tabID, in: session.id, store: sessionStore)"))
 
         let close = try Self.block(from: "onCloseTab:", through: "onExpandRevision:", in: groupView)
         #expect(close.contains("if tab.id == group.selectedTabID"))

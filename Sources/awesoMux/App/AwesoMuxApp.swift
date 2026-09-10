@@ -2539,14 +2539,12 @@ struct AwesoMuxApp: App {
     /// bypass (review finding). A mouse selection involves a click that has
     /// already dismissed the transient popover, so it needs no guard.
     private func selectAdjacentDocumentTab(offset: Int) {
-        documentTabActions.perform {
-            guard let session = sessionStore.selectedSession,
-                let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
-            else {
-                return
-            }
-            sessionStore.selectDocumentTab(tabID: targetTabID, in: session.id)
+        guard let session = sessionStore.selectedSession,
+            let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
+        else {
+            return
         }
+        documentTabActions.selectTab(targetTabID, in: session.id, store: sessionStore)
     }
 
     /// Closes the selected document tab — the keyboard counterpart of the tab

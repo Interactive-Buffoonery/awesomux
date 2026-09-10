@@ -23,6 +23,7 @@ import SwiftUI
 final class SelectionAwareTextView: NSTextView {
     /// Called after mouseDown's tracking loop finalizes the selection. Args: the text view.
     var onSelectionFinished: ((NSTextView) -> Void)? = nil
+    var onWindowAttachment: (() -> Void)?
     /// Copy Mode publishes only what is visibly selected, without rich-text
     /// attributes that can carry hidden review markup or local file URLs.
     var copiesPlainTextOnly = false
@@ -30,6 +31,11 @@ final class SelectionAwareTextView: NSTextView {
     override var acceptsFirstResponder: Bool { isSelectable }
     override var canBecomeKeyView: Bool {
         isSelectable && window != nil && !isHiddenOrHasHiddenAncestor
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { onWindowAttachment?() }
     }
 
     override func becomeFirstResponder() -> Bool {

@@ -12,8 +12,23 @@ struct DocumentFileBrowserRequest: Equatable, Identifiable {
 @MainActor
 @Observable
 final class DocumentComposeTabActionHandler {
+    struct FocusRequest: Equatable {
+        let id = UUID()
+        let sessionID: TerminalSession.ID
+        let tabID: DocumentPane.ID
+    }
+
     private(set) var noticeID: UUID?
     private(set) var fileBrowserRequest: DocumentFileBrowserRequest?
+    private(set) var focusRequest: FocusRequest?
+
+    func selectTab(_ tabID: DocumentPane.ID, in sessionID: TerminalSession.ID, store: SessionStore) {
+        perform {
+            store.selectDocumentTab(tabID: tabID, in: sessionID)
+            guard store.session(id: sessionID)?.layout.firstDocumentGroup?.selectedTabID == tabID else { return }
+            focusRequest = FocusRequest(sessionID: sessionID, tabID: tabID)
+        }
+    }
 
     func perform(
         _ action: () -> Void,

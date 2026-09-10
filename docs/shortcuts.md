@@ -125,8 +125,9 @@ The normal `./script/build_and_run.sh` launch builds release by default, so thes
 
 Use Control-Tab to leave terminal input and reach the document tab strip. Tab
 through the titles to enumerate documents, then press Space to select one.
-Selecting a tab, including with Control-Command-[ or Control-Command-], moves
-keyboard and VoiceOver focus to its text. Use normal text navigation and
+Selecting a tab yourself, including with Control-Command-[ or
+Control-Command-], moves keyboard and VoiceOver focus to its text. Documents
+opened by an agent preserve terminal focus. Use normal text navigation and
 selection keys to read and copy; Tab and Shift-Tab leave the text viewer.
 
 In branch changes, scroll the document to pin a file heading. The pinned heading

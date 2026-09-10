@@ -30,7 +30,16 @@ final class DocumentFocusHandoff {
     func register(_ textView: NSTextView, for tabID: DocumentPane.ID) {
         registeredTabID = tabID
         self.textView = textView
+        if let textView = textView as? SelectionAwareTextView {
+            textView.onWindowAttachment = { [weak self] in self?.scheduleHandoff() }
+        }
         scheduleHandoff()
+    }
+
+    func selectedTabDidChange(to tabID: DocumentPane.ID) {
+        if let requestedTabID, requestedTabID != tabID {
+            cancel()
+        }
     }
 
     func cancel() {

@@ -307,7 +307,7 @@ private struct DocumentTabPill: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Button(action: onSelect) {
+            Button(action: select) {
                 HStack(spacing: 4) {
                     Text(tab.title)
                         .lineLimit(1)
@@ -332,6 +332,11 @@ private struct DocumentTabPill: View {
             // Suppress the system ring; the accent `awFocusRing` below is the
             // keyboard-only focus indicator.
             .focusEffectDisabled()
+            .onKeyPress(keys: [.space], phases: .down) { press in
+                guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+                select()
+                return .handled
+            }
             .awFocusRing(isKeyboardFocused, cornerRadius: 5)
             .foregroundStyle(titleColor)
             .accessibilityLabel(accessibilityLabel)
@@ -388,6 +393,11 @@ private struct DocumentTabPill: View {
                 localized: "Show revision details",
                 comment: "Accessibility hint for a compact document revision indicator"
             ))
+    }
+
+    private func select() {
+        isKeyboardFocused = false
+        onSelect()
     }
 
     private var titleColor: Color {

@@ -159,9 +159,7 @@ struct DocumentGroupView: View {
                         documentFocus.request(tabID)
                         return
                     }
-                    documentTabActions.perform {
-                        sessionStore.selectDocumentTab(tabID: tabID, in: session.id)
-                    }
+                    documentTabActions.selectTab(tabID, in: session.id, store: sessionStore)
                 },
                 onCloseTab: { tab in
                     let closeTab = {
@@ -197,7 +195,7 @@ struct DocumentGroupView: View {
                         documentTabActions.perform {
                             revisionMonitor.expand(for: tab)
                             revisionInteractionActive = false
-                            sessionStore.selectDocumentTab(tabID: tab.id, in: session.id)
+                            documentTabActions.selectTab(tab.id, in: session.id, store: sessionStore)
                         }
                     }
                 },
@@ -370,13 +368,20 @@ struct DocumentGroupView: View {
                 onClose: { composerContext = nil }
             )
         }
+        .onChange(of: documentTabActions.focusRequest) { _, request in
+            guard let request, request.sessionID == session.id,
+                request.tabID == group.selectedTabID
+            else { return }
+            mode = .document
+            documentFocus.request(request.tabID)
+        }
         // One handler for both selection changes and tab-set changes so the
         // capture-then-prune order is deterministic (two separate onChange
         // modifiers give no ordering guarantee, and pruning before capturing
         // would resurrect a just-closed tab's memory entry).
         .onChange(of: group) { oldGroup, newGroup in
             if oldGroup.selectedTabID != newGroup.selectedTabID {
-                documentFocus.request(newGroup.selectedTabID)
+                documentFocus.selectedTabDidChange(to: newGroup.selectedTabID)
             }
             if oldGroup.selectedTabID != newGroup.selectedTabID,
                 let oldSelectedTabID = oldGroup.selectedTabID

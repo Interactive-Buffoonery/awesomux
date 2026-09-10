@@ -7,6 +7,19 @@ import Testing
 @Suite("Document keyboard focus", .serialized)
 @MainActor
 struct DocumentKeyboardFocusTests {
+    @Test("the split detail receives the app's shared document action handler")
+    func documentActionHandlerCrossesSplitHostingBoundary() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/awesoMux/Views/ContentView.swift"), encoding: .utf8)
+        #expect(source.contains("@Environment(DocumentComposeTabActionHandler.self) private var documentTabActions"))
+        let detailStart = try #require(source.range(of: "detail: {"))
+        let tail = source[detailStart.upperBound...]
+        let detailEnd = try #require(tail.range(of: ".appearanceBridge(appSettingsStore)"))
+        #expect(tail[..<detailEnd.lowerBound].contains(".environment(documentTabActions)"))
+    }
+
     private final class FocusButton: NSButton {
         override var canBecomeKeyView: Bool { true }
     }
@@ -73,6 +86,42 @@ struct DocumentKeyboardFocusTests {
         #expect(window.firstResponder === outgoing)
     }
 
+    @Test func handoffResumesWhenTheRegisteredViewAttaches() {
+        let window = makeWindow()
+        let original = FocusButton(title: "Original", target: nil, action: nil)
+        window.contentView?.addSubview(original)
+        #expect(window.makeFirstResponder(original))
+        let incoming = SelectionAwareTextView(frame: .zero)
+        let id = UUID()
+        let handoff = DocumentFocusHandoff()
+        handoff.register(incoming, for: id)
+        handoff.request(id, in: window)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        #expect(window.firstResponder === original)
+
+        window.contentView?.addSubview(incoming)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        #expect(window.firstResponder === incoming)
+    }
+
+    @Test func attachingTheViewDoesNotReviveACanceledHandoff() {
+        let window = makeWindow()
+        let original = FocusButton(title: "Original", target: nil, action: nil)
+        window.contentView?.addSubview(original)
+        #expect(window.makeFirstResponder(original))
+        let incoming = SelectionAwareTextView(frame: .zero)
+        let id = UUID()
+        let handoff = DocumentFocusHandoff()
+        handoff.register(incoming, for: id)
+        handoff.request(id, in: window)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        handoff.cancel()
+
+        window.contentView?.addSubview(incoming)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        #expect(window.firstResponder === original)
+    }
+
     @Test func latestSelectionSupersedesPendingRender() {
         let window = makeWindow()
         let text = SelectionAwareTextView(frame: .zero)
@@ -86,6 +135,27 @@ struct DocumentKeyboardFocusTests {
         #expect(!handoff.completeIfReady())
         handoff.register(text, for: last)
         #expect(handoff.completeIfReady())
+    }
+
+    @Test func programmaticSelectionCancelsAnEarlierUserHandoff() {
+        let window = makeWindow()
+        let original = SelectionAwareTextView(frame: .zero)
+        let incoming = SelectionAwareTextView(frame: .zero)
+        window.contentView?.addSubview(original)
+        window.contentView?.addSubview(incoming)
+        #expect(window.makeFirstResponder(original))
+        let requestedID = UUID()
+        let handoff = DocumentFocusHandoff()
+        handoff.request(requestedID, in: window)
+        handoff.selectedTabDidChange(to: UUID())
+        handoff.register(incoming, for: requestedID)
+        #expect(!handoff.completeIfReady())
+        #expect(window.firstResponder === original)
+
+        handoff.request(requestedID, in: window)
+        handoff.selectedTabDidChange(to: requestedID)
+        #expect(handoff.completeIfReady())
+        #expect(window.firstResponder === incoming)
     }
 
     @Test func delayedRenderDoesNotStealFromAnotherControl() {

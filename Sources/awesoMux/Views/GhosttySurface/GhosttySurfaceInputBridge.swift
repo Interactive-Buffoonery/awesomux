@@ -51,7 +51,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
-        if sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
+        if DocumentKeyViewTraversal.direction(for: event) != nil,
+            sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
             DocumentKeyViewTraversal.handle(event, in: window)
         {
             return
@@ -284,6 +285,14 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if DocumentKeyViewTraversal.direction(for: event) != nil,
+            window?.firstResponder === self,
+            sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
+            DocumentKeyViewTraversal.handle(event, in: window)
+        {
+            return true
+        }
+
         if Self.isApplicationCommandShortcut(event),
            NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return true
