@@ -113,6 +113,37 @@ struct PaneLayoutReducer: Sendable {
         return (session, newPane.id)
     }
 
+    static func openFileBrowser(in session: TerminalSession) -> TerminalSession? {
+        guard session.layout.firstDocumentGroup == nil,
+            let activePane = session.activePane,
+            ExecutionContext(plan: activePane.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed
+        else {
+            return nil
+        }
+        var session = session
+        session.layout = .split(
+            TerminalSplit(
+                orientation: .vertical,
+                first: session.layout,
+                second: .documentGroup(DocumentGroup(browsingFrom: activePane.id)),
+                firstFraction: 0.6
+            ))
+        return session
+    }
+
+    static func closeFileBrowser(in session: TerminalSession) -> TerminalSession? {
+        guard let group = session.layout.firstDocumentGroup,
+            group.isBrowserOnly,
+            let layout = session.layout.removingDocumentGroup(id: group.id)
+        else {
+            return nil
+        }
+        var session = session
+        session.layout = layout
+        return session
+    }
+
     /// Opens or selects a document tab without moving terminal focus.
     /// Existing live associations are preserved; dead ones may heal to the
     /// incoming pane so send/stage does not stay permanently disabled.
@@ -257,9 +288,10 @@ struct PaneLayoutReducer: Sendable {
                 branchChangesIdentity: branchChangesIdentity
             )
             group.tabs.append(tab)
-            if selectingNewTab {
+            if group.selectedTabID == nil || selectingNewTab {
                 group.selectedTabID = tab.id
             }
+            group.browserSourcePaneID = nil
             guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group) else {
                 return nil
             }
@@ -746,9 +778,12 @@ struct PaneLayoutReducer: Sendable {
             return nil
         }
 
-        // Recycle mints a new pane ID; document tabs should follow it.
+        // Recycle mints a new pane ID; document tabs and an empty Files browser
+        // should follow it.
         if var group = layout.firstDocumentGroup {
-            let needsRewrite = group.tabs.contains { $0.associatedTerminalPaneID == activePane.id }
+            let needsRewrite =
+                group.tabs.contains { $0.associatedTerminalPaneID == activePane.id }
+                || group.browserSourcePaneID == activePane.id
             if needsRewrite {
                 group.tabs = group.tabs.map { tab in
                     var tab = tab
@@ -756,6 +791,9 @@ struct PaneLayoutReducer: Sendable {
                         tab.associatedTerminalPaneID = recycledPane.id
                     }
                     return tab
+                }
+                if group.browserSourcePaneID == activePane.id {
+                    group.browserSourcePaneID = recycledPane.id
                 }
                 layout = layout.replacingDocumentGroup(id: group.id, with: group) ?? layout
             }

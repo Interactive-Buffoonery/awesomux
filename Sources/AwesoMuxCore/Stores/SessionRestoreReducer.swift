@@ -299,8 +299,27 @@ struct SessionRestoreReducer: Sendable {
             )
         }
 
+        guard let restoreInputLayout = session.layout.removingBrowserOnlyGroups() else {
+            sanitizationSummary.collapsedLayouts += 1
+            return TerminalSession(
+                id: restoredSessionID,
+                title: fallbackTitle,
+                workingDirectory: fallbackWorkingDirectory,
+                syntheticTitle: fallbackSyntheticTitle,
+                isTitleUserEdited: session.isTitleUserEdited,
+                notificationsMuted: session.notificationsMuted,
+                moveOrigin: nonSelfReferentialMoveOrigin(
+                    session.moveOrigin,
+                    originalID: session.id,
+                    restoredID: restoredSessionID
+                ),
+                executionPlan: session.activePane?.hasExplicitExecutionPlan == true
+                    ? session.activePane?.executionPlan ?? legacyExecutionPlan
+                    : legacyExecutionPlan
+            )
+        }
         let layoutResult = restoredLayout(
-            from: session.layout,
+            from: restoreInputLayout,
             seenSplitIDs: &seenSplitIDs,
             seenPaneIDs: &seenPaneIDs,
             seenTerminalSessionIDs: &seenTerminalSessionIDs
@@ -363,9 +382,9 @@ struct SessionRestoreReducer: Sendable {
         let normalizedLayout = DocumentGroupMigration.foldingDocumentGroups(
             in: layoutResult.layout
         )
-        let paneIDCounts = terminalPaneIDCounts(in: session.layout)
+        let paneIDCounts = terminalPaneIDCounts(in: restoreInputLayout)
         let paneIDRemap = unambiguousPaneIDRemap(
-            from: session.layout,
+            from: restoreInputLayout,
             to: normalizedLayout,
             originalIDCounts: paneIDCounts
         )
@@ -714,7 +733,7 @@ struct SessionRestoreReducer: Sendable {
                 restoredGroup = DocumentGroup(
                     id: UUID(),
                     tabs: restoredGroup.tabs,
-                    selectedTabID: restoredGroup.selectedTabID
+                    selectedTabID: restoredGroup.selectedTabID ?? restoredGroup.tabs[0].id
                 )
                 seenPaneIDs.insert(restoredGroup.id)
                 idReassignments += 1

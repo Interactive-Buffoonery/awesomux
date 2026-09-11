@@ -321,11 +321,13 @@ public enum DocumentPaneAssociationPolicy: Sendable, Equatable {
     case preserveNil
 }
 
-/// The tabbed document viewer in a session layout. It is never empty.
+/// The tabbed document viewer in a session layout.
 public struct DocumentGroup: Identifiable, Hashable, Sendable {
     public let id: UUID
     public var tabs: [DocumentPane]
-    public var selectedTabID: DocumentPane.ID
+    public var selectedTabID: DocumentPane.ID?
+    /// Runtime-only terminal association for an empty Files browser.
+    public var browserSourcePaneID: TerminalPane.ID?
 
     public init(id: UUID = UUID(), tabs: [DocumentPane], selectedTabID: DocumentPane.ID) {
         precondition(!tabs.isEmpty, "DocumentGroup must contain at least one tab")
@@ -335,6 +337,18 @@ public struct DocumentGroup: Identifiable, Hashable, Sendable {
             tabs.contains(where: { $0.id == selectedTabID })
             ? selectedTabID
             : tabs[0].id
+        browserSourcePaneID = nil
+    }
+
+    public init(id: UUID = UUID(), browsingFrom paneID: TerminalPane.ID) {
+        self.id = id
+        tabs = []
+        selectedTabID = nil
+        browserSourcePaneID = paneID
+    }
+
+    public var isBrowserOnly: Bool {
+        tabs.isEmpty
     }
 
     public var selectedTab: DocumentPane? {
@@ -402,6 +416,22 @@ extension DocumentGroup: Codable {
             selectedTabID: try container.decodeIfPresent(DocumentPane.ID.self, forKey: .selectedTabID)
                 ?? tabs[0].id
         )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        guard !tabs.isEmpty else {
+            throw EncodingError.invalidValue(
+                self,
+                EncodingError.Context(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "Browser-only DocumentGroup values are runtime-only"
+                )
+            )
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(tabs, forKey: .tabs)
+        try container.encodeIfPresent(selectedTabID, forKey: .selectedTabID)
     }
 }
 

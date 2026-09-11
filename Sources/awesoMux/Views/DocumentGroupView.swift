@@ -7,6 +7,38 @@ import SwiftUI
 
 // MARK: - DocumentGroupView
 
+@MainActor
+final class DocumentGroupScrollAnchorCapture {
+    private var tabID: DocumentPane.ID?
+    private var capture: (@MainActor () -> Int?)?
+    private var acceptsRegistrations = true
+
+    func register(tabID: DocumentPane.ID, capture: @escaping @MainActor () -> Int?) {
+        guard acceptsRegistrations else { return }
+        self.tabID = tabID
+        self.capture = capture
+    }
+
+    func registeredCapture(for tabID: DocumentPane.ID) -> (@MainActor () -> Int?)? {
+        guard self.tabID == tabID else { return nil }
+        return capture
+    }
+
+    func clear() {
+        tabID = nil
+        capture = nil
+    }
+
+    func stopAcceptingRegistrations() {
+        acceptsRegistrations = false
+        clear()
+    }
+
+    func resumeAcceptingRegistrations() {
+        acceptsRegistrations = true
+    }
+}
+
 /// The session's document viewer: `DocumentTabStripView` over the selected
 /// tab's `DocumentPaneView` and send bar (or the inline file browser).
 struct DocumentGroupView: View {
@@ -18,6 +50,7 @@ struct DocumentGroupView: View {
     let runtime: GhosttyRuntime
 
     @State private var mode: DocumentPaneMode = .document
+    @State private var fileBrowserFocusRequestID: UUID?
     // INT-754: composer presentation is owned here, ABOVE DocumentPaneSendBar's
     // shell-activity-keyed `.id`, so a target-pane activity flip that rebuilds the
     // send bar can't tear the open composer down and lose the in-flight draft. The
@@ -49,14 +82,10 @@ struct DocumentGroupView: View {
         DocumentRevisionMonitorRegistry.monitor(for: group.id)
     }
     @State private var revisionInteractionActive = false
-    // The mounted tab's scroll-anchor capture, tagged with its tab id: on a
-    // selection change the group snapshots the OUTGOING tab's position, and the
-    // tag guarantees a closure that already belongs to the incoming tab can't
-    // corrupt the outgoing tab's saved anchor. Written during the
-    // representable's update pass (like DocumentPaneView's own capture slot) —
-    // safe ONLY while no `body` ever reads it; keep reads inside event and
-    // onChange closures.
-    @State private var scrollAnchorCapture: (tabID: DocumentPane.ID, capture: @MainActor () -> Int?)?
+    // A representable updates this while SwiftUI is rendering, so keep the
+    // callback in a stable reference rather than scheduling a `@State` write
+    // that the update can discard.
+    @State private var scrollAnchorCapture = DocumentGroupScrollAnchorCapture()
     // Live transcript refresh (#494). The gate outlives the `.task(id:)` it
     // serves, deliberately: an activation flip or a config-home change cancels
     // the loop while its detached render is still in flight, and the
@@ -125,7 +154,7 @@ struct DocumentGroupView: View {
                     // cross-tab path's mode reset (the path onChange below)
                     // never fires for it.
                     if tabID == group.selectedTabID {
-                        mode = .document
+                        setFilesVisible(false)
                         return
                     }
                     documentTabActions.perform {
@@ -161,7 +190,7 @@ struct DocumentGroupView: View {
                     if tab.id == group.selectedTabID {
                         revisionMonitor.expand(for: tab)
                         revisionInteractionActive = false
-                        mode = .document
+                        setFilesVisible(false)
                     } else {
                         documentTabActions.perform {
                             revisionMonitor.expand(for: tab)
@@ -179,28 +208,7 @@ struct DocumentGroupView: View {
                 },
                 onToggleFiles: {
                     guard document.isEditable else { return }
-                    // Entering Files mode unmounts DocumentPaneView, killing
-                    // the capture closure's coordinator. Snapshot the reading
-                    // position NOW (so the round trip restores where the user
-                    // actually was, not the last tab-switch position) and
-                    // release the registration — a dead capture returns nil,
-                    // which storeScrollAnchor would treat as "scrolled to top"
-                    // and use to erase a real saved anchor (review panel +
-                    // adversarial pass, convergent).
-                    if mode == .document {
-                        if let scrollAnchorCapture,
-                            scrollAnchorCapture.tabID == document.id
-                        {
-                            tabMemory.storeScrollAnchor(
-                                scrollAnchorCapture.capture(),
-                                for: document
-                            )
-                        }
-                        scrollAnchorCapture = nil
-                        revisionMonitor.collapse(for: document)
-                        revisionInteractionActive = false
-                    }
-                    mode = mode == .files ? .document : .files
+                    setFilesVisible(mode != .files)
                 }
             )
             .equatable()
@@ -298,7 +306,7 @@ struct DocumentGroupView: View {
                         )
                     },
                     onRegisterScrollAnchorCapture: { capture in
-                        scrollAnchorCapture = (document.id, capture)
+                        scrollAnchorCapture.register(tabID: document.id, capture: capture)
                     },
                     collapsedSections: tabMemory.collapsedSections(for: document),
                     onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }
@@ -330,7 +338,10 @@ struct DocumentGroupView: View {
                 )
             case .files:
                 DocumentFileBrowserView(
-                    rootURL: markdownBrowserRootURL,
+                    rootURL: DocumentFileBrowserView.rootURL(
+                        in: session,
+                        associatedWith: document.associatedTerminalPaneID
+                    ),
                     currentFileURL: document.fileURL,
                     onOpen: { fileURL in
                         if sessionStore.replaceDocumentPane(
@@ -338,12 +349,13 @@ struct DocumentGroupView: View {
                             fileURL: fileURL,
                             in: session.id
                         ) {
-                            mode = .document
+                            setFilesVisible(false)
                         }
                     },
                     onCancel: {
-                        mode = .document
-                    }
+                        setFilesVisible(false)
+                    },
+                    focusRequestID: fileBrowserFocusRequestID
                 )
             }
         }
@@ -361,22 +373,21 @@ struct DocumentGroupView: View {
         // would resurrect a just-closed tab's memory entry).
         .onChange(of: group) { oldGroup, newGroup in
             if oldGroup.selectedTabID != newGroup.selectedTabID,
-                let scrollAnchorCapture,
-                scrollAnchorCapture.tabID == oldGroup.selectedTabID,
-                let outgoingTab = oldGroup.tab(id: oldGroup.selectedTabID)
+                let oldSelectedTabID = oldGroup.selectedTabID,
+                let outgoingTab = oldGroup.tab(id: oldSelectedTabID)
             {
                 // Snapshot the outgoing tab's reading position while its text
                 // view is still mounted (onChange runs before the remount
                 // commits). If the registration has already moved to the
                 // incoming tab, the tag mismatch skips the capture — losing one
                 // anchor beats saving the wrong tab's position.
-                tabMemory.storeScrollAnchor(
-                    scrollAnchorCapture.capture(),
-                    for: outgoingTab
-                )
+                if let capture = scrollAnchorCapture.registeredCapture(for: oldSelectedTabID) {
+                    tabMemory.storeScrollAnchor(capture(), for: outgoingTab)
+                }
             }
             if oldGroup.selectedTabID != newGroup.selectedTabID,
-                let outgoingTab = oldGroup.tab(id: oldGroup.selectedTabID)
+                let oldSelectedTabID = oldGroup.selectedTabID,
+                let outgoingTab = oldGroup.tab(id: oldSelectedTabID)
             {
                 revisionMonitor.collapse(for: outgoingTab)
                 revisionInteractionActive = false
@@ -384,7 +395,8 @@ struct DocumentGroupView: View {
             tabMemory.prune(keeping: newGroup.tabs)
             syncRevisionMonitor(for: newGroup)
             if oldGroup.selectedTabID != newGroup.selectedTabID,
-                let incomingTab = newGroup.tab(id: newGroup.selectedTabID)
+                let newSelectedTabID = newGroup.selectedTabID,
+                let incomingTab = newGroup.tab(id: newSelectedTabID)
             {
                 // Catch an edit that fell into a watcher debounce window
                 // during the selection change, before the remount silently
@@ -407,7 +419,7 @@ struct DocumentGroupView: View {
             // reset, a Files browser opened on tab A survives an async
             // selection change (agent hook, dedup select) and its next commit
             // replaces whichever tab won selection in the meantime (INT-748).
-            mode = .document
+            setFilesVisible(false)
             // The single announcement for EVERY selection path — strip click,
             // keyboard next/previous-tab, dedup open, agent hook. The strip's
             // pills don't announce on their own, so this doesn't double-speak.
@@ -418,12 +430,17 @@ struct DocumentGroupView: View {
                 )
             )
         }
+        .onAppear(perform: consumeFileBrowserRequest)
+        .onChange(of: documentTabActions.fileBrowserRequest?.id) { _, _ in
+            consumeFileBrowserRequest()
+        }
         // The settle task is cancelled on tab switch by the onChange above, but
         // the viewer itself can unmount (last tab closed, session closed) with
         // the 500 ms window still pending — and its announcement is a side
         // effect VoiceOver would speak for a document that no longer exists.
         .onDisappear {
             settleTask?.cancel()
+            documentTabActions.clearFileBrowserRequest()
             // Watchers deliberately keep running across a session switch. The
             // sweep only releases monitors whose group left every layout —
             // this disappearance may BE that close, and the store mutation
@@ -563,26 +580,43 @@ struct DocumentGroupView: View {
         )
     }
 
-    private var markdownBrowserRootURL: URL? {
-        // Browse root prefers the tab's stored terminal association (INT-748).
-        // Unlike the send button this falls back to the active pane — a browse
-        // root is cosmetic, so a nil OR dangling association degrades to the
-        // active terminal's folder instead of an empty browser. Resolving the
-        // pane (not just the id) is what makes the dangling case actually
-        // reach the fallback.
-        let targetPane =
-            document.associatedTerminalPaneID
-            .flatMap { session.layout.pane(id: $0) }
-            ?? session.layout.pane(id: session.activePaneID)
-        guard
-            let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
-                targetPane?.workingDirectory,
-                session.workingDirectory,
-            ])
-        else {
-            return nil
+    private func setFilesVisible(_ visible: Bool) {
+        if !visible {
+            fileBrowserFocusRequestID = nil
         }
-        return URL(fileURLWithPath: directory, isDirectory: true)
+        guard visible != (mode == .files) else { return }
+        if visible {
+            fileBrowserFocusRequestID = nil
+            // Entering Files mode unmounts DocumentPaneView, killing the
+            // capture closure's coordinator. Capture before changing mode.
+            if let capture = scrollAnchorCapture.registeredCapture(for: document.id) {
+                tabMemory.storeScrollAnchor(
+                    capture(),
+                    for: document
+                )
+            }
+            scrollAnchorCapture.stopAcceptingRegistrations()
+            revisionMonitor.collapse(for: document)
+            revisionInteractionActive = false
+        } else {
+            scrollAnchorCapture.resumeAcceptingRegistrations()
+        }
+        mode = visible ? .files : .document
+    }
+
+    private func consumeFileBrowserRequest() {
+        guard let request = documentTabActions.fileBrowserRequest else { return }
+        defer { documentTabActions.clearFileBrowserRequest(id: request.id) }
+        guard
+            request.sessionID == session.id,
+            request.groupID == group.id,
+            request.documentID == document.id,
+            group.selectedTabID == document.id
+        else {
+            return
+        }
+        setFilesVisible(true)
+        fileBrowserFocusRequestID = request.id
     }
 
     private var selectedTaskProgress: TaskProgress? {
@@ -629,7 +663,12 @@ struct DocumentGroupView: View {
                 comment: "Help text for the Files toggle while the file browser is showing"
             )
         }
-        guard let rootURL = markdownBrowserRootURL else {
+        guard
+            let rootURL = DocumentFileBrowserView.rootURL(
+                in: session,
+                associatedWith: document.associatedTerminalPaneID
+            )
+        else {
             return String(
                 localized: "Show Markdown files from this document's terminal folder",
                 comment: "Help text for the Files toggle when no browse folder is known yet"

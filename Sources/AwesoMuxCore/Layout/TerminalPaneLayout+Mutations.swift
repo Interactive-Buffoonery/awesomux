@@ -1,6 +1,27 @@
 import Foundation
 
 public extension TerminalPaneLayout {
+    /// Drops runtime-only browser groups while preserving every surviving split.
+    func removingBrowserOnlyGroups() -> TerminalPaneLayout? {
+        switch self {
+        case .pane:
+            return self
+        case let .documentGroup(group):
+            return group.isBrowserOnly ? nil : self
+        case let .split(split):
+            let first = split.first.removingBrowserOnlyGroups()
+            let second = split.second.removingBrowserOnlyGroups()
+            switch (first, second) {
+            case let (.some(first), .some(second)):
+                return .split(split.rebuilding(first: first, second: second))
+            case let (.some(layout), nil), let (nil, .some(layout)):
+                return layout
+            case (nil, nil):
+                return nil
+            }
+        }
+    }
+
     func restoringPane(
         _ pane: TerminalPane,
         beside sibling: PaneMoveOrigin.Sibling,

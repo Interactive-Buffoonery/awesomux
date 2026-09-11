@@ -78,6 +78,51 @@ struct MarkdownTextViewTests {
         #expect(reverseAnnotation.source.utf8.starts(with: "café <mark>word</mark>".utf8))
     }
 
+    @Test("a mounted parent retains the registered scroll capture for an action")
+    @MainActor
+    func mountedParentRetainsRegisteredScrollCapture() async throws {
+        let fixture = MarkdownScrollCaptureFixture()
+        let hosted = SidebarHostedTestHarness.makeWindow(
+            rootView: MarkdownScrollCaptureStateHost(fixture: fixture),
+            frame: NSRect(x: 0, y: 0, width: 400, height: 300)
+        )
+        defer { hosted.window.close() }
+
+        #expect(await waitUntil { fixture.textView != nil })
+        let textView = try #require(fixture.textView)
+        let scrollView = try #require(textView.enclosingScrollView)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 500))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        SidebarHostedTestHarness.settleMainRunLoop()
+        #expect(scrollView.contentView.bounds.minY > 1)
+
+        let captureFromParent = try #require(fixture.captureFromParent)
+        captureFromParent()
+
+        #expect(await waitUntil { fixture.capturedAnchor != nil })
+        #expect(try #require(fixture.capturedAnchor) > 0)
+    }
+
+    @Test("scroll capture ignores teardown registrations while Files is visible")
+    @MainActor
+    func scrollCaptureIgnoresTeardownRegistrationsWhileFilesVisible() {
+        let capture = DocumentGroupScrollAnchorCapture()
+        let tabID = DocumentPane.ID()
+        capture.register(tabID: tabID) { 100 }
+
+        #expect(capture.registeredCapture(for: tabID)?() == 100)
+
+        capture.stopAcceptingRegistrations()
+        capture.register(tabID: tabID) { 200 }
+
+        #expect(capture.registeredCapture(for: tabID) == nil)
+
+        capture.resumeAcceptingRegistrations()
+        capture.register(tabID: tabID) { 300 }
+
+        #expect(capture.registeredCapture(for: tabID)?() == 300)
+    }
+
     @Test("selection changes coalesce to the final state per run-loop turn")
     @MainActor
     func selectionChangesReportAnySelection() async {
@@ -987,6 +1032,67 @@ private final class MarkdownTextViewSourceIdentityFixture {
 
     init(source: String) {
         self.source = source
+    }
+}
+
+@MainActor
+private final class MarkdownScrollCaptureFixture {
+    let tabID = DocumentPane.ID()
+    var textView: NSTextView?
+    var capturedAnchor: Int?
+    var captureFromParent: (() -> Void)?
+}
+
+@MainActor
+private struct MarkdownScrollCaptureStateHost: View {
+    let fixture: MarkdownScrollCaptureFixture
+    @State private var capture = DocumentGroupScrollAnchorCapture()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            MarkdownTextView(
+                doc: AttributedMarkdownBuilder.build(
+                    String(repeating: "A long markdown line for scrolling.\n", count: 400)
+                ),
+                selectedSourceSpan: .constant(nil),
+                onTextViewAvailable: { fixture.textView = $0 },
+                onRegisterScrollAnchorCapture: { registeredCapture in
+                    capture.register(tabID: fixture.tabID, capture: registeredCapture)
+                }
+            )
+            MarkdownScrollCaptureActionRelay(fixture: fixture) {
+                fixture.capturedAnchor = capture.registeredCapture(for: fixture.tabID)?()
+            }
+        }
+    }
+}
+
+@MainActor
+private struct MarkdownScrollCaptureActionRelay: NSViewRepresentable {
+    let fixture: MarkdownScrollCaptureFixture
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(fixture: fixture)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_: NSView, context: Context) {
+        context.coordinator.action = action
+    }
+
+    @MainActor
+    final class Coordinator {
+        var action: (() -> Void)?
+
+        init(fixture: MarkdownScrollCaptureFixture) {
+            fixture.captureFromParent = { [weak self] in
+                self?.action?()
+            }
+        }
     }
 }
 

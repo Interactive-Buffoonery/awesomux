@@ -353,9 +353,8 @@ struct TerminalPaneLayoutView: View {
             // strip's per-tab close X and the send-to-agent button are real
             // NSButtons with refusesFirstResponder so they never steal focus
             // from the terminal surface across the split (INT-562 PR1/PR2).
-            // `selectedTab` is non-nil for every reducer-built group; a
-            // hand-edited snapshot with a bad selection clamps at decode, so
-            // the `if let` is belt-and-suspenders rather than a real code path.
+            // A populated group has a selected tab. Browser-only groups use
+            // the same leaf for the transient Files host below.
             if let selectedTab = group.selectedTab {
                 DocumentGroupView(
                     document: selectedTab,
@@ -368,6 +367,22 @@ struct TerminalPaneLayoutView: View {
                 // top-row group draws the tab-edge line itself — without it
                 // the titlebar would blend straight into the tab strip now
                 // that the titlebar hairline is gone (#82).
+                .overlay(alignment: .top) {
+                    if abutsWindowTop {
+                        Rectangle()
+                            .fill(Color.aw.border2)
+                            .frame(height: 1)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+            } else if group.isBrowserOnly {
+                DocumentFileBrowserPaneView(
+                    group: group,
+                    session: session,
+                    sessionStore: sessionStore,
+                    runtime: runtime
+                )
                 .overlay(alignment: .top) {
                     if abutsWindowTop {
                         Rectangle()

@@ -718,7 +718,7 @@
       "comment" : "Help text for the Files toggle while the file browser is showing"
     },
     "Back to document" : {
-
+      "comment" : "Accessible label for returning from the Markdown file browser to its document"
     },
     "Background sessions" : {
 
@@ -1000,6 +1000,9 @@
     },
     "Close Document Tab" : {
 
+    },
+    "Close Files" : {
+      "comment" : "Accessible label for closing a browser with no open document"
     },
     "Close Group" : {
       "comment" : "Destructive button on the close-group confirmation dialog.\nLabel and help text for controls that close a workspace group.\nUndo action for closing a workspace group."
@@ -1779,6 +1782,9 @@
     },
     "File watcher configuration reload was rejected" : {
       "comment" : "Diagnostics event summary"
+    },
+    "Files" : {
+
     },
     "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
       "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
@@ -4295,6 +4301,9 @@
         }
       }
     },
+    "This Files view no longer has a local directory." : {
+      "comment" : "Empty-state detail shown when a browser-only file view cannot inspect its source terminal"
+    },
     "This Git repository has no healthy worktrees to show." : {
       "comment" : "Worktree Manager empty-state detail."
     },
@@ -4608,6 +4617,9 @@
           }
         }
       }
+    },
+    "View Files" : {
+      "comment" : "Command palette action that opens the Markdown file browser"
     },
     "View license" : {
       "comment" : "Button that opens the bundled Geist Sans license"

@@ -141,6 +141,7 @@ struct PaletteAppActions {
     let openInIDE: @MainActor () -> Void
     let showKeyboardCheatsheet: @MainActor () -> Void
     let openMarkdownFile: @MainActor () -> Void
+    let viewFiles: @MainActor () -> Void
     let openSessionManager: @MainActor () -> Void
     let saveLayoutPreset: @MainActor () -> Void
     let applyLayoutPreset: @MainActor () -> Void
@@ -218,6 +219,7 @@ struct PaletteAppActions {
             openInIDE: action,
             showKeyboardCheatsheet: action,
             openMarkdownFile: action,
+            viewFiles: action,
             openSessionManager: action,
             saveLayoutPreset: action,
             applyLayoutPreset: action,
@@ -261,7 +263,19 @@ enum PaletteCommandRegistry {
         let selectedHasMultiplePanes = selected?.layout.hasMultiplePanes ?? false
         let selectedHasMultipleDocumentTabs =
             (selected?.layout.firstDocumentGroup?.tabs.count ?? 0) > 1
-        let selectedHasDocumentTabs = selected?.layout.firstDocumentGroup != nil
+        let selectedHasDocumentTabs = !(selected?.layout.firstDocumentGroup?.tabs.isEmpty ?? true)
+        let selectedCanViewFiles: Bool = {
+            guard let selected, !availability.isAnySheetPresented else { return false }
+            if let document = selected.layout.firstDocumentGroup?.selectedTab {
+                return document.isEditable
+            }
+            if selected.layout.firstDocumentGroup?.isBrowserOnly == true {
+                return true
+            }
+            guard let activePane = selected.activePane else { return false }
+            return ExecutionContext(plan: activePane.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed
+        }()
         // Scoped to the SELECTED tab, not "any transcript tab in the group":
         // the command stages the selected document's own session, so offering
         // it while a plain Markdown tab is selected would resume something the
@@ -591,6 +605,19 @@ enum PaletteCommandRegistry {
                 isEnabled: selectedHasDocumentTabs,
                 selectionScope: .documentTab,
                 run: actions.closeDocumentTab
+            ),
+            PaletteCommand(
+                id: "viewFiles",
+                title: String(
+                    localized: "View Files",
+                    comment: "Command palette action that opens the Markdown file browser"
+                ),
+                subtitle: nil,
+                keywords: ["files", "markdown", "browse", "folder"],
+                shortcut: nil,
+                isEnabled: selectedCanViewFiles,
+                selectionScope: .pane,
+                run: actions.viewFiles
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.resumeAgentSession.id,

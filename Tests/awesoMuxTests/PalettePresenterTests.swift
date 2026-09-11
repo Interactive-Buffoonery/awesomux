@@ -229,6 +229,45 @@ struct PalettePresenterTests {
                 isSinglePane: false
             ))
 
+        let firstDocumentTabID = DocumentPane.ID()
+        let viewFilesInvocation = PaletteCommandInvocation(
+            commandID: "viewFiles",
+            selectionScope: .pane,
+            workspaceTarget: PaletteWorkspaceActionTarget(
+                sessionID: session.id,
+                activePaneID: session.activePaneID,
+                isSinglePane: true,
+                selectedDocumentTabID: firstDocumentTabID,
+                displayedTitle: target.displayedTitle
+            )
+        )
+        #expect(
+            !viewFilesInvocation.canResolveAgainstCurrentSelection(
+                sessionID: session.id,
+                paneID: session.activePaneID,
+                documentTabID: DocumentPane.ID()
+            ))
+        #expect(
+            !PaletteCommandInvocation(
+                commandID: "viewFiles",
+                selectionScope: .pane,
+                workspaceTarget: target
+            ).canResolveAgainstCurrentSelection(
+                sessionID: session.id,
+                paneID: session.activePaneID,
+                documentTabID: DocumentPane.ID()
+            ))
+        #expect(
+            PaletteCommandInvocation(
+                commandID: "viewFiles",
+                selectionScope: .pane,
+                workspaceTarget: target
+            ).canResolveAgainstCurrentSelection(
+                sessionID: session.id,
+                paneID: session.activePaneID,
+                documentTabID: nil
+            ))
+
         let documentTabID = DocumentPane.ID()
         let documentInvocation = PaletteCommandInvocation(
             commandID: KeyboardShortcutCatalog.closeDocumentTab.id,
