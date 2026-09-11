@@ -55,6 +55,15 @@ final class DocumentFocusHandoff {
         removeWindowObservers()
     }
 
+    /// Keyboard already lives in the document chrome, so a remount or
+    /// programmatic tab change should follow rather than leave first responder
+    /// on a view that is about to unmount.
+    static func isDocumentChrome(_ responder: NSResponder?) -> Bool {
+        responder is SelectionAwareTextView
+            || responder is BranchDiffStickyHeaderView
+            || responder is DocumentTextScrollView
+    }
+
     isolated deinit { cancel() }
 
     func handleSubsequentInput(_ event: NSEvent) {

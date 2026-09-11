@@ -38,6 +38,29 @@ struct DocumentComposeTabActionHandlerTests {
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup?.selectedTabID == second)
     }
 
+    @Test("user-initiated opens publish a focus request until the viewer consumes it")
+    func requestFocusPublishesUntilConsumed() throws {
+        defer { DocumentComposeGuard.isComposing = { false } }
+        DocumentComposeGuard.isComposing = { false }
+        let handler = DocumentComposeTabActionHandler()
+        let sessionID = TerminalSession.ID()
+        let first = DocumentPane.ID()
+        let second = DocumentPane.ID()
+
+        handler.requestFocus(for: first, in: sessionID)
+        let request = try #require(handler.focusRequest)
+        #expect(request.sessionID == sessionID)
+        #expect(request.tabID == first)
+        #expect(handler.consumeFocusRequest(in: sessionID, tabID: second) == nil)
+        #expect(handler.focusRequest?.id == request.id)
+        #expect(handler.consumeFocusRequest(in: sessionID, tabID: first)?.id == request.id)
+        #expect(handler.focusRequest == nil)
+
+        DocumentComposeGuard.isComposing = { true }
+        handler.requestFocus(for: second, in: sessionID)
+        #expect(handler.focusRequest == nil)
+    }
+
     @Test("view tab actions preserve drafts and coalesce announcements")
     func protectedViewTabActions() throws {
         defer { DocumentComposeGuard.isComposing = { false } }

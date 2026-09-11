@@ -282,12 +282,14 @@ struct DocumentGroupView: View {
                         let liveAssociation = document.associatedTerminalPaneID.flatMap {
                             session.layout.pane(id: $0)?.id
                         }
-                        sessionStore.openDocumentPane(
+                        if let openedID = sessionStore.openDocumentPane(
                             fileURL: documentURL,
                             in: session.id,
                             associatedWith: liveAssociation,
                             associationPolicy: .preserveNil
-                        )
+                        ) {
+                            documentTabActions.requestFocus(for: openedID, in: session.id)
+                        }
                     },
                     // A VoiceOver user who isn't parked on the tab strip never
                     // encounters the pill, so recordSelected announces the
@@ -352,6 +354,7 @@ struct DocumentGroupView: View {
                             in: session.id
                         ) {
                             setFilesVisible(false)
+                            documentFocus.request(document.id)
                         }
                     },
                     onCancel: {
@@ -369,18 +372,17 @@ struct DocumentGroupView: View {
                 onClose: { composerContext = nil }
             )
         }
-        .onChange(of: documentTabActions.focusRequest) { _, request in
-            guard let request, request.sessionID == session.id,
-                request.tabID == group.selectedTabID
-            else { return }
-            setFilesVisible(false)
-            documentFocus.request(request.tabID)
+        .onChange(of: documentTabActions.focusRequest) { _, _ in
+            applyPendingFocusRequest()
         }
+        .onAppear(perform: applyPendingFocusRequest)
         // One handler for both selection changes and tab-set changes so the
         // capture-then-prune order is deterministic (two separate onChange
         // modifiers give no ordering guarantee, and pruning before capturing
         // would resurrect a just-closed tab's memory entry).
         .onChange(of: group) { oldGroup, newGroup in
+            let followChrome = DocumentFocusHandoff.isDocumentChrome(
+                NSApp.keyWindow?.firstResponder)
             if oldGroup.selectedTabID != newGroup.selectedTabID {
                 documentFocus.selectedTabDidChange(to: newGroup.selectedTabID)
             }
@@ -423,6 +425,14 @@ struct DocumentGroupView: View {
                 // during the selection change, before the remount silently
                 // adopts the on-disk content (INT-782).
                 revisionMonitor.reconcile(tab: incomingTab)
+            }
+            if followChrome,
+                let incomingID = newGroup.selectedTabID,
+                oldGroup.selectedTabID != newGroup.selectedTabID
+                    || oldGroup.selectedTab?.fileURL.standardizedFileURL.path
+                        != newGroup.selectedTab?.fileURL.standardizedFileURL.path
+            {
+                documentFocus.request(incomingID)
             }
         }
         // Same key as DocumentPaneView's .id above so the tracker reset and the
@@ -645,6 +655,15 @@ struct DocumentGroupView: View {
         }
         setFilesVisible(true)
         fileBrowserFocusRequestID = request.id
+    }
+
+    private func applyPendingFocusRequest() {
+        guard
+            let tabID = group.selectedTabID,
+            documentTabActions.consumeFocusRequest(in: session.id, tabID: tabID) != nil
+        else { return }
+        setFilesVisible(false)
+        documentFocus.request(tabID)
     }
 
     private var selectedTaskProgress: TaskProgress? {

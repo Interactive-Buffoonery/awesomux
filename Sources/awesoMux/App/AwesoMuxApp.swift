@@ -3910,7 +3910,10 @@ struct AwesoMuxApp: App {
                 store: sessionStore,
                 completeWrite: { AgentTranscriptStore().completeWrite(at: $0) },
                 schedulePrune: { SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore) },
-                alert: showAgentTranscriptFailureAlert
+                alert: showAgentTranscriptFailureAlert,
+                requestFocus: { tabID, sessionID in
+                    documentTabActions.requestFocus(for: tabID, in: sessionID)
+                }
             )
         }
     }
@@ -4006,7 +4009,10 @@ struct AwesoMuxApp: App {
                 store: sessionStore,
                 coordinator: coordinator,
                 completeWrite: { opener.completeWrite(at: $0) },
-                alert: showBranchChangesFailureAlert
+                alert: showBranchChangesFailureAlert,
+                requestFocus: { tabID, sessionID in
+                    documentTabActions.requestFocus(for: tabID, in: sessionID)
+                }
             )
             SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
         }
@@ -5260,7 +5266,10 @@ struct AwesoMuxApp: App {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        _ = sessionStore.openDocumentPane(fileURL: url)
+        guard let tabID = sessionStore.openDocumentPane(fileURL: url),
+            let sessionID = sessionStore.selectedSessionID
+        else { return }
+        documentTabActions.requestFocus(for: tabID, in: sessionID)
     }
 
     private func requestViewFiles() {

@@ -53,7 +53,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     override func keyDown(with event: NSEvent) {
         if DocumentKeyViewTraversal.direction(for: event) != nil,
             sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
-            DocumentKeyViewTraversal.handle(event, in: window)
+            DocumentKeyViewTraversal.handle(event, in: window, from: self)
         {
             return
         }
@@ -288,7 +288,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         if DocumentKeyViewTraversal.direction(for: event) != nil,
             window?.firstResponder === self,
             sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
-            DocumentKeyViewTraversal.handle(event, in: window)
+            DocumentKeyViewTraversal.handle(event, in: window, from: self)
         {
             return true
         }

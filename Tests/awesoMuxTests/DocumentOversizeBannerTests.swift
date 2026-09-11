@@ -116,8 +116,8 @@ struct DocumentOversizePolicyTests {
 
 @Suite("Document oversize banner copy")
 struct DocumentOversizeBannerCopyTests {
-    /// The rendered markdown body is a single `.staticText` element labelled
-    /// "Document content", so no heading inside the document is reachable as
+    /// The rendered markdown body is a single text-area element labelled with
+    /// the file name, so no heading inside the document is reachable as
     /// structure — this label is the only thing that tells a screen reader
     /// user the view has stopped tracking the file.
     @Test("the spoken label names the file and states the cap")

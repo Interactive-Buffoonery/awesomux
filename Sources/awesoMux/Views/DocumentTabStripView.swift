@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -110,6 +111,12 @@ struct DocumentTabStripView: View {
         .frame(height: Self.height)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DocumentPaneChrome.barBackground)
+        .background {
+            DocumentTabStripAnchorView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             String(
@@ -180,6 +187,29 @@ struct DocumentTabStripView: View {
             )
         )
         .accessibilityHint(filesToggleHelp)
+    }
+}
+
+/// Marks the strip's frame so Control-Tab from a terminal can land on the
+/// first or last key-view target inside it. Hits pass through to the pills.
+private struct DocumentTabStripAnchorView: NSViewRepresentable {
+    func makeNSView(context: Context) -> AnchorView {
+        AnchorView()
+    }
+
+    func updateNSView(_ nsView: AnchorView, context: Context) {}
+
+    final class AnchorView: NSView {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            identifier = DocumentKeyViewTraversal.tabStripIdentifier
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override var acceptsFirstResponder: Bool { false }
     }
 }
 

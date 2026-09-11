@@ -250,6 +250,76 @@ struct DocumentKeyboardFocusTests {
         #expect(DocumentKeyViewTraversal.direction(for: try tab([.control, .shift])) == true)
     }
 
+    @Test func controlTabFromATerminalLandsOnTheTabStrip() throws {
+        let window = makeWindow()
+        window.autorecalculatesKeyViewLoop = false
+        let terminal = FocusButton(title: "Terminal", target: nil, action: nil)
+        terminal.identifier = DocumentKeyViewTraversal.terminalSurfaceIdentifier
+        terminal.frame = NSRect(x: 0, y: 0, width: 400, height: 180)
+        let anchor = NSView(frame: NSRect(x: 0, y: 180, width: 400, height: 28))
+        anchor.identifier = DocumentKeyViewTraversal.tabStripIdentifier
+        let first = FocusButton(title: "First", target: nil, action: nil)
+        first.frame = NSRect(x: 8, y: 180, width: 80, height: 28)
+        let last = FocusButton(title: "Last", target: nil, action: nil)
+        last.frame = NSRect(x: 200, y: 180, width: 80, height: 28)
+        let body = FocusButton(title: "Body", target: nil, action: nil)
+        body.frame = NSRect(x: 0, y: 220, width: 400, height: 80)
+        for view in [terminal, anchor, first, last, body] {
+            window.contentView?.addSubview(view)
+        }
+        terminal.nextKeyView = body
+        body.nextKeyView = terminal
+        #expect(window.makeFirstResponder(terminal))
+
+        #expect(DocumentKeyViewTraversal.handle(try tab(.control), in: window, from: terminal))
+        #expect(window.firstResponder === first)
+
+        #expect(window.makeFirstResponder(terminal))
+        #expect(
+            DocumentKeyViewTraversal.handle(try tab([.control, .shift]), in: window, from: terminal))
+        #expect(window.firstResponder === last)
+    }
+
+    @Test func controlTabWithoutATabStripFollowsTheKeyViewLoop() throws {
+        let window = makeWindow()
+        window.autorecalculatesKeyViewLoop = false
+        let terminal = FocusButton(title: "Terminal", target: nil, action: nil)
+        terminal.identifier = DocumentKeyViewTraversal.terminalSurfaceIdentifier
+        let next = FocusButton(title: "Next", target: nil, action: nil)
+        window.contentView?.addSubview(terminal)
+        window.contentView?.addSubview(next)
+        terminal.nextKeyView = next
+        next.nextKeyView = terminal
+        #expect(window.makeFirstResponder(terminal))
+
+        #expect(DocumentKeyViewTraversal.handle(try tab(.control), in: window, from: terminal))
+        #expect(window.firstResponder === next)
+    }
+
+    @Test func documentChromeRecognizesViewerResponders() {
+        #expect(!DocumentFocusHandoff.isDocumentChrome(nil))
+        #expect(DocumentFocusHandoff.isDocumentChrome(SelectionAwareTextView(frame: .zero)))
+        #expect(DocumentFocusHandoff.isDocumentChrome(BranchDiffStickyHeaderView(frame: .zero)))
+        #expect(DocumentFocusHandoff.isDocumentChrome(DocumentTextScrollView(frame: .zero)))
+        #expect(!DocumentFocusHandoff.isDocumentChrome(FocusButton(title: "Other", target: nil, action: nil)))
+    }
+
+    @Test func terminalControlTabPassesTheSurfaceAsOrigin() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceInputBridge.swift"),
+            encoding: .utf8)
+        #expect(source.contains("DocumentKeyViewTraversal.handle(event, in: window, from: self)"))
+        let markdown = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/awesoMux/Views/Markdown/MarkdownTextView.swift"),
+            encoding: .utf8)
+        #expect(markdown.contains("textView.setAccessibilityRole(.textArea)"))
+        #expect(!markdown.contains("setAccessibilityRole(.staticText)"))
+    }
+
     @Test func pinnedHeadingAcceptsKeyboardActivation() throws {
         let window = makeWindow()
         let header = BranchDiffStickyHeaderView(frame: .zero)
@@ -375,10 +445,14 @@ struct DocumentKeyboardFocusTests {
         header.model = nil
 
         #expect(header.isHidden)
-        #expect(window.firstResponder === (keyboardFocused || accessibilityFocused ? text : other))
-        #expect(accessibilityTransfers == (accessibilityFocused ? 1 : 0))
+        #expect(window.firstResponder === (keyboardFocused ? text : other))
+        if !keyboardFocused {
+            #expect(accessibilityTransfers == 0)
+        }
         header.model = nil
-        #expect(accessibilityTransfers == (accessibilityFocused ? 1 : 0))
+        if !keyboardFocused {
+            #expect(accessibilityTransfers == 0)
+        }
     }
 
     private func makeWindow() -> FocusWindow {

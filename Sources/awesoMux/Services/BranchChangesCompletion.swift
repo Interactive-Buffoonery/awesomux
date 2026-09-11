@@ -27,7 +27,8 @@ enum BranchChangesCompletion {
         store: SessionStore,
         coordinator: BranchChangesCoordinator,
         completeWrite: (URL) -> Void,
-        alert: (BranchChangesFailure) -> Void
+        alert: (BranchChangesFailure) -> Void,
+        requestFocus: ((DocumentPane.ID, TerminalSession.ID) -> Void)? = nil
     ) {
         finalizeWrite(
             result,
@@ -59,12 +60,12 @@ enum BranchChangesCompletion {
                 return
             }
             guard
-                store.openDocumentPane(
+                let tabID = store.openDocumentPane(
                     fileURL: opened.fileURL,
                     in: ownerID,
                     associatedWith: paneID,
                     branchChangesIdentity: opened.identity
-                ) != nil
+                )
             else {
                 // The workspace went away while the diff ran. No alert — there
                 // is nothing left to act on, and the user closed it themselves —
@@ -78,6 +79,7 @@ enum BranchChangesCompletion {
                 )
                 return
             }
+            requestFocus?(tabID, ownerID)
             TerminalAccessibilityAnnouncer.announce(
                 String(
                     localized: "Branch changes opened.",

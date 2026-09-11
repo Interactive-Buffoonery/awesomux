@@ -453,8 +453,11 @@ struct MarkdownTextView: NSViewRepresentable {
             coordinator?.handleSelectionFinished(in: tv)
         }
 
-        // Accessibility: a non-editable, selectable document.
-        textView.setAccessibilityRole(.staticText)
+        // Accessibility: a non-editable, selectable document. `.staticText`
+        // hid the view from the key-view loop's spoken role once it became a
+        // keyboard target; a text area is what VoiceOver expects for
+        // selectable multi-line content.
+        textView.setAccessibilityRole(.textArea)
         textView.setAccessibilityLabel(textAccessibilityLabel)
         scrollView.setAccessibilityElement(false)
 

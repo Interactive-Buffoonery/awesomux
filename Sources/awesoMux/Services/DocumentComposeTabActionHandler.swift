@@ -34,6 +34,27 @@ final class DocumentComposeTabActionHandler {
         return didSelect
     }
 
+    func requestFocus(for tabID: DocumentPane.ID, in sessionID: TerminalSession.ID) {
+        perform {
+            self.focusRequest = FocusRequest(sessionID: sessionID, tabID: tabID)
+        }
+    }
+
+    func consumeFocusRequest(
+        in sessionID: TerminalSession.ID,
+        tabID: DocumentPane.ID
+    ) -> FocusRequest? {
+        guard
+            let request = focusRequest,
+            request.sessionID == sessionID,
+            request.tabID == tabID
+        else {
+            return nil
+        }
+        focusRequest = nil
+        return request
+    }
+
     func perform(
         _ action: () -> Void,
         announce: (String) -> Void = { TerminalAccessibilityAnnouncer.announce($0) }

@@ -65,12 +65,14 @@ struct DocumentFileBrowserPaneView: View {
         let association = group.browserSourcePaneID.flatMap {
             currentSession.layout.pane(id: $0)?.id
         }
-        _ = sessionStore.openDocumentPane(
+        if let openedID = sessionStore.openDocumentPane(
             fileURL: fileURL,
             in: session.id,
             associatedWith: association,
             associationPolicy: .preserveNil
-        )
+        ) {
+            documentTabActions.requestFocus(for: openedID, in: session.id)
+        }
     }
 
     private func close() {

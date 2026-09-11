@@ -74,8 +74,12 @@ final class BranchDiffStickyHeaderView: NSView {
                     window?.makeFirstResponder(documentView)
                 }
                 if hadAccessibilityFocus {
-                    documentView.setAccessibilityFocused(true)
-                    NSAccessibility.post(element: documentView, notification: .focusedUIElementChanged)
+                    // VoiceOver can sit on the header without making it first
+                    // responder. `setAccessibilityFocused(true)` on the text
+                    // view would also steal keyboard focus; posting the
+                    // notification keeps AX in sync without the steal.
+                    NSAccessibility.post(
+                        element: documentView, notification: .focusedUIElementChanged)
                 }
             }
             isHidden = model == nil
