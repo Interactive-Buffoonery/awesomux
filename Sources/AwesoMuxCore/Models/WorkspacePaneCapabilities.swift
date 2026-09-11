@@ -71,6 +71,15 @@ public extension WorkspacePaneCapabilities {
     }
 
     static func documentGroup(_ group: DocumentGroup) -> WorkspacePaneCapabilities {
+        guard !group.isBrowserOnly else {
+            return WorkspacePaneCapabilities(
+                localFileAccess: false,
+                remoteProvenance: false,
+                safeInputTarget: false,
+                duplicable: false,
+                presetEligible: false
+            )
+        }
         // Conservative fold: one remote snapshot makes the whole leaf carry
         // remote provenance and lose local-file standing.
         let anyRemote = group.tabs.contains { $0.isReadOnlySnapshot }

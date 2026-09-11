@@ -1760,6 +1760,34 @@ public final class SessionStore {
         return result.newPaneID
     }
 
+    @discardableResult
+    public func openFileBrowser(in sessionID: TerminalSession.ID) -> Bool {
+        guard let position = position(for: sessionID),
+            let session = PaneLayoutReducer.openFileBrowser(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
+            return false
+        }
+        _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        return true
+    }
+
+    @discardableResult
+    public func closeFileBrowser(in sessionID: TerminalSession.ID) -> Bool {
+        guard let position = position(for: sessionID),
+            let session = PaneLayoutReducer.closeFileBrowser(
+                in: _groups[position.groupIndex].sessions[position.sessionIndex]
+            )
+        else {
+            return false
+        }
+        _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        return true
+    }
+
     /// Opens a document as a tab in the given session's (or the selected
     /// session's) document viewer, creating the viewer split when none exists.
     /// Focus stays on the existing terminal. Returns the new or existing tab ID

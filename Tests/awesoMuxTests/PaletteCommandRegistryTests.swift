@@ -180,6 +180,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.previousDocumentTab.id,
                 KeyboardShortcutCatalog.nextDocumentTab.id,
                 KeyboardShortcutCatalog.closeDocumentTab.id,
+                "viewFiles",
                 KeyboardShortcutCatalog.resumeAgentSession.id,
                 KeyboardShortcutCatalog.movePaneUp.id,
                 KeyboardShortcutCatalog.movePaneDown.id,
@@ -265,6 +266,7 @@ struct PaletteCommandRegistryTests {
             PaletteCommandRegistry.command(id: KeyboardShortcutCatalog.openMarkdownFile.id, in: commands)
         )
         let openInIDE = try #require(PaletteCommandRegistry.command(id: "openInIDE", in: commands))
+        let viewFiles = try #require(PaletteCommandRegistry.command(id: "viewFiles", in: commands))
 
         #expect(!splitRight.isEnabled)
         #expect(!rename.isEnabled)
@@ -272,6 +274,7 @@ struct PaletteCommandRegistryTests {
         // openMarkdownFile is session-scoped; must be disabled when no session is selected.
         #expect(!openMarkdownFile.isEnabled)
         #expect(!openInIDE.isEnabled)
+        #expect(!viewFiles.isEnabled)
     }
 
     @Test("Sheet-presented state gates sheet-sensitive commands")
@@ -577,6 +580,104 @@ struct PaletteCommandRegistryTests {
 
         #expect(openMarkdownFile.shortcut?.id == KeyboardShortcutCatalog.openMarkdownFile.id)
         #expect(openMarkdownFile.shortcut?.displaySymbol == "⌘O")
+    }
+
+    @Test("View Files is a pane-scoped local Markdown browser command")
+    @MainActor
+    func viewFilesCommandEligibility() throws {
+        let pane = TerminalPane(title: "local", workingDirectory: "/tmp", executionPlan: .local)
+        let session = TerminalSession(
+            title: "Main",
+            workingDirectory: "/tmp",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [session])],
+            selectedSessionID: session.id
+        )
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(),
+            actions: .noop
+        )
+        let command = try #require(PaletteCommandRegistry.command(id: "viewFiles", in: commands))
+
+        #expect(command.title == "View Files")
+        #expect(command.keywords == ["files", "markdown", "browse", "folder"])
+        #expect(command.shortcut == nil)
+        #expect(command.selectionScope == .pane)
+        #expect(command.isEnabled)
+
+        let sheetCommands = PaletteCommandRegistry.commands(
+            sessionStore: store,
+            availability: .init(isAnySheetPresented: true),
+            actions: .noop
+        )
+        #expect(try !#require(PaletteCommandRegistry.command(id: "viewFiles", in: sheetCommands)).isEnabled)
+
+        let generated = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/generated.md"),
+            title: "generated.md",
+            generatedDocumentKind: .unknown
+        )
+        let generatedGroup = DocumentGroup(tabs: [generated], selectedTabID: generated.id)
+        let generatedSession = TerminalSession(
+            title: "Generated",
+            workingDirectory: "/tmp",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(pane),
+                    second: .documentGroup(generatedGroup)
+                )),
+            activePaneID: pane.id
+        )
+        let generatedStore = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [generatedSession])],
+            selectedSessionID: generatedSession.id
+        )
+        #expect(
+            try !#require(
+                PaletteCommandRegistry.command(
+                    id: "viewFiles",
+                    in: PaletteCommandRegistry.commands(
+                        sessionStore: generatedStore,
+                        availability: .init(),
+                        actions: .noop
+                    )
+                )
+            ).isEnabled
+        )
+
+        let browserOnly = DocumentGroup(browsingFrom: pane.id)
+        let browserSession = TerminalSession(
+            title: "Browser",
+            workingDirectory: "/tmp",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical,
+                    first: .pane(pane),
+                    second: .documentGroup(browserOnly)
+                )),
+            activePaneID: pane.id
+        )
+        let browserStore = SessionStore(
+            groups: [SessionGroup(name: "Code", sessions: [browserSession])],
+            selectedSessionID: browserSession.id
+        )
+        #expect(
+            try #require(
+                PaletteCommandRegistry.command(
+                    id: "viewFiles",
+                    in: PaletteCommandRegistry.commands(
+                        sessionStore: browserStore,
+                        availability: .init(),
+                        actions: .noop
+                    )
+                )
+            ).isEnabled
+        )
     }
 
     @Test("Open in IDE is active-pane scoped and disables for remote panes")

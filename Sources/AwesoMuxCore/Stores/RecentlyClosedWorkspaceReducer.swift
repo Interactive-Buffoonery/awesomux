@@ -18,33 +18,37 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         indexInGroup: Int,
         now: Date
     ) -> CaptureDecision {
+        var capturedSession = session
+        if let layout = session.layout.removingBrowserOnlyGroups() {
+            capturedSession.layout = layout
+        }
         let activeWorkingDirectory =
-            session.activePane?.workingDirectory
-            ?? session.workingDirectory
+            capturedSession.activePane?.workingDirectory
+            ?? capturedSession.workingDirectory
         let title =
-            session.syntheticTitle?.canonicalTitle
+            capturedSession.syntheticTitle?.canonicalTitle
             ?? RecentlyClosedWorkspaceTitleResolver.resolvedTitle(
-                title: session.title,
-                isTitleUserEdited: session.isTitleUserEdited,
-                agentKind: session.activeAgentKind,
+                title: capturedSession.title,
+                isTitleUserEdited: capturedSession.isTitleUserEdited,
+                agentKind: capturedSession.activeAgentKind,
                 workingDirectory: activeWorkingDirectory
             )
         let entry = RecentlyClosedWorkspace(
-            sessionID: session.id,
+            sessionID: capturedSession.id,
             title: title,
-            syntheticTitle: session.syntheticTitle,
-            isTitleUserEdited: session.isTitleUserEdited,
-            agentKind: session.activeAgentKind,
-            moveOrigin: session.moveOrigin,
-            layout: session.layout,
-            activePaneID: session.activePaneID,
+            syntheticTitle: capturedSession.syntheticTitle,
+            isTitleUserEdited: capturedSession.isTitleUserEdited,
+            agentKind: capturedSession.activeAgentKind,
+            moveOrigin: capturedSession.moveOrigin,
+            layout: capturedSession.layout,
+            activePaneID: capturedSession.activePaneID,
             groupID: group.id,
             groupName: group.name,
             groupRemote: group.remote,
             indexInGroup: indexInGroup,
             closedAt: now
         )
-        return CaptureDecision(entry: entry, shouldPersist: isWorthRecording(session))
+        return CaptureDecision(entry: entry, shouldPersist: isWorthRecording(capturedSession))
     }
 
     static func recordPersisted(
@@ -234,6 +238,9 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             <= SessionRestoreReducer.maxRestoredLayoutDepth else {
             return nil
         }
+        guard let persistentLayout = entry.layout.removingBrowserOnlyGroups() else {
+            return nil
+        }
 
         // When the closed workspace's original group is gone, recreate it (in
         // both empty and non-empty trees) so the workspace comes home to its
@@ -267,9 +274,9 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
                 }
             }
         }
-        let paneIDCounts = SessionRestoreReducer.terminalPaneIDCounts(in: entry.layout)
+        let paneIDCounts = SessionRestoreReducer.terminalPaneIDCounts(in: persistentLayout)
         let reidentifiedLayout = reidentifiedLayout(
-            entry.layout,
+            persistentLayout,
             indexHint: insertionIndex + 1,
             legacyExecutionPlan: entry.groupRemote.map {
                 PaneExecutionPlan.ssh(SSHExecution(target: $0))
@@ -281,7 +288,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             in: reidentifiedLayout
         )
         let paneIDRemap = SessionRestoreReducer.unambiguousPaneIDRemap(
-            from: entry.layout,
+            from: persistentLayout,
             to: normalizedLayout,
             originalIDCounts: paneIDCounts
         )

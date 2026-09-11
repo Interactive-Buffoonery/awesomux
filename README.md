@@ -44,6 +44,8 @@ Entry points:
 - **File > Open Markdown File…** (`⌘O`) opens a file panel seeded from
   the active pane's working directory when available.
 - The command palette exposes the same **Open Markdown File…** command.
+- **View Files** in the command palette opens the Markdown browser in the
+  existing document panel, or creates that right-hand panel from a local terminal.
 - Local Markdown links from terminal output, and Markdown links clicked inside
   another document pane, route back into awesoMux as document panes.
 

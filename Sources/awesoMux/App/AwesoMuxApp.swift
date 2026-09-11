@@ -784,6 +784,9 @@ struct AwesoMuxApp: App {
             }
 
             rootContentAfterGroupsWatch
+                .onChange(of: sessionStore.selectedSessionID) { _, _ in
+                    documentTabActions.clearFileBrowserRequest()
+                }
             .onChange(of: appSettingsStore.keyboard.value, initial: true) { _, keyboard in
                 CurrentKeyboardShortcuts.keyboard = keyboard
             }
@@ -2508,7 +2511,7 @@ struct AwesoMuxApp: App {
     }
 
     private var selectedSessionHasDocumentTabs: Bool {
-        sessionStore.selectedSession?.layout.firstDocumentGroup != nil
+        !(sessionStore.selectedSession?.layout.firstDocumentGroup?.tabs.isEmpty ?? true)
     }
 
     /// The selected document tab, when it is an app-rendered agent transcript.
@@ -4743,6 +4746,7 @@ struct AwesoMuxApp: App {
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFilePanel,
+            viewFiles: requestViewFiles,
             openSessionManager: toggleSessionManager,
             saveLayoutPreset: saveLayoutPresetForSelectedWorkspace,
             applyLayoutPreset: applyLayoutPresetViaPicker,
@@ -5259,6 +5263,39 @@ struct AwesoMuxApp: App {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         _ = sessionStore.openDocumentPane(fileURL: url)
+    }
+
+    private func requestViewFiles() {
+        guard !isAnySheetPresented, let session = sessionStore.selectedSession else { return }
+        if let group = session.layout.firstDocumentGroup {
+            if group.isBrowserOnly {
+                documentTabActions.requestFileBrowser(
+                    in: session.id,
+                    groupID: group.id,
+                    documentID: nil
+                )
+                return
+            }
+            guard let document = group.selectedTab, document.isEditable else { return }
+            documentTabActions.requestFileBrowser(
+                in: session.id,
+                groupID: group.id,
+                documentID: document.id
+            )
+            return
+        }
+        guard
+            sessionStore.openFileBrowser(in: session.id),
+            let group = sessionStore.session(id: session.id)?.layout.firstDocumentGroup,
+            group.isBrowserOnly
+        else {
+            return
+        }
+        documentTabActions.requestFileBrowser(
+            in: session.id,
+            groupID: group.id,
+            documentID: nil
+        )
     }
 
     private func selectedMarkdownOpenDirectoryURL() -> URL? {

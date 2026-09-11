@@ -31,6 +31,8 @@ struct PaletteCommandInvocation: Equatable {
                 && workspaceTarget?.activePaneID == paneID
                 && (commandID != KeyboardShortcutCatalog.closePane.id
                     || workspaceTarget?.isSinglePane == isSinglePane)
+                && (commandID != "viewFiles"
+                    || workspaceTarget?.selectedDocumentTabID == documentTabID)
         case .documentTab:
             return workspaceTarget?.sessionID == sessionID
                 && workspaceTarget?.selectedDocumentTabID == documentTabID

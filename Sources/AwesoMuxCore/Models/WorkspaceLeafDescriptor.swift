@@ -37,14 +37,13 @@ public struct WorkspaceLeafDescriptor: Hashable, Sendable {
 
 public extension WorkspaceLeaf {
     /// The user-visible label: a terminal's title, or a document group's
-    /// selected tab title (a group is never empty, so a fallback to the first
-    /// tab always resolves).
+    /// selected tab title, or Files for a browser-only group.
     var label: String {
         switch self {
         case let .terminal(pane):
             pane.title
         case let .documentGroup(group):
-            group.selectedTab?.title ?? group.tabs[0].title
+            group.selectedTab?.title ?? group.tabs.first?.title ?? String(localized: "Files")
         }
     }
 

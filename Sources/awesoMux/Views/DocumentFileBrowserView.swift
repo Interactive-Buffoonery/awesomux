@@ -4,9 +4,36 @@ import SwiftUI
 
 struct DocumentFileBrowserView: View {
     let rootURL: URL?
-    let currentFileURL: URL
+    let currentFileURL: URL?
     let onOpen: (URL) -> Void
     let onCancel: () -> Void
+    let cancelLabel: String
+    let noDirectoryDetail: String
+    let focusRequestID: UUID?
+
+    init(
+        rootURL: URL?,
+        currentFileURL: URL?,
+        onOpen: @escaping (URL) -> Void,
+        onCancel: @escaping () -> Void,
+        focusRequestID: UUID? = nil,
+        cancelLabel: String = String(
+            localized: "Back to document",
+            comment: "Accessible label for returning from the Markdown file browser to its document"
+        ),
+        noDirectoryDetail: String = String(
+            localized: "This document's terminal has not reported a local directory.",
+            comment: "Empty-state detail shown when a document's associated terminal has no local directory"
+        )
+    ) {
+        self.rootURL = rootURL
+        self.currentFileURL = currentFileURL
+        self.onOpen = onOpen
+        self.onCancel = onCancel
+        self.focusRequestID = focusRequestID
+        self.cancelLabel = cancelLabel
+        self.noDirectoryDetail = noDirectoryDetail
+    }
 
     @State private var query = ""
     @State private var files: [MarkdownFileEntry] = []
@@ -15,6 +42,7 @@ struct DocumentFileBrowserView: View {
     @State private var isLoading = false
     @State private var refreshGeneration = 0
     @State private var activeLoadID: UUID?
+    @FocusState private var isSearchFocused: Bool
     @Environment(\.awAccent) private var accentResolver
 
     private var accentColor: Color { Color.aw.accent(accentResolver.accent) }
@@ -78,6 +106,10 @@ struct DocumentFileBrowserView: View {
         // looking at now.
         .onChange(of: currentDirectory) { refusal = nil }
         .onChange(of: query) { refusal = nil }
+        .onAppear { focusSearch(for: focusRequestID) }
+        .onChange(of: focusRequestID) { _, requestID in
+            focusSearch(for: requestID)
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -119,8 +151,8 @@ struct DocumentFileBrowserView: View {
                 RoundedRectangle(cornerRadius: 5)
                     .stroke(Color.aw.border2.opacity(0.8), lineWidth: 0.5)
             }
-            .help("Back to document")
-            .accessibilityLabel("Back to document")
+            .help(cancelLabel)
+            .accessibilityLabel(cancelLabel)
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -131,6 +163,7 @@ struct DocumentFileBrowserView: View {
                     .awFont(AwFont.Mono.meta)
                     .foregroundStyle(Color.aw.text)
                     .accessibilityLabel("Search Markdown files")
+                    .focused($isSearchFocused)
             }
             .padding(.horizontal, 8)
             .frame(height: 28)
@@ -172,6 +205,15 @@ struct DocumentFileBrowserView: View {
         .accessibilityLabel("Refresh Markdown files")
         .disabled(rootURL == nil || isLoading)
         .opacity(rootURL == nil ? 0.45 : 1)
+    }
+
+    private func focusSearch(for requestID: UUID?) {
+        guard let requestID else { return }
+        isSearchFocused = false
+        DispatchQueue.main.async {
+            guard self.focusRequestID == requestID else { return }
+            isSearchFocused = true
+        }
     }
 
     private func directoryBar(contents: MarkdownDirectoryContents) -> some View {
@@ -239,10 +281,7 @@ struct DocumentFileBrowserView: View {
             DocumentFileBrowserEmptyState(
                 systemImage: "folder.badge.questionmark",
                 title: "No directory",
-                detail: String(
-                    localized: "This document's terminal has not reported a local directory.",
-                    comment: "Empty-state detail shown when a document's associated terminal has no local directory"
-                )
+                detail: noDirectoryDetail
             )
         } else if !isLoading && files.isEmpty {
             DocumentFileBrowserEmptyState(
@@ -265,7 +304,7 @@ struct DocumentFileBrowserView: View {
                             DocumentFileBrowserFileRow(
                                 entry: hit.entry,
                                 isCurrent: hit.entry.url.standardizedFileURL
-                                    == currentFileURL.standardizedFileURL,
+                                    == currentFileURL?.standardizedFileURL,
                                 action: {
                                     open(hit.entry)
                                 }
@@ -297,7 +336,7 @@ struct DocumentFileBrowserView: View {
                             DocumentFileBrowserFileRow(
                                 entry: entry,
                                 isCurrent: entry.url.standardizedFileURL
-                                    == currentFileURL.standardizedFileURL,
+                                    == currentFileURL?.standardizedFileURL,
                                 action: {
                                     open(entry)
                                 }
@@ -371,6 +410,42 @@ struct DocumentFileBrowserView: View {
     static func formattedSize(_ bytes: Int?) -> String {
         guard let bytes else { return "" }
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
+    static func rootURL(
+        in session: TerminalSession,
+        associatedWith terminalPaneID: TerminalPane.ID?
+    ) -> URL? {
+        let targetPane = sourcePane(in: session, associatedWith: terminalPaneID)
+        guard
+            let targetPane,
+            ExecutionContext(plan: targetPane.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed
+        else {
+            return nil
+        }
+        if let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
+            targetPane.workingDirectory
+        ]) {
+            return URL(fileURLWithPath: directory, isDirectory: true)
+        }
+        guard
+            let activePane = session.layout.pane(id: session.activePaneID),
+            ExecutionContext(plan: activePane.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed,
+            let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [session.workingDirectory])
+        else {
+            return nil
+        }
+        return URL(fileURLWithPath: directory, isDirectory: true)
+    }
+
+    static func sourcePane(
+        in session: TerminalSession,
+        associatedWith terminalPaneID: TerminalPane.ID?
+    ) -> TerminalPane? {
+        terminalPaneID.flatMap { session.layout.pane(id: $0) }
+            ?? session.layout.pane(id: session.activePaneID)
     }
 
     @MainActor

@@ -12,8 +12,10 @@ Markdown document panes are auxiliary rendered viewers for local `.md` and
 `.markdown` files ≤2 MiB. They live inside a workspace beside terminal
 panes; a document is never the only pane in a workspace. Current entry points
 are **File > Open Markdown File…** (`⌘O`), the matching command-palette
-action, local Markdown links opened from terminal output, and Markdown links
-clicked inside another document pane.
+action, **View Files** in the command palette, local Markdown links opened from
+terminal output, and Markdown links clicked inside another document pane. View
+Files opens the existing Markdown browser in the right-hand document panel; a
+local terminal can create that panel before a document is selected.
 
 Remote Markdown opens are read-only snapshots. Their durable provenance is a
 `ResourceIdentity` built from the initiating pane's declared

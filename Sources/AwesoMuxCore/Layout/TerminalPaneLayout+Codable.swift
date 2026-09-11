@@ -69,6 +69,19 @@ extension TerminalPaneLayout: Codable {
     }
 
     public func encode(to encoder: Encoder) throws {
+        guard let persistentLayout = removingBrowserOnlyGroups() else {
+            throw EncodingError.invalidValue(
+                self,
+                EncodingError.Context(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "A layout containing only browser-only groups is runtime-only"
+                )
+            )
+        }
+        try persistentLayout.encodeUnpruned(to: encoder)
+    }
+
+    private func encodeUnpruned(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case let .pane(pane):

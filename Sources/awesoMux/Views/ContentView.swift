@@ -135,6 +135,7 @@ struct ContentView: View {
     // to each pane inside the split closures so the panes keep their environment.
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(UpdateController.self) private var updateController
+    @Environment(DocumentComposeTabActionHandler.self) private var documentTabActions
     // Same re-injection reason as the store above: the branch-changes tab's
     // Refresh button reads both from the environment inside the split.
     @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator
@@ -443,6 +444,7 @@ struct ContentView: View {
                         sidebarPosition: sidebarPosition
                     )
                     .environment(appSettingsStore)
+                    .environment(documentTabActions)
                     .environment(branchChangesCoordinator)
                     .environment(\.branchChangesRefresh, branchChangesRefresh)
                     .appearanceBridge(appSettingsStore)

@@ -59,11 +59,16 @@ public enum DocumentGroupMigration {
         }
 
         let mergedTabs = groups.flatMap(\.tabs)
-        let merged = DocumentGroup(
-            id: primary.id,
-            tabs: mergedTabs,
-            selectedTabID: mergedTabs[0].id
-        )
+        let merged: DocumentGroup
+        if let firstTab = mergedTabs.first {
+            merged = DocumentGroup(
+                id: primary.id,
+                tabs: mergedTabs,
+                selectedTabID: firstTab.id
+            )
+        } else {
+            merged = primary
+        }
 
         var keptPrimary = false
         return foldingDocumentGroups(
