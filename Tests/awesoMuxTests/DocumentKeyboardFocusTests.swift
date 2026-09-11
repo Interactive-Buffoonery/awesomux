@@ -25,7 +25,8 @@ struct DocumentKeyboardFocusTests {
     }
 
     private final class FocusWindow: NSWindow {
-        override var isKeyWindow: Bool { true }
+        var treatsAsKeyWindow = true
+        override var isKeyWindow: Bool { treatsAsKeyWindow }
     }
 
     @Test func selectableReadOnlyTextParticipatesInKeyLoop() {
@@ -198,7 +199,7 @@ struct DocumentKeyboardFocusTests {
         #expect(window.firstResponder === incoming)
     }
 
-    @Test func windowlessScrollDoesNotCancelDelayedHandoff() throws {
+    @Test func scrollDoesNotCancelDelayedHandoff() throws {
         let window = makeWindow()
         let original = SelectionAwareTextView(frame: .zero)
         let incoming = SelectionAwareTextView(frame: .zero)
@@ -212,6 +213,30 @@ struct DocumentKeyboardFocusTests {
         handoff.handleSubsequentInput(event)
         handoff.register(incoming, for: id)
         #expect(handoff.completeIfReady())
+        #expect(window.firstResponder === incoming)
+    }
+
+    @Test func handoffRetriesWhenTheWindowBecomesKey() {
+        let window = makeWindow()
+        let original = FocusButton(title: "Original", target: nil, action: nil)
+        let incoming = SelectionAwareTextView(frame: .zero)
+        window.contentView?.addSubview(original)
+        window.contentView?.addSubview(incoming)
+        #expect(window.makeFirstResponder(original))
+        let id = UUID()
+        let handoff = DocumentFocusHandoff()
+        handoff.request(id, in: window)
+        handoff.register(incoming, for: id)
+        window.treatsAsKeyWindow = false
+        #expect(!handoff.completeIfReady())
+        #expect(window.firstResponder === original)
+
+        window.treatsAsKeyWindow = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        let deadline = Date().addingTimeInterval(1)
+        while window.firstResponder !== incoming, Date() < deadline {
+            RunLoop.main.run(until: min(deadline, Date().addingTimeInterval(0.01)))
+        }
         #expect(window.firstResponder === incoming)
     }
 
@@ -356,7 +381,7 @@ struct DocumentKeyboardFocusTests {
         #expect(accessibilityTransfers == (accessibilityFocused ? 1 : 0))
     }
 
-    private func makeWindow() -> NSWindow {
+    private func makeWindow() -> FocusWindow {
         _ = NSApplication.shared
         return FocusWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),

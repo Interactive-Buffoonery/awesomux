@@ -64,9 +64,13 @@ struct DocumentPointerTargetTests {
         let pill = try Self.block(from: "private struct DocumentTabPill", through: "private var titleColor", in: strip)
         #expect(pill.contains(".onKeyPress(keys: [.space, .return], phases: .down)"))
         #expect(pill.contains("press.modifiers.subtracting(.capsLock).isEmpty"))
-        #expect(!pill.contains("isKeyboardFocused = false"))
+        #expect(pill.contains("isKeyboardFocused = false"))
+        #expect(pill.contains("onBecameKeyboardFocused()"))
         let select = try Self.block(from: "private func select()", through: "private var titleColor", in: strip)
         #expect(select.contains("onSelect()"))
+
+        let groupView = try Self.source("Views/DocumentGroupView.swift")
+        #expect(groupView.contains("onDocumentUnavailable: { documentFocus.cancel() }"))
     }
 
     private static func source(_ relativePath: String) throws -> String {

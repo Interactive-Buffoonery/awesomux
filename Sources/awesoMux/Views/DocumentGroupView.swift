@@ -157,9 +157,9 @@ struct DocumentGroupView: View {
                     if tabID == group.selectedTabID {
                         setFilesVisible(false)
                         documentFocus.request(tabID)
-                        return
+                        return true
                     }
-                    documentTabActions.selectTab(tabID, in: session.id, store: sessionStore)
+                    return documentTabActions.selectTab(tabID, in: session.id, store: sessionStore)
                 },
                 onCloseTab: { tab in
                     let closeTab = {
@@ -217,6 +217,7 @@ struct DocumentGroupView: View {
                 DocumentPaneView(
                     pane: document,
                     onTextViewAvailable: { documentFocus.register($0, for: document.id) },
+                    onDocumentUnavailable: { documentFocus.cancel() },
                     cachedRender: tabMemory.render(for: document),
                     initialScrollAnchor: tabMemory.scrollAnchor(for: document),
                     initialCopyMode: tabMemory.isCopyMode(for: document),
@@ -372,7 +373,7 @@ struct DocumentGroupView: View {
             guard let request, request.sessionID == session.id,
                 request.tabID == group.selectedTabID
             else { return }
-            mode = .document
+            setFilesVisible(false)
             documentFocus.request(request.tabID)
         }
         // One handler for both selection changes and tab-set changes so the

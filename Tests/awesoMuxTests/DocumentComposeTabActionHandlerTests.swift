@@ -18,7 +18,7 @@ struct DocumentComposeTabActionHandlerTests {
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup?.selectedTabID == second)
         #expect(handler.focusRequest == nil)
 
-        handler.selectTab(first, in: session.id, store: store)
+        #expect(handler.selectTab(first, in: session.id, store: store))
         let request = try #require(handler.focusRequest)
         #expect(request.sessionID == session.id)
         #expect(request.tabID == first)
@@ -33,7 +33,7 @@ struct DocumentComposeTabActionHandlerTests {
 
         let previousRequest = handler.focusRequest
         DocumentComposeGuard.isComposing = { true }
-        handler.selectTab(first, in: session.id, store: store)
+        #expect(!handler.selectTab(first, in: session.id, store: store))
         #expect(handler.focusRequest == previousRequest)
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup?.selectedTabID == second)
     }

@@ -22,12 +22,16 @@ final class DocumentComposeTabActionHandler {
     private(set) var fileBrowserRequest: DocumentFileBrowserRequest?
     private(set) var focusRequest: FocusRequest?
 
-    func selectTab(_ tabID: DocumentPane.ID, in sessionID: TerminalSession.ID, store: SessionStore) {
+    @discardableResult
+    func selectTab(_ tabID: DocumentPane.ID, in sessionID: TerminalSession.ID, store: SessionStore) -> Bool {
+        var didSelect = false
         perform {
             store.selectDocumentTab(tabID: tabID, in: sessionID)
             guard store.session(id: sessionID)?.layout.firstDocumentGroup?.selectedTabID == tabID else { return }
             focusRequest = FocusRequest(sessionID: sessionID, tabID: tabID)
+            didSelect = true
         }
+        return didSelect
     }
 
     func perform(

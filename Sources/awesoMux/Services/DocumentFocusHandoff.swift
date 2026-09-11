@@ -11,6 +11,7 @@ final class DocumentFocusHandoff {
     private weak var requestWindow: NSWindow?
     private weak var requestResponder: NSResponder?
     private var inputMonitor: Any?
+    private var windowObservers: [NSObjectProtocol] = []
 
     func request(_ tabID: DocumentPane.ID, in window: NSWindow? = NSApp.keyWindow) {
         cancel()
@@ -19,11 +20,12 @@ final class DocumentFocusHandoff {
         requestResponder = window.firstResponder
         requestedTabID = tabID
         inputMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] event in
             self?.handleSubsequentInput(event)
             return event
         }
+        observeWindow(window)
         scheduleHandoff()
     }
 
@@ -36,7 +38,11 @@ final class DocumentFocusHandoff {
         scheduleHandoff()
     }
 
-    func selectedTabDidChange(to tabID: DocumentPane.ID) {
+    func selectedTabDidChange(to tabID: DocumentPane.ID?) {
+        guard let tabID else {
+            cancel()
+            return
+        }
         if let requestedTabID, requestedTabID != tabID {
             cancel()
         }
@@ -46,22 +52,19 @@ final class DocumentFocusHandoff {
         requestedTabID = nil
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
+        removeWindowObservers()
     }
 
     isolated deinit { cancel() }
 
     func handleSubsequentInput(_ event: NSEvent) {
         // Ignore input that is explicitly for another window. A nil window still
-        // counts: some constructed scroll events never resolve a window, and a
-        // later gesture in this app still supersedes the pending selection.
+        // counts: some constructed events never resolve a window, and a later
+        // gesture in this app still supersedes the pending selection.
         if let eventWindow = event.window, eventWindow !== requestWindow {
             return
         }
         switch event.type {
-        case .scrollWheel:
-            // Synthetic scroll events can lack a window; ignore those so they
-            // do not cancel a pending handoff the user did not intend to abort.
-            if event.window === requestWindow { cancel() }
         case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
             // A new action supersedes the earlier selection, even if it leaves
             // the same terminal as first responder while the document loads.
@@ -69,6 +72,24 @@ final class DocumentFocusHandoff {
         default:
             break
         }
+    }
+
+    private func observeWindow(_ window: NSWindow) {
+        removeWindowObservers()
+        let center = NotificationCenter.default
+        let names = [NSWindow.didBecomeKeyNotification, NSWindow.didEndSheetNotification]
+        windowObservers = names.map { name in
+            center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.scheduleHandoff() }
+            }
+        }
+    }
+
+    private func removeWindowObservers() {
+        for observer in windowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        windowObservers = []
     }
 
     private func scheduleHandoff() {

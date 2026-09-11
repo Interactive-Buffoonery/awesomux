@@ -1127,6 +1127,9 @@ struct DocumentPaneView: View {
 
     let pane: DocumentPane
     var onTextViewAvailable: ((NSTextView) -> Void)? = nil
+    /// Drops a pending keyboard/VoiceOver handoff when this tab has no text
+    /// view to receive it (rejected or unreadable load).
+    var onDocumentUnavailable: (() -> Void)? = nil
     /// Reports the document's comment count on every (re)load so the send bar can
     /// surface the all-comments-resolved notice on the `> 0 -> 0` transition
     /// (INT-683). Defaulted so existing call sites and previews stay unchanged.
@@ -1244,6 +1247,7 @@ struct DocumentPaneView: View {
     init(
         pane: DocumentPane,
         onTextViewAvailable: ((NSTextView) -> Void)? = nil,
+        onDocumentUnavailable: (() -> Void)? = nil,
         cachedRender: DocumentTabMemory.Render? = nil,
         initialScrollAnchor: Int? = nil,
         initialCopyMode: Bool = false,
@@ -1260,6 +1264,7 @@ struct DocumentPaneView: View {
     ) {
         self.pane = pane
         self.onTextViewAvailable = onTextViewAvailable
+        self.onDocumentUnavailable = onDocumentUnavailable
         self.onCommentCountChanged = onCommentCountChanged
         self.onRenderCompleted = onRenderCompleted
         self.onOpenDocumentLink = onOpenDocumentLink
@@ -1366,6 +1371,12 @@ struct DocumentPaneView: View {
                 ProgressView()
                     .accessibilityLabel("Loading document")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            switch loadResult {
+            case .rejected, .readError: onDocumentUnavailable?()
+            default: break
             }
         }
         .onChange(of: isCopyMode) { _, copying in
@@ -1545,7 +1556,9 @@ struct DocumentPaneView: View {
             // rather than at the watcher so every caller is covered at once.
             switch result {
             case .loaded: break
-            case .rejected, .readError: pendingScrollAnchor = nil
+            case .rejected, .readError:
+                pendingScrollAnchor = nil
+                onDocumentUnavailable?()
             }
             // Report only when the content actually changed. The compare is
             // byte-exact (see `sourceChanged`) because `DocumentLoader` decides

@@ -34,7 +34,7 @@ struct DocumentTabStripView: View {
     let increasedContrast: Bool
     let selectedTaskProgress: TaskProgress?
     let revisionIndicators: DocumentRevisionIndicatorState
-    let onSelectTab: (DocumentPane.ID) -> Void
+    let onSelectTab: (DocumentPane.ID) -> Bool
     let onCloseTab: (DocumentPane) -> Void
     let onExpandRevision: (DocumentPane) -> Void
     let onDismissRevision: () -> Void
@@ -76,6 +76,7 @@ struct DocumentTabStripView: View {
                                     ? indicator?.revision
                                     : nil,
                                 onSelect: { onSelectTab(tab.id) },
+                                onBecameKeyboardFocused: { proxy.scrollTo(tab.id) },
                                 onRevealRevision: { onExpandRevision(tab) },
                                 onClose: { onCloseTab(tab) }
                             )
@@ -84,12 +85,11 @@ struct DocumentTabStripView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                // Keep the selected pill visible when the strip overflows —
-                // keyboard next/previous-tab cycling would otherwise select
-                // pills the user can't see. Known cosmetic flake: a tab
-                // appended AND selected in the same transaction may not have
-                // laid out yet, so this scrollTo can no-op; the next selection
-                // change self-heals it.
+                // Keep the selected or keyboard-focused pill visible when the
+                // strip overflows. Known cosmetic flake: a tab appended AND
+                // selected in the same transaction may not have laid out yet,
+                // so this scrollTo can no-op; the next selection change
+                // self-heals it.
                 .onChange(of: group.selectedTabID) { _, newValue in
                     proxy.scrollTo(newValue)
                 }
@@ -298,7 +298,8 @@ private struct DocumentTabPill: View {
     let increasedContrast: Bool
     let taskProgress: TaskProgress?
     let compactRevision: LineDiffCount.ExternalEdit?
-    let onSelect: () -> Void
+    let onSelect: () -> Bool
+    let onBecameKeyboardFocused: () -> Void
     let onRevealRevision: () -> Void
     let onClose: () -> Void
 
@@ -341,6 +342,9 @@ private struct DocumentTabPill: View {
             .foregroundStyle(titleColor)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .onChange(of: isKeyboardFocused) { _, focused in
+                if focused { onBecameKeyboardFocused() }
+            }
 
             if let compactRevision {
                 revisionMarker(compactRevision)
@@ -396,7 +400,9 @@ private struct DocumentTabPill: View {
     }
 
     private func select() {
-        onSelect()
+        if onSelect() {
+            isKeyboardFocused = false
+        }
     }
 
     private var titleColor: Color {
