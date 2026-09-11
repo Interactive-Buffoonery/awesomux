@@ -373,6 +373,15 @@ struct DocumentGroupView: View {
         // would resurrect a just-closed tab's memory entry).
         .onChange(of: group) { oldGroup, newGroup in
             if oldGroup.selectedTabID != newGroup.selectedTabID,
+                let oldSelectedTabID = oldGroup.selectedTabID
+            {
+                documentTabActions.clearFileBrowserRequest(
+                    in: session.id,
+                    groupID: oldGroup.id,
+                    documentID: oldSelectedTabID
+                )
+            }
+            if oldGroup.selectedTabID != newGroup.selectedTabID,
                 let oldSelectedTabID = oldGroup.selectedTabID,
                 let outgoingTab = oldGroup.tab(id: oldSelectedTabID)
             {
@@ -440,7 +449,11 @@ struct DocumentGroupView: View {
         // effect VoiceOver would speak for a document that no longer exists.
         .onDisappear {
             settleTask?.cancel()
-            documentTabActions.clearFileBrowserRequest()
+            documentTabActions.clearFileBrowserRequest(
+                in: session.id,
+                groupID: group.id,
+                documentID: document.id
+            )
             // Watchers deliberately keep running across a session switch. The
             // sweep only releases monitors whose group left every layout —
             // this disappearance may BE that close, and the store mutation
@@ -605,12 +618,14 @@ struct DocumentGroupView: View {
     }
 
     private func consumeFileBrowserRequest() {
-        guard let request = documentTabActions.fileBrowserRequest else { return }
-        defer { documentTabActions.clearFileBrowserRequest(id: request.id) }
         guard
-            request.sessionID == session.id,
-            request.groupID == group.id,
-            request.documentID == document.id,
+            let request = documentTabActions.consumeFileBrowserRequest(
+                in: session.id,
+                groupID: group.id,
+                documentID: document.id
+            )
+        else { return }
+        guard
             group.selectedTabID == document.id
         else {
             return

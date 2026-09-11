@@ -32,11 +32,11 @@ struct DocumentFileBrowserPresentationTests {
         )
 
         #expect(
-            DocumentFileBrowserPaneView.rootURL(in: session, associatedWith: source.id)
+            DocumentFileBrowserView.rootURL(in: session, associatedWith: source.id)
                 == sourceURL
         )
         #expect(
-            DocumentFileBrowserPaneView.rootURL(
+            DocumentFileBrowserView.rootURL(
                 in: session,
                 associatedWith: TerminalPane.ID()
             ) == activeURL
@@ -44,7 +44,7 @@ struct DocumentFileBrowserPresentationTests {
 
         let remote = TerminalPane(
             title: "remote",
-            workingDirectory: "/stale",
+            workingDirectory: sourceURL.path,
             executionPlan: .ssh(SSHExecution(target: try #require(RemoteTarget(user: "eD", host: "remote.example"))))
         )
         let remoteSession = TerminalSession(
@@ -58,7 +58,7 @@ struct DocumentFileBrowserPresentationTests {
                 )),
             activePaneID: active.id
         )
-        #expect(DocumentFileBrowserPaneView.rootURL(in: remoteSession, associatedWith: remote.id) == nil)
+        #expect(DocumentFileBrowserView.rootURL(in: remoteSession, associatedWith: remote.id) == nil)
 
         let invalidLocalSource = TerminalPane(
             title: "invalid local",
@@ -77,7 +77,7 @@ struct DocumentFileBrowserPresentationTests {
             activePaneID: remote.id
         )
         #expect(
-            DocumentFileBrowserPaneView.rootURL(
+            DocumentFileBrowserView.rootURL(
                 in: unsafeFallbackSession,
                 associatedWith: invalidLocalSource.id
             ) == nil

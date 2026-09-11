@@ -418,10 +418,22 @@ struct DocumentFileBrowserView: View {
     ) -> URL? {
         let targetPane = sourcePane(in: session, associatedWith: terminalPaneID)
         guard
-            let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
-                targetPane?.workingDirectory,
-                session.workingDirectory,
-            ])
+            let targetPane,
+            ExecutionContext(plan: targetPane.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed
+        else {
+            return nil
+        }
+        if let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
+            targetPane.workingDirectory
+        ]) {
+            return URL(fileURLWithPath: directory, isDirectory: true)
+        }
+        guard
+            let activePane = session.layout.pane(id: session.activePaneID),
+            ExecutionContext(plan: activePane.executionPlan)
+                .capability(.inspectLocalFilesystem).isAllowed,
+            let directory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [session.workingDirectory])
         else {
             return nil
         }

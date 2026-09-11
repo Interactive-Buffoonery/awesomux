@@ -11,39 +11,9 @@ struct DocumentFileBrowserPaneView: View {
     @State private var fileBrowserFocusRequestID: UUID?
 
     private var rootURL: URL? {
-        Self.rootURL(in: session, associatedWith: group.browserSourcePaneID)
-    }
-
-    static func rootURL(
-        in session: TerminalSession,
-        associatedWith sourcePaneID: TerminalPane.ID?
-    ) -> URL? {
-        guard
-            let effectiveSource = DocumentFileBrowserView.sourcePane(
-                in: session,
-                associatedWith: sourcePaneID
-            ),
-            ExecutionContext(plan: effectiveSource.executionPlan)
-                .capability(.inspectLocalFilesystem).isAllowed
-        else {
-            return nil
-        }
-        let sourceDirectory = WorkingDirectoryValidator.firstValidatedReportedDirectory(from: [
-            effectiveSource.workingDirectory
-        ])
-        if let sourceDirectory {
-            return URL(fileURLWithPath: sourceDirectory, isDirectory: true)
-        }
-        guard
-            let activePane = session.layout.pane(id: session.activePaneID),
-            ExecutionContext(plan: activePane.executionPlan)
-                .capability(.inspectLocalFilesystem).isAllowed
-        else {
-            return nil
-        }
         return DocumentFileBrowserView.rootURL(
             in: session,
-            associatedWith: sourcePaneID
+            associatedWith: group.browserSourcePaneID
         )
     }
 
@@ -68,7 +38,11 @@ struct DocumentFileBrowserPaneView: View {
             consumeFileBrowserRequest()
         }
         .onDisappear {
-            documentTabActions.clearFileBrowserRequest()
+            documentTabActions.clearFileBrowserRequest(
+                in: session.id,
+                groupID: group.id,
+                documentID: nil
+            )
         }
     }
 
@@ -125,12 +99,14 @@ struct DocumentFileBrowserPaneView: View {
     }
 
     private func consumeFileBrowserRequest() {
-        guard let request = documentTabActions.fileBrowserRequest else { return }
-        defer { documentTabActions.clearFileBrowserRequest(id: request.id) }
         guard
-            request.sessionID == session.id,
-            request.groupID == group.id,
-            request.documentID == nil,
+            let request = documentTabActions.consumeFileBrowserRequest(
+                in: session.id,
+                groupID: group.id,
+                documentID: nil
+            )
+        else { return }
+        guard
             sessionStore.selectedSessionID == session.id,
             let currentSession = sessionStore.session(id: session.id),
             let currentGroup = currentSession.layout.documentGroup(id: group.id),

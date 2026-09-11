@@ -58,4 +58,29 @@ final class DocumentComposeTabActionHandler {
         guard id == nil || fileBrowserRequest?.id == id else { return }
         fileBrowserRequest = nil
     }
+
+    func consumeFileBrowserRequest(
+        in sessionID: TerminalSession.ID,
+        groupID: DocumentGroup.ID,
+        documentID: DocumentPane.ID?
+    ) -> DocumentFileBrowserRequest? {
+        guard
+            let request = fileBrowserRequest,
+            request.sessionID == sessionID,
+            request.groupID == groupID,
+            request.documentID == documentID
+        else {
+            return nil
+        }
+        fileBrowserRequest = nil
+        return request
+    }
+
+    func clearFileBrowserRequest(
+        in sessionID: TerminalSession.ID,
+        groupID: DocumentGroup.ID,
+        documentID: DocumentPane.ID?
+    ) {
+        _ = consumeFileBrowserRequest(in: sessionID, groupID: groupID, documentID: documentID)
+    }
 }
