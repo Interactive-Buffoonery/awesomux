@@ -281,39 +281,46 @@ for attempt in 1 2 3; do
 
   bash_bin="$(command -v bash)"
   setsid_bin="$(command -v setsid || true)"
-  # Run the model in an isolated directory with a fresh OpenCode home. Clear
-  # every inherited environment entry before exporting the provider key and
-  # the small runtime/config allowlist. In particular, GitHub publication
-  # credentials and unrelated job secrets never reach this process.
-  (
-    while IFS= read -r env_name; do
-      unset "$env_name" 2>/dev/null || true
-    done < <(compgen -e)
-    export HOME="$model_home/home"
-    export XDG_DATA_HOME="$model_home/data"
-    export XDG_CACHE_HOME="$model_home/cache"
-    export XDG_STATE_HOME="$model_home/state"
-    export PATH="$opencode_path"
-    export LANG="C.UTF-8"
-    export CI="1"
-    export SYNTHETIC_API_KEY="$model_api_key"
-    export OPENCODE_DISABLE_PROJECT_CONFIG="1"
-    export OPENCODE_CONFIG_DIR="$model_config_dir"
-    export OPENCODE_CONFIG_CONTENT="$model_config_content"
-
-    # Positional parameters keep fixed paths out of shell evaluation. Feeding
-    # the packet on stdin avoids argv/env size limits and OpenCode attachment
-    # preview truncation.
-    # shellcheck disable=SC2016
-    child_command='cd "$1"; attempt_log="$2"; attempt_input="$3"; shift 3; "$@" < "$attempt_input" 2>&1 | tee -a "$attempt_log"'
-    if [ -n "$setsid_bin" ]; then
-      exec "$setsid_bin" "$bash_bin" -o pipefail -c "$child_command" _ \
-        "$model_workspace" "$attempt_log" "$attempt_input" "${child_args[@]}"
-    else
-      exec "$bash_bin" -o pipefail -c "$child_command" _ \
-        "$model_workspace" "$attempt_log" "$attempt_input" "${child_args[@]}"
-    fi
-  ) &
+  # Run the model in an isolated directory with a fresh OpenCode home and an
+  # explicit empty environment. In particular, GitHub publication credentials
+  # and unrelated job secrets never reach this process.
+  #
+  # Positional parameters keep fixed paths out of shell evaluation. Feeding the
+  # packet on stdin avoids argv/env size limits and OpenCode attachment preview
+  # truncation.
+  # shellcheck disable=SC2016
+  child_command='cd "$1"; attempt_log="$2"; attempt_input="$3"; shift 3; "$@" < "$attempt_input" 2>&1 | tee -a "$attempt_log"'
+  if [ -n "$setsid_bin" ]; then
+    env -i \
+      HOME="$model_home/home" \
+      XDG_DATA_HOME="$model_home/data" \
+      XDG_CACHE_HOME="$model_home/cache" \
+      XDG_STATE_HOME="$model_home/state" \
+      PATH="$opencode_path" \
+      LANG="C.UTF-8" \
+      CI="1" \
+      SYNTHETIC_API_KEY="$model_api_key" \
+      OPENCODE_DISABLE_PROJECT_CONFIG="1" \
+      OPENCODE_CONFIG_DIR="$model_config_dir" \
+      OPENCODE_CONFIG_CONTENT="$model_config_content" \
+      "$setsid_bin" "$bash_bin" -o pipefail -c "$child_command" _ \
+      "$model_workspace" "$attempt_log" "$attempt_input" "${child_args[@]}" &
+  else
+    env -i \
+      HOME="$model_home/home" \
+      XDG_DATA_HOME="$model_home/data" \
+      XDG_CACHE_HOME="$model_home/cache" \
+      XDG_STATE_HOME="$model_home/state" \
+      PATH="$opencode_path" \
+      LANG="C.UTF-8" \
+      CI="1" \
+      SYNTHETIC_API_KEY="$model_api_key" \
+      OPENCODE_DISABLE_PROJECT_CONFIG="1" \
+      OPENCODE_CONFIG_DIR="$model_config_dir" \
+      OPENCODE_CONFIG_CONTENT="$model_config_content" \
+      "$bash_bin" -o pipefail -c "$child_command" _ \
+      "$model_workspace" "$attempt_log" "$attempt_input" "${child_args[@]}" &
+  fi
   opencode_pid=$!
 
   while kill -0 "$opencode_pid" 2>/dev/null; do

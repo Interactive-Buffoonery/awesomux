@@ -132,7 +132,12 @@ runs:
       env:
         OPENCODE_VERSION: "1.17.8"
       run: |
-        installed_version="$(opencode --version)"
+        opencode_bin="$(command -v opencode)"
+        installed_version="$(
+          env -i \
+            PATH="$(dirname "$opencode_bin"):/usr/bin:/bin" \
+            "$opencode_bin" --version
+        )"
         echo "opencode version: $installed_version"
         if ! printf '%s' "$installed_version" | grep -qF "$OPENCODE_VERSION"; then
           echo "Installed opencode version does not contain expected $OPENCODE_VERSION" >&2
