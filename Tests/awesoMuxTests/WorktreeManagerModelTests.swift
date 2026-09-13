@@ -151,8 +151,8 @@ struct WorktreeManagerModelTests {
         #expect(announced.isEmpty)
     }
 
-    @Test("open focuses a fresh live match without creating a session")
-    func openIsIdempotentForLivePane() async throws {
+    @Test("open focuses a fresh live match without creating a session", arguments: WorktreeOpenDestination.allCases)
+    func openIsIdempotentForLivePane(destination: WorktreeOpenDestination) async throws {
         let session = TerminalSession(
             title: "existing",
             workingDirectory: "/tmp/worktrees/int-857/Sources"
@@ -170,7 +170,7 @@ struct WorktreeManagerModelTests {
         )
         let row = WorktreeManagerRow(record: record(), liveMatch: nil)
 
-        let outcome = await model.open(row: row)
+        let outcome = await model.open(row: row, destination: destination)
 
         let match = try #require(focused)
         #expect(outcome == .focused(match))
@@ -288,6 +288,111 @@ struct WorktreeManagerModelTests {
         }
         #expect(focusCalls == 0)
         #expect(addCalls == 0)
+    }
+
+    @Test("split destinations create and focus local worktree panes", arguments: [WorktreeOpenDestination.splitRight, .splitDown])
+    func openAsSplit(destination: WorktreeOpenDestination) async throws {
+        let session = TerminalSession(title: "original", workingDirectory: "/tmp/original")
+        let group = SessionGroup(name: "work", sessions: [session])
+        let store = SessionStore(groups: [group])
+        let model = WorktreeManagerModel(
+            repositoryContext: request(groupID: group.id).repositoryContext,
+            service: StubWorktreeListing(outcomes: []), sessionStore: store)
+        #expect(model.canOpenAsSplit)
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil), destination: destination)
+        guard case .split(let match) = outcome else { Issue.record("Expected split"); return }
+        let updated = try #require(store.selectedSession)
+        let pane = try #require(updated.layout.pane(id: match.paneID))
+        #expect(updated.id == session.id)
+        #expect(updated.activePaneID == pane.id)
+        #expect(updated.panes.count == 2)
+        #expect(pane.workingDirectory == record().canonicalPath.path)
+        #expect(pane.executionPlan == .local)
+        #expect(updated.layout.pane(id: session.activePaneID)?.workingDirectory == "/tmp/original")
+        guard case .split(let split) = updated.layout else { Issue.record("Expected split layout"); return }
+        #expect(split.orientation == (destination == .splitRight ? .vertical : .horizontal))
+        #expect(store.groups[0].sessions.count == 1)
+    }
+
+    @Test("remote and missing destinations cannot split", arguments: [false, true])
+    func unavailableSplit(remote: Bool) async throws {
+        let target = try #require(RemoteTarget(user: "", host: "example.com"))
+        let session = TerminalSession(title: "remote", workingDirectory: "/tmp/original", executionPlan: .ssh(.init(target: target)))
+        let group = SessionGroup(name: "work", sessions: remote ? [session] : [])
+        let store = SessionStore(groups: [group])
+        let model = WorktreeManagerModel(
+            repositoryContext: request(groupID: group.id).repositoryContext,
+            service: StubWorktreeListing(outcomes: []), sessionStore: store)
+        #expect(!model.canOpenAsSplit)
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil), destination: .splitRight)
+        guard case .failed = outcome else { Issue.record("Expected unavailable split failure"); return }
+        #expect(store.groups[0].sessions.count == (remote ? 1 : 0))
+    }
+
+    @Test("create captures the split destination before Git and fails without fallback when it changes")
+    func createDoesNotSplitChangedSelection() async {
+        let first = TerminalSession(title: "first", workingDirectory: "/tmp/first")
+        let second = TerminalSession(title: "second", workingDirectory: "/tmp/second")
+        let group = SessionGroup(name: "work", sessions: [first, second])
+        let store = SessionStore(groups: [group])
+        let service = StubWorktreeListing(
+            outcomes: [.success(.init(records: [record()], diagnostics: []))],
+            createOutcomes: [.success(record())], gatesCreate: true)
+        let model = WorktreeManagerModel(
+            repositoryContext: request(groupID: group.id).repositoryContext,
+            service: service, sessionStore: store)
+        let task = Task { await model.create(request: request(groupID: group.id), destination: .splitDown) }
+        await service.waitForCreateToStart()
+        store.selectedSessionID = second.id
+        service.releaseCreate()
+        let result = await task.value
+        guard case .worktreeCreatedWorkspaceOpenFailed = result else { Issue.record("Expected partial success"); return }
+        #expect(store.groups[0].sessions.count == 2)
+        #expect(store.groups[0].sessions.allSatisfy { $0.panes.count == 1 })
+    }
+
+    @Test("create opens the selected split after Git succeeds", arguments: [WorktreeOpenDestination.splitRight, .splitDown])
+    func createOpensSplit(destination: WorktreeOpenDestination) async throws {
+        let session = TerminalSession(title: "original", workingDirectory: "/tmp/original")
+        let group = SessionGroup(name: "work", sessions: [session])
+        let store = SessionStore(groups: [group])
+        let service = StubWorktreeListing(
+            outcomes: [.success(.init(records: [record()], diagnostics: []))],
+            createOutcomes: [.success(record())])
+        let model = WorktreeManagerModel(
+            repositoryContext: request(groupID: group.id).repositoryContext,
+            service: service, sessionStore: store)
+        let result = await model.create(request: request(groupID: group.id), destination: destination)
+        guard case .opened(.split(let match)) = result else { Issue.record("Expected created worktree split"); return }
+        #expect(match.sessionID == session.id)
+        #expect(store.selectedSession?.activePaneID == match.paneID)
+        #expect(store.selectedSession?.activePane?.workingDirectory == record().canonicalPath.path)
+        #expect(store.groups[0].sessions.count == 1)
+        store.setActivePane(id: session.activePaneID, in: session.id)
+        model.finishCreatePresentation()
+        #expect(store.selectedSession?.activePaneID == match.paneID)
+        #expect(model.createSubmissionState == .idle)
+    }
+
+    @Test("document leaf IDs cannot be a terminal split destination")
+    func documentDestinationUnavailable() async {
+        var session = TerminalSession(title: "original", workingDirectory: "/tmp/original")
+        let document = DocumentGroup(browsingFrom: session.activePaneID)
+        session.layout = .split(TerminalSplit(orientation: .vertical, first: session.layout, second: .documentGroup(document)))
+        session.activePaneID = document.id
+        let group = SessionGroup(name: "work", sessions: [session])
+        var splitCalls = 0
+        let model = WorktreeManagerModel(
+            repositoryContext: request(groupID: group.id).repositoryContext,
+            service: StubWorktreeListing(outcomes: []), groups: { [group] }, currentGroupID: { group.id },
+            focus: { _ in }, addLocalSession: { _, _, _ in nil }, currentSession: { session },
+            splitLocalPane: { _, _, _ in
+                splitCalls += 1; return UUID()
+            })
+        #expect(!model.canOpenAsSplit)
+        let result = await model.open(row: .init(record: record(), liveMatch: nil), destination: .splitDown)
+        guard case .failed = result else { Issue.record("Expected unavailable document destination"); return }
+        #expect(splitCalls == 0)
     }
 
     private func makeModel(

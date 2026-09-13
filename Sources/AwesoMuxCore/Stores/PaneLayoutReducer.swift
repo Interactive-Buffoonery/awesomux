@@ -64,7 +64,8 @@ struct PaneLayoutReducer: Sendable {
     static func splitActivePane(
         in session: TerminalSession,
         orientation: TerminalSplitOrientation,
-        now: Date
+        now: Date,
+        workingDirectory: String? = nil
     ) -> (session: TerminalSession, newPaneID: TerminalPane.ID)? {
         var session = session
         guard let activePane = session.activePane else {
@@ -72,8 +73,8 @@ struct PaneLayoutReducer: Sendable {
         }
 
         let newPane = TerminalPane(
-            title: Self.freshPaneSeedTitle(from: activePane),
-            workingDirectory: activePane.workingDirectory,
+            title: workingDirectory.map { ($0 as NSString).lastPathComponent } ?? Self.freshPaneSeedTitle(from: activePane),
+            workingDirectory: workingDirectory ?? activePane.workingDirectory,
             lastAgentStateChangeAt: now,
             executionPlan: activePane.executionPlan
         )

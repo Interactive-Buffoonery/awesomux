@@ -1743,14 +1743,16 @@ public final class SessionStore {
     @discardableResult
     public func splitActivePane(
         orientation: TerminalSplitOrientation,
-        in sessionID: TerminalSession.ID? = nil
+        in sessionID: TerminalSession.ID? = nil,
+        workingDirectory: String? = nil
     ) -> TerminalPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
             let position = position(for: sessionID),
             let result = PaneLayoutReducer.splitActivePane(
                 in: _groups[position.groupIndex].sessions[position.sessionIndex],
                 orientation: orientation,
-                now: Date()
+                now: Date(),
+                workingDirectory: workingDirectory
             )
         else {
             return nil

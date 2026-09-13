@@ -63,6 +63,9 @@ final class WorktreeManagerController {
         // regressed this).
         let isReshowingSameModel = isVisible && activeModel === model
         activeModel = model
+        refreshTask?.cancel()
+        refreshGeneration += 1
+        let generation = refreshGeneration
         if presentingCreateForm {
             model.pendingCreatePresentation = true
         }
@@ -80,9 +83,6 @@ final class WorktreeManagerController {
         }
         presentPanel(panel)
         isVisible = true
-        refreshTask?.cancel()
-        refreshGeneration += 1
-        let generation = refreshGeneration
         refreshTask = Task { [weak self, weak model] in
             await model?.refresh()
             guard let self, self.refreshGeneration == generation else { return }
@@ -126,9 +126,13 @@ final class WorktreeManagerController {
 
     @ViewBuilder
     private func makeRootView(model: WorktreeManagerModel) -> some View {
+        let generation = refreshGeneration
         let root = WorktreeManagerPanel(
             model: model,
-            onDismiss: { [weak self] in self?.dismiss() }
+            onDismiss: { [weak self, weak model] in
+                guard let self, self.activeModel === model, self.refreshGeneration == generation else { return }
+                self.dismiss()
+            }
         )
         if let appSettingsStore {
             root.appearanceBridge(appSettingsStore)
