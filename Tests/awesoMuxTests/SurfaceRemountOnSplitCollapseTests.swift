@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import AwesoMuxCore
 import Foundation
 import Testing
@@ -119,14 +120,26 @@ struct SurfaceRemountOnSplitCollapseTests {
         #expect(surfaceSize == container.scrollViewportSizeForTesting)
     }
 
-    @Test("native teardown replaces a stale hosted render layer")
-    func nativeTeardownReplacesStaleHostedRenderLayer() throws {
+    @Test(
+        "initial and recreated layers preserve the selected background",
+        arguments: ["catppuccin", "selenized"],
+        [AppearanceConfig.TerminalBackgroundMode.ghostty, .catppuccinTheme, .custom]
+    )
+    func nativeTeardownReplacesStaleHostedRenderLayer(
+        themeID: String, mode: AppearanceConfig.TerminalBackgroundMode
+    ) throws {
         let fixture = try makeSplitFixture()
         let window = makeWindow()
         defer { window.close() }
-        let runtime = GhosttyRuntime()
+        let runtime = GhosttyRuntime(terminalAppearanceProvider: {
+            TerminalAppearancePreferences(
+                terminalBackgroundMode: mode, terminalBackgroundColor: "#123456", terminalThemeID: themeID
+            )
+        })
+        #expect(runtime.isReady)
         defer { runtime.discardAllSurfaces() }
         let surfaceView = makeSurvivorView(runtime: runtime, fixture: fixture)
+        #expect(surfaceView.layer?.backgroundColor == runtime.terminalBackgroundColor.cgColor)
 
         let container = mountContainer(in: window)
         container.mount(surfaceView, isActive: true, contentSize: paneSize)
@@ -141,9 +154,7 @@ struct SurfaceRemountOnSplitCollapseTests {
         #expect(surfaceView.layer !== hostedLayer)
         #expect(hostedLayer.superlayer == nil)
         #expect(surfaceView.layer?.needsDisplayOnBoundsChange == true)
-        let expectedBackgroundColor = TerminalBackstopBackground
-            .color(for: runtime.resolvedTerminalBackgroundHex())?
-            .cgColor
+        let expectedBackgroundColor = runtime.terminalBackgroundColor.cgColor
         #expect(surfaceView.layer?.backgroundColor == expectedBackgroundColor)
         #expect(surfaceView.layer?.contentsScale == window.backingScaleFactor)
     }

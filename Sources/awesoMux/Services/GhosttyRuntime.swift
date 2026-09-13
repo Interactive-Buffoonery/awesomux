@@ -1076,14 +1076,6 @@ final class GhosttyRuntime {
         ghostty_app_update_config(app, config)
     }
 
-    func resolvedTerminalBackgroundHex() -> String {
-        let terminalAppearance = terminalAppearanceProvider()
-        return terminalAppearance.ghosttyBackgroundColor
-            ?? terminalAppearance.terminalThemeProvider.background(
-                for: terminalAppearance.effectiveTheme
-            )
-    }
-
     func configureOutputMarksAttentionProvider(
         _ provider: @escaping @MainActor () -> Bool
     ) {
