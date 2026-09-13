@@ -444,6 +444,60 @@ struct PaneLayoutReducer: Sendable {
         return session
     }
 
+    /// Replaces the rendered comparison held by one branch-changes tab.
+    ///
+    /// This is separate from file-browser navigation because generated tabs
+    /// are deliberately read-only. Refresh is allowed to move that tab between
+    /// awesoMux-owned cache slots while preserving its durable id and terminal
+    /// association. A slot already open in another tab folds into the tab that
+    /// asked for Refresh so the action never creates duplicate documents.
+    static func replaceBranchChangesTab(
+        tabID: DocumentPane.ID,
+        fileURL: URL,
+        identity: BranchChangesIdentity,
+        in session: TerminalSession
+    ) -> (session: TerminalSession, comparisonChanged: Bool)? {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard var group = session.layout.firstDocumentGroup,
+            let index = group.tabs.firstIndex(where: { $0.id == tabID }),
+            group.tabs[index].generatedDocumentKind == .branchChanges
+        else {
+            return nil
+        }
+
+        let previous = group.tabs[index]
+        let comparisonChanged =
+            previous.fileURL.standardizedFileURL != normalizedURL
+            || previous.branchChangesIdentity != identity
+
+        group.tabs.removeAll {
+            $0.id != tabID && $0.fileURL.standardizedFileURL == normalizedURL
+        }
+        guard let refreshedIndex = group.tabs.firstIndex(where: { $0.id == tabID }) else {
+            return nil
+        }
+
+        var refreshed = group.tabs[refreshedIndex]
+        refreshed.fileURL = normalizedURL
+        refreshed.title = identity.documentTitle
+        refreshed.remoteResourceIdentity = nil
+        refreshed.agentTranscriptIdentity = nil
+        refreshed.branchChangesIdentity = identity
+        refreshed.generatedDocumentKind = .branchChanges
+        group.tabs[refreshedIndex] = refreshed
+
+        if group.selectedTabID.flatMap({ group.tab(id: $0) }) == nil {
+            group.selectedTabID = tabID
+        }
+
+        guard let layout = session.layout.replacingDocumentGroup(id: group.id, with: group) else {
+            return nil
+        }
+        var session = session
+        session.layout = layout
+        return (session, comparisonChanged)
+    }
+
     static func setActivePane(
         id paneID: TerminalPane.ID,
         in session: TerminalSession

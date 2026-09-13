@@ -269,6 +269,96 @@ struct BranchChangesDocumentTabTests {
         #expect(group.tabs.count == 1)
     }
 
+    @Test func refreshCanMoveAGeneratedTabToANewComparisonSlot() throws {
+        let (session, terminal) = session()
+        let first = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        let newURL = URL(fileURLWithPath: "/tmp/cache/new.branch-changes.md")
+        let newIdentity = identity(branch: "feature/new")
+
+        let replacement = try #require(
+            PaneLayoutReducer.replaceBranchChangesTab(
+                tabID: first.newTabID,
+                fileURL: newURL,
+                identity: newIdentity,
+                in: first.session
+            ))
+        let group = try #require(replacement.session.layout.firstDocumentGroup)
+        let tab = try #require(group.tab(id: first.newTabID))
+
+        #expect(replacement.comparisonChanged)
+        #expect(group.tabs.count == 1)
+        #expect(tab.fileURL == newURL.standardizedFileURL)
+        #expect(tab.title == newIdentity.documentTitle)
+        #expect(tab.associatedTerminalPaneID == terminal.id)
+        #expect(tab.branchChangesIdentity == newIdentity)
+        #expect(tab.generatedDocumentKind == .branchChanges)
+    }
+
+    @Test func refreshOfTheSameComparisonDoesNotReportAComparisonChange() throws {
+        let (session, terminal) = session()
+        let first = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+
+        let replacement = try #require(
+            PaneLayoutReducer.replaceBranchChangesTab(
+                tabID: first.newTabID,
+                fileURL: Self.cacheURL,
+                identity: identity(),
+                in: first.session
+            ))
+
+        #expect(!replacement.comparisonChanged)
+        #expect(replacement.session.layout.firstDocumentGroup?.tabs.count == 1)
+    }
+
+    @Test func refreshKeepsTheOriginatingTabWhenTheTargetSlotIsAlreadyOpen() throws {
+        let (session, terminal) = session()
+        let first = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: Self.cacheURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: identity(),
+                in: session,
+                now: Date()
+            ))
+        let targetURL = URL(fileURLWithPath: "/tmp/cache/target.branch-changes.md")
+        let targetIdentity = identity(branch: "feature/target")
+        let target = try #require(
+            PaneLayoutReducer.openDocumentTab(
+                fileURL: targetURL,
+                associatedTerminalPaneID: terminal.id,
+                branchChangesIdentity: targetIdentity,
+                in: first.session,
+                now: Date()
+            ))
+
+        let replacement = try #require(
+            PaneLayoutReducer.replaceBranchChangesTab(
+                tabID: first.newTabID,
+                fileURL: targetURL,
+                identity: targetIdentity,
+                in: target.session
+            ))
+        let group = try #require(replacement.session.layout.firstDocumentGroup)
+
+        #expect(group.tabs.map(\.id) == [first.newTabID])
+        #expect(group.selectedTabID == first.newTabID)
+        #expect(try #require(group.tab(id: first.newTabID)).branchChangesIdentity == targetIdentity)
+    }
+
     @Test func aTabThatAlreadyHasProvenanceIsNeverRetargeted() throws {
         let (session, terminal) = session()
         let first = try #require(
