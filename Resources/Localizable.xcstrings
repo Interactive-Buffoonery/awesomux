@@ -161,6 +161,17 @@
     "%arg Transcript" : {
       "comment" : "Document tab title for a rendered agent transcript, e.g. 'Claude Code Transcript'"
     },
+    "%arg compared with %arg." : {
+      "comment" : "Notice text after refreshing a branch changes tab when its branch, base, or repository comparison changed",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg compared with %2$arg."
+          }
+        }
+      }
+    },
     "%arg couldn't be refreshed." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
     },
@@ -761,6 +772,9 @@
     "Branch changes opened." : {
       "comment" : "VoiceOver announcement after a rendered branch diff opens in a document tab"
     },
+    "Branch changes refreshed." : {
+      "comment" : "VoiceOver announcement after an open branch diff refreshes in place"
+    },
     "Branch filtering is unavailable for this window — every Pi entry is shown, including any from abandoned turns." : {
       "comment" : "Notice in a Pi agent transcript when no entry ids could be found to filter to the active branch, so all entries render"
     },
@@ -1163,6 +1177,12 @@
           }
         }
       }
+    },
+    "Comparison changed" : {
+      "comment" : "Notice heading after refreshing a branch changes tab when its branch, base, or repository comparison changed"
+    },
+    "Comparison changed." : {
+      "comment" : "VoiceOver announcement when Refresh updates an open branch diff to a different branch, base, or repository comparison"
     },
     "Configuration" : {
       "comment" : "Diagnostics event category"

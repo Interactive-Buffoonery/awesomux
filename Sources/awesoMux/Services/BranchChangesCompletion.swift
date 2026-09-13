@@ -9,7 +9,8 @@ import Foundation
 ///
 /// 1. Bytes that reached disk are registered as awesoMux's own write *before*
 ///    any gate that can discard this run.
-/// 2. The tab follows the PANE, not the workspace the render started in.
+/// 2. A menu-started open follows the pane's current workspace; a tab-started
+///    Refresh replaces that originating tab in its current workspace.
 @MainActor
 enum BranchChangesCompletion {
     /// - Parameter alert: injected rather than called directly because the
@@ -28,6 +29,7 @@ enum BranchChangesCompletion {
         coordinator: BranchChangesCoordinator,
         completeWrite: (URL) -> Void,
         alert: (BranchChangesFailure) -> Void,
+        comparisonDidChange: ((BranchChangesIdentity) -> Void)? = nil,
         requestFocus: ((DocumentPane.ID, TerminalSession.ID) -> Void)? = nil
     ) {
         finalizeWrite(
@@ -59,14 +61,32 @@ enum BranchChangesCompletion {
                 alert(.paneClosed)
                 return
             }
-            guard
-                let tabID = store.openDocumentPane(
-                    fileURL: opened.fileURL,
-                    in: ownerID,
-                    associatedWith: paneID,
-                    branchChangesIdentity: opened.identity
-                )
-            else {
+            let tabID: DocumentPane.ID
+            let documentOwnerID: TerminalSession.ID
+            let comparisonChanged: Bool
+            if let originatingDocumentID {
+                guard
+                    let replacement = store.replaceBranchChangesDocumentPane(
+                        documentID: originatingDocumentID,
+                        fileURL: opened.fileURL,
+                        identity: opened.identity
+                    )
+                else {
+                    return
+                }
+                tabID = originatingDocumentID
+                documentOwnerID = replacement.sessionID
+                comparisonChanged = replacement.comparisonChanged
+            } else if let openedTabID = store.openDocumentPane(
+                fileURL: opened.fileURL,
+                in: ownerID,
+                associatedWith: paneID,
+                branchChangesIdentity: opened.identity
+            ) {
+                tabID = openedTabID
+                documentOwnerID = ownerID
+                comparisonChanged = false
+            } else {
                 // The workspace went away while the diff ran. No alert — there
                 // is nothing left to act on, and the user closed it themselves —
                 // but silence would read as a dead command to anyone listening.
@@ -79,14 +99,35 @@ enum BranchChangesCompletion {
                 )
                 return
             }
-            requestFocus?(tabID, ownerID)
-            TerminalAccessibilityAnnouncer.announce(
-                String(
-                    localized: "Branch changes opened.",
-                    comment:
-                        "VoiceOver announcement after a rendered branch diff opens in a document tab"
+            requestFocus?(tabID, documentOwnerID)
+            if comparisonChanged {
+                comparisonDidChange?(opened.identity)
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Comparison changed.",
+                        comment:
+                            "VoiceOver announcement when Refresh updates an open branch diff to a different branch, base, or repository comparison"
+                    )
                 )
-            )
+            } else {
+                let announcement =
+                    if originatingDocumentID == nil {
+                        String(
+                            localized: "Branch changes opened.",
+                            comment:
+                                "VoiceOver announcement after a rendered branch diff opens in a document tab"
+                        )
+                    } else {
+                        String(
+                            localized: "Branch changes refreshed.",
+                            comment:
+                                "VoiceOver announcement after an open branch diff refreshes in place"
+                        )
+                    }
+                TerminalAccessibilityAnnouncer.announce(
+                    announcement
+                )
+            }
         case .failure(let failure):
             alert(failure)
         }

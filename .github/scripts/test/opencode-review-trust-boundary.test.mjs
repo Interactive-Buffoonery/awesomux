@@ -512,9 +512,8 @@ describe("opencode-review trusted-helper checkout", () => {
   });
 
   test("clears inherited credentials before starting OpenCode", () => {
-    assert.match(runner, /compgen -e/);
-    assert.match(runner, /unset "\$env_name"/);
-    assert.match(runner, /export SYNTHETIC_API_KEY="\$model_api_key"/);
+    assert.match(runner, /env -i \\/);
+    assert.match(runner, /SYNTHETIC_API_KEY="\$model_api_key" \\/);
     assert.doesNotMatch(runner, /export (GH_TOKEN|GITHUB_TOKEN)=/);
     for (const source of [body, commentWorkflow]) {
       const match = source.match(

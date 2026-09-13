@@ -14,13 +14,16 @@ struct BranchChangesCompletionTests {
     /// never created: nothing here reads the bytes back, only whether the write
     /// was claimed as awesoMux's own. Unique per call, because the self-write
     /// registry is a process-wide static shared with every other test.
-    private func render(markdown: String) throws -> OpenedBranchChanges {
+    private func render(
+        markdown: String,
+        branch: String? = "feature/x"
+    ) throws -> OpenedBranchChanges {
         OpenedBranchChanges(
             fileURL: FileManager.default.temporaryDirectory
                 .appending(path: "awesomux-completion-\(UUID().uuidString).branch-changes.md"),
             identity: try #require(
                 BranchChangesIdentity(
-                    gitBranch: "feature/x",
+                    gitBranch: branch,
                     baseRef: "refs/remotes/origin/main",
                     repositoryName: "awesomux"
                 )
@@ -281,6 +284,44 @@ struct BranchChangesCompletionTests {
         #expect(context?.isSelfWrite == true)
     }
 
+    @Test("a refresh failure stays silent after its originating tab closes")
+    func closedOriginatingTabDoesNotShowFailure() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let closed = try #require(
+            store.openDocumentPane(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appending(path: "awesomux-closed-\(UUID().uuidString).branch-changes.md"),
+                in: session.id,
+                associatedWith: terminal.id
+            )
+        )
+        store.closeDocumentPane(documentID: closed, in: session.id)
+        let coordinator = BranchChangesCoordinator()
+        let ticket = coordinator.begin(paneID: terminal.id)
+        var alerts: [BranchChangesFailure] = []
+
+        BranchChangesCompletion.apply(
+            .failure(.gitUnavailable),
+            paneID: terminal.id,
+            originatingDocumentID: closed,
+            ticket: ticket,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { alerts.append($0) }
+        )
+
+        #expect(alerts.isEmpty)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+    }
+
     @Test("a menu-started run carries no originating tab and always opens one")
     func nilOriginatingDocumentStillOpensATab() throws {
         let terminal = pane("zsh")
@@ -310,8 +351,8 @@ struct BranchChangesCompletionTests {
         #expect(group.tabs.count == 1)
     }
 
-    @Test("a refresh whose tab is still open opens into it as before")
-    func liveOriginatingTabStillOpens() throws {
+    @Test("a refresh after a branch switch replaces its originating tab")
+    func branchSwitchRefreshReplacesOriginatingTab() throws {
         let terminal = pane("zsh")
         let session = TerminalSession(
             title: "s",
@@ -320,17 +361,33 @@ struct BranchChangesCompletionTests {
             activePaneID: terminal.id
         )
         let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        let existing = try #require(
-            store.openDocumentPane(
-                fileURL: FileManager.default.temporaryDirectory
-                    .appending(path: "awesomux-origin-\(UUID().uuidString).branch-changes.md"),
-                in: session.id,
-                associatedWith: terminal.id
+        let originalIdentity = try #require(
+            BranchChangesIdentity(
+                gitBranch: "feature/old",
+                baseRef: "refs/remotes/origin/main",
+                repositoryName: "awesomux"
             )
         )
+        let originalURL = FileManager.default.temporaryDirectory
+            .appending(path: "awesomux-origin-\(UUID().uuidString).branch-changes.md")
+        let existing = try #require(
+            store.openDocumentPane(
+                fileURL: originalURL,
+                in: session.id,
+                associatedWith: terminal.id,
+                branchChangesIdentity: originalIdentity
+            )
+        )
+        let originalTab = try #require(
+            store.session(id: session.id)?.layout.firstDocumentGroup?.tab(id: existing)
+        )
+        var documentMemory = DocumentTabMemory()
+        documentMemory.setCollapsedSections(["Sources/App.swift"], for: originalTab)
         let coordinator = BranchChangesCoordinator()
         let ticket = coordinator.begin(paneID: terminal.id)
-        let result = try render(markdown: "# live\n")
+        let result = try render(markdown: "# live\n", branch: "feature/new")
+        var changedComparisons: [BranchChangesIdentity] = []
+        var focusRequests: [(DocumentPane.ID, TerminalSession.ID)] = []
 
         BranchChangesCompletion.apply(
             .success(result),
@@ -340,11 +397,24 @@ struct BranchChangesCompletionTests {
             store: store,
             coordinator: coordinator,
             completeWrite: { _ in },
-            alert: { _ in }
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            comparisonDidChange: { changedComparisons.append($0) },
+            requestFocus: { focusRequests.append(($0, $1)) }
         )
 
         let group = try #require(store.session(id: session.id)?.layout.firstDocumentGroup)
-        #expect(group.tabs.count == 2)
+        let refreshed = try #require(group.tab(id: existing))
+        #expect(group.tabs.count == 1)
+        #expect(refreshed.fileURL == result.fileURL.standardizedFileURL)
+        #expect(refreshed.title == result.identity.documentTitle)
+        #expect(refreshed.associatedTerminalPaneID == terminal.id)
+        #expect(refreshed.branchChangesIdentity == result.identity)
+        #expect(refreshed.generatedDocumentKind == .branchChanges)
+        #expect(documentMemory.collapsedSections(for: refreshed).isEmpty)
+        #expect(changedComparisons == [result.identity])
+        #expect(focusRequests.count == 1)
+        #expect(focusRequests.first?.0 == existing)
+        #expect(focusRequests.first?.1 == session.id)
     }
 
     // MARK: - Following the pane
