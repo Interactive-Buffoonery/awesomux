@@ -3875,8 +3875,10 @@ struct AwesoMuxApp: App {
         let executionPlan = pane.executionPlan
         let reportedSessionID = identity?.sessionID
         let paneID = pane.id
+        var focusIntent = documentTabActions.beginFocusIntent()
 
         Task { @MainActor in
+            defer { focusIntent?.cancel() }
             // Matches the remote-Markdown document load: announce the start,
             // then the outcome. Failure keeps announcing through its alert.
             TerminalAccessibilityAnnouncer.announce(
@@ -3912,7 +3914,14 @@ struct AwesoMuxApp: App {
                 schedulePrune: { SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore) },
                 alert: showAgentTranscriptFailureAlert,
                 requestFocus: { tabID, sessionID in
-                    documentTabActions.requestFocus(for: tabID, in: sessionID)
+                    guard let intent = focusIntent else { return }
+                    if documentTabActions.requestFocus(
+                        for: tabID,
+                        in: sessionID,
+                        intent: intent
+                    ) {
+                        focusIntent = nil
+                    }
                 }
             )
         }
@@ -3964,6 +3973,7 @@ struct AwesoMuxApp: App {
             completion()
             return
         }
+        var focusIntent = documentTabActions.beginFocusIntent()
         // Latest-wins, on one ticket that orders both the pane's reaction below
         // and the write to the shared cache slot. Invocations resolve in
         // whatever order git finishes; without this the slower one's result
@@ -3975,6 +3985,7 @@ struct AwesoMuxApp: App {
 
         let task = Task { @MainActor in
             defer {
+                focusIntent?.cancel()
                 coordinator.finish(ticket, paneID: paneID)
                 completion()
             }
@@ -4011,7 +4022,14 @@ struct AwesoMuxApp: App {
                 completeWrite: { opener.completeWrite(at: $0) },
                 alert: showBranchChangesFailureAlert,
                 requestFocus: { tabID, sessionID in
-                    documentTabActions.requestFocus(for: tabID, in: sessionID)
+                    guard let intent = focusIntent else { return }
+                    if documentTabActions.requestFocus(
+                        for: tabID,
+                        in: sessionID,
+                        intent: intent
+                    ) {
+                        focusIntent = nil
+                    }
                 }
             )
             SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)

@@ -660,8 +660,9 @@ struct DocumentGroupView: View {
     private func applyPendingFocusRequest() {
         guard
             let tabID = group.selectedTabID,
-            documentTabActions.consumeFocusRequest(in: session.id, tabID: tabID) != nil
+            let request = documentTabActions.consumeFocusRequest(in: session.id, tabID: tabID)
         else { return }
+        request.intent?.cancel()
         setFilesVisible(false)
         documentFocus.request(tabID)
     }

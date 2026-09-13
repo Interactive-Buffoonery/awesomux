@@ -430,9 +430,7 @@ private struct DocumentTabPill: View {
     }
 
     private func select() {
-        if onSelect() {
-            isKeyboardFocused = false
-        }
+        _ = onSelect()
     }
 
     private var titleColor: Color {
