@@ -231,8 +231,9 @@ final class BranchDiffStickyHeaderView: NSView {
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? {
-        guard let model else { return nil }
-        return model.foldable ? .button : .staticText
+        guard model != nil else { return nil }
+        // Non-foldable headings still navigate to their original position.
+        return .button
     }
     override func accessibilityLabel() -> String? {
         guard let model else { return nil }
