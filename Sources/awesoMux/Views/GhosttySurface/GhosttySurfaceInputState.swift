@@ -63,6 +63,7 @@ final class GhosttySurfaceInputState {
     }
 
     func disableSubmittedSSHCommandCapture() {
+        guard !submittedSSHCommandCaptureDisabled else { return }
         submittedSSHCommandBuffer = ""
         submittedSSHCommandCaptureDisabled = true
     }
