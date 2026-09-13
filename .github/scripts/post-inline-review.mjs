@@ -15,6 +15,7 @@
 //   GH_TOKEN         — GitHub token with pull-requests:write and issues:write
 //   GITHUB_REPOSITORY — owner/repo
 //   PR_NUMBER        — pull request number
+//   BASE_RANGE       — optional explicit git diff range
 //   BASE_REF         — base ref for diff computation (default: main)
 //   REPO_ROOT        — repo root for git diff (default: cwd)
 
@@ -269,7 +270,9 @@ async function main() {
   const token = process.env.GH_TOKEN;
   const repo = process.env.GITHUB_REPOSITORY;
   const prNumber = process.env.PR_NUMBER;
-  const baseRef = process.env.BASE_REF || "main";
+  const baseRange =
+    process.env.BASE_RANGE ||
+    `origin/${process.env.BASE_REF || "main"}...HEAD`;
   const repoRoot = process.env.REPO_ROOT || process.cwd();
 
   if (!logPath || !token || !repo || !prNumber) {
@@ -308,7 +311,6 @@ async function main() {
   let diffText;
   let reviewedFiles;
   try {
-    const baseRange = `origin/${baseRef}...HEAD`;
     diffText = execFileSync("git", ["diff", baseRange], {
       cwd: repoRoot,
       encoding: "utf-8",
