@@ -2,6 +2,11 @@ import AwesoMuxBridgeProtocol
 import Foundation
 import Observation
 
+public struct BranchChangesTabReplacement: Equatable, Sendable {
+    public let sessionID: TerminalSession.ID
+    public let comparisonChanged: Bool
+}
+
 @MainActor
 @Observable
 public final class SessionStore {
@@ -842,9 +847,15 @@ public final class SessionStore {
     /// captured a tab id has to re-resolve it the same way `sessionIDContainingPane`
     /// re-resolves a pane: the tab can be closed, and so can the workspace under it.
     public func containsDocumentTab(_ tabID: DocumentPane.ID) -> Bool {
-        _groups.lazy.flatMap(\.sessions).contains {
+        sessionIDContainingDocumentTab(tabID) != nil
+    }
+
+    /// The workspace that owns `tabID` right now. Deferred document work must
+    /// re-resolve this because the tab or its whole workspace may have closed.
+    public func sessionIDContainingDocumentTab(_ tabID: DocumentPane.ID) -> TerminalSession.ID? {
+        _groups.lazy.flatMap(\.sessions).first {
             $0.layout.firstDocumentGroup?.tab(id: tabID) != nil
-        }
+        }?.id
     }
 
     /// Sessions currently at risk of losing work on quit. Durable-risk sessions
@@ -1914,6 +1925,41 @@ public final class SessionStore {
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
         commit(WorkspaceMutationEffect(needsFullRebuild: true))
         return true
+    }
+
+    /// Replaces an awesoMux-rendered branch comparison in its originating tab.
+    /// The tab stays in its current workspace and keeps its id and terminal
+    /// association even if that terminal moved while the render was in flight.
+    @discardableResult
+    public func replaceBranchChangesDocumentPane(
+        documentID: DocumentPane.ID,
+        fileURL: URL,
+        identity: BranchChangesIdentity
+    ) -> BranchChangesTabReplacement? {
+        guard let sessionID = sessionIDContainingDocumentTab(documentID),
+            let position = position(for: sessionID)
+        else {
+            return nil
+        }
+        let previous = _groups[position.groupIndex].sessions[position.sessionIndex]
+        guard
+            let result = PaneLayoutReducer.replaceBranchChangesTab(
+                tabID: documentID,
+                fileURL: fileURL,
+                identity: identity,
+                in: previous
+            )
+        else {
+            return nil
+        }
+        if result.session != previous {
+            _groups[position.groupIndex].sessions[position.sessionIndex] = result.session
+            commit(WorkspaceMutationEffect(needsFullRebuild: true))
+        }
+        return BranchChangesTabReplacement(
+            sessionID: sessionID,
+            comparisonChanged: result.comparisonChanged
+        )
     }
 
     public func setActivePane(id paneID: TerminalPane.ID, in sessionID: TerminalSession.ID) {

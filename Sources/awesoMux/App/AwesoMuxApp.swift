@@ -4021,6 +4021,7 @@ struct AwesoMuxApp: App {
                 coordinator: coordinator,
                 completeWrite: { opener.completeWrite(at: $0) },
                 alert: showBranchChangesFailureAlert,
+                comparisonDidChange: showBranchChangesComparisonChangedNotice,
                 requestFocus: { tabID, sessionID in
                     guard let intent = focusIntent else { return }
                     if documentTabActions.requestFocus(
@@ -4035,6 +4036,27 @@ struct AwesoMuxApp: App {
             SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
         }
         coordinator.attach(task, ticket: ticket, paneID: paneID)
+    }
+
+    private func showBranchChangesComparisonChangedNotice(_ identity: BranchChangesIdentity) {
+        let toastID = UUID()
+        quickRunToast = QuickRunToast(
+            id: toastID,
+            command: identity.displayRepositoryName,
+            output: String(
+                localized: "\(identity.displayBranch) compared with \(identity.displayBaseRef).",
+                comment:
+                    "Notice text after refreshing a branch changes tab when its branch, base, or repository comparison changed"
+            ),
+            state: .notice(
+                kicker: String(
+                    localized: "Comparison changed",
+                    comment:
+                        "Notice heading after refreshing a branch changes tab when its branch, base, or repository comparison changed"
+                )
+            )
+        )
+        scheduleQuickRunToastDismissal(id: toastID)
     }
 
     private func showBranchChangesFailureAlert(_ failure: BranchChangesFailure) {
