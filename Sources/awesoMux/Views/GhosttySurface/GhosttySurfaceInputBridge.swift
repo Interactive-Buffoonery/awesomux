@@ -1224,9 +1224,16 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         isCommandSubmit: Bool,
         submittedAtObservedShellPrompt: Bool
     ) {
-        guard handled, action == GHOSTTY_ACTION_PRESS else {
+        guard handled else {
             return
         }
+        if action == GHOSTTY_ACTION_REPEAT {
+            if !Self.applySubmittedSSHCommandLineControl(event, to: inputState) {
+                inputState.disableSubmittedSSHCommandCapture()
+            }
+            return
+        }
+        guard action == GHOSTTY_ACTION_PRESS else { return }
 
         if isCommandSubmit {
             let command = inputState.submittedSSHCommandBuffer

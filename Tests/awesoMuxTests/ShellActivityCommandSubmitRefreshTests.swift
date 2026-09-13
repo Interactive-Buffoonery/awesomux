@@ -263,6 +263,77 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(!view.inputState.submittedSSHCommandCaptureDisabled)
     }
 
+    @Test("repeated input does not replay an erased SSH command")
+    func repeatedInputDoesNotReplayAnErasedSSHCommand() {
+        let (store, session, pane, view) = agentFixture()
+        func input(
+            action: ghostty_input_action_e = GHOSTTY_ACTION_PRESS,
+            keyCode: UInt16,
+            text: String?,
+            submit: Bool = false
+        ) {
+            view.observeSubmittedSSHCommandInput(
+                action: action,
+                event: keyEvent(keyCode: keyCode, modifiers: [], characters: text ?? ""),
+                text: text,
+                handled: true,
+                isCommandSubmit: submit,
+                submittedAtObservedShellPrompt: true
+            )
+        }
+
+        input(keyCode: 0, text: "ssh host")
+        input(keyCode: 51, text: nil)
+        for _ in 0..<7 {
+            input(action: GHOSTTY_ACTION_REPEAT, keyCode: 51, text: nil)
+        }
+        input(keyCode: 0, text: "claude")
+        input(keyCode: 36, text: "\r", submit: true)
+
+        let updatedPane = store.session(id: session.id)?.layout.pane(id: pane.id)
+        #expect(updatedPane?.agentKind == .claudeCode)
+        #expect(updatedPane?.pendingRemoteSSHTarget == nil)
+        #expect(!view.inputState.submittedSSHCommandCaptureDisabled)
+
+        input(action: GHOSTTY_ACTION_REPEAT, keyCode: 36, text: "\r", submit: false)
+        #expect(store.session(id: session.id)?.layout.pane(id: pane.id)?.agentKind == .claudeCode)
+        #expect(store.session(id: session.id)?.layout.pane(id: pane.id)?.pendingRemoteSSHTarget == nil)
+        #expect(view.inputState.submittedSSHCommandCaptureDisabled)
+
+        input(keyCode: 36, text: "\r", submit: true)
+        #expect(!view.inputState.submittedSSHCommandCaptureDisabled)
+    }
+
+    @Test("held Ctrl-C keeps SSH capture armed")
+    func repeatedControlCKeepsNextSSHCommandCaptured() {
+        let (store, session, pane, view) = agentFixture()
+        func input(
+            action: ghostty_input_action_e = GHOSTTY_ACTION_PRESS,
+            keyCode: UInt16,
+            modifiers: NSEvent.ModifierFlags = [],
+            text: String?,
+            submit: Bool = false
+        ) {
+            view.observeSubmittedSSHCommandInput(
+                action: action,
+                event: keyEvent(keyCode: keyCode, modifiers: modifiers, characters: text ?? ""),
+                text: text,
+                handled: true,
+                isCommandSubmit: submit,
+                submittedAtObservedShellPrompt: true
+            )
+        }
+
+        input(keyCode: 0x08, modifiers: [.control], text: "\u{3}")
+        input(action: GHOSTTY_ACTION_REPEAT, keyCode: 0x08, modifiers: [.control], text: "\u{3}")
+        input(keyCode: 0, text: "ssh host")
+        input(keyCode: 36, text: "\r", submit: true)
+
+        let updatedPane = store.session(id: session.id)?.layout.pane(id: pane.id)
+        #expect(updatedPane?.agentKind == .shell)
+        #expect(updatedPane?.pendingRemoteSSHTarget == "host")
+    }
+
     @Test(
         "navigation and readline controls invalidate capture",
         arguments: [
