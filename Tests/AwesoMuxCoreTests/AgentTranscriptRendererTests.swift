@@ -187,6 +187,27 @@ import Testing
                     .branchUnavailableNotice))
     }
 
+    @Test("Pi branch indexing tolerates malformed records and parent fields")
+    func piBranchIndexToleratesMalformedMetadata() {
+        let rendered = render(
+            [
+                #"{"id":"root","parentId":null,"type":"message","message":{"role":"user","content":"disconnected root"}}"#,
+                #"{"id":"broken""#,
+                #"{"id":42,"parentId":"root","type":"message","message":{"role":"assistant","content":"wrong id type"}}"#,
+                #"{"id":"detached","parentId":42,"type":"custom_message","role":"tool","customType":"status","content":"detached start"}"#,
+                #"{"id":"leaf","parentId":"detached","type":"message","message":{"role":"assistant","content":"active leaf"}}"#,
+            ],
+            provider: .pi,
+            agentKind: .pi
+        )
+
+        #expect(!rendered.text.contains("disconnected root"))
+        #expect(!rendered.text.contains("wrong id type"))
+        #expect(rendered.text.contains("detached start"))
+        #expect(rendered.text.contains("active leaf"))
+        #expect(!rendered.text.contains("Branch filtering is unavailable"))
+    }
+
     // MARK: - Claude Code
 
     @Test("Claude message.content renders as a plain String and as a block array")

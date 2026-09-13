@@ -749,11 +749,11 @@ public enum AgentTranscriptRenderer {
     /// part of the current conversation. A bounded tail may begin mid-branch,
     /// in which case the walk naturally stops at the oldest entry available.
     ///
-    /// The index is parsed ONCE and shared with the render loop, so a line is
-    /// decoded at most twice (here and in `renderRecord`) instead of three
-    /// times, and the loop's membership test is an index lookup rather than a
-    /// second parse. Lines past `maximumRecordBytes` never enter the index by
-    /// design: they answer by measured length, not by content — see the loop.
+    /// The index decodes only the two graph fields. Record bodies are decoded
+    /// by `renderRecord` only after branch membership is known, so abandoned
+    /// branches do not pay to materialize content that will be discarded.
+    /// Lines past `maximumRecordBytes` never enter the index by design: they
+    /// answer by measured length, not by content — see the loop.
     struct PiBranchIndex {
         /// Ids of every parseable, measurable record, in window order.
         var lineIDs: [String?]
@@ -766,23 +766,38 @@ public enum AgentTranscriptRenderer {
         }
     }
 
+    private struct PiBranchLink: Decodable {
+        var id: String
+        var parentID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case parentID = "parentId"
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            parentID = (try? container.decodeIfPresent(String.self, forKey: .parentID)) ?? nil
+        }
+    }
+
     private static func piBranchIndex(in lines: [Data.SubSequence]) -> PiBranchIndex? {
         var parents: [String: String?] = [:]
         var leafID: String?
         var lineIDs: [String?] = []
         lineIDs.reserveCapacity(lines.count)
+        let decoder = JSONDecoder()
         for line in lines {
             guard line.count <= maximumRecordBytes,
-                let object = try? JSONSerialization.jsonObject(with: Data(line)),
-                let record = object as? [String: Any],
-                let id = record["id"] as? String
+                let link = try? decoder.decode(PiBranchLink.self, from: Data(line))
             else {
                 lineIDs.append(nil)
                 continue
             }
-            parents[id] = record["parentId"] as? String
-            leafID = id
-            lineIDs.append(id)
+            parents[link.id] = link.parentID
+            leafID = link.id
+            lineIDs.append(link.id)
         }
         guard var current = leafID else { return nil }
         var branch: Set<String> = []
