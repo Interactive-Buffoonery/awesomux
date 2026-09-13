@@ -90,18 +90,6 @@ struct GeneralSettingsPane: View {
                         options: menuBarVisibilityOptions,
                         selection: appSettingsStore.general.binding(\.menuBarVisibility)
                     )
-                    .accessibilityLabel(
-                        String(
-                            localized: "Menu bar visibility",
-                            comment: "Accessibility label for menu bar visibility choices"
-                        )
-                    )
-                    .accessibilityHint(
-                        String(
-                            localized:
-                                "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need acknowledgement or have an unanswered turn.",
-                            comment: "Accessibility hint for menu bar visibility choices"
-                        ))
                 }
             }
         }
