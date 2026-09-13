@@ -2539,14 +2539,12 @@ struct AwesoMuxApp: App {
     /// bypass (review finding). A mouse selection involves a click that has
     /// already dismissed the transient popover, so it needs no guard.
     private func selectAdjacentDocumentTab(offset: Int) {
-        documentTabActions.perform {
-            guard let session = sessionStore.selectedSession,
-                let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
-            else {
-                return
-            }
-            sessionStore.selectDocumentTab(tabID: targetTabID, in: session.id)
+        guard let session = sessionStore.selectedSession,
+            let targetTabID = session.layout.firstDocumentGroup?.adjacentTabID(offset: offset)
+        else {
+            return
         }
+        documentTabActions.selectTab(targetTabID, in: session.id, store: sessionStore)
     }
 
     /// Closes the selected document tab — the keyboard counterpart of the tab
@@ -3877,8 +3875,10 @@ struct AwesoMuxApp: App {
         let executionPlan = pane.executionPlan
         let reportedSessionID = identity?.sessionID
         let paneID = pane.id
+        var focusIntent = documentTabActions.beginFocusIntent()
 
         Task { @MainActor in
+            defer { focusIntent?.cancel() }
             // Matches the remote-Markdown document load: announce the start,
             // then the outcome. Failure keeps announcing through its alert.
             TerminalAccessibilityAnnouncer.announce(
@@ -3912,7 +3912,17 @@ struct AwesoMuxApp: App {
                 store: sessionStore,
                 completeWrite: { AgentTranscriptStore().completeWrite(at: $0) },
                 schedulePrune: { SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore) },
-                alert: showAgentTranscriptFailureAlert
+                alert: showAgentTranscriptFailureAlert,
+                requestFocus: { tabID, sessionID in
+                    guard let intent = focusIntent else { return }
+                    if documentTabActions.requestFocus(
+                        for: tabID,
+                        in: sessionID,
+                        intent: intent
+                    ) {
+                        focusIntent = nil
+                    }
+                }
             )
         }
     }
@@ -3963,6 +3973,7 @@ struct AwesoMuxApp: App {
             completion()
             return
         }
+        var focusIntent = documentTabActions.beginFocusIntent()
         // Latest-wins, on one ticket that orders both the pane's reaction below
         // and the write to the shared cache slot. Invocations resolve in
         // whatever order git finishes; without this the slower one's result
@@ -3974,6 +3985,7 @@ struct AwesoMuxApp: App {
 
         let task = Task { @MainActor in
             defer {
+                focusIntent?.cancel()
                 coordinator.finish(ticket, paneID: paneID)
                 completion()
             }
@@ -4008,7 +4020,17 @@ struct AwesoMuxApp: App {
                 store: sessionStore,
                 coordinator: coordinator,
                 completeWrite: { opener.completeWrite(at: $0) },
-                alert: showBranchChangesFailureAlert
+                alert: showBranchChangesFailureAlert,
+                requestFocus: { tabID, sessionID in
+                    guard let intent = focusIntent else { return }
+                    if documentTabActions.requestFocus(
+                        for: tabID,
+                        in: sessionID,
+                        intent: intent
+                    ) {
+                        focusIntent = nil
+                    }
+                }
             )
             SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
         }
@@ -5262,7 +5284,10 @@ struct AwesoMuxApp: App {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        _ = sessionStore.openDocumentPane(fileURL: url)
+        guard let tabID = sessionStore.openDocumentPane(fileURL: url),
+            let sessionID = sessionStore.selectedSessionID
+        else { return }
+        documentTabActions.requestFocus(for: tabID, in: sessionID)
     }
 
     private func requestViewFiles() {

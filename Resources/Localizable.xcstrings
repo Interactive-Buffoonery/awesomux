@@ -395,6 +395,9 @@
     "%arg, current branch" : {
 
     },
+    "%arg, document content" : {
+      "comment" : "Accessibility label for a document text view with content; the placeholder is the file name"
+    },
     "%arg, managed automatically" : {
       "comment" : "Accessibility label for a destination row in the always-manage list"
     },
@@ -1560,6 +1563,9 @@
     },
     "Document Note" : {
 
+    },
+    "Document content" : {
+      "comment" : "Accessibility label for a document text view with content"
     },
     "Document note" : {
       "comment" : "Accessibility label for the document note sheet"

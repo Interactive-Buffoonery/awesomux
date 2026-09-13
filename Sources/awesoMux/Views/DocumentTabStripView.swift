@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -14,7 +15,7 @@ import SwiftUI
 /// pre-existing mismatch this strip doesn't resolve.
 ///
 /// Tab *selection* is a plain SwiftUI button: it mutates only `selectedTabID`,
-/// never remounts a terminal surface, so first-responder theft is harmless.
+/// hands keyboard and accessibility focus to the selected document.
 /// Per-tab *close* is `PaneCloseButton` (NSButton, `refusesFirstResponder`):
 /// closing the last tab collapses the split and remounts the terminal surface,
 /// which only reclaims keyboard focus when the first responder is vacant — a
@@ -34,7 +35,7 @@ struct DocumentTabStripView: View {
     let increasedContrast: Bool
     let selectedTaskProgress: TaskProgress?
     let revisionIndicators: DocumentRevisionIndicatorState
-    let onSelectTab: (DocumentPane.ID) -> Void
+    let onSelectTab: (DocumentPane.ID) -> Bool
     let onCloseTab: (DocumentPane) -> Void
     let onExpandRevision: (DocumentPane) -> Void
     let onDismissRevision: () -> Void
@@ -42,7 +43,7 @@ struct DocumentTabStripView: View {
     let onToggleFiles: () -> Void
 
     /// The strip owns the focus-accent reservation terminal panes render as a
-    /// separate band: documents never take keyboard focus, so the extra 4pt is
+    /// separate band. The extra 4pt is
     /// plain chrome. Folding it in lets pills center within the full visual
     /// bar (INT-738 round 3 — anything centered in a 24pt sub-band of the
     /// 28pt chrome reads bottom-aligned) while a document pane's total chrome
@@ -76,6 +77,7 @@ struct DocumentTabStripView: View {
                                     ? indicator?.revision
                                     : nil,
                                 onSelect: { onSelectTab(tab.id) },
+                                onBecameKeyboardFocused: { proxy.scrollTo(tab.id) },
                                 onRevealRevision: { onExpandRevision(tab) },
                                 onClose: { onCloseTab(tab) }
                             )
@@ -84,12 +86,11 @@ struct DocumentTabStripView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                // Keep the selected pill visible when the strip overflows —
-                // keyboard next/previous-tab cycling would otherwise select
-                // pills the user can't see. Known cosmetic flake: a tab
-                // appended AND selected in the same transaction may not have
-                // laid out yet, so this scrollTo can no-op; the next selection
-                // change self-heals it.
+                // Keep the selected or keyboard-focused pill visible when the
+                // strip overflows. Known cosmetic flake: a tab appended AND
+                // selected in the same transaction may not have laid out yet,
+                // so this scrollTo can no-op; the next selection change
+                // self-heals it.
                 .onChange(of: group.selectedTabID) { _, newValue in
                     proxy.scrollTo(newValue)
                 }
@@ -110,6 +111,12 @@ struct DocumentTabStripView: View {
         .frame(height: Self.height)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DocumentPaneChrome.barBackground)
+        .background {
+            DocumentTabStripAnchorView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             String(
@@ -180,6 +187,29 @@ struct DocumentTabStripView: View {
             )
         )
         .accessibilityHint(filesToggleHelp)
+    }
+}
+
+/// Marks the strip's frame so Control-Tab from a terminal can land on the
+/// first or last key-view target inside it. Hits pass through to the pills.
+private struct DocumentTabStripAnchorView: NSViewRepresentable {
+    func makeNSView(context: Context) -> AnchorView {
+        AnchorView()
+    }
+
+    func updateNSView(_ nsView: AnchorView, context: Context) {}
+
+    final class AnchorView: NSView {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            identifier = DocumentKeyViewTraversal.tabStripIdentifier
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override var acceptsFirstResponder: Bool { false }
     }
 }
 
@@ -298,15 +328,17 @@ private struct DocumentTabPill: View {
     let increasedContrast: Bool
     let taskProgress: TaskProgress?
     let compactRevision: LineDiffCount.ExternalEdit?
-    let onSelect: () -> Void
+    let onSelect: () -> Bool
+    let onBecameKeyboardFocused: () -> Void
     let onRevealRevision: () -> Void
     let onClose: () -> Void
 
     @State private var isHovering = false
+    @FocusState private var isKeyboardFocused: Bool
 
     var body: some View {
         HStack(spacing: 0) {
-            Button(action: onSelect) {
+            Button(action: select) {
                 HStack(spacing: 4) {
                     Text(tab.title)
                         .lineLimit(1)
@@ -326,9 +358,23 @@ private struct DocumentTabPill: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusable()
+            .focused($isKeyboardFocused)
+            // Suppress the system ring; the accent `awFocusRing` below is the
+            // keyboard-only focus indicator.
+            .focusEffectDisabled()
+            .onKeyPress(keys: [.space, .return], phases: .down) { press in
+                guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+                select()
+                return .handled
+            }
+            .awFocusRing(isKeyboardFocused, cornerRadius: 5)
             .foregroundStyle(titleColor)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .onChange(of: isKeyboardFocused) { _, focused in
+                if focused { onBecameKeyboardFocused() }
+            }
 
             if let compactRevision {
                 revisionMarker(compactRevision)
@@ -381,6 +427,10 @@ private struct DocumentTabPill: View {
                 localized: "Show revision details",
                 comment: "Accessibility hint for a compact document revision indicator"
             ))
+    }
+
+    private func select() {
+        _ = onSelect()
     }
 
     private var titleColor: Color {

@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import Foundation
 import Observation
@@ -12,8 +13,121 @@ struct DocumentFileBrowserRequest: Equatable, Identifiable {
 @MainActor
 @Observable
 final class DocumentComposeTabActionHandler {
+    struct FocusRequest: Equatable {
+        let id = UUID()
+        let sessionID: TerminalSession.ID
+        let tabID: DocumentPane.ID
+        let intent: FocusIntent?
+
+        init(
+            sessionID: TerminalSession.ID,
+            tabID: DocumentPane.ID,
+            intent: FocusIntent? = nil
+        ) {
+            self.sessionID = sessionID
+            self.tabID = tabID
+            self.intent = intent
+        }
+
+        static func == (lhs: FocusRequest, rhs: FocusRequest) -> Bool {
+            lhs.id == rhs.id
+        }
+    }
+
+    @MainActor
+    final class FocusIntent {
+        private weak var window: NSWindow?
+        private var inputMonitor: Any?
+
+        init?(in window: NSWindow?) {
+            guard let window, window.isKeyWindow, window.attachedSheet == nil else { return nil }
+            self.window = window
+            inputMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] event in
+                self?.handleSubsequentInput(event)
+                return event
+            }
+        }
+
+        var isActive: Bool {
+            inputMonitor != nil && window?.isKeyWindow == true && window?.attachedSheet == nil
+        }
+
+        func handleSubsequentInput(_ event: NSEvent) {
+            if let eventWindow = event.window, eventWindow !== window { return }
+            cancel()
+        }
+
+        func cancel() {
+            if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
+            inputMonitor = nil
+        }
+
+        isolated deinit { cancel() }
+    }
+
     private(set) var noticeID: UUID?
     private(set) var fileBrowserRequest: DocumentFileBrowserRequest?
+    private(set) var focusRequest: FocusRequest?
+
+    @discardableResult
+    func selectTab(_ tabID: DocumentPane.ID, in sessionID: TerminalSession.ID, store: SessionStore) -> Bool {
+        var didSelect = false
+        perform {
+            store.selectDocumentTab(tabID: tabID, in: sessionID)
+            guard store.session(id: sessionID)?.layout.firstDocumentGroup?.selectedTabID == tabID else { return }
+            focusRequest = FocusRequest(sessionID: sessionID, tabID: tabID)
+            didSelect = true
+        }
+        return didSelect
+    }
+
+    func beginFocusIntent(in window: NSWindow? = NSApp.keyWindow) -> FocusIntent? {
+        FocusIntent(in: window)
+    }
+
+    func requestFocus(for tabID: DocumentPane.ID, in sessionID: TerminalSession.ID) {
+        _ = requestFocus(for: tabID, in: sessionID, intent: nil)
+    }
+
+    @discardableResult
+    func requestFocus(
+        for tabID: DocumentPane.ID,
+        in sessionID: TerminalSession.ID,
+        intent: FocusIntent?
+    ) -> Bool {
+        var didRequest = false
+        perform {
+            guard intent?.isActive ?? true else {
+                intent?.cancel()
+                return
+            }
+            focusRequest?.intent?.cancel()
+            focusRequest = FocusRequest(sessionID: sessionID, tabID: tabID, intent: intent)
+            didRequest = true
+        }
+        return didRequest
+    }
+
+    func consumeFocusRequest(
+        in sessionID: TerminalSession.ID,
+        tabID: DocumentPane.ID
+    ) -> FocusRequest? {
+        guard
+            let request = focusRequest,
+            request.sessionID == sessionID,
+            request.tabID == tabID
+        else {
+            return nil
+        }
+        focusRequest = nil
+        guard request.intent?.isActive ?? true else {
+            request.intent?.cancel()
+            return nil
+        }
+        return request
+    }
 
     func perform(
         _ action: () -> Void,

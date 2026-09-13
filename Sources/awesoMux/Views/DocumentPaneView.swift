@@ -1126,6 +1126,10 @@ struct DocumentPaneView: View {
     @MainActor static var selfWriteRegistry = MarkdownSelfWriteRegistry()
 
     let pane: DocumentPane
+    var onTextViewAvailable: ((NSTextView) -> Void)? = nil
+    /// Drops a pending keyboard/VoiceOver handoff when this tab has no text
+    /// view to receive it (rejected or unreadable load).
+    var onDocumentUnavailable: (() -> Void)? = nil
     /// Reports the document's comment count on every (re)load so the send bar can
     /// surface the all-comments-resolved notice on the `> 0 -> 0` transition
     /// (INT-683). Defaulted so existing call sites and previews stay unchanged.
@@ -1242,6 +1246,8 @@ struct DocumentPaneView: View {
     @MainActor
     init(
         pane: DocumentPane,
+        onTextViewAvailable: ((NSTextView) -> Void)? = nil,
+        onDocumentUnavailable: (() -> Void)? = nil,
         cachedRender: DocumentTabMemory.Render? = nil,
         initialScrollAnchor: Int? = nil,
         initialCopyMode: Bool = false,
@@ -1257,6 +1263,8 @@ struct DocumentPaneView: View {
         onSectionToggled: ((String) -> Void)? = nil
     ) {
         self.pane = pane
+        self.onTextViewAvailable = onTextViewAvailable
+        self.onDocumentUnavailable = onDocumentUnavailable
         self.onCommentCountChanged = onCommentCountChanged
         self.onRenderCompleted = onRenderCompleted
         self.onOpenDocumentLink = onOpenDocumentLink
@@ -1363,6 +1371,12 @@ struct DocumentPaneView: View {
                 ProgressView()
                     .accessibilityLabel("Loading document")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            switch loadResult {
+            case .rejected, .readError: onDocumentUnavailable?()
+            default: break
             }
         }
         .onChange(of: isCopyMode) { _, copying in
@@ -1542,7 +1556,9 @@ struct DocumentPaneView: View {
             // rather than at the watcher so every caller is covered at once.
             switch result {
             case .loaded: break
-            case .rejected, .readError: pendingScrollAnchor = nil
+            case .rejected, .readError:
+                pendingScrollAnchor = nil
+                onDocumentUnavailable?()
             }
             // Report only when the content actually changed. The compare is
             // byte-exact (see `sourceChanged`) because `DocumentLoader` decides
@@ -1652,13 +1668,9 @@ struct DocumentPaneView: View {
                             snapshot: snapshot
                         )
                     }
-                    if doc.runs.isEmpty {
-                        Text("This document is empty.")
-                            .foregroundStyle(.secondary)
-                            .font(.callout)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .accessibilityLabel("\(pane.title) is empty")
-                    } else {
+                    // Empty documents still mount the text view so tab-selection
+                    // handoff has a key-view target. The overlay is visual only.
+                    ZStack {
                         MarkdownTextView(
                             doc: doc,
                             selectedSourceSpan: $selectedSourceSpan,
@@ -1693,7 +1705,16 @@ struct DocumentPaneView: View {
                                 )
                             },
                             selectionTouchesMark: spanTouchesMark || isReadOnly || !annotationsInteractive,
-                            onTextViewAvailable: { tv in markdownNSTextView = tv },
+                            onTextViewAvailable: { tv in
+                                markdownNSTextView = tv
+                                onTextViewAvailable?(tv)
+                            },
+                            textAccessibilityLabel: doc.runs.isEmpty
+                                ? String(localized: "\(pane.title) is empty")
+                                : String(
+                                    localized: "\(pane.title), document content",
+                                    comment:
+                                        "Accessibility label for a document text view with content; the placeholder is the file name"),
                             // Fix 3 (INT-562): auto-present compose popover when the user
                             // finalizes a selection (mouseUp with a non-empty, non-mark-touching
                             // span). Guard: don't re-present if a popover is already open (covers
@@ -1769,7 +1790,8 @@ struct DocumentPaneView: View {
                                         let centRect = NSRect(
                                             x: visibleInTV.midX - 10,
                                             y: visibleInTV.midY - 10,
-                                            width: 20, height: 20
+                                            width: 20,
+                                            height: 20
                                         )
                                         showComposePopover(
                                             span: span,
@@ -1800,6 +1822,14 @@ struct DocumentPaneView: View {
                             } else {
                                 Toggle("Hide Resolved Annotations", isOn: $hideResolved)
                             }
+                        }
+                        if doc.runs.isEmpty {
+                            Text("This document is empty.")
+                                .foregroundStyle(.secondary)
+                                .font(.callout)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                         }
                     }
                 }

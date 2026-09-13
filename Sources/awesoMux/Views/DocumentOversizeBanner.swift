@@ -177,7 +177,7 @@ enum RemoteSnapshotStalePolicy {
 /// content would undo the point of keeping it — with a `status.needs` tint, a
 /// bottom hairline, and a single accessibility element carrying the whole
 /// message. That last part is load-bearing: the rendered markdown body is one
-/// `.staticText` element labelled "Document content", so no heading inside the
+/// text-area element labelled with the file name, so no heading inside the
 /// document is reachable as structure and this row is the only signal a screen
 /// reader gets that the view has stopped tracking the file.
 ///

@@ -4,10 +4,8 @@ import AppKit
 /// while its section's body scrolls underneath, and is pushed out of the way by
 /// the next file's heading as that heading reaches the top edge.
 ///
-/// Deliberately NOT an accessibility element: `CommentBadgeOverlay` already
-/// exposes one button per heading with the same label and value, and the
-/// document text carries the heading itself. A third identity per file is noise
-/// rather than access.
+/// The pinned heading is also a native key-view target so keyboard users can
+/// reveal and fold the current section without locating an offscreen button.
 @MainActor
 final class BranchDiffStickyHeaderView: NSView {
     struct Model: Equatable {
@@ -68,6 +66,22 @@ final class BranchDiffStickyHeaderView: NSView {
     var model: Model? {
         didSet {
             guard oldValue != model else { return }
+            if model == nil, let scrollView = superview as? NSScrollView,
+                let documentView = scrollView.documentView
+            {
+                let hadAccessibilityFocus = isAccessibilityFocused()
+                if window?.firstResponder === self {
+                    window?.makeFirstResponder(documentView)
+                }
+                if hadAccessibilityFocus {
+                    // VoiceOver can sit on the header without making it first
+                    // responder. `setAccessibilityFocused(true)` on the text
+                    // view would also steal keyboard focus; posting the
+                    // notification keeps AX in sync without the steal.
+                    NSAccessibility.post(
+                        element: documentView, notification: .focusedUIElementChanged)
+                }
+            }
             isHidden = model == nil
             // The pointing-hand rect covers the whole bar, so it has to come and
             // go with the bar itself.
@@ -81,6 +95,8 @@ final class BranchDiffStickyHeaderView: NSView {
     /// Test seam: the chevron's own frame, so a hit-test assertion can aim at
     /// the subview that used to swallow the click rather than at empty bar.
     var chevronFrameForTesting: NSRect { chevron.frame }
+    /// Test seam: VoiceOver focus is not observable in a headless window.
+    var isAccessibilityFocusedForTesting: Bool?
 
     /// Test seam: the counts label's frame after layout, and the width the
     /// label needs; a frame narrower than the need clips the removed count.
@@ -125,7 +141,7 @@ final class BranchDiffStickyHeaderView: NSView {
         // didSet never fires for the initial nil model, so the starting hidden
         // state has to be set here.
         isHidden = true
-        setAccessibilityElement(false)
+        setAccessibilityElement(true)
         for label in [titleLabel, countsLabel] {
             label.lineBreakMode = .byTruncatingMiddle
             label.setAccessibilityElement(false)
@@ -173,6 +189,12 @@ final class BranchDiffStickyHeaderView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        if window?.firstResponder === self, window?.isKeyWindow == true {
+            NSColor.keyboardFocusIndicatorColor.setStroke()
+            let ring = NSBezierPath(rect: bounds.insetBy(dx: 2, dy: 2))
+            ring.lineWidth = 2
+            ring.stroke()
+        }
         ruleColor.setFill()
         // Unflipped: the header's own bottom edge is y == 0.
         NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 1).fill()
@@ -191,6 +213,61 @@ final class BranchDiffStickyHeaderView: NSView {
         super.resetCursorRects()
         guard !isHidden else { return }
         addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override var acceptsFirstResponder: Bool { model != nil }
+    override var canBecomeKeyView: Bool {
+        model != nil && window != nil && !isHiddenOrHasHiddenAncestor
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        needsDisplay = true
+        return super.becomeFirstResponder()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        needsDisplay = true
+        return super.resignFirstResponder()
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        guard let model else { return nil }
+        return model.foldable ? .button : .staticText
+    }
+    override func accessibilityLabel() -> String? {
+        guard let model else { return nil }
+        return CommentBadgeOverlay.sectionAccessibilityLabel(
+            title: model.title, added: model.added, removed: model.removed)
+    }
+    override func accessibilityValue() -> Any? {
+        guard let model, model.foldable else { return nil }
+        return model.collapsed ? String(localized: "collapsed") : String(localized: "expanded")
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard model != nil else { return false }
+        activate()
+        return true
+    }
+
+    override func isAccessibilityFocused() -> Bool {
+        isAccessibilityFocusedForTesting ?? super.isAccessibilityFocused()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if DocumentKeyViewTraversal.handle(event, in: window) { return }
+        let commandModifiers = event.modifierFlags.intersection([.command, .control, .option])
+        if commandModifiers.isEmpty, event.keyCode == 36 || event.keyCode == 49 {
+            guard !event.isARepeat else { return }
+            activate()
+        } else if event.keyCode == 48, commandModifiers.isEmpty {
+            if event.modifierFlags.contains(.shift) {
+                window?.selectPreviousKeyView(self)
+            } else {
+                window?.selectNextKeyView(self)
+            }
+        } else {
+            super.keyDown(with: event)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {

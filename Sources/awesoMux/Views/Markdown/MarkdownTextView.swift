@@ -23,9 +23,40 @@ import SwiftUI
 final class SelectionAwareTextView: NSTextView {
     /// Called after mouseDown's tracking loop finalizes the selection. Args: the text view.
     var onSelectionFinished: ((NSTextView) -> Void)? = nil
+    var onWindowAttachment: (() -> Void)?
     /// Copy Mode publishes only what is visibly selected, without rich-text
     /// attributes that can carry hidden review markup or local file URLs.
     var copiesPlainTextOnly = false
+
+    override var acceptsFirstResponder: Bool { isSelectable }
+    override var canBecomeKeyView: Bool {
+        isSelectable && window != nil && !isHiddenOrHasHiddenAncestor
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { onWindowAttachment?() }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { (enclosingScrollView as? DocumentTextScrollView)?.showsDocumentFocus = true }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { (enclosingScrollView as? DocumentTextScrollView)?.showsDocumentFocus = false }
+        return accepted
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if DocumentKeyViewTraversal.handle(event, in: window) { return }
+        super.keyDown(with: event)
+    }
+
+    override func insertTab(_ sender: Any?) { window?.selectNextKeyView(sender) }
+    override func insertBacktab(_ sender: Any?) { window?.selectPreviousKeyView(sender) }
 
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
         copiesPlainTextOnly ? [.string] : super.writablePasteboardTypes
@@ -118,6 +149,22 @@ enum TextStorageSelectionPreservation {
     }
 }
 
+@MainActor
+final class DocumentTextScrollView: NSScrollView {
+    var showsDocumentFocus = false {
+        didSet {
+            wantsLayer = true
+            layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
+            layer?.borderWidth = showsDocumentFocus ? 2 : 0
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
+    }
+}
+
 // MARK: - MarkdownTextView
 
 /// NSViewRepresentable wrapper over a selectable, non-editable `NSTextView`
@@ -177,6 +224,11 @@ struct MarkdownTextView: NSViewRepresentable {
     var selectionTouchesMark: Bool = false
     /// Called once with the NSTextView reference so the parent can anchor NSPopovers.
     var onTextViewAvailable: ((NSTextView) -> Void)? = nil
+    /// VoiceOver label for the document text. Empty documents override the
+    /// generic default so tab-selection handoff still has a named target.
+    var textAccessibilityLabel: String = String(
+        localized: "Document content",
+        comment: "Accessibility label for a document text view with content")
 
     /// Fix 3 (INT-562): called when the user FINALISES a text selection (mouseUp with a
     /// non-empty range that does not touch an existing mark). Args: source span, trailing
@@ -349,7 +401,7 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = DocumentTextScrollView()
         scrollView.hasVerticalScroller = true
         // INT-687: wide tables overflow horizontally instead of wrapping at the
         // pane edge. autohidesScrollers keeps the horizontal bar invisible for
@@ -401,9 +453,12 @@ struct MarkdownTextView: NSViewRepresentable {
             coordinator?.handleSelectionFinished(in: tv)
         }
 
-        // Accessibility: a non-editable, selectable document.
-        textView.setAccessibilityRole(.staticText)
-        textView.setAccessibilityLabel("Document content")
+        // Accessibility: a non-editable, selectable document. `.staticText`
+        // hid the view from the key-view loop's spoken role once it became a
+        // keyboard target; a text area is what VoiceOver expects for
+        // selectable multi-line content.
+        textView.setAccessibilityRole(.textArea)
+        textView.setAccessibilityLabel(textAccessibilityLabel)
         scrollView.setAccessibilityElement(false)
 
         scrollView.documentView = textView
@@ -460,6 +515,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        textView.setAccessibilityLabel(textAccessibilityLabel)
         (textView as? SelectionAwareTextView)?.copiesPlainTextOnly = copiesPlainTextOnly
 
         // Table grid stroke color tracks the adaptive body text color (dimmed) so
@@ -1040,6 +1096,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
                 headerHeight: BranchDiffStickyHeaderView.height)
         else {
             header.model = nil
+            overlay.pinnedSectionKey = nil
             return
         }
         let section = chrome[placement.index]
@@ -1048,6 +1105,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             removed: section.removed, collapsed: section.collapsed,
             foldable: section.foldable)
         if header.model != model { header.model = model }
+        overlay.pinnedSectionKey = section.key
         // The scroll view's own space is FLIPPED (see installStickyHeaderIfNeeded): its top edge
         // is `clip.frame.minY` and y grows downward, so a `pushOffset` of ≤ 0
         // ("move up") is added, not subtracted.
@@ -1059,11 +1117,24 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         if header.frame != frame { header.frame = frame }
     }
 
+    func returnFocusFromPinnedHeadingIfNeeded() {
+        guard let textView else { return }
+        let header = stickyHeader
+        guard
+            textView.window?.firstResponder === header
+                || header?.isAccessibilityFocused() == true
+        else { return }
+        textView.window?.makeFirstResponder(textView)
+        textView.setAccessibilityFocused(true)
+        NSAccessibility.post(element: textView, notification: .focusedUIElementChanged)
+    }
+
     func activateStickyHeader(_ key: String) {
         guard let textView, let overlay = badgeOverlay,
             let chrome = overlay.sectionChrome.first(where: { $0.key == key }),
             let scrollView = textView.enclosingScrollView
         else { return }
+        returnFocusFromPinnedHeadingIfNeeded()
         let x = scrollView.contentView.bounds.origin.x
         textView.scroll(NSPoint(x: x, y: max(0, chrome.rowRect.minY - 4)))
         // A fence-less section has nothing to fold, so its pinned header is

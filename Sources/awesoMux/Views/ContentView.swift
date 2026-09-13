@@ -446,6 +446,7 @@ struct ContentView: View {
                     .environment(appSettingsStore)
                     .environment(documentTabActions)
                     .environment(branchChangesCoordinator)
+                    .environment(documentTabActions)
                     .environment(\.branchChangesRefresh, branchChangesRefresh)
                     .appearanceBridge(appSettingsStore)
                 }

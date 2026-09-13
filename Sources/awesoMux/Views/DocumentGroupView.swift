@@ -51,6 +51,7 @@ struct DocumentGroupView: View {
 
     @State private var mode: DocumentPaneMode = .document
     @State private var fileBrowserFocusRequestID: UUID?
+    @State private var documentFocus = DocumentFocusHandoff()
     // INT-754: composer presentation is owned here, ABOVE DocumentPaneSendBar's
     // shell-activity-keyed `.id`, so a target-pane activity flip that rebuilds the
     // send bar can't tear the open composer down and lose the in-flight draft. The
@@ -155,11 +156,10 @@ struct DocumentGroupView: View {
                     // never fires for it.
                     if tabID == group.selectedTabID {
                         setFilesVisible(false)
-                        return
+                        documentFocus.request(tabID)
+                        return true
                     }
-                    documentTabActions.perform {
-                        sessionStore.selectDocumentTab(tabID: tabID, in: session.id)
-                    }
+                    return documentTabActions.selectTab(tabID, in: session.id, store: sessionStore)
                 },
                 onCloseTab: { tab in
                     let closeTab = {
@@ -195,7 +195,7 @@ struct DocumentGroupView: View {
                         documentTabActions.perform {
                             revisionMonitor.expand(for: tab)
                             revisionInteractionActive = false
-                            sessionStore.selectDocumentTab(tabID: tab.id, in: session.id)
+                            documentTabActions.selectTab(tab.id, in: session.id, store: sessionStore)
                         }
                     }
                 },
@@ -216,6 +216,8 @@ struct DocumentGroupView: View {
             case .document:
                 DocumentPaneView(
                     pane: document,
+                    onTextViewAvailable: { documentFocus.register($0, for: document.id) },
+                    onDocumentUnavailable: { documentFocus.cancel() },
                     cachedRender: tabMemory.render(for: document),
                     initialScrollAnchor: tabMemory.scrollAnchor(for: document),
                     initialCopyMode: tabMemory.isCopyMode(for: document),
@@ -280,12 +282,14 @@ struct DocumentGroupView: View {
                         let liveAssociation = document.associatedTerminalPaneID.flatMap {
                             session.layout.pane(id: $0)?.id
                         }
-                        sessionStore.openDocumentPane(
+                        if let openedID = sessionStore.openDocumentPane(
                             fileURL: documentURL,
                             in: session.id,
                             associatedWith: liveAssociation,
                             associationPolicy: .preserveNil
-                        )
+                        ) {
+                            documentTabActions.requestFocus(for: openedID, in: session.id)
+                        }
                     },
                     // A VoiceOver user who isn't parked on the tab strip never
                     // encounters the pill, so recordSelected announces the
@@ -350,6 +354,7 @@ struct DocumentGroupView: View {
                             in: session.id
                         ) {
                             setFilesVisible(false)
+                            documentFocus.request(document.id)
                         }
                     },
                     onCancel: {
@@ -367,11 +372,20 @@ struct DocumentGroupView: View {
                 onClose: { composerContext = nil }
             )
         }
+        .onChange(of: documentTabActions.focusRequest) { _, _ in
+            applyPendingFocusRequest()
+        }
+        .onAppear(perform: applyPendingFocusRequest)
         // One handler for both selection changes and tab-set changes so the
         // capture-then-prune order is deterministic (two separate onChange
         // modifiers give no ordering guarantee, and pruning before capturing
         // would resurrect a just-closed tab's memory entry).
         .onChange(of: group) { oldGroup, newGroup in
+            let followChrome = DocumentFocusHandoff.isDocumentChrome(
+                NSApp.keyWindow?.firstResponder)
+            if oldGroup.selectedTabID != newGroup.selectedTabID {
+                documentFocus.selectedTabDidChange(to: newGroup.selectedTabID)
+            }
             if oldGroup.selectedTabID != newGroup.selectedTabID,
                 let oldSelectedTabID = oldGroup.selectedTabID
             {
@@ -412,6 +426,14 @@ struct DocumentGroupView: View {
                 // adopts the on-disk content (INT-782).
                 revisionMonitor.reconcile(tab: incomingTab)
             }
+            if followChrome,
+                let incomingID = newGroup.selectedTabID,
+                oldGroup.selectedTabID != newGroup.selectedTabID
+                    || oldGroup.selectedTab?.fileURL.standardizedFileURL.path
+                        != newGroup.selectedTab?.fileURL.standardizedFileURL.path
+            {
+                documentFocus.request(incomingID)
+            }
         }
         // Same key as DocumentPaneView's .id above so the tracker reset and the
         // child remount agree on what counts as "a different file".
@@ -448,6 +470,7 @@ struct DocumentGroupView: View {
         // the 500 ms window still pending — and its announcement is a side
         // effect VoiceOver would speak for a document that no longer exists.
         .onDisappear {
+            documentFocus.cancel()
             settleTask?.cancel()
             documentTabActions.clearFileBrowserRequest(
                 in: session.id,
@@ -632,6 +655,16 @@ struct DocumentGroupView: View {
         }
         setFilesVisible(true)
         fileBrowserFocusRequestID = request.id
+    }
+
+    private func applyPendingFocusRequest() {
+        guard
+            let tabID = group.selectedTabID,
+            let request = documentTabActions.consumeFocusRequest(in: session.id, tabID: tabID)
+        else { return }
+        request.intent?.cancel()
+        setFilesVisible(false)
+        documentFocus.request(tabID)
     }
 
     private var selectedTaskProgress: TaskProgress? {

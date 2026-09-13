@@ -30,7 +30,7 @@ struct DocumentPointerTargetTests {
     func protectedTabWiringAndTransition() throws {
         let groupView = try Self.source("Views/DocumentGroupView.swift")
         let selection = try Self.block(from: "onSelectTab:", through: "onCloseTab:", in: groupView)
-        #expect(selection.contains("documentTabActions.perform"))
+        #expect(selection.contains("documentTabActions.selectTab(tabID, in: session.id, store: sessionStore)"))
 
         let close = try Self.block(from: "onCloseTab:", through: "onExpandRevision:", in: groupView)
         #expect(close.contains("if tab.id == group.selectedTabID"))
@@ -56,6 +56,21 @@ struct DocumentPointerTargetTests {
                 separatedBy: ".animation(reduceMotion ? nil : .easeOut(duration: 0.16), value:"
             ).count - 1 == 2
         )
+    }
+
+    @Test("tab activation supports Return and leaves focus to the guarded handoff")
+    func tabActivationFocusWiring() throws {
+        let strip = try Self.source("Views/DocumentTabStripView.swift")
+        let pill = try Self.block(from: "private struct DocumentTabPill", through: "private var titleColor", in: strip)
+        #expect(pill.contains(".onKeyPress(keys: [.space, .return], phases: .down)"))
+        #expect(pill.contains("press.modifiers.subtracting(.capsLock).isEmpty"))
+        #expect(!pill.contains("isKeyboardFocused = false"))
+        #expect(pill.contains("onBecameKeyboardFocused()"))
+        let select = try Self.block(from: "private func select()", through: "private var titleColor", in: strip)
+        #expect(select.contains("onSelect()"))
+
+        let groupView = try Self.source("Views/DocumentGroupView.swift")
+        #expect(groupView.contains("onDocumentUnavailable: { documentFocus.cancel() }"))
     }
 
     private static func source(_ relativePath: String) throws -> String {

@@ -11,7 +11,8 @@ enum AgentTranscriptCompletion {
         store: SessionStore,
         completeWrite: (URL) -> Void,
         schedulePrune: () -> Void,
-        alert: (AgentTranscriptOpenFailure) -> Void
+        alert: (AgentTranscriptOpenFailure) -> Void,
+        requestFocus: ((DocumentPane.ID, TerminalSession.ID) -> Void)? = nil
     ) {
         switch result {
         case .success(let opened):
@@ -29,12 +30,12 @@ enum AgentTranscriptCompletion {
                 return
             }
             guard
-                store.openDocumentPane(
+                let tabID = store.openDocumentPane(
                     fileURL: opened.fileURL,
                     in: ownerID,
                     associatedWith: paneID,
                     agentTranscriptIdentity: opened.identity
-                ) != nil
+                )
             else {
                 // The workspace went away while the transcript rendered.
                 // No alert — there is nothing left to act on, and the user
@@ -48,6 +49,7 @@ enum AgentTranscriptCompletion {
                 )
                 return
             }
+            requestFocus?(tabID, ownerID)
             TerminalAccessibilityAnnouncer.announce(
                 String(
                     localized: "\(opened.identity.agentKind.displayName) transcript opened.",

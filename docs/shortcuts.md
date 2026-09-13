@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-Default chords below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Services/KeyboardShortcutCatalog.swift)** and the **File**, **View**, **Workspace**, and **Pane** commands in [`AwesoMuxApp`](../Sources/awesoMux/App/AwesoMuxApp.swift) — the menu bar reads File · Edit · View · Workspace · Pane · Window · Help. If something drifts, the catalog wins. Users can override bindings in **Settings → Keys**; those overrides are stored in `config.toml` under `[keyboard.shortcuts.<id>]` and feed the menu shortcuts plus command-palette catalog.
+Menu shortcuts below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Services/KeyboardShortcutCatalog.swift)** and the **File**, **View**, **Workspace**, and **Pane** commands in [`AwesoMuxApp`](../Sources/awesoMux/App/AwesoMuxApp.swift) — the menu bar reads File · Edit · View · Workspace · Pane · Window · Help. If something drifts, the catalog wins. Users can override menu bindings in **Settings → Keys**; those overrides are stored in `config.toml` under `[keyboard.shortcuts.<id>]` and feed the menu shortcuts plus command-palette catalog.
 
 **Mental model:** one app window; a **workspace** is a sidebar session (tab idiom); a **pane** is a split inside that session. **⌘W** closes the **pane**; on a workspace's last pane it closes the **workspace** instead (soft close, ⇧⌘T reopens)—see [ADR 0002 — Window-close keybinding model](adr/0002-window-close-keybinding-model.md) and its 2026-07-14 amendment. In the empty welcome state (nothing selected), the same shortcut is titled **Close Window** and dismisses the window. By default, awesoMux asks before ⌘W interrupts active agent or terminal activity, whether that closes a pane or the last-pane workspace. To restart a pane's shell in place without closing anything, use the **Restart Shell** command (command palette).
 
@@ -50,6 +50,7 @@ Everything scoped to a pane inside the selected workspace: splits, close/rename,
 | ⌥⌘1…⌥⌘6 | Focus Pane 1…6 | All six rows are always present, each disabled past the live pane count. Same reasoning as the ⌘1…⌘9 jump rows — an unrendered row would release its chord. Stops at six because that is already past comfortable pane density; splits themselves are unbounded, and **Previous / Next Pane** reach anything beyond six. Targeting a live pane that is already active still moves keyboard focus into its terminal. A pane covered by its reconnect screen becomes active without focusing the unavailable terminal beneath it. |
 | ⌥⌘↑ ⌥⌘↓ ⌥⌘← ⌥⌘→ | Move Pane Up / Down / Left / Right | Moves the active pane to that workspace edge; disabled when the move would be a no-op |
 | ⌥⌘S | Swap Pane With Next | Keyboard parity for the center-zone drag-swap |
+| ⌃Tab / ⌃⇧Tab | *(no menu item)* | From a terminal with documents open, leaves terminal input and follows the window's key-view loop. Tab selection controls and document text participate; plain Tab still belongs to the shell. These non-menu shortcuts cannot be rebound in Settings → Keys. |
 | ⌃⌘[ | Previous Document Tab | Requires multiple document tabs |
 | ⌃⌘] | Next Document Tab | Requires multiple document tabs |
 | ⌃⌘W | Close Document Tab | Requires at least one document tab; the strip's per-tab close control refuses first responder, so this is the keyboard route |
@@ -71,7 +72,7 @@ The sidebar trio, the compact terminal surfaces, the command palette, and Sessio
 | ⌘K | **Show Command Palette** / **Hide Command Palette** | Searches workspaces and actions; disabled while a sheet is open. Registered only as this menu item's key equivalent, which auto-repeats while held, so the menu action carries a repeat guard that swallows the repeats |
 | ⇧⌘S | Session Manager | Shows or hides the Session Manager over the main window; disabled while a sheet is open |
 
-⌃⌘S, ⌘\\, and ⇧⌘\\ are intercepted in `AwesoMuxApplication.sendEvent` before main-menu routing, so for those the menu's key equivalent is display-only. Every other chord on this page registers only as a main-menu key equivalent.
+⌃⌘S, ⌘\\, and ⇧⌘\\ are intercepted in `AwesoMuxApplication.sendEvent` before main-menu routing, so for those the menu's key equivalent is display-only. Control-Tab and Control-Shift-Tab are handled directly by document key-view traversal. The remaining menu shortcuts register as main-menu key equivalents.
 
 ## Keyboard cheatsheet
 
@@ -119,3 +120,16 @@ In **DEBUG** builds, the Workspace menu may include developer-only items without
 | Debug: Set Active Workspace Waiting | Sets the selected workspace to `waiting` without incrementing unread count; use this to inspect the quiet pause glyph and `Waiting` accessibility labels. |
 
 The normal `./script/build_and_run.sh` launch builds release by default, so these menu items are absent there. Use a DEBUG binary, for example `./script/build_and_run.sh debug`, or stage a debug binary into `dist/awesoMux.app` before opening it.
+
+## Reading documents by keyboard
+
+Use Control-Tab to leave terminal input and reach the document tab strip. Tab
+through the titles to enumerate documents, then press Return or Space to select one.
+Selecting a tab yourself, including with Control-Command-[ or
+Control-Command-], moves keyboard and VoiceOver focus to its text. Documents
+opened by an agent preserve terminal focus. Use normal text navigation and
+selection keys to read and copy; Tab and Shift-Tab leave the text viewer.
+
+In branch changes, scroll the document to pin a file heading. The pinned heading
+is also a keyboard stop: Return or Space scrolls its original heading into view
+and toggles its fold, then returns focus to the text.

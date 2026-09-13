@@ -201,6 +201,24 @@ struct BranchDiffOverlayChromeTests {
         #expect(elements[1].accessibilityValue() as? String == "expanded")
     }
 
+    @Test("the overlay omits the currently pinned section's VoiceOver button")
+    @MainActor
+    func pinnedSectionIsOmittedFromOverlayAccessibility() {
+        let (overlay, _, _, _) = makeOverlay(twoFiles)
+        let before = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(before.count == 2)
+        let first = overlay.sectionChrome[0]
+        overlay.pinnedSectionKey = first.key
+        let pinned = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(pinned.count == 1)
+        #expect(pinned[0] === before[1])
+        overlay.pinnedSectionKey = nil
+        let restored = overlay.sectionAccessibilityChildrenForTesting()
+        #expect(restored.count == 2)
+        #expect(restored[0] === before[0])
+        #expect(restored[1] === before[1])
+    }
+
     @Test("the counts badge stays inside the visible x range after a horizontal scroll")
     @MainActor
     func countsBadgeFollowsHorizontalScroll() throws {
