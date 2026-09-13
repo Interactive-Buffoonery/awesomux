@@ -45,13 +45,6 @@ struct TerminalSettingsPane: View {
                         options: clipboardWritePolicyOptions,
                         selection: appSettingsStore.terminal.binding(\.clipboardWritePolicy)
                     )
-                    // The selected segment already exposes its own label + the
-                    // `.isSelected` trait, so a container `.accessibilityValue`
-                    // here would make VoiceOver announce the selection twice
-                    // (the group is `.contain`, not `.combine`). Group label +
-                    // hint give orientation; the children carry the value.
-                    .accessibilityLabel("Terminal program clipboard writes")
-                    .accessibilityHint("Controls whether terminal programs and escape sequences can replace the macOS clipboard.")
                 }
 
                 SettingsField(
@@ -81,8 +74,6 @@ struct TerminalSettingsPane: View {
                         options: copyOnSelectOptions,
                         selection: appSettingsStore.terminal.binding(\.copyOnSelect)
                     )
-                    .accessibilityLabel("Highlight to copy")
-                    .accessibilityHint("Whether selecting terminal text automatically copies it to the macOS clipboard.")
                 }
             }
 

@@ -5,6 +5,11 @@ import SwiftUI
 /// with the selected segment filled in `accentSoft(...)`. Used for the
 /// "subtle / medium / loud" style choices the handoff calls for (notification
 /// posture, agent posture, etc).
+///
+/// Settings rows keep the enclosing `SettingsField` label and hint exposed
+/// (`forwardsAccessibilityToControl` stays false). Each segment supplies its
+/// own name and selected trait; put extra spoken context in `Option.accessibilityHint`
+/// instead of attaching a label or hint to the outer contained group.
 struct SettingsSegmented<Value: Hashable>: View {
     let options: [Option]
     @Binding var selection: Value

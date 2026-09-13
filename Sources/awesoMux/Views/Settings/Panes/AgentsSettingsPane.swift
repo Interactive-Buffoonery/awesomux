@@ -43,14 +43,6 @@ struct AgentsSettingsPane: View {
                         options: postureOptions,
                         selection: appSettingsStore.agents.binding(\.permissionPosture)
                     )
-                    // Group label + hint give orientation; the segments carry
-                    // their own labels and the `.isSelected` trait. Phrased
-                    // distinctly from the visible column label so VoiceOver
-                    // doesn't announce the same string twice (the Terminal
-                    // pane's clipboard-writes control does the same).
-                    .accessibilityLabel(String(localized: "Agent permission posture"))
-                    .accessibilityHint(
-                        String(localized: "How awesoMux handles tool-use permission prompts. Applies to new agent sessions."))
                 }
 
                 SettingsField(
