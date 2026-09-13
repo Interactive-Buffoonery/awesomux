@@ -183,8 +183,11 @@ struct WorkspaceSettingsPane: View {
         SettingsSection(
             index: 3,
             title: "Managed SSH",
-            subtitle:
-                "Choose when awesoMux reconnects an SSH session as a managed workspace — by asking or without asking. This never changes existing connections."
+            subtitle: String(
+                localized:
+                    "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections.",
+                comment: "Managed SSH settings section description"
+            )
         ) {
             SettingsField(
                 label: "Always make SSH managed without asking",
@@ -231,6 +234,23 @@ struct WorkspaceSettingsPane: View {
                 hint: "Removing an alias from below restores automatic offers for it."
             ) {
                 managedSSHIgnoredDestinationsControl
+            }
+
+            SettingsField(
+                label: String(localized: "Remote helper", comment: "Remote helper installation preference label"),
+                hint: String(
+                    localized:
+                        "Choose whether to install or update the helper on supported hosts. Never Ask keeps existing compatible helpers available.",
+                    comment: "Remote helper installation preference description"
+                ),
+                forwardsAccessibilityToControl: true
+            ) {
+                Picker("", selection: appSettingsStore.workspaces.binding(\.remoteHelperInstallPolicy)) {
+                    Text("Ask Before Installing").tag(WorkspaceConfig.RemoteHelperInstallPolicy.ask)
+                    Text("Always Install").tag(WorkspaceConfig.RemoteHelperInstallPolicy.alwaysInstall)
+                    Text("Never Ask").tag(WorkspaceConfig.RemoteHelperInstallPolicy.neverAsk)
+                }
+                .labelsHidden()
             }
         }
     }

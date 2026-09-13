@@ -33,7 +33,22 @@ The Linux host doesn't need internet access.
 
 Choose **Continue Without Helper** if you don't want to install it. The SSH
 session will still open, but the features listed above won't work. awesoMux will
-offer the install again the next time you connect.
+offer the install again the next time you connect unless you remember your choice.
+
+In **Settings > Workspaces > Managed SSH**, choose a **Remote helper** preference:
+
+- **Ask Before Installing** (the default): ask before each install or update.
+- **Always Install**: install or update without another approval prompt. All download,
+  checksum, ownership, permissions, and compatibility checks still run.
+- **Never Ask**: skip helper installation and continue the SSH connection.
+
+The helper prompt also offers **Remember this choice for all hosts**. With it
+selected, choose **Always Install** or **Never Ask** to save the same preference.
+You can change it later in Settings. It applies to helper setup during connections
+and file paste on supported hosts. It does not uninstall or disable an already
+compatible helper, and permission to install never approves a file transfer.
+If installation fails, awesoMux shows the existing error and continues without
+the helper.
 
 ## What gets installed
 

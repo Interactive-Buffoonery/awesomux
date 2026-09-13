@@ -236,6 +236,21 @@ struct TOMLConfigCodecTests {
         #expect(!decoded.workspaces.managedSSHAlwaysManageAllDestinations)
     }
 
+    @Test("remote helper preference defaults to asking and round-trips every choice")
+    func remoteHelperPreferenceRoundTrip() throws {
+        #expect(try codec.decode(Self.v1DefaultTOML).workspaces.remoteHelperInstallPolicy == .ask)
+        for policy in WorkspaceConfig.RemoteHelperInstallPolicy.allCases {
+            let config = AwesoMuxConfig(workspaces: WorkspaceConfig(remoteHelperInstallPolicy: policy))
+            let encoded = try codec.encodeString(config)
+            #expect(try codec.decode(encoded).workspaces.remoteHelperInstallPolicy == policy)
+        }
+        let encoded = try codec.encodeString(AwesoMuxConfig())
+        let invalid = encoded.replacingOccurrences(
+            of: "remote_helper_install_policy = \"ask\"", with: "remote_helper_install_policy = \"invalid\"")
+        #expect(invalid != encoded)
+        #expect(throws: (any Error).self) { try codec.decode(invalid) }
+    }
+
     @Test("managed SSH offer preferences round-trip")
     func managedSSHOfferPreferencesRoundTrip() throws {
         let config = AwesoMuxConfig(
