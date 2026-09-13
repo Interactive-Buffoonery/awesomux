@@ -304,12 +304,57 @@ struct MarkdownDiffLineStylingTests {
         #expect(replacement.substring(with: preserved) == "+only-in-b")
     }
 
-    /// Regression guard on the cost the `foldChanged` comment in
-    /// `MarkdownTextView.updateNSView` quotes: one fold rebuilds and re-lays out
-    /// the WHOLE document. Folds one section of a 50 × 400-line diff so the
-    /// remaining ~20 000 lines still have to lay out — folding everything would
-    /// measure an almost empty document instead.
-    @Test("one fold cycle on a 50-file, 20k-line diff stays inside its regression ceiling")
+    @Test("a fold text edit reproduces one collapse or expansion")
+    func foldTextEditReproducesOneSectionChange() throws {
+        let doc = AttributedMarkdownBuilder.build(Self.threeSections)
+        let index = BranchDiffSectionIndex(document: doc)
+        let states: [(Set<String>, Set<String>)] = [
+            ([], ["a"]),
+            (["a"], []),
+            (["a"], ["a", "c"]),
+            (["a", "c"], ["a"]),
+        ]
+
+        for (before, after) in states {
+            let old = NSMutableString(
+                string: MarkdownAttributedStringBuilder.attributedString(
+                    for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: before),
+                    textColor: .white,
+                    sectionIndex: index
+                ).string)
+            let new =
+                MarkdownAttributedStringBuilder.attributedString(
+                    for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: after),
+                    textColor: .white,
+                    sectionIndex: index
+                ).string as NSString
+            let edit = try #require(
+                MarkdownTextView.foldTextEdit(
+                    in: doc,
+                    index: index,
+                    from: before,
+                    to: after
+                ))
+            old.replaceCharacters(
+                in: edit.currentRange,
+                with: new.substring(with: edit.replacementRange)
+            )
+            #expect(old as String == new as String)
+        }
+
+        #expect(
+            MarkdownTextView.foldTextEdit(
+                in: doc, index: index, from: [], to: Set(index.keys)) == nil)
+        #expect(
+            MarkdownTextView.foldTextEdit(
+                in: doc, index: index, from: Set(index.keys), to: []) == nil)
+    }
+
+    /// Regression guard for the incremental TextKit edit used by
+    /// `MarkdownTextView.updateNSView`. Folds one section of a 50 × 400-line
+    /// diff so the remaining ~20 000 lines stay visible; a whole-storage
+    /// replacement and whole-document layout took about 1.5 seconds here.
+    @Test("one incremental fold on a 50-file, 20k-line diff stays responsive")
     @MainActor
     func foldCycleCostOnALargeDiff() throws {
         let source = (0..<50).map { file in
@@ -321,33 +366,51 @@ struct MarkdownDiffLineStylingTests {
         let index = BranchDiffSectionIndex(document: doc)
         #expect(index.sections.count == 50)
 
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let textView = NSTextView(usingTextLayoutManager: true)
-        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        textView.frame = scrollView.bounds
         textView.textContainerInset = NSSize(width: 20, height: 20)
         textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        scrollView.documentView = textView
         let layoutManager = try #require(textView.textLayoutManager)
+        let coordinator = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
+        coordinator.textView = textView
 
         // Warm pass, so the measurement below is the fold, not the first layout.
-        textView.textStorage?.setAttributedString(
-            MarkdownAttributedStringBuilder.attributedString(
+        let initial = NSMutableAttributedString(
+            attributedString: MarkdownAttributedStringBuilder.attributedString(
                 for: doc, textColor: .white, sectionIndex: index))
+        coordinator.replaceTextStorage(initial, in: textView, preserving: nil)
+        coordinator.noteStorageReplaced()
         layoutManager.ensureLayout(for: layoutManager.documentRange)
 
         let collapsed: Set<String> = [index.sections[0].key]
+        var didApply = false
         let elapsed = ContinuousClock().measure {
             let folded = MarkdownTextView.foldedDocument(doc, index: index, collapsed: collapsed)
-            let attr = MarkdownAttributedStringBuilder.attributedString(
-                for: folded, textColor: .white, sectionIndex: index)
-            textView.textStorage?.setAttributedString(attr)
-            layoutManager.ensureLayout(for: layoutManager.documentRange)
+            let attr = NSMutableAttributedString(
+                attributedString: MarkdownAttributedStringBuilder.attributedString(
+                    for: folded, textColor: .white, sectionIndex: index))
+            if let edit = MarkdownTextView.foldTextEdit(
+                in: doc, index: index, from: [], to: collapsed)
+            {
+                didApply = coordinator.replaceTextStorageForFold(
+                    attr,
+                    edit: edit,
+                    in: textView,
+                    preserving: nil
+                )
+            }
         }
         print("fold cycle: \(elapsed) for \(doc.runs.count) runs")
-        // 4x headroom over the ~1.2 s measured: Swift Testing runs the suite
-        // concurrently and this repo's full run flakes under load, so the guard
-        // is for a 10x blow-up (an accidental per-line pass), not a 2x one.
-        #expect(elapsed < .seconds(5), "fold cycle took \(elapsed)")
+        #expect(didApply)
+        #expect(textView.string.contains("file1.swift"))
+        #expect(!textView.string.contains("+line 0\n\nfile1.swift"))
+        // Generous headroom over local measurements keeps loaded CI useful
+        // while still rejecting the former 1.5-second whole-document path.
+        #expect(elapsed < .milliseconds(750), "fold cycle took \(elapsed)")
     }
 }
 
