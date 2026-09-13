@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import AwesoMuxCore
 import CryptoKit
 import Darwin
@@ -6,6 +7,22 @@ import Foundation
 import UnicodeHygiene
 
 enum RemoteHelperInstaller {
+    @MainActor static var installPolicy: () -> WorkspaceConfig.RemoteHelperInstallPolicy = { .ask }
+
+    @MainActor
+    static func approveInstallation(
+        policy: @MainActor () -> WorkspaceConfig.RemoteHelperInstallPolicy,
+        confirmation: @MainActor () async -> Bool
+    ) async -> Bool {
+        switch policy() {
+        case .neverAsk: return false
+        case .alwaysInstall: return true
+        case .ask:
+            let approved = await confirmation()
+            return approved && policy() != .neverAsk
+        }
+    }
+
     static let helperName = "awesoMuxBridgeHelper"
     static let remoteRelativePath = BridgeAttachDecision.helperPath(remoteHome: "~")
     static let maximumHelperByteCount = 200 * 1024 * 1024
@@ -657,6 +674,7 @@ enum RemoteHelperInstaller {
             if capability == .supported { return .readyToTransfer }
             throw Failure.helperProbeFailed
         }
+        guard installPolicy() != .neverAsk else { return .cancelled }
         let platform = try await platformProbe(remote, controlPath)
         try checkAuthority(authorityIsCurrent)
         let outcome = try await performApprovedInstallation(
@@ -695,6 +713,7 @@ enum RemoteHelperInstaller {
         helperPath: String,
         window: NSWindow?,
         authorityIsCurrent: @escaping @MainActor () -> Bool,
+        policy: @escaping @MainActor () -> WorkspaceConfig.RemoteHelperInstallPolicy = { installPolicy() },
         confirmation: @escaping @MainActor (ApprovalAction, RemoteTarget, NSWindow?) async -> Bool = {
             action, remote, window in
             await presentConfirmation(action: action, remote: remote, window: window)
@@ -721,13 +740,16 @@ enum RemoteHelperInstaller {
         }
     ) async throws -> WorkflowOutcome {
         try checkAuthority(authorityIsCurrent)
-        let approved = await confirmation(action, remote, window)
+        let approved = await approveInstallation(policy: policy) {
+            await confirmation(action, remote, window)
+        }
         try checkAuthority(authorityIsCurrent)
         guard approved else { return .cancelled }
 
         let acquired = try await acquisition()
         defer { acquired.cleanup() }
         try checkAuthority(authorityIsCurrent)
+        guard policy() != .neverAsk else { return .cancelled }
         try await installOperation(acquired.prepared, remote, controlPath, remoteHome)
         try checkAuthority(authorityIsCurrent)
         let capability = try await capabilityProbe(remote, controlPath, helperPath)
@@ -753,6 +775,7 @@ enum RemoteHelperInstaller {
         window: NSWindow?,
         authorityIsCurrent: @escaping @MainActor () -> Bool
     ) async -> Bool {
+        guard installPolicy() != .neverAsk else { return false }
         guard let window,
             await waitForSheetAvailability(
                 authorityIsCurrent: authorityIsCurrent,
@@ -774,43 +797,39 @@ enum RemoteHelperInstaller {
                 return capability == .supported
             }
             let platform = try await probePlatform(remote: remote, controlPath: controlPath)
-            guard authorityIsCurrent(),
-                await presentAdditionalSSHConfirmation(
-                    action: action,
-                    remote: remote,
-                    platform: platform
-                )
-            else {
-                return false
-            }
-            try Task.checkCancellation()
-            guard authorityIsCurrent() else { return false }
-
-            let progress = presentInstallProgress(remote: remote, window: window)
-            defer { progress.dismiss() }
-            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-            let acquired = try await acquireHelper(for: platform, version: version)
-            defer { acquired.cleanup() }
-            try await install(
-                helper: acquired.prepared,
+            var progress: RemoteHelperInstallProgress?
+            defer { progress?.dismiss() }
+            let outcome = try await performApprovedInstallation(
+                acquisition: {
+                    progress = presentInstallProgress(remote: remote, window: window)
+                    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+                    return try await acquireHelper(for: platform, version: version)
+                },
+                action: action,
                 remote: remote,
                 controlPath: controlPath,
                 remoteHome: remoteHome,
-                requiredProtocols: requiredProtocols + livenessRequiredProtocols
+                helperPath: helperPath,
+                window: window,
+                authorityIsCurrent: authorityIsCurrent,
+                confirmation: { action, remote, _ in
+                    await presentAdditionalSSHConfirmation(action: action, remote: remote, platform: platform)
+                },
+                installOperation: { helper, remote, controlPath, remoteHome in
+                    try await install(
+                        helper: helper, remote: remote, controlPath: controlPath, remoteHome: remoteHome,
+                        requiredProtocols: requiredProtocols + livenessRequiredProtocols
+                    )
+                },
+                capabilityProbe: { remote, controlPath, helperPath in
+                    try await additionalSSHCapability(remote: remote, controlPath: controlPath, helperPath: helperPath)
+                },
+                successPresentation: { _ in }
             )
-            try Task.checkCancellation()
-            guard authorityIsCurrent() else { return false }
-            guard
-                try await additionalSSHCapability(
-                    remote: remote,
-                    controlPath: controlPath,
-                    helperPath: helperPath
-                ) == .supported
-            else {
-                throw Failure.installedHelperIncompatible
-            }
-            return true
+            return outcome == .installed
         } catch is CancellationError {
+            return false
+        } catch RemoteHandoff.Failure.destinationChanged {
             return false
         } catch let failure as Failure {
             presentFailure(failure, window: window)

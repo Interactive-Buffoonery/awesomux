@@ -630,6 +630,9 @@
     "Always" : {
       "comment" : "Menu bar visibility choice"
     },
+    "Always Install" : {
+      "comment" : "Remember approving remote helper installation"
+    },
     "Always Manage Any Destination" : {
 
     },
@@ -688,6 +691,9 @@
       "comment" : "Alert title for picking a layout preset to apply."
     },
     "Apply Layout Preset…" : {
+
+    },
+    "Ask Before Installing" : {
 
     },
     "Ask before every agent tool use" : {
@@ -944,8 +950,14 @@
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
     },
+    "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections." : {
+      "comment" : "Managed SSH settings section description"
+    },
     "Choose when the awesoMux smile appears in the macOS menu bar." : {
       "comment" : "General settings menu bar section description"
+    },
+    "Choose whether to install or update the helper on supported hosts. Never Ask keeps existing compatible helpers available." : {
+      "comment" : "Remote helper installation preference description"
     },
     "Choose whether to keep the protected saved file or replace it with current workspaces" : {
 
@@ -1368,6 +1380,9 @@
     },
     "Couldn’t save the managed SSH setting." : {
       "comment" : "Error shown when awesoMux cannot save a managed SSH offer preference"
+    },
+    "Couldn’t save the remote helper setting." : {
+      "comment" : "Remote helper preference save error"
     },
     "Couldn’t save this destination." : {
       "comment" : "Error shown when awesoMux cannot save a managed SSH destination"
@@ -2364,6 +2379,9 @@
     "Never" : {
       "comment" : "Menu bar visibility choice"
     },
+    "Never Ask" : {
+      "comment" : "Remember declining remote helper installation"
+    },
     "Never Ask for Any Destination" : {
 
     },
@@ -3142,6 +3160,9 @@
     "Remember approvals per workspace" : {
 
     },
+    "Remember this choice for all hosts" : {
+
+    },
     "Remember…" : {
 
     },
@@ -3188,7 +3209,7 @@
       "comment" : "Remote handoff unsupported error title"
     },
     "Remote helper" : {
-      "comment" : "Bridge doctor check title"
+      "comment" : "Bridge doctor check title\nRemote helper installation preference label"
     },
     "Remote helper installation cancelled" : {
       "comment" : "Remote helper installation cancellation accessibility status"
