@@ -91,6 +91,27 @@ struct BranchDiffStickyHeaderTests {
         #expect(!view.isChevronHidden)
     }
 
+    @Test("a navigation-only pinned heading exposes its press action as a button")
+    @MainActor
+    func nonFoldableHeaderExposesNavigationAction() {
+        let view = BranchDiffStickyHeaderView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        view.model = .init(
+            key: "renamed.txt", title: "renamed.txt", added: 0, removed: 0, collapsed: false,
+            foldable: false)
+        var activated: String?
+        view.onActivate = { activated = $0 }
+
+        #expect(view.isAccessibilityElement())
+        #expect(view.accessibilityRole() == .button)
+        #expect(view.accessibilityValue() == nil)
+        #expect(view.accessibilityPerformPress())
+        #expect(activated == "renamed.txt")
+
+        view.model = nil
+        #expect(view.accessibilityRole() == nil)
+        #expect(!view.accessibilityPerformPress())
+    }
+
     @Test("the last heading pins with no next row to push it out")
     func lastSectionHasNoPush() {
         #expect(
