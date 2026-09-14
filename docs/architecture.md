@@ -404,6 +404,22 @@ open -n dist/awesoMux.app
 
 ## Notification policy
 
+Codex permission-prompt macOS notifications have a 10-second grace period.
+The notification tracker holds each pane's first deadline and the app schedules
+a fresh evaluation at that deadline, even if no further agent events arrive.
+Resolved, acknowledged, muted, removed, or no-longer-eligible panes cancel the
+pending notification. A sibling's immediate needs-attention notification consumes
+the deferred crossing too. Sidebar attention, Dock bounce, accessibility
+announcements, other attention reasons, and other providers keep their existing
+behavior.
+
+Codex 0.154.0 fires `PermissionRequest` before automatic review or human approval
+and does not expose the reviewer or a tool-use ID in that hook. The grace period
+reduces transient alerts without inferring approval policy or clearing a real
+prompt from unrelated tool completion. Long automatic reviews and unresolved
+uncorrelated permission state can still notify; this is a bounded noise
+reduction, not a reliable human-approval classifier.
+
 `WorkspaceNotificationPolicy` decides whether a `needsAttention` / unread transition produces a macOS notification. `WorkspaceNotificationTracker` consumes `.macOSNotification` when unread grows.
 
 | Focus context | In-pane banner | Sidebar dot | Tab strip dot | Dock badge | macOS notification | Sound |
