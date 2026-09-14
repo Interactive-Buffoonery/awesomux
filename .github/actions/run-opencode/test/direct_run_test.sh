@@ -22,7 +22,7 @@ compgen -e | LC_ALL=C sort > "$capture_root/opencode-env-$mode-$count"
 pwd > "$capture_root/opencode-pwd-$mode-$count"
 cat > "$capture_root/opencode-stdin-$mode-$count"
 case "$mode" in
-  success|production_diff|malicious|deduplicate)
+  success|production_diff|malicious|deduplicate|utf8_*)
     printf '%s\n' \
       '{"type":"text","part":{"text":"Inspecting the supplied range."}}' \
       '{"type":"text","part":{"text":"## Code Review\n\nNo blocking or should-fix findings."}}'
@@ -139,6 +139,10 @@ run_wrapper() {
     "BODY_SENTINEL_$mode" \
     > "$temp_dir/runner/context-$mode.txt"
 
+  if [ -n "${CONTEXT_OVERRIDE:-}" ]; then
+    printf '%s' "$CONTEXT_OVERRIDE" > "$temp_dir/runner/context-$mode.txt"
+  fi
+
   PATH="$temp_dir/bin:$PATH" \
     RUNNER_TEMP="$temp_dir/runner" \
     GITHUB_RUN_ID="direct-run-$mode" \
@@ -162,6 +166,7 @@ run_wrapper() {
     GITHUB_STEP_SUMMARY="$temp_dir/summary-$mode" \
     GITHUB_OUTPUT="$temp_dir/output-$mode" \
     BASE_RANGE="${BASE_RANGE_OVERRIDE:-1111111111111111111111111111111111111111...2222222222222222222222222222222222222222}" \
+    MAX_CONTEXT_BYTES="${MAX_CONTEXT_BYTES_OVERRIDE:-65536}" \
     MAX_DIFF_LINES="${MAX_DIFF_LINES_OVERRIDE:-2000}" \
     MAX_DIFF_BYTES="${MAX_DIFF_BYTES_OVERRIDE:-262144}" \
     LARGE_DIFF_MODE="${LARGE_DIFF_MODE_OVERRIDE:-fail}" \
@@ -310,5 +315,23 @@ done
 
 grep -Fq "TITLE_SENTINEL_narration" "$temp_dir/opencode-stdin-narration-3"
 grep -Fq "BODY_SENTINEL_narration" "$temp_dir/opencode-stdin-narration-3"
+
+for limit in 1 2 3 4 5 6 7 8 9 10; do
+  CONTEXT_OVERRIDE="Aé中𐍈Z" MAX_CONTEXT_BYTES_OVERRIDE="$limit"
+  export CONTEXT_OVERRIDE MAX_CONTEXT_BYTES_OVERRIDE
+  run_wrapper "utf8_$limit"
+  unset CONTEXT_OVERRIDE MAX_CONTEXT_BYTES_OVERRIDE
+  node - "$temp_dir/opencode-stdin-utf8_$limit-1" "$limit" <<'NODE'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const packet = fs.readFileSync(process.argv[2]);
+const text = new TextDecoder('utf-8', { fatal: true }).decode(packet);
+const context = text.match(/BEGIN_UNTRUSTED_PR_CONTEXT_[a-f0-9]+\n([\s\S]*?)\n\n\[PR metadata truncated/)[1];
+const limit = Number(process.argv[3]);
+const expected = ['A', 'A', 'Aé', 'Aé', 'Aé', 'Aé中', 'Aé中', 'Aé中', 'Aé中', 'Aé中𐍈'][limit - 1];
+assert.equal(context, expected);
+assert.ok(Buffer.byteLength(context) <= limit);
+NODE
+done
 
 echo "direct opencode run test passed"

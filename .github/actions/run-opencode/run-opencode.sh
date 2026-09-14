@@ -156,7 +156,14 @@ context_bytes="$(wc -c < "$context_file" | tr -d ' ')"
 context_note=""
 if [ "$context_bytes" -gt "$max_context_bytes" ]; then
   bounded_context="$review_root/pr-context.bounded.txt"
-  LC_ALL=C head -c "$max_context_bytes" "$context_file" > "$bounded_context"
+  node - "$context_file" "$bounded_context" "$max_context_bytes" <<'NODE'
+const fs = require('node:fs');
+const [input, output, limit] = process.argv.slice(2);
+const bytes = fs.readFileSync(input);
+let end = Number(limit);
+while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
+fs.writeFileSync(output, bytes.subarray(0, end));
+NODE
   mv "$bounded_context" "$context_file"
   context_note="[PR metadata truncated from ${context_bytes} to ${max_context_bytes} bytes by the review action.]"
 fi
