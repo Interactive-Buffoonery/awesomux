@@ -510,7 +510,7 @@ struct MarkdownDiffLineStylingTests {
         print("fold cycle: \(elapsed) for \(doc.runs.count) runs")
         #expect(didApply)
         #expect(textView.string.contains("file1.swift"))
-        #expect(!textView.string.contains("+line 0\n\nfile1.swift"))
+        #expect(textView.string.contains("file0.swift\n\nfile1.swift"))
         // Generous headroom over local measurements keeps loaded CI useful
         // while still rejecting the former 1.5-second whole-document path.
         #expect(elapsed < .milliseconds(750), "fold cycle took \(elapsed)")
