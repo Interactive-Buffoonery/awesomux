@@ -735,9 +735,17 @@ final class WorkspaceNotificationTrackerTests: XCTestCase {
             activePaneID: paneA.id
         )
 
+        let now = Date(timeIntervalSince1970: 100)
+        let pending = tracker.notificationEvents(
+            afterUpdating: [SessionGroup(name: "ws", sessions: [updated])],
+            selectedSessionID: nil,
+            now: now
+        )
+        XCTAssertTrue(pending.isEmpty)
         let events = tracker.notificationEvents(
             afterUpdating: [SessionGroup(name: "ws", sessions: [updated])],
-            selectedSessionID: nil
+            selectedSessionID: nil,
+            now: now.addingTimeInterval(10)
         )
 
         XCTAssertEqual(events.count, 1)

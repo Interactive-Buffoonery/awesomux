@@ -1,6 +1,7 @@
 import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 import UserNotifications
@@ -8,6 +9,42 @@ import UserNotifications
 
 @Suite("Workspace notification bridge authorization coalescing")
 struct WorkspaceNotificationBridgeTests {
+    @Test("permission deadline is reevaluated without another agent event")
+    @MainActor
+    func permissionDeadlineReevaluatesWithoutAnotherEvent() async {
+        _ = NSApplication.shared
+        let session = TerminalSession(
+            title: "codex", workingDirectory: "~", agentKind: .codex,
+            layout: .pane(
+                TerminalPane(
+                    title: "codex", workingDirectory: "~", agentKind: .codex,
+                    attentionReason: .permissionPrompt, unreadNotificationCount: 1, executionPlan: .local
+                ))
+        )
+        let delegate = AppDelegate()
+        delegate.sessionStore = SessionStore(groups: [SessionGroup(name: "test", sessions: [session])])
+        // Other AppKit tests invalidate authorization on activation. Mute only
+        // delivery so the real scheduler never reaches the system service.
+        delegate.notificationBridge.configurePreferencesProvider {
+            var preferences = NotificationPreferences.defaultValue
+            preferences.muted = true
+            return preferences
+        }
+        delegate.evaluateAndPostNotifications(isAppActiveOverride: false)
+        #expect(delegate.notificationTracker.nextNotificationDeadline != nil)
+        #expect(
+            await waitUntilEventually(deadline: .seconds(15)) {
+                delegate.notificationTracker.nextNotificationDeadline == nil
+            })
+        var tracker = delegate.notificationTracker
+        let repeated = tracker.notificationEvents(
+            afterUpdating: delegate.sessionStore?.groups ?? [], selectedSessionID: nil,
+            isAppActive: false, now: Date().addingTimeInterval(10)
+        )
+        #expect(repeated.isEmpty)
+        #expect(tracker.nextNotificationDeadline == nil)
+    }
+
     private static func event(title: String = "workspace") -> WorkspaceNotificationEvent {
         WorkspaceNotificationEvent(
             sessionID: UUID(),
