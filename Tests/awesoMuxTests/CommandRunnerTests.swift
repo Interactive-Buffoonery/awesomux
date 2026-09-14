@@ -472,20 +472,29 @@ struct ProcessCommandRunnerTests {
         #expect(FileManager.default.fileExists(atPath: cleaned.path), "closing readers early interrupts TERM cleanup with SIGPIPE")
     }
 
-    @Test("delayed exit notification does not time out an already drained command")
-    func delayedExitNotificationPreservesSuccess() async throws {
+    @Test("withheld exit notification does not time out an already drained command")
+    func withheldExitNotificationPreservesSuccess() async throws {
+        let exited = EventRecorder<Void>()
+        let drained = EventRecorder<Void>()
         let runner = ProcessCommandRunner(
             timeout: .milliseconds(500),
+            delay: { duration in
+                #expect(duration == .milliseconds(500))
+                #expect(await exited.waitForCount(1, deadline: .seconds(10)))
+                #expect(await drained.waitForCount(2, deadline: .seconds(10)))
+            },
             spawn: { process in
-                let handler = process.terminationHandler
-                process.terminationHandler = { child in
-                    // Delay Foundation's notification beyond the deadline while
-                    // leaving the real child-exit and pipe-EOF signals intact.
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        handler?(child)
-                    }
+                // Withhold the runner's callback so only its deadline fallback
+                // can complete the command after the readers have drained.
+                process.terminationHandler = { _ in
+                    Task { await exited.record(()) }
                 }
                 try process.run()
+            },
+            readOutput: { reader in
+                let output = await reader.readToEnd()
+                await drained.record(())
+                return output
             }
         )
         let result = try await runner.run(executable: "/bin/echo", args: ["done"], env: [:], cwd: nil)
