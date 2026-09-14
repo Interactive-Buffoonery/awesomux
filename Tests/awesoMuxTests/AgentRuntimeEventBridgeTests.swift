@@ -297,7 +297,8 @@ extension SessionPersistenceSerializationDomainTests {
             object: nil
         )
 
-        let event = #"{"v":1,"source":"codex","attentionReason":"permissionPrompt","phase":"notification"}"#
+            // Exercise file delivery independently of the Codex permission grace period.
+            let event = #"{"v":1,"source":"codex","attentionReason":"userInputRequired","phase":"notification"}"#
         let handle = try FileHandle(forWritingTo: environment.eventFileURL)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data((event + "\n").utf8))
@@ -500,7 +501,8 @@ extension SessionPersistenceSerializationDomainTests {
             name: NSApplication.didResignActiveNotification,
             object: nil
         )
-        let event = #"{"v":1,"source":"codex","attentionReason":"permissionPrompt","phase":"notification"}"#
+            // Exercise recovery independently of the Codex permission grace period.
+            let event = #"{"v":1,"source":"codex","attentionReason":"userInputRequired","phase":"notification"}"#
         try handle.seekToEnd()
         try handle.write(contentsOf: Data((event + "\n").utf8))
         try await Task.sleep(for: .milliseconds(50))

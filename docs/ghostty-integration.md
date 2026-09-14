@@ -219,9 +219,10 @@ The surface bridge is split into focused app-target files under
   visible-text fallback sampling, and runtime-event application
 - `GhosttySurfaceProcessExitHandler` preserves ADR 0002 process-exit
   close/recycle behavior while discarding native surfaces
-- `SurfaceScrollbar`, `TerminalAccessibilityAnnouncer`, and
-  `TerminalBackstopBackground` hold pure scrollbar math, VoiceOver announcement
-  strings/posting, and terminal background conversion
+- `SurfaceScrollbar` and `TerminalAccessibilityAnnouncer` hold pure scrollbar
+  math and VoiceOver announcement strings/posting
+- terminal placeholder layers use the runtime’s finalized config background,
+  matching the selected Ghostty, bundled, or custom color before native rendering
 - per-pane agent runtime environment variables are injected when surfaces are
   created, and `AgentRuntimeEventBridge` watches the matching JSONL event files
   under the active profile's Application Support directory (`awesoMux` for

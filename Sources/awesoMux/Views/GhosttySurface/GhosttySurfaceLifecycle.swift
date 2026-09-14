@@ -910,10 +910,8 @@ extension GhosttySurfaceNSView {
     }
 
     func applyTerminalBackstopBackgroundColor() {
-        layer?.backgroundColor =
-            TerminalBackstopBackground
-            .color(for: runtime.resolvedTerminalBackgroundHex())?
-            .cgColor
+        // The finalized config includes the selected Ghostty, bundled, or custom background.
+        layer?.backgroundColor = runtime.terminalBackgroundColor.cgColor
     }
 
     func resetLayerAfterNativeSurfaceTeardown() {

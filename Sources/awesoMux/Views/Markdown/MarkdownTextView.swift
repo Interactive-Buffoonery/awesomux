@@ -286,6 +286,57 @@ struct MarkdownTextView: NSViewRepresentable {
         return doc.folding(removingRunRanges: ranges)
     }
 
+    struct FoldTextEdit: Equatable {
+        let currentRange: NSRange
+        let replacementRange: NSRange
+    }
+
+    /// The character edit for one heading toggle. Ranges are UTF-16, matching
+    /// `NSAttributedString`. Multi-section changes return nil so Collapse All
+    /// and Expand All keep the faster whole-document replacement path.
+    nonisolated static func foldTextEdit(
+        in doc: RenderedDocument,
+        index: BranchDiffSectionIndex,
+        from oldCollapsed: Set<String>,
+        to newCollapsed: Set<String>
+    ) -> FoldTextEdit? {
+        var runOffsets = [Int](repeating: 0, count: doc.runs.count + 1)
+        for runIndex in doc.runs.indices {
+            runOffsets[runIndex + 1] =
+                runOffsets[runIndex] + (doc.runs[runIndex].text as NSString).length
+        }
+
+        var oldRemovedBefore = 0
+        var newRemovedBefore = 0
+        var edit: FoldTextEdit?
+        for section in index.sections where section.isFoldable {
+            guard section.bodyRuns.lowerBound >= 0,
+                section.bodyRuns.upperBound <= doc.runs.count
+            else { return nil }
+            let bodyStart = runOffsets[section.bodyRuns.lowerBound]
+            let bodyLength =
+                runOffsets[section.bodyRuns.upperBound] - bodyStart
+            let wasCollapsed = oldCollapsed.contains(section.key)
+            let isCollapsed = newCollapsed.contains(section.key)
+            if wasCollapsed != isCollapsed {
+                guard edit == nil else { return nil }
+                edit = FoldTextEdit(
+                    currentRange: NSRange(
+                        location: bodyStart - oldRemovedBefore,
+                        length: wasCollapsed ? 0 : bodyLength
+                    ),
+                    replacementRange: NSRange(
+                        location: bodyStart - newRemovedBefore,
+                        length: isCollapsed ? 0 : bodyLength
+                    )
+                )
+            }
+            if wasCollapsed { oldRemovedBefore += bodyLength }
+            if isCollapsed { newRemovedBefore += bodyLength }
+        }
+        return edit
+    }
+
     /// Where a selection — or a bare caret — lands after a fold.
     ///
     /// Pure UTF-16 arithmetic over `doc`'s runs. A fold removes whole runs and
@@ -560,15 +611,9 @@ struct MarkdownTextView: NSViewRepresentable {
         // String equality hides normalization-only rewrites that change source offsets.
         // ponytail: O(source bytes) per update; use a byte-aware revision if UI profiling warrants it.
         let docSourceChanged = !(context.coordinator.lastSource?.utf8.elementsEqual(doc.source.utf8) ?? false)
-        // ponytail: a fold rebuilds and re-lays out the WHOLE document, on the
-        // main thread. Measured headless at ~1.2 s for a 20 000-line, ~40 000-run
-        // diff (`foldCycleCostOnALargeDiff`), and the renderer's per-fence cap is
-        // 20 000 lines on its own, so a max-budget diff is a few times that.
-        // Upgrade path: re-lay out only the folded range instead of the whole
-        // document. The index term is not redundant with the source: a refresh
-        // can reproduce an identical source under a changed index, and skipping
-        // the rebuild there would leave `lastDoc` and the heading attributes
-        // stale.
+        // The index term is not redundant with the source: a refresh can
+        // reproduce an identical source under a changed index, and skipping the
+        // rebuild there would leave `lastDoc` and the heading attributes stale.
         // `lastSectionIndex != sectionIndex` runs on EVERY pass, including a
         // per-selection-event one, and the index carries a section per changed
         // file. It stays near-free only because the same `@State` instance is
@@ -578,12 +623,13 @@ struct MarkdownTextView: NSViewRepresentable {
         let foldChanged =
             context.coordinator.lastCollapsedSections != collapsedSections
             || context.coordinator.lastSectionIndex != sectionIndex
+        let highlightChanged = context.coordinator.lastHighlightColor != highlightColor
         let sourceChanged =
             docSourceChanged || textColorChanged || linkBaseChanged || documentLinkPolicyChanged
             || foldChanged
-        let highlightChanged = context.coordinator.lastHighlightColor != highlightColor
         let hiddenChanged = context.coordinator.lastHiddenAnnotationIDs != hiddenAnnotationIDs
         var didReplaceTextStorage = false
+        var didIncrementallyEditFoldStorage = false
         var didUpdateAnnotationVisibility = false
         var didDeferSourceUpdate = false
         var foldViewportAnchor: Int? = nil
@@ -656,14 +702,40 @@ struct MarkdownTextView: NSViewRepresentable {
                 if foldChanged, context.coordinator.pendingSectionReanchor == nil {
                     foldViewportAnchor = context.coordinator.scrollAnchorSourceOffset()
                 }
-                context.coordinator.replaceTextStorage(
-                    mutableAttr,
-                    in: textView,
-                    preserving: preservedRange
-                )
+                let canIncrementallyEditFold =
+                    foldChanged
+                    && !docSourceChanged
+                    && !textColorChanged
+                    && !linkBaseChanged
+                    && !documentLinkPolicyChanged
+                    && !highlightChanged
+                    && context.coordinator.lastSectionIndex == sectionIndex
+                if canIncrementallyEditFold,
+                    let sectionIndex,
+                    let edit = Self.foldTextEdit(
+                        in: doc,
+                        index: sectionIndex,
+                        from: context.coordinator.lastCollapsedSections,
+                        to: collapsedSections
+                    )
+                {
+                    didIncrementallyEditFoldStorage = context.coordinator.replaceTextStorageForFold(
+                        mutableAttr,
+                        edit: edit,
+                        in: textView,
+                        preserving: preservedRange
+                    )
+                }
+                if !didIncrementallyEditFoldStorage {
+                    context.coordinator.replaceTextStorage(
+                        mutableAttr,
+                        in: textView,
+                        preserving: preservedRange
+                    )
+                    // INT-687: a fresh storage carries no tailIndent — rewrap + resize now.
+                    context.coordinator.noteStorageReplaced()
+                }
                 didReplaceTextStorage = true
-                // INT-687: a fresh storage carries no tailIndent — rewrap + resize now.
-                context.coordinator.noteStorageReplaced()
                 context.coordinator.lastSource = doc.source
                 context.coordinator.lastTextColor = textColor
                 context.coordinator.lastTerminalBackground = terminalBackground
@@ -696,6 +768,7 @@ struct MarkdownTextView: NSViewRepresentable {
                         preserving: preservedRange
                     )
                     context.coordinator.noteStorageReplaced()
+                    didIncrementallyEditFoldStorage = false
                 }
                 context.coordinator.sourceUpdateDidApply()
                 context.coordinator.publishSelectionState(in: textView)
@@ -859,7 +932,9 @@ struct MarkdownTextView: NSViewRepresentable {
                 // Guard the layout-manager unwrap: a `!` in the argument is evaluated
                 // before `?.` can short-circuit, so a TextKit-1 fallback (nil layout
                 // manager) would crash. Bind it once instead.
-                if let layoutManager = textView.textLayoutManager {
+                if !didIncrementallyEditFoldStorage,
+                    let layoutManager = textView.textLayoutManager
+                {
                     layoutManager.ensureLayout(for: layoutManager.documentRange)
                 }
                 // Badge ordinals for VoiceOver ("Comment 2") come from the doc's
@@ -1194,6 +1269,56 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         isReplacingTextStorage = false
     }
 
+    /// Applies one fold as a local TextKit edit. The replacement is still
+    /// built in full because it is the coordinator's authoritative attributes,
+    /// but the live storage only invalidates the section whose visibility
+    /// changed. Returns false without mutating when the edit plan cannot describe
+    /// the current and replacement strings, so the caller can use the ordinary
+    /// whole-document replacement path.
+    func replaceTextStorageForFold(
+        _ replacement: NSMutableAttributedString,
+        edit: MarkdownTextView.FoldTextEdit,
+        in textView: NSTextView,
+        preserving selectedRange: NSRange?
+    ) -> Bool {
+        guard let storage = textView.textStorage,
+            edit.currentRange.location >= 0,
+            edit.currentRange.length >= 0,
+            NSMaxRange(edit.currentRange) <= storage.length,
+            edit.replacementRange.location >= 0,
+            edit.replacementRange.length >= 0,
+            NSMaxRange(edit.replacementRange) <= replacement.length
+        else { return false }
+        let expectedLength =
+            storage.length + edit.replacementRange.length - edit.currentRange.length
+        guard expectedLength == replacement.length else { return false }
+        if edit.replacementRange.length > 0, lastProseWrapWidth == nil {
+            return false
+        }
+
+        isReplacingTextStorage = true
+        let inserted = NSMutableAttributedString(
+            attributedString: replacement.attributedSubstring(from: edit.replacementRange))
+        storage.beginEditing()
+        storage.replaceCharacters(in: edit.currentRange, with: inserted)
+        if let width = lastProseWrapWidth {
+            applyProseWrapWidth(
+                to: storage, in: textView, width: width,
+                editedRange: edit.replacementRange)
+        }
+        storage.endEditing()
+        textStorageRevision &+= 1
+        currentAttr = replacement
+        adoptedAttributeRevision = textStorageRevision
+        if let selectedRange {
+            textView.setSelectedRange(selectedRange)
+        }
+        isReplacingTextStorage = false
+
+        updateDocumentGeometryAfterFold(in: textView)
+        return true
+    }
+
     /// Adopts attributes installed outside `replaceTextStorage`, primarily for
     /// focused TextKit tests. Production updates use the replacement method so
     /// storage ownership can be checked in constant time during layout.
@@ -1402,7 +1527,6 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             let layoutManager = textView.textLayoutManager,
             let storage = textView.textStorage
         else { return }
-        let clip = scrollView.contentView
         // The wrap width derives from the SCROLL VIEW frame, not the clip:
         // clip width shrinks when a legacy vertical scroller appears, and the
         // rewrap itself changes document height (and therefore scroller
@@ -1423,6 +1547,26 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             return
         }
         layoutManager.ensureLayout(for: layoutManager.documentRange)
+        resizeTextViewToLayoutUsage(textView, in: scrollView, layoutManager: layoutManager)
+    }
+
+    private func updateDocumentGeometryAfterFold(in textView: NSTextView) {
+        guard let scrollView = textView.enclosingScrollView,
+            let layoutManager = textView.textLayoutManager
+        else { return }
+        // A local edit preserves unaffected fragments, but usage bounds still
+        // estimate the tail until layout has reached the end of the document.
+        // Measure settled layout so the scroll extent reflects this fold.
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        resizeTextViewToLayoutUsage(textView, in: scrollView, layoutManager: layoutManager)
+    }
+
+    private func resizeTextViewToLayoutUsage(
+        _ textView: NSTextView,
+        in scrollView: NSScrollView,
+        layoutManager: NSTextLayoutManager
+    ) {
+        let clip = scrollView.contentView
         let usage = layoutManager.usageBoundsForTextContainer
         let inset = textView.textContainerInset
         let size = NSSize(
@@ -1443,7 +1587,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// storage is fresh); false means no glyph moved and callers can skip
     /// re-measuring.
     func applyProseWrapWidth(
-        to storage: NSTextStorage, in textView: NSTextView, clipWidth: CGFloat
+        to storage: NSMutableAttributedString, in textView: NSTextView, clipWidth: CGFloat
     ) -> Bool {
         // Floor of 80pt: at sliver pane widths the computed value would go
         // non-positive, and a tailIndent ≤ 0 means "distance from the trailing
@@ -1451,16 +1595,32 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         let width = max(clipWidth - textView.textContainerInset.width * 2, 80)
         guard width != lastProseWrapWidth else { return false }
         lastProseWrapWidth = width
+        applyProseWrapWidth(to: storage, in: textView, width: width)
+        return true
+    }
+
+    private func applyProseWrapWidth(
+        to storage: NSMutableAttributedString,
+        in textView: NSTextView,
+        width: CGFloat,
+        editedRange: NSRange? = nil
+    ) {
         // Empty storage has no paragraphs to stamp but still needs measuring:
         // a wide document replaced by an empty one must shrink the frame back,
         // and `lastProseWrapWidth == nil` (fresh storage) reaches here even
         // when the width itself didn't move.
-        guard storage.length > 0 else { return true }
+        guard storage.length > 0 else { return }
 
         let ns = storage.string as NSString
         storage.beginEditing()
-        var location = 0
-        while location < ns.length {
+        // Fold edits start and end inside existing paragraphs. Resolve their
+        // boundaries in live storage so heading reserves and separator styles
+        // match a full rebuild, including a zero-length collapse.
+        let paragraphs =
+            editedRange.map { ns.paragraphRange(for: $0) }
+            ?? NSRange(location: 0, length: ns.length)
+        var location = paragraphs.location
+        while location < NSMaxRange(paragraphs) {
             let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
             location = NSMaxRange(paragraph)
             guard paragraph.length > 0 else { break }
@@ -1485,7 +1645,6 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             let existing =
                 storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil)
                 as? NSParagraphStyle
-            if existing?.tailIndent == paragraphWidth { continue }
             // Copy-on-write: preserve whatever styling the paragraph already
             // carries and change only the wrap width.
             let style =
@@ -1494,7 +1653,6 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
         }
         storage.endEditing()
-        return true
     }
 
     /// Called by `SelectionAwareTextView.mouseDown(with:)` after `super.mouseDown`'s
