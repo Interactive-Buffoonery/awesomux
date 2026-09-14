@@ -2406,7 +2406,7 @@
 
     },
     "New Workspace" : {
-      "comment" : "Dock right-click menu item that opens a new workspace.\nEmpty workspace primary action label.\nSidebar action to create a workspace.",
+      "comment" : "Dock right-click menu item that opens a new workspace.\nEmpty workspace primary action label.\nOpen worktree destination.\nSidebar action to create a workspace.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2648,6 +2648,9 @@
     },
     "Open folder %arg" : {
 
+    },
+    "Open in" : {
+      "comment" : "Worktree opening destination picker."
     },
     "Open in Browser" : {
 
@@ -3709,6 +3712,9 @@
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
     },
+    "Select a local terminal pane, then try again." : {
+      "comment" : "Worktree split destination unavailable or changed."
+    },
     "Select a workspace group, then try again." : {
       "comment" : "Worktree Manager open recovery when no workspace group is selected."
     },
@@ -3908,10 +3914,10 @@
       "comment" : "Source line in the OSC 52 clipboard write confirmation dialog. Argument is a sanitized workspace or pane description."
     },
     "Split Down" : {
-
+      "comment" : "Open worktree in a downward split."
     },
     "Split Right" : {
-
+      "comment" : "Open worktree in a right split."
     },
     "Split pane down" : {
       "comment" : "VoiceOver announcement after creating a horizontal split below the active pane."

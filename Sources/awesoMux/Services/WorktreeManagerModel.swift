@@ -27,9 +27,32 @@ enum WorktreeManagerState: Equatable, Sendable {
     }
 }
 
+enum WorktreeOpenDestination: CaseIterable, Sendable {
+    case newWorkspace
+    case splitRight
+    case splitDown
+
+    var title: String {
+        switch self {
+        case .newWorkspace: String(localized: "New Workspace", comment: "Open worktree destination.")
+        case .splitRight: String(localized: "Split Right", comment: "Open worktree in a right split.")
+        case .splitDown: String(localized: "Split Down", comment: "Open worktree in a downward split.")
+        }
+    }
+
+    var orientation: TerminalSplitOrientation? {
+        switch self {
+        case .newWorkspace: nil
+        case .splitRight: .vertical
+        case .splitDown: .horizontal
+        }
+    }
+}
+
 enum WorktreeManagerOpenOutcome: Equatable, Sendable {
     case focused(WorktreeWorkspaceMatch)
     case created(TerminalSession.ID)
+    case split(WorktreeWorkspaceMatch)
     case failed(String)
 }
 
@@ -71,6 +94,8 @@ final class WorktreeManagerModel {
     @ObservationIgnored private let projection: WorktreeWorkspaceProjection
     @ObservationIgnored private let groups: () -> [SessionGroup]
     @ObservationIgnored private let currentGroupID: () -> SessionGroup.ID?
+    @ObservationIgnored private let currentSession: () -> TerminalSession?
+    @ObservationIgnored private let splitLocalPane: (WorktreeWorkspaceMatch, TerminalSplitOrientation, String) -> TerminalPane.ID?
     @ObservationIgnored private let focus: (WorktreeWorkspaceMatch) -> Void
     @ObservationIgnored private let addLocalSession: (String?, String, SessionGroup.ID) -> TerminalSession.ID?
     // Refresh is triggered from several uncoordinated places (open, manual
@@ -85,7 +110,9 @@ final class WorktreeManagerModel {
         groups: @escaping () -> [SessionGroup],
         currentGroupID: @escaping () -> SessionGroup.ID?,
         focus: @escaping (WorktreeWorkspaceMatch) -> Void,
-        addLocalSession: @escaping (String?, String, SessionGroup.ID) -> TerminalSession.ID?
+        addLocalSession: @escaping (String?, String, SessionGroup.ID) -> TerminalSession.ID?,
+        currentSession: @escaping () -> TerminalSession? = { nil },
+        splitLocalPane: @escaping (WorktreeWorkspaceMatch, TerminalSplitOrientation, String) -> TerminalPane.ID? = { _, _, _ in nil }
     ) {
         self.repositoryContext = repositoryContext
         self.service = service
@@ -94,6 +121,8 @@ final class WorktreeManagerModel {
         self.currentGroupID = currentGroupID
         self.focus = focus
         self.addLocalSession = addLocalSession
+        self.currentSession = currentSession
+        self.splitLocalPane = splitLocalPane
     }
 
     convenience init(
@@ -121,6 +150,10 @@ final class WorktreeManagerModel {
                     workingDirectory: workingDirectory,
                     toGroupID: groupID
                 )
+            },
+            currentSession: { sessionStore.selectedSession },
+            splitLocalPane: { target, orientation, path in
+                sessionStore.splitActivePane(orientation: orientation, in: target.sessionID, workingDirectory: path)
             }
         )
     }
@@ -173,8 +206,19 @@ final class WorktreeManagerModel {
         }
     }
 
-    func open(row: WorktreeManagerRow) async -> WorktreeManagerOpenOutcome {
-        await open(record: row.record)
+    var canOpenAsSplit: Bool { splitTarget != nil }
+
+    private var splitTarget: WorktreeWorkspaceMatch? {
+        guard let session = currentSession(),
+            let pane = session.layout.pane(id: session.activePaneID),
+            WorkspacePaneCapabilities.terminal(pane).localFileAccess,
+            let group = groups().first(where: { $0.sessions.contains(where: { $0.id == session.id }) })
+        else { return nil }
+        return WorktreeWorkspaceMatch(groupID: group.id, sessionID: session.id, paneID: pane.id)
+    }
+
+    func open(row: WorktreeManagerRow, destination: WorktreeOpenDestination = .newWorkspace) async -> WorktreeManagerOpenOutcome {
+        await open(record: row.record, destination: destination, capturedSplitTarget: splitTarget)
     }
 
     func branches() async -> GitWorktreeBranchesOutcome {
@@ -191,8 +235,11 @@ final class WorktreeManagerModel {
     }
 
     @discardableResult
-    func create(request: GitWorktreeCreateRequest) async -> WorktreeManagerCreateResult? {
+    func create(request: GitWorktreeCreateRequest, destination: WorktreeOpenDestination = .newWorkspace) async
+        -> WorktreeManagerCreateResult?
+    {
         guard !createSubmissionState.isSubmitting else { return nil }
+        let capturedSplitTarget = splitTarget
         lastCreateRequest = request
         createSubmissionState = .submitting
         let outcome = await service.create(request)
@@ -201,7 +248,9 @@ final class WorktreeManagerModel {
         let result: WorktreeManagerCreateResult
         switch outcome {
         case .success(let record):
-            let openOutcome = await open(record: record, destinationGroupID: request.destinationWorkspaceGroupID)
+            let openOutcome = await open(
+                record: record, destinationGroupID: request.destinationWorkspaceGroupID,
+                destination: destination, capturedSplitTarget: capturedSplitTarget)
             if case .failed(let message) = openOutcome {
                 result = .worktreeCreatedWorkspaceOpenFailed(message)
             } else {
@@ -248,6 +297,18 @@ final class WorktreeManagerModel {
         }
     }
 
+    func finishCreatePresentation() {
+        // Ending the native sheet restores its previous first responder. In a
+        // split that terminal still exists, so restore the new pane afterward.
+        if case .result(.opened(.split(let match))) = createSubmissionState,
+            let session = currentSession(), session.id == match.sessionID,
+            session.layout.pane(id: match.paneID) != nil
+        {
+            focus(match)
+        }
+        resetCreateResult()
+    }
+
     func resetCreateResult() {
         guard !createSubmissionState.isSubmitting else { return }
         createSubmissionState = .idle
@@ -255,7 +316,9 @@ final class WorktreeManagerModel {
 
     private func open(
         record: GitWorktreeRecord,
-        destinationGroupID: SessionGroup.ID? = nil
+        destinationGroupID: SessionGroup.ID? = nil,
+        destination: WorktreeOpenDestination,
+        capturedSplitTarget: WorktreeWorkspaceMatch?
     ) async -> WorktreeManagerOpenOutcome {
         switch await service.validateRepositoryIdentity(repositoryContext) {
         case .valid:
@@ -282,6 +345,22 @@ final class WorktreeManagerModel {
         ) {
             focus(match)
             return .focused(match)
+        }
+
+        if let orientation = destination.orientation {
+            // Git validation/creation yields; never redirect an old request to a
+            // newly selected terminal or turn it into a separate workspace.
+            guard let target = capturedSplitTarget, target == splitTarget,
+                let paneID = splitLocalPane(target, orientation, record.canonicalPath.path)
+            else {
+                return .failed(
+                    String(
+                        localized: "Select a local terminal pane, then try again.",
+                        comment: "Worktree split destination unavailable or changed."))
+            }
+            let match = WorktreeWorkspaceMatch(groupID: target.groupID, sessionID: target.sessionID, paneID: paneID)
+            focus(match)
+            return .split(match)
         }
 
         guard let groupID = destinationGroupID ?? currentGroupID() else {

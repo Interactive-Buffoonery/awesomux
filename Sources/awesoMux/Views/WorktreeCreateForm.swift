@@ -20,6 +20,7 @@ struct WorktreeCreateForm: View {
     let model: WorktreeManagerModel
     let onDismiss: () -> Void
 
+    @State private var destination: WorktreeOpenDestination = .newWorkspace
     @State private var mode: Mode = .existing
     @State private var branches: [String] = []
     @State private var selectedBranch = ""
@@ -75,6 +76,16 @@ struct WorktreeCreateForm: View {
                 Button(String(localized: "Choose…", comment: "Open a folder picker for the worktree target path.")) {
                     chooseTargetPath()
                 }
+            }
+
+            Picker(String(localized: "Open in", comment: "Worktree opening destination picker."), selection: $destination) {
+                ForEach(WorktreeOpenDestination.allCases, id: \.self) { destination in
+                    Text(destination.title).tag(destination)
+                }
+            }
+            .disabled(isBusy || !model.canOpenAsSplit)
+            .onChange(of: model.canOpenAsSplit) { _, canSplit in
+                if !canSplit { destination = .newWorkspace }
             }
 
             if let validationMessage {
@@ -263,7 +274,7 @@ struct WorktreeCreateForm: View {
         }
         validationMessage = nil
         Task {
-            _ = await model.create(request: request)
+            _ = await model.create(request: request, destination: destination)
         }
     }
 
