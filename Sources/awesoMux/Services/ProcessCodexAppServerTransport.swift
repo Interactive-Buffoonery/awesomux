@@ -37,6 +37,11 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
     private var tailStartedAt: Date?
     private var didClose = false
 
+    #if DEBUG
+        // Set before starting receive(); observes the actual blocking-read executor.
+        var readStartedForTesting: (@Sendable () -> Void)?
+    #endif
+
     init(
         executable: String,
         codexHome: String,
@@ -108,8 +113,14 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
             // still use the cooperative pool; dispatch the read so a quiet server
             // cannot prevent the client's timeout task from making progress.
             let handle = outputPipe.fileHandleForReading
+            #if DEBUG
+                let readStarted = readStartedForTesting
+            #endif
             let chunk: Data = await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
+                    #if DEBUG
+                        readStarted?()
+                    #endif
                     continuation.resume(returning: handle.availableData)
                 }
             }
