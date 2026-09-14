@@ -2,6 +2,13 @@ import Foundation
 import UnicodeHygiene
 
 public struct WorkspaceConfig: Codable, Equatable, Sendable {
+    public enum RemoteHelperInstallPolicy: String, Codable, CaseIterable, Sendable {
+        case ask
+        case alwaysInstall = "always_install"
+        case neverAsk = "never_ask"
+    }
+
+    @TOMLDefault<DefaultRemoteHelperInstallPolicy> public var remoteHelperInstallPolicy: RemoteHelperInstallPolicy
     @TOMLDefault<DefaultWorkspaceDefaultGroup> private var defaultGroupStorage: String
     public var defaultGroup: String {
         get { defaultGroupStorage }
@@ -57,6 +64,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         outputMarksNeedsAttention: Bool = true,
         confirmCloseWithRunningAgent: Bool = true,
         confirmDestructivePaneActionWithRunningAgent: Bool = true,
+        remoteHelperInstallPolicy: RemoteHelperInstallPolicy = .ask,
         managedSSHOffersEnabled: Bool = true,
         managedSSHOfferIgnoredDestinations: [String] = [],
         managedSSHAlwaysManaged: [String: ManagedSSHAlwaysManagedEntry] = [:],
@@ -68,6 +76,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         self.outputMarksNeedsAttention = outputMarksNeedsAttention
         self.confirmCloseWithRunningAgent = confirmCloseWithRunningAgent
         self.confirmDestructivePaneActionWithRunningAgent = confirmDestructivePaneActionWithRunningAgent
+        self.remoteHelperInstallPolicy = remoteHelperInstallPolicy
         self.managedSSHOffersEnabled = managedSSHOffersEnabled
         self.managedSSHOfferIgnoredDestinations = managedSSHOfferIgnoredDestinations
         self.managedSSHAlwaysManaged = managedSSHAlwaysManaged
@@ -94,6 +103,10 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
             confirmDestructivePaneActionWithRunningAgent: try container.decode(
                 TOMLDefault<DefaultConfirmDestructivePaneActionWithRunningAgent>.self,
                 forKey: .confirmDestructivePaneActionWithRunningAgent
+            ).wrappedValue,
+            remoteHelperInstallPolicy: try container.decode(
+                TOMLDefault<DefaultRemoteHelperInstallPolicy>.self,
+                forKey: .remoteHelperInstallPolicy
             ).wrappedValue,
             managedSSHOffersEnabled: try container.decode(
                 TOMLDefault<DefaultManagedSSHOffersEnabled>.self,
@@ -131,6 +144,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
             confirmDestructivePaneActionWithRunningAgent,
             forKey: .confirmDestructivePaneActionWithRunningAgent
         )
+        try container.encode(remoteHelperInstallPolicy, forKey: .remoteHelperInstallPolicy)
         try container.encode(managedSSHOffersEnabled, forKey: .managedSSHOffersEnabled)
         try container.encode(
             managedSSHOfferIgnoredDestinations,
@@ -150,6 +164,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         case outputMarksNeedsAttention = "output_marks_needs_attention"
         case confirmCloseWithRunningAgent = "confirm_close_with_running_agent"
         case confirmDestructivePaneActionWithRunningAgent = "confirm_destructive_pane_action_with_running_agent"
+        case remoteHelperInstallPolicy = "remote_helper_install_policy"
         case managedSSHOffersEnabled = "managed_ssh_offers_enabled"
         case managedSSHOfferIgnoredDestinations = "managed_ssh_offer_ignored_destinations"
         case managedSSHAlwaysManaged = "managed_ssh_always_managed"
@@ -256,4 +271,8 @@ extension WorkspaceConfig {
             )
         }
     }
+}
+
+public struct DefaultRemoteHelperInstallPolicy: DefaultProvider {
+    public static let defaultValue = WorkspaceConfig.RemoteHelperInstallPolicy.ask
 }
