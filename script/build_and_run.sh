@@ -520,7 +520,10 @@ fi
 #
 # Let Zig track SDK, compiler, and source inputs in its own incremental cache.
 # A second mtime cache here would miss environment and toolchain changes.
-if ! "$ROOT_DIR/script/build_amx.sh"; then
+amx_build_succeeded=0
+if "$ROOT_DIR/script/build_amx.sh"; then
+  amx_build_succeeded=1
+else
   if mode_requires_amx; then
     amx_install_error "amx build failed."
     exit 1
@@ -616,9 +619,9 @@ fi
 if ! otool -l "$APP_BINARY" | grep -A 2 LC_RPATH | grep -Fq '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP_BINARY"
 fi
-# Stage amx only if it was built. A bundle without it still runs (local-shell
+# Stage amx only after this build succeeded. A bundle without it still runs (local-shell
 # only); the command bridge stays unavailable until amx is present.
-if [[ -x "$AMX_BUILT_BINARY" ]]; then
+if [[ "$amx_build_succeeded" == 1 && -x "$AMX_BUILT_BINARY" ]]; then
   cp "$AMX_BUILT_BINARY" "$AMX_BINARY"
   chmod +x "$AMX_BINARY"
 else

@@ -4,6 +4,55 @@ import Testing
 
 @Suite("Build and run script")
 struct BuildAndRunScriptTests {
+    @Test("AMX staging rejects stale artifacts after failed builds")
+    func amxStagingRequiresSuccessfulBuild() throws {
+        let script = try Self.contents(of: "script/build_and_run.sh")
+        let buildStart = try #require(script.range(of: "# Let Zig track SDK"))
+        let buildEnd = try #require(
+            script.range(of: "\nif [[ ! -f \"$GHOSTTY_SHARE/terminfo", range: buildStart.upperBound..<script.endIndex))
+        let stageStart = try #require(script.range(of: "# Stage amx only"))
+        let stageEnd = try #require(script.range(of: "\ncp -R \"$GHOSTTY_SHARE/", range: stageStart.upperBound..<script.endIndex))
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-amx-staging")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let root = temporaryDirectory.url
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("script"), withIntermediateDirectories: true)
+        let builder = root.appendingPathComponent("script/build_amx.sh")
+        try Data("#!/bin/bash\nexit \"$BUILD_STATUS\"\n".utf8).write(to: builder)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: builder.path)
+        let artifact = root.appendingPathComponent("amx")
+        try Data("old-artifact".utf8).write(to: artifact)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: artifact.path)
+
+        for (buildStatus, required) in [(1, false), (1, true), (0, false), (0, true)] {
+            let staged = root.appendingPathComponent("staged-\(buildStatus)-\(required)")
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [
+                "-c",
+                """
+                set -euo pipefail
+                mode_requires_amx() { \(required ? "true" : "false"); }
+                amx_install_error() { echo "$*" >&2; }
+                \(script[buildStart.lowerBound..<buildEnd.lowerBound])
+                \(script[stageStart.lowerBound..<stageEnd.lowerBound])
+                """,
+            ]
+            var environment = ProcessInfo.processInfo.environment
+            environment["ROOT_DIR"] = root.path
+            environment["AMX_BUILT_BINARY"] = artifact.path
+            environment["AMX_BINARY"] = staged.path
+            environment["BUILD_STATUS"] = String(buildStatus)
+            process.environment = environment
+            let captured = try captureOutput(of: process)
+            #expect(process.terminationStatus == (buildStatus != 0 && required ? 1 : 0), "\(captured.stderr)")
+            #expect(FileManager.default.fileExists(atPath: staged.path) == (buildStatus == 0))
+            #expect(FileManager.default.isExecutableFile(atPath: artifact.path))
+            if buildStatus != 0 {
+                #expect(captured.stderr.contains("amx build failed"))
+            }
+        }
+    }
+
     @Test("--install process enumeration fails closed")
     func installProcessEnumerationFailsClosed() throws {
         let script = try Self.contents(of: "script/build_and_run.sh")
