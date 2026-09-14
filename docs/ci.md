@@ -212,7 +212,7 @@ classified as product/test, runner, or workflow infrastructure failures.
 Actions CodeQL runs automatically on pull requests and `main`. Its aggregate
 `CodeQL interpreted complete` check does not wait for Swift.
 
-Swift CodeQL runs on `macos-26` (or `NATIVE_CI_RUNNER`) every Tuesday at
+Swift CodeQL runs on `xcode-27` (or `NATIVE_CI_RUNNER`) every Tuesday at
 `17 8 * * 2` and through manual dispatch. It retains manual-build analysis and
 the committed Ghostty exact-pin preparation, but does not run on pull requests
 or every `main` push.
@@ -224,11 +224,11 @@ after an allowlisted maintainer posts an exact `/ci` command on an eligible pull
 request or starts a manual dispatch. It does not run automatically on pull
 requests, pushes to `main`, or a recurring schedule.
 
-The path-filtered `Tint contrast` workflow is the narrow exception: relevant
-design-system and sidebar changes automatically run the focused
-`SidebarTintContrastTests` suite on the GitHub-hosted `macos-26` runner. It has
-read-only permissions, does not use the configurable native-runner label, and
-remains advisory.
+The `Tint contrast` job also requires manual dispatch. Its path-filtered pull
+request trigger records a skipped job without starting a macOS runner. A
+maintainer can run the focused `SidebarTintContrastTests` suite on the
+GitHub-hosted `xcode-27` runner when needed. It has read-only permissions, does
+not use the configurable native-runner label, and remains advisory.
 
 Making broader native CI automatic, or making any native check required for
 merge, requires a separate reliability and cost review.

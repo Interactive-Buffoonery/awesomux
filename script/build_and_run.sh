@@ -168,10 +168,6 @@ If initialization fails, confirm the vendor/zmx submodule is reachable:
 EOF
 }
 
-zmx_submodule_is_initialized() {
-  [[ -d "$ROOT_DIR/vendor/zmx/.git" || -f "$ROOT_DIR/vendor/zmx/.git" ]]
-}
-
 trash_path() {
   local path="$1"
 
@@ -512,6 +508,7 @@ if mode_requires_exact_ghostty_pin; then
   export AWESOMUX_GHOSTTY_REQUIRE_PIN_MATCH=1
 fi
 
+"$ROOT_DIR/script/check-toolchain.sh"
 "$ROOT_DIR/script/ensure_ghostty_artifacts.sh"
 "$ROOT_DIR/script/check_ghostty_third_party_licenses.sh"
 
@@ -521,45 +518,14 @@ fi
 # by default and AmxBackend falls back to a local shell when amx is absent, so a
 # contributor without a Zig toolchain can still build and run the app.
 #
-# Rebuild when the staged amx is missing OR the vendored zmx source is newer than
-# it — a plain "skip if staged" check ships a stale amx after a submodule bump
-# (e.g. a fork-patch update), which silently runs the bridge against an old
-# binary. mtime-based staleness is cheap and zig's own build cache makes a
-# no-op rebuild fast.
-#
-# Also watches build_amx.sh itself: a build-flag-only change there (e.g. the
-# -Doptimize fix, INT-523) touches no zmx source file, so without this a
-# contributor who already has a staged binary from before the flag change
-# would silently keep running it.
-#
-# None of that catches a submodule checked out behind the superproject's
-# pin, though: `git pull` moves the gitlink but the submodule worktree keeps
-# whatever commit it already had, so its files just sit there with old
-# mtimes — never "newer" than a staged binary, so a stale checkout looks
-# perpetually fresh and this check would otherwise skip calling
-# build_amx.sh forever. Trigger a rebuild on pin mismatch too so
-# build_amx.sh's own guard (which does the actual re-sync) gets a chance to
-# run.
-amx_needs_build=0
-if [[ ! -x "$AMX_BUILT_BINARY" ]]; then
-  amx_needs_build=1
-elif [[ -n "$(find "$ROOT_DIR/vendor/zmx/src" "$ROOT_DIR/vendor/zmx/build.zig" "$ROOT_DIR/vendor/zmx/build.zig.zon" "$ROOT_DIR/script/build_amx.sh" -newer "$AMX_BUILT_BINARY" 2>/dev/null | head -n 1)" ]]; then
-  amx_needs_build=1
-elif zmx_submodule_is_initialized; then
-  amx_pinned_sha="$(git -C "$ROOT_DIR" rev-parse HEAD:vendor/zmx 2>/dev/null || echo "")"
-  amx_checked_out_sha="$(git -C "$ROOT_DIR/vendor/zmx" rev-parse HEAD 2>/dev/null || echo "")"
-  if [[ -n "$amx_pinned_sha" && -n "$amx_checked_out_sha" && "$amx_pinned_sha" != "$amx_checked_out_sha" ]]; then
-    amx_needs_build=1
+# Let Zig track SDK, compiler, and source inputs in its own incremental cache.
+# A second mtime cache here would miss environment and toolchain changes.
+if ! "$ROOT_DIR/script/build_amx.sh"; then
+  if mode_requires_amx; then
+    amx_install_error "amx build failed."
+    exit 1
   fi
-fi
-if [[ "$amx_needs_build" == 1 ]]; then
-  if ! "$ROOT_DIR/script/build_amx.sh"; then
-    if mode_requires_amx; then
-      amx_install_error "amx build failed."
-      exit 1
-    fi
-    echo "warning: amx build failed — the command bridge will be unavailable (the app runs with local shells)." >&2
-  fi
+  echo "warning: amx build failed — the command bridge will be unavailable (the app runs with local shells)." >&2
 fi
 if mode_requires_amx && [[ ! -x "$AMX_BUILT_BINARY" ]]; then
   amx_install_error "amx is absent ($AMX_BUILT_BINARY)."
@@ -623,7 +589,8 @@ for font_file in \
     Fonts/Geist-Medium.ttf \
     Fonts/Geist-SemiBold.ttf \
     Fonts/Geist-Bold.ttf; do
-  if [[ ! -f "$APP_RESOURCES/awesoMux_DesignSystem.bundle/$font_file" ]]; then
+  if [[ ! -f "$APP_RESOURCES/awesoMux_DesignSystem.bundle/$font_file" \
+    && ! -f "$APP_RESOURCES/awesoMux_DesignSystem.bundle/Contents/Resources/$font_file" ]]; then
     echo "error: required bundled font is missing: $font_file" >&2
     exit 1
   fi

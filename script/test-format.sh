@@ -36,6 +36,8 @@ mkdir -p "$TEMP_REPO/script" "$TEMP_REPO/Sources"
 cp "$ROOT_DIR/.swift-format" "$TEMP_REPO/.swift-format"
 cp "$ROOT_DIR/.swift-format-version" "$TEMP_REPO/.swift-format-version"
 cp "$ROOT_DIR/script/format.sh" "$TEMP_REPO/script/format.sh"
+cp "$ROOT_DIR/script/check-toolchain.sh" "$TEMP_REPO/script/"
+cp "$ROOT_DIR/.swift-version" "$ROOT_DIR/.swift-version-macos" "$ROOT_DIR/.xcode-version" "$TEMP_REPO/"
 printf 'darwin=0.0.0\nlinux=0.0.0\n' > "$TEMP_REPO/.swift-format-version"
 if "$TEMP_REPO/script/format.sh" --lint >/dev/null 2>&1; then
     echo "error: format lint accepted a mismatched formatter version" >&2
@@ -195,6 +197,8 @@ NO_COMMIT_REPO="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-format-nocommit.XXXXXX")"
 mkdir -p "$NO_COMMIT_REPO/script" "$NO_COMMIT_REPO/Sources"
 cp "$ROOT_DIR/.swift-format" "$ROOT_DIR/.swift-format-version" "$NO_COMMIT_REPO/"
 cp "$ROOT_DIR/script/format.sh" "$NO_COMMIT_REPO/script/"
+cp "$ROOT_DIR/script/check-toolchain.sh" "$NO_COMMIT_REPO/script/"
+cp "$ROOT_DIR/.swift-version" "$ROOT_DIR/.swift-version-macos" "$ROOT_DIR/.xcode-version" "$NO_COMMIT_REPO/"
 git -C "$NO_COMMIT_REPO" init -q
 printf 'struct Fresh {\n      let v:Int = 1\n}\n' > "$NO_COMMIT_REPO/Sources/Fresh.swift"
 "$NO_COMMIT_REPO/script/format.sh" "$NO_COMMIT_REPO/Sources/Fresh.swift" >/dev/null

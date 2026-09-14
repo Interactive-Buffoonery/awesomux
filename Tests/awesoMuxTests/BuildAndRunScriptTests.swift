@@ -250,6 +250,37 @@ struct BuildAndRunScriptTests {
         #expect(script.contains("Fonts/Geist-Bold.ttf"))
     }
 
+    @Test("bundled font validation accepts flat and macOS resources and rejects missing fonts")
+    func validatesBundledFonts() throws {
+        let script = try Self.contents(of: "script/build_and_run.sh")
+        let start = try #require(script.range(of: "for font_file in"))
+        let end = try #require(script.range(of: "\ndone", range: start.upperBound..<script.endIndex))
+        let validation = String(script[start.lowerBound..<end.upperBound])
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-font-layout")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+
+        for layout in ["flat", "macOS", "missing"] {
+            let resources = temporaryDirectory.url.appendingPathComponent(layout)
+            let bundle = resources.appendingPathComponent("awesoMux_DesignSystem.bundle")
+            let fonts = bundle.appendingPathComponent(layout == "macOS" ? "Contents/Resources/Fonts" : "Fonts")
+            try FileManager.default.createDirectory(at: fonts, withIntermediateDirectories: true)
+            for weight in ["Regular", "Medium", "SemiBold", "Bold"] where layout != "missing" || weight != "Bold" {
+                try Data().write(to: fonts.appendingPathComponent("Geist-\(weight).ttf"))
+            }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", "set -euo pipefail\n" + validation]
+            var environment = ProcessInfo.processInfo.environment
+            environment["APP_RESOURCES"] = resources.path
+            process.environment = environment
+            let captured = try captureOutput(of: process)
+            #expect(process.terminationStatus == (layout == "missing" ? 1 : 0), "\(layout): \(captured.stderr)")
+            if layout == "missing" {
+                #expect(captured.stderr.contains("required bundled font is missing: Fonts/Geist-Bold.ttf"))
+            }
+        }
+    }
+
     @Test("AMX build initializes a missing worktree submodule")
     func amxBuildInitializesMissingWorktreeSubmodule() throws {
         let script = try Self.contents(of: "script/build_amx.sh")

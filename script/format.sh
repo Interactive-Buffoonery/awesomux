@@ -27,7 +27,11 @@ fi
 FORMATTER=(swift format)
 
 case "$(uname -s)" in
-    Darwin) formatter_platform="darwin" ;;
+    Darwin)
+        # Xcode reports the formatter as "main", so verify its compiler/SDK identity too.
+        "$ROOT_DIR/script/check-toolchain.sh" >/dev/null
+        formatter_platform="darwin"
+        ;;
     Linux) formatter_platform="linux" ;;
     *)
         echo "error: unsupported formatter platform: $(uname -s)" >&2

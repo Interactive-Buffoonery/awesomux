@@ -42,6 +42,10 @@ runs:
       run: |
         set -euo pipefail
 
+        export DEVELOPER_DIR="/Applications/Xcode_$(tr -d '[:space:]' < .xcode-version).app/Contents/Developer"
+        ./script/check-toolchain.sh
+        echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+
         case "${{ inputs.save-cache }}" in
           true|false) ;;
           *)
@@ -80,9 +84,9 @@ runs:
         fi
         zmx_zig_formula="zig@${zmx_zig_version%.*}"
 
-        swift_pin="$(tr -d '[:space:]' < .swift-version)"
+        swift_pin="$(tr -d '[:space:]' < .swift-version-macos)"
         if [[ -z "$swift_pin" ]]; then
-          echo ".swift-version is empty" >&2
+          echo ".swift-version-macos is empty" >&2
           exit 1
         fi
 
@@ -116,7 +120,7 @@ runs:
       working-directory: ${{ github.workspace }}
       env:
         # Homebrew's tap-trust gate aborts EVERY brew command while any
-        # untrusted tap is present, and GitHub's macos-26 image ships with
+        # untrusted tap is present, and GitHub's macOS images ship with
         # aws/tap preinstalled — nothing we install comes from it. Non-
         # interactive CI can't answer the trust prompt, so opt out here.
         HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
@@ -129,7 +133,7 @@ runs:
           xcodebuild -downloadComponent MetalToolchain
         fi
 
-    # Not bundled on the macos-26 runner image (unlike prior macOS images);
+    # Not guaranteed to be bundled on the native runner image;
     # script/check_public_seed_source.sh hard-requires it, so every Native CI
     # run was failing PublicSeedSourceScriptTests.swift regardless of the
     # PR's own changes. Runs unconditionally (not gated behind the Ghostty

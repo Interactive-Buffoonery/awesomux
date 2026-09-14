@@ -70,6 +70,7 @@ case "$group" in
             echo "Run zmx, timing, sidebar, and nontiming explicitly when you need per-shard arguments or xUnit output." >&2
             exit 2
         fi
+        "$ROOT_DIR/script/check-toolchain.sh"
         "$ROOT_DIR/script/test.sh" zmx
         report_dir="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-test-reports.XXXXXX")"
         echo "Swift test reports: $report_dir"

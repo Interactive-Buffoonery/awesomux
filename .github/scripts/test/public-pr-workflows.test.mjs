@@ -352,7 +352,9 @@ test("interpreted CodeQL stays automatic without waiting for Swift", () => {
 
 test("tint contrast fails closed when the Swift filter selects no tests", () => {
   const workflow = workflows.tintContrast;
-  assert.match(workflow, /runs-on: macos-26/);
+  assert.match(workflow, /^  workflow_dispatch:/m);
+  assert.match(workflow, /^  check:\n(?:    #[^\n]*\n)*    if: github\.event_name == 'workflow_dispatch'$/m);
+  assert.match(workflow, /runs-on: xcode-27/);
   assert.doesNotMatch(workflow, /NATIVE_CI_RUNNER/);
   assert.match(
     workflow,
@@ -374,7 +376,7 @@ test("Swift CodeQL is weekly and manual only", () => {
   assert.match(workflow, /schedule:\n\s+- cron: "17 8 \* \* 2"/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /^\s{2}(?:push|pull_request):/m);
-  assert.match(workflow, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'macos-26' \}\}/);
+  assert.match(workflow, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'xcode-27' \}\}/);
   assert.match(workflow, /permissions:\n\s+contents: read\n\s+security-events: write/);
   assert.match(workflow, /uses: \.\/\.github\/actions\/prepare-native/);
   assert.match(workflow, /save-cache: "true"/);

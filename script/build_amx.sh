@@ -169,6 +169,35 @@ EOF
 REQUIRED_ZIG_VERSION="$(read_required_zig_version)"
 ZIG_BIN="$(select_zig "$REQUIRED_ZIG_VERSION")"
 
+# zmx's root executable/test does not inherit Ghostty's per-target SDK shim.
+# Keep SDK 27 selected while supplying the same upstream math definitions.
+prepare_sdk_libc() {
+  [[ -z "${ZIG_LIBC:-}" ]] || return 0
+  [[ "$(uname -s)" == "Darwin" ]] || return 0
+  [[ "$("$ZIG_BIN" version)" == 0.16.* ]] || return 0
+
+  local sdk_version sdk_path sdk_key config_temp
+  sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+  [[ "${sdk_version%%.*}" == "27" ]] || return 0
+  sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+  mkdir -p "$OUT_DIR"
+  # Separate SDK selections and publish complete files for concurrent builds.
+  sdk_key="$(printf '%s' "$sdk_path" | shasum -a 256 | awk '{print $1}')"
+  export ZIG_LIBC="$OUT_DIR/sdk-libc-$sdk_key.txt"
+  config_temp="$(mktemp "$OUT_DIR/.sdk-libc.XXXXXX")"
+  cat > "$config_temp" <<EOF
+include_dir=$ROOT_DIR/script/amx-sdk-compat
+sys_include_dir=$sdk_path/usr/include
+crt_dir=
+msvc_lib_dir=
+kernel32_lib_dir=
+gcc_dir=
+EOF
+  mv -f "$config_temp" "$ZIG_LIBC"
+}
+
+prepare_sdk_libc
+
 if [[ "$action" == "test" ]]; then
   echo "Testing vendored zmx with $ZIG_BIN (zig $("$ZIG_BIN" version))..."
   # A relative `--build-file vendor/zmx/build.zig` leaves Zig 0.16's top-level

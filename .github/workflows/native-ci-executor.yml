@@ -141,7 +141,7 @@ jobs:
       fail-fast: false
       matrix:
         group: ${{ fromJson(needs.resolve.outputs.groups) }}
-    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'xcode-27' }}
     timeout-minutes: 120
     concurrency:
       group: native-pr-${{ needs.resolve.outputs.pr-number || github.run_id }}-${{ matrix.group }}
@@ -325,7 +325,7 @@ jobs:
     name: Native release build
     needs: [resolve, native]
     if: needs.resolve.outputs.scope == 'all' && needs.native.result == 'success'
-    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'xcode-27' }}
     timeout-minutes: 60
     concurrency:
       group: native-pr-${{ needs.resolve.outputs.pr-number || github.run_id }}-release-build

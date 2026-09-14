@@ -18,6 +18,7 @@ if [[ "$#" -eq 0 ]]; then
     exec "$ROOT_DIR/script/test.sh" all
 fi
 
+"$ROOT_DIR/script/check-toolchain.sh"
 "$ROOT_DIR/script/ensure_ghostty_artifacts.sh"
 "$ROOT_DIR/script/check_ghostty_third_party_licenses.sh"
 cd "$ROOT_DIR"
