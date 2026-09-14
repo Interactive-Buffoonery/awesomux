@@ -21,7 +21,7 @@ struct AgentSetup: Codable, Identifiable, Equatable, Sendable {
     }
 
     static func launchDirectory(session: TerminalSession?, groups: [SessionGroup], defaultGroup: String) throws -> String {
-        guard let session, session.activePane?.executionPlan.remoteTarget == nil,
+        guard let session, let pane = session.activePane, pane.executionPlan.remoteTarget == nil, !pane.hasManagedSSHObservation,
             !groups.contains(where: {
                 SessionStore.groupLookupKey($0.name).caseInsensitiveCompare(SessionStore.groupLookupKey(defaultGroup)) == .orderedSame
                     && $0.remote != nil
@@ -57,7 +57,7 @@ struct AgentSetup: Codable, Identifiable, Equatable, Sendable {
                     && !CustomCommandStore.commandHasDisallowedScalar(token)
             }), shellCommand.utf8.count <= CustomCommandStore.maxCommandUTF8Bytes
         else {
-            return String(localized: "Use single-line arguments without control characters, up to 4096 bytes total.")
+            return String(localized: "Use a single-line executable path and arguments without control characters, up to 4096 bytes total.")
         }
         return nil
     }

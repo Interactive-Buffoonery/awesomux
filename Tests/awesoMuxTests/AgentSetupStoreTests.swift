@@ -8,6 +8,19 @@ import Testing
 @Suite("Agent setups")
 @MainActor
 struct AgentSetupStoreTests {
+    // The retry lives in the app view; guard its deadline wiring without exposing UI state.
+    @Test func submissionUsesOneMonotonicStartupDeadline() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Sources/awesoMux/App/AwesoMuxApp.swift"), encoding: .utf8)
+        let start = try #require(source.range(of: "private func sendQuickRunCommand("))
+        let end = try #require(source.range(of: "\n    private func ", range: start.upperBound..<source.endIndex))
+        let retry = source[start.lowerBound..<end.lowerBound]
+        #expect(retry.contains("deadline: ContinuousClock.Instant = .now.advanced(by: .seconds(10))"))
+        #expect(retry.contains("if .now < deadline, (agentSetup == nil || setupShellIsReady)"))
+        #expect(retry.contains("guard .now < deadline else"))
+        #expect(retry.contains("toPane: paneID, deadline: deadline, agentSetup: agentSetup"))
+    }
+
     @Test func submissionWaitsForTheShellPrompt() {
         #expect(!AgentSetup.canSubmit(foreground: "zsh", promptIsAway: true))
         #expect(!AgentSetup.canSubmit(foreground: "zsh", promptIsAway: nil))
@@ -48,6 +61,22 @@ struct AgentSetupStoreTests {
         #expect(AgentSetup.supportsShell("-fish"))
         #expect(!AgentSetup.supportsShell("nu"))
         #expect(!AgentSetup.supportsShell("claude"))
+    }
+
+    @Test func observedSSHSourceIsRejectedDespiteLocalExecutionPlan() throws {
+        let directory = FileManager.default.homeDirectoryForCurrentUser.path
+        for observedTarget in [false, true] {
+            var pane = TerminalPane(title: "SSH", workingDirectory: directory, executionPlan: .local)
+            if observedTarget {
+                pane.remoteSSHTarget = "remote.example"
+            } else {
+                pane.remoteHost = "remote.example"
+            }
+            let session = TerminalSession(title: "SSH", workingDirectory: directory, layout: .pane(pane))
+            #expect(throws: (any Error).self) {
+                try AgentSetup.launchDirectory(session: session, groups: [], defaultGroup: "local")
+            }
+        }
     }
 
     @Test func paletteIdentitySurvivesRenameAndUsesFullListPosition() {

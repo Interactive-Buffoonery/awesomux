@@ -123,9 +123,6 @@
         }
       }
     },
-    "%@ requires a sh, bash, zsh, dash, ksh, or fish shell." : {
-      "comment" : "Unsupported shell for named setup"
-    },
     "%@, setup %@" : {
       "comment" : "Setup name and list position",
       "localizations" : {
@@ -4744,13 +4741,13 @@
     "Use Ghostty config to keep imported/user terminal themes, choose a bundled Catppuccin or Selenized theme, or choose an awesoMux color and adjust it if needed." : {
       "comment" : "Settings field hint for the terminal background source picker"
     },
+    "Use a single-line executable path and arguments without control characters, up to 4096 bytes total." : {
+
+    },
     "Use a wrapper executable for environment variables or credentials. Do not put secrets in arguments." : {
 
     },
     "Use awesoMux shortcuts" : {
-
-    },
-    "Use single-line arguments without control characters, up to 4096 bytes total." : {
 
     },
     "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System (SF Pro) to restore the standard font." : {

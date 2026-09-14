@@ -122,6 +122,11 @@ final class GhosttyRuntime {
     @ObservationIgnored
     nonisolated(unsafe) private var surfaceViews: [TerminalPane.ID: GhosttySurfaceNSView] = [:]
 
+    @ObservationIgnored
+    private var commandRetryTasks: [TerminalPane.ID: Task<Void, Never>] = [:]
+    @ObservationIgnored
+    var commandRetryClock: any Clock<Duration> = ContinuousClock()
+
     private(set) var surfaceCacheRevision: UInt64 = 0
     /// Bumped when a live pane's surface view reports itself orphaned by
     /// container churn (see `noteOrphanedSurfaceView`). Read into
@@ -688,6 +693,24 @@ final class GhosttyRuntime {
         return true
     }
 
+    @discardableResult
+    func scheduleCommandRetry(toPane paneID: TerminalPane.ID, action: @escaping @MainActor () -> Void) -> Task<Void, Never> {
+        cancelCommandRetry(toPane: paneID)
+        let clock = commandRetryClock
+        let task = Task { @MainActor [weak self] in
+            do { try await clock.sleep(for: .milliseconds(80)) } catch { return }
+            guard !Task.isCancelled, let self else { return }
+            self.commandRetryTasks[paneID] = nil
+            action()
+        }
+        commandRetryTasks[paneID] = task
+        return task
+    }
+
+    func cancelCommandRetry(toPane paneID: TerminalPane.ID) {
+        commandRetryTasks.removeValue(forKey: paneID)?.cancel()
+    }
+
     /// Queued commands submit separately: surface text is a bracketed paste,
     /// so a newline inside it does not press Return at an interactive prompt.
     @discardableResult
@@ -695,7 +718,7 @@ final class GhosttyRuntime {
         guard let surface = surfaceViews[paneID], surface.hasNativeSurface else { return false }
         let refreshShellActivity = surface.session.layout.pane(id: paneID)?.agentKind == .shell
         surface.prepareShellActivityCommandSubmit(shouldRefreshShellActivity: refreshShellActivity)
-        surface.writeFromChrome(command)
+        surface.sendText(command)
         let accepted = surface.performBindingAction("text:\\r")
         surface.scheduleShellActivityRefreshIfCommandSubmitted(
             handled: accepted, shouldRefreshShellActivity: refreshShellActivity
@@ -713,6 +736,7 @@ final class GhosttyRuntime {
     }
 
     func discardSurface(for paneID: TerminalPane.ID) {
+        cancelCommandRetry(toPane: paneID)
         // Stop a closed pane's submit/finish ladder from waking up to re-sample
         // a surface set it no longer belongs to. Done before the surface-view
         // guard so a redundant discard (surface already gone, ladder still
@@ -808,6 +832,8 @@ final class GhosttyRuntime {
     }
 
     func discardAllSurfaces() {
+        for task in commandRetryTasks.values { task.cancel() }
+        commandRetryTasks.removeAll()
         #if DEBUG
             logSurfaceCacheEvent("discard-all-start")
         #endif
@@ -842,7 +868,7 @@ final class GhosttyRuntime {
     }
 
     func discardSurfacesNotIn(_ retainedPaneIDs: Set<TerminalPane.ID>) {
-        let stalePaneIDs = surfaceViews.keys.filter { !retainedPaneIDs.contains($0) }
+        let stalePaneIDs = Set(surfaceViews.keys).union(commandRetryTasks.keys).subtracting(retainedPaneIDs)
         guard !stalePaneIDs.isEmpty else {
             return
         }

@@ -4537,7 +4537,7 @@ struct AwesoMuxApp: App {
     private func sendQuickRunCommand(
         _ command: String,
         toPane paneID: TerminalPane.ID,
-        attempt: Int = 0,
+        deadline: ContinuousClock.Instant = .now.advanced(by: .seconds(10)),
         agentSetup: AgentSetup? = nil
     ) {
         let foreground = agentSetup == nil ? nil : ghosttyRuntime.foregroundComm(in: paneID)
@@ -4549,22 +4549,13 @@ struct AwesoMuxApp: App {
                 foreground: foreground,
                 promptIsAway: ghosttyRuntime.cachedSurfaceView(for: paneID)?.promptMarkerIsAwayFromPrompt()
             )
-        if (agentSetup == nil || setupShellIsReady), ghosttyRuntime.submitCommand(command, toPane: paneID) {
+        if .now < deadline, (agentSetup == nil || setupShellIsReady), ghosttyRuntime.submitCommand(command, toPane: paneID) {
             announceQuickRun("Running \(command).")
             return
         }
 
-        guard attempt < 12 else {
+        guard .now < deadline else {
             if let agentSetup {
-                if let foreground, !AgentSetup.supportsShell(foreground) {
-                    agentSetupError(
-                        String(
-                            format: String(
-                                localized: "%@ requires a sh, bash, zsh, dash, ksh, or fish shell.",
-                                comment: "Unsupported shell for named setup"),
-                            agentSetup.name))
-                    return
-                }
                 agentSetupError(
                     String(
                         format: String(
@@ -4576,8 +4567,8 @@ struct AwesoMuxApp: App {
             return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            sendQuickRunCommand(command, toPane: paneID, attempt: attempt + 1, agentSetup: agentSetup)
+        ghosttyRuntime.scheduleCommandRetry(toPane: paneID) {
+            sendQuickRunCommand(command, toPane: paneID, deadline: deadline, agentSetup: agentSetup)
         }
     }
 

@@ -53,6 +53,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        runtime.cancelCommandRetry(toPane: paneID)
         if DocumentKeyViewTraversal.direction(for: event) != nil,
             sessionStore.session(id: sessionID)?.layout.firstDocumentGroup != nil,
             DocumentKeyViewTraversal.handle(event, in: window, from: self)
@@ -315,6 +316,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // first crack — and doing so risks it silently swallowing the key
         // instead (see `performNonBindingKeyEquivalent`).
         if isGhosttyBinding(event, surface: surface) {
+            runtime.cancelCommandRetry(toPane: paneID)
             return sendKeyEvent(
                 event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS,
                 event: event,

@@ -986,6 +986,7 @@ extension GhosttySurfaceNSView {
     }
 
     func markNeedsAttentionPromptAnswered() {
+        runtime.cancelCommandRetry(toPane: paneID)
         sessionStore.markNeedsAttentionPromptAnswered(id: sessionID, paneID: paneID)
     }
 }
