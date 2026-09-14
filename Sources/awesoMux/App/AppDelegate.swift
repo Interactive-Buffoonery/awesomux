@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the delegate has no environment of its own.
     private var openSettings: (() -> Void)?
     private var openPrimaryWindow: (() -> Void)?
-    private let notificationBridge = WorkspaceNotificationBridge()
+    let notificationBridge = WorkspaceNotificationBridge()
     private lazy var menuBarMiniStatusItemController = MenuBarMiniStatusItemController(
         menuProvider: { [weak self] in
             self?.makeDockCommandMenu()
@@ -33,7 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// gave us a session store (cold launch via notification). Replayed and
     /// cleared in `bind`.
     private var pendingDeepLinkSessionID: TerminalSession.ID?
-    private var notificationTracker = WorkspaceNotificationTracker()
+    private(set) var notificationTracker = WorkspaceNotificationTracker()
+    private(set) var pendingPermissionNotificationTask: Task<Void, Never>?
+    var permissionNotificationClock: any Clock<Duration> = ContinuousClock()
     private var dockBounceTracker = WorkspaceDockBounceTracker()
     private var workspaceAnnouncementTracker = WorkspaceAttentionAnnouncementTracker()
     private var pendingWorkspaceAnnouncements: [WorkspaceAttentionAnnouncementTracker.Announcement] = []
@@ -1317,6 +1319,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notifyOnTurnDone: notificationConfig.notifyOnTurnDone,
             turnDoneAlertsWhenFocused: notificationConfig.turnDoneAlertsWhenFocused
         )
+        pendingPermissionNotificationTask?.cancel()
+        pendingPermissionNotificationTask = nil
+        if let deadline = notificationTracker.nextNotificationDeadline {
+            let clock = permissionNotificationClock
+            pendingPermissionNotificationTask = Task { @MainActor [weak self] in
+                do {
+                    try await clock.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, let self else { return }
+                self.pendingPermissionNotificationTask = nil
+                self.evaluateAndPostNotifications()
+            }
+        }
         let shouldBounceDock = dockBounceTracker.shouldRequestDockBounce(
             afterUpdating: sessionStore.groups,
             isAppActive: isAppActive,

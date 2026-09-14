@@ -8,6 +8,8 @@ public struct WorkspaceNotificationTracker: Sendable {
     // The session sum is for badge DISPLAY only, never the fire/no-fire decision.
     private var unreadCountsByPaneID: [TerminalPane.ID: Int]
     private let policy: WorkspaceNotificationPolicy
+    private var permissionDeadlines: [TerminalPane.ID: Date] = [:]
+    public var nextNotificationDeadline: Date? { permissionDeadlines.values.min() }
 
     public init(
         groups: [SessionGroup] = [],
@@ -19,6 +21,7 @@ public struct WorkspaceNotificationTracker: Sendable {
 
     public mutating func reset(groups: [SessionGroup]) {
         unreadCountsByPaneID = Self.unreadCountsByPaneID(in: groups)
+        permissionDeadlines.removeAll()
     }
 
     public mutating func notificationEvents(
@@ -28,7 +31,8 @@ public struct WorkspaceNotificationTracker: Sendable {
         outputMarksNeedsAttention: Bool = true,
         notifyOnNeedsAttention: Bool = true,
         notifyOnTurnDone: Bool = false,
-        turnDoneAlertsWhenFocused: Bool = false
+        turnDoneAlertsWhenFocused: Bool = false,
+        now: Date = Date()
     ) -> [WorkspaceNotificationEvent] {
         // One banner per workspace (notification routing redesign is out of scope
         // — INT-504 "What we are not doing"). We collect the first pane in each
@@ -36,6 +40,7 @@ public struct WorkspaceNotificationTracker: Sendable {
         var firingSessionIDs = Set<TerminalSession.ID>()
         var pendingEmissions: [(session: TerminalSession, groupName: String, kind: WorkspaceNotificationEvent.Kind)] = []
         var seenPaneIDs = Set<TerminalPane.ID>()
+        var deferredPaneIDs = Set<TerminalPane.ID>()
 
         for group in groups {
             for session in group.sessions {
@@ -100,6 +105,19 @@ public struct WorkspaceNotificationTracker: Sendable {
                         && notifyOnNeedsAttention
                     if (needsAttentionCanNotify || waitingTurnCompletionCanNotify),
                        currentCount > previousCount {
+                        // Codex fires PermissionRequest before automatic review as
+                        // well as human approval. Give short-lived requests time to
+                        // resolve, without guessing which reviewer will handle them.
+                        if needsAttentionCanNotify, pane.agentKind == .codex,
+                            pane.attentionReason == .permissionPrompt
+                        {
+                            let deadline = permissionDeadlines[pane.id] ?? now.addingTimeInterval(10)
+                            if now < deadline {
+                                permissionDeadlines[pane.id] = deadline
+                                deferredPaneIDs.insert(pane.id)
+                                continue
+                            }
+                        }
                         // One banner per workspace (routing redesign is out of
                         // scope): the workspace banner that fires this pass covers
                         // EVERY pane that crossed its baseline, so advance each
@@ -138,6 +156,15 @@ public struct WorkspaceNotificationTracker: Sendable {
         for paneID in Array(unreadCountsByPaneID.keys) where !seenPaneIDs.contains(paneID) {
             unreadCountsByPaneID.removeValue(forKey: paneID)
         }
+
+        // A sibling's attention banner already covers this workspace. A turn-done
+        // banner does not: the pending permission still needs its own alert.
+        for emission in pendingEmissions where emission.kind == .needsAttention {
+            for pane in emission.session.panes where deferredPaneIDs.remove(pane.id) != nil {
+                unreadCountsByPaneID[pane.id] = pane.unreadNotificationCount
+            }
+        }
+        permissionDeadlines = permissionDeadlines.filter { deferredPaneIDs.contains($0.key) }
 
         guard !pendingEmissions.isEmpty else {
             return []
