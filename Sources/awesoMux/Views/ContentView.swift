@@ -649,20 +649,14 @@ struct AppTitlebarView: View {
     /// prematurely commits/dismisses the field it just opened.
     @State private var isSuppressingTitleBlurCommit = false
 
-    private static let brandWithTextMinimumWidth = AppTitlebarMetrics.brandWithTextMinimumWidth
-    private static let brandIconMinimumWidth = AppTitlebarMetrics.trafficLightClearance + 28
-
     @ViewBuilder
     var body: some View {
-        GeometryReader { proxy in
-            titlebarContent(titlebarWidth: proxy.size.width)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        NativeTitlebar { native in
+            GeometryReader { proxy in
+                titlebarContent(titlebarWidth: proxy.size.width, native: native)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
         }
-        // Titlebar height stays fixed: it abuts macOS window chrome
-        // (traffic-light controls) which does not scale with Dynamic Type.
-        // Inner labels use `.lineLimit(1)` and truncate at extreme sizes.
-        // Tracked: INT-237 (AwFont call-site Dynamic Type audit).
-        .frame(height: AwSpacing.titlebar)
         // Keyed on the OPTIONAL id, and on `body` rather than inside
         // `workspaceCluster`: that function only renders under `if let session`,
         // so a guard placed there is torn down by the very nil transition it
@@ -673,18 +667,10 @@ struct AppTitlebarView: View {
             titleDraft = ""
         }
         .background {
-            ZStack {
-                LinearGradient(
-                    colors: [Color.aw.surface.chrome2, Color.aw.surface.chrome],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(WindowDragGesture())
-                    .allowsWindowActivationEvents(true)
-            }
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
+                .allowsWindowActivationEvents(true)
         }
         // No bottom hairline: the sidebar column runs seamless into the titlebar
         // band, and on the terminal side the top-row pane focus bands draw the
@@ -696,28 +682,32 @@ struct AppTitlebarView: View {
     // up here — the brand stays put and the workspace title keeps its anchor
     // while the sidebar slides in the body below. Only persistent mode varies,
     // mirroring the live column during divider drags.
-    private func titlebarContent(titlebarWidth: CGFloat) -> some View {
+    private func titlebarContent(titlebarWidth: CGFloat, native: NativeTitlebarGeometry) -> some View {
         titlebarColumns(
             geometry: layoutPolicy.titlebarGeometry(
                 titlebarWidth: titlebarWidth,
-                visibleSidebarWidth: hostPresentation.titlebarReservationWidth
-            )
+                visibleSidebarWidth: hostPresentation.titlebarReservationWidth(leadingInset: native.leadingInset),
+                trafficLightClearance: native.leadingInset
+            ),
+            native: native
         )
     }
 
-    private func titlebarColumns(geometry: AppTitlebarLayoutGeometry) -> some View {
+    private func titlebarColumns(geometry: AppTitlebarLayoutGeometry, native: NativeTitlebarGeometry) -> some View {
         HStack(spacing: 0) {
             if sidebarPosition == .left {
                 sidebarColumn(
                     width: geometry.sidebarReservationWidth,
-                    isPhysicalLeading: true
+                    isPhysicalLeading: true,
+                    native: native
                 )
-                contentColumn(geometry: geometry)
+                contentColumn(geometry: geometry, native: native)
             } else {
-                contentColumn(geometry: geometry)
+                contentColumn(geometry: geometry, native: native)
                 sidebarColumn(
                     width: geometry.sidebarReservationWidth,
-                    isPhysicalLeading: false
+                    isPhysicalLeading: false,
+                    native: native
                 )
             }
         }
@@ -732,21 +722,22 @@ struct AppTitlebarView: View {
     /// instead of clipping the brand into the content column.
     private func sidebarColumn(
         width: CGFloat,
-        isPhysicalLeading: Bool
+        isPhysicalLeading: Bool,
+        native: NativeTitlebarGeometry
     ) -> some View {
         HStack(spacing: 0) {
             if layoutPolicy.titlebarLockupAlignment == .trailing {
                 Spacer(minLength: 0)
-                titleLockup(width: width)
+                titleLockup(width: width, native: native)
             } else {
-                titleLockup(width: width)
+                titleLockup(width: width, native: native)
                 Spacer(minLength: 0)
             }
         }
         .padding(
             .leading,
             isPhysicalLeading
-                ? AppTitlebarMetrics.trafficLightClearance
+                ? native.leadingInset
                 : 10
         )
         .padding(.trailing, layoutPolicy.titlebarLockupOuterPadding)
@@ -757,11 +748,11 @@ struct AppTitlebarView: View {
     }
 
     @ViewBuilder
-    private func titleLockup(width: CGFloat) -> some View {
-        if width >= Self.brandWithTextMinimumWidth {
+    private func titleLockup(width: CGFloat, native: NativeTitlebarGeometry) -> some View {
+        if width >= native.leadingInset + 94 {
             Brandmark()
                 .allowsHitTesting(false)
-        } else if width >= Self.brandIconMinimumWidth {
+        } else if width >= native.leadingInset + 28 {
             Brandmark(showsText: false)
                 .allowsHitTesting(false)
         }
@@ -773,7 +764,7 @@ struct AppTitlebarView: View {
     /// draggable via the `WindowDragGesture` on the outer `HStack`'s
     /// background — do NOT attach a tap/click handler to this column without
     /// considering that it would compete with the underlying drag.
-    private func contentColumn(geometry: AppTitlebarLayoutGeometry) -> some View {
+    private func contentColumn(geometry: AppTitlebarLayoutGeometry, native: NativeTitlebarGeometry) -> some View {
         HStack(spacing: 0) {
             if let session {
                 // Scoped to the cluster so a spinner frame doesn't re-run the
@@ -795,7 +786,7 @@ struct AppTitlebarView: View {
             .leading,
             sidebarPosition == .left ? geometry.workgroupBoundary - geometry.sidebarReservationWidth : 10
         )
-        .padding(.leading, sidebarPosition == .right ? AppTitlebarMetrics.trafficLightClearance : 0)
+        .padding(.leading, sidebarPosition == .right ? native.leadingInset : 0)
         .padding(
             .trailing,
             sidebarPosition == .right

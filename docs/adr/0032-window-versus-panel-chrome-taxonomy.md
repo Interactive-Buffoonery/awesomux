@@ -83,23 +83,28 @@ during an in-flight create, and clearing the `isVisible` flag that app-level
 guards depend on. A traffic light wired straight to AppKit's `close()` would
 silently bypass all of it.
 
-Any chrome a window-family panel draws for itself must match the native title
-bar's geometry, which is **32pt** on these panels —
-`AppTitlebarMetrics.panelTitlebarHeight`, not `AwSpacing.titlebar`. AppKit lays
-the traffic lights out at y=9 with a 14pt height inside a 32pt container,
-putting their centre 16pt from the window top. The 38pt value is equally real but belongs to the main
-window and Settings, which set `toolbarStyle = .unifiedCompact` and get a taller
-native title bar as a result; a toolbar-less panel never does.
+The primary window installs an icon-only `NSToolbar` with the standard
+`.unified` style. This asks AppKit for the platform's roomier traffic-light
+placement without recreating or manually positioning the buttons. The toolbar
+has no app actions: the custom SwiftUI titlebar still owns the branding,
+workspace name, typography, and existing themed gradient.
 
-Reaching for the larger constant is the natural mistake, and it fails by 3pt —
-small enough to read as careless baseline alignment rather than a geometry
-mismatch, which sends the next person to adjust font sizes instead. Measure
-against the live window rather than reasoning from token names:
-`standardWindowButton(.closeButton)`'s frame and its superview's height give the
-answer directly. Note that `frame.height - contentRect(forFrameRect:).height` is
-**zero** under `.fullSizeContentView` and is not the title bar height.
-`FloatingPanelTitlebarGeometryTests` asserts all of this against real AppKit
-layout so the numbers cannot drift silently.
+`NativeTitlebar` reads AppKit's standard controls and aligns the primary bar's content
+with their centre line. On macOS 27, the standard unified layout puts the close
+button centre 26pt from the top and left edges and yields a 52pt band; the old
+toolbar-less layout placed it 16pt from those edges. Setting `toolbarStyle`
+alone does not establish the standard toolbar geometry. Live measurements,
+rather than an OS-version table, keep the custom content clear of the controls.
+AppKit continues to own button appearance and behavior.
+
+Settings and floating auxiliary windows keep their existing compact geometry.
+They do not install the primary window's toolbar: the larger insets waste space
+in small utility windows. Their existing typography, gradients, and vertical
+clearance remain unchanged. Measurements in the primary titlebar update
+after native layout, outside SwiftUI's update pass; full-screen transitions
+retain the normal band's geometry while AppKit hides its controls.
+`NativeTitlebarTests` checks the rendered band against native controls and
+verifies auxiliary windows retain toolbar-less placement.
 
 ## Consequences
 
