@@ -1299,10 +1299,14 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         isReplacingTextStorage = true
         let inserted = NSMutableAttributedString(
             attributedString: replacement.attributedSubstring(from: edit.replacementRange))
-        if let width = lastProseWrapWidth, inserted.length > 0 {
-            applyProseWrapWidth(to: inserted, in: textView, width: width)
-        }
+        storage.beginEditing()
         storage.replaceCharacters(in: edit.currentRange, with: inserted)
+        if let width = lastProseWrapWidth {
+            applyProseWrapWidth(
+                to: storage, in: textView, width: width,
+                editedRange: edit.replacementRange)
+        }
+        storage.endEditing()
         textStorageRevision &+= 1
         currentAttr = replacement
         adoptedAttributeRevision = textStorageRevision
@@ -1311,7 +1315,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         }
         isReplacingTextStorage = false
 
-        updateDocumentGeometry(afterFoldEdit: edit, in: textView)
+        updateDocumentGeometryAfterFold(in: textView)
         return true
     }
 
@@ -1546,27 +1550,14 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         resizeTextViewToLayoutUsage(textView, in: scrollView, layoutManager: layoutManager)
     }
 
-    private func updateDocumentGeometry(
-        afterFoldEdit edit: MarkdownTextView.FoldTextEdit,
-        in textView: NSTextView
-    ) {
+    private func updateDocumentGeometryAfterFold(in textView: NSTextView) {
         guard let scrollView = textView.enclosingScrollView,
-            let layoutManager = textView.textLayoutManager,
-            let contentStorage = textView.textContentStorage
+            let layoutManager = textView.textLayoutManager
         else { return }
-        let finalLength = textView.textStorage?.length ?? 0
-        guard finalLength > 0 else { return }
-        let location = min(edit.replacementRange.location, finalLength - 1)
-        let length = min(max(edit.replacementRange.length, 1), finalLength - location)
-        guard
-            let start = contentStorage.location(
-                contentStorage.documentRange.location,
-                offsetBy: location
-            ),
-            let end = contentStorage.location(start, offsetBy: length),
-            let textRange = NSTextRange(location: start, end: end)
-        else { return }
-        layoutManager.ensureLayout(for: textRange)
+        // A local edit preserves unaffected fragments, but usage bounds still
+        // estimate the tail until layout has reached the end of the document.
+        // Measure settled layout so the scroll extent reflects this fold.
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
         resizeTextViewToLayoutUsage(textView, in: scrollView, layoutManager: layoutManager)
     }
 
@@ -1611,7 +1602,8 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     private func applyProseWrapWidth(
         to storage: NSMutableAttributedString,
         in textView: NSTextView,
-        width: CGFloat
+        width: CGFloat,
+        editedRange: NSRange? = nil
     ) {
         // Empty storage has no paragraphs to stamp but still needs measuring:
         // a wide document replaced by an empty one must shrink the frame back,
@@ -1621,8 +1613,14 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
 
         let ns = storage.string as NSString
         storage.beginEditing()
-        var location = 0
-        while location < ns.length {
+        // Fold edits start and end inside existing paragraphs. Resolve their
+        // boundaries in live storage so heading reserves and separator styles
+        // match a full rebuild, including a zero-length collapse.
+        let paragraphs =
+            editedRange.map { ns.paragraphRange(for: $0) }
+            ?? NSRange(location: 0, length: ns.length)
+        var location = paragraphs.location
+        while location < NSMaxRange(paragraphs) {
             let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
             location = NSMaxRange(paragraph)
             guard paragraph.length > 0 else { break }
@@ -1647,7 +1645,6 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             let existing =
                 storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil)
                 as? NSParagraphStyle
-            if existing?.tailIndent == paragraphWidth { continue }
             // Copy-on-write: preserve whatever styling the paragraph already
             // carries and change only the wrap width.
             let style =

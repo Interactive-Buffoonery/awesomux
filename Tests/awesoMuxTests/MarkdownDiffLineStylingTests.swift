@@ -1,6 +1,8 @@
 import AppKit
 import AwesoMuxCore
 import Testing
+import SwiftUI
+import AwesoMuxTestSupport
 
 @testable import awesoMux
 
@@ -350,13 +352,114 @@ struct MarkdownDiffLineStylingTests {
                 in: doc, index: index, from: Set(index.keys), to: []) == nil)
     }
 
+    @Test("hosted folds preserve layout and heading geometry", .serialized, arguments: [60, 400])
+    @MainActor
+    func hostedFoldCollapseAndExpansion(linesPerFile: Int) async throws {
+        let fileCount = linesPerFile == 400 ? 50 : 6
+        let pathSuffix = linesPerFile == 60 ? String(repeating: "/nested-directory", count: 12) : ""
+        let lineSuffix = linesPerFile == 60 ? String(repeating: " wrapped content", count: 12) : ""
+        let source = (0..<fileCount).map { file in
+            "## file\(file).swift\(pathSuffix)\n\n```diff\n"
+                + (0..<linesPerFile).map { "+file\(file) line \($0)\(lineSuffix)" }.joined(separator: "\n")
+                + "\n```\n\n"
+        }.joined()
+        let doc = AttributedMarkdownBuilder.build(source)
+        let index = BranchDiffSectionIndex(document: doc)
+        var availableTextView: NSTextView?
+        var toggledKey: String?
+        func view(_ collapsed: Set<String>) -> MarkdownTextView {
+            MarkdownTextView(
+                doc: doc, selectedSourceSpan: .constant(nil), textColor: .white,
+                onTextViewAvailable: { availableTextView = $0 },
+                sectionIndex: index, collapsedSections: collapsed,
+                onSectionToggled: { toggledKey = $0 })
+        }
+        let hosted = SidebarHostedTestHarness.makeWindow(
+            rootView: view([]), frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        defer { hosted.window.close() }
+        #expect(await waitUntil { availableTextView != nil })
+        let textView = try #require(availableTextView)
+        let coordinator = try #require(textView.delegate as? MarkdownTextViewCoordinator)
+        let overlay = try #require(coordinator.badgeOverlay)
+        let scrollView = try #require(textView.enclosingScrollView)
+        let layoutManager = try #require(textView.textLayoutManager)
+        let expandedHeight = textView.frame.height
+        let key = index.sections[1].key
+        let nextKey = index.sections[2].key
+        let originalNextY = try #require(overlay.sectionChrome.first { $0.key == nextKey }).rowRect.minY
+        var collapsedHeight: CGFloat = 0
+        // A full-storage fallback would erase this marker outside the edited file.
+        let untouchedAttribute = NSAttributedString.Key("awesomux.test.untouchedFoldPrefix")
+        textView.textStorage?.addAttribute(untouchedAttribute, value: true, range: NSRange(location: 0, length: 1))
+
+        for collapsed in [Set([key]), Set<String>()] {
+            let heading = try #require(overlay.sectionChrome.first { $0.key == key })
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: heading.rowRect.minY - 80))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            SidebarHostedTestHarness.settleMainRunLoop()
+            let offset = heading.rowRect.minY - scrollView.contentView.bounds.minY
+            toggledKey = nil
+            overlay.onSectionToggled?(key)
+            #expect(toggledKey == key)
+            let elapsed = await ContinuousClock().measure {
+                hosted.hostingView.rootView = view(collapsed)
+                hosted.hostingView.layoutSubtreeIfNeeded()
+                #expect(await waitUntilEventually { coordinator.lastCollapsedSections == collapsed })
+                await Task.yield()
+                SidebarHostedTestHarness.settleMainRunLoop()
+            }
+            print("hosted fold \(collapsed.isEmpty ? "expand" : "collapse"): \(elapsed), \(fileCount) files")
+            #expect(availableTextView === textView)
+            #expect(overlay.sectionChrome.count == fileCount)
+            let updatedHeading = try #require(overlay.sectionChrome.first { $0.key == key })
+            #expect(updatedHeading.collapsed == !collapsed.isEmpty)
+            #expect(abs(updatedHeading.rowRect.minY - scrollView.contentView.bounds.minY - offset) < 1)
+            let nextY = try #require(overlay.sectionChrome.first { $0.key == nextKey }).rowRect.minY
+            if collapsed.isEmpty {
+                #expect(abs(textView.frame.height - expandedHeight) < 1)
+                #expect(abs(nextY - originalNextY) < 1)
+                #expect(textView.frame.height > collapsedHeight + 500)
+            } else {
+                collapsedHeight = textView.frame.height
+                #expect(collapsedHeight < expandedHeight - 500)
+                #expect(nextY < originalNextY - 500)
+            }
+            // Snapshot the production frame before forcing full layout as an oracle.
+            let measuredHeight = textView.frame.height
+            layoutManager.ensureLayout(for: layoutManager.documentRange)
+            #expect(abs(measuredHeight - layoutManager.usageBoundsForTextContainer.maxY - textView.textContainerInset.height * 2) < 1)
+            #expect(overlay.frame.size == textView.bounds.size)
+
+            let expected = NSMutableAttributedString(
+                attributedString:
+                    MarkdownAttributedStringBuilder.attributedString(
+                        for: MarkdownTextView.foldedDocument(doc, index: index, collapsed: collapsed),
+                        textColor: .white, sectionIndex: index))
+            let oracle = MarkdownTextViewCoordinator(selectedSourceSpan: .constant(nil))
+            let allowance =
+                scrollView.scrollerStyle == .legacy
+                ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+            #expect(oracle.applyProseWrapWidth(to: expected, in: textView, clipWidth: scrollView.frame.width - allowance))
+            let storage = try #require(textView.textStorage)
+            #expect(storage.attribute(untouchedAttribute, at: 0, effectiveRange: nil) as? Bool == true)
+            #expect(storage.string == expected.string)
+            expected.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: expected.length)) { value, range, _ in
+                storage.enumerateAttribute(.paragraphStyle, in: range) { actual, actualRange, _ in
+                    #expect(
+                        actual as? NSParagraphStyle == value as? NSParagraphStyle,
+                        "paragraph style at \(actualRange)")
+                }
+            }
+        }
+    }
+
     /// Regression guard for the incremental TextKit edit used by
     /// `MarkdownTextView.updateNSView`. Folds one section of a 50 × 400-line
     /// diff so the remaining ~20 000 lines stay visible; a whole-storage
     /// replacement and whole-document layout took about 1.5 seconds here.
     @Test("one incremental fold on a 50-file, 20k-line diff stays responsive")
     @MainActor
-    func foldCycleCostOnALargeDiff() throws {
+    func incrementalCollapseCostOnALargeDiff() throws {
         let source = (0..<50).map { file in
             "## file\(file).swift\n\n```diff\n"
                 + (0..<400).map { "+line \($0)" }.joined(separator: "\n")
