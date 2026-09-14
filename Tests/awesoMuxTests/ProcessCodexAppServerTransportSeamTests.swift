@@ -139,3 +139,27 @@ struct ProcessCodexAppServerTransportSeamTests {
         #expect(transport.takePendingViolation() == .unterminatedLineTooLarge)
     }
 }
+
+@Suite("ProcessCodexAppServerTransport — executor availability")
+struct ProcessCodexAppServerTransportExecutorTests {
+    // Run with LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 to make executor starvation
+    // reproducible even on machines with many cores.
+    @Test
+    func quietServerLeavesExecutorAvailable() async throws {
+        let transport = try ProcessCodexAppServerTransport(
+            executable: "/bin/sleep",
+            codexHome: "/tmp/awesomux-seam-tests",
+            arguments: ["2"]
+        )
+        defer { transport.close() }
+
+        let start = ContinuousClock.now
+        let reader = Task.detached { try await transport.receive() }
+        try await Task.sleep(for: .milliseconds(100))
+        if ProcessInfo.processInfo.environment["LIBDISPATCH_COOPERATIVE_POOL_STRICT"] == "1" {
+            #expect(start.duration(to: .now) < .seconds(1))
+        }
+        transport.close()
+        #expect(try await reader.value == nil)
+    }
+}
