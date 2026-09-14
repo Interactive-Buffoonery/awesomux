@@ -87,7 +87,7 @@ final class SidebarHostPresentationState {
 
     func titlebarReservationWidth(leadingInset: CGFloat) -> CGFloat {
         if case .persistent = mode { return effectiveVisibleWidth }
-        return leadingInset + 94
+        return AppTitlebarMetrics.brandWithTextMinimumWidth(leadingInset: leadingInset)
     }
 }
 

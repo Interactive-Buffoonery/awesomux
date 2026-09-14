@@ -4,7 +4,15 @@ enum AppTitlebarMetrics {
     static let trafficLightClearance: CGFloat = 78
     static let contentColumnGutter: CGFloat = 16
     static let lockupPadding: CGFloat = 10
-    static let brandWithTextMinimumWidth = trafficLightClearance + 94
+    static let brandWithTextMinimumWidth = brandWithTextMinimumWidth(leadingInset: trafficLightClearance)
+
+    static func brandWithTextMinimumWidth(leadingInset: CGFloat) -> CGFloat {
+        leadingInset + 94
+    }
+
+    static func brandIconMinimumWidth(leadingInset: CGFloat) -> CGFloat {
+        leadingInset + 28
+    }
 
     static let panelTitlebarHeight: CGFloat = 32
 

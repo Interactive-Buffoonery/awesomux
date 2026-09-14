@@ -749,10 +749,10 @@ struct AppTitlebarView: View {
 
     @ViewBuilder
     private func titleLockup(width: CGFloat, native: NativeTitlebarGeometry) -> some View {
-        if width >= native.leadingInset + 94 {
+        if width >= AppTitlebarMetrics.brandWithTextMinimumWidth(leadingInset: native.leadingInset) {
             Brandmark()
                 .allowsHitTesting(false)
-        } else if width >= native.leadingInset + 28 {
+        } else if width >= AppTitlebarMetrics.brandIconMinimumWidth(leadingInset: native.leadingInset) {
             Brandmark(showsText: false)
                 .allowsHitTesting(false)
         }
