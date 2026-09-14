@@ -123,6 +123,20 @@
         }
       }
     },
+    "%@ requires a sh, bash, zsh, dash, ksh, or fish shell." : {
+      "comment" : "Unsupported shell for named setup"
+    },
+    "%@, setup %@" : {
+      "comment" : "Setup name and list position",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, setup %2$@"
+          }
+        }
+      }
+    },
     "%arg" : {
 
     },
@@ -467,11 +481,17 @@
     "%arg@awesoMux ~/project\n❯ codex --model gpt-5.5\n✓ background preview text" : {
 
     },
+    "%lld enabled setups share this status hook." : {
+
+    },
     "(empty after sanitizing control characters)" : {
       "comment" : "Clipboard preview fallback when terminal-origin clipboard text contains only unsafe/control characters."
     },
     ", resolved" : {
       "comment" : "Resolved state suffix in an annotation accessibility label"
+    },
+    "/absolute/path/to/agent" : {
+
     },
     "1 hour" : {
       "comment" : "VoiceOver Diagnostics history window"
@@ -524,6 +544,9 @@
     "About awesoMux" : {
       "comment" : "Accessibility label for the About panel"
     },
+    "Absolute paths only. Shell aliases and expansions are not supported." : {
+
+    },
     "Accent" : {
       "comment" : "Appearance settings section title"
     },
@@ -548,11 +571,17 @@
     "Add" : {
       "comment" : "Confirm button for the Add Editor file picker."
     },
+    "Add Agent Setup…" : {
+
+    },
     "Add Always-Managed Destination…" : {
       "comment" : "Button that opens the sheet for adding an SSH destination to the always-manage list"
     },
     "Add Always-Managed SSH Destination" : {
       "comment" : "Title of the sheet for adding an SSH destination to the always-manage list"
+    },
+    "Add Argument" : {
+
     },
     "Add Command…" : {
       "comment" : "Button that opens the editor to create a custom command"
@@ -595,6 +624,18 @@
     },
     "Agent permission posture" : {
 
+    },
+    "Agent setup" : {
+
+    },
+    "Agent setups" : {
+
+    },
+    "Agent setups launch local executables. Select a local pane and a local default workspace group." : {
+
+    },
+    "Agent setups require confirm-close-surface = true in Ghostty settings so awesoMux can wait for the shell prompt." : {
+      "comment" : "Unsupported Ghostty setting prevents reliable agent setup launch"
     },
     "Agent transcripts are rendered from the session's log and cannot be edited." : {
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
@@ -700,6 +741,9 @@
     },
     "Apply Layout Preset…" : {
 
+    },
+    "Argument %@" : {
+      "comment" : "Argument position"
     },
     "Ask before every agent tool use" : {
 
@@ -948,6 +992,9 @@
     },
     "Choose an IDE for this project." : {
       "comment" : "IDE picker alert explanatory text."
+    },
+    "Choose an agent provider and an absolute executable path." : {
+
     },
     "Choose or create the folder for the new worktree." : {
       "comment" : "Worktree target path picker guidance message."
@@ -1298,6 +1345,9 @@
     "Could not download the remote helper" : {
       "comment" : "Remote helper release download failure title"
     },
+    "Could not launch agent setup" : {
+
+    },
     "Could not reach %arg, or the session ended." : {
       "comment" : "Description under the remote-owned session overlay title, naming the remote host"
     },
@@ -1643,11 +1693,17 @@
     "END SESSION" : {
 
     },
+    "Each field is one literal argument, including spaces. Leave an argument field empty to pass an empty argument." : {
+
+    },
     "Earlier turns are omitted. This document holds the most recent history that fits." : {
       "comment" : "Notice in a rendered agent transcript when older turns exceeded the size budget"
     },
     "Edit" : {
 
+    },
+    "Edit %@" : {
+      "comment" : "Edit named setup"
     },
     "Edit %arg" : {
       "comment" : "Accessibility label for the edit button of a named custom command"
@@ -1663,6 +1719,9 @@
     },
     "Email link" : {
       "comment" : "Privacy-preserving preview for a detected email link"
+    },
+    "Enable %@" : {
+      "comment" : "Enable named setup"
     },
     "Enable %arg" : {
 
@@ -1708,6 +1767,9 @@
     },
     "Enter a name and a command to enable Save" : {
       "comment" : "Fallback accessibility hint on the disabled custom-command Save button"
+    },
+    "Enter a name for this agent setup." : {
+
     },
     "Enter a name." : {
       "comment" : "Validation message when the custom command name is empty"
@@ -1764,6 +1826,9 @@
     },
     "Executable" : {
       "comment" : "Diagnostics process table column"
+    },
+    "Executable path" : {
+
     },
     "Executable paths and session metadata may be sensitive. Review screenshots or copied text before sharing them." : {
 
@@ -2106,6 +2171,17 @@
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
     },
+    "Launch %@, setup %@" : {
+      "comment" : "Launch setup name and list position",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Launch %1$@, setup %2$@"
+          }
+        }
+      }
+    },
     "Lavender" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -2274,6 +2350,12 @@
     "More settings…" : {
 
     },
+    "Move %@ down" : {
+      "comment" : "Move named setup down"
+    },
+    "Move %@ up" : {
+      "comment" : "Move named setup up"
+    },
     "Move Group" : {
       "comment" : "Undo action for reordering a workspace group."
     },
@@ -2351,6 +2433,9 @@
     },
     "Name" : {
       "comment" : "Diagnostics process table column"
+    },
+    "Named launch choices for the command palette. Status hooks are shared by provider." : {
+
     },
     "Named, the remote host keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead." : {
       "comment" : "Caption explaining what naming a remote session does, before a destination has been entered"
@@ -2468,6 +2553,9 @@
     },
     "New command" : {
       "comment" : "Settings field label for the add-custom-command button"
+    },
+    "New setup" : {
+
     },
     "New workspace in %arg" : {
       "comment" : "VoiceOver label for the row that creates a workspace in a sidebar group, naming the group so repeated rows are distinguishable."
@@ -2996,6 +3084,9 @@
     "Prompt" : {
       "comment" : "Accessibility label for the rich-input composer text editor"
     },
+    "Provider" : {
+
+    },
     "Pull request %arg, %arg" : {
       "localizations" : {
         "en" : {
@@ -3275,6 +3366,9 @@
     "Remove" : {
       "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
     },
+    "Remove %@" : {
+      "comment" : "Remove named setup"
+    },
     "Remove %arg" : {
       "comment" : "Accessibility label for the remove button of a named custom command"
     },
@@ -3286,6 +3380,12 @@
     },
     "Remove Group" : {
       "comment" : "Destructive button on the empty-group removal confirmation dialog."
+    },
+    "Remove agent setup?" : {
+
+    },
+    "Remove argument %@" : {
+      "comment" : "Remove argument at position"
     },
     "Remove editor" : {
 
@@ -4074,6 +4174,9 @@
     "Terminal unavailable" : {
       "comment" : "Fallback header shown when the Terminal Companion store has no selected session."
     },
+    "That agent setup was removed or disabled." : {
+
+    },
     "That command is too long — the limit is 4,096 bytes." : {
       "comment" : "Validation message when the custom command text exceeds the stored-command length cap"
     },
@@ -4122,6 +4225,9 @@
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
     },
+    "The current directory cannot be used to launch an agent setup. Choose an accessible directory owned by your user." : {
+      "comment" : "Agent setup launch rejected by the shared startup directory safety check"
+    },
     "The current workspace group is no longer available." : {
       "comment" : "Worktree Manager open failure when its target group disappeared.\nWorktree creation target group failure."
     },
@@ -4160,6 +4266,17 @@
     },
     "The edited document would exceed the %arg MB size limit." : {
       "comment" : "Save failure alert body when the edit would push the file over the cap; the placeholder is whole megabytes"
+    },
+    "The executable for %@ is missing or is not executable: %@" : {
+      "comment" : "Setup launch error with name and path",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The executable for %1$@ is missing or is not executable: %2$@"
+          }
+        }
+      }
     },
     "The existing ~/.awesomux and ~/.awesomux/bin paths must be regular folders owned by your remote account with permissions 700." : {
       "comment" : "Unsafe remote helper layout recovery instructions"
@@ -4285,6 +4402,9 @@
     },
     "The sessions awesoMux runs for it will be terminated." : {
       "comment" : "Clear-workspace confirmation line covering the panes whose sessions a local daemon owns."
+    },
+    "The shell was not ready to launch %@. Try again." : {
+      "comment" : "Shell startup timeout for named setup"
     },
     "The source is unavailable or changed" : {
       "comment" : "Remote handoff source error title"
@@ -4432,6 +4552,9 @@
     },
     "This paste could run a command before you finish pasting. Paste anyway?" : {
       "comment" : "Title of the unsafe-paste confirmation dialog."
+    },
+    "This removes the launch choice. Shared status hooks are unchanged." : {
+
     },
     "This request mixes character scripts and may be disguised." : {
       "comment" : "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
@@ -4621,7 +4744,13 @@
     "Use Ghostty config to keep imported/user terminal themes, choose a bundled Catppuccin or Selenized theme, or choose an awesoMux color and adjust it if needed." : {
       "comment" : "Settings field hint for the terminal background source picker"
     },
+    "Use a wrapper executable for environment variables or credentials. Do not put secrets in arguments." : {
+
+    },
     "Use awesoMux shortcuts" : {
+
+    },
+    "Use single-line arguments without control characters, up to 4096 bytes total." : {
 
     },
     "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System (SF Pro) to restore the standard font." : {

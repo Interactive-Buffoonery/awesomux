@@ -2,6 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>%lld enabled setups share this status hook.</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>%#@setups@</string>
+        <key>setups</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>%lld enabled setup uses this status hook.</string>
+            <key>other</key>
+            <string>%lld enabled setups share this status hook.</string>
+        </dict>
+    </dict>
     <key>accessibility.sidebar.searchResultPosition</key>
     <dict>
         <key>NSStringLocalizedFormatKey</key>

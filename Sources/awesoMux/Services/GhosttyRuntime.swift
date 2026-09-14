@@ -349,6 +349,8 @@ final class GhosttyRuntime {
         readiness == .ready
     }
 
+    private(set) var supportsPromptReadiness = false
+
     func surfaceView(
         sessionStore: SessionStore,
         session: TerminalSession,
@@ -677,13 +679,28 @@ final class GhosttyRuntime {
         toPane paneID: TerminalPane.ID,
         focusingSurface: Bool = true
     ) -> Bool {
-        guard let surface = surfaceViews[paneID] else { return false }
+        guard let surface = surfaceViews[paneID], surface.hasNativeSurface else { return false }
         if focusingSurface {
             surface.writeFromChrome(text)
         } else {
             surface.sendText(text)
         }
         return true
+    }
+
+    /// Queued commands submit separately: surface text is a bracketed paste,
+    /// so a newline inside it does not press Return at an interactive prompt.
+    @discardableResult
+    func submitCommand(_ command: String, toPane paneID: TerminalPane.ID) -> Bool {
+        guard let surface = surfaceViews[paneID], surface.hasNativeSurface else { return false }
+        let refreshShellActivity = surface.session.layout.pane(id: paneID)?.agentKind == .shell
+        surface.prepareShellActivityCommandSubmit(shouldRefreshShellActivity: refreshShellActivity)
+        surface.writeFromChrome(command)
+        let accepted = surface.performBindingAction("text:\\r")
+        surface.scheduleShellActivityRefreshIfCommandSubmitted(
+            handled: accepted, shouldRefreshShellActivity: refreshShellActivity
+        )
+        return accepted
     }
 
     /// Restores first responder to a pane's live surface. Used when a chrome
@@ -1723,6 +1740,7 @@ final class GhosttyRuntime {
         )
         switch manager.build(reportFailures: reportFailures) {
         case let .built(config, backgroundColor):
+            supportsPromptReadiness = GhosttyConfigManager.supportsPromptReadiness(from: config)
             if let backgroundColor {
                 terminalBackgroundColor = backgroundColor
             }

@@ -5,6 +5,28 @@ import AwesoMuxConfig
 
 @Suite("GhosttyConfigManager overlay failure resolution")
 struct GhosttyConfigManagerOverlayTests {
+    @MainActor
+    @Test("prompt readiness requires the true close-confirmation mode")
+    func promptReadinessRequiresTrueMode() throws {
+        GhosttyRuntime.initializeProcess()
+        let manager = GhosttyConfigManager(
+            clipboardWritePolicy: .ask,
+            confirmClipboardRead: true,
+            copyOnSelect: .inherit,
+            terminalAppearance: .defaultValue
+        )
+        for mode in ["true", "false", "always"] {
+            let config = try #require(ghostty_config_new())
+            defer { ghostty_config_free(config) }
+            #expect(
+                manager.loadConfigContents(
+                    "confirm-close-surface = \(mode)\n", into: config,
+                    filePrefix: "test-prompt-readiness", failureMode: .failRuntime
+                ))
+            #expect(GhosttyConfigManager.supportsPromptReadiness(from: config) == (mode == "true"))
+        }
+    }
+
     // A generated overlay can fail to apply two ways: the temp file won't write, or
     // libghostty rejects one of our keys (surfaced only as a diagnostic). Both route
     // through `overlayFailureResolution`, so these assertions pin the fail-closed

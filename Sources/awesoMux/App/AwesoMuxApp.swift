@@ -208,6 +208,7 @@ struct AwesoMuxApp: App {
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
     @State private var customCommandStore = CustomCommandStore()
+    @State private var agentSetupStore = AgentSetupStore()
     @State private var settingsSectionRequest = SettingsSectionRequest()
     @State private var isCloseConfirmAlertPresented = false
     @State private var sidebarPresentationCommandMailbox = SidebarPresentationCommandMailbox()
@@ -1521,6 +1522,7 @@ struct AwesoMuxApp: App {
                 .environment(settingsSectionRequest)
                 // Keys pane manages custom command shortcuts (INT-755).
                 .environment(customCommandStore)
+            .environment(agentSetupStore)
                 // Notifications pane reads/writes per-workspace mute (INT-598).
                 .environment(sessionStore)
                 .environment(diagnosticsModel)
@@ -4298,6 +4300,10 @@ struct AwesoMuxApp: App {
                 runCustomCommand(id: customCommandID)
                 return true
             }
+            if let setupID = PaletteCommand.agentSetupUUID(fromID: commandID) {
+                runAgentSetup(id: setupID)
+                return true
+            }
             // A recently-closed entry drained between palette-open and Enter
             // (reopened from another surface, or TTL-expired) is absent from
             // the rebuilt list. The palette has already dismissed by now, so
@@ -4435,11 +4441,13 @@ struct AwesoMuxApp: App {
     private func runCommandInNewTab(
         command: String,
         tabTitle: String,
-        pinsTitle: Bool
+        pinsTitle: Bool,
+        agentSetup: AgentSetup? = nil,
+        workingDirectory: String? = nil
     ) {
         let sessionID = sessionStore.addSession(
             title: tabTitle,
-            workingDirectory: sessionStore.selectedSession?.workingDirectory,
+            workingDirectory: workingDirectory ?? sessionStore.selectedSession?.workingDirectory,
             groupName: appSettingsStore.workspaces.value.defaultGroup
         )
         guard let session = sessionStore.session(id: sessionID) else {
@@ -4455,7 +4463,43 @@ struct AwesoMuxApp: App {
         }
         appDelegate.surfacePrimaryWindow()
         requestTerminalFocus(sessionID: sessionID, paneID: session.activePaneID)
-        sendQuickRunCommand(command, toPane: session.activePaneID)
+        sendQuickRunCommand(command, toPane: session.activePaneID, agentSetup: agentSetup)
+    }
+
+    private func agentSetupError(_ message: String) {
+        announceQuickRun(message)
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Could not launch agent setup")
+        alert.informativeText = message
+        alert.runModal()
+    }
+
+    private func runAgentSetup(id: UUID) {
+        guard ghosttyRuntime.supportsPromptReadiness else {
+            agentSetupError(
+                String(
+                    localized:
+                        "Agent setups require confirm-close-surface = true in Ghostty settings so awesoMux can wait for the shell prompt.",
+                    comment: "Unsupported Ghostty setting prevents reliable agent setup launch"))
+            return
+        }
+        guard let setup = agentSetupStore.setup(id: id), setup.enabled else {
+            agentSetupError(String(localized: "That agent setup was removed or disabled."))
+            return
+        }
+        do {
+            let directory = try AgentSetup.launchDirectory(
+                session: sessionStore.selectedSession, groups: sessionStore.groups,
+                defaultGroup: appSettingsStore.workspaces.value.defaultGroup
+            )
+            runCommandInNewTab(
+                command: try setup.launchCommand(), tabTitle: setup.name, pinsTitle: false,
+                agentSetup: setup,
+                workingDirectory: directory
+            )
+        } catch {
+            agentSetupError(error.localizedDescription)
+        }
     }
 
     /// Run closure target for custom-command palette entries. Re-resolves by
@@ -4493,20 +4537,47 @@ struct AwesoMuxApp: App {
     private func sendQuickRunCommand(
         _ command: String,
         toPane paneID: TerminalPane.ID,
-        attempt: Int = 0
+        attempt: Int = 0,
+        agentSetup: AgentSetup? = nil
     ) {
-        if ghosttyRuntime.sendText(command + "\n", toPane: paneID) {
+        let foreground = agentSetup == nil ? nil : ghosttyRuntime.foregroundComm(in: paneID)
+        // Startup commands may briefly own the foreground before the shell
+        // reaches its prompt. Retry them without sending any command text.
+        let setupShellIsReady =
+            ghosttyRuntime.supportsPromptReadiness
+            && AgentSetup.canSubmit(
+                foreground: foreground,
+                promptIsAway: ghosttyRuntime.cachedSurfaceView(for: paneID)?.promptMarkerIsAwayFromPrompt()
+            )
+        if (agentSetup == nil || setupShellIsReady), ghosttyRuntime.submitCommand(command, toPane: paneID) {
             announceQuickRun("Running \(command).")
             return
         }
 
         guard attempt < 12 else {
+            if let agentSetup {
+                if let foreground, !AgentSetup.supportsShell(foreground) {
+                    agentSetupError(
+                        String(
+                            format: String(
+                                localized: "%@ requires a sh, bash, zsh, dash, ksh, or fish shell.",
+                                comment: "Unsupported shell for named setup"),
+                            agentSetup.name))
+                    return
+                }
+                agentSetupError(
+                    String(
+                        format: String(
+                            localized: "The shell was not ready to launch %@. Try again.", comment: "Shell startup timeout for named setup"),
+                        agentSetup.name))
+                return
+            }
             announceQuickRun("Could not send \(command). The terminal surface was not ready.")
             return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            sendQuickRunCommand(command, toPane: paneID, attempt: attempt + 1)
+            sendQuickRunCommand(command, toPane: paneID, attempt: attempt + 1, agentSetup: agentSetup)
         }
     }
 
@@ -4632,6 +4703,12 @@ struct AwesoMuxApp: App {
                     run: { [self] in
                         runCustomCommand(id: commandID)
                     }))
+        }
+        for (index, setup) in agentSetupStore.setups.enumerated() where setup.enabled {
+            commands.append(
+                .agentSetup(setup, position: index + 1) { [self] in
+                    runAgentSetup(id: setup.id)
+                })
         }
         // One direct-apply row per checked-in layout preset, snapshotted at
         // palette-open time like the daemon rows above. The source session and

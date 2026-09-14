@@ -5,6 +5,26 @@ import Testing
 @MainActor
 @Suite("Ghostty runtime surface GC")
 struct GhosttyRuntimeSurfaceGCTests {
+    @Test("sendText rejects a cached view before its native surface exists")
+    func sendTextRejectsCachedViewWithoutNativeSurface() {
+        let fixture = makeFixture()
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        let view = runtime.surfaceView(
+            sessionStore: fixture.store,
+            session: fixture.session,
+            pane: fixture.retainedPane,
+            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+        )
+        #expect(runtime.cachedSurfaceView(for: fixture.retainedPane.id) === view)
+        #expect(!view.hasNativeSurface)
+        #expect(!runtime.sendText("printf ready\n", toPane: fixture.retainedPane.id))
+        #expect(!runtime.sendText("printf ready\n", toPane: fixture.retainedPane.id, focusingSurface: false))
+        view.shellCommandFinishedIdleLatched = true
+        #expect(!runtime.submitCommand("printf ready", toPane: fixture.retainedPane.id))
+        #expect(view.shellCommandFinishedIdleLatched)
+    }
+
     @Test("visible surface registration starts and stops the runtime sampler")
     func visibleSurfaceRegistrationStartsAndStopsRuntimeSampler() {
         let fixture = makeFixture()

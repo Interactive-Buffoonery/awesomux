@@ -47,6 +47,30 @@ struct PaletteCommand: Identifiable {
 }
 
 extension PaletteCommand {
+    static func agentSetupUUID(fromID id: String) -> UUID? {
+        guard id.hasPrefix("agentSetup.") else { return nil }
+        return UUID(uuidString: String(id.dropFirst("agentSetup.".count)))
+    }
+
+    static func agentSetup(
+        _ setup: AgentSetup,
+        position: Int,
+        run: @escaping @MainActor () -> Void
+    ) -> PaletteCommand {
+        PaletteCommand(
+            id: "agentSetup.\(setup.id)",
+            title: String(
+                format: String(localized: "Launch %@, setup %@", comment: "Launch setup name and list position"), setup.name,
+                String(position)),
+            subtitle: setup.provider.rawValue,
+            keywords: ["agent", "launch", setup.provider.rawValue, setup.name],
+            shortcut: nil,
+            isEnabled: setup.enabled,
+            selectionScope: .pane,
+            run: run
+        )
+    }
+
     /// Pure factory for a user-defined custom command's palette entry, kept
     /// out of `AwesoMuxApp` so id/title/keyword wiring is unit-testable. The
     /// dot id separator matches the `daemonJump.` precedent. Deliberately

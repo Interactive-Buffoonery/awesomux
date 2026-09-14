@@ -3,6 +3,7 @@ import DesignSystem
 import SwiftUI
 
 struct AgentsSettingsPane: View {
+    @Environment(AgentSetupStore.self) private var agentSetupStore
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var actionResults: [AgentIntegrationInstallProvider: AgentIntegrationSettingsActionResult] = [:]
@@ -64,8 +65,10 @@ struct AgentsSettingsPane: View {
                 }
             }
 
+            AgentSetupsSettingsSection()
+
             SettingsSection(
-                index: 2,
+                index: 3,
                 title: "Local status hooks",
                 subtitle: "Provider-owned files that report identity and coarse runtime state."
             ) {
@@ -75,6 +78,13 @@ struct AgentsSettingsPane: View {
                 // cards with actions disabled.
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(AgentIntegrationDisplayProvider.allCases, id: \.self) { display in
+                        Text(
+                            String.localizedStringWithFormat(
+                                String(localized: "%lld enabled setups share this status hook."),
+                                Int64(agentSetupStore.setups.filter { $0.enabled && $0.provider == display.agentKind }.count)
+                            )
+                        )
+                        .font(.caption)
                         if let provider = display.installable {
                             let state = cardModel.state(for: provider, setup: draftSetup(for: provider))
                             AgentIntegrationSettingsCard(
