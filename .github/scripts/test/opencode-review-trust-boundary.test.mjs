@@ -4,7 +4,7 @@
 // Run: node --test .github/scripts/test/opencode-review-trust-boundary.test.mjs
 //
 // The automatic review workflow holds id-token:write, pull-requests/issues
-// write, GITHUB_TOKEN, and SYNTHETIC_API_KEY. PR-controlled helper code must
+// write, GH_TOKEN, and SYNTHETIC_API_KEY. PR-controlled helper code must
 // never execute under that privilege. Helpers run only from the trusted
 // default-branch checkout at _trusted/ (same pattern as opencode.yml).
 
@@ -24,6 +24,10 @@ const runnerPath = join(
   repoRoot,
   ".github/actions/run-opencode/run-opencode.sh",
 );
+const contextHelperPath = join(
+  repoRoot,
+  ".github/scripts/prepare-opencode-context.mjs",
+);
 const appendReviewedFilesPath = join(
   repoRoot,
   ".github/scripts/append-reviewed-files.mjs",
@@ -35,6 +39,7 @@ const commentWorkflow = stripYamlComments(
 const action = stripYamlComments(readFileSync(actionPath, "utf-8"));
 const config = JSON.parse(readFileSync(configPath, "utf-8"));
 const runner = readFileSync(runnerPath, "utf-8");
+const contextHelper = readFileSync(contextHelperPath, "utf-8");
 const appendReviewedFiles = readFileSync(appendReviewedFilesPath, "utf-8");
 const reviewAgent = readFileSync(
   join(repoRoot, ".opencode/agents/review.md"),
@@ -169,7 +174,7 @@ describe("opencode review model", () => {
       assert.doesNotMatch(source, /timeout-minutes:\s*15/);
     }
     assert.match(reviewAgent, /^steps:\s*40$/m);
-    assert.match(action, /opencode --pure debug agent "\$AGENT"/);
+    assert.match(action, /--pure debug agent "\$AGENT"/);
     assert.match(action, /\.steps \/\/ empty/);
     assert.match(action, /EXPECTED_AGENT_STEPS:\s*["']40["']/);
   });
@@ -177,9 +182,9 @@ describe("opencode review model", () => {
   test("requires repository-grounded actionable findings", () => {
     assert.match(reviewSkill, /final, post-change code/);
     assert.match(reviewSkill, /callers, consumers/);
-    assert.match(reviewSkill, /sibling implementations/);
+    assert.match(reviewSkill, /sibling\s+implementations/);
     assert.match(reviewSkill, /persistence formats/);
-    assert.match(reviewSkill, /and tests/);
+    assert.match(reviewSkill, /and tests present/);
     assert.match(reviewSkill, /generated output, vendored dependencies/);
     assert.match(reviewSkill, /lockfiles/);
     assert.match(reviewSkill, /snapshots/);
@@ -326,11 +331,6 @@ describe("opencode-review trusted-helper checkout", () => {
       /EXPECTED_HEAD_SHA:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}[\s\S]*?actual_head_sha[\s\S]*?!=\s*"\$EXPECTED_HEAD_SHA"/,
       "automatic fetch must fail if the PR ref no longer matches the event SHA",
     );
-    assert.match(
-      body,
-      /base_range="\$\{BASE_SHA\}\.\.\.\$\{HEAD_SHA\}"/,
-      "automatic review range must end at the immutable event head SHA",
-    );
     const checkoutCount = (body.match(/uses:\s*actions\/checkout@/g) || [])
       .length;
     assert.ok(
@@ -396,11 +396,27 @@ describe("opencode-review trusted-helper checkout", () => {
       /EXPECTED_HEAD_SHA:\s*\$\{\{\s*steps\.pull_request\.outputs\.head_sha\s*\}\}[\s\S]*?actual_head_sha[\s\S]*?!=\s*"\$EXPECTED_HEAD_SHA"/,
       "comment fetch must fail if the PR ref moves after API resolution",
     );
-    assert.match(
-      commentWorkflow,
-      /base_range="\$\{BASE_SHA\}\.\.\.\$\{HEAD_SHA\}"/,
-      "comment review range must end at the captured immutable head SHA",
+  });
+
+  test("binds the immutable range directly without filename-shaped outputs", () => {
+    const automaticRange =
+      /\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}\.\.\.\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/g;
+    const commentRange =
+      /\$\{\{\s*steps\.pull_request\.outputs\.base_sha\s*\}\}\.\.\.\$\{\{\s*steps\.pull_request\.outputs\.head_sha\s*\}\}/g;
+
+    assert.ok(
+      (body.match(automaticRange) || []).length >= 3,
+      "automatic guard, model, and publication ranges must use event SHAs directly",
     );
+    assert.ok(
+      (commentWorkflow.match(commentRange) || []).length >= 2,
+      "manual model and publication ranges must use captured API SHAs directly",
+    );
+    for (const source of [body, commentWorkflow]) {
+      assert.doesNotMatch(source, /steps\.review_context\.outputs\.base_range/);
+      assert.doesNotMatch(source, /FILES_EOF|DIFFSTAT_EOF/);
+      assert.doesNotMatch(source, /git diff --name-only/);
+    }
   });
 
   test("disables PR-tree OpenCode project config and loads trusted .opencode", () => {
@@ -443,7 +459,7 @@ describe("opencode-review trusted-helper checkout", () => {
   test("runs OpenCode without its checkout-capable GitHub wrapper", () => {
     assert.match(
       runner,
-      /opencode --pure run --format json --model/,
+      /--pure run[\s\S]*?--format json[\s\S]*?--model "\$MODEL"/,
       "trusted runner must use non-interactive opencode run",
     );
     assert.doesNotMatch(
@@ -461,21 +477,71 @@ describe("opencode-review trusted-helper checkout", () => {
   });
 
   test("bounds exact diffs and lets automatic review skip oversized previews", () => {
-    assert.match(runner, /git diff "\$BASE_RANGE" -- > "\$diff_probe"/);
+    assert.match(
+      runner,
+      /git diff --no-ext-diff --no-textconv "\$BASE_RANGE" -- > "\$diff_probe"/,
+    );
+    assert.match(runner, /\^\[0-9a-f\]\{40\}/);
     assert.match(runner, /MAX_DIFF_LINES:-2000/);
     assert.match(runner, /MAX_DIFF_BYTES:-262144/);
-    assert.match(
-      body,
-      /BASE_RANGE:\s*\$\{\{\s*steps\.review_context\.outputs\.base_range\s*\}\}/,
-    );
-    assert.match(
-      commentWorkflow,
-      /BASE_RANGE:\s*\$\{\{\s*steps\.review_context\.outputs\.base_range\s*\}\}/,
-    );
     assert.match(action, /diff_too_large:/);
     assert.match(runner, /LARGE_DIFF_MODE:-fail/);
     assert.match(body, /steps\.opencode\.outputs\.diff_too_large == 'true'/);
     assert.match(body, /awesomux-opencode-skip/);
+  });
+
+  test("resolves a tool-free review agent before invoking the model", () => {
+    assert.match(reviewAgent, /^tools:\s*\n\s+"\*": false$/m);
+    assert.match(reviewAgent, /^permission:\s*\n\s+"\*": deny$/m);
+    assert.doesNotMatch(reviewAgent, /"git (diff|log|show|status)\*": allow/);
+    assert.match(
+      action,
+      /\.tools \| to_entries\[\] \| select\(\.value != false\)/,
+    );
+    assert.match(action, /resolved one or more enabled tools/);
+    assert.match(action, /resolved permissions outside the tool-free policy/);
+  });
+
+  test("feeds one trusted immutable packet on stdin with a fixed title", () => {
+    assert.match(runner, /review_packet="\$review_root\/review-packet\.md"/);
+    assert.match(runner, /chmod 0444 "\$review_packet"/);
+    assert.match(runner, /"\$@" < "\$attempt_input"/);
+    assert.match(runner, /--title "awesoMux code review"/);
+    assert.doesNotMatch(runner, /--file "\$review_packet"/);
+    assert.doesNotMatch(runner, /child_args\+=\("\$PROMPT"\)/);
+  });
+
+  test("clears inherited credentials before starting OpenCode", () => {
+    assert.match(runner, /env -i \\/);
+    assert.match(runner, /SYNTHETIC_API_KEY="\$model_api_key" \\/);
+    assert.doesNotMatch(runner, /export (GH_TOKEN|GITHUB_TOKEN)=/);
+    for (const source of [body, commentWorkflow]) {
+      const match = source.match(
+        /-\s+name:\s*Run opencode review[\s\S]*?(?=\n\s*-\s+name:|$)/,
+      );
+      assert.ok(match, "missing Run opencode review step");
+      assert.match(match[0], /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+      assert.doesNotMatch(match[0], /GITHUB_TOKEN:/);
+    }
+  });
+
+  test("prepares bounded PR metadata as a trusted file", () => {
+    for (const source of [body, commentWorkflow]) {
+      assert.match(source, /name:\s*Prepare bounded review metadata/);
+      assert.match(
+        source,
+        /node _trusted\/\.github\/scripts\/prepare-opencode-context\.mjs/,
+      );
+      assert.match(
+        source,
+        /prompt_context_path:\s*\$\{\{\s*runner\.temp\s*\}\}\/opencode-pr-context\.txt/,
+      );
+      assert.doesNotMatch(source, /prompt_context:\s*\|/);
+    }
+    assert.match(contextHelper, /Buffer\.from\(context, "utf8"\)/);
+    assert.match(contextHelper, /encoded\.length > maxBytes/);
+    assert.match(runner, /"\$RUNNER_TEMP"\/\*/);
+    assert.match(runner, /\[ -L "\$PROMPT_CONTEXT_PATH" \]/);
   });
 
   test("publishes safe per-attempt telemetry to the Actions summary", () => {
