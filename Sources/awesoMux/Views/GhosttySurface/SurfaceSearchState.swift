@@ -9,7 +9,10 @@ final class SurfaceSearchState {
     var selected: Int?
     var total: Int?
     var focusRequestSerial = 0
-    private(set) var scrollbackDump: ScrollbackDumpPresentation?
+    private(set) var scrollbackDump: ScrollbackDumpPresentation? {
+        didSet { scrollbackDumpRevision &+= 1 }
+    }
+    private(set) var scrollbackDumpRevision = UInt64.zero
     private var scrollbackDumpRequest = UInt64.zero
 
     var matchSummary: SurfaceSearchMatchSummary {

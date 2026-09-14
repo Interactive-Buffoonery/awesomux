@@ -352,9 +352,12 @@ struct MarkdownDiffLineStylingTests {
                 in: doc, index: index, from: Set(index.keys), to: []) == nil)
     }
 
-    @Test("hosted folds preserve layout and heading geometry", .serialized, arguments: [60, 400])
+    @Test(
+        "hosted folds preserve layout and heading geometry", .serialized,
+        arguments: [60, 400], [NSScroller.Style.legacy, .overlay]
+    )
     @MainActor
-    func hostedFoldCollapseAndExpansion(linesPerFile: Int) async throws {
+    func hostedFoldCollapseAndExpansion(linesPerFile: Int, scrollerStyle: NSScroller.Style) async throws {
         let fileCount = linesPerFile == 400 ? 50 : 6
         let pathSuffix = linesPerFile == 60 ? String(repeating: "/nested-directory", count: 12) : ""
         let lineSuffix = linesPerFile == 60 ? String(repeating: " wrapped content", count: 12) : ""
@@ -370,7 +373,12 @@ struct MarkdownDiffLineStylingTests {
         func view(_ collapsed: Set<String>) -> MarkdownTextView {
             MarkdownTextView(
                 doc: doc, selectedSourceSpan: .constant(nil), textColor: .white,
-                onTextViewAvailable: { availableTextView = $0 },
+                onTextViewAvailable: {
+                    availableTextView = $0
+                    // A preference-driven style change rewraps long headings and
+                    // invalidates geometry captured before the first scroll.
+                    $0.enclosingScrollView?.scrollerStyle = scrollerStyle
+                },
                 sectionIndex: index, collapsedSections: collapsed,
                 onSectionToggled: { toggledKey = $0 })
         }
@@ -383,6 +391,7 @@ struct MarkdownDiffLineStylingTests {
         let overlay = try #require(coordinator.badgeOverlay)
         let scrollView = try #require(textView.enclosingScrollView)
         let layoutManager = try #require(textView.textLayoutManager)
+        #expect(scrollView.scrollerStyle == scrollerStyle)
         let expandedHeight = textView.frame.height
         let key = index.sections[1].key
         let nextKey = index.sections[2].key
@@ -409,6 +418,7 @@ struct MarkdownDiffLineStylingTests {
                 SidebarHostedTestHarness.settleMainRunLoop()
             }
             print("hosted fold \(collapsed.isEmpty ? "expand" : "collapse"): \(elapsed), \(fileCount) files")
+            #expect(scrollView.scrollerStyle == scrollerStyle)
             #expect(availableTextView === textView)
             #expect(overlay.sectionChrome.count == fileCount)
             let updatedHeading = try #require(overlay.sectionChrome.first { $0.key == key })

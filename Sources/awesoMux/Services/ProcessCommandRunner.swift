@@ -16,6 +16,7 @@ import Foundation
 /// Claude Node CLI resolve its own sub-tools. Nothing else from the host
 /// environment leaks in.
 struct ProcessCommandRunner: CommandRunner {
+    typealias ReadOutput = @Sendable (ProcessCommandOutputReader) async -> Data
     typealias Delay = @Sendable (Duration) async throws -> Void
     typealias Schedule = @Sendable (@escaping @Sendable () -> Void) -> Void
     typealias Spawn = @Sendable (Process) throws -> Void
@@ -81,6 +82,7 @@ struct ProcessCommandRunner: CommandRunner {
     private let delay: Delay
     private let schedule: Schedule
     private let spawn: Spawn
+    private let readOutput: ReadOutput
 
     init(
         timeout: Duration = .seconds(30),
@@ -90,7 +92,8 @@ struct ProcessCommandRunner: CommandRunner {
         schedule: @escaping Schedule = {
             DispatchQueue.global(qos: .userInitiated).async(execute: $0)
         },
-        spawn: @escaping Spawn = { try $0.run() }
+        spawn: @escaping Spawn = { try $0.run() },
+        readOutput: @escaping ReadOutput = { await $0.readToEnd() }
     ) {
         self.timeout = timeout
         self.defaultPath = defaultPath
@@ -98,6 +101,7 @@ struct ProcessCommandRunner: CommandRunner {
         self.delay = delay
         self.schedule = schedule
         self.spawn = spawn
+        self.readOutput = readOutput
     }
 
     func run(
@@ -123,8 +127,9 @@ struct ProcessCommandRunner: CommandRunner {
 
         // Each reader owns its descriptor until EOF or an explicit stop. A
         // descendant can retain a writer even after the direct child exits.
-        let stdoutTask = Task { await execution.stdoutReader.readToEnd() }
-        let stderrTask = Task { await execution.stderrReader.readToEnd() }
+        let readOutput = readOutput
+        let stdoutTask = Task { await readOutput(execution.stdoutReader) }
+        let stderrTask = Task { await readOutput(execution.stderrReader) }
 
         let resume = SingleResume()
         let timeoutState = TimeoutState()

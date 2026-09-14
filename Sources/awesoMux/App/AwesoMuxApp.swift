@@ -307,6 +307,9 @@ struct AwesoMuxApp: App {
             }
         )
         appSettingsStore.bootstrap()
+        RemoteHelperInstaller.installPolicy = { [weak appSettingsStore] in
+            appSettingsStore?.workspaces.value.remoteHelperInstallPolicy ?? .ask
+        }
         // Seeded here for two reasons, both of which are the same bug class.
         // `loadSource` is only this launch's answer in the window between
         // `bootstrap()`, which sets it, and `startWatching()`, which turns any
@@ -618,6 +621,7 @@ struct AwesoMuxApp: App {
                         )
                     }
                 )
+                .environment(appSettingsStore)
                 .onAppear { activeSheetDidPresent = true }
             }
 

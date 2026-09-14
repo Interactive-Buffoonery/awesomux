@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxConfig
 import AwesoMuxCore
 import AwesoMuxTestSupport
 import Darwin
@@ -8,6 +9,79 @@ import Testing
 
 @Suite("Remote helper installer", .serialized)
 struct RemoteHelperInstallerTests {
+    @Test("remote helper approval only asks under the default policy")
+    @MainActor
+    func helperApprovalPolicy() async {
+        for policy in WorkspaceConfig.RemoteHelperInstallPolicy.allCases {
+            for answer in [false, true] {
+                var confirmations = 0
+                let approved = await RemoteHelperInstaller.approveInstallation(policy: { policy }) {
+                    confirmations += 1
+                    return answer
+                }
+                #expect(confirmations == (policy == .ask ? 1 : 0))
+                #expect(approved == (policy == .alwaysInstall || (policy == .ask && answer)))
+            }
+        }
+        var policy = WorkspaceConfig.RemoteHelperInstallPolicy.ask
+        let approved = await RemoteHelperInstaller.approveInstallation(policy: { policy }) {
+            policy = .neverAsk
+            return true
+        }
+        #expect(!approved)
+    }
+
+    @Test("remembered helper policy gates acquisition and rechecks before installation")
+    @MainActor
+    func rememberedPolicyGatesInstallation() async throws {
+        let directory = try TemporaryDirectory(prefix: "helper-policy")
+        let prepared = try await RemoteHelperInstaller.prepareBundledHelper(
+            at: try helper(in: directory, payload: Data("helper".utf8))
+        )
+        let remote = try #require(RemoteTarget(parsing: "me@example"))
+        for initialPolicy in [WorkspaceConfig.RemoteHelperInstallPolicy.neverAsk, .alwaysInstall] {
+            for revokeDuringAcquisition in [false, true] {
+                var policy = initialPolicy
+                var events: [String] = []
+                let result = try await RemoteHelperInstaller.performApprovedInstallation(
+                    acquisition: {
+                        events.append("acquire")
+                        if revokeDuringAcquisition { policy = .neverAsk }
+                        return .init(prepared: prepared, cleanupDirectory: nil)
+                    },
+                    action: .install,
+                    remote: remote,
+                    controlPath: "/tmp/control/%C",
+                    remoteHome: "/home/me",
+                    helperPath: "/home/me/.awesomux/bin/awesomux-bridge-helper",
+                    window: nil,
+                    authorityIsCurrent: { true },
+                    policy: { policy },
+                    confirmation: { _, _, _ in
+                        events.append("confirmation")
+                        return true
+                    },
+                    installOperation: { _, _, _, _ in events.append("install") },
+                    capabilityProbe: { _, _, _ in
+                        events.append("verify")
+                        return .supported
+                    },
+                    successPresentation: { _ in events.append("success") }
+                )
+                if initialPolicy == .neverAsk {
+                    #expect(result == .cancelled)
+                    #expect(events.isEmpty)
+                } else if revokeDuringAcquisition {
+                    #expect(result == .cancelled)
+                    #expect(events == ["acquire"])
+                } else {
+                    #expect(result == .installed)
+                    #expect(events == ["acquire", "install", "verify", "success"])
+                }
+            }
+        }
+    }
+
     @Test("helper setup waits for the workspace creation sheet to dismiss")
     @MainActor
     func helperSetupWaitsForSheetDismissal() async {

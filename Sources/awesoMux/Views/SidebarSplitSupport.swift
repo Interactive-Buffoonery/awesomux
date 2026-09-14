@@ -82,8 +82,12 @@ final class SidebarHostPresentationState {
     /// boundary whether the sidebar is away or revealed, so nothing up top
     /// moves while the body slides.
     var titlebarReservationWidth: CGFloat {
+        titlebarReservationWidth(leadingInset: AppTitlebarMetrics.trafficLightClearance)
+    }
+
+    func titlebarReservationWidth(leadingInset: CGFloat) -> CGFloat {
         if case .persistent = mode { return effectiveVisibleWidth }
-        return AppTitlebarMetrics.brandWithTextMinimumWidth
+        return AppTitlebarMetrics.brandWithTextMinimumWidth(leadingInset: leadingInset)
     }
 }
 
@@ -131,7 +135,8 @@ struct SidebarPresentationLayoutPolicy {
 
     func titlebarGeometry(
         titlebarWidth: CGFloat,
-        visibleSidebarWidth: CGFloat
+        visibleSidebarWidth: CGFloat,
+        trafficLightClearance: CGFloat = AppTitlebarMetrics.trafficLightClearance
     ) -> AppTitlebarLayoutGeometry {
         let width = titlebarWidth.isFinite ? max(0, titlebarWidth) : 0
         let visibleWidth =
@@ -144,7 +149,7 @@ struct SidebarPresentationLayoutPolicy {
             boundary = min(
                 width,
                 visibleWidth + gutter
-                    + max(0, AppTitlebarMetrics.trafficLightClearance + 10 - visibleWidth)
+                    + max(0, trafficLightClearance + 10 - visibleWidth)
             )
         } else {
             boundary = width - visibleWidth - gutter

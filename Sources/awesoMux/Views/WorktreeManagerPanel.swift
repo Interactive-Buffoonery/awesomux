@@ -32,6 +32,7 @@ struct WorktreeManagerPanel: View {
     @State private var createFormPresentationToken = UUID()
 
     var body: some View {
+        let presentationToken = createFormPresentationToken
         VStack(spacing: 0) {
             FloatingPanelTitlebar(
                 title: String(
@@ -58,7 +59,13 @@ struct WorktreeManagerPanel: View {
         // and labelling both announced it twice in a row. `children: .contain`
         // stays — it groups, it does not name.
         .accessibilityElement(children: .contain)
-        .sheet(isPresented: $isShowingCreateForm, onDismiss: model.resetCreateResult) {
+        .sheet(
+            isPresented: $isShowingCreateForm,
+            onDismiss: {
+                guard createFormPresentationToken == presentationToken else { return }
+                model.finishCreatePresentation()
+            }
+        ) {
             WorktreeCreateForm(model: model) { isShowingCreateForm = false }
                 .id(createFormPresentationToken)
         }
@@ -316,22 +323,30 @@ struct WorktreeManagerPanel: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 12)
-            Button(
-                row.liveMatch == nil
-                    ? String(localized: "Open", comment: "Open a worktree in a new workspace.")
-                    : String(localized: "Focus", comment: "Focus an already-open worktree workspace.")
-            ) {
-                Task { await open(row) }
+            if row.liveMatch != nil {
+                Button(String(localized: "Focus", comment: "Focus an already-open worktree workspace.")) {
+                    Task { await open(row) }
+                }
+            } else {
+                Menu {
+                    ForEach(WorktreeOpenDestination.allCases, id: \.self) { destination in
+                        Button(destination.title) {
+                            Task { await open(row, destination: destination) }
+                        }
+                        .disabled(destination != .newWorkspace && !model.canOpenAsSplit)
+                    }
+                } label: {
+                    Text(String(localized: "Open", comment: "Open a worktree in a new workspace."))
+                } primaryAction: {
+                    Task { await open(row) }
+                }
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel(for: row))
-        .accessibilityAction {
-            Task { await open(row) }
-        }
     }
 
     // Routes every Refresh/Retry action through here so a refresh that lands
@@ -345,8 +360,8 @@ struct WorktreeManagerPanel: View {
         }
     }
 
-    private func open(_ row: WorktreeManagerRow) async {
-        let outcome = await model.open(row: row)
+    private func open(_ row: WorktreeManagerRow, destination: WorktreeOpenDestination = .newWorkspace) async {
+        let outcome = await model.open(row: row, destination: destination)
         if case .failed(let message) = outcome {
             openError = message
             // The button shows this visually; VoiceOver users invoking the
@@ -356,6 +371,7 @@ struct WorktreeManagerPanel: View {
             model.announce(message)
         } else {
             openError = nil
+            onDismiss()
         }
     }
 

@@ -37,6 +37,11 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
     private var tailStartedAt: Date?
     private var didClose = false
 
+    #if DEBUG
+        // Set before starting receive(); observes the actual blocking-read executor.
+        var readStartedForTesting: (@Sendable () -> Void)?
+    #endif
+
     init(
         executable: String,
         codexHome: String,
@@ -104,10 +109,21 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
             // chunk — do not batch reads. The buffer's bound is exactly this
             // loop emptying it between reads; batching reads would silently
             // make it unbounded.
-            // `availableData` blocks until bytes arrive or EOF; keep it off the
-            // cooperative pool so a quiet server can't stall an executor thread.
+            // `availableData` blocks until bytes arrive or EOF. Detached tasks
+            // still use the cooperative pool; dispatch the read so a quiet server
+            // cannot prevent the client's timeout task from making progress.
             let handle = outputPipe.fileHandleForReading
-            let chunk = await Task.detached { handle.availableData }.value
+            #if DEBUG
+                let readStarted = readStartedForTesting
+            #endif
+            let chunk: Data = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    #if DEBUG
+                        readStarted?()
+                    #endif
+                    continuation.resume(returning: handle.availableData)
+                }
+            }
 
             if chunk.isEmpty {
                 return takeBufferedRemainder()
