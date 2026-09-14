@@ -6,14 +6,16 @@ import Testing
 /// it as a nameless "switch"/"text field" (WCAG 4.1.2).
 ///
 /// No SwiftUI accessibility-introspection dependency exists in this repo, so
-/// this is a source scan: every `.labelsHidden()`, `TextField(`, or
-/// `SettingsSegmented(` call site under Views/Settings must either sit inside
+/// this is a source scan: every `.labelsHidden()` or `TextField(`
+/// call site under Views/Settings must either sit inside
 /// a `SettingsField` that forwards accessibility, or carry an explicit
 /// `.accessibilityLabel` nearby. The before-scan stops at the nearest
 /// enclosing `SettingsField(` so one row's forwarding can't vouch for its
 /// neighbor. Comment lines never count as evidence. Window sizes are
 /// generous heuristics — if this fires falsely on a new layout, widen the
 /// window rather than deleting the check.
+/// Segmented rows instead retain a visible field label, with names and selected
+/// state on individual buttons. These source contracts do not replace VoiceOver QA.
 @Suite("Settings accessibility guard")
 struct SettingsAccessibilityGuardTests {
     private static func settingsSourceFiles() throws -> [(name: String, lines: [String])] {
@@ -53,9 +55,75 @@ struct SettingsAccessibilityGuardTests {
         return lines[start..<end].filter { !isComment($0) }.joined(separator: "\n")
     }
 
+    // This convention check accepts direct field children and literal labels.
+    // More elaborate layouts need an explicit guard update and VoiceOver QA.
+    private static func segmentedFieldProvidesOrientation(in lines: [String], before index: Int) -> Bool {
+        let prefix = lines[..<index].filter { !isComment($0) }
+        guard let start = prefix.lastIndex(where: { $0.contains("SettingsField(") }) else { return false }
+        let field = prefix[start...].joined(separator: "\n")
+        guard let body = field.range(of: #"\)\s*\{\s*$"#, options: .regularExpression) else { return false }
+        let arguments = String(field[..<body.lowerBound])
+        guard !arguments.contains("{"), !arguments.contains("}") else { return false }
+        let hasLabel =
+            arguments.range(
+                of: #"label:\s*(?:String\(\s*localized:\s*)?"[^"\s][^"]*""#,
+                options: .regularExpression
+            ) != nil
+        let compact = arguments.filter { !$0.isWhitespace }
+        let keepsLabel =
+            !compact.contains("forwardsAccessibilityToControl:")
+            || compact.hasSuffix("forwardsAccessibilityToControl:false")
+            || compact.contains("forwardsAccessibilityToControl:false,")
+        return hasLabel && keepsLabel
+    }
+
+    @Test("Segmented settings rows retain their field orientation")
+    func segmentedRowsHaveVisibleFieldLabels() throws {
+        for (name, lines) in try Self.settingsSourceFiles() {
+            for (index, line) in lines.enumerated()
+            where line.contains("SettingsSegmented(") && !Self.isComment(line) {
+                #expect(
+                    Self.segmentedFieldProvidesOrientation(in: lines, before: index),
+                    "\(name):\(index + 1): Put segmented choices directly in a labeled SettingsField without accessibility forwarding."
+                )
+            }
+        }
+    }
+
+    @Test("Segment buttons preserve their name, selection and optional hint")
+    func segmentButtonsHaveAccessibility() throws {
+        let files = try Self.settingsSourceFiles()
+        let lines = try #require(files.first { $0.name == "SettingsSegmented.swift" }).lines
+        let source = lines.filter { !Self.isComment($0) }.joined(separator: "\n")
+        #expect(source.contains(".accessibilityElement(children: .contain)"))
+        #expect(source.contains(".accessibilityLabel(option.accessibilityLabel ?? option.label)"))
+        #expect(source.contains(".accessibilityAddTraits(isSelected ? [.isSelected] : [])"))
+        #expect(source.contains("if let hint = option.accessibilityHint"))
+        #expect(source.contains("button.accessibilityHint(hint)"))
+    }
+
+    @Test(
+        "Segmented rows use their own visible field label",
+        arguments: [
+            ("SettingsField(label: \"Visibility\") {", true),
+            ("SettingsField(label: String(localized: \"Visibility\")) {", true),
+            ("SettingsField(label: \"Visibility\", forwardsAccessibilityToControl: false) {", true),
+            ("SettingsField(label: \"Visibility\", forwardsAccessibilityToControl: true) {", false),
+            ("SettingsField(label: \"\") {", false),
+            ("SettingsField(label: \"   \") {", false),
+            ("SettingsField(hint: \"No label\") {", false),
+            ("SettingsField(label: \"Previous row\") { Text(\"Other\") }", false),
+            ("// SettingsField(label: \"Comment\") {", false),
+            ("VStack {", false),
+        ])
+    func segmentedFieldEvidence(prefix: String, expected: Bool) {
+        let lines = [prefix, "SettingsSegmented(options: options, selection: $selection)"]
+        #expect(Self.segmentedFieldProvidesOrientation(in: lines, before: 1) == expected)
+    }
+
     @Test("Bare settings controls have a VoiceOver name")
     func bareSettingsControlsHaveVoiceOverNames() throws {
-        let triggers = [".labelsHidden()", "TextField(", "SettingsSegmented("]
+        let triggers = [".labelsHidden()", "TextField("]
         var violations: [String] = []
 
         for (name, lines) in try Self.settingsSourceFiles() {
