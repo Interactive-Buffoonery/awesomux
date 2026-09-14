@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cleared in `bind`.
     private var pendingDeepLinkSessionID: TerminalSession.ID?
     private(set) var notificationTracker = WorkspaceNotificationTracker()
-    private var pendingPermissionNotificationTask: Task<Void, Never>?
+    private(set) var pendingPermissionNotificationTask: Task<Void, Never>?
     var permissionNotificationClock: any Clock<Duration> = ContinuousClock()
     private var dockBounceTracker = WorkspaceDockBounceTracker()
     private var workspaceAnnouncementTracker = WorkspaceAttentionAnnouncementTracker()
@@ -1329,7 +1329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } catch {
                     return
                 }
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
                 self.pendingPermissionNotificationTask = nil
                 self.evaluateAndPostNotifications()
             }

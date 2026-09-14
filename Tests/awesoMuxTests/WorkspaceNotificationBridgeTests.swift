@@ -45,6 +45,73 @@ struct WorkspaceNotificationBridgeTests {
         #expect(tracker.nextNotificationDeadline == nil)
     }
 
+    @Test("a replaced permission timer cannot clear its replacement")
+    @MainActor
+    func replacedPermissionTimerDoesNotReevaluate() async throws {
+        _ = NSApplication.shared
+        let session = TerminalSession(
+            title: "codex", workingDirectory: "~", agentKind: .codex,
+            layout: .pane(
+                TerminalPane(
+                    title: "codex", workingDirectory: "~", agentKind: .codex,
+                    attentionReason: .permissionPrompt, unreadNotificationCount: 1, executionPlan: .local
+                ))
+        )
+        let delegate = AppDelegate()
+        let clock = PermissionDeadlineClock()
+        delegate.permissionNotificationClock = clock
+        delegate.sessionStore = SessionStore(groups: [SessionGroup(name: "test", sessions: [session])])
+        delegate.notificationBridge.configurePreferencesProvider {
+            var preferences = NotificationPreferences.defaultValue
+            preferences.muted = true
+            return preferences
+        }
+        defer {
+            delegate.sessionStore = SessionStore(groups: [])
+            delegate.evaluateAndPostNotifications(isAppActiveOverride: false)
+            clock.finishAll()
+        }
+
+        delegate.evaluateAndPostNotifications(isAppActiveOverride: false)
+        let original = try #require(delegate.pendingPermissionNotificationTask)
+        try #require(await waitUntilEventually { clock.sleepers.count == 1 })
+        delegate.evaluateAndPostNotifications(isAppActiveOverride: false)
+        let replacement = try #require(delegate.pendingPermissionNotificationTask)
+        defer { replacement.cancel() }
+        try #require(await waitUntilEventually { clock.sleepers.count == 2 })
+
+        // Model sleep winning its cancellation race: it returns normally even
+        // though the owning task was cancelled before resuming on MainActor.
+        clock.sleepers.removeFirst().resume()
+        await original.value
+        #expect(delegate.pendingPermissionNotificationTask == replacement)
+        #expect(!replacement.isCancelled)
+    }
+
+    @MainActor
+    private final class PermissionDeadlineClock: Clock {
+        nonisolated var now: ContinuousClock.Instant { ContinuousClock.now }
+        nonisolated var minimumResolution: Duration { .nanoseconds(1) }
+        var sleepers: [CheckedContinuation<Void, Never>] = []
+        private var finished = false
+
+        nonisolated func sleep(until _: ContinuousClock.Instant, tolerance _: Duration?) async throws {
+            await wait()
+        }
+
+        private func wait() async {
+            guard !finished else { return }
+            await withCheckedContinuation { sleepers.append($0) }
+        }
+
+        func finishAll() {
+            finished = true
+            let pending = sleepers
+            sleepers.removeAll()
+            pending.forEach { $0.resume() }
+        }
+    }
+
     private static func event(title: String = "workspace") -> WorkspaceNotificationEvent {
         WorkspaceNotificationEvent(
             sessionID: UUID(),
