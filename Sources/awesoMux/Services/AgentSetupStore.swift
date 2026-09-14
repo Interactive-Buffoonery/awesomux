@@ -20,8 +20,8 @@ struct AgentSetup: Codable, Identifiable, Equatable, Sendable {
         foreground.map(supportsShell) == true && promptIsAway == false
     }
 
-    static func launchDirectory(session: TerminalSession?, groups: [SessionGroup], defaultGroup: String) throws -> String? {
-        guard session?.activePane?.executionPlan.remoteTarget == nil,
+    static func launchDirectory(session: TerminalSession?, groups: [SessionGroup], defaultGroup: String) throws -> String {
+        guard let session, session.activePane?.executionPlan.remoteTarget == nil,
             !groups.contains(where: {
                 SessionStore.groupLookupKey($0.name).caseInsensitiveCompare(SessionStore.groupLookupKey(defaultGroup)) == .orderedSame
                     && $0.remote != nil
@@ -31,7 +31,7 @@ struct AgentSetup: Codable, Identifiable, Equatable, Sendable {
                 message: String(
                     localized: "Agent setups launch local executables. Select a local pane and a local default workspace group."))
         }
-        guard let directory = session?.activePane?.workingDirectory ?? session?.workingDirectory else { return nil }
+        let directory = session.activePane?.workingDirectory ?? session.workingDirectory
         guard let validated = WorkingDirectoryValidator.validatedStartupDirectory(directory) else {
             throw LaunchError(
                 message: String(

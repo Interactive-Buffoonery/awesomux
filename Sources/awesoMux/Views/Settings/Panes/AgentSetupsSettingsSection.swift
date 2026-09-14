@@ -174,6 +174,7 @@ private struct AgentSetupEditor: View {
                 Button(String(localized: "Save")) { save(setup) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(setup.validationError != nil)
+                    .accessibilityHint(setup.validationError ?? "", isEnabled: setup.validationError != nil)
             }
         }
         .padding(20)

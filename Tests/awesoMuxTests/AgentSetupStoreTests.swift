@@ -17,6 +17,9 @@ struct AgentSetupStoreTests {
     }
 
     @Test func launchContextUsesActivePaneAndRejectsRemoteDestination() throws {
+        #expect(throws: (any Error).self) {
+            try AgentSetup.launchDirectory(session: nil, groups: [], defaultGroup: "local")
+        }
         let store = SessionStore()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-setup-cwd-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
