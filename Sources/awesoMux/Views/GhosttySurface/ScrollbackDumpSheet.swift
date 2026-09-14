@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ScrollbackDumpSheet: View {
     let presentation: ScrollbackDumpPresentation
+    let revision: UInt64
     let onDismiss: () -> Void
 
     var body: some View {
@@ -29,7 +30,7 @@ struct ScrollbackDumpSheet: View {
                 .frame(minWidth: 720, minHeight: 520)
         }
         .background(Color.aw.surface.window)
-        .task(id: presentation) {
+        .task(id: revision) {
             guard let announcement = presentation.accessibilityAnnouncement else {
                 return
             }
@@ -77,6 +78,7 @@ struct ScrollbackDumpSheet: View {
 
         case let .loaded(text):
             ScrollbackDumpTextView(text: text)
+                .id(revision)
 
         case let .blocked(reason):
             blockedContent(reason: reason)
@@ -254,11 +256,7 @@ private struct ScrollbackDumpTextView: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView,
-              textView.string != text else {
-            return
-        }
-        textView.string = text
-    }
+    // The source revision gives each immutable snapshot its own view identity.
+    // Unrelated SwiftUI updates must not read or compare the multi-MB text storage.
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {}
 }

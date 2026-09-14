@@ -10,18 +10,36 @@
 //   skip_body=<full comment body for post-skip-comment.mjs>
 //
 // Env vars:
-//   CHANGED_FILES   — newline-separated list of changed file paths
+//   BASE_RANGE      — exact base/head range captured by the trusted workflow
 //   BASE_REF        — base ref for diff computation (default: main)
 //   DIFF_THRESHOLD  — max diff lines before skip (default: 2000)
 
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { appendFileSync } from "node:fs";
 
-const files = (process.env.CHANGED_FILES || "").split("\n").filter(Boolean);
 const baseRef = process.env.BASE_REF || "main";
 const baseRange = process.env.BASE_RANGE || `origin/${baseRef}...HEAD`;
 const threshold = parseInt(process.env.DIFF_THRESHOLD || "2000", 10);
 const githubOutput = process.env.GITHUB_OUTPUT || "";
+const files = listChangedFiles(baseRange);
+
+export function listChangedFiles(range, runGit = execFileSync) {
+  const names = runGit(
+    "git",
+    [
+      "diff",
+      "--name-only",
+      "-z",
+      "--no-ext-diff",
+      "--no-textconv",
+      range,
+      "--",
+    ],
+    { encoding: "utf-8" },
+  );
+  return names.split("\0").filter(Boolean);
+}
 
 // --- Docs-only check ---
 
@@ -49,9 +67,11 @@ const allDocs = files.length > 0 && files.every(isDocsFile);
 
 export function countChangedLines(range, runGit = execFileSync) {
   let diffLines = 0;
-  const numstat = runGit("git", ["diff", "--numstat", range, "--"], {
-    encoding: "utf-8",
-  }).trim();
+  const numstat = runGit(
+    "git",
+    ["diff", "--numstat", "--no-ext-diff", "--no-textconv", range, "--"],
+    { encoding: "utf-8" },
+  ).trim();
   for (const line of numstat.split("\n")) {
     if (!line) continue;
     const [additions, deletions] = line.split("\t");
@@ -86,8 +106,15 @@ if (allDocs) {
 }
 
 if (githubOutput) {
-  const lines = [`skip=${skip}`, `skip_body<<BODY_EOF`, skipBody, `BODY_EOF`];
-  appendFileSync(githubOutput, lines.join("\n") + "\n");
+  const outputLines = new Set(skipBody.split("\n"));
+  let delimiter;
+  do {
+    delimiter = `ghadelimiter_${randomBytes(16).toString("hex")}`;
+  } while (outputLines.has(delimiter));
+  appendFileSync(
+    githubOutput,
+    `skip=${skip}\nskip_body<<${delimiter}\n${skipBody}\n${delimiter}\n`,
+  );
 }
 
 if (skip) {

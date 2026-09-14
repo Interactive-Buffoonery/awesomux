@@ -144,6 +144,19 @@ struct SidebarPresentationLayoutTests {
         #expect(hiddenGeometry.workgroupBoundary == 188)
     }
 
+    @Test("native clearance keeps hidden and revealed titlebars anchored together")
+    func nativeClearancePreservesHiddenReservation() {
+        let hidden = SidebarHostPresentationState(mode: .hidden)
+        let overlay = SidebarHostPresentationState(mode: .overlay(width: 300))
+        let leadingInset: CGFloat = 82
+        #expect(hidden.titlebarReservationWidth(leadingInset: leadingInset) == 176)
+        #expect(overlay.titlebarReservationWidth(leadingInset: leadingInset) == 176)
+        let geometry = SidebarPresentationLayoutPolicy(position: .left).titlebarGeometry(
+            titlebarWidth: 500, visibleSidebarWidth: 60, trafficLightClearance: leadingInset
+        )
+        #expect(geometry.workgroupBoundary >= leadingInset + 10)
+    }
+
     @Test("persistent reservation mirrors the live column across settles")
     func persistentReservationTracksDivider() {
         let state = SidebarHostPresentationState(mode: .persistent(width: 300))
@@ -201,7 +214,7 @@ struct SidebarPresentationLayoutTests {
         )
         let titlebarBody = try #require(
             content.split(separator: "GeometryReader { proxy in", maxSplits: 1).last?
-                .split(separator: "// Titlebar height stays fixed", maxSplits: 1).first
+                .split(separator: "// Keyed on the OPTIONAL id", maxSplits: 1).first
         )
 
         #expect(titlebarBody.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)"))

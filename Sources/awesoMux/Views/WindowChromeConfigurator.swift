@@ -202,7 +202,12 @@ private final class WindowChromeConfigView: NSView {
             corrected = true
         }
 
-        if window.toolbarStyle != .unifiedCompact {
+        if windowRole == .primaryContent {
+            if window.toolbar == nil || window.toolbarStyle != .unified {
+                NativeTitlebarChrome.apply(to: window)
+                corrected = true
+            }
+        } else if window.toolbarStyle != .unifiedCompact {
             window.toolbarStyle = .unifiedCompact
             corrected = true
         }

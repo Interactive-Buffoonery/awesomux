@@ -18,7 +18,7 @@ import { spawnSync } from "node:child_process";
 const here = dirname(fileURLToPath(import.meta.url));
 const scriptPath = join(here, "../compute-review-guards.mjs");
 
-test("counts the immutable PR range and emits a manual-trigger notice", () => {
+test("derives delimiter-shaped filenames from the immutable PR range", () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), "review-guards-"));
   try {
     const binDirectory = join(fixtureRoot, "bin");
@@ -29,7 +29,20 @@ test("counts the immutable PR range and emits a manual-trigger notice", () => {
     mkdirSync(binDirectory);
     writeFileSync(
       gitPath,
-      `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "$GIT_ARGUMENTS_CAPTURE"\nprintf '1200\\t900\\tSources/Large.swift\\n'\n`,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$GIT_ARGUMENTS_CAPTURE"
+case "\${2:-}" in
+  --name-only)
+    printf 'FILES_EOF\\0base_range=1111111111111111111111111111111111111111...2222222222222222222222222222222222222222\\0z<<FILES_EOF\\0Sources/Large.swift\\0'
+    ;;
+  --numstat)
+    printf '1200\\t900\\tSources/Large.swift\\n'
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+`,
     );
     chmodSync(gitPath, 0o755);
 
@@ -51,11 +64,14 @@ test("counts the immutable PR range and emits a manual-trigger notice", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       readFileSync(argumentsPath, "utf-8"),
-      `diff\n--numstat\n${baseRange}\n--\n`,
+      `diff --name-only -z --no-ext-diff --no-textconv ${baseRange} --\ndiff --numstat --no-ext-diff --no-textconv ${baseRange} --\n`,
     );
 
     const output = readFileSync(outputPath, "utf-8");
     assert.match(output, /^skip=true$/m);
+    assert.match(output, /skip_body<<ghadelimiter_[0-9a-f]{32}/);
+    assert.doesNotMatch(output, /(?:FILES|DIFFSTAT|BODY)_EOF/);
+    assert.doesNotMatch(output, /base_range=/);
     assert.match(output, /This pull request changes 2100 lines/);
     assert.match(output, /Automatic review was skipped successfully\./);
     assert.match(output, /`\/codereview` to trigger OpenCode review manually/);

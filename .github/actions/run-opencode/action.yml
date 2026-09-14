@@ -1,5 +1,5 @@
 name: Run opencode review
-description: Install OpenCode, run a read-only review, and publish validated output.
+description: Install OpenCode, review an immutable packet, and publish validated output.
 
 inputs:
   model:
@@ -12,9 +12,10 @@ inputs:
     description: Prompt body. Defaults to the shared code-review prompt.
     required: false
     default: |
-      Review this pull request. Fetch the full diff in ONE call using
-      the exact Base/head range shown in the prompt context below - do
-      not fetch it per-file or per-file-group across separate turns.
+      Review the immutable pull-request packet supplied by the trusted runner.
+      The packet is the complete review input. Do not call tools, inspect
+      the working directory, read other files, run commands, or access the
+      network.
 
       Review against the author's stated scope. Respect the Follow-ups
       section: do not request deferred work unless the current PR leaves
@@ -46,9 +47,9 @@ inputs:
   prompt_extra:
     description: Workflow-specific instructions appended after the prompt body.
     required: false
-  prompt_context:
-    description: Per-run PR context (title, body, files, diffstat) appended last.
-    required: false
+  prompt_context_path:
+    description: Trusted path to bounded per-run pull-request metadata.
+    required: true
   issue_number:
     description: Pull request number that receives the validated review comment.
     required: true
@@ -66,6 +67,10 @@ inputs:
     description: Maximum exact diff bytes available to this review invocation.
     required: false
     default: "262144"
+  max_context_bytes:
+    description: Maximum untrusted PR metadata bytes included in the review packet.
+    required: false
+    default: "65536"
   large_diff_mode:
     description: Use "skip" for automatic review; explicit review defaults to "fail".
     required: false
@@ -91,8 +96,8 @@ runs:
     - name: Validate opencode authentication
       shell: bash
       run: |
-        if [ -z "${OPENCODE_API_KEY:-}" ] && [ -z "${SYNTHETIC_API_KEY:-}" ]; then
-          echo "Missing model API key; add SYNTHETIC_API_KEY (or OPENCODE_API_KEY for OpenCode Go) to repository secrets." >&2
+        if [ -z "${SYNTHETIC_API_KEY:-}" ]; then
+          echo "Missing model API key; add SYNTHETIC_API_KEY to repository secrets." >&2
           exit 1
         fi
 
@@ -127,7 +132,12 @@ runs:
       env:
         OPENCODE_VERSION: "1.17.8"
       run: |
-        installed_version="$(opencode --version)"
+        opencode_bin="$(command -v opencode)"
+        installed_version="$(
+          env -i \
+            PATH="$(dirname "$opencode_bin"):/usr/bin:/bin" \
+            "$opencode_bin" --version
+        )"
         echo "opencode version: $installed_version"
         if ! printf '%s' "$installed_version" | grep -qF "$OPENCODE_VERSION"; then
           echo "Installed opencode version does not contain expected $OPENCODE_VERSION" >&2
@@ -140,11 +150,55 @@ runs:
         AGENT: ${{ inputs.agent }}
         EXPECTED_AGENT_STEPS: "40"
       run: |
+        set -euo pipefail
         agent_config="${RUNNER_TEMP}/opencode-agent-config.json"
-        opencode --pure debug agent "$AGENT" > "$agent_config"
+        agent_home="${RUNNER_TEMP}/opencode-agent-validation"
+        install -d \
+          "$agent_home/home" \
+          "$agent_home/data" \
+          "$agent_home/cache" \
+          "$agent_home/state"
+        opencode_bin="$(command -v opencode)"
+        env -i \
+          HOME="$agent_home/home" \
+          XDG_DATA_HOME="$agent_home/data" \
+          XDG_CACHE_HOME="$agent_home/cache" \
+          XDG_STATE_HOME="$agent_home/state" \
+          PATH="$(dirname "$opencode_bin"):/usr/bin:/bin" \
+          OPENCODE_DISABLE_PROJECT_CONFIG=1 \
+          OPENCODE_CONFIG_DIR="$OPENCODE_CONFIG_DIR" \
+          OPENCODE_CONFIG_CONTENT="${OPENCODE_CONFIG_CONTENT:-}" \
+          "$opencode_bin" --pure debug agent "$AGENT" > "$agent_config"
         resolved_steps="$(jq -r '.steps // empty' "$agent_config")"
         if [ "$resolved_steps" != "$EXPECTED_AGENT_STEPS" ]; then
           echo "OpenCode agent $AGENT resolved steps=$resolved_steps; expected $EXPECTED_AGENT_STEPS" >&2
+          exit 1
+        fi
+        if ! jq -e '
+          (.tools | type == "object") and
+          ([.tools | to_entries[] | select(.value != false)] | length == 0)
+        ' "$agent_config" >/dev/null; then
+          echo "OpenCode agent $AGENT resolved one or more enabled tools" >&2
+          exit 1
+        fi
+        if ! jq -e --arg output_root "$agent_home/data/opencode/tool-output/" '
+          .permission as $rules |
+          ([range(0; $rules | length) |
+            select(
+              $rules[.].permission == "*" and
+              $rules[.].pattern == "*" and
+              $rules[.].action == "deny"
+            )] | last) as $deny_index |
+          ($deny_index != null) and
+          ([range($deny_index + 1; $rules | length) |
+            $rules[.] |
+            select(.action != "deny") |
+            select(
+              .permission != "external_directory" or
+              (.pattern | startswith($output_root) | not)
+            )] | length == 0)
+        ' "$agent_config" >/dev/null; then
+          echo "OpenCode agent $AGENT resolved permissions outside the tool-free policy" >&2
           exit 1
         fi
 
@@ -155,14 +209,12 @@ runs:
       env:
         MODEL: ${{ inputs.model }}
         AGENT: ${{ inputs.agent }}
-        # Assembled prompt: shared body, then workflow-specific instructions,
-        # then per-run PR context. Empty parts collapse to blank lines.
-        PROMPT: |-
-          ${{ inputs.prompt }}
-          ${{ inputs.prompt_extra }}
-          ${{ inputs.prompt_context }}
+        PROMPT: ${{ inputs.prompt }}
+        PROMPT_EXTRA: ${{ inputs.prompt_extra }}
+        PROMPT_CONTEXT_PATH: ${{ inputs.prompt_context_path }}
         REVIEW_GUARD: ${{ inputs.review_guard }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
         MAX_DIFF_LINES: ${{ inputs.max_diff_lines }}
         MAX_DIFF_BYTES: ${{ inputs.max_diff_bytes }}
+        MAX_CONTEXT_BYTES: ${{ inputs.max_context_bytes }}
         LARGE_DIFF_MODE: ${{ inputs.large_diff_mode }}

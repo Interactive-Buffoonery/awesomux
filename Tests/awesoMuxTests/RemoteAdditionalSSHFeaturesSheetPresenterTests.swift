@@ -1,8 +1,40 @@
+import AwesoMuxTestSupport
+import Foundation
 import Testing
+@testable import AwesoMuxConfig
 @testable import awesoMux
 
 @Suite("Remote additional SSH features sheet presenter")
 struct RemoteAdditionalSSHFeaturesSheetPresenterTests {
+    @Test("remembered helper choices persist and failed writes are reported")
+    @MainActor
+    func rememberHelperChoice() throws {
+        let directory = try TemporaryDirectory()
+        let url = directory.url.appending(path: "config.toml")
+        let store = AppSettingsStore(fileStore: ConfigFileStore(configURL: url), legacySnapshotProvider: { nil })
+        for install in [true, false] {
+            #expect(RemoteAdditionalSSHFeaturesSheet.remember(install: install, store: store) == nil)
+            let expected: WorkspaceConfig.RemoteHelperInstallPolicy = install ? .alwaysInstall : .neverAsk
+            #expect(try TOMLConfigCodec().decode(Data(contentsOf: url)).workspaces.remoteHelperInstallPolicy == expected)
+        }
+        store.saveToDisk = { _ throws(ConfigFileStoreError) in throw .cannotWrite(url, message: "Test failure") }
+        #expect(RemoteAdditionalSSHFeaturesSheet.remember(install: true, store: store) != nil)
+        #expect(store.workspaces.value.remoteHelperInstallPolicy == .neverAsk)
+    }
+
+    @Test("invalid disk config cannot pretend a helper choice was remembered")
+    @MainActor
+    func invalidConfigBlocksRemembering() throws {
+        let directory = try TemporaryDirectory()
+        let url = directory.url.appending(path: "config.toml")
+        try Data("[workspaces\n".utf8).write(to: url)
+        let store = AppSettingsStore(fileStore: ConfigFileStore(configURL: url), legacySnapshotProvider: { nil })
+        store.bootstrap()
+        #expect(store.isDiskConfigInvalid)
+        #expect(RemoteAdditionalSSHFeaturesSheet.remember(install: true, store: store) != nil)
+        #expect(store.workspaces.value.remoteHelperInstallPolicy == .ask)
+    }
+
     @Test("explicit install resolves after the sheet dismisses")
     @MainActor
     func explicitInstallResolvesAfterDismissal() async throws {

@@ -20,6 +20,7 @@ node --test \
     .github/scripts/test/native-ci-workflow.test.mjs \
     .github/scripts/test/opencode-review-trust-boundary.test.mjs \
     .github/scripts/test/parse-review-findings.test.mjs \
+    .github/scripts/test/prepare-opencode-context.test.mjs \
     .github/scripts/test/post-inline-review-range.test.mjs \
     .github/scripts/test/public-pr-workflows.test.mjs \
     .github/scripts/test/release-workflow.test.mjs \

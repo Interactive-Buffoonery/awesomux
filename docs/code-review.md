@@ -38,9 +38,30 @@ pull request head as passive Git data. They do not check out or execute PR-head
 code, install its dependencies, or load its OpenCode project configuration.
 
 The local action, helper scripts, `.opencode` configuration, review agent, and
-review skill all come from the trusted default branch. The review receives an
-exact base/head range and is instructed to inspect that immutable range. The
-workflow reuses the same boundary for automatic and comment-triggered reviews.
+review skill all come from the trusted default branch. Trusted code validates
+the exact 40-character base and head SHAs. Each workflow passes those trusted
+event or API values directly to the review and publication steps instead of
+round-tripping the range through filename-bearing workflow outputs. Guard code
+derives changed paths as NUL-delimited data from the same range. Trusted code
+then produces one diff with external diff drivers and text conversion disabled
+and enforces the review's line and byte limits before starting OpenCode.
+Pull-request title and body metadata are encoded into a separate UTF-8-safe file
+capped at 64 KiB.
+
+The trusted runner combines its instructions, review policy, bounded metadata,
+and exact diff into one immutable packet. It pipes that packet to OpenCode over
+standard input so the 256 KiB automatic and 512 KiB requested-review byte limits
+do not depend on shell argument or environment limits. The review agent has no
+tools. CI resolves the effective pinned OpenCode agent configuration before each
+run and fails if any tool remains enabled or the effective permission policy is
+not deny-by-default.
+
+OpenCode runs from an empty working directory with isolated home and XDG data
+directories. Its child environment is cleared and rebuilt with only the model
+provider key and required runtime/configuration values. The GitHub publication
+token stays in the trusted parent process, which validates the final
+`## Code Review` response before updating the pull-request comment. The workflow
+reuses the same boundary for automatic and comment-triggered reviews.
 
 Automatic reviews are limited to same-repository maintainer PRs. Manual
 `/codereview` is limited to a login in `MAINTAINER_LOGINS_JSON`, but may inspect
@@ -56,16 +77,18 @@ synthetic/hf:moonshotai/Kimi-K3
 
 There is no model fallback. The Synthetic key is supplied only to the trusted
 review step. Automatic and requested review jobs have a 20-minute timeout so
-Kimi K3 can inspect the wider repository and complete bounded output recovery.
+Kimi K3 can inspect the bounded packet and complete output recovery.
 The review agent may take at most 40 steps within that window.
 CI asks the pinned OpenCode binary to resolve the trusted review-agent
 configuration and fails before review if that effective step limit is not 40.
 
 The review instructions require findings to be checked against the final code,
-including callers and other consumers when shared behavior changes. Generated,
-vendored, lock, snapshot, and mechanically produced files are excluded from
-direct review, and every blocker or should-fix item must name a concrete
-consequence.
+including callers and other consumers present in the packet when shared
+behavior changes. Generated, vendored, lock, snapshot, and mechanically
+produced files are excluded from direct review, and every blocker or should-fix
+item must name a concrete consequence. If the packet lacks evidence needed to
+substantiate a concern, the model omits the finding instead of reading beyond
+the bounded input.
 
 OpenCode is pinned to version `1.17.8`. CI downloads the versioned Linux x64
 release archive, verifies its checked-in SHA-256, and only then extracts the
@@ -95,9 +118,9 @@ that explains how to request the larger manual review.
 
 ## Required repository configuration
 
-| Name                     | Kind             | Purpose                                              |
-| ------------------------ | ---------------- | ---------------------------------------------------- |
-| `SYNTHETIC_API_KEY`      | Actions secret   | Calls Kimi K3 through Synthetic.                     |
+| Name                     | Kind             | Purpose                                                       |
+| ------------------------ | ---------------- | ------------------------------------------------------------- |
+| `SYNTHETIC_API_KEY`      | Actions secret   | Calls Kimi K3 through Synthetic.                              |
 | `MAINTAINER_LOGINS_JSON` | Actions variable | JSON array of logins allowed to trigger review and native CI. |
 
 ## Local verification
@@ -115,8 +138,12 @@ Before opening a non-documentation PR, run the full repository gate:
 ```
 
 The review test suite covers trusted-default-branch execution, passive PR data,
-maintainer authorization, exact command matching, model/config isolation,
-installer digest verification, output guards, and permission-actor forwarding.
+maintainer authorization, exact command matching, immutable stdin packets above
+the operating system's single-argument limit, Unicode-safe metadata bounds,
+tool/config isolation, model-child environment canaries, inert malicious
+Git-shaped input, delimiter-shaped filenames, direct trusted-SHA binding,
+trusted publication, installer digest verification, output guards, and
+permission-actor forwarding.
 
 ## Deterministic validation
 

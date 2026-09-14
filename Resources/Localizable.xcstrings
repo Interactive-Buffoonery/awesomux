@@ -605,9 +605,6 @@
     "Agent activity panel opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
     },
-    "Agent permission posture" : {
-
-    },
     "Agent transcripts are rendered from the session's log and cannot be edited." : {
       "comment" : "Alert body explaining why a generated agent transcript rejects an edit"
     },
@@ -655,6 +652,9 @@
     },
     "Always" : {
       "comment" : "Menu bar visibility choice"
+    },
+    "Always Install" : {
+      "comment" : "Remember approving remote helper installation"
     },
     "Always Manage Any Destination" : {
 
@@ -726,6 +726,9 @@
       "comment" : "Alert title for picking a layout preset to apply."
     },
     "Apply Layout Preset…" : {
+
+    },
+    "Ask Before Installing" : {
 
     },
     "Ask before every agent tool use" : {
@@ -1024,11 +1027,14 @@
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
     },
-    "Choose when awesoMux reconnects an SSH session as a managed workspace — by asking or without asking. This never changes existing connections." : {
-      "comment" : "Workspace settings subtitle."
+    "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections." : {
+      "comment" : "Managed SSH settings section description"
     },
     "Choose when the awesoMux smile appears in the macOS menu bar." : {
       "comment" : "General settings menu bar section description"
+    },
+    "Choose whether to install or update the helper on supported hosts. Never Ask keeps existing compatible helpers available." : {
+      "comment" : "Remote helper installation preference description"
     },
     "Choose whether to keep the protected saved file or replace it with current workspaces" : {
 
@@ -1298,12 +1304,6 @@
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
     },
-    "Controls when the awesoMux smile appears. The accent-colored badge marks workspaces that need acknowledgement or have an unanswered turn." : {
-      "comment" : "Accessibility hint for menu bar visibility choices"
-    },
-    "Controls whether terminal programs and escape sequences can replace the macOS clipboard." : {
-
-    },
     "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS)." : {
       "comment" : "Terminal settings hint."
     },
@@ -1463,6 +1463,9 @@
     },
     "Couldn’t save the managed SSH setting." : {
       "comment" : "Error shown when awesoMux cannot save a managed SSH offer preference"
+    },
+    "Couldn’t save the remote helper setting." : {
+      "comment" : "Remote helper preference save error"
     },
     "Couldn’t save this destination." : {
       "comment" : "Error shown when awesoMux cannot save a managed SSH destination"
@@ -2101,9 +2104,6 @@
     "Host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated host of a URL flagged for path-content issues."
     },
-    "How awesoMux handles tool-use permission prompts. Applies to new agent sessions." : {
-
-    },
     "How awesoMux handles tool-use prompts from coding agents." : {
       "comment" : "Agents settings subtitle."
     },
@@ -2394,9 +2394,6 @@
     "Menu bar" : {
       "comment" : "General settings section title"
     },
-    "Menu bar visibility" : {
-      "comment" : "Accessibility label for menu bar visibility choices"
-    },
     "Minimize Terminal Companion" : {
       "comment" : "Accessibility label for the Terminal Companion minimize button.\nTooltip on the Terminal Companion minimize button."
     },
@@ -2534,6 +2531,9 @@
     "Never" : {
       "comment" : "Menu bar visibility choice"
     },
+    "Never Ask" : {
+      "comment" : "Remember declining remote helper installation"
+    },
     "Never Ask for Any Destination" : {
 
     },
@@ -2556,7 +2556,7 @@
 
     },
     "New Workspace" : {
-      "comment" : "Dock right-click menu item that opens a new workspace.\nEmpty workspace primary action label.\nSidebar action to create a workspace.",
+      "comment" : "Dock right-click menu item that opens a new workspace.\nEmpty workspace primary action label.\nOpen worktree destination.\nSidebar action to create a workspace.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2801,6 +2801,9 @@
     },
     "Open folder %arg" : {
 
+    },
+    "Open in" : {
+      "comment" : "Worktree opening destination picker."
     },
     "Open in Browser" : {
 
@@ -3345,6 +3348,9 @@
     "Remember approvals per workspace" : {
 
     },
+    "Remember this choice for all hosts" : {
+
+    },
     "Remember…" : {
 
     },
@@ -3391,7 +3397,7 @@
       "comment" : "Remote handoff unsupported error title"
     },
     "Remote helper" : {
-      "comment" : "Bridge doctor check title"
+      "comment" : "Bridge doctor check title\nRemote helper installation preference label"
     },
     "Remote helper installation cancelled" : {
       "comment" : "Remote helper installation cancellation accessibility status"
@@ -3910,6 +3916,9 @@
     "Select Refresh all to begin; samples continue while this pane is visible." : {
 
     },
+    "Select a local terminal pane, then try again." : {
+      "comment" : "Worktree split destination unavailable or changed."
+    },
     "Select a workspace group, then try again." : {
       "comment" : "Worktree Manager open recovery when no workspace group is selected."
     },
@@ -4118,10 +4127,10 @@
       "comment" : "Source line in the OSC 52 clipboard write confirmation dialog. Argument is a sanitized workspace or pane description."
     },
     "Split Down" : {
-
+      "comment" : "Open worktree in a downward split."
     },
     "Split Right" : {
-
+      "comment" : "Open worktree in a right split."
     },
     "Split pane down" : {
       "comment" : "VoiceOver announcement after creating a horizontal split below the active pane."
@@ -4283,9 +4292,6 @@
           }
         }
       }
-    },
-    "Terminal program clipboard writes" : {
-
     },
     "Terminal runtime failed to initialize" : {
       "comment" : "Diagnostics event summary"
@@ -4951,9 +4957,6 @@
     },
     "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘." : {
       "comment" : "Settings field hint for the sidebar jump numbers toggle"
-    },
-    "Whether selecting terminal text automatically copies it to the macOS clipboard." : {
-
     },
     "Whitespace, control characters, and bidi overrides are normalized on commit." : {
       "comment" : "Workspace settings hint."
