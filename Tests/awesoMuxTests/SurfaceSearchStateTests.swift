@@ -5,6 +5,36 @@ import Testing
 @MainActor
 @Suite("Surface search state")
 struct SurfaceSearchStateTests {
+    @Test("scrollback revision tracks accepted transitions without search invalidation")
+    func scrollbackRevisionTracksAcceptedTransitions() throws {
+        let state = SurfaceSearchState()
+        let initial = state.scrollbackDumpRevision
+        let request = try #require(state.beginScrollbackDump())
+        let loading = state.scrollbackDumpRevision
+        #expect(loading != initial)
+        #expect(state.beginScrollbackDump() == nil)
+        #expect(state.scrollbackDumpRevision == loading)
+
+        state.finishScrollbackDump(.loaded(text: "first"), request: request)
+        let loaded = state.scrollbackDumpRevision
+        #expect(loaded != loading)
+        state.present(needle: "first")
+        state.updateTotal(1)
+        state.updateSelected(0)
+        #expect(state.scrollbackDumpRevision == loaded)
+
+        state.dismissScrollbackDump()
+        let dismissed = state.scrollbackDumpRevision
+        state.finishScrollbackDump(.loaded(text: "stale"), request: request)
+        #expect(state.scrollbackDumpRevision == dismissed)
+        #expect(state.scrollbackDump == nil)
+
+        let nextRequest = try #require(state.beginScrollbackDump())
+        state.finishScrollbackDump(.loaded(text: "next"), request: nextRequest)
+        #expect(state.scrollbackDumpRevision != dismissed)
+        #expect(state.scrollbackDump?.copyPayload == "next")
+    }
+
     @Test("scrollback dump moves from loading to loaded for the active request")
     func scrollbackDumpLoadsForActiveRequest() throws {
         let state = SurfaceSearchState()
