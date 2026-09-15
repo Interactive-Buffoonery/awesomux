@@ -13,6 +13,36 @@ struct RemoteSessionDetectorTests {
         RemoteSessionDetector.detect(title: title, localNames: Self.local)
     }
 
+    @Test("local hostname resolution includes full and short forms")
+    func localHostnameResolutionIncludesFullAndShortForms() throws {
+        var buffer = [CChar](repeating: 0, count: 256)
+        try #require(gethostname(&buffer, buffer.count) == 0)
+        buffer[buffer.count - 1] = 0
+        let hostname = String(
+            decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        ).lowercased()
+        let names = LocalHostnames.resolve()
+
+        #expect(names.contains(hostname))
+        if let dot = hostname.firstIndex(of: ".") {
+            #expect(names.contains(String(hostname[..<dot])))
+        }
+    }
+
+    @Test("local hostname resolution avoids network alias lookup")
+    func localHostnameResolutionAvoidsNetworkAliasLookup() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Sources/AwesoMuxCore/Models/RemoteSessionDetector.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let compactSource = source.filter { !$0.isWhitespace }
+
+        #expect(!compactSource.contains("Host.current()." + "names"))
+    }
+
     @Test("a foreign user@host prompt with a path is remote")
     func remoteWithPath() {
         #expect(detect("ed@webserver: ~/app") == .remote(host: "webserver"))

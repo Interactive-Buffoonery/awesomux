@@ -213,7 +213,8 @@ public enum RemoteSessionDetector {
 /// Resolves the set of names that identify *this* machine, normalized for the
 /// detector's comparison (lowercased; both full and short pre-first-dot forms).
 ///
-/// Hostname-based only: a pane whose title shows this machine's own LAN interface
+/// Uses the kernel hostname only; Foundation's alias lookup may block on DNS.
+/// A pane whose title shows this machine's own LAN interface
 /// IP (e.g. `user@192.168.1.50`) is not in this set and would read as remote. That's
 /// the fail-safe direction (it only hides local affordances, never acts on the
 /// wrong machine), so the interface-IP set (getifaddrs) is intentionally omitted
@@ -221,9 +222,6 @@ public enum RemoteSessionDetector {
 public enum LocalHostnames {
     public static func resolve() -> Set<String> {
         var names: Set<String> = []
-        for name in Host.current().names {
-            insert(name, into: &names)
-        }
         var buffer = [CChar](repeating: 0, count: 256)
         if gethostname(&buffer, buffer.count) == 0 {
             buffer[buffer.count - 1] = 0 // guarantee NUL termination on a 256-byte name
