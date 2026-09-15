@@ -1,18 +1,59 @@
 # Swift toolchain
 
-awesoMux uses one pinned Swift toolchain for package manifests, local formatting,
-and formatting CI:
+awesoMux pins its native Apple toolchain separately from the released Linux
+toolchain:
 
-- `.swift-version` pins the Swift release.
+- `.swift-version-macos` pins Apple Swift 6.4 for native builds.
+- `.xcode-version` pins Xcode 27.0, with the macOS 27 SDK.
+- `.swift-version` retains Swift 6.3.3 for Linux helpers and Linux formatting CI.
+  Version managers that read this conventional file on macOS still select the
+  OSS baseline; native work uses the selected Xcode toolchain instead.
 - `.swift-format-version` records the toolchain-integrated `swift format`
-  version for each supported host platform. Swift 6.3.3 reports different
-  formatter version strings in Xcode and the Linux toolchain.
+  version for each supported host platform. Xcode 27 reports `main`; Linux
+  Swift 6.3.3 reports `6.3.3`. The macOS formatter guard also checks the Xcode,
+  SDK, and compiler pins, so `main` alone is never accepted as an identity.
 - `.swift-format` owns formatting behavior.
-- `Package.swift` declares the matching Swift tools version.
+- `Package.swift` retains tools version 6.3 so the released Linux compiler can
+  build the helper targets. A compiler upgrade does not require new manifest APIs.
 
 `script/check-toolchain.sh` verifies the installed versions. CI runs that check
 on `ubuntu-24.04` before any formatter checks, so a hosted-runner image update
 fails clearly instead of silently producing a different format.
+
+Local commands validate the selected toolchain and reject mismatches; they do
+not change the system selection. For Xcode 27 installed as `Xcode.app`, use:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+unset TOOLCHAINS
+./script/check-toolchain.sh
+```
+
+`TOOLCHAINS` may also explicitly name `com.apple.dt.toolchain.XcodeDefault`.
+Other overrides are rejected even when their Swift version matches; native
+builds require the compiler and formatter bundled with the selected Xcode.
+
+As of September 14, 2026, [Swift.org](https://www.swift.org/install/linux/)
+publishes Swift 6.4 Linux SDKs only as development snapshots, and the
+[official Docker image manifest](https://github.com/docker-library/official-images/blob/master/library/swift)
+still publishes `swift:6.3.3-noble`. Keep that compiler, Static Linux SDK URL,
+and checksum together rather than inventing a 6.4 release tag.
+
+Native workflows select the `.xcode-version` app alias and verify the toolchain
+before building. The GitHub `xcode-27` arm64 image runs macOS 27 but remains a
+[public preview](https://github.blog/changelog/2026-09-10-xcode-27-runner-image-now-runs-on-macos-27/).
+Its published image manifest can lag the local Xcode release; a compiler or
+SDK mismatch fails explicitly. Updating these workflows does not establish a
+hosted validation result. `NATIVE_CI_RUNNER` overrides remain available.
+
+## Zig with SDK 27
+
+Zig 0.16 needs the SDK 27 compatibility header already used by its Ghostty
+dependency. `script/build_amx.sh` applies the same MIT-licensed header to the
+top-level zmx build and tests through the supported `ZIG_LIBC` configuration.
+It generates that configuration under `.build/amx` for the selected SDK,
+without changing vendor sources or the SDK. An explicit `ZIG_LIBC` override
+remains the responsibility of the caller.
 
 ## Everyday formatting
 
@@ -53,22 +94,23 @@ from both modes. Set `FORMAT_LINT_BASE` to widen the range.
 
 Treat a toolchain update as a deliberate maintenance change:
 
-1. Choose the newest stable Swift patch release available in Xcode and on the
-   GitHub Actions Ubuntu image.
-2. Update `.swift-version` to the full Swift patch release, such as `6.3.3`.
-3. Update the first-line `swift-tools-version` declaration in `Package.swift`
-   to the matching minor release, such as `6.3`.
+1. Verify the actual compiler, formatter, Xcode, and SDK versions on the native
+   host. Update `.swift-version-macos` and `.xcode-version` together.
+2. Update `.swift-version` only when the corresponding stable Linux toolchain,
+   Static Linux SDK, and Docker images are all published.
+3. Keep `Package.swift`'s tools version compatible with every supported compiler;
+   raise it only when new manifest APIs require it.
 4. Update each platform entry in `.swift-format-version` to the
    `swift format --version` shipped with that platform's toolchain.
-5. Run `./script/check-toolchain.sh` locally.
+5. Run `./script/check-toolchain.sh` and `./script/test-toolchain.sh` locally.
 6. Run `./script/test-format.sh` and `./script/format.sh --lint` without applying
    a repository-wide reformat.
-7. Update the Static Linux SDK pin (URL + checksum) in
+7. When changing the Linux pin, update the Static Linux SDK (URL + checksum) in
    `script/build_linux_helper.sh` to the matching release, and the
    `swift:X.Y.Z-*` container tags in `.github/workflows/linux-helper.yml` and
    `.github/workflows/release.yml`.
 8. Run `./script/preflight.sh` before opening the pull request.
-9. Confirm the Cheap guards workflow passes with the same pinned versions.
+9. Read existing hosted results; a human launches any requested native CI.
 
 If the new formatter reports existing debt, keep CI scoped to changed lines.
 Do not combine a toolchain bump with whole-codebase formatting unless that

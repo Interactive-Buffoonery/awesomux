@@ -15,7 +15,7 @@ concurrency:
 jobs:
   swift:
     name: Analyze (swift)
-    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.NATIVE_CI_RUNNER || 'xcode-27' }}
     timeout-minutes: 120
     permissions:
       contents: read

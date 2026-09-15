@@ -243,7 +243,7 @@ test("native CI executes captured PR code with read-only permissions and restore
   const nativeJob = workflow.match(/\n  native:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n|$)/)?.[1];
   assert.ok(nativeJob, "native execution job must exist");
 
-  assert.match(nativeJob, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'macos-26' \}\}/);
+  assert.match(nativeJob, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'xcode-27' \}\}/);
   assert.match(
     nativeJob,
     /group: native-pr-\$\{\{ needs\.resolve\.outputs\.pr-number \|\| github\.run_id \}\}/,
@@ -315,7 +315,7 @@ test("native release build runs once for scope=all after all test legs succeed",
 
   assert.match(releaseJob, /needs: \[resolve, native\]/);
   assert.match(releaseJob, /if: needs\.resolve\.outputs\.scope == 'all' && needs\.native\.result == 'success'/);
-  assert.match(releaseJob, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'macos-26' \}\}/);
+  assert.match(releaseJob, /runs-on: \$\{\{ vars\.NATIVE_CI_RUNNER \|\| 'xcode-27' \}\}/);
   assert.match(releaseJob, /permissions:\n\s+contents: read/);
   assert.doesNotMatch(releaseJob, /checks: write|issues: write|secrets\./);
   assert.match(releaseJob, /uses: \.\/_trusted\/\.github\/actions\/prepare-native/);

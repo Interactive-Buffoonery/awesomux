@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/script/check-toolchain.sh"
+"$ROOT_DIR/script/test-toolchain.sh"
+"$ROOT_DIR/script/test-amx-sdk.sh"
 "$ROOT_DIR/script/check_public_wording.sh"
 "$ROOT_DIR/script/check_public_seed_source.sh"
 "$ROOT_DIR/script/check_plural_guards.sh"

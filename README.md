@@ -239,9 +239,9 @@ tokens or sidebar chrome:
 ./script/swift-test.sh --filter SidebarTintContrastTests
 ```
 
-PRs that touch design-system color tokens, the audited sidebar views, or the
-contrast tests also run this focused test automatically on macOS via
+Maintainers can manually run this focused test on macOS via
 [`.github/workflows/tint-contrast.yml`](.github/workflows/tint-contrast.yml).
+Pull requests do not allocate a native runner for this workflow.
 
 ## Contributing
 
