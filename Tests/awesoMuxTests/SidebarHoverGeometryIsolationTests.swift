@@ -176,6 +176,13 @@ struct SidebarHoverGeometryIsolationTests {
             #expect(
                 detail.changedSubmittedBackingSizes.last
                     == detail.convertToBacking(NSRect(origin: .zero, size: detail.frame.size)).size)
+
+            detail.changedSubmittedBackingSizes.removeAll()
+            controller.resetGeometryInstrumentationForTesting()
+            controller.setPersistentSidebarVisible(false)
+            #expect(controller.splitPositionMutationIntentCountForTesting == 1)
+            #expect(detail.changedSubmittedBackingSizes.count == 1)
+            #expect(detail.frame.width == controller.view.bounds.width)
         }
     }
 }
