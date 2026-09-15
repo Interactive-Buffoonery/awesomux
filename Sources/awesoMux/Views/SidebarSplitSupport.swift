@@ -143,7 +143,7 @@ struct SidebarPresentationLayoutPolicy {
             visibleSidebarWidth.isFinite
             ? min(max(0, visibleSidebarWidth), width)
             : 0
-        let gutter = min(AppTitlebarMetrics.contentColumnGutter, width - visibleWidth)
+        let gutter = min(AppTitlebarMetrics.lockupPadding, width - visibleWidth)
         let boundary: CGFloat
         if position == .left {
             boundary = min(

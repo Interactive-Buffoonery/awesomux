@@ -74,36 +74,36 @@ struct SidebarPresentationLayoutTests {
         "titlebar geometry is a pure function of width and reservation",
         arguments: [
             // Left, lockup reservation (hidden/overlay): boundary is the static
-            // 188pt workspace-title anchor.
+            // 182pt workspace-title anchor.
             TitlebarCase(
                 position: .left, titlebarWidth: 500,
                 reservationWidth: AppTitlebarMetrics.brandWithTextMinimumWidth,
-                expectedReservation: 172, expectedWorkgroupBoundary: 188),
+                expectedReservation: 172, expectedWorkgroupBoundary: 182),
             TitlebarCase(
                 position: .left, titlebarWidth: 1_200,
                 reservationWidth: AppTitlebarMetrics.brandWithTextMinimumWidth,
-                expectedReservation: 172, expectedWorkgroupBoundary: 188),
+                expectedReservation: 172, expectedWorkgroupBoundary: 182),
             // Left, persistent widths: boundary tracks the divider.
             TitlebarCase(
                 position: .left, titlebarWidth: 1_200, reservationWidth: 300,
-                expectedReservation: 300, expectedWorkgroupBoundary: 316),
+                expectedReservation: 300, expectedWorkgroupBoundary: 310),
             TitlebarCase(
                 position: .left, titlebarWidth: 500, reservationWidth: 60,
-                expectedReservation: 60, expectedWorkgroupBoundary: 104),
+                expectedReservation: 60, expectedWorkgroupBoundary: 98),
             TitlebarCase(
                 position: .left, titlebarWidth: 500, reservationWidth: 0,
-                expectedReservation: 0, expectedWorkgroupBoundary: 104),
+                expectedReservation: 0, expectedWorkgroupBoundary: 98),
             // Right: boundary is the trailing reservation edge.
             TitlebarCase(
                 position: .right, titlebarWidth: 500,
                 reservationWidth: AppTitlebarMetrics.brandWithTextMinimumWidth,
-                expectedReservation: 172, expectedWorkgroupBoundary: 312),
+                expectedReservation: 172, expectedWorkgroupBoundary: 318),
             TitlebarCase(
                 position: .right, titlebarWidth: 1_200, reservationWidth: 300,
-                expectedReservation: 300, expectedWorkgroupBoundary: 884),
+                expectedReservation: 300, expectedWorkgroupBoundary: 890),
             TitlebarCase(
                 position: .right, titlebarWidth: 500, reservationWidth: 0,
-                expectedReservation: 0, expectedWorkgroupBoundary: 484),
+                expectedReservation: 0, expectedWorkgroupBoundary: 490),
         ])
     func titlebarGeometryIsPure(testCase: TitlebarCase) {
         let geometry = SidebarPresentationLayoutPolicy(position: testCase.position)
@@ -141,7 +141,7 @@ struct SidebarPresentationLayoutTests {
             visibleSidebarWidth: overlay.titlebarReservationWidth
         )
         #expect(hiddenGeometry == overlayGeometry)
-        #expect(hiddenGeometry.workgroupBoundary == 188)
+        #expect(hiddenGeometry.workgroupBoundary == 182)
     }
 
     @Test("native clearance keeps hidden and revealed titlebars anchored together")
@@ -201,7 +201,7 @@ struct SidebarPresentationLayoutTests {
         #expect(nanWidth.titlebarWidth == 0)
         #expect(nanWidth.sidebarReservationWidth == 0)
         #expect(nanReservation.sidebarReservationWidth == 0)
-        #expect(nanReservation.workgroupBoundary == 104)
+        #expect(nanReservation.workgroupBoundary == 98)
     }
 
     @Test("titlebar content fills its reader and stays vertically centered")
