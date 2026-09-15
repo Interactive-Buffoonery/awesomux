@@ -110,6 +110,16 @@ final class SidebarNewWorkspaceFocusButton: NSButton {
         accessibilityFocused
     }
 
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49,
+            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+        {
+            if !event.isARepeat { _ = performActivation() }
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     override func accessibilityPerformPress() -> Bool {
         performActivation()
     }

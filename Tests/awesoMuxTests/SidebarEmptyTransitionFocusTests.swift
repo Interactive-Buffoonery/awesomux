@@ -18,6 +18,36 @@ struct SidebarEmptyTransitionFocusTests {
         try await assertLastGroupRemovalFocus(width: SidebarWidthPolicy.collapsedWidth)
     }
 
+    @Test("Space activates once and ignores repeats, modifiers, and retired targets")
+    func spaceActivationGuards() {
+        let frame = NSRect(x: 0, y: 0, width: 40, height: 40)
+        let (window, _) = SidebarHostedTestHarness.makeWindow(rootView: EmptyView(), frame: frame)
+        defer { window.close() }
+        let target = SidebarNewWorkspaceFocusButton()
+        target.frame = frame
+        window.contentView?.addSubview(target)
+        var activations = 0
+        target.update(focusRequestID: 0, focusIsActive: true, onActivate: { activations += 1 })
+        #expect(window.makeFirstResponder(target))
+
+        SidebarHostedTestHarness.sendKey(to: window, keyCode: 49, characters: " ", isRepeat: true)
+        #expect(activations == 0)
+        for modifier in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
+            SidebarHostedTestHarness.sendKey(to: window, keyCode: 49, characters: " ", modifiers: modifier)
+            #expect(activations == 0)
+        }
+
+        SidebarHostedTestHarness.sendKey(to: window, keyCode: 49, characters: " ")
+        #expect(activations == 1)
+        #expect(window.firstResponder !== target)
+
+        target.dismantle()
+        target.onActivate = { activations += 1 }
+        #expect(window.makeFirstResponder(target))
+        SidebarHostedTestHarness.sendKey(to: window, keyCode: 49, characters: " ")
+        #expect(activations == 1)
+    }
+
     @Test("a cancelled request cannot focus a retiring target")
     func cancelledRequestDoesNotFocusTarget() async {
         let frame = NSRect(x: 0, y: 0, width: 40, height: 40)

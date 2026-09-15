@@ -1721,7 +1721,8 @@ final class DividerTrackingSplitView: NSSplitView {
     var isPersistentSidebarHidden = false {
         didSet {
             guard isPersistentSidebarHidden != oldValue else { return }
-            needsLayout = true
+            // Visibility transitions settle the divider explicitly; invalidating layout here
+            // first resizes the detail for the thickness change alone.
             window?.invalidateCursorRects(for: self)
         }
     }
