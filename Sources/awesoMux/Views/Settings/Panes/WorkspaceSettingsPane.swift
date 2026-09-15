@@ -33,12 +33,16 @@ struct WorkspaceSettingsPane: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(
                 index: 1,
-                title: "Defaults",
-                subtitle: "What awesoMux uses when you create a workspace without picking a group."
+                title: String(localized: "Defaults", comment: "Workspace settings title."),
+                subtitle: String(
+                    localized: "What awesoMux uses when you create a workspace without picking a group.",
+                    comment: "Workspace settings subtitle.")
             ) {
                 SettingsField(
-                    label: "Default group",
-                    hint: "Whitespace, control characters, and bidi overrides are normalized on commit.",
+                    label: String(localized: "Default group", comment: "Workspace settings label."),
+                    hint: String(
+                        localized: "Whitespace, control characters, and bidi overrides are normalized on commit.",
+                        comment: "Workspace settings hint."),
                     isFirst: true,
                     // Without forwarding, VoiceOver names this field by its
                     // placeholder ("awesoMux"), not "Default group".
@@ -55,8 +59,10 @@ struct WorkspaceSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Output marks needs attention",
-                    hint: "Inactive sessions that emit output get a needs-attention indicator in the sidebar.",
+                    label: String(localized: "Output marks needs attention", comment: "Workspace settings label."),
+                    hint: String(
+                        localized: "Inactive sessions that emit output get a needs-attention indicator in the sidebar.",
+                        comment: "Workspace settings hint."),
                     forwardsAccessibilityToControl: true
                 ) {
                     Toggle("Output marks needs attention", isOn: appSettingsStore.workspaces.binding(\.outputMarksNeedsAttention))
@@ -65,9 +71,11 @@ struct WorkspaceSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Confirm before closing workspaces with activity",
-                    hint:
-                        "Ask before ⌘⇧W, the sidebar close button, or ⌘W on a workspace's last pane closes a workspace with active agent or terminal activity. Skipped when nothing's at risk. App quit (⌘Q) has its own prompt; ⌘W on any other pane uses the toggle below.",
+                    label: String(localized: "Confirm before closing workspaces with activity", comment: "Workspace settings label."),
+                    hint: String(
+                        localized:
+                            "Ask before ⌘⇧W, the sidebar close button, or ⌘W on a workspace's last pane closes a workspace with active agent or terminal activity. Skipped when nothing's at risk. App quit (⌘Q) has its own prompt; ⌘W on any other pane uses the toggle below.",
+                        comment: "Workspace settings hint."),
                     forwardsAccessibilityToControl: true,
                     // Deliberate: the toggle's own hint below spells the
                     // shortcuts out for speech ("Command-Shift-W", not "⌘⇧W").
@@ -86,9 +94,11 @@ struct WorkspaceSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Confirm before closing panes with activity",
-                    hint:
-                        "Ask before ⌘W closes a pane with running activity. On a workspace's last pane, this also gates the workspace-close prompt above.",
+                    label: String(localized: "Confirm before closing panes with activity", comment: "Workspace settings label."),
+                    hint: String(
+                        localized:
+                            "Ask before ⌘W closes a pane with running activity. On a workspace's last pane, this also gates the workspace-close prompt above.",
+                        comment: "Workspace settings hint."),
                     forwardsAccessibilityToControl: true,
                     forwardsHintToControl: false
                 ) {
@@ -146,12 +156,16 @@ struct WorkspaceSettingsPane: View {
     private var openInIDESection: some View {
         SettingsSection(
             index: 2,
-            title: "Open in IDE",
-            subtitle: "Show editor choices in the path bar and set which editor opens by default. The top installed editor is used automatically."
+            title: String(localized: "Open in IDE", comment: "Workspace settings title."),
+            subtitle: String(
+                localized:
+                    "Show editor choices in the path bar and set which editor opens by default. The top installed editor is used automatically.",
+                comment: "Workspace settings subtitle.")
         ) {
             SettingsField(
-                label: "Show Open in IDE",
-                hint: "Adds editor choices in the path bar and the Open in IDE command.",
+                label: String(localized: "Show Open in IDE", comment: "Workspace settings label."),
+                hint: String(
+                    localized: "Adds editor choices in the path bar and the Open in IDE command.", comment: "Workspace settings hint."),
                 isFirst: true,
                 forwardsAccessibilityToControl: true
             ) {
@@ -169,8 +183,9 @@ struct WorkspaceSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Editor priority",
-                    hint: "Drag to reorder. The top installed editor opens by default."
+                    label: String(localized: "Editor priority", comment: "Workspace settings label."),
+                    hint: String(
+                        localized: "Drag to reorder. The top installed editor opens by default.", comment: "Workspace settings hint.")
                 ) {
                     idePriorityControl
                 }
@@ -182,7 +197,7 @@ struct WorkspaceSettingsPane: View {
     private var managedSSHSection: some View {
         SettingsSection(
             index: 3,
-            title: "Managed SSH",
+            title: String(localized: "Managed SSH", comment: "Workspace settings title."),
             subtitle: String(
                 localized:
                     "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections.",
@@ -190,9 +205,11 @@ struct WorkspaceSettingsPane: View {
             )
         ) {
             SettingsField(
-                label: "Always make SSH managed without asking",
-                hint:
-                    "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt, except destinations on the don’t-ask list below. Turning this on needs background terminal sessions; awesoMux asks before switching them on.",
+                label: String(localized: "Always make SSH managed without asking", comment: "Workspace settings label."),
+                hint: String(
+                    localized:
+                        "Every SSH connection you start reconnects through awesoMux as a managed workspace instead of showing a prompt, except destinations on the don’t-ask list below. Turning this on needs background terminal sessions; awesoMux asks before switching them on.",
+                    comment: "Workspace settings hint."),
                 isFirst: true,
                 forwardsAccessibilityToControl: true
             ) {
@@ -202,17 +219,21 @@ struct WorkspaceSettingsPane: View {
             }
 
             SettingsField(
-                label: "Always manage these destinations",
-                hint:
-                    "SSH to a destination below reconnects as managed without asking. Destinations added here persist locally; to have the remote host own the session, answer the prompt on a live connection instead. Removing one restores the usual prompt for it."
+                label: String(localized: "Always manage these destinations", comment: "Workspace settings label."),
+                hint: String(
+                    localized:
+                        "SSH to a destination below reconnects as managed without asking. Destinations added here persist locally; to have the remote host own the session, answer the prompt on a live connection instead. Removing one restores the usual prompt for it.",
+                    comment: "Workspace settings hint.")
             ) {
                 alwaysManagedDestinationsControl
             }
 
             SettingsField(
-                label: "Never ask to make SSH managed",
-                hint:
-                    "Stops awesoMux offering to convert SSH connections. Destinations on the always-manage list above keep converting — remove them there to stop that too.",
+                label: String(localized: "Never ask to make SSH managed", comment: "Workspace settings label."),
+                hint: String(
+                    localized:
+                        "Stops awesoMux offering to convert SSH connections. Destinations on the always-manage list above keep converting — remove them there to stop that too.",
+                    comment: "Workspace settings hint."),
                 forwardsAccessibilityToControl: true
             ) {
                 Toggle("Never ask to make SSH managed", isOn: neverAskForManagedSSH)
@@ -230,8 +251,9 @@ struct WorkspaceSettingsPane: View {
             }
 
             SettingsField(
-                label: "Don’t ask for these destinations",
-                hint: "Removing an alias from below restores automatic offers for it."
+                label: String(localized: "Don’t ask for these destinations", comment: "Workspace settings label."),
+                hint: String(
+                    localized: "Removing an alias from below restores automatic offers for it.", comment: "Workspace settings hint.")
             ) {
                 managedSSHIgnoredDestinationsControl
             }

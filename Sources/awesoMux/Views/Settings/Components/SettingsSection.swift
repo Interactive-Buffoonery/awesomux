@@ -3,6 +3,8 @@ import SwiftUI
 
 /// Section block in a Settings pane. Numbered kicker (`01`), large title,
 /// optional subtitle, then a content slot for `SettingsField` rows.
+/// Pass app copy as `String(localized:comment:)` at its definition so the
+/// catalog extractor sees it. Keep user-authored names and commands verbatim.
 struct SettingsSection<Content: View>: View {
     let index: Int
     let title: String

@@ -31,12 +31,13 @@ struct AgentsSettingsPane: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(
                 index: 1,
-                title: "Permissions",
-                subtitle: "How awesoMux handles tool-use prompts from coding agents."
+                title: String(localized: "Permissions", comment: "Agents settings title."),
+                subtitle: String(
+                    localized: "How awesoMux handles tool-use prompts from coding agents.", comment: "Agents settings subtitle.")
             ) {
                 SettingsField(
-                    label: "Permission posture",
-                    hint: "Applies to new agent sessions.",
+                    label: String(localized: "Permission posture", comment: "Agents settings label."),
+                    hint: String(localized: "Applies to new agent sessions.", comment: "Agents settings hint."),
                     isFirst: true
                 ) {
                     SettingsSegmented(
@@ -46,8 +47,9 @@ struct AgentsSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Remember allowed tools",
-                    hint: "Cache trust decisions per workspace once you have approved them.",
+                    label: String(localized: "Remember allowed tools", comment: "Agents settings label."),
+                    hint: String(
+                        localized: "Cache trust decisions per workspace once you have approved them.", comment: "Agents settings hint."),
                     forwardsAccessibilityToControl: true
                 ) {
                     Toggle("Remember allowed tools", isOn: appSettingsStore.agents.binding(\.rememberToolTrust))
@@ -58,8 +60,9 @@ struct AgentsSettingsPane: View {
 
             SettingsSection(
                 index: 2,
-                title: "Local status hooks",
-                subtitle: "Provider-owned files that report identity and coarse runtime state."
+                title: String(localized: "Local status hooks", comment: "Agents settings title."),
+                subtitle: String(
+                    localized: "Provider-owned files that report identity and coarse runtime state.", comment: "Agents settings subtitle.")
             ) {
                 // Card states come from the cached model; body evaluation never
                 // reads the manifest or byte-compares templates. Before the
@@ -114,8 +117,10 @@ struct AgentsSettingsPane: View {
             #if DEBUG
                 SettingsSection(
                     index: 99,
-                    title: "Debug",
-                    subtitle: "Debug builds only. Forces the diagnostics disclosure with a sample payload."
+                    title: String(localized: "Debug", comment: "Agents settings title."),
+                    subtitle: String(
+                        localized: "Debug builds only. Forces the diagnostics disclosure with a sample payload.",
+                        comment: "Agents settings subtitle.")
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(AgentPluginProvider.allCases, id: \.self) { provider in

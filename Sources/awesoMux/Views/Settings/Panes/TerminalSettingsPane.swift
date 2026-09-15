@@ -7,10 +7,10 @@ struct TerminalSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSection(index: 1, title: "Cursor") {
+            SettingsSection(index: 1, title: String(localized: "Cursor", comment: "Terminal settings title.")) {
                 SettingsField(
-                    label: "Cursor style",
-                    hint: "Style picker lands once the runtime exposes a setter.",
+                    label: String(localized: "Cursor style", comment: "Terminal settings label."),
+                    hint: String(localized: "Style picker lands once the runtime exposes a setter.", comment: "Terminal settings hint."),
                     isFirst: true
                 ) {
                     Text("Block (libghostty default)")
@@ -19,8 +19,10 @@ struct TerminalSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Cursor glow",
-                    hint: "Adds an accent halo to the chrome cursor indicator. Does not affect the libghostty surface cursor.",
+                    label: String(localized: "Cursor glow", comment: "Terminal settings label."),
+                    hint: String(
+                        localized: "Adds an accent halo to the chrome cursor indicator. Does not affect the libghostty surface cursor.",
+                        comment: "Terminal settings hint."),
                     // Bare .labelsHidden() Toggle — let the field supply its name.
                     forwardsAccessibilityToControl: true
                 ) {
@@ -32,13 +34,18 @@ struct TerminalSettingsPane: View {
 
             SettingsSection(
                 index: 2,
-                title: "Clipboard",
-                subtitle: "What terminal programs may read or write, and whether selecting text copies it. These controls are independent."
+                title: String(localized: "Clipboard", comment: "Terminal settings title."),
+                subtitle: String(
+                    localized:
+                        "What terminal programs may read or write, and whether selecting text copies it. These controls are independent.",
+                    comment: "Terminal settings subtitle.")
             ) {
                 SettingsField(
-                    label: "Program writes (OSC 52)",
-                    hint:
-                        "Applies when terminal output asks awesoMux to replace the clipboard, including SSH and agent sessions. Commands like pbcopy write to macOS directly.",
+                    label: String(localized: "Program writes (OSC 52)", comment: "Terminal settings label."),
+                    hint: String(
+                        localized:
+                            "Applies when terminal output asks awesoMux to replace the clipboard, including SSH and agent sessions. Commands like pbcopy write to macOS directly.",
+                        comment: "Terminal settings hint."),
                     isFirst: true
                 ) {
                     SettingsSegmented(
@@ -48,9 +55,11 @@ struct TerminalSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Program reads (OSC 52)",
-                    hint:
-                        "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting.",
+                    label: String(localized: "Program reads (OSC 52)", comment: "Terminal settings label."),
+                    hint: String(
+                        localized:
+                            "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting.",
+                        comment: "Terminal settings hint."),
                     forwardsAccessibilityToControl: true
                 ) {
                     Toggle(
@@ -62,13 +71,15 @@ struct TerminalSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Highlight to copy",
+                    label: String(localized: "Highlight to copy", comment: "Terminal settings label."),
                     // Independent of the policy above on purpose: this is your own
                     // selection, not a program write, so it copies even when
                     // program writes are denied. Name the privacy blast radius —
                     // the people most likely to enable it have secrets on screen.
-                    hint:
-                        "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS)."
+                    hint: String(
+                        localized:
+                            "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS).",
+                        comment: "Terminal settings hint.")
                 ) {
                     SettingsSegmented(
                         options: copyOnSelectOptions,
@@ -79,14 +90,18 @@ struct TerminalSettingsPane: View {
 
             SettingsSection(
                 index: 3,
-                title: "Background sessions",
-                subtitle:
-                    "Terminal sessions can keep running in the background through the command bridge, surviving a closed pane and reattaching later — including agent sessions. Optionally clean up ones that have been idle too long."
+                title: String(localized: "Background sessions", comment: "Terminal settings title."),
+                subtitle: String(
+                    localized:
+                        "Terminal sessions can keep running in the background through the command bridge, surviving a closed pane and reattaching later — including agent sessions. Optionally clean up ones that have been idle too long.",
+                    comment: "Terminal settings subtitle.")
             ) {
                 SettingsField(
-                    label: "Keep sessions running in the background",
-                    hint:
-                        "Runs new terminal panes through the amx command bridge so a session keeps running when its pane closes and can reattach later. Takes effect when a pane opens or recreates its terminal; already-open panes keep their current mode until they close or awesoMux relaunches.",
+                    label: String(localized: "Keep sessions running in the background", comment: "Terminal settings label."),
+                    hint: String(
+                        localized:
+                            "Runs new terminal panes through the amx command bridge so a session keeps running when its pane closes and can reattach later. Takes effect when a pane opens or recreates its terminal; already-open panes keep their current mode until they close or awesoMux relaunches.",
+                        comment: "Terminal settings hint."),
                     isFirst: true,
                     forwardsAccessibilityToControl: true
                 ) {
@@ -98,9 +113,11 @@ struct TerminalSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Auto-clean up at launch",
-                    hint:
-                        "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches.",
+                    label: String(localized: "Auto-clean up at launch", comment: "Terminal settings label."),
+                    hint: String(
+                        localized:
+                            "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches.",
+                        comment: "Terminal settings hint."),
                     forwardsAccessibilityToControl: true
                 ) {
                     Toggle(
@@ -111,9 +128,11 @@ struct TerminalSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Idle threshold",
-                    hint:
-                        "Sessions idle for at least this long are eligible for removal on next launch. Only applies when auto-clean up is on."
+                    label: String(localized: "Idle threshold", comment: "Terminal settings label."),
+                    hint: String(
+                        localized:
+                            "Sessions idle for at least this long are eligible for removal on next launch. Only applies when auto-clean up is on.",
+                        comment: "Terminal settings hint.")
                 ) {
                     Stepper(
                         capDaysLabel,

@@ -13,10 +13,10 @@ struct KeysSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSection(index: 1, title: "Cheatsheet") {
+            SettingsSection(index: 1, title: String(localized: "Cheatsheet", comment: "Keys settings title.")) {
                 SettingsField(
-                    label: "Show cheatsheet",
-                    hint: "Open the searchable keyboard shortcuts overlay.",
+                    label: String(localized: "Show cheatsheet", comment: "Keys settings label."),
+                    hint: String(localized: "Open the searchable keyboard shortcuts overlay.", comment: "Keys settings hint."),
                     isFirst: true
                 ) {
                     Button("Show Cheatsheet") {
@@ -29,8 +29,9 @@ struct KeysSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Custom shortcuts",
-                    hint: "Stored in config.toml and applied to menus and the command palette."
+                    label: String(localized: "Custom shortcuts", comment: "Keys settings label."),
+                    hint: String(
+                        localized: "Stored in config.toml and applied to menus and the command palette.", comment: "Keys settings hint.")
                 ) {
                     Button("Reset All") {
                         appSettingsStore.keyboard.update { $0.shortcuts.removeAll() }
@@ -63,10 +64,13 @@ struct KeysSettingsPane: View {
                 .padding(.bottom, 8)
             }
 
-            SettingsSection(index: 2, title: "Ghostty keybinds") {
+            SettingsSection(index: 2, title: String(localized: "Ghostty keybinds", comment: "Keys settings title.")) {
                 SettingsField(
-                    label: "App actions",
-                    hint: "Ghostty keybinds for app, window, workspace, split, config, and command-palette actions are ignored here. If the same chord is an awesoMux menu shortcut, awesoMux handles it first.",
+                    label: String(localized: "App actions", comment: "Keys settings label."),
+                    hint: String(
+                        localized:
+                            "Ghostty keybinds for app, window, workspace, split, config, and command-palette actions are ignored here. If the same chord is an awesoMux menu shortcut, awesoMux handles it first.",
+                        comment: "Keys settings hint."),
                     isFirst: true
                 ) {
                     Text("Use awesoMux shortcuts")

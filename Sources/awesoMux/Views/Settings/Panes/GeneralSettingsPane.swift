@@ -14,15 +14,20 @@ struct GeneralSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSection(index: 1, title: "Startup", subtitle: "What awesoMux does the moment you launch it.") {
+            SettingsSection(
+                index: 1, title: String(localized: "Startup", comment: "General settings title."),
+                subtitle: String(localized: "What awesoMux does the moment you launch it.", comment: "General settings subtitle.")
+            ) {
                 SettingsField(
-                    label: "Restore workspaces",
+                    label: String(localized: "Restore workspaces", comment: "General settings label."),
                     // The hint is forwarded as the toggle's VoiceOver hint, so
                     // "Applies on next launch" was actively wrong for screen
                     // reader users: turning this on now validates the saved
                     // file immediately, and can pause saving as a result.
-                    hint:
-                        "Reopen the sidebar groups and sessions from the previous launch. Restoring happens at the next launch; turning this on checks the saved file right away.",
+                    hint: String(
+                        localized:
+                            "Reopen the sidebar groups and sessions from the previous launch. Restoring happens at the next launch; turning this on checks the saved file right away.",
+                        comment: "General settings hint."),
                     isFirst: true,
                     forwardsAccessibilityToControl: true
                 ) {

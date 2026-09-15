@@ -10,12 +10,17 @@ struct AdvancedSettingsPane: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(
                 index: 1,
-                title: "Configuration",
-                subtitle: "TOML at \(appSettingsStore.configURL.path)."
+                title: String(localized: "Configuration", comment: "Advanced settings title."),
+                subtitle: String(
+                    format: String(
+                        localized: "TOML at %@.", comment: "Advanced settings subtitle. Placeholder is the configuration file path."),
+                    appSettingsStore.configURL.path
+                )
             ) {
                 SettingsField(
-                    label: "Path",
-                    hint: "Edit this file in any text editor; awesoMux reloads on save.",
+                    label: String(localized: "Path", comment: "Advanced settings label."),
+                    hint: String(
+                        localized: "Edit this file in any text editor; awesoMux reloads on save.", comment: "Advanced settings hint."),
                     isFirst: true
                 ) {
                     Text(appSettingsStore.configURL.path)
@@ -25,15 +30,17 @@ struct AdvancedSettingsPane: View {
                         .lineLimit(2)
                 }
 
-                SettingsField(label: "Schema version") {
+                SettingsField(label: String(localized: "Schema version", comment: "Advanced settings label.")) {
                     Text("v\(appSettingsStore.advanced.value.configSchemaVersion)")
                         .awFont(AwFont.Mono.body)
                         .foregroundStyle(Color.aw.text2)
                 }
 
                 SettingsField(
-                    label: "Actions",
-                    hint: "Reveal opens Finder. Open uses your default editor. Reload re-reads the file from disk."
+                    label: String(localized: "Actions", comment: "Advanced settings label."),
+                    hint: String(
+                        localized: "Reveal opens Finder. Open uses your default editor. Reload re-reads the file from disk.",
+                        comment: "Advanced settings hint.")
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
@@ -54,7 +61,7 @@ struct AdvancedSettingsPane: View {
                 }
 
                 if let errorText {
-                    SettingsField(label: "Latest error") {
+                    SettingsField(label: String(localized: "Latest error", comment: "Advanced settings label.")) {
                         Text(errorText)
                             .awFont(AwFont.Mono.meta)
                             .foregroundStyle(Color.aw.text)
@@ -72,28 +79,28 @@ struct AdvancedSettingsPane: View {
                 }
             }
 
-            SettingsSection(index: 2, title: "About") {
-                SettingsField(label: "Version", isFirst: true) {
+            SettingsSection(index: 2, title: String(localized: "About", comment: "Advanced settings title.")) {
+                SettingsField(label: String(localized: "Version", comment: "Advanced settings label."), isFirst: true) {
                     Text(Bundle.main.appVersionDisplay)
                         .awFont(AwFont.Mono.body)
                         .foregroundStyle(Color.aw.text2)
                         .textSelection(.enabled)
                 }
 
-                SettingsField(label: "Bundle") {
+                SettingsField(label: String(localized: "Bundle", comment: "Advanced settings label.")) {
                     Text(Bundle.main.bundleIdentifier ?? "Unknown")
                         .awFont(AwFont.Mono.body)
                         .foregroundStyle(Color.aw.text2)
                         .textSelection(.enabled)
                 }
 
-                SettingsField(label: "License") {
+                SettingsField(label: String(localized: "License", comment: "Advanced settings label.")) {
                     Text("MIT")
                         .awFont(AwFont.UI.label)
                         .foregroundStyle(Color.aw.text2)
                 }
 
-                SettingsField(label: "Terminal backend") {
+                SettingsField(label: String(localized: "Terminal backend", comment: "Advanced settings label.")) {
                     Text("libghostty")
                         .awFont(AwFont.UI.label)
                         .foregroundStyle(Color.aw.text2)
