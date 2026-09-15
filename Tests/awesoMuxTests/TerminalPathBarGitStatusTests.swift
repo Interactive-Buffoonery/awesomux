@@ -273,28 +273,47 @@ struct BoundedCommandRunnerTests {
     }
 
     @Test("a child that exits while a descendant holds stdout resolves bounded to nil")
-    func descendantHoldingStdoutDoesNotHang() async {
-        // `sh` explicitly replaces itself after backgrounding a short `sleep`, which inherits
-        // stdout and holds the pipe open, so EOF never arrives. The runner must
-        // resolve via its post-exit grace (not block on the sleep) — and to nil,
-        // since without EOF the output can't be confirmed complete. The sleep is
-        // kept short so the test leaves nothing meaningful behind.
+    func descendantHoldingStdoutDoesNotHang() async throws {
+        let sentinelPath = NSTemporaryDirectory() + "pathbar-descendant-\(UUID().uuidString)"
+        try #require(FileManager.default.createFile(atPath: sentinelPath, contents: Data()))
+
+        // `sh` explicitly replaces itself after backgrounding a child that holds
+        // stdout open until test cleanup removes the sentinel. The runner must
+        // resolve via its post-exit grace — and to nil, since without EOF the
+        // output can't be confirmed complete.
         let scheduler = TestScheduler()
         let runner = BoundedCommandRunner(
             executableCandidates: ["/bin/sh"],
             delay: { duration in
-                await scheduler.wait(for: duration)
+                if duration == .milliseconds(500) {
+                    await scheduler.wait(for: duration)
+                } else {
+                    try await Task.sleep(for: .seconds(60))
+                }
                 try Task.checkCancellation()
             }
         )
         let run = Task {
             await runner.run(
-                arguments: ["-c", "sleep 3 & exec /usr/bin/true"],
+                arguments: [
+                    "-c",
+                    "i=0; while test -e \"$1\" && [ $i -lt 300 ]; do sleep 1; i=$((i+1)); done & exec /usr/bin/true",
+                    "sh",
+                    sentinelPath,
+                ],
                 inDirectory: NSTemporaryDirectory()
             )
         }
+        defer {
+            try? FileManager.default.removeItem(atPath: sentinelPath)
+            run.cancel()
+            scheduler.advance()
+        }
 
-        #expect(await waitUntilEventually { scheduler.requestedDurations.contains(.milliseconds(500)) })
+        try #require(
+            await waitUntilEventually {
+                scheduler.requestedDurations.contains(.milliseconds(500))
+            })
         scheduler.advanceOneCycle()
         #expect(await run.value == nil)  // undrained → unknown, not a partial result
     }
