@@ -32,8 +32,22 @@ struct SidebarEmptyTransitionFocusTests {
 
         try sendSpaceDirectly(to: target, in: window, isRepeat: true)
         #expect(activations == 0)
+        SidebarHostedTestHarness.sendKey(
+            to: window,
+            keyCode: 49,
+            characters: " ",
+            isRepeat: true
+        )
+        #expect(activations == 0)
         for modifier in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
             try sendSpaceDirectly(to: target, in: window, modifiers: modifier)
+            #expect(activations == 0)
+            SidebarHostedTestHarness.sendKey(
+                to: window,
+                keyCode: 49,
+                characters: " ",
+                modifiers: modifier
+            )
             #expect(activations == 0)
         }
 
