@@ -68,9 +68,9 @@ struct UpdateAvailableIndicatorTests {
         let control = try #require(fixture.buttons.first)
         #expect(fixture.buttons.count == 1)
         #expect(control.title == "Update Available")
+        #expect(control.accessibilityLabel() == UpdateAvailableIndicator.accessibilityLabel(for: "2.0"))
         #expect(control.accessibilityValue() == nil)
         #expect(fixture.fittedSize.height >= 32)
-        #expect(UpdateAvailableIndicator.accessibilityLabel(for: "2.0").contains("2.0"))
 
         // SwiftUIPopupButton does not materialize the SwiftUI Menu's NSMenu
         // until AppKit enters its blocking menu-tracking loop. Verify the
@@ -91,10 +91,10 @@ struct UpdateAvailableIndicatorTests {
         let control = try #require(fixture.buttons.first)
         #expect(fixture.buttons.count == 1)
         #expect(control.title.isEmpty)
+        #expect(control.accessibilityLabel() == UpdateAvailableIndicator.accessibilityLabel(for: "2.0"))
         #expect(control.accessibilityValue() == nil)
         #expect(fixture.fittedSize.width >= 40)
         #expect(fixture.fittedSize.height >= 40)
-        #expect(UpdateAvailableIndicator.accessibilityLabel(for: "2.0").contains("2.0"))
     }
 
 }
