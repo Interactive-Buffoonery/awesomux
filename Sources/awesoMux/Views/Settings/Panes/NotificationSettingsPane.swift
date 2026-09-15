@@ -17,12 +17,22 @@ struct NotificationSettingsPane: View {
     // Shared between the visible hint column and the toggles' accessibility
     // hints, which append muted-state context the visible column doesn't need
     // (a sighted user sees the dimmed switch next to the Mute toggle).
-    private static let soundHint = "Play the default notification sound."
-    private static let needsInputHint = "Banner appears when a workspace surfaces a needs-attention signal."
-    private static let dockBounceHint = "Bounce when a workspace needs you."
-    private static let turnDoneHint = "Banner appears when an agent finishes its turn and is waiting for your next message."
-    private static let turnDoneFocusedHint = "Also play a sound for the workspace you're currently viewing when its agent finishes a turn."
-    private static let workspaceDetailsHint = "Includes workspace names and project context in macOS notification previews."
+    private static let soundHint = String(
+        localized: "Play the default notification sound.", comment: "Notification settings hint shared with accessibility.")
+    private static let needsInputHint = String(
+        localized: "Banner appears when a workspace surfaces a needs-attention signal.",
+        comment: "Notification settings hint shared with accessibility.")
+    private static let dockBounceHint = String(
+        localized: "Bounce when a workspace needs you.", comment: "Notification settings hint shared with accessibility.")
+    private static let turnDoneHint = String(
+        localized: "Banner appears when an agent finishes its turn and is waiting for your next message.",
+        comment: "Notification settings hint shared with accessibility.")
+    private static let turnDoneFocusedHint = String(
+        localized: "Also play a sound for the workspace you're currently viewing when its agent finishes a turn.",
+        comment: "Notification settings hint shared with accessibility.")
+    private static let workspaceDetailsHint = String(
+        localized: "Includes workspace names and project context in macOS notification previews.",
+        comment: "Notification settings hint shared with accessibility.")
 
     private var dockBounceUnavailable: Bool {
         muted
@@ -37,12 +47,15 @@ struct NotificationSettingsPane: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(
                 index: 1,
-                title: "Delivery",
-                subtitle: "Banner notifications for agent attention and workspace events."
+                title: String(localized: "Delivery", comment: "Notification settings title."),
+                subtitle: String(
+                    localized: "Banner notifications for agent attention and workspace events.", comment: "Notification settings subtitle.")
             ) {
                 SettingsField(
-                    label: "Mute notifications",
-                    hint: "Suppresses every notification awesoMux would otherwise deliver.",
+                    label: String(localized: "Mute notifications", comment: "Notification settings label."),
+                    hint: String(
+                        localized: "Suppresses every notification awesoMux would otherwise deliver.", comment: "Notification settings hint."
+                    ),
                     isFirst: true,
                     forwardsAccessibilityToControl: true
                 ) {
@@ -52,7 +65,7 @@ struct NotificationSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Sound",
+                    label: String(localized: "Sound", comment: "Notification settings label."),
                     hint: Self.soundHint,
                     forwardsAccessibilityToControl: true,
                     // The toggle carries its own muted-aware hint below; letting
@@ -68,7 +81,7 @@ struct NotificationSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "During Focus",
+                    label: String(localized: "During Focus", comment: "Notification settings label."),
                     hint: focusBehaviorHint
                 ) {
                     Picker(
@@ -86,7 +99,7 @@ struct NotificationSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Notify when an agent needs input",
+                    label: String(localized: "Notify when an agent needs input", comment: "Notification settings label."),
                     hint: Self.needsInputHint,
                     forwardsAccessibilityToControl: true,
                     forwardsHintToControl: false
@@ -100,7 +113,7 @@ struct NotificationSettingsPane: View {
 
                 if appSettingsStore.notifications.value.respectDoNotDisturb, !dockBounceUnavailable {
                     SettingsField(
-                        label: "Bounce Dock icon",
+                        label: String(localized: "Bounce Dock icon", comment: "Notification settings label."),
                         hint: dockBounceAwareHint
                     ) {
                         Button("Enable…") {
@@ -111,7 +124,7 @@ struct NotificationSettingsPane: View {
                     }
                 } else {
                     SettingsField(
-                        label: "Bounce Dock icon",
+                        label: String(localized: "Bounce Dock icon", comment: "Notification settings label."),
                         hint: dockBounceAwareHint,
                         forwardsAccessibilityToControl: true,
                         forwardsHintToControl: false
@@ -125,7 +138,7 @@ struct NotificationSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Notify when my turn is done",
+                    label: String(localized: "Notify when my turn is done", comment: "Notification settings label."),
                     hint: Self.turnDoneHint,
                     forwardsAccessibilityToControl: true,
                     forwardsHintToControl: false
@@ -138,7 +151,7 @@ struct NotificationSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Alert for the focused workspace too",
+                    label: String(localized: "Alert for the focused workspace too", comment: "Notification settings label."),
                     hint: Self.turnDoneFocusedHint,
                     forwardsAccessibilityToControl: true,
                     forwardsHintToControl: false
@@ -151,7 +164,7 @@ struct NotificationSettingsPane: View {
                 }
 
                 SettingsField(
-                    label: "Show workspace details",
+                    label: String(localized: "Show workspace details", comment: "Notification settings label."),
                     hint: Self.workspaceDetailsHint,
                     forwardsAccessibilityToControl: true,
                     forwardsHintToControl: false
@@ -166,11 +179,13 @@ struct NotificationSettingsPane: View {
 
             SettingsSection(
                 index: 2,
-                title: "macOS permission",
-                subtitle: "Banner and sound delivery requires macOS notification permission."
+                title: String(localized: "macOS permission", comment: "Notification settings title."),
+                subtitle: String(
+                    localized: "Banner and sound delivery requires macOS notification permission.",
+                    comment: "Notification settings subtitle.")
             ) {
                 SettingsField(
-                    label: "Permission status",
+                    label: String(localized: "Permission status", comment: "Notification settings label."),
                     hint: permissionHint,
                     isFirst: true
                 ) {
@@ -179,8 +194,10 @@ struct NotificationSettingsPane: View {
 
                 if authorizationModel.status == .denied {
                     SettingsField(
-                        label: "Fix in System Settings",
-                        hint: "In System Settings → Notifications, select awesoMux and turn Allow Notifications back on."
+                        label: String(localized: "Fix in System Settings", comment: "Notification settings label."),
+                        hint: String(
+                            localized: "In System Settings → Notifications, select awesoMux and turn Allow Notifications back on.",
+                            comment: "Notification settings hint.")
                     ) {
                         Button("Open System Settings") {
                             authorizationModel.openSystemNotificationSettings()
@@ -192,15 +209,21 @@ struct NotificationSettingsPane: View {
 
             SettingsSection(
                 index: 3,
-                title: "Per-workspace mute",
-                subtitle:
-                    "Muted workspaces skip macOS banners, sound, and Dock bounces but keep their sidebar indicators, unread badges, and dock-badge count. Per-workspace mute is local to this machine."
+                title: String(localized: "Per-workspace mute", comment: "Notification settings title."),
+                subtitle: String(
+                    localized:
+                        "Muted workspaces skip macOS banners, sound, and Dock bounces but keep their sidebar indicators, unread badges, and dock-badge count. Per-workspace mute is local to this machine.",
+                    comment: "Notification settings subtitle.")
             ) {
                 SettingsField(
-                    label: "Muted workspaces",
+                    label: String(localized: "Muted workspaces", comment: "Notification settings label."),
                     hint: mutedWorkspaces.isEmpty
-                        ? "No workspace overrides. Right-click a workspace in the sidebar and choose Mute Notifications."
-                        : "Unmute restores macOS banners, sound, and Dock bounces for that workspace.",
+                        ? String(
+                            localized: "No workspace overrides. Right-click a workspace in the sidebar and choose Mute Notifications.",
+                            comment: "Muted workspaces settings hint.")
+                        : String(
+                            localized: "Unmute restores macOS banners, sound, and Dock bounces for that workspace.",
+                            comment: "Muted workspaces settings hint."),
                     isFirst: true
                 ) {
                     mutedWorkspacesList
@@ -273,13 +296,18 @@ struct NotificationSettingsPane: View {
     private var permissionHint: String {
         switch authorizationModel.status {
         case .authorized:
-            "macOS allows awesoMux banners, sounds, and badges."
+            String(localized: "macOS allows awesoMux banners, sounds, and badges.", comment: "Notification permission status explanation.")
         case .denied:
-            "macOS is blocking awesoMux notifications, so attention banners will not appear. macOS only shows the permission dialog once, so this can only be fixed in System Settings."
+            String(
+                localized:
+                    "macOS is blocking awesoMux notifications, so attention banners will not appear. macOS only shows the permission dialog once, so this can only be fixed in System Settings.",
+                comment: "Notification permission status explanation.")
         case .notDetermined:
-            "macOS has not been asked yet. awesoMux requests permission when it first needs to notify you."
+            String(
+                localized: "macOS has not been asked yet. awesoMux requests permission when it first needs to notify you.",
+                comment: "Notification permission status explanation.")
         case .unknown:
-            "Checking the macOS notification permission…"
+            String(localized: "Checking the macOS notification permission…", comment: "Notification permission status explanation.")
         }
     }
 

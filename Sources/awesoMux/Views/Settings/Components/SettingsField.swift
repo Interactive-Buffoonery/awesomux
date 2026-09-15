@@ -7,6 +7,8 @@ import SwiftUI
 ///
 /// Every row draws a 0.5pt top hairline so consecutive fields read as
 /// a vertical stack of dividers — handoff `settings.jsx` contract.
+/// Pass app copy as `String(localized:comment:)` at its definition so the
+/// catalog extractor sees it. Keep user-authored names and commands verbatim.
 struct SettingsField<Control: View>: View {
     let label: String
     var hint: String?
