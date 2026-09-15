@@ -274,7 +274,7 @@ struct BoundedCommandRunnerTests {
 
     @Test("a child that exits while a descendant holds stdout resolves bounded to nil")
     func descendantHoldingStdoutDoesNotHang() async {
-        // `sh` exits immediately but backgrounds a short `sleep`, which inherits
+        // `sh` explicitly replaces itself after backgrounding a short `sleep`, which inherits
         // stdout and holds the pipe open, so EOF never arrives. The runner must
         // resolve via its post-exit grace (not block on the sleep) — and to nil,
         // since without EOF the output can't be confirmed complete. The sleep is
@@ -288,7 +288,10 @@ struct BoundedCommandRunnerTests {
             }
         )
         let run = Task {
-            await runner.run(arguments: ["-c", "sleep 3 &"], inDirectory: NSTemporaryDirectory())
+            await runner.run(
+                arguments: ["-c", "sleep 3 & exec /usr/bin/true"],
+                inDirectory: NSTemporaryDirectory()
+            )
         }
 
         #expect(await waitUntilEventually { scheduler.requestedDurations.contains(.milliseconds(500)) })
