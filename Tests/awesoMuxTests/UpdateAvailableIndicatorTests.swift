@@ -51,25 +51,26 @@ struct UpdateAvailableIndicatorTests {
         }
     }
 
-    @Test("hosted indicator has no semantic control without a scheduled update") @MainActor
+    @Test("hosted indicator has no native control without a scheduled update") @MainActor
     func hostedIndicatorHasNoSemanticControlWithoutScheduledUpdate() throws {
         let fixture = try HostedIndicatorFixture(availableVersion: nil, displayMode: .expanded)
         defer { fixture.window.close() }
 
-        #expect(fixture.semanticElements.isEmpty)
+        #expect(fixture.buttons.isEmpty)
         #expect(fixture.fittedSize.height == 0)
     }
 
-    @Test("hosted expanded indicator renders a semantic control for the available update") @MainActor
+    @Test("hosted expanded indicator renders a native menu for the available update") @MainActor
     func hostedExpandedIndicatorRendersNativeMenuForAvailableUpdate() throws {
         let fixture = try HostedIndicatorFixture(availableVersion: "2.0", displayMode: .expanded)
         defer { fixture.window.close() }
 
-        let control = try #require(fixture.semanticElements.first)
-        #expect(fixture.semanticElements.count == 1)
-        #expect(control.axValue("accessibilityLabel") as? String == UpdateAvailableIndicator.accessibilityLabel(for: "2.0"))
+        let control = try #require(fixture.buttons.first)
+        #expect(fixture.buttons.count == 1)
+        #expect(control.title == "Update Available")
+        #expect(control.accessibilityLabel() == UpdateAvailableIndicator.accessibilityLabel(for: "2.0"))
+        #expect(control.accessibilityValue() == nil)
         #expect(fixture.fittedSize.height >= 32)
-        #expect(UpdateAvailableIndicator.accessibilityLabel(for: "2.0").contains("2.0"))
 
         // SwiftUIPopupButton does not materialize the SwiftUI Menu's NSMenu
         // until AppKit enters its blocking menu-tracking loop. Verify the
@@ -79,20 +80,21 @@ struct UpdateAvailableIndicatorTests {
         fixture.controller.skipAvailableUpdate()
         #expect(fixture.controller.availableVersion == nil)
         SidebarHostedTestHarness.settleMainRunLoop()
-        #expect(fixture.semanticElements.isEmpty)
+        #expect(fixture.buttons.isEmpty)
     }
 
-    @Test("hosted collapsed indicator preserves one semantic minimum control") @MainActor
+    @Test("hosted collapsed indicator preserves the versioned minimum control") @MainActor
     func hostedCollapsedIndicatorPreservesVersionedMinimumControl() throws {
         let fixture = try HostedIndicatorFixture(availableVersion: "2.0", displayMode: .collapsed)
         defer { fixture.window.close() }
 
-        let control = try #require(fixture.semanticElements.first)
-        #expect(fixture.semanticElements.count == 1)
-        #expect(control.axValue("accessibilityLabel") as? String == UpdateAvailableIndicator.accessibilityLabel(for: "2.0"))
+        let control = try #require(fixture.buttons.first)
+        #expect(fixture.buttons.count == 1)
+        #expect(control.title.isEmpty)
+        #expect(control.accessibilityLabel() == UpdateAvailableIndicator.accessibilityLabel(for: "2.0"))
+        #expect(control.accessibilityValue() == nil)
         #expect(fixture.fittedSize.width >= 40)
         #expect(fixture.fittedSize.height >= 40)
-        #expect(UpdateAvailableIndicator.accessibilityLabel(for: "2.0").contains("2.0"))
     }
 
 }
@@ -106,9 +108,7 @@ private final class HostedIndicatorFixture {
     let fittedSize: CGSize
 
     var checks: Int { counter.value }
-    var semanticElements: [NSObject] {
-        hostingView.accessibilityChildren()?.compactMap { $0 as? NSObject } ?? []
-    }
+    var buttons: [NSButton] { descendants(of: NSButton.self, in: hostingView) }
 
     init(availableVersion: String?, displayMode: SidebarWidthMode) throws {
         let fixture = try configuredBundle()
@@ -140,12 +140,12 @@ private final class HostedIndicatorFixture {
         SidebarHostedTestHarness.settleMainRunLoop()
     }
 
-}
-
-private extension NSObject {
-    func axValue(_ name: String) -> Any? {
-        let selector = NSSelectorFromString(name)
-        return responds(to: selector) ? perform(selector)?.takeUnretainedValue() : nil
+    private func descendants<ViewType: NSView>(
+        of type: ViewType.Type,
+        in root: NSView
+    ) -> [ViewType] {
+        let direct = root as? ViewType
+        return root.subviews.flatMap { descendants(of: type, in: $0) } + (direct.map { [$0] } ?? [])
     }
 }
 
