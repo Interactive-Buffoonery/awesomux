@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 /// The set of agent integrations shown in settings, ordered for display.
@@ -13,6 +14,16 @@ enum AgentIntegrationDisplayProvider: CaseIterable, Hashable, Sendable {
     case openCode
     case pi
     case grok
+
+    var agentKind: AgentKind {
+        switch self {
+        case .claudeCode: .claudeCode
+        case .codex: .codex
+        case .openCode: .openCode
+        case .pi: .pi
+        case .grok: .grok
+        }
+    }
 
     init(_ installable: AgentIntegrationInstallProvider) {
         switch installable {

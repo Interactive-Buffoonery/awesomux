@@ -24,19 +24,21 @@ struct PublicSeedSourceScriptTests {
         #expect(result.error.contains("non-issue Linear workspace URL"))
     }
 
+    private static let privateMarkers: [String] = [
+        "contact@" + "interactivebuffoonery.app",
+        "awesomux-" + "private",
+        "awesomux-" + "internal",
+        "COCKPIT" + "_TOKEN",
+        "script/" + "cockpit/run.sh",
+        "/Users/" + "sarah/project",
+        "serabi" + "@example.com",
+        "purple-" + "imac",
+        "Jiggy" + "Brain",
+    ]
+
     @Test(
         "private repository and maintainer markers remain rejected",
-        arguments: [
-            "contact@" + "interactivebuffoonery.app",
-            "awesomux-" + "private",
-            "awesomux-" + "internal",
-            "COCKPIT" + "_TOKEN",
-            "script/" + "cockpit/run.sh",
-            "/Users/" + "sarah/project",
-            "serabi" + "@example.com",
-            "purple-" + "imac",
-            "Jiggy" + "Brain",
-        ])
+        arguments: privateMarkers)
     func privateMarkersRemainRejected(marker: String) throws {
         let result = try runGuard(publicText: marker)
 

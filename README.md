@@ -29,6 +29,23 @@ native app.
 
 Full target diagram, persistence, and agent/notification model: [`docs/architecture.md`](docs/architecture.md). Keyboard reference: [`docs/shortcuts.md`](docs/shortcuts.md). Managed Linux SSH destinations offer to install a static helper for activity and file handoffs: [`docs/remote-linux-helper.md`](docs/remote-linux-helper.md). Named remote sessions need `amx` or `zmx` on the remote host: [`docs/remote-session-persistence.md`](docs/remote-session-persistence.md).
 
+## Named agent setups
+
+Settings > Agents lets you save multiple named launch setups for each provider.
+Choose an absolute executable path and add each literal argument separately;
+use a wrapper executable for environment variables or credentials, and keep
+secrets out of the saved arguments. Enabled setups appear in the command palette
+and open a new tab in the active local pane's directory. Reorder, disable, or
+remove setups without changing the provider's shared local status hook.
+
+Setup launches support sh, bash, zsh, dash, ksh, and fish. Remote panes and remote
+default workspace groups are rejected because these paths refer to local files.
+The current directory must pass the existing startup directory checks, including
+user ownership. Launches require shell integration and the default Ghostty
+`confirm-close-surface = true` setting to detect when the prompt is ready.
+Wrappers should launch the real provider executable so its existing runtime
+recognition and status hooks continue to identify the provider.
+
 ## Markdown document panes
 
 awesoMux can open local Markdown files right next to your terminal, so you can

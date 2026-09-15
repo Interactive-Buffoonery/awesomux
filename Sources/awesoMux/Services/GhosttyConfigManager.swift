@@ -205,6 +205,15 @@ struct GhosttyConfigManager {
         )
     }
 
+    nonisolated static func supportsPromptReadiness(from config: ghostty_config_t) -> Bool {
+        var value: UnsafePointer<CChar>?
+        let key = "confirm-close-surface"
+        let found = key.withCString {
+            ghostty_config_get(config, &value, $0, UInt(key.utf8.count))
+        }
+        return found && value.map { String(cString: $0) == "true" } == true
+    }
+
     nonisolated static func rawShellIntegrationFeatures(from config: ghostty_config_t) -> UInt32? {
         var rawFeatures: CUnsignedInt = 0
         let key = "shell-integration-features"
