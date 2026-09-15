@@ -19,7 +19,7 @@ struct SidebarEmptyTransitionFocusTests {
     }
 
     @Test("Space activates once and ignores repeats, modifiers, and retired targets")
-    func spaceActivationGuards() {
+    func spaceActivationGuards() throws {
         let frame = NSRect(x: 0, y: 0, width: 40, height: 40)
         let (window, _) = SidebarHostedTestHarness.makeWindow(rootView: EmptyView(), frame: frame)
         defer { window.close() }
@@ -30,10 +30,10 @@ struct SidebarEmptyTransitionFocusTests {
         target.update(focusRequestID: 0, focusIsActive: true, onActivate: { activations += 1 })
         #expect(window.makeFirstResponder(target))
 
-        SidebarHostedTestHarness.sendKey(to: window, keyCode: 49, characters: " ", isRepeat: true)
+        try sendSpaceDirectly(to: target, in: window, isRepeat: true)
         #expect(activations == 0)
         for modifier in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
-            SidebarHostedTestHarness.sendKey(to: window, keyCode: 49, characters: " ", modifiers: modifier)
+            try sendSpaceDirectly(to: target, in: window, modifiers: modifier)
             #expect(activations == 0)
         }
 
@@ -46,6 +46,29 @@ struct SidebarEmptyTransitionFocusTests {
         #expect(window.makeFirstResponder(target))
         SidebarHostedTestHarness.sendKey(to: window, keyCode: 49, characters: " ")
         #expect(activations == 1)
+    }
+
+    private func sendSpaceDirectly(
+        to responder: NSResponder,
+        in window: NSWindow,
+        modifiers: NSEvent.ModifierFlags = [],
+        isRepeat: Bool = false
+    ) throws {
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: " ",
+                charactersIgnoringModifiers: " ",
+                isARepeat: isRepeat,
+                keyCode: 49
+            )
+        )
+        responder.keyDown(with: event)
     }
 
     @Test("a cancelled request cannot focus a retiring target")
