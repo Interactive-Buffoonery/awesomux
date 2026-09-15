@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 
 // MARK: - ProcessCodexAppServerTransport
@@ -210,7 +211,7 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
             chunk,
             pendingTail: tail,
             tailStartedAt: tailStartedAt,
-            now: Self.monotonicNow()
+            now: MonotonicClock.now()
         )
         bufferedLines.append(contentsOf: lines)
         if let violation {
@@ -221,17 +222,6 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
         }
         tail = newTail
         tailStartedAt = newTailStartedAt
-    }
-
-    /// Monotonic clock reading for deadline math, same shape as
-    /// `BridgeConnectionActor.monotonicNow`. Wall-clock `Date()` moves with
-    /// NTP steps and could drag a partial-line deadline backwards;
-    /// CLOCK_MONOTONIC cannot. Carried as `Date` because that is what the
-    /// injected-clock API of the pure core compares.
-    private static func monotonicNow() -> Date {
-        var time = timespec()
-        clock_gettime(CLOCK_MONOTONIC, &time)
-        return Date(timeIntervalSinceReferenceDate: Double(time.tv_sec) + Double(time.tv_nsec) / 1_000_000_000)
     }
 
     // MARK: - Pure consume() core

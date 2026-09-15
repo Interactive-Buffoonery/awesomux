@@ -303,7 +303,7 @@ actor BridgeConnectionActor {
         let result = BridgeFrameReader.consume(
             data,
             pendingTail: state.tail,
-            now: Self.monotonicNow(),
+            now: MonotonicClock.now(),
             expectedToken: expectedToken,
             expectedSession: expectedSession
         )
@@ -367,7 +367,7 @@ actor BridgeConnectionActor {
         state.partialDeadlineTask = nil
         guard state.tail.startedAt != nil else { return }
         let remaining = BridgeFrameReader.partialLineDeadline
-            - Self.monotonicNow().timeIntervalSince(state.tail.startedAt!)
+            - MonotonicClock.now().timeIntervalSince(state.tail.startedAt!)
         state.partialDeadlineTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(max(0, remaining) + 0.001))
             guard !Task.isCancelled else { return }
@@ -539,12 +539,6 @@ actor BridgeConnectionActor {
     private static func remove(_ directory: BridgeListenerDirectory) {
         _ = Darwin.unlink(directory.socketPath)
         _ = Darwin.rmdir(directory.directoryPath)
-    }
-
-    private static func monotonicNow() -> Date {
-        var time = timespec()
-        clock_gettime(CLOCK_MONOTONIC, &time)
-        return Date(timeIntervalSinceReferenceDate: Double(time.tv_sec) + Double(time.tv_nsec) / 1_000_000_000)
     }
 
     private struct ConnectionState: Sendable {
