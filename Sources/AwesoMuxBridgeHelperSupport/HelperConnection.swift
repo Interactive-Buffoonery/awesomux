@@ -39,7 +39,7 @@ public final class HelperConnection {
         fileDescriptor: Int32,
         token: String,
         session: String,
-        monotonicNow: @escaping () -> Date = HelperConnection.defaultMonotonicNow
+        monotonicNow: @escaping () -> Date = MonotonicClock.now
     ) {
         fd = fileDescriptor
         self.token = token
@@ -59,7 +59,7 @@ public final class HelperConnection {
     public static func connect(
         state: BridgeStateFile,
         session: String,
-        monotonicNow: @escaping () -> Date = HelperConnection.defaultMonotonicNow
+        monotonicNow: @escaping () -> Date = MonotonicClock.now
     ) throws -> HelperConnection {
         // Glibc's overlay imports SOCK_STREAM as the enum __socket_type, not
         // Int32; musl's imports it as a plain Int32. Normalize per-platform.
@@ -267,11 +267,5 @@ public final class HelperConnection {
             }
         }
         guard result == 0 else { throw ConnectionError.connectFailed }
-    }
-
-    public static func defaultMonotonicNow() -> Date {
-        var time = timespec()
-        clock_gettime(CLOCK_MONOTONIC, &time)
-        return Date(timeIntervalSinceReferenceDate: Double(time.tv_sec) + Double(time.tv_nsec) / 1_000_000_000)
     }
 }

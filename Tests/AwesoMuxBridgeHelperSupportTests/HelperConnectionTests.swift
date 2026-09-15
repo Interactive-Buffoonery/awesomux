@@ -68,7 +68,7 @@ struct HelperConnectionTests {
             #expect(runtime.admit(envelope: request, now: Date()) == .admitted)
             try client.send(request)
             let decision = try client.readPermissionDecision(
-                deadline: HelperConnection.defaultMonotonicNow().addingTimeInterval(10)
+                deadline: MonotonicClock.now().addingTimeInterval(10)
             )
             #expect(
                 decision?.message
@@ -143,7 +143,7 @@ struct HelperConnectionTests {
                     )
                 ))
             let decision = try client.readPermissionDecision(
-                deadline: HelperConnection.defaultMonotonicNow().addingTimeInterval(10)
+                deadline: MonotonicClock.now().addingTimeInterval(10)
             )
 
             guard case .permissionDecision(let resolved)? = decision?.message else {
