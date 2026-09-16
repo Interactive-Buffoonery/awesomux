@@ -110,11 +110,32 @@ final class SidebarNewWorkspaceFocusButton: NSButton {
         accessibilityFocused
     }
 
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 49,
-            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.keyCode == 49 else {
+            return super.performKeyEquivalent(with: event)
+        }
+        if event.isARepeat
+            || !event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
         {
-            if !event.isARepeat { _ = performActivation() }
+            return true
+        }
+        return false
+    }
+
+    override func performClick(_ sender: Any?) {
+        // This is a keyboard/accessibility focus proxy, not a hit-testable
+        // button. Its explicit keyDown and accessibilityPerformPress paths
+        // own activation; NSButton's default performClick path can activate
+        // before keyDown for modified Space events.
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 {
+            if !event.isARepeat,
+                event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+            {
+                _ = performActivation()
+            }
             return
         }
         super.keyDown(with: event)

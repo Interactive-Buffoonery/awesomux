@@ -22,17 +22,30 @@ public final class HelperConnection {
     private let token: String
     private let session: String
     private var tail = BridgeFrameReader.PendingTail.empty
+    /// Fully extracted frames awaiting `readFrame`. A single ≤8 KiB `read()`
+    /// can land many newline-delimited frames — smallest valid envelopes are
+    /// ~tens of bytes, so K can reach low hundreds under a bursty peer write —
+    /// and `readFrame` hands them out one call at a time. Depth does not
+    /// accumulate across reads (the next socket read only runs once this queue
+    /// is empty), but one-shot burst depth is still enough to reject
+    /// `Array.removeFirst()` draining: that shifts every remaining element and
+    /// makes a K-frame drain O(K²). Consumed through `queuedFramesCursor`,
+    /// matching `ProcessCodexAppServerTransport.takeBufferedLine()`.
     private var queuedFrames: [BridgeFrameReader.Frame] = []
+    /// Read position in `queuedFrames`; appends only ever land past it. When
+    /// it catches up to the end, the backing array resets so storage does not
+    /// grow with total traffic.
+    private var queuedFramesCursor = 0
     private var closeAfterQueuedFrames = false
     private let monotonicNow: () -> Date
     /// Reused across every `readFrame` poll instead of reallocating on each
     /// readiness event. Safe because nothing calls a connection concurrently:
     /// `BridgeHelperCommand` is the only caller and drives it from one
     /// synchronous CLI call chain. That is a call-site fact, not a type-level
-    /// guarantee — `tail`, `queuedFrames`, and `closeAfterQueuedFrames` rely
-    /// on the same assumption. Driving a connection from an async or
-    /// concurrent context needs an actor or a lock around the whole read
-    /// protocol, not just this buffer.
+    /// guarantee — `tail`, `queuedFrames`, `queuedFramesCursor`, and
+    /// `closeAfterQueuedFrames` rely on the same assumption. Driving a
+    /// connection from an async or concurrent context needs an actor or a lock
+    /// around the whole read protocol, not just this buffer.
     private var readBuffer = [UInt8](repeating: 0, count: 8 * 1024)
 
     public init(
@@ -144,8 +157,8 @@ public final class HelperConnection {
 
     private func readFrame(deadline: Date) throws -> BridgeFrameReader.Frame {
         while true {
-            if !queuedFrames.isEmpty {
-                return queuedFrames.removeFirst()
+            if let frame = takeQueuedFrame() {
+                return frame
             }
             if closeAfterQueuedFrames {
                 throw ConnectionError.protocolViolation
@@ -211,9 +224,32 @@ public final class HelperConnection {
             queuedFrames.append(contentsOf: result.frames)
             if case .close = result.action {
                 closeAfterQueuedFrames = true
-                if queuedFrames.isEmpty { throw ConnectionError.protocolViolation }
+                if queuedFramesCursor >= queuedFrames.count {
+                    throw ConnectionError.protocolViolation
+                }
             }
         }
+    }
+
+    /// Oldest queued frame, or `nil` once drained. Internal so the drain test
+    /// can exercise a large burst without driving the socket — same seam as
+    /// `ProcessCodexAppServerTransport.takeBufferedLine()`.
+    func takeQueuedFrame() -> BridgeFrameReader.Frame? {
+        guard queuedFramesCursor < queuedFrames.count else { return nil }
+        let frame = queuedFrames[queuedFramesCursor]
+        queuedFramesCursor += 1
+        if queuedFramesCursor == queuedFrames.count {
+            queuedFrames.removeAll()
+            queuedFramesCursor = 0
+        }
+        return frame
+    }
+
+    /// Test seam: seed `queuedFrames` without a socket read so drain complexity
+    /// can be measured directly (role of `ingest` in the Codex transport seam
+    /// suite).
+    func enqueueFramesForTesting(_ frames: [BridgeFrameReader.Frame]) {
+        queuedFrames.append(contentsOf: frames)
     }
 
     private func write(_ line: String) throws {

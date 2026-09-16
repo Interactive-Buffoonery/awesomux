@@ -10,9 +10,9 @@ named in the table:
 
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
-| Sparkle | 2.9.6 | `Sparkle/LICENSE` |
-| Ghostty | `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51` | `Ghostty/LICENSE` |
-| zmx / amx | `90e0e80c363954a6cf807a29b796af5cbe246a7c` | `zmx/LICENSE` |
+| Sparkle | 2.10.0 | `Sparkle/LICENSE` |
+| Ghostty | `d4c88d8069912b653d707191388ca98e24751f12` | `Ghostty/LICENSE` |
+| zmx / amx | `0e7779f4ac7b14bb7e8092927bf301c002005979` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
 | Selenized | `jan-warchol/selenized` v1.0 | `Selenized/LICENSE` |
