@@ -14,6 +14,8 @@ struct RemoteMarkdownPathOpenSheet: View {
 
     var body: some View {
         let normalizedPath = Self.normalizedSupportedPath(draftPath)
+        let trimmedPath = draftPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let openDisabledHint = Self.openDisabledAccessibilityHint(forDraft: draftPath)
         VStack(alignment: .leading, spacing: 16) {
             Text(
                 String(
@@ -63,9 +65,7 @@ struct RemoteMarkdownPathOpenSheet: View {
                 )
                 .onSubmit { submit(normalizedPath) }
 
-            if !draftPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                normalizedPath == nil
-            {
+            if !trimmedPath.isEmpty, normalizedPath == nil {
                 Text(
                     String(
                         localized:
@@ -90,6 +90,7 @@ struct RemoteMarkdownPathOpenSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(normalizedPath == nil)
+                .accessibilityHint(openDisabledHint ?? "", isEnabled: openDisabledHint != nil)
             }
         }
         .padding(20)
@@ -111,6 +112,23 @@ struct RemoteMarkdownPathOpenSheet: View {
 
     static func normalizedSupportedPath(_ draft: String) -> String? {
         RemoteMarkdownReference.normalizedTypedPath(draft)
+    }
+
+    /// Why the Open button is disabled, for VoiceOver. Empty field gets an
+    /// enablement hint; a non-empty unsupported path reuses the visual caption.
+    static func openDisabledAccessibilityHint(forDraft draft: String) -> String? {
+        guard normalizedSupportedPath(draft) == nil else { return nil }
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return String(
+                localized: "Enter a remote Markdown path to enable Open",
+                comment:
+                    "Accessibility hint for the disabled Open button when the remote Markdown path field is empty"
+            )
+        }
+        return String(
+            localized: "Enter an absolute /… or ~/… path ending in .md or .markdown.",
+            comment: "Validation caption when the remote Markdown typed path is unsupported"
+        )
     }
 
     private func submit(_ path: String?) {

@@ -14,17 +14,24 @@ enum RemoteMarkdownTypedPathOpen {
     }
 
     /// Resolves whether ⌘O / Open Markdown should use the local open panel or
-    /// the remote typed-path sheet. Prefer a selected remote snapshot tab's
-    /// declared identity; otherwise an active SSH pane's plan target.
+    /// the remote typed-path sheet.
+    ///
+    /// Order: selected remote snapshot tab → remote; selected **non-remote**
+    /// document tab → local (even when the active pane is SSH); else active
+    /// SSH pane → remote; else local.
     static func context(for session: TerminalSession) -> Context {
-        if let tab = session.layout.firstDocumentGroup?.selectedTab,
-            let identity = tab.remoteResourceIdentity,
-            let target = identity.remoteTarget
-        {
-            return .remote(
-                target: target,
-                associatedPaneID: tab.associatedTerminalPaneID ?? session.activePaneID
-            )
+        if let tab = session.layout.firstDocumentGroup?.selectedTab {
+            if let identity = tab.remoteResourceIdentity,
+                let target = identity.remoteTarget
+            {
+                return .remote(
+                    target: target,
+                    associatedPaneID: tab.associatedTerminalPaneID ?? session.activePaneID
+                )
+            }
+            // A focused local (or generated) document tab keeps ⌘O on the Mac
+            // open panel — do not let a sibling SSH pane steal it.
+            return .local
         }
         if let pane = session.activePane,
             case .ssh(let execution) = pane.executionPlan
@@ -47,6 +54,30 @@ enum RemoteMarkdownTypedPathOpen {
     /// Interactive typed-path open. Mirrors OSC / Md→Md a11y: announce loading
     /// before the fetch, then announce the outcome via
     /// `RemoteMarkdownTabRefresh.apply(announceOutcome:)`.
+    ///
+    /// Sheet submit should call `announceLoadingIfValid` *before* dismissing the
+    /// sheet, then pass `onAnnounceLoading: {}` here so VO is not deferred until
+    /// after dismiss.
+    @MainActor
+    @discardableResult
+    static func announceLoadingIfValid(
+        typedPath: String,
+        target: RemoteTarget,
+        onAnnounceLoading: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+        },
+        onRoutingFailure: @MainActor () -> Void = {
+            GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
+        }
+    ) -> Bool {
+        guard reference(typedPath: typedPath, target: target) != nil else {
+            onRoutingFailure()
+            return false
+        }
+        onAnnounceLoading()
+        return true
+    }
+
     @MainActor
     @discardableResult
     static func open(

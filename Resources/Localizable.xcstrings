@@ -1882,6 +1882,9 @@
     "Enter a name." : {
       "comment" : "Validation message when the custom command name is empty"
     },
+    "Enter a remote Markdown path to enable Open" : {
+      "comment" : "Accessibility hint for the disabled Open button when the remote Markdown path field is empty"
+    },
     "Enter a valid branch name." : {
       "comment" : "Invalid branch name syntax validation.\nWorktree creation failure message for an invalid branch name."
     },

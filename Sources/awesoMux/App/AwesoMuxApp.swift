@@ -619,6 +619,17 @@ struct AwesoMuxApp: App {
                         let sessionID = request.sessionID
                         let paneID = request.associatedPaneID
                         let target = request.target
+                        // Announce loading while the sheet is still up — VO
+                        // misses the cue if it lands only after dismiss.
+                        guard
+                            RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
+                                typedPath: path,
+                                target: target
+                            )
+                        else {
+                            remoteMarkdownPathOpenRequest = nil
+                            return
+                        }
                         remoteMarkdownPathOpenRequest = nil
                         Task { @MainActor in
                             guard
@@ -627,7 +638,8 @@ struct AwesoMuxApp: App {
                                     target: target,
                                     in: sessionID,
                                     associatedWith: paneID,
-                                    sessionStore: sessionStore
+                                    sessionStore: sessionStore,
+                                    onAnnounceLoading: {}
                                 )
                             else { return }
                             documentTabActions.requestFocus(for: tabID, in: sessionID)
