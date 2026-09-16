@@ -181,6 +181,26 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
 
     private var directoryTails: [String: DirectoryTail] = [:]
 
+    /// Tail scopes. Fetches serialize per SSH target within a cache directory
+    /// so tabs on independent hosts proceed in parallel instead of queueing
+    /// behind one another's full SSH timeout. Prune still chains after every
+    /// in-flight fetch for its directory, whatever the target.
+    private static func fetchScope(cacheDirectoryPath: String, targetKey: String) -> String {
+        "fetch\n\(cacheDirectoryPath)\n\(targetKey)"
+    }
+
+    private static func fetchScopePrefix(cacheDirectoryPath: String) -> String {
+        "fetch\n\(cacheDirectoryPath)\n"
+    }
+
+    private static func pruneScope(cacheDirectoryPath: String) -> String {
+        "prune\n\(cacheDirectoryPath)"
+    }
+
+    private static func targetKey(for key: Key) -> String {
+        key.identity.remoteTarget?.sshDestination ?? "local"
+    }
+
     func value(
         for key: Key,
         onCoalesced: (@Sendable () async -> Void)? = nil,
@@ -214,15 +234,25 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         if let existing = inFlight[key] {
             return .existing(existing)
         }
-        let previous = directoryTails[key.cacheDirectoryPath]
+        // Chain after the previous fetch for this target and after the latest
+        // prune for this directory. Both predecessors are captured under the
+        // lock so registration order stays deterministic: a prune registered
+        // later captures this fetch as its own predecessor instead.
+        let scope = Self.fetchScope(
+            cacheDirectoryPath: key.cacheDirectoryPath,
+            targetKey: Self.targetKey(for: key)
+        )
+        let previousFetch = directoryTails[scope]
+        let previousPrune = directoryTails[Self.pruneScope(cacheDirectoryPath: key.cacheDirectoryPath)]
         let id = UUID()
         let task = Task<RemoteMarkdownFetchOutcome?, Never> {
-            await previous?.task.value
+            await previousPrune?.task.value
+            await previousFetch?.task.value
             let result = await operation()
             self.finishFetch(
                 for: key,
-                directoryPath: key.cacheDirectoryPath,
-                directoryID: id
+                scope: scope,
+                scopeID: id
             )
             return result
         }
@@ -230,16 +260,16 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         let tail = Task {
             _ = await task.value
         }
-        directoryTails[key.cacheDirectoryPath] = DirectoryTail(id: id, task: tail)
+        directoryTails[scope] = DirectoryTail(id: id, task: tail)
         return .new(task)
     }
 
-    private func finishFetch(for key: Key, directoryPath: String, directoryID: UUID) {
+    private func finishFetch(for key: Key, scope: String, scopeID: UUID) {
         lock.lock()
         defer { lock.unlock() }
         inFlight[key] = nil
-        if directoryTails[directoryPath]?.id == directoryID {
-            directoryTails[directoryPath] = nil
+        if directoryTails[scope]?.id == scopeID {
+            directoryTails[scope] = nil
         }
     }
 
@@ -263,16 +293,25 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     ) -> DirectoryRegistration {
         lock.lock()
         defer { lock.unlock() }
-        let previous = directoryTails[cacheDirectoryPath]
+        // Wait for every tail in this directory: the prune scope plus all
+        // per-target fetch scopes. A fetch registered later chains after this
+        // prune instead, so the barrier holds in both directions.
+        let scope = Self.pruneScope(cacheDirectoryPath: cacheDirectoryPath)
+        let fetchPrefix = Self.fetchScopePrefix(cacheDirectoryPath: cacheDirectoryPath)
+        let tails = directoryTails.filter {
+            $0.key == scope || $0.key.hasPrefix(fetchPrefix)
+        }.map { $0.value.task }
         let id = UUID()
         let task = Task.detached(priority: .utility) {
-            await previous?.task.value
+            for predecessor in tails {
+                await predecessor.value
+            }
             await operation()
         }
         let tail = Task {
             _ = await task.value
         }
-        directoryTails[cacheDirectoryPath] = DirectoryTail(id: id, task: tail)
+        directoryTails[scope] = DirectoryTail(id: id, task: tail)
         return DirectoryRegistration(
             path: cacheDirectoryPath,
             id: id,
@@ -292,8 +331,9 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     private func finishDirectoryOperation(for path: String, id: UUID) {
         lock.lock()
         defer { lock.unlock() }
-        if directoryTails[path]?.id == id {
-            directoryTails[path] = nil
+        let scope = Self.pruneScope(cacheDirectoryPath: path)
+        if directoryTails[scope]?.id == id {
+            directoryTails[scope] = nil
         }
     }
 }

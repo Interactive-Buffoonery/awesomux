@@ -82,6 +82,9 @@ enum RemoteMarkdownTabRefresh {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         }
     ) async -> RemoteMarkdownFetchOutcome? {
+        // A cancelled sweep must neither claim the coordinator latch nor
+        // record a failure it never attempted.
+        guard !Task.isCancelled else { return nil }
         if let coordinator, !coordinator.begin(documentID: documentID) {
             return nil
         }
@@ -115,6 +118,10 @@ enum RemoteMarkdownTabRefresh {
             }
             return nil
         }
+        // Dropped while the fetch was in flight (a superseded restore sweep):
+        // stay silent rather than noting a failure nobody caused or presenting
+        // an alert for a tab nobody is waiting on.
+        guard !Task.isCancelled else { return nil }
         // A closed tab must not be resurrected by a late fetch — same contract
         // as branch-changes Refresh carrying its originating document id.
         guard
@@ -138,9 +145,16 @@ enum RemoteMarkdownTabRefresh {
     /// Markdown tab. Tabs already mounted from cache; this updates them in
     /// place and re-establishes any stale banner from a real attempt.
     ///
-    /// Fetches for a given cache directory are serialized by
-    /// `RemoteMarkdownFetchCoordinator` (one directory tail), so N remote tabs
-    /// cost ~8s×N wall-clock in the worst case rather than an SSH storm.
+    /// At most `maxConcurrentRestoreRefreshes` round trips are in flight at
+    /// once, and fetches for one SSH target still serialize inside
+    /// `RemoteMarkdownFetchCoordinator` — so N remote tabs cost ~8s×N/hosts
+    /// wall-clock in the worst case rather than an SSH storm.
+    ///
+    /// Maximum simultaneous restore re-fetches. The fetch coordinator already
+    /// serializes per SSH target, so this bounds host-parallelism: enough to
+    /// keep several hosts busy, small enough to avoid an SSH storm at launch.
+    private static let maxConcurrentRestoreRefreshes = 4
+
     @MainActor
     static func scheduleRestoreRefresh(
         for store: SessionStore,
@@ -149,19 +163,39 @@ enum RemoteMarkdownTabRefresh {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         }
     ) {
-        for target in restoreTargets(in: store) {
-            Task { @MainActor in
-                _ = await refresh(
-                    identity: target.identity,
-                    documentID: target.documentID,
-                    in: target.sessionID,
-                    associatedWith: target.associatedTerminalPaneID,
-                    sessionStore: store,
-                    selectingTab: false,
-                    announceOutcome: false,
-                    coordinator: coordinator,
-                    fetch: fetch
+        let targets = restoreTargets(in: store)
+        guard !targets.isEmpty else { return }
+        Task { @MainActor in
+            // Bounded drain: awaiting the oldest running refresh before
+            // starting past the limit keeps at most `maxConcurrentRestoreRefreshes`
+            // in flight without a task group (whose Sendable closure could not
+            // capture the session store).
+            var running: [Task<RemoteMarkdownFetchOutcome?, Never>] = []
+            var index = targets.startIndex
+            while index != targets.endIndex, !Task.isCancelled {
+                if running.count >= maxConcurrentRestoreRefreshes {
+                    _ = await running.removeFirst().value
+                }
+                let target = targets[index]
+                targets.formIndex(after: &index)
+                running.append(
+                    Task { @MainActor in
+                        await refresh(
+                            identity: target.identity,
+                            documentID: target.documentID,
+                            in: target.sessionID,
+                            associatedWith: target.associatedTerminalPaneID,
+                            sessionStore: store,
+                            selectingTab: false,
+                            announceOutcome: false,
+                            coordinator: coordinator,
+                            fetch: fetch
+                        )
+                    }
                 )
+            }
+            for task in running {
+                _ = await task.value
             }
         }
     }

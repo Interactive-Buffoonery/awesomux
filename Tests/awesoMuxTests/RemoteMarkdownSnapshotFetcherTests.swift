@@ -801,6 +801,104 @@ struct RemoteMarkdownReferenceTests {
         #expect(results[1]?.snapshot.fileURL.deletingLastPathComponent().lastPathComponent == "second")
     }
 
+    @Test func differentTargetsInSameDirectoryRunInParallel() async throws {
+        let firstReference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/first.md",
+                pane: remotePane(target: "host-a")
+            ))
+        let secondReference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/second.md",
+                pane: remotePane(target: "host-b")
+            ))
+        let counter = CallCounter()
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let operationGate = AsyncGate()
+        let fetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in
+                await counter.record()
+                await operationGate.enterAndWait()
+                return .success(Data("current".utf8))
+            }
+        )
+
+        let firstResult = Task { await fetcher.fetch(firstReference) }
+        let secondResult = Task { await fetcher.fetch(secondReference) }
+        // Same cache directory, different SSH targets: the second fetch must
+        // not queue behind the first host's round trip.
+        await operationGate.waitForEntries(2)
+        await operationGate.release()
+        let results = await [firstResult.value, secondResult.value]
+
+        #expect(await counter.count == 2)
+        #expect(results[0]?.snapshot.fileURL != results[1]?.snapshot.fileURL)
+    }
+
+    @Test func pruneWaitsForFetchesOnEveryTarget() async throws {
+        let firstReference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/first.md",
+                pane: remotePane(target: "host-a")
+            ))
+        let secondReference = try #require(
+            RemoteMarkdownReference.make(
+                payload: "/repo/second.md",
+                pane: remotePane(target: "host-b")
+            ))
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+
+        let firstGate = AsyncGate()
+        let secondGate = AsyncGate()
+        let pruneEnumerated = AsyncSignal()
+        let fetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { reference in
+                if reference.sshTarget == "host-a" {
+                    await firstGate.enterAndWait()
+                } else {
+                    await secondGate.enterAndWait()
+                }
+                return .success(Data("fresh".utf8))
+            },
+            onPruneEnumerated: { await pruneEnumerated.signal() }
+        )
+        try FileManager.default.createDirectory(
+            at: cacheDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try Data("orphan".utf8).write(to: cacheDirectory.appending(path: "orphan.md"))
+
+        let firstTask = Task { await fetcher.fetch(firstReference) }
+        let secondTask = Task { await fetcher.fetch(secondReference) }
+        await firstGate.waitForEntries(1)
+        await secondGate.waitForEntries(1)
+
+        fetcher.schedulePruneUnreferencedSnapshots(keeping: [])
+        // Both fetches are still gated: the prune barrier must hold even
+        // though the fetches are on different targets.
+        #expect(!(await pruneEnumerated.wasSignaled()))
+
+        await firstGate.release()
+        _ = await firstTask.value
+        // host-b is still gated, so the prune must still be waiting.
+        #expect(!(await pruneEnumerated.wasSignaled()))
+
+        await secondGate.release()
+        _ = await secondTask.value
+        await pruneEnumerated.wait()
+        // A fetch registered after the prune chains behind its tail, so
+        // awaiting the fetch proves the prune — including removal — finished.
+        _ = await fetcher.fetch(firstReference)
+        #expect(!FileManager.default.fileExists(atPath: cacheDirectory.appending(path: "orphan.md").path))
+    }
+
     @Test func pruneWaitsForFetchRegisteredInTheSameCacheDirectory() async throws {
         let reference = try #require(
             RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())

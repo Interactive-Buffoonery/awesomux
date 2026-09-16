@@ -387,6 +387,107 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: pathB) == .remoteStoppedRefreshing)
     }
 
+    @Test("scheduleRestoreRefresh bounds concurrent fetches")
+    func scheduleRestoreRefreshBoundsConcurrency() async throws {
+        let tabCount = 8
+        var identities: [ResourceIdentity] = []
+        var cachePaths: [String] = []
+        defer {
+            for path in cachePaths {
+                RemoteSnapshotStalePolicy.note(nil, path: path)
+            }
+        }
+
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let session = try #require(store.session(id: sessionID))
+        let terminalID = session.activePaneID
+        // Distinct hosts so the fetch coordinator's per-target serialization
+        // never masks the restore fan-out bound under test.
+        for index in 0..<tabCount {
+            let identity = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "host-\(index)")!),
+                path: ResourcePath(rawValue: "/repo/doc.md")
+            )
+            identities.append(identity)
+            let path = "/tmp/awesomux-restore-bound-\(index)-\(UUID().uuidString).md"
+            cachePaths.append(path)
+            _ = store.openDocumentPane(
+                fileURL: URL(fileURLWithPath: path),
+                in: sessionID,
+                associatedWith: terminalID,
+                remoteResourceIdentity: identity
+            )
+        }
+        let cachePathByIdentity = Dictionary(uniqueKeysWithValues: zip(identities, cachePaths))
+
+        final class ConcurrencyBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var inFlight = 0
+            private var maxInFlight = 0
+            private var started = 0
+            private var waiters: [CheckedContinuation<Void, Never>] = []
+
+            func enter(total: Int) {
+                lock.lock()
+                inFlight += 1
+                maxInFlight = max(maxInFlight, inFlight)
+                started += 1
+                let done = started >= total
+                let waiters = done ? self.waiters : []
+                if done { self.waiters = [] }
+                lock.unlock()
+                for waiter in waiters {
+                    waiter.resume()
+                }
+            }
+
+            func leave() {
+                lock.lock()
+                inFlight -= 1
+                lock.unlock()
+            }
+
+            var maxObserved: Int {
+                lock.lock()
+                defer { lock.unlock() }
+                return maxInFlight
+            }
+
+            func waitUntilStarted(_ total: Int) async {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    lock.lock()
+                    if started >= total {
+                        lock.unlock()
+                        continuation.resume()
+                        return
+                    }
+                    waiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }
+        let box = ConcurrencyBox()
+
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store) { reference in
+            box.enter(total: tabCount)
+            try? await Task.sleep(for: .milliseconds(20))
+            box.leave()
+            return .fresh(
+                RemoteMarkdownSnapshot(
+                    fileURL: URL(
+                        fileURLWithPath: cachePathByIdentity[reference.identity]
+                            ?? "/tmp/awesomux-restore-bound-fallback.md"),
+                    identity: reference.identity
+                )
+            )
+        }
+
+        await box.waitUntilStarted(tabCount)
+
+        #expect(box.maxObserved <= 4)
+    }
+
     @Test("RemoteMarkdownReference.make(identity:) accepts supported remote Markdown only")
     func makeFromIdentity() {
         #expect(RemoteMarkdownReference.make(identity: remoteIdentity()) != nil)
