@@ -85,6 +85,11 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     /// document directory fail closed so remote markdown cannot open local
     /// files or walk outside the intended root.
     ///
+    /// A source at the filesystem root (or `~`) intentionally scopes to that
+    /// whole root — the same containment local document links use, and no
+    /// wider than the typed-path sheet already offers the same user on the
+    /// same host. Reads stay read-only under the declared target either way.
+    ///
     /// Paths are normalized with the same absolute `standardizingPath` / tilde
     /// lexical `..` walk as render-time resolve *before* containment — a raw
     /// `…/docs/../secret.md` string must not pass a prefix check.
@@ -124,11 +129,35 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         forMarkdownDestination destination: String,
         relativeTo source: ResourceIdentity
     ) -> URL? {
-        guard let reference = make(markdownDestination: destination, relativeTo: source)
+        guard let reference = make(markdownDestination: destination, relativeTo: source),
+            var url = linkURL(forRemotePath: reference.remotePath)
         else {
             return nil
         }
-        return linkURL(forRemotePath: reference.remotePath)
+        // Fragments do not navigate yet (same deferral as local INT-758), but
+        // the click path reads them back to announce the at-top landing, so
+        // they must survive the render→click round trip instead of being
+        // dropped with the identity.
+        if let fragment = MarkdownLinkIntercept.relativeMarkdownDestination(destination)?.fragment,
+            !fragment.isEmpty
+        {
+            url = withFragment(fragment, on: url) ?? url
+        }
+        return url
+    }
+
+    /// Re-attaches a Markdown `#fragment` to a link URL. Advisory only: the
+    /// click gate resolves identity from the fragment-free path, and the
+    /// navigation layer reads the fragment back to announce the deferred
+    /// at-top landing.
+    private static func withFragment(_ fragment: String, on url: URL) -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let encoded = fragment.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed)
+        else {
+            return nil
+        }
+        components.percentEncodedFragment = encoded
+        return components.url
     }
 
     static func linkURL(forRemotePath path: String) -> URL? {

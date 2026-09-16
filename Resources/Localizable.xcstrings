@@ -2920,6 +2920,9 @@
     "Open the searchable keyboard shortcuts overlay." : {
       "comment" : "Keys settings hint."
     },
+    "Opened at the top of the document. Section jumps are not supported yet." : {
+      "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
+    },
     "Opening agent transcript." : {
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
     },

@@ -20,6 +20,9 @@ enum RemoteMarkdownDocumentLinkNavigation {
     /// `RemoteMarkdownTabRefresh.apply(announceOutcome:)`. Routing failures keep
     /// the existing alert presenter. Progress spinners stay on the OSC surface
     /// path where a `GhosttySurfaceNSView` host exists.
+    ///
+    /// Destinations that carried a `#fragment` open at the top — fragment
+    /// scroll is deferred — and say so through `onAnnounceFragmentOpened`.
     @MainActor
     @discardableResult
     static func open(
@@ -36,6 +39,9 @@ enum RemoteMarkdownDocumentLinkNavigation {
         },
         onAnnounceLoading: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+        },
+        onAnnounceFragmentOpened: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownOpenedAtTop()
         }
     ) async -> DocumentPane.ID? {
         guard let reference = reference(forOpenedLinkURL: url, from: source) else {
@@ -47,7 +53,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
             onRoutingFailure()
             return nil
         }
-        return RemoteMarkdownTabRefresh.apply(
+        let openedID = RemoteMarkdownTabRefresh.apply(
             outcome,
             in: sessionID,
             associatedWith: paneID,
@@ -55,5 +61,9 @@ enum RemoteMarkdownDocumentLinkNavigation {
             selectingTab: true,
             announceOutcome: true
         )
+        if let fragment = url.fragment, !fragment.isEmpty {
+            onAnnounceFragmentOpened()
+        }
+        return openedID
     }
 }

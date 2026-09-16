@@ -105,4 +105,27 @@ struct GhosttyRuntimeURLConfirmSeamTests {
         #expect(providerCalls == 1)
         #expect(!GhosttyRuntime.isURLConfirmAlertPresented)
     }
+
+    @Test("internal remote-markdown scheme is dropped before classification")
+    func internalRemoteMarkdownSchemeIsDropped() async throws {
+        GhosttyRuntime.resetURLOpenConfirmationProviderForTesting()
+        defer { GhosttyRuntime.resetURLOpenConfirmationProviderForTesting() }
+
+        let url = try #require(
+            RemoteMarkdownReference.linkURL(forRemotePath: "~/repo/docs/guide.md")
+        )
+        var providerCalls = 0
+        GhosttyRuntime.urlOpenConfirmationProvider = { _, _, _, _ in
+            providerCalls += 1
+            return false
+        }
+        GhosttyRuntime.openURL(url)
+
+        // Longer than any MainActor hop: if the guard above regresses, the
+        // classifier's disallowed-scheme path schedules the provider and this
+        // fails instead of passing vacuously.
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(providerCalls == 0)
+        #expect(!GhosttyRuntime.isURLConfirmAlertPresented)
+    }
 }

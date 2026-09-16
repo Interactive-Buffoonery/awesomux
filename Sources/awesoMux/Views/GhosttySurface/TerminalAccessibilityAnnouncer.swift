@@ -11,6 +11,18 @@ enum TerminalAccessibilityAnnouncer {
             ))
     }
 
+    /// Posted after a Markdown→Markdown open whose destination carried a
+    /// `#fragment`. Fragment scroll is deferred (same as local INT-758), so
+    /// the document opens at the top — VoiceOver says so instead of leaving
+    /// the user hunting for the section.
+    static func announceRemoteMarkdownOpenedAtTop() {
+        announce(
+            String(
+                localized: "Opened at the top of the document. Section jumps are not supported yet.",
+                comment: "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
+            ))
+    }
+
     static func announceRemoteMarkdown(_ outcome: RemoteMarkdownFetchOutcome) {
         announce(remoteMarkdownAnnouncement(for: outcome))
     }

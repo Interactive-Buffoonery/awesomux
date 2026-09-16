@@ -229,6 +229,14 @@ extension GhosttyRuntime {
     /// confirm is already on screen.
     @MainActor
     static func openURL(_ url: URL) {
+        // `awesomux-remote-md:` links are an app-internal document-link
+        // encoding for remote snapshot tabs. They must only ever be handled
+        // by the document-link sink — never by this generic terminal/OSC
+        // surface, and never by the OS or the URL classifier. Drop them here
+        // so a crafted terminal hyperlink cannot arrive with our own scheme.
+        guard url.scheme?.lowercased() != RemoteMarkdownReference.remoteMarkdownLinkScheme else {
+            return
+        }
         // Intercept local Markdown links before URLClassifier (which would
         // pass them straight to NSWorkspace). An injected handler routes the
         // URL into the active session's document pane; if none is configured

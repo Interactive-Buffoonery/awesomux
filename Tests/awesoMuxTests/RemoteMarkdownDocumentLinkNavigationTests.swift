@@ -66,6 +66,88 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(tab.fileURL.resolvingSymlinksInPath() == cacheURL.resolvingSymlinksInPath())
     }
 
+    @Test("link URLs preserve fragments for the click path")
+    func linkURLPreservesFragment() throws {
+        let source = remoteIdentity()
+        let absolute = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md#install",
+                relativeTo: source
+            )
+        )
+        #expect(absolute.fragment == "install")
+        #expect(absolute.path == "/repo/docs/sibling.md")
+
+        let tildeSource = remoteIdentity(path: "~/repo/docs/README.md")
+        let tilde = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "guide.md#install",
+                relativeTo: tildeSource
+            )
+        )
+        #expect(tilde.fragment == "install")
+        // The fragment rides along for the announcement only: identity stays
+        // fragment-free, and the click gate still resolves the same reference.
+        let reopened = try #require(
+            RemoteMarkdownReference.make(openedLinkURL: tilde, relativeTo: tildeSource)
+        )
+        #expect(reopened.remotePath == "~/repo/docs/guide.md")
+    }
+
+    @Test("open announces the at-top landing only for fragment links")
+    @MainActor
+    func openAnnouncesAtTopLandingForFragmentLinks() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-fragment-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var fragmentAnnouncements = 0
+        func open(destination: String) async throws -> DocumentPane.ID? {
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(
+                    forMarkdownDestination: destination,
+                    relativeTo: source
+                )
+            )
+            return await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                fetch: { reference in
+                    let identity = ResourceIdentity(
+                        location: reference.identity.location,
+                        path: ResourcePath(rawValue: reference.remotePath)
+                    )
+                    return .fresh(
+                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity)
+                    )
+                },
+                onRoutingFailure: {
+                    Issue.record("routing failure should not fire for a valid link")
+                },
+                onAnnounceLoading: {},
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+            )
+        }
+
+        let fragmented = try #require(await open(destination: "sibling.md#install"))
+        #expect(fragmentAnnouncements == 1)
+        // The fragment opens the same document a plain link would.
+        let tab = try #require(
+            store.session(id: sessionID)?.layout.firstDocumentGroup?.tab(id: fragmented)
+        )
+        #expect(tab.remoteResourceIdentity?.path.rawValue == "/repo/docs/sibling.md")
+
+        _ = try #require(await open(destination: "sibling.md"))
+        #expect(fragmentAnnouncements == 1)
+    }
+
     @Test("open fails closed and presents routing failure for escapes")
     @MainActor
     func openFailsClosedForEscapes() async {
@@ -224,5 +306,15 @@ struct RemoteMarkdownAttributedDocumentLinkTests {
                 effectiveRange: nil
             ) != nil
         )
+    }
+}
+
+@Suite("Remote Markdown fragment announcement catalog coverage")
+struct RemoteMarkdownFragmentAnnouncementCatalogTests {
+    @Test func fragmentAnnouncementLiteralIsCatalogKey() throws {
+        let keys = try AwesoMuxStringCatalog.keys()
+        #expect(
+            keys.contains("Opened at the top of the document. Section jumps are not supported yet."),
+            "Localizable.xcstrings has no key for the fragment at-top announcement")
     }
 }
