@@ -92,7 +92,7 @@ struct RemoteConnectivityObserverTests {
         observer.stop()
     }
 
-    @Test("equivalent path monitor updates do not mark remote panes stale")
+    @Test("separate equivalent path monitor updates do not mark remote panes stale")
     func equivalentPathMonitorUpdatesAreIgnored() async {
         let gate = TestScheduler()
         gate.advance()
@@ -112,13 +112,46 @@ struct RemoteConnectivityObserverTests {
         )
 
         observer.start()
-        let path = NWPathMonitor().currentPath
-        monitors[0].pathUpdateHandler?(path)
-        monitors[0].pathUpdateHandler?(path)
+        let firstPath = NWPathMonitor().currentPath
+        let secondPath = NWPathMonitor().currentPath
+        #expect(RemoteConnectivityRoute(firstPath) == RemoteConnectivityRoute(secondPath))
+        monitors[0].pathUpdateHandler?(firstPath)
+        monitors[0].pathUpdateHandler?(secondPath)
         await drainMainQueue()
 
         #expect(markCount == 0)
         #expect(gate.sleepCallCount == 0)
+        observer.stop()
+    }
+
+    @Test("a changed route marks remote panes stale")
+    func changedRouteMarksRemotePanesStale() async throws {
+        let gate = TestScheduler()
+        gate.advance()
+        var markCount = 0
+        let observer = RemoteConnectivityObserver(
+            notificationCenter: NotificationCenter(),
+            sleep: { duration in await gate.wait(for: duration) },
+            markRemotePanesPossiblyStale: {
+                markCount += 1
+            }
+        )
+        let wifi = RemoteConnectivityRoute(
+            status: .satisfied,
+            gateways: [],
+            interfaceTypes: [.wifi]
+        )
+        let ethernet = RemoteConnectivityRoute(
+            status: .satisfied,
+            gateways: [],
+            interfaceTypes: [.wiredEthernet]
+        )
+
+        observer.recordPathMonitorUpdate(wifi)
+        observer.recordPathMonitorUpdate(ethernet)
+
+        #expect(await waitUntil { markCount == 1 })
+        #expect(gate.sleepCallCount == 1)
         observer.stop()
     }
 

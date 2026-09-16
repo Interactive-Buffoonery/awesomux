@@ -12,6 +12,28 @@ protocol ConnectivityPathMonitoring: AnyObject {
 
 extension NWPathMonitor: ConnectivityPathMonitoring {}
 
+/// Path fields whose change can invalidate an existing SSH route. `NWPath`
+/// equality also includes transient properties such as link quality and DNS.
+struct RemoteConnectivityRoute: Equatable, Sendable {
+    let status: NWPath.Status
+    let gateways: Set<NWEndpoint>
+    let interfaceTypes: [NWInterface.InterfaceType]
+}
+
+extension RemoteConnectivityRoute {
+    init(_ path: NWPath) {
+        status = path.status
+        gateways = Set(path.gateways)
+        interfaceTypes = [
+            .other,
+            .wifi,
+            .cellular,
+            .wiredEthernet,
+            .loopback,
+        ].filter(path.usesInterfaceType)
+    }
+}
+
 @MainActor
 final class RemoteConnectivityObserver {
     private let notificationCenter: NotificationCenter
@@ -29,7 +51,7 @@ final class RemoteConnectivityObserver {
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: (any ConnectivityPathMonitoring)?
     private var debounceTask: Task<Void, Never>?
-    private var lastPath: NWPath?
+    private var lastRoute: RemoteConnectivityRoute?
 
     init(
         notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
@@ -54,7 +76,7 @@ final class RemoteConnectivityObserver {
             return
         }
 
-        lastPath = nil
+        lastRoute = nil
         wakeObserver = notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -85,17 +107,21 @@ final class RemoteConnectivityObserver {
         pathMonitor = nil
         debounceTask?.cancel()
         debounceTask = nil
-        lastPath = nil
+        lastRoute = nil
     }
 
     func recordPathMonitorUpdate(_ path: NWPath) {
-        guard let lastPath else {
-            self.lastPath = path
+        recordPathMonitorUpdate(RemoteConnectivityRoute(path))
+    }
+
+    func recordPathMonitorUpdate(_ route: RemoteConnectivityRoute) {
+        guard let lastRoute else {
+            self.lastRoute = route
             return
         }
-        guard lastPath != path else { return }
+        guard lastRoute != route else { return }
 
-        self.lastPath = path
+        self.lastRoute = route
         recordConnectivitySignal()
     }
 
