@@ -355,6 +355,19 @@ struct RemoteMarkdownReferenceTests {
         #expect(reopened.sshTarget == "my-purple")
     }
 
+    @Test("failure-page path predicate matches only the app-generated suffix")
+    func failureDocumentPathPredicate() {
+        #expect(
+            RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
+                URL(fileURLWithPath: "/tmp/abc.failure.md")))
+        #expect(
+            !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
+                URL(fileURLWithPath: "/tmp/abc.md")))
+        #expect(
+            !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
+                URL(fileURLWithPath: "/tmp/failure.md")))
+    }
+
     @Test("Md→Md click gate normalizes before containment and rejects crafted ../ escapes")
     func openedLinkURLRejectsCraftedParentTraversalUnderPrefix() throws {
         let absoluteSource = ResourceIdentity(

@@ -726,6 +726,41 @@ struct RemoteMarkdownTabRefreshTests {
         await probe.waitFor(refreshFailedMessage)
         #expect(probe.count(of: refreshFailedMessage) == 1)
     }
+
+    @Test("a nil fetch on a failure-page tab banners and speaks nothing")
+    func nilFetchOnFailurePageIsSilent() async throws {
+        let identity = remoteIdentity()
+        let path = "/tmp/awesomux-failure-page-\(UUID().uuidString).failure.md"
+        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
+        let (store, sessionID, tabID) = try storeWithRemoteTab(
+            identity: identity,
+            cacheURL: URL(fileURLWithPath: path)
+        )
+
+        let probe = AnnouncementProbe()
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            probe.record(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity,
+            documentID: tabID,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: false,
+            announceOutcome: true,
+            announceFailure: true,
+            fetch: { _ in nil }
+        )
+
+        // The tab shows the app-generated failure page, so "showing the last
+        // copy that arrived" is not true — neither the banner nor the cue.
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
+        #expect(probe.count(of: refreshFailedMessage) == 0)
+    }
 }
 
 @Suite("Remote Markdown tab refresh localization catalog coverage")

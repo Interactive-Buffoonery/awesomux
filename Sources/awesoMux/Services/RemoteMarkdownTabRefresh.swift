@@ -131,9 +131,15 @@ enum RemoteMarkdownTabRefresh {
                 return nil
             }
             let path = tab.fileURL.standardizedFileURL.path
-            RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
-            if announceOutcome || announceFailure {
-                TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
+            // A tab already on the app-generated failure page has no "last
+            // copy that arrived" to describe, so neither the banner nor the
+            // cached-failure sentence is true for it. Stay silent; the page
+            // itself already explains the state.
+            if !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL) {
+                RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
+                if announceOutcome || announceFailure {
+                    TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
+                }
             }
             return nil
         }

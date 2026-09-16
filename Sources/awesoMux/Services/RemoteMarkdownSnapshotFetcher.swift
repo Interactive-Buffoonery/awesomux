@@ -820,7 +820,19 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     /// The extension is always `md` because the page is app-authored Markdown,
     /// whatever extension the remote file carried.
     private func failureFileName(for reference: RemoteMarkdownReference) -> String {
-        "\(Self.stableHash(Self.cacheIdentityKey(reference.identity))).failure.md"
+        "\(Self.stableHash(Self.cacheIdentityKey(reference.identity)))\(Self.failureDocumentSuffix)"
+    }
+
+    /// The suffix of the app-generated failure page filename. Exposed so the
+    /// refresh path can tell "showing the failure page" from "showing a cached
+    /// copy" without reproducing the cache hash.
+    static let failureDocumentSuffix = ".failure.md"
+
+    /// Whether `fileURL` names the app-generated failure page rather than a
+    /// cached copy of the remote file. A remote file artificially named
+    /// `x.failure.md` cannot collide: its cache name is `<hash>.md`.
+    static func isFailureDocumentPath(_ fileURL: URL) -> Bool {
+        fileURL.lastPathComponent.hasSuffix(failureDocumentSuffix)
     }
 
     private func failureMarkdown(
