@@ -78,24 +78,24 @@ struct NewWorkspaceMenuButton: View, Equatable {
                     .frame(width: size, height: size)
                     .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .frame(width: size, height: size)
             // SwiftUI draws a native disclosure chevron next to a Menu's
             // label by default — this was never hidden here, so the rail
             // has shown an unintended "+ ⌄" this whole time, not a plain
             // "+". Hiding it now matches the search button beside it, which
             // has no indicator at all.
             .menuIndicator(.hidden)
-            // .borderlessButton menu labels render their glyph in the
-            // control's accent tint and ignore foregroundStyle entirely —
-            // .tint is what actually reaches the label's Image. Same fix
-            // already established for the "?" help menu (SidebarStatusFooter
-            // .swift's feedbackMenu) — this hit the identical bug before.
+            // Menu labels render their glyph in the control's accent tint and
+            // ignore foregroundStyle — .tint is what actually reaches the
+            // label's Image. The "?" help menu uses the same treatment.
             .tint(Color.aw.text3)
             .foregroundStyle(Color.aw.text3)
+            .accessibilityLabel("New Workspace menu")
+            .accessibilityHint("Opens workspace creation options")
+            .help("New Workspace menu")
         }
         .frame(width: size, height: size)
-        .accessibilityLabel("New Workspace menu")
-        .accessibilityHint("Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group")
-        .help("New Workspace menu")
     }
 }

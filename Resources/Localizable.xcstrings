@@ -2926,9 +2926,6 @@
     "Opens a menu to create a new workspace group or a workspace in a specific group." : {
 
     },
-    "Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group" : {
-
-    },
     "Opens menu" : {
 
     },
@@ -2952,6 +2949,9 @@
     },
     "Opens update options" : {
       "comment" : "Accessibility hint for the available update sidebar indicator"
+    },
+    "Opens workspace creation options" : {
+
     },
     "Optional retro overlay on the terminal pane." : {
       "comment" : "CRT effect section subtitle"
