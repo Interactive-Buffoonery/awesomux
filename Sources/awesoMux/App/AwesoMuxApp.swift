@@ -634,7 +634,9 @@ struct AwesoMuxApp: App {
                         guard
                             RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
                                 typedPath: path,
-                                target: target
+                                target: target,
+                                sessionID: sessionID,
+                                progress: RemoteMarkdownFetchProgressCoordinator.shared
                             )
                         else {
                             remoteMarkdownPathOpenRequest = nil
@@ -642,6 +644,10 @@ struct AwesoMuxApp: App {
                         }
                         remoteMarkdownPathOpenRequest = nil
                         Task { @MainActor in
+                            let origin =
+                                sessionStore.session(id: sessionID).map {
+                                    RemoteMarkdownTypedPathOpen.fetchProgressOrigin(for: $0)
+                                } ?? .document
                             guard
                                 let tabID = await RemoteMarkdownTypedPathOpen.open(
                                     typedPath: path,
@@ -649,7 +655,8 @@ struct AwesoMuxApp: App {
                                     in: sessionID,
                                     associatedWith: paneID,
                                     sessionStore: sessionStore,
-                                    onAnnounceLoading: {}
+                                    onAnnounceLoading: {},
+                                    origin: origin
                                 )
                             else { return }
                             documentTabActions.requestFocus(for: tabID, in: sessionID)
@@ -976,6 +983,7 @@ struct AwesoMuxApp: App {
                 // NSHostingControllers are fresh environment roots.
                 .environment(branchChangesCoordinator)
                 .environment(remoteMarkdownRefreshCoordinator)
+                .environment(RemoteMarkdownFetchProgressCoordinator.shared)
                 .environment(
                     \.branchChangesRefresh,
                     BranchChangesRefreshAction { paneID, originatingDocumentID, completion in

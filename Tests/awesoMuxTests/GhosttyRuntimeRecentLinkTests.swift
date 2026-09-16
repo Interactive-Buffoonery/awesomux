@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -272,6 +273,74 @@ struct GhosttyRuntimeRecentLinkTests {
         )
 
         #expect(didPresent)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+    }
+
+    @Test func remoteMarkdownShowsSurfaceSpinnerAndAnnouncesLoading() async throws {
+        GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
+        RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting()
+        defer {
+            GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
+            RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting()
+        }
+
+        let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/local",
+            remoteWorkingDirectory: "/srv/project",
+            executionPlan: .ssh(.init(target: target))
+        )
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+        defer { runtime.discardAllSurfaces() }
+
+        let hold = AsyncGate()
+        var loadingAnnouncements = 0
+        let previousPoster = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            if message == TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement {
+                loadingAnnouncements += 1
+            }
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previousPoster) }
+
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in
+            await hold.wait()
+            return nil
+        }
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
+
+        let openTask = Task { @MainActor in
+            await GhosttyRuntime.openRecentLink(
+                "docs/readme.md",
+                in: session.id,
+                associatedWith: pane.id,
+                sessionStore: store
+            )
+        }
+
+        #expect(
+            await waitUntil {
+                view.remoteMarkdownFetchProgressIndicator != nil
+            }
+        )
+        await drainMainQueue(rounds: 2)
+        #expect(loadingAnnouncements >= 1)
+
+        hold.open()
+        await openTask.value
+        #expect(view.remoteMarkdownFetchProgressIndicator == nil)
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
     }
 

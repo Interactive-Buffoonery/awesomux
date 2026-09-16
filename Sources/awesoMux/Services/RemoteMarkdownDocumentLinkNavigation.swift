@@ -15,11 +15,11 @@ enum RemoteMarkdownDocumentLinkNavigation {
         RemoteMarkdownReference.make(openedLinkURL: url, relativeTo: source)
     }
 
-    /// Interactive Md→Md open. Mirrors OSC remote-open a11y: announce loading
-    /// before the fetch, then announce the outcome via
+    /// Interactive Md→Md open. Mirrors OSC remote-open a11y: first-waiter
+    /// loading speech, then announce the outcome via
     /// `RemoteMarkdownTabRefresh.apply(announceOutcome:)`. Routing failures keep
-    /// the existing alert presenter. Progress spinners stay on the OSC surface
-    /// path where a `GhosttySurfaceNSView` host exists.
+    /// the existing alert presenter. Progress chrome is identity-keyed document
+    /// overlay — never a provisional `DocumentPane`.
     ///
     /// A destination that carries a `#fragment` opens at the top only when it
     /// mounts a *new* tab — fragment scroll is deferred — and says so through
@@ -48,7 +48,8 @@ enum RemoteMarkdownDocumentLinkNavigation {
         },
         onAnnounceFragmentOpened: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownOpenedAtTop()
-        }
+        },
+        progress: RemoteMarkdownFetchProgressCoordinator = .shared
     ) async -> DocumentPane.ID? {
         guard let reference = reference(forOpenedLinkURL: url, from: source) else {
             onRoutingFailure()
@@ -61,7 +62,22 @@ enum RemoteMarkdownDocumentLinkNavigation {
             return nil
         }
         defer { coordinator?.finish(sessionID: sessionID, identity: reference.identity) }
-        onAnnounceLoading()
+        let origin = RemoteMarkdownFetchProgressCoordinator.Origin.document
+        let isFirstWaiter = progress.begin(
+            sessionID: sessionID,
+            identity: reference.identity,
+            origin: origin
+        )
+        if isFirstWaiter {
+            onAnnounceLoading()
+        }
+        defer {
+            progress.finish(
+                sessionID: sessionID,
+                identity: reference.identity,
+                origin: origin
+            )
+        }
         guard let outcome = await fetch(reference) else {
             onFetchFailure()
             return nil

@@ -60,18 +60,35 @@ enum RemoteMarkdownTypedPathOpen {
         RemoteMarkdownReference.make(typedPath: typedPath, target: target)
     }
 
-    /// Sheet-submit prelude: validate, announce loading **immediately** (sheet
-    /// still up), then the caller dismisses and fetches. Returns false when the
-    /// path fails closed before announce.
+    /// Resolves progress chrome for a typed-path open: snapshot tabs keep the
+    /// document overlay; an SSH pane with no remote tab uses the surface spinner.
+    static func fetchProgressOrigin(
+        for session: TerminalSession
+    ) -> RemoteMarkdownFetchProgressCoordinator.Origin {
+        if session.layout.firstDocumentGroup?.selectedTab?.remoteResourceIdentity != nil {
+            return .document
+        }
+        if case .remote(_, let paneID) = context(for: session), let paneID {
+            return .surface(paneID: paneID)
+        }
+        return .document
+    }
+
+    /// Sheet-submit prelude: validate, announce loading **immediately** for the
+    /// first waiter (sheet still up), then the caller dismisses and fetches.
+    /// Returns false when the path fails closed before announce.
     ///
     /// Uses `announceRemoteMarkdownLoadingImmediately` rather than the async
     /// hop in `announceRemoteMarkdownLoading` — dismiss starts on this turn, and
     /// a deferred AX post can lose or reorder the cue during sheet teardown.
+    /// Coalesced waiters stay silent, matching OSC first-waiter-only speech.
     @MainActor
     @discardableResult
     static func announceLoadingIfValid(
         typedPath: String,
         target: RemoteTarget,
+        sessionID: TerminalSession.ID? = nil,
+        progress: RemoteMarkdownFetchProgressCoordinator? = nil,
         onAnnounceLoading: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoadingImmediately()
         },
@@ -79,9 +96,14 @@ enum RemoteMarkdownTypedPathOpen {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
         }
     ) -> Bool {
-        guard reference(typedPath: typedPath, target: target) != nil else {
+        guard let reference = reference(typedPath: typedPath, target: target) else {
             onRoutingFailure()
             return false
+        }
+        if let sessionID, let progress,
+            progress.isInFlight(sessionID: sessionID, identity: reference.identity)
+        {
+            return true
         }
         onAnnounceLoading()
         return true
@@ -117,13 +139,33 @@ enum RemoteMarkdownTypedPathOpen {
         },
         onAnnounceOutcome: @MainActor (RemoteMarkdownFetchOutcome) -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdown($0)
-        }
+        },
+        origin: RemoteMarkdownFetchProgressCoordinator.Origin? = nil,
+        progress: RemoteMarkdownFetchProgressCoordinator = .shared
     ) async -> DocumentPane.ID? {
         guard let reference = reference(typedPath: typedPath, target: target) else {
             onRoutingFailure()
             return nil
         }
-        onAnnounceLoading()
+        let resolvedOrigin =
+            origin
+            ?? sessionStore.session(id: sessionID).map(fetchProgressOrigin(for:))
+            ?? .document
+        let isFirstWaiter = progress.begin(
+            sessionID: sessionID,
+            identity: reference.identity,
+            origin: resolvedOrigin
+        )
+        if isFirstWaiter {
+            onAnnounceLoading()
+        }
+        defer {
+            progress.finish(
+                sessionID: sessionID,
+                identity: reference.identity,
+                origin: resolvedOrigin
+            )
+        }
         guard let outcome = await fetch(reference) else {
             onFetchFailure()
             return nil

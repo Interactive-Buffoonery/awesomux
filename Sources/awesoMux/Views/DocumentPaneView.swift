@@ -450,19 +450,26 @@ struct DocumentPaneSendBar: View {
                     .frame(height: 28)
                     .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
                 } else {
-                    SendToAgentButton(
-                        purpose: .refreshRemoteSnapshot,
-                        title: String(
-                            localized: "Refresh",
-                            comment:
-                                "Send-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
-                        ),
-                        failed: false,
-                        isBusy: isRemoteRefreshing,
-                        unavailableDescription: nil,
-                        action: refreshRemoteSnapshot
-                    )
-                    .frame(height: 28)
+                    HStack(spacing: 8) {
+                        if isRemoteRefreshing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityHidden(true)
+                        }
+                        SendToAgentButton(
+                            purpose: .refreshRemoteSnapshot,
+                            title: String(
+                                localized: "Refresh",
+                                comment:
+                                    "Send-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
+                            ),
+                            failed: false,
+                            isBusy: isRemoteRefreshing,
+                            unavailableDescription: nil,
+                            action: refreshRemoteSnapshot
+                        )
+                        .frame(height: 28)
+                    }
                 }
             }
             if remoteMarkdownRefresh != nil {

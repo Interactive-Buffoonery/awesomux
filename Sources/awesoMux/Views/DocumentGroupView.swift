@@ -104,6 +104,8 @@ struct DocumentGroupView: View {
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(DocumentComposeTabActionHandler.self) private var documentTabActions
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(RemoteMarkdownFetchProgressCoordinator.self)
+        private var remoteMarkdownFetchProgressCoordinator: RemoteMarkdownFetchProgressCoordinator?
 
     private static let resolveSettleInterval: Duration = .milliseconds(500)
     private static let revisionExpandedDuration: Duration = .seconds(9)
@@ -344,6 +346,13 @@ struct DocumentGroupView: View {
                     onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }
                 )
                 .id(DocumentPaneContentIdentity.remountID(for: document))
+                .overlay {
+                    if remoteMarkdownFetchProgressCoordinator?.isDocumentBusy(
+                        sessionID: session.id
+                    ) == true {
+                        RemoteMarkdownFetchProgressOverlay()
+                    }
+                }
                 DocumentPaneSendBar(
                     pane: document,
                     session: session,

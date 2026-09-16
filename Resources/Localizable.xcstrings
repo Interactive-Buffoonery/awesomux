@@ -2368,10 +2368,10 @@
 
     },
     "Loading document" : {
-      "comment" : "Progress status while fetching a remote Markdown snapshot"
+      "comment" : "Progress status while a Markdown document is loading"
     },
     "Loading remote Markdown." : {
-      "comment" : "VoiceOver announcement when a remote Markdown fetch starts"
+      "comment" : "Progress status and VoiceOver announcement while fetching a remote Markdown snapshot"
     },
     "Loading worktrees…" : {
       "comment" : "Worktree Manager loading state."

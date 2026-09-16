@@ -140,6 +140,8 @@ struct ContentView: View {
     // Refresh button reads both from the environment inside the split.
     @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator
     @Environment(RemoteMarkdownRefreshCoordinator.self) private var remoteMarkdownRefreshCoordinator
+    @Environment(RemoteMarkdownFetchProgressCoordinator.self)
+        private var remoteMarkdownFetchProgressCoordinator
     @Environment(\.branchChangesRefresh) private var branchChangesRefresh
     @Environment(\.remoteMarkdownRefresh) private var remoteMarkdownRefresh
     @Environment(\.controlActiveState) private var controlActiveState
@@ -449,6 +451,7 @@ struct ContentView: View {
                     .environment(documentTabActions)
                     .environment(branchChangesCoordinator)
                     .environment(remoteMarkdownRefreshCoordinator)
+                    .environment(remoteMarkdownFetchProgressCoordinator)
                     .environment(documentTabActions)
                     .environment(\.branchChangesRefresh, branchChangesRefresh)
                     .environment(\.remoteMarkdownRefresh, remoteMarkdownRefresh)

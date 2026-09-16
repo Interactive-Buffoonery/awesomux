@@ -3,12 +3,13 @@ import AwesoMuxCore
 
 @MainActor
 enum TerminalAccessibilityAnnouncer {
-    /// Shared loading sentence for remote Markdown fetches (OSC, Md→Md, typed
-    /// path). Builders and both post timings (async hop vs immediate) share it
-    /// so wording cannot drift.
+    /// Shared loading sentence for remote Markdown fetches (OSC, recent-link,
+    /// Md→Md, typed path) and the matching spinner accessibility label. Builders
+    /// and both post timings (async hop vs immediate) share this one
+    /// `String(localized:)` so wording cannot drift (ADR-0014).
     static let remoteMarkdownLoadingAnnouncement = String(
         localized: "Loading remote Markdown.",
-        comment: "VoiceOver announcement when a remote Markdown fetch starts"
+        comment: "Progress status and VoiceOver announcement while fetching a remote Markdown snapshot"
     )
 
     /// Default loading announcement — hops to the next main-runloop tick via

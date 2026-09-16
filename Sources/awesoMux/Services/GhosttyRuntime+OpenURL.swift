@@ -172,6 +172,23 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
+            let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
+            let progress = RemoteMarkdownFetchProgressCoordinator.shared
+            let announcesOutcome = progress.begin(
+                sessionID: sessionID,
+                identity: reference.identity,
+                origin: origin
+            )
+            if announcesOutcome {
+                TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+            }
+            defer {
+                progress.finish(
+                    sessionID: sessionID,
+                    identity: reference.identity,
+                    origin: origin
+                )
+            }
             guard let outcome = await recentLinkRemoteSnapshotProvider(reference) else {
                 remoteMarkdownFetchFailurePresenter(nil)
                 return
@@ -194,7 +211,9 @@ extension GhosttyRuntime {
             // never fires, so this call is the only announcement. Otherwise
             // speak only for a same-identity in-place refresh, where
             // DocumentGroupView intentionally suppresses "Now showing".
-            if !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity {
+            if announcesOutcome,
+                !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity
+            {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
             return
@@ -354,15 +373,23 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(view)
                 return
             }
-            let announcesOutcome = presentRemoteMarkdownFetchProgress(
-                in: view,
+            let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
+            let progress = RemoteMarkdownFetchProgressCoordinator.shared
+            let announcesOutcome = progress.begin(
                 sessionID: workspaceID,
-                paneID: paneID
+                identity: reference.identity,
+                origin: origin
             )
             if announcesOutcome {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
-            defer { finishRemoteMarkdownFetchProgress(in: view, sessionID: workspaceID, paneID: paneID) }
+            defer {
+                progress.finish(
+                    sessionID: workspaceID,
+                    identity: reference.identity,
+                    origin: origin
+                )
+            }
             guard let outcome = await RemoteMarkdownSnapshotFetcher().fetch(reference) else {
                 remoteMarkdownFetchFailurePresenter(view)
                 return
@@ -556,56 +583,5 @@ extension GhosttyRuntime {
             displayHost: displayHost,
             punycodeHost: punycodeHost
         )
-    }
-
-    @MainActor
-    private static func presentRemoteMarkdownFetchProgress(
-        in view: GhosttySurfaceNSView,
-        sessionID: TerminalSession.ID,
-        paneID: TerminalPane.ID
-    ) -> Bool {
-        if let identity = view.remoteMarkdownFetchProgressIdentity,
-            identity.sessionID == sessionID,
-            identity.paneID == paneID,
-            view.remoteMarkdownFetchProgressIndicator != nil
-        {
-            view.remoteMarkdownFetchProgressCount += 1
-            return false
-        }
-        view.clearRemoteMarkdownFetchProgress()
-        let progressIndicator = NSProgressIndicator()
-        progressIndicator.style = .spinning
-        progressIndicator.controlSize = .small
-        progressIndicator.translatesAutoresizingMaskIntoConstraints = false
-        progressIndicator.setAccessibilityLabel(
-            String(
-                localized: "Loading document",
-                comment: "Progress status while fetching a remote Markdown snapshot"
-            ))
-        view.addSubview(progressIndicator)
-        NSLayoutConstraint.activate([
-            progressIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            progressIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-        progressIndicator.startAnimation(nil)
-        view.remoteMarkdownFetchProgressIndicator = progressIndicator
-        view.remoteMarkdownFetchProgressIdentity = (sessionID, paneID)
-        view.remoteMarkdownFetchProgressCount = 1
-        return true
-    }
-
-    private static func finishRemoteMarkdownFetchProgress(
-        in view: GhosttySurfaceNSView,
-        sessionID: TerminalSession.ID,
-        paneID: TerminalPane.ID
-    ) {
-        guard let identity = view.remoteMarkdownFetchProgressIdentity,
-            identity.sessionID == sessionID,
-            identity.paneID == paneID
-        else { return }
-        view.remoteMarkdownFetchProgressCount -= 1
-        if view.remoteMarkdownFetchProgressCount == 0 {
-            view.clearRemoteMarkdownFetchProgress()
-        }
     }
 }
