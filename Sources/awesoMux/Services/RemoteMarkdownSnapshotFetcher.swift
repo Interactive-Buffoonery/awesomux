@@ -84,6 +84,10 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     /// Absolute `file://` links that are not contained under the source
     /// document directory fail closed so remote markdown cannot open local
     /// files or walk outside the intended root.
+    ///
+    /// Paths are normalized with the same absolute `standardizingPath` / tilde
+    /// lexical `..` walk as render-time resolve *before* containment — a raw
+    /// `…/docs/../secret.md` string must not pass a prefix check.
     static func make(
         openedLinkURL url: URL,
         relativeTo source: ResourceIdentity
@@ -94,16 +98,20 @@ struct RemoteMarkdownReference: Equatable, Sendable {
             return nil
         }
         let sourcePath = source.path.rawValue
-        let baseDirectory = (sourcePath as NSString).deletingLastPathComponent
-        guard !baseDirectory.isEmpty,
-            baseDirectory != ".",
-            MarkdownLinkIntercept.contains(childPath: remotePath, in: baseDirectory)
+        let rawBaseDirectory = (sourcePath as NSString).deletingLastPathComponent
+        guard !rawBaseDirectory.isEmpty,
+            rawBaseDirectory != ".",
+            let baseDirectory = MarkdownLinkIntercept.normalizedDocumentDirectoryPath(
+                rawBaseDirectory
+            ),
+            let normalizedPath = MarkdownLinkIntercept.normalizedDocumentFilePath(remotePath),
+            MarkdownLinkIntercept.contains(childPath: normalizedPath, in: baseDirectory)
         else {
             return nil
         }
         let identity = ResourceIdentity(
             location: source.location,
-            path: ResourcePath(rawValue: remotePath)
+            path: ResourcePath(rawValue: normalizedPath)
         )
         return make(identity: identity)
     }

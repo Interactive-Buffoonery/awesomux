@@ -15,6 +15,11 @@ enum RemoteMarkdownDocumentLinkNavigation {
         RemoteMarkdownReference.make(openedLinkURL: url, relativeTo: source)
     }
 
+    /// Interactive Md→Md open. Mirrors OSC remote-open a11y: announce loading
+    /// before the fetch, then announce the outcome via
+    /// `RemoteMarkdownTabRefresh.apply(announceOutcome:)`. Routing failures keep
+    /// the existing alert presenter. Progress spinners stay on the OSC surface
+    /// path where a `GhosttySurfaceNSView` host exists.
     @MainActor
     @discardableResult
     static func open(
@@ -28,12 +33,16 @@ enum RemoteMarkdownDocumentLinkNavigation {
         },
         onRoutingFailure: @MainActor () -> Void = {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
+        },
+        onAnnounceLoading: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
         }
     ) async -> DocumentPane.ID? {
         guard let reference = reference(forOpenedLinkURL: url, from: source) else {
             onRoutingFailure()
             return nil
         }
+        onAnnounceLoading()
         guard let outcome = await fetch(reference) else {
             onRoutingFailure()
             return nil
@@ -43,7 +52,8 @@ enum RemoteMarkdownDocumentLinkNavigation {
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
-            selectingTab: true
+            selectingTab: true,
+            announceOutcome: true
         )
     }
 }

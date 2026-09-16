@@ -270,6 +270,18 @@ import Testing
         )
         #expect(escaped == nil)
     }
+
+    @Test func normalizedDocumentFilePathCollapsesParentSegments() {
+        #expect(
+            MarkdownLinkIntercept.normalizedDocumentFilePath("/repo/docs/../secret.md")
+                == "/repo/secret.md"
+        )
+        #expect(
+            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/docs/../secret.md")
+                == "~/repo/secret.md"
+        )
+        #expect(MarkdownLinkIntercept.normalizedDocumentFilePath("~/../secret.md") == nil)
+    }
 }
 
 // INT-740: bridge panes never emit OSC 7, so libghostty can't resolve

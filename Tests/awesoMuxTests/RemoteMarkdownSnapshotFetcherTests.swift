@@ -333,6 +333,49 @@ struct RemoteMarkdownReferenceTests {
         #expect(reference.sshTarget == "my-purple")
     }
 
+    @Test("Md→Md click gate normalizes before containment and rejects crafted ../ escapes")
+    func openedLinkURLRejectsCraftedParentTraversalUnderPrefix() throws {
+        let absoluteSource = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        let tildeSource = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "~/repo/docs/README.md")
+        )
+
+        // Raw prefix would match `…/docs/../secret.md`; normalize must collapse
+        // first so containment sees `/repo/secret.md` / `~/repo/secret.md`.
+        let craftedFile = try #require(URL(string: "file:///repo/docs/../secret.md"))
+        #expect(
+            RemoteMarkdownReference.make(
+                openedLinkURL: craftedFile,
+                relativeTo: absoluteSource
+            ) == nil
+        )
+
+        var tildeComponents = URLComponents()
+        tildeComponents.scheme = RemoteMarkdownReference.remoteMarkdownLinkScheme
+        tildeComponents.percentEncodedPath = "/~/repo/docs/../secret.md"
+        let craftedTilde = try #require(tildeComponents.url)
+        #expect(
+            RemoteMarkdownReference.make(
+                openedLinkURL: craftedTilde,
+                relativeTo: tildeSource
+            ) == nil
+        )
+
+        // Contained normalization after the same walk still opens.
+        let containedFile = try #require(URL(string: "file:///repo/docs/nested/../sibling.md"))
+        let contained = try #require(
+            RemoteMarkdownReference.make(
+                openedLinkURL: containedFile,
+                relativeTo: absoluteSource
+            )
+        )
+        #expect(contained.remotePath == "/repo/docs/sibling.md")
+    }
+
     @Test func remoteMarkdownRejectsUnsafeOrUnsupportedPaths() {
         let pane = remotePane()
         #expect(RemoteMarkdownReference.make(payload: "/repo/script.sh", pane: pane) == nil)

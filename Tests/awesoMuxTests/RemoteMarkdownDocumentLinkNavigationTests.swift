@@ -72,6 +72,7 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         var failureCount = 0
+        var loadingAnnouncements = 0
         let openedID = await RemoteMarkdownDocumentLinkNavigation.open(
             url: URL(fileURLWithPath: "/tmp/evil.md"),
             from: remoteIdentity(),
@@ -82,11 +83,62 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
                 Issue.record("fetch must not run for a rejected link")
                 return nil
             },
-            onRoutingFailure: { failureCount += 1 }
+            onRoutingFailure: { failureCount += 1 },
+            onAnnounceLoading: { loadingAnnouncements += 1 }
         )
         #expect(openedID == nil)
         #expect(failureCount == 1)
+        #expect(loadingAnnouncements == 0)
         #expect(store.session(id: sessionID)?.layout.firstDocumentGroup == nil)
+    }
+
+    @Test("open announces loading before fetch like OSC remote opens")
+    @MainActor
+    func openAnnouncesLoadingBeforeFetch() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md",
+                relativeTo: source
+            )
+        )
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-a11y-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var events: [String] = []
+        let openedID = try #require(
+            await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                fetch: { reference in
+                    events.append("fetch:\(reference.remotePath)")
+                    let identity = ResourceIdentity(
+                        location: reference.identity.location,
+                        path: ResourcePath(rawValue: reference.remotePath)
+                    )
+                    return .fresh(
+                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity)
+                    )
+                },
+                onRoutingFailure: {
+                    Issue.record("routing failure should not fire for a valid link")
+                },
+                onAnnounceLoading: { events.append("loading") }
+            )
+        )
+
+        #expect(events == ["loading", "fetch:/repo/docs/sibling.md"])
+        #expect(openedID != nil)
+        // Outcome announcement goes through apply(announceOutcome: true) →
+        // TerminalAccessibilityAnnouncer; loading order vs fetch is the
+        // interactive contract this test pins.
     }
 }
 

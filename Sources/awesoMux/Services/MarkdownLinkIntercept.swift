@@ -231,6 +231,44 @@ enum MarkdownLinkIntercept {
         return childPath.hasPrefix(basePath + "/")
     }
 
+    /// Lexically normalize an absolute `/…` or current-user `~/…` *file* path
+    /// with the same absolute `standardizingPath` / tilde `..` walk used by
+    /// `joinRelativeDocumentPath`. Rejects escape above `~/`. Callers must run
+    /// this before containment checks so crafted `…/docs/../secret.md` strings
+    /// cannot pass a raw prefix test.
+    static func normalizedDocumentFilePath(_ path: String) -> String? {
+        if path.hasPrefix("/") {
+            let standardized = (path as NSString).standardizingPath
+            guard standardized.hasPrefix("/"), standardized != "/" else {
+                return nil
+            }
+            return standardized
+        }
+        if path.hasPrefix("~/") {
+            return normalizedTildeFilePath(path)
+        }
+        return nil
+    }
+
+    /// Lexically normalize an absolute `/…` or `~/…` *directory* path for use
+    /// as a containment root. Same walk family as `normalizedDocumentFilePath`.
+    static func normalizedDocumentDirectoryPath(_ path: String) -> String? {
+        if path == "/" {
+            return "/"
+        }
+        if path.hasPrefix("/") {
+            let standardized = (path as NSString).standardizingPath
+            guard standardized.hasPrefix("/") else {
+                return nil
+            }
+            return standardized
+        }
+        if path == "~" || path.hasPrefix("~/") {
+            return normalizedTildeDirectory(path)
+        }
+        return nil
+    }
+
     private static func joinRelativeDocumentPathUnderTilde(
         _ relativePath: String,
         baseDirectory: String
