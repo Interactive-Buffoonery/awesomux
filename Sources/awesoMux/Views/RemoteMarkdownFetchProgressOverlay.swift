@@ -8,8 +8,8 @@ import SwiftUI
 /// stays off so compose-guard and scroll are not fighting a placeholder tab.
 ///
 /// The dim layer is hidden from accessibility; `ProgressView` keeps its role
-/// and the unified loading label. Do not wrap this in
-/// `accessibilityElement(children: .ignore)` — that collapses the progress role.
+/// and the unified loading label. Do not collapse children into one AX
+/// element — that drops the progress role.
 struct RemoteMarkdownFetchProgressOverlay: View {
     var body: some View {
         ZStack {

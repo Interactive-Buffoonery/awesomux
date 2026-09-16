@@ -641,12 +641,17 @@ struct RemoteMarkdownFetchProgressSourceContractTests {
         let source = try SourceContract.source(
             at: "Sources/awesoMux/Views/RemoteMarkdownFetchProgressOverlay.swift"
         )
-        #expect(
-            source.contains("TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement")
+        let overlay = try SourceContract.declarationBody(
+            after: "struct RemoteMarkdownFetchProgressOverlay: View {",
+            in: source,
+            path: "Sources/awesoMux/Views/RemoteMarkdownFetchProgressOverlay.swift"
         )
-        #expect(source.contains("allowsHitTesting(false)"))
-        #expect(source.contains(".accessibilityHidden(true)"))
-        #expect(!source.contains("accessibilityElement(children: .ignore)"))
+        #expect(
+            overlay.contains("TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement")
+        )
+        #expect(overlay.contains("allowsHitTesting(false)"))
+        #expect(overlay.contains(".accessibilityHidden(true)"))
+        #expect(!overlay.contains("accessibilityElement(children: .ignore)"))
         #expect(source.contains("RemoteMarkdownFetchProgressOverlayHost"))
         #expect(source.contains("documentOverlayKeys"))
     }
