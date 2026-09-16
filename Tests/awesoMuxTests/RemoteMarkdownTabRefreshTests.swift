@@ -413,8 +413,31 @@ struct RemoteMarkdownTabRefreshCatalogTests {
             "Refresh",
             "Read-only snapshot from %arg",
             "Read-only remote Markdown snapshot from %arg",
+            // Nil-fetch VoiceOver path reuses the announcer's cached-failure
+            // sentence — pin the catalog key here so a drift that reintroduces
+            // a duplicate localized literal in TabRefresh is visible.
+            "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
         ] {
             #expect(keys.contains(literal), "Localizable.xcstrings has no key \"\(literal)\"")
         }
+    }
+
+    @Test("nil-fetch VoiceOver goes through the shared announcer, not a duplicate literal")
+    func nilFetchAnnouncementReusesAnnouncer() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appending(
+                path: "Sources/awesoMux/Services/RemoteMarkdownTabRefresh.swift"),
+            encoding: .utf8
+        )
+        #expect(source.contains("announceRemoteMarkdownRefreshUnavailable()"))
+        #expect(
+            !source.contains(
+                "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale."),
+            "TabRefresh must not re-own the cached-failure VoiceOver literal"
+        )
     }
 }
