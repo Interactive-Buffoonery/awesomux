@@ -3967,7 +3967,11 @@ struct AwesoMuxApp: App {
                 in: sessionID,
                 associatedWith: tab.associatedTerminalPaneID,
                 sessionStore: sessionStore,
-                selectingTab: true
+                selectingTab: true,
+                announceOutcome: true,
+                onFetchUnavailable: {
+                    GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
+                }
             )
         }
     }

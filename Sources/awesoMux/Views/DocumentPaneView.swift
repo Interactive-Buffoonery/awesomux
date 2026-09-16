@@ -463,6 +463,9 @@ struct DocumentPaneSendBar: View {
                 }
             }
             if remoteMarkdownRefresh != nil {
+                // Visually secondary under Refresh, but exposed to VoiceOver so
+                // the read-only + origin signal is not dropped when the lock
+                // Label is replaced by the button (review-all on #665).
                 Text(
                     String(
                         localized: "Read-only snapshot from \(origin)",
@@ -474,7 +477,8 @@ struct DocumentPaneSendBar: View {
                 .foregroundStyle(Color.aw.text2)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .accessibilityHidden(true)
+                .accessibilityLabel(
+                    Text("Read-only remote Markdown snapshot from \(origin)"))
             }
         }
         .frame(maxWidth: .infinity)
@@ -1304,12 +1308,13 @@ struct DocumentPaneView: View {
     @State private var scrollAnchorCapture: (@MainActor () -> Int?)? = nil
     @State private var pendingScrollAnchor: Int? = nil
     /// Latches the one live-refresh announcement this mount is allowed (#494).
-    /// `@State` behind the view's `.id(fileURL)` gives it exactly the lifetime
-    /// the rule needs: it resets on a remount and on a transcript-identity
-    /// change (the cache slot is keyed by agent kind and session id, so a
-    /// different session is a different path), and it does NOT reset on a
-    /// window-activation flip, which restarts the refresh loop but is not a new
-    /// document to warn the reader about.
+    /// `@State` behind the parent's remount identity (file URL for local tabs;
+    /// stable tab id for remote snapshots — see `DocumentPaneContentIdentity`)
+    /// gives it exactly the lifetime the rule needs: it resets on a remount and
+    /// on a transcript-identity change (the cache slot is keyed by agent kind
+    /// and session id, so a different session is a different path), and it does
+    /// NOT reset on a window-activation flip, which restarts the refresh loop
+    /// but is not a new document to warn the reader about.
     @State private var announcedLiveTranscriptRefresh = false
 
     /// `cachedRender` seeds `loadResult`/`renderedDoc` so a tab the user
@@ -1483,10 +1488,12 @@ struct DocumentPaneView: View {
             remoteStaleBannerKind = change.kind
         }
         .onChange(of: pane.fileURL) { _, newURL in
-            // An in-place refresh can move the tab between cache and failure
-            // slots without remounting. Re-seed from the policy for the new
-            // path so a banner raised against the previous slot cannot linger
-            // over a failure page (or the reverse).
+            // Remount identity for remote snapshots is the tab id (see
+            // `DocumentPaneContentIdentity`), not the cache path — so a
+            // cache↔failure slot move updates `pane.fileURL` on the same
+            // mount. Re-seed the banner from the policy for the new path.
+            // Same-path refresh outcomes still arrive via
+            // `didChangeNotification` above without changing `fileURL`.
             remoteStaleBannerKind = RemoteSnapshotStalePolicy.bannerKind(
                 path: newURL.standardizedFileURL.path)
         }

@@ -19,13 +19,17 @@ enum RemoteMarkdownTabRefresh {
     /// - Parameter selectingTab: Live opens pass `true` (subject to the compose
     ///   guard inside `openDocumentPane`). Restore re-fetch passes `false` so a
     ///   late SSH round-trip cannot steal selection from another tab.
+    /// - Parameter announceOutcome: When true (footer Refresh), speak the
+    ///   fetch result. Restore leaves this false so relaunch does not narrate
+    ///   every remote tab.
     @MainActor
     static func apply(
         _ outcome: RemoteMarkdownFetchOutcome,
         in sessionID: TerminalSession.ID,
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
-        selectingTab: Bool
+        selectingTab: Bool,
+        announceOutcome: Bool = false
     ) {
         // Before opening: `DocumentPaneView` seeds its banner state at init, so
         // a note recorded afterwards would not be seen until the next remount.
@@ -44,11 +48,20 @@ enum RemoteMarkdownTabRefresh {
             // for restore re-fetch of background tabs.
             selectingNewTab: selectingTab ? nil : false
         )
+        if announceOutcome {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
+        }
     }
 
     /// Fetches one remote snapshot and applies the outcome when the tab is
     /// still present. Returns the outcome for tests; `nil` means the fetch was
-    /// refused or the tab disappeared mid-flight.
+    /// refused, the tab disappeared mid-flight, or the cache/failure write
+    /// failed.
+    ///
+    /// - Parameter onFetchUnavailable: Called when `fetch` returns `nil` while
+    ///   the tab is still open — the live OSC path's failure presentation.
+    ///   Restore omits this so relaunch does not stack alerts; it still records
+    ///   a refresh-failed policy note against the tab's current path.
     @MainActor
     @discardableResult
     static func refresh(
@@ -57,6 +70,8 @@ enum RemoteMarkdownTabRefresh {
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
         selectingTab: Bool,
+        announceOutcome: Bool = false,
+        onFetchUnavailable: (@MainActor () -> Void)? = nil,
         fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         }
@@ -71,6 +86,29 @@ enum RemoteMarkdownTabRefresh {
             return nil
         }
         guard let outcome = await fetch(reference) else {
+            // A nil outcome is a failed attempt (typically a cache/failure-page
+            // write miss), not success. Note the policy against the tab's
+            // current path so the stale banner can say so, and optionally
+            // present the same alert the live OSC path uses.
+            guard
+                let tab = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
+                    .tab(forRemoteResource: identity)
+            else {
+                return nil
+            }
+            let path = tab.fileURL.standardizedFileURL.path
+            RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
+            onFetchUnavailable?()
+            if announceOutcome {
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized:
+                            "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
+                        comment:
+                            "VoiceOver announcement when a remote Markdown refresh returns no outcome"
+                    )
+                )
+            }
             return nil
         }
         // A closed tab must not be resurrected by a late fetch — same contract
@@ -86,7 +124,8 @@ enum RemoteMarkdownTabRefresh {
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
-            selectingTab: selectingTab
+            selectingTab: selectingTab,
+            announceOutcome: announceOutcome
         )
         return outcome
     }
@@ -94,6 +133,10 @@ enum RemoteMarkdownTabRefresh {
     /// Walks the restored store and kicks a non-blocking fetch per remote
     /// Markdown tab. Tabs already mounted from cache; this updates them in
     /// place and re-establishes any stale banner from a real attempt.
+    ///
+    /// Fetches for a given cache directory are serialized by
+    /// `RemoteMarkdownFetchCoordinator` (one directory tail), so N remote tabs
+    /// cost ~8s×N wall-clock in the worst case rather than an SSH storm.
     @MainActor
     static func scheduleRestoreRefresh(
         for store: SessionStore,
@@ -109,6 +152,7 @@ enum RemoteMarkdownTabRefresh {
                     associatedWith: target.associatedTerminalPaneID,
                     sessionStore: store,
                     selectingTab: false,
+                    announceOutcome: false,
                     fetch: fetch
                 )
             }
