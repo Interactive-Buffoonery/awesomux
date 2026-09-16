@@ -140,6 +140,7 @@ struct ContentView: View {
     // Refresh button reads both from the environment inside the split.
     @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator
     @Environment(\.branchChangesRefresh) private var branchChangesRefresh
+    @Environment(\.remoteMarkdownRefresh) private var remoteMarkdownRefresh
     @Environment(\.controlActiveState) private var controlActiveState
 
     private let sidebarWidthPreferenceStore = SidebarWidthPreferenceStore()
@@ -448,6 +449,7 @@ struct ContentView: View {
                     .environment(branchChangesCoordinator)
                     .environment(documentTabActions)
                     .environment(\.branchChangesRefresh, branchChangesRefresh)
+                    .environment(\.remoteMarkdownRefresh, remoteMarkdownRefresh)
                     .appearanceBridge(appSettingsStore)
                 }
             )

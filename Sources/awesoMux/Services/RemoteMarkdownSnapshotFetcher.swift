@@ -38,6 +38,13 @@ struct RemoteMarkdownReference: Equatable, Sendable {
             location: .remote(execution.target),
             path: ResourcePath(rawValue: resolvedPath)
         )
+        return make(identity: identity)
+    }
+
+    /// Rebuilds a reference from a tab that already carries remote Markdown
+    /// provenance — restore re-fetch and footer Refresh have the identity, not
+    /// a fresh OSC payload or a live SSH pane.
+    static func make(identity: ResourceIdentity) -> RemoteMarkdownReference? {
         guard identity.isSupportedRemoteMarkdownSnapshot else {
             return nil
         }

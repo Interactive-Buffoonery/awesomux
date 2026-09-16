@@ -1821,7 +1821,8 @@ public final class SessionStore {
         remoteResourceIdentity: ResourceIdentity? = nil,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
         branchChangesIdentity: BranchChangesIdentity? = nil,
-        associationPolicy: DocumentPaneAssociationPolicy = .captureActivePaneWhenNil
+        associationPolicy: DocumentPaneAssociationPolicy = .captureActivePaneWhenNil,
+        selectingNewTab: Bool? = nil
     ) -> DocumentPane.ID? {
         guard let sessionID = sessionID ?? selectedSessionID,
             let position = position(for: sessionID)
@@ -1832,6 +1833,12 @@ public final class SessionStore {
         let resolvedAssociation =
             associatedTerminalPaneID
             ?? (associationPolicy == .captureActivePaneWhenNil ? session.activePaneID : nil)
+        // Default keeps the compose-guard behaviour: a selection swap remounts
+        // the document view, so while a comment popover holds a typed draft,
+        // append without selecting (INT-748). Callers that refresh an already
+        // open remote tab in the background (restore re-fetch) pass `false` so
+        // a late SSH round-trip cannot steal the selected tab.
+        let shouldSelectNewTab = selectingNewTab ?? !DocumentComposeGuard.isComposing()
         guard
             let result = PaneLayoutReducer.openDocumentTab(
                 fileURL: fileURL,
@@ -1841,12 +1848,7 @@ public final class SessionStore {
                 branchChangesIdentity: branchChangesIdentity,
                 in: session,
                 now: Date(),
-                // A selection swap remounts the document view; while a comment
-                // popover holds a typed draft over the current tab, append without
-                // selecting instead of destroying it (INT-748). Only agent-driven
-                // opens can observe true — any user-initiated open involved a
-                // click that already dismissed the transient popover.
-                selectingNewTab: !DocumentComposeGuard.isComposing()
+                selectingNewTab: shouldSelectNewTab
             )
         else {
             return nil

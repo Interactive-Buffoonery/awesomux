@@ -57,6 +57,7 @@ struct DocumentPaneSendBar: View {
     // instead of waiting on an unrelated render (CodeRabbit finding).
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.branchChangesRefresh) private var branchChangesRefresh
+    @Environment(\.remoteMarkdownRefresh) private var remoteMarkdownRefresh
     /// Optional on purpose: the terminal panels host this bar from their own
     /// environment roots, which do not carry the app's coordinator. A missing
     /// coordinator means no busy state, never a crash.
@@ -64,6 +65,9 @@ struct DocumentPaneSendBar: View {
     /// Bridges the gap between the click and the coordinator's set updating, so
     /// a double-click cannot start two runs. Cleared in the refresh completion.
     @State private var refreshRequested = false
+    /// Same latch for remote Markdown Refresh — the SSH round trip is slow, and
+    /// nothing else tracks in-flight fetches per document tab.
+    @State private var remoteRefreshRequested = false
 
     /// INT-569 field diagnostics: the one line that says why a send bar is
     /// disabled. Each individual probe already names its own guard, but nothing
@@ -417,16 +421,78 @@ struct DocumentPaneSendBar: View {
         branchChangesRefresh.run(target.id, pane.id) { refreshRequested = false }
     }
 
-    var body: some View {
-        HStack(spacing: 0) {
-            if let origin = pane.remoteSnapshotOrigin {
-                Label("Read-only snapshot from \(origin)", systemImage: "lock")
+    // MARK: - Remote snapshot footer
+
+    /// Refresh re-fetches the remote file over SSH into the same cache slot.
+    /// The tab stays read-only; there is no writeback. When the environment
+    /// action is missing (terminal-panel hosts), fall back to the lock label
+    /// so the bar never crashes.
+    private func remoteSnapshotControls(origin: String) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 8) {
+                if remoteMarkdownRefresh == nil {
+                    Label(
+                        String(
+                            localized: "Read-only snapshot from \(origin)",
+                            comment:
+                                "Send-bar label on a remote Markdown snapshot tab when Refresh is unavailable"
+                        ),
+                        systemImage: "lock"
+                    )
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.aw.text2)
                     .frame(maxWidth: .infinity, minHeight: 28)
-                    .accessibilityLabel(Text("Read-only remote Markdown snapshot from \(origin)"))
+                    .accessibilityLabel(
+                        Text("Read-only remote Markdown snapshot from \(origin)"))
+                } else {
+                    SendToAgentButton(
+                        purpose: .refreshRemoteSnapshot,
+                        title: String(
+                            localized: "Refresh",
+                            comment:
+                                "Send-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
+                        ),
+                        failed: false,
+                        isBusy: remoteRefreshRequested,
+                        unavailableDescription: nil,
+                        action: refreshRemoteSnapshot
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                }
+            }
+            if remoteMarkdownRefresh != nil {
+                Text(
+                    String(
+                        localized: "Read-only snapshot from \(origin)",
+                        comment:
+                            "Caption under Refresh on a remote Markdown snapshot tab; the placeholder is the remote origin"
+                    )
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Color.aw.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityHidden(true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func refreshRemoteSnapshot() {
+        guard !remoteRefreshRequested,
+            pane.remoteResourceIdentity != nil,
+            let remoteMarkdownRefresh
+        else { return }
+        remoteRefreshRequested = true
+        remoteMarkdownRefresh.run(session.id, pane.id) { remoteRefreshRequested = false }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if let origin = pane.remoteSnapshotOrigin {
+                remoteSnapshotControls(origin: origin)
             } else if let identity = pane.agentTranscriptIdentity {
                 // Resume REPLACES Send on a transcript tab rather than sitting
                 // beside it: a transcript is not editable, so it can hold no
@@ -847,12 +913,13 @@ private struct SendToAgentButton: NSViewRepresentable {
         case sendToAgent
         case resumeSession
         case refreshBranchChanges
+        case refreshRemoteSnapshot
 
         var symbolName: String {
             switch self {
             case .sendToAgent: "paperplane.fill"
             case .resumeSession: "play.fill"
-            case .refreshBranchChanges: "arrow.clockwise"
+            case .refreshBranchChanges, .refreshRemoteSnapshot: "arrow.clockwise"
             }
         }
 
@@ -874,6 +941,12 @@ private struct SendToAgentButton: NSViewRepresentable {
                 String(
                     localized: "re-runs the branch comparison for this tab's terminal",
                     comment: "Accessibility/tooltip phrase describing what the branch changes refresh button does"
+                )
+            case .refreshRemoteSnapshot:
+                String(
+                    localized: "re-fetches this remote Markdown file over SSH",
+                    comment:
+                        "Accessibility/tooltip phrase describing what the remote Markdown Refresh button does"
                 )
             }
         }
@@ -902,6 +975,11 @@ private struct SendToAgentButton: NSViewRepresentable {
                 String(
                     localized: "re-running the comparison",
                     comment: "Accessibility phrase while a branch changes Refresh is re-running git"
+                )
+            case .refreshRemoteSnapshot:
+                String(
+                    localized: "re-fetching remote Markdown",
+                    comment: "Accessibility phrase while a remote Markdown Refresh is fetching over SSH"
                 )
             }
         }
@@ -1403,6 +1481,14 @@ struct DocumentPaneView: View {
                 change.path == pane.fileURL.standardizedFileURL.path
             else { return }
             remoteStaleBannerKind = change.kind
+        }
+        .onChange(of: pane.fileURL) { _, newURL in
+            // An in-place refresh can move the tab between cache and failure
+            // slots without remounting. Re-seed from the policy for the new
+            // path so a banner raised against the previous slot cannot linger
+            // over a failure page (or the reverse).
+            remoteStaleBannerKind = RemoteSnapshotStalePolicy.bannerKind(
+                path: newURL.standardizedFileURL.path)
         }
         .onAppear {
             reloadCompletion = DocumentReloadCompletion()

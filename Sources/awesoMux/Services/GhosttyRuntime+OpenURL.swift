@@ -154,16 +154,12 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
-            let snapshot = outcome.snapshot
-            // Before opening: `DocumentPaneView` seeds its banner state at
-            // init, so a note recorded afterwards would not be seen until the
-            // next remount.
-            RemoteSnapshotStalePolicy.record(outcome)
-            sessionStore.openDocumentPane(
-                fileURL: snapshot.fileURL,
+            RemoteMarkdownTabRefresh.apply(
+                outcome,
                 in: sessionID,
                 associatedWith: paneID,
-                remoteResourceIdentity: snapshot.identity
+                sessionStore: sessionStore,
+                selectingTab: true
             )
             return
         }
@@ -342,14 +338,12 @@ extension GhosttyRuntime {
             else {
                 return
             }
-            let snapshot = outcome.snapshot
-            // Before opening — see the note on the recent-links path above.
-            RemoteSnapshotStalePolicy.record(outcome)
-            view.sessionStore.openDocumentPane(
-                fileURL: snapshot.fileURL,
+            RemoteMarkdownTabRefresh.apply(
+                outcome,
                 in: workspaceID,
                 associatedWith: paneID,
-                remoteResourceIdentity: snapshot.identity
+                sessionStore: view.sessionStore,
+                selectingTab: true
             )
             if announcesOutcome {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)

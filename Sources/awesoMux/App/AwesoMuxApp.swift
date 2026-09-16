@@ -334,6 +334,10 @@ struct AwesoMuxApp: App {
         let loadResult: SessionPersistence.LoadResult
         if appSettingsStore.general.value.restoreWorkspaces {
             loadResult = SessionPersistence.load()
+            // After prune is scheduled inside load: re-fetch each remote
+            // Markdown tab so stale banners are raised from a real attempt on
+            // this launch, not remembered from the last one.
+            RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: loadResult.store)
         } else {
             let store = SessionStore()
             SessionPersistence.scheduleGeneratedDocumentPrune(keeping: store)
@@ -922,6 +926,15 @@ struct AwesoMuxApp: App {
                         showBranchChanges(
                             forPane: paneID,
                             originatingDocumentID: originatingDocumentID,
+                            completion: completion)
+                    }
+                )
+                .environment(
+                    \.remoteMarkdownRefresh,
+                    RemoteMarkdownRefreshAction { sessionID, documentID, completion in
+                        refreshRemoteMarkdown(
+                            sessionID: sessionID,
+                            documentID: documentID,
                             completion: completion)
                     }
                 )
@@ -3929,6 +3942,32 @@ struct AwesoMuxApp: App {
                         focusIntent = nil
                     }
                 }
+            )
+        }
+    }
+
+    /// Re-fetches the remote Markdown file behind one document tab. Same apply
+    /// path as restore re-fetch and the live link open — policy + openDocumentPane.
+    private func refreshRemoteMarkdown(
+        sessionID: TerminalSession.ID,
+        documentID: DocumentPane.ID,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        guard let session = sessionStore.session(id: sessionID),
+            let tab = session.layout.firstDocumentGroup?.tab(id: documentID),
+            let identity = tab.remoteResourceIdentity
+        else {
+            completion()
+            return
+        }
+        Task { @MainActor in
+            defer { completion() }
+            _ = await RemoteMarkdownTabRefresh.refresh(
+                identity: identity,
+                in: sessionID,
+                associatedWith: tab.associatedTerminalPaneID,
+                sessionStore: sessionStore,
+                selectingTab: true
             )
         }
     }
