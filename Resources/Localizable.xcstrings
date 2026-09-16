@@ -487,6 +487,9 @@
     ", resolved" : {
       "comment" : "Resolved state suffix in an annotation accessibility label"
     },
+    "/absolute/path/file.md or ~/path/file.md" : {
+      "comment" : "Placeholder example for the remote Markdown typed-path field"
+    },
     "/absolute/path/to/agent" : {
 
     },
@@ -1903,6 +1906,12 @@
     "Enter an SSH alias, hostname, or user@host, not a command option." : {
       "comment" : "Validation message when a managed SSH workspace destination is invalid"
     },
+    "Enter an absolute /… or ~/… path ending in .md or .markdown." : {
+      "comment" : "Validation caption when the remote Markdown typed path is unsupported"
+    },
+    "Enter an absolute path or a path starting with ~/ that ends in .md or .markdown." : {
+      "comment" : "Accessibility hint for the remote Markdown typed-path field"
+    },
     "Error" : {
       "comment" : "Agent state label\nDiagnostics event severity",
       "localizations" : {
@@ -2848,6 +2857,9 @@
     "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
     },
+    "Open Remote Markdown" : {
+      "comment" : "Title for the typed-path sheet that opens a remote Markdown file over SSH"
+    },
     "Open" : {
       "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
     },
@@ -2928,6 +2940,12 @@
     },
     "Opens a menu to create a new workspace group or a workspace in a specific group." : {
 
+    },
+    "Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group" : {
+
+    },
+    "Opens a read-only snapshot from %arg." : {
+      "comment" : "Caption under the remote Markdown path sheet title; placeholder is the declared SSH destination"
     },
     "Opens menu" : {
 
@@ -3463,6 +3481,9 @@
     "Remote Markdown loaded." : {
       "comment" : "VoiceOver announcement after a fresh remote Markdown document loads"
     },
+    "Remote Markdown path" : {
+      "comment" : "Accessibility label for the remote Markdown typed-path field"
+    },
     "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale." : {
       "comment" : "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
     },
@@ -3524,6 +3545,9 @@
     },
     "Remote panes on %arg" : {
       "comment" : "VoiceOver location summary for a group with more than one remote destination.\nVoiceOver location summary for panes that all run on one declared SSH destination."
+    },
+    "Remote path" : {
+      "comment" : "Label for the remote Markdown absolute or ~/ path field"
     },
     "Remote session %arg" : {
       "comment" : "Accessibility label for the remote session name on an always-managed SSH row"

@@ -165,6 +165,7 @@ struct AwesoMuxApp: App {
     @State private var sshWorkspaceConnectRequest: SSHWorkspaceConnectRequest?
     @State private var workspaceGroupRenameRequest: WorkspaceGroupRenameRequest?
     @State private var quickSettingsRequest: QuickSettingsRequest?
+    @State private var remoteMarkdownPathOpenRequest: RemoteMarkdownPathOpenRequest?
     @State private var remoteAdditionalSSHFeaturesSheetPresenter =
         RemoteAdditionalSSHFeaturesSheetPresenter.shared
     // True only after a request sheet's content actually appeared. Guards the
@@ -609,6 +610,32 @@ struct AwesoMuxApp: App {
                     .appearanceBridge(appSettingsStore)
                     .onAppear { activeSheetDidPresent = true }
             }
+            .sheet(item: $remoteMarkdownPathOpenRequest, onDismiss: handleRequestSheetDismiss) {
+                request in
+                RemoteMarkdownPathOpenSheet(
+                    target: request.target,
+                    onCancel: { remoteMarkdownPathOpenRequest = nil },
+                    onOpen: { path in
+                        let sessionID = request.sessionID
+                        let paneID = request.associatedPaneID
+                        let target = request.target
+                        remoteMarkdownPathOpenRequest = nil
+                        Task { @MainActor in
+                            guard
+                                let tabID = await RemoteMarkdownTypedPathOpen.open(
+                                    typedPath: path,
+                                    target: target,
+                                    in: sessionID,
+                                    associatedWith: paneID,
+                                    sessionStore: sessionStore
+                                )
+                            else { return }
+                            documentTabActions.requestFocus(for: tabID, in: sessionID)
+                        }
+                    }
+                )
+                .onAppear { activeSheetDidPresent = true }
+            }
             .sheet(
                 item: remoteAdditionalSSHFeaturesRequestBinding,
                 onDismiss: {
@@ -985,10 +1012,10 @@ struct AwesoMuxApp: App {
 
             CommandGroup(after: .newItem) {
                 Button("Open Markdown File…") {
-                    openMarkdownFilePanel()
+                    openMarkdownFile()
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.openMarkdownFile))
-                .disabled(sessionStore.selectedSession == nil)
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
 
                 Button("Open in IDE…") {
                     openSelectedWorkspaceInIDE()
@@ -2890,6 +2917,7 @@ struct AwesoMuxApp: App {
             || sshWorkspaceConnectRequest != nil
             || workspaceGroupRenameRequest != nil
             || quickSettingsRequest != nil
+            || remoteMarkdownPathOpenRequest != nil
             || remoteAdditionalSSHFeaturesSheetPresenter.request != nil
             || ghosttyRuntime.isScrollbackDumpSheetPresented
     }
@@ -3570,7 +3598,8 @@ struct AwesoMuxApp: App {
                 remoteWorkspaceGroupCreate: remoteWorkspaceGroupCreateRequest != nil,
                 sshWorkspaceConnect: sshWorkspaceConnectRequest != nil,
                 workspaceGroupRename: workspaceGroupRenameRequest != nil,
-                quickSettings: quickSettingsRequest != nil
+                quickSettings: quickSettingsRequest != nil,
+                remoteMarkdownPathOpen: remoteMarkdownPathOpenRequest != nil
             ),
             scrollbackDumpPaneIDs: Set(ghosttyRuntime.scrollbackDumpSheetPaneIDsSnapshot),
             hasModalWindow: NSApp.modalWindow != nil,
@@ -3665,6 +3694,7 @@ struct AwesoMuxApp: App {
         if keys.contains(Key.sshWorkspaceConnect) { sshWorkspaceConnectRequest = nil }
         if keys.contains(Key.workspaceGroupRename) { workspaceGroupRenameRequest = nil }
         if keys.contains(Key.quickSettings) { quickSettingsRequest = nil }
+        if keys.contains(Key.remoteMarkdownPathOpen) { remoteMarkdownPathOpenRequest = nil }
         for paneID in scrollbackPaneIDs {
             ghosttyRuntime.healScrollbackDumpSheetFlag(for: paneID)
         }
@@ -4913,7 +4943,7 @@ struct AwesoMuxApp: App {
             openSettings: { openSettingsWindow() },
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
-            openMarkdownFile: openMarkdownFilePanel,
+            openMarkdownFile: openMarkdownFile,
             viewFiles: requestViewFiles,
             openSessionManager: toggleSessionManager,
             saveLayoutPreset: saveLayoutPresetForSelectedWorkspace,
@@ -5413,7 +5443,28 @@ struct AwesoMuxApp: App {
         }
     }
 
-    private func openMarkdownFilePanel() {
+    /// File → Open Markdown / ⌘O / palette. Local sessions keep `NSOpenPanel`;
+    /// SSH panes and remote snapshot tabs get a typed-path sheet instead — never
+    /// the Mac disk browser, and never View Files directory listing (VF-0).
+    private func openMarkdownFile() {
+        healSheetWedgeBeforeGatedCommand()
+        guard let session = sessionStore.selectedSession else {
+            return
+        }
+        switch RemoteMarkdownTypedPathOpen.context(for: session) {
+        case .remote(let target, let associatedPaneID):
+            guard !isAnySheetPresented else { return }
+            remoteMarkdownPathOpenRequest = RemoteMarkdownPathOpenRequest(
+                sessionID: session.id,
+                target: target,
+                associatedPaneID: associatedPaneID
+            )
+        case .local:
+            openLocalMarkdownFilePanel()
+        }
+    }
+
+    private func openLocalMarkdownFilePanel() {
         guard sessionStore.selectedSession != nil else {
             return
         }
@@ -5772,6 +5823,13 @@ enum SSHWorkspaceConnectAction: Sendable {
 private struct WorkspaceGroupRenameRequest: Identifiable, Sendable {
     let id: SessionGroup.ID
     let name: String
+}
+
+private struct RemoteMarkdownPathOpenRequest: Identifiable, Sendable {
+    let id = UUID()
+    let sessionID: TerminalSession.ID
+    let target: RemoteTarget
+    let associatedPaneID: TerminalPane.ID?
 }
 
 private struct QuickSettingsRequest: Identifiable, Sendable {

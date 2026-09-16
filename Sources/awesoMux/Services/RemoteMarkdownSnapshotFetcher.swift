@@ -51,6 +51,34 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         return RemoteMarkdownReference(identity: identity)
     }
 
+    /// Typed-path open (V0): absolute `/…` or current-user `~/…` paths ending
+    /// in `.md` / `.markdown`. Normalizes with the same helpers as Md→Md click
+    /// gates, then binds the path to a declared `RemoteTarget` — never a title
+    /// host. Relative paths and escapes fail closed.
+    static func make(typedPath: String, target: RemoteTarget) -> RemoteMarkdownReference? {
+        guard let normalized = normalizedTypedPath(typedPath) else {
+            return nil
+        }
+        let identity = ResourceIdentity(
+            location: .remote(target),
+            path: ResourcePath(rawValue: normalized)
+        )
+        return make(identity: identity)
+    }
+
+    /// Lexical normalize + extension gate for a typed remote Markdown path.
+    /// Shared by the open sheet (enable Open) and `make(typedPath:target:)`.
+    static func normalizedTypedPath(_ typedPath: String) -> String? {
+        let trimmed = typedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalized = MarkdownLinkIntercept.normalizedDocumentFilePath(trimmed),
+            ResourceIdentity.isSupportedRemoteMarkdownPath(normalized),
+            !MarkdownLinkIntercept.containsUnsafePathScalars(normalized)
+        else {
+            return nil
+        }
+        return normalized
+    }
+
     /// Md→Md: resolve a Markdown link destination against the *source
     /// document's* remote directory, keeping the declared execution location.
     /// Parent traversal that escapes that directory fails closed — the same

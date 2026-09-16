@@ -982,9 +982,9 @@ enum PaletteCommandRegistry {
                 id: KeyboardShortcutCatalog.openMarkdownFile.id,
                 title: "Open Markdown File…",
                 subtitle: nil,
-                keywords: ["document", "markdown", "viewer", "open", "pane"],
+                keywords: ["document", "markdown", "viewer", "open", "pane", "remote"],
                 shortcut: KeyboardShortcutCatalog.openMarkdownFile,
-                isEnabled: hasSelectedSession,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
                 run: actions.openMarkdownFile
             ),

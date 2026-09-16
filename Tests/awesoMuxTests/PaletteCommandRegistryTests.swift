@@ -302,6 +302,9 @@ struct PaletteCommandRegistryTests {
         let floating = try #require(PaletteCommandRegistry.command(id: "toggleFloatingPanel", in: commands))
         let cheatsheet = try #require(PaletteCommandRegistry.command(id: "showKeyboardCheatsheet", in: commands))
         let openInIDE = try #require(PaletteCommandRegistry.command(id: "openInIDE", in: commands))
+        let openMarkdownFile = try #require(
+            PaletteCommandRegistry.command(id: KeyboardShortcutCatalog.openMarkdownFile.id, in: commands)
+        )
 
         #expect(!newGroup.isEnabled)
         #expect(!rename.isEnabled)
@@ -312,6 +315,7 @@ struct PaletteCommandRegistryTests {
         #expect(!floating.isEnabled)
         #expect(!cheatsheet.isEnabled)
         #expect(!openInIDE.isEnabled)
+        #expect(!openMarkdownFile.isEnabled)
     }
 
     @Test("New Remote Workspace Group command is registered")
