@@ -117,11 +117,12 @@ struct RemoteMarkdownAttributedDocumentLinkTests {
         let webRange = try #require(attr.string.range(of: "web"))
         let fileRange = try #require(attr.string.range(of: "file"))
 
-        let localLink = attr.attribute(
-            .link,
-            at: NSRange(localRange, in: attr.string).location,
-            effectiveRange: nil
-        ) as? URL
+        let localLink =
+            attr.attribute(
+                .link,
+                at: NSRange(localRange, in: attr.string).location,
+                effectiveRange: nil
+            ) as? URL
         #expect(localLink == URL(fileURLWithPath: "/repo/docs/sibling.md"))
         #expect(
             attr.attribute(
