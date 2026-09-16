@@ -124,6 +124,32 @@ struct RemoteConnectivityObserverTests {
         observer.stop()
     }
 
+    @Test("a changed path monitor update marks remote panes stale")
+    func changedPathMonitorUpdateMarksRemotePanesStale() async throws {
+        let gate = TestScheduler()
+        gate.advance()
+        let monitor = SpyPathMonitor()
+        var markCount = 0
+        let observer = RemoteConnectivityObserver(
+            notificationCenter: NotificationCenter(),
+            pathMonitorFactory: { monitor },
+            pathsAreEqual: { _, _ in false },
+            sleep: { duration in await gate.wait(for: duration) },
+            markRemotePanesPossiblyStale: {
+                markCount += 1
+            }
+        )
+        let path = NWPathMonitor().currentPath
+
+        observer.start()
+        monitor.pathUpdateHandler?(path)
+        monitor.pathUpdateHandler?(path)
+
+        #expect(await waitUntil { markCount == 1 })
+        #expect(gate.sleepCallCount == 1)
+        observer.stop()
+    }
+
     @Test("stop cancels the active monitor and allows restart")
     func stopCancelsMonitorAndAllowsRestart() {
         var monitors: [SpyPathMonitor] = []

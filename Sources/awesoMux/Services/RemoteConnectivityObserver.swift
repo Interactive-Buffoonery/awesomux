@@ -18,6 +18,7 @@ final class RemoteConnectivityObserver {
     private let debounceNanoseconds: UInt64
     private let markRemotePanesPossiblyStale: @MainActor () -> Void
     private let pathMonitorFactory: () -> any ConnectivityPathMonitoring
+    private let pathsAreEqual: (NWPath, NWPath) -> Bool
     /// Seam for the debounce wait (INT-557): tests inject a controllable gate so
     /// the timer "elapses" on command instead of racing real wall-clock sleeps
     /// under parallel test scheduling. Production uses the real sleep default.
@@ -35,12 +36,14 @@ final class RemoteConnectivityObserver {
         notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         debounceNanoseconds: UInt64 = 1_000_000_000,
         pathMonitorFactory: @escaping () -> any ConnectivityPathMonitoring = { NWPathMonitor() },
+        pathsAreEqual: @escaping (NWPath, NWPath) -> Bool = (==),
         sleep: @Sendable @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) },
         markRemotePanesPossiblyStale: @escaping @MainActor () -> Void
     ) {
         self.notificationCenter = notificationCenter
         self.debounceNanoseconds = debounceNanoseconds
         self.pathMonitorFactory = pathMonitorFactory
+        self.pathsAreEqual = pathsAreEqual
         self.sleep = sleep
         self.markRemotePanesPossiblyStale = markRemotePanesPossiblyStale
     }
@@ -93,7 +96,7 @@ final class RemoteConnectivityObserver {
             self.lastPath = path
             return
         }
-        guard lastPath != path else { return }
+        guard !pathsAreEqual(lastPath, path) else { return }
 
         self.lastPath = path
         recordConnectivitySignal()
