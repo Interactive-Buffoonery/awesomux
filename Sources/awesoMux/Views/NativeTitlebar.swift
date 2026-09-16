@@ -55,6 +55,7 @@ struct NativeTitlebar<Content: View>: View {
     var body: some View {
         content(geometry)
             .frame(height: geometry.height)
+            .padding(.bottom, min(0, AppTitlebarMetrics.layoutHeight - geometry.height))
             .background {
                 LinearGradient(
                     colors: [Color.aw.surface.chrome2, Color.aw.surface.chrome],
