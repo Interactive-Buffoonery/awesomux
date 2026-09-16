@@ -33,6 +33,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
         in sessionID: TerminalSession.ID,
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
+        coordinator: RemoteMarkdownDocumentLinkCoordinator? = .shared,
         fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         },
@@ -53,6 +54,13 @@ enum RemoteMarkdownDocumentLinkNavigation {
             onRoutingFailure()
             return nil
         }
+        // Drop a re-click for a file that is already opening: the fetch layer
+        // would coalesce the network work, but this second caller would still
+        // load-announce, apply, and outcome-announce again.
+        if let coordinator, !coordinator.begin(reference.identity) {
+            return nil
+        }
+        defer { coordinator?.finish(reference.identity) }
         onAnnounceLoading()
         guard let outcome = await fetch(reference) else {
             onFetchFailure()

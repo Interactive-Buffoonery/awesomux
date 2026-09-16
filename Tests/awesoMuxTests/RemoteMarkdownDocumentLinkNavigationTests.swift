@@ -3,7 +3,9 @@ import Testing
 @testable import AwesoMuxCore
 @testable import awesoMux
 
-@Suite("RemoteMarkdownDocumentLinkNavigation")
+// Serialized: several tests open the same link, and the default open latch is
+// process-wide, so overlap between tests would drop an open.
+@Suite("RemoteMarkdownDocumentLinkNavigation", .serialized)
 struct RemoteMarkdownDocumentLinkNavigationTests {
     private func remoteIdentity(
         path: String = "/repo/docs/README.md",
@@ -13,6 +15,64 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
             location: .remote(RemoteTarget(parsing: target)!),
             path: ResourcePath(rawValue: path)
         )
+    }
+
+    /// Lets a test hold one open inside `fetch` while it starts a second click.
+    private final class FetchGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var started: CheckedContinuation<Void, Never>?
+        private var release: CheckedContinuation<Void, Never>?
+        private var hasStarted = false
+        private var isReleased = false
+
+        func waitThenReturn() async {
+            markStarted()
+            await waitForRelease()
+        }
+
+        func waitUntilStarted() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if hasStarted {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                started = continuation
+                lock.unlock()
+            }
+        }
+
+        func releaseGate() {
+            lock.lock()
+            isReleased = true
+            let waiter = release
+            release = nil
+            lock.unlock()
+            waiter?.resume()
+        }
+
+        private func markStarted() {
+            lock.lock()
+            hasStarted = true
+            let waiter = started
+            started = nil
+            lock.unlock()
+            waiter?.resume()
+        }
+
+        private func waitForRelease() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if isReleased {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                release = continuation
+                lock.unlock()
+            }
+        }
     }
 
     @Test("open fetches through the shared pipeline and applies a remote tab")
@@ -429,6 +489,73 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         // Second open hits the already-open tab and must stay silent.
         _ = try #require(await open(destination: "sibling.md#install"))
         #expect(fragmentAnnouncements == 1)
+    }
+
+    @Test("a second open for the same in-flight link is dropped")
+    @MainActor
+    func secondOpenForSameInFlightLinkIsDropped() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md",
+                relativeTo: source
+            )
+        )
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-latch-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        // A private coordinator so the process-wide latch other tests use does
+        // not interact with this one.
+        let coordinator = RemoteMarkdownDocumentLinkCoordinator()
+        let gate = FetchGate()
+        var loadingAnnouncements = 0
+
+        let first = Task { @MainActor in
+            await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                coordinator: coordinator,
+                fetch: { reference in
+                    await gate.waitThenReturn()
+                    return .fresh(
+                        RemoteMarkdownSnapshot(
+                            fileURL: cacheURL,
+                            identity: reference.identity
+                        )
+                    )
+                },
+                onRoutingFailure: { Issue.record("routing failure should not fire") },
+                onAnnounceLoading: { loadingAnnouncements += 1 }
+            )
+        }
+
+        await gate.waitUntilStarted()
+        let second = await RemoteMarkdownDocumentLinkNavigation.open(
+            url: link,
+            from: source,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            coordinator: coordinator,
+            fetch: { _ in
+                Issue.record("the dropped second open must not fetch")
+                return nil
+            },
+            onAnnounceLoading: { loadingAnnouncements += 1 }
+        )
+        #expect(second == nil)
+
+        gate.releaseGate()
+        let firstID = await first.value
+        #expect(firstID != nil)
+        #expect(loadingAnnouncements == 1)
     }
 }
 
