@@ -7,13 +7,13 @@ import Testing
 
 @MainActor
 struct NewWorkspaceMenuButtonTests {
-    @Test("button-styled menu avoids the undersized native control")
-    func buttonStyledMenuAvoidsUndersizedNativeControl() {
+    @Test("button-styled menu renders a centered 40-point control")
+    func buttonStyledMenuRendersCenteredControl() throws {
         let size: CGFloat = 40
         let view = NewWorkspaceMenuButton(
             size: size,
             cornerRadius: 7,
-            restFill: Color.aw.surface.elevated.opacity(0.6),
+            restFill: .clear,
             otherGroups: [],
             onNewWorkspace: {},
             onNewWorkspaceInGroup: { _ in },
@@ -25,10 +25,43 @@ struct NewWorkspaceMenuButtonTests {
         )
         defer { window.close() }
 
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        var visiblePixelCount = 0
+        var alphaTotal: CGFloat = 0
+        var weightedX: CGFloat = 0
+        var weightedY: CGFloat = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                let alpha = bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
+                guard alpha > 0.1 else { continue }
+                visiblePixelCount += 1
+                alphaTotal += alpha
+                weightedX += CGFloat(x) * alpha
+                weightedY += CGFloat(y) * alpha
+            }
+        }
         #expect(
-            SidebarHostedTestHarness.firstDescendant(of: NSButton.self, in: hostingView) == nil,
-            "the borderless native menu control shrinks to 25x14 and shifts the plus off center"
+            visiblePixelCount < bitmap.pixelsWide * bitmap.pixelsHigh / 4,
+            "the transparent probe must isolate the plus instead of measuring an opaque backing"
         )
+        try #require(alphaTotal > 0, "the transparent probe must render the plus")
+        let renderedMidX = weightedX / alphaTotal
+        let renderedMidY = weightedY / alphaTotal
+        let bitmapMidX = CGFloat(bitmap.pixelsWide - 1) / 2
+        let bitmapMidY = CGFloat(bitmap.pixelsHigh - 1) / 2
+        let pixelsPerPointX = CGFloat(bitmap.pixelsWide) / hostingView.bounds.width
+        let pixelsPerPointY = CGFloat(bitmap.pixelsHigh) / hostingView.bounds.height
+
+        if let nativeButton = SidebarHostedTestHarness.firstDescendant(of: NSButton.self, in: hostingView) {
+            let frame = nativeButton.convert(nativeButton.bounds, to: hostingView)
+            #expect(abs(frame.width - size) <= 0.5)
+            #expect(abs(frame.height - size) <= 0.5)
+            #expect(abs(frame.midX - hostingView.bounds.midX) <= 0.5)
+            #expect(abs(frame.midY - hostingView.bounds.midY) <= 0.5)
+        }
+        #expect(abs(renderedMidX - bitmapMidX) / pixelsPerPointX <= 0.5)
+        #expect(abs(renderedMidY - bitmapMidY) / pixelsPerPointY <= 0.5)
     }
 
     @Test("equatable gate ignores closures but tracks size, fill, and group list")
