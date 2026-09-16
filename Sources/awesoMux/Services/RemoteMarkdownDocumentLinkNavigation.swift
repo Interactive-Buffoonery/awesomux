@@ -21,8 +21,10 @@ enum RemoteMarkdownDocumentLinkNavigation {
     /// the existing alert presenter. Progress spinners stay on the OSC surface
     /// path where a `GhosttySurfaceNSView` host exists.
     ///
-    /// Destinations that carried a `#fragment` open at the top — fragment
-    /// scroll is deferred — and say so through `onAnnounceFragmentOpened`.
+    /// A destination that carries a `#fragment` opens at the top only when it
+    /// mounts a *new* tab — fragment scroll is deferred — and says so through
+    /// `onAnnounceFragmentOpened`. An already-open target is left where it is
+    /// and stays silent, because nothing moved.
     @MainActor
     @discardableResult
     static func open(
@@ -56,6 +58,14 @@ enum RemoteMarkdownDocumentLinkNavigation {
             onFetchFailure()
             return nil
         }
+        // A fragment link lands at the top only when it mounts a *new* tab. An
+        // already-open target either stays where it is (a self-link) or reopens
+        // at its saved reading position, so the at-top cue would be false.
+        // Checked after the fetch so a tab opened or closed elsewhere during
+        // the SSH round trip is not judged against a stale snapshot.
+        let targetAlreadyOpen =
+            sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
+            .tab(forRemoteResource: reference.identity) != nil
         let openedID = RemoteMarkdownTabRefresh.apply(
             outcome,
             in: sessionID,
@@ -64,10 +74,11 @@ enum RemoteMarkdownDocumentLinkNavigation {
             selectingTab: true,
             announceOutcome: true
         )
-        // Only announce the at-top landing for a fresh snapshot with a fragment.
-        // Stale cache and failure pages still open a tab but contradict the cue;
-        // a session gone mid-fetch returns nil from apply.
+        // Only announce the at-top landing for a fresh snapshot on a newly
+        // mounted tab. Stale cache and failure pages still open a tab but
+        // contradict the cue; a session gone mid-fetch returns nil from apply.
         if openedID != nil,
+            !targetAlreadyOpen,
             case .fresh = outcome,
             let fragment = url.fragment,
             !fragment.isEmpty

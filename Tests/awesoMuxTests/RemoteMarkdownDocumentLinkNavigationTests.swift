@@ -379,6 +379,57 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(routingFailures == 0)
         #expect(fetchFailures == 1)
     }
+
+    /// An already-open target does not move: a self-link stays put and a
+    /// background tab reopens at its saved position. Announcing "opened at the
+    /// top" for either would be false, so the cue fires only for a new tab.
+    @Test("a fragment link to an already-open tab does not announce an at-top landing")
+    @MainActor
+    func alreadyOpenFragmentTargetDoesNotAnnounceAtTop() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-reopen-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var fragmentAnnouncements = 0
+        func open(destination: String) async throws -> DocumentPane.ID? {
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(
+                    forMarkdownDestination: destination,
+                    relativeTo: source
+                )
+            )
+            return await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                fetch: { reference in
+                    let identity = ResourceIdentity(
+                        location: reference.identity.location,
+                        path: ResourcePath(rawValue: reference.remotePath)
+                    )
+                    return .fresh(
+                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity)
+                    )
+                },
+                onRoutingFailure: { Issue.record("routing failure should not fire") },
+                onAnnounceLoading: {},
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+            )
+        }
+
+        // First open mounts a new tab, so the at-top cue is true.
+        _ = try #require(await open(destination: "sibling.md#install"))
+        #expect(fragmentAnnouncements == 1)
+        // Second open hits the already-open tab and must stay silent.
+        _ = try #require(await open(destination: "sibling.md#install"))
+        #expect(fragmentAnnouncements == 1)
+    }
 }
 
 @Suite("Remote markdown attributed document links")
