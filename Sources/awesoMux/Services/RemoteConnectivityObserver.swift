@@ -12,37 +12,6 @@ protocol ConnectivityPathMonitoring: AnyObject {
 
 extension NWPathMonitor: ConnectivityPathMonitoring {}
 
-/// Path fields whose change can invalidate an existing SSH route. `NWPath`
-/// equality also includes transient properties such as link quality and DNS.
-struct RemoteConnectivityRoute: Equatable, Sendable {
-    let status: NWPath.Status
-    let gateways: [NWEndpoint]
-    let interfaces: [Interface]
-    let localEndpoint: NWEndpoint?
-    let remoteEndpoint: NWEndpoint?
-    let supportsIPv4: Bool
-    let supportsIPv6: Bool
-
-    struct Interface: Equatable, Sendable {
-        let name: String
-        let type: NWInterface.InterfaceType
-    }
-}
-
-extension RemoteConnectivityRoute {
-    init(_ path: NWPath) {
-        status = path.status
-        gateways = path.gateways
-        interfaces = path.availableInterfaces
-            .filter { path.usesInterfaceType($0.type) }
-            .map { Interface(name: $0.name, type: $0.type) }
-        localEndpoint = path.localEndpoint
-        remoteEndpoint = path.remoteEndpoint
-        supportsIPv4 = path.supportsIPv4
-        supportsIPv6 = path.supportsIPv6
-    }
-}
-
 @MainActor
 final class RemoteConnectivityObserver {
     private let notificationCenter: NotificationCenter
@@ -60,7 +29,7 @@ final class RemoteConnectivityObserver {
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: (any ConnectivityPathMonitoring)?
     private var debounceTask: Task<Void, Never>?
-    private var lastRoute: RemoteConnectivityRoute?
+    private var lastPath: NWPath?
 
     init(
         notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
@@ -85,7 +54,7 @@ final class RemoteConnectivityObserver {
             return
         }
 
-        lastRoute = nil
+        lastPath = nil
         wakeObserver = notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -116,21 +85,17 @@ final class RemoteConnectivityObserver {
         pathMonitor = nil
         debounceTask?.cancel()
         debounceTask = nil
-        lastRoute = nil
+        lastPath = nil
     }
 
     func recordPathMonitorUpdate(_ path: NWPath) {
-        recordPathMonitorUpdate(RemoteConnectivityRoute(path))
-    }
-
-    func recordPathMonitorUpdate(_ route: RemoteConnectivityRoute) {
-        guard let lastRoute else {
-            self.lastRoute = route
+        guard let lastPath else {
+            self.lastPath = path
             return
         }
-        guard lastRoute != route else { return }
+        guard lastPath != path else { return }
 
-        self.lastRoute = route
+        self.lastPath = path
         recordConnectivitySignal()
     }
 

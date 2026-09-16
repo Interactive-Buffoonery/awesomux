@@ -114,52 +114,13 @@ struct RemoteConnectivityObserverTests {
         observer.start()
         let firstPath = NWPathMonitor().currentPath
         let secondPath = NWPathMonitor().currentPath
-        #expect(RemoteConnectivityRoute(firstPath) == RemoteConnectivityRoute(secondPath))
+        #expect(firstPath == secondPath)
         monitors[0].pathUpdateHandler?(firstPath)
         monitors[0].pathUpdateHandler?(secondPath)
         await drainMainQueue()
 
         #expect(markCount == 0)
         #expect(gate.sleepCallCount == 0)
-        observer.stop()
-    }
-
-    @Test("a changed concrete interface marks remote panes stale")
-    func changedConcreteInterfaceMarksRemotePanesStale() async throws {
-        let gate = TestScheduler()
-        gate.advance()
-        var markCount = 0
-        let observer = RemoteConnectivityObserver(
-            notificationCenter: NotificationCenter(),
-            sleep: { duration in await gate.wait(for: duration) },
-            markRemotePanesPossiblyStale: {
-                markCount += 1
-            }
-        )
-        let wifi = RemoteConnectivityRoute(
-            status: .satisfied,
-            gateways: [],
-            interfaces: [.init(name: "en0", type: .wifi)],
-            localEndpoint: nil,
-            remoteEndpoint: nil,
-            supportsIPv4: true,
-            supportsIPv6: true
-        )
-        let otherWifi = RemoteConnectivityRoute(
-            status: .satisfied,
-            gateways: [],
-            interfaces: [.init(name: "en1", type: .wifi)],
-            localEndpoint: nil,
-            remoteEndpoint: nil,
-            supportsIPv4: true,
-            supportsIPv6: true
-        )
-
-        observer.recordPathMonitorUpdate(wifi)
-        observer.recordPathMonitorUpdate(otherWifi)
-
-        #expect(await waitUntil { markCount == 1 })
-        #expect(gate.sleepCallCount == 1)
         observer.stop()
     }
 
