@@ -129,9 +129,11 @@ enum RemoteMarkdownTypedPathOpen {
                 announceOutcome: false
             )
         else {
-            // Fetch succeeded but the tab did not open (session gone, etc.) —
-            // do not speak a success/outcome cue with nothing on screen.
-            onRoutingFailure()
+            // Fetch succeeded but the tab did not open (session gone, etc.).
+            // Stay silent like the OSC stale-dispatch path and the Md→Md open:
+            // the path was trusted and the fetch worked, so the routing-failure
+            // alert would name the wrong failure, and there is nothing on screen
+            // to explain.
             return nil
         }
         onAnnounceOutcome(outcome)
