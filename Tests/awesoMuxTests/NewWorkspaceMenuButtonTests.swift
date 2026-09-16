@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import DesignSystem
 import SwiftUI
@@ -6,6 +7,30 @@ import Testing
 
 @MainActor
 struct NewWorkspaceMenuButtonTests {
+    @Test("button-styled menu avoids the undersized native control")
+    func buttonStyledMenuAvoidsUndersizedNativeControl() {
+        let size: CGFloat = 40
+        let view = NewWorkspaceMenuButton(
+            size: size,
+            cornerRadius: 7,
+            restFill: Color.aw.surface.elevated.opacity(0.6),
+            otherGroups: [],
+            onNewWorkspace: {},
+            onNewWorkspaceInGroup: { _ in },
+            onNewWorkspaceGroup: {}
+        )
+        let (window, hostingView) = SidebarHostedTestHarness.makeWindow(
+            rootView: view,
+            frame: NSRect(x: 0, y: 0, width: size, height: size)
+        )
+        defer { window.close() }
+
+        #expect(
+            SidebarHostedTestHarness.firstDescendant(of: NSButton.self, in: hostingView) == nil,
+            "the borderless native menu control shrinks to 25x14 and shifts the plus off center"
+        )
+    }
+
     @Test("equatable gate ignores closures but tracks size, fill, and group list")
     func equatableGateTracksMeaningfulInputsOnly() {
         let groupID = UUID()
