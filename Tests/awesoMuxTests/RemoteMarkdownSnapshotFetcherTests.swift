@@ -333,6 +333,28 @@ struct RemoteMarkdownReferenceTests {
         #expect(reference.sshTarget == "my-purple")
     }
 
+    @Test("absolute remote destination encodes with the scheme, never a local file URL")
+    func absoluteDestinationNeverEncodesAsLocalFileURL() throws {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md",
+                relativeTo: source
+            )
+        )
+        #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
+        #expect(!link.isFileURL)
+        // Still round-trips through the click gate back to the same remote path.
+        let reopened = try #require(
+            RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
+        )
+        #expect(reopened.remotePath == "/repo/docs/sibling.md")
+        #expect(reopened.sshTarget == "my-purple")
+    }
+
     @Test("Md→Md click gate normalizes before containment and rejects crafted ../ escapes")
     func openedLinkURLRejectsCraftedParentTraversalUnderPrefix() throws {
         let absoluteSource = ResourceIdentity(

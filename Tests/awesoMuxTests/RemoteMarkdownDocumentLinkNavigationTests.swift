@@ -459,13 +459,21 @@ struct RemoteMarkdownAttributedDocumentLinkTests {
         let webRange = try #require(attr.string.range(of: "web"))
         let fileRange = try #require(attr.string.range(of: "file"))
 
-        let localLink =
+        let localLink = try #require(
             attr.attribute(
                 .link,
                 at: NSRange(localRange, in: attr.string).location,
                 effectiveRange: nil
             ) as? URL
-        #expect(localLink == URL(fileURLWithPath: "/repo/docs/sibling.md"))
+        )
+        // Absolute remote destinations use the scheme, not a local `file://`
+        // URL, so nothing downstream can mistake them for files on this Mac.
+        #expect(localLink.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
+        #expect(!localLink.isFileURL)
+        #expect(
+            RemoteMarkdownReference.make(openedLinkURL: localLink, relativeTo: remoteIdentity())?
+                .remotePath == "/repo/docs/sibling.md"
+        )
         #expect(
             attr.attribute(
                 .link,

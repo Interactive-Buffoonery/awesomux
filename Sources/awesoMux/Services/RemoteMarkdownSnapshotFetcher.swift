@@ -171,9 +171,10 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     }
 
     /// Link URL embedded in attributed text for a remote-relative destination.
-    /// Absolute remote paths use `file://` so `MarkdownLinkRouting` still
-    /// classifies them as documents; `~/…` paths use a dedicated scheme so they
-    /// are never confused with the local filesystem.
+    /// Every remote destination uses the dedicated `awesomux-remote-md:` scheme
+    /// so no remote path is ever a real local `file://` URL that another
+    /// consumer could mistake for a file on this Mac. `MarkdownLinkRouting`
+    /// already classifies the scheme as a document link.
     static func linkURL(
         forMarkdownDestination destination: String,
         relativeTo source: ResourceIdentity
@@ -212,29 +213,21 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     }
 
     static func linkURL(forRemotePath path: String) -> URL? {
-        guard ResourceIdentity.isSupportedRemoteMarkdownPath(path) else {
+        // `isSupportedRemoteMarkdownPath` already restricts to `/…` or `~/…`.
+        guard ResourceIdentity.isSupportedRemoteMarkdownPath(path),
+            let encoded = path.addingPercentEncoding(
+                withAllowedCharacters: remoteMarkdownPathAllowed
+            )
+        else {
             return nil
         }
-        if path.hasPrefix("/") {
-            return URL(fileURLWithPath: path)
-        }
-        if path.hasPrefix("~/") {
-            var components = URLComponents()
-            components.scheme = remoteMarkdownLinkScheme
-            // Keep the leading `~/` in the path; URLComponents requires a path
-            // that starts with `/` when a scheme is set, so encode as
-            // `awesomux-remote-md:/~/…`.
-            guard
-                let encoded = path.addingPercentEncoding(
-                    withAllowedCharacters: remoteMarkdownPathAllowed
-                )
-            else {
-                return nil
-            }
-            components.percentEncodedPath = "/" + encoded
-            return components.url
-        }
-        return nil
+        var components = URLComponents()
+        components.scheme = remoteMarkdownLinkScheme
+        // URLComponents requires a scheme-bearing path to start with `/`. An
+        // absolute path already has its own root; a home-relative path needs a
+        // synthetic one, so `~/…` encodes as `awesomux-remote-md:/~/…`.
+        components.percentEncodedPath = path.hasPrefix("~/") ? "/" + encoded : encoded
+        return components.url
     }
 
     static let remoteMarkdownLinkScheme = "awesomux-remote-md"

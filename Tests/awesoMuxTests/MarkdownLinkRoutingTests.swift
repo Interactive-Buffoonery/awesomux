@@ -46,6 +46,16 @@ struct MarkdownLinkRoutingTests {
         #expect(route == .document(url))
     }
 
+    @Test("awesomux-remote-md absolute path → .document route, never a local file URL")
+    func remoteAbsoluteMarkdownRoute() throws {
+        let url = try #require(
+            RemoteMarkdownReference.linkURL(forRemotePath: "/repo/docs/guide.md")
+        )
+        #expect(!url.isFileURL)
+        let route = MarkdownLinkRouting.route(url)
+        #expect(route == .document(url))
+    }
+
     @Test("https URL → .external route")
     func httpsExternalRoute() {
         let url = URL(string: "https://example.com/page")!
