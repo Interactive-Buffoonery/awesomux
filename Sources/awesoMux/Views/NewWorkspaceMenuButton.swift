@@ -93,7 +93,7 @@ struct NewWorkspaceMenuButton: View, Equatable {
             .tint(Color.aw.text3)
             .foregroundStyle(Color.aw.text3)
             .accessibilityLabel("New Workspace menu")
-            .accessibilityHint("Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group")
+            .accessibilityHint("Opens workspace creation options")
             .help("New Workspace menu")
         }
         .frame(width: size, height: size)
