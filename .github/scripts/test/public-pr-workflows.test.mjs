@@ -409,9 +409,9 @@ test("PR body workflow runs only the trusted base validator", () => {
   assert.match(workflow, /steps\.validator\.outputs\.valid != 'true'/);
 });
 
-test("public seed keeps the linked public review guide", () => {
-  assert.match(read("README.md"), /\(docs\/code-review\.md\)/);
-  assert.ok(existsSync(join(repoRoot, "docs/code-review.md")));
+test("public seed keeps the linked CI guide", () => {
+  assert.match(read("README.md"), /\(docs\/ci\.md\)/);
+  assert.ok(existsSync(join(repoRoot, "docs/ci.md")));
 
   const seedScript = join(repoRoot, "script/prepare_public_seed.sh");
   if (existsSync(seedScript)) {

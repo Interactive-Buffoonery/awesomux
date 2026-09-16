@@ -32,8 +32,8 @@ jobs:
           ./script/check-toolchain.sh
           ./script/test-toolchain.sh
 
-      - name: Review-automation unit tests
-        run: ./script/test-review-automation.sh
+      - name: CI automation unit tests
+        run: ./script/test-ci-automation.sh
 
       - name: Public-seed source policy
         run: ./script/check_public_seed_source.sh
