@@ -1448,6 +1448,28 @@ struct DocumentPaneView: View {
         return snapshot
     }
 
+    private var isShowingReadError: Bool {
+        guard case .readError? = loadResult else { return false }
+        return true
+    }
+
+    /// Whether a remote-snapshot cache change must force a reload.
+    ///
+    /// A fetch rewrites the cache file in place, but this pane's vnode watcher
+    /// gives up if the file was missing when the pane mounted (it retries
+    /// briefly, then stops), so a same-path rewrite can land under a pane stuck
+    /// on a read error with no watcher signal. `change.kind == nil` is a fresh
+    /// or failure document — content now exists at this path — so a read-error
+    /// pane reloads to replace the error page. A loaded pane already reloads
+    /// through the watcher, so it is left alone to avoid a duplicate rebuild.
+    /// Static and pure so the rule is testable without hosting the view.
+    static func shouldReloadRemoteSnapshotCache(
+        kind: DocumentOversizeBanner.Kind?,
+        isShowingReadError: Bool
+    ) -> Bool {
+        kind == nil && isShowingReadError
+    }
+
     var body: some View {
         let reloadTaskID = ReloadTaskID(
             fileURL: pane.fileURL,
@@ -1503,6 +1525,12 @@ struct DocumentPaneView: View {
                 change.path == pane.fileURL.standardizedFileURL.path
             else { return }
             remoteStaleBannerKind = change.kind
+            if Self.shouldReloadRemoteSnapshotCache(
+                kind: change.kind,
+                isShowingReadError: isShowingReadError
+            ) {
+                triggerReload()
+            }
         }
         .onChange(of: pane.fileURL) { _, newURL in
             // Remount identity for remote snapshots is the tab id (see

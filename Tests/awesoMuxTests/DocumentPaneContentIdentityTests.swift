@@ -126,3 +126,33 @@ struct RemoteRefreshFooterAccessibilityTests {
             "Refresh caption must remain exposed to VoiceOver")
     }
 }
+
+@Suite("Remote snapshot in-place refresh reload")
+struct RemoteSnapshotCacheReloadTests {
+    /// A fetch that rewrites the cache file under a pane whose watcher already
+    /// gave up must reload; otherwise the fetch succeeds and the error page
+    /// stays on screen forever.
+    @Test("a fresh or failure-document change reloads a pane stuck on a read error")
+    func reloadsReadErrorPane() {
+        #expect(
+            DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: nil, isShowingReadError: true))
+    }
+
+    @Test("a stale-banner change does not reload the pane")
+    func staleChangeDoesNotReload() {
+        #expect(
+            !DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: .remoteRefreshFailed, isShowingReadError: true))
+        #expect(
+            !DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: .remoteStoppedRefreshing, isShowingReadError: true))
+    }
+
+    @Test("a loaded pane relies on the watcher, not this reload")
+    func loadedPaneDoesNotReload() {
+        #expect(
+            !DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: nil, isShowingReadError: false))
+    }
+}
