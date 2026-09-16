@@ -1491,11 +1491,15 @@ struct DocumentPaneView: View {
             // Remount identity for remote snapshots is the tab id (see
             // `DocumentPaneContentIdentity`), not the cache path — so a
             // cache↔failure slot move updates `pane.fileURL` on the same
-            // mount. Re-seed the banner from the policy for the new path.
+            // mount. Re-seed the banner from the policy for the new path,
+            // and restart the vnode watcher onto that path: without this
+            // it stays bound to the abandoned slot until a full remount
+            // (same class of bug as the transcript-identity restart below).
             // Same-path refresh outcomes still arrive via
             // `didChangeNotification` above without changing `fileURL`.
             remoteStaleBannerKind = RemoteSnapshotStalePolicy.bannerKind(
                 path: newURL.standardizedFileURL.path)
+            startWatcher()
         }
         .onAppear {
             reloadCompletion = DocumentReloadCompletion()
