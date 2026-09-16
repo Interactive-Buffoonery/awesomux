@@ -16,21 +16,30 @@ extension NWPathMonitor: ConnectivityPathMonitoring {}
 /// equality also includes transient properties such as link quality and DNS.
 struct RemoteConnectivityRoute: Equatable, Sendable {
     let status: NWPath.Status
-    let gateways: Set<NWEndpoint>
-    let interfaceTypes: [NWInterface.InterfaceType]
+    let gateways: [NWEndpoint]
+    let interfaces: [Interface]
+    let localEndpoint: NWEndpoint?
+    let remoteEndpoint: NWEndpoint?
+    let supportsIPv4: Bool
+    let supportsIPv6: Bool
+
+    struct Interface: Equatable, Sendable {
+        let name: String
+        let type: NWInterface.InterfaceType
+    }
 }
 
 extension RemoteConnectivityRoute {
     init(_ path: NWPath) {
         status = path.status
-        gateways = Set(path.gateways)
-        interfaceTypes = [
-            .other,
-            .wifi,
-            .cellular,
-            .wiredEthernet,
-            .loopback,
-        ].filter(path.usesInterfaceType)
+        gateways = path.gateways
+        interfaces = path.availableInterfaces
+            .filter { path.usesInterfaceType($0.type) }
+            .map { Interface(name: $0.name, type: $0.type) }
+        localEndpoint = path.localEndpoint
+        remoteEndpoint = path.remoteEndpoint
+        supportsIPv4 = path.supportsIPv4
+        supportsIPv6 = path.supportsIPv6
     }
 }
 

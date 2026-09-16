@@ -124,8 +124,8 @@ struct RemoteConnectivityObserverTests {
         observer.stop()
     }
 
-    @Test("a changed route marks remote panes stale")
-    func changedRouteMarksRemotePanesStale() async throws {
+    @Test("a changed concrete interface marks remote panes stale")
+    func changedConcreteInterfaceMarksRemotePanesStale() async throws {
         let gate = TestScheduler()
         gate.advance()
         var markCount = 0
@@ -139,16 +139,24 @@ struct RemoteConnectivityObserverTests {
         let wifi = RemoteConnectivityRoute(
             status: .satisfied,
             gateways: [],
-            interfaceTypes: [.wifi]
+            interfaces: [.init(name: "en0", type: .wifi)],
+            localEndpoint: nil,
+            remoteEndpoint: nil,
+            supportsIPv4: true,
+            supportsIPv6: true
         )
-        let ethernet = RemoteConnectivityRoute(
+        let otherWifi = RemoteConnectivityRoute(
             status: .satisfied,
             gateways: [],
-            interfaceTypes: [.wiredEthernet]
+            interfaces: [.init(name: "en1", type: .wifi)],
+            localEndpoint: nil,
+            remoteEndpoint: nil,
+            supportsIPv4: true,
+            supportsIPv6: true
         )
 
         observer.recordPathMonitorUpdate(wifi)
-        observer.recordPathMonitorUpdate(ethernet)
+        observer.recordPathMonitorUpdate(otherWifi)
 
         #expect(await waitUntil { markCount == 1 })
         #expect(gate.sleepCallCount == 1)
