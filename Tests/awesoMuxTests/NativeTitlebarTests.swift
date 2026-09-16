@@ -9,6 +9,47 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct NativeTitlebarTests {
+    @Test("main content begins at the compact titlebar boundary")
+    func mainContentBeginsAtCompactBoundary() async throws {
+        #expect(AppTitlebarMetrics.layoutHeight == 44)
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        NativeTitlebarChrome.apply(to: window)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        let hosting = NSHostingView(
+            rootView: VStack(spacing: 0) {
+                NativeTitlebar { _ in Color.clear }
+                NativeTitlebarBoundaryProbe().frame(height: 1)
+                Spacer()
+            }
+            .ignoresSafeArea(.container)
+        )
+        window.contentView = hosting
+        window.alphaValue = 0
+        window.orderFrontRegardless()
+        window.layoutIfNeeded()
+        hosting.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+        hosting.layoutSubtreeIfNeeded()
+
+        let probe = try #require(
+            SidebarHostedTestHarness.firstDescendant(of: NativeTitlebarBoundaryProbeView.self, in: hosting)
+        )
+        let close = try #require(window.standardWindowButton(.closeButton))
+        let boundaryFromTop = window.frame.height - probe.convert(probe.bounds, to: nil).maxY
+        let controlsBottomFromTop = window.frame.height - close.convert(close.bounds, to: nil).minY
+        #expect(abs(boundaryFromTop - AppTitlebarMetrics.layoutHeight) < 0.5)
+        #expect(boundaryFromTop > controlsBottomFromTop)
+    }
+
     @Test("primary chrome adopts the standard unified toolbar control insets")
     func standardToolbarInsets() async throws {
         _ = NSApplication.shared
@@ -33,13 +74,13 @@ struct NativeTitlebarTests {
                     AppTitlebarView(
                         session: session, sessionStore: store, sidebarPosition: .left,
                         hostPresentation: SidebarHostPresentationState())
+                    NativeTitlebarBoundaryProbe().frame(height: 20)
                     Spacer()
                 }
                 .environment(AppSettingsStore(legacySnapshotProvider: { nil }))
                 .background(WindowChromeConfigurator(windowRole: .primaryContent))
                 .ignoresSafeArea(.container)
         )
-        hosting.safeAreaRegions = []
         main.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         for window in [reference, main] {
@@ -50,15 +91,40 @@ struct NativeTitlebarTests {
         await drainMainQueue()
         hosting.layoutSubtreeIfNeeded()
         let expected = try #require(NativeTitlebarGeometry(window: reference))
+        let inheritedTopInset = try #require(reference.contentView).safeAreaInsets.top
         #expect(main.toolbar != nil)
         #expect(main.toolbarStyle == .unified)
+        #expect(inheritedTopInset > 0)
+        #expect(hosting.safeAreaInsets.top == 0)
+
+        hosting.additionalSafeAreaInsets.top = 0
+        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: main)
+        await drainMainQueue()
+        #expect(hosting.safeAreaInsets.top == 0)
+        #expect(abs(hosting.additionalSafeAreaInsets.top + inheritedTopInset) < 0.5)
+
+        let stableAdditionalTopInset = hosting.additionalSafeAreaInsets.top
+        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: main)
+        await drainMainQueue()
+        #expect(hosting.additionalSafeAreaInsets.top == stableAdditionalTopInset)
+
         #expect(NativeTitlebarGeometry(window: main) == expected)
+        let contentProbe = try #require(
+            SidebarHostedTestHarness.firstDescendant(of: NativeTitlebarBoundaryProbeView.self, in: hosting)
+        )
+        let contentProbeFrame = contentProbe.convert(contentProbe.bounds, to: nil)
+        let contentBoundaryFromTop = main.frame.height - contentProbeFrame.maxY
+        #expect(abs(contentBoundaryFromTop - AppTitlebarMetrics.layoutHeight) < 0.5)
+        let reclaimedStripPoint = CGPoint(x: contentProbeFrame.midX, y: contentProbeFrame.maxY - 4)
+        let frameView = try #require(main.contentView?.superview)
+        let reclaimedStripHit = try #require(frameView.hitTest(reclaimedStripPoint))
+        #expect(reclaimedStripHit === contentProbe, "the reclaimed titlebar strip must belong to app content")
+
         let dragRegion = try #require(
             SidebarHostedTestHarness.firstDescendant(
                 of: NSView.self, in: hosting, where: { $0.toolTip == WindowDragRenameHandle.tooltip }
             ))
         let point = CGPoint(x: dragRegion.bounds.midX, y: dragRegion.bounds.midY)
-        let frameView = try #require(main.contentView?.superview)
         let hit = try #require(frameView.hitTest(dragRegion.convert(point, to: nil)))
         #expect(hit === dragRegion, "the native toolbar must not cover workspace interactions")
         SidebarHostedTestHarness.sendDoubleClick(to: hit, at: hit.convert(point, from: dragRegion), in: main)
@@ -110,12 +176,16 @@ struct NativeTitlebarTests {
         window.toolbarStyle = .unified
         if hasToolbar { window.toolbar = NSToolbar(identifier: "Titlebar geometry test") }
         let hosting = NSHostingView(
-            rootView: AppTitlebarView(
-                session: nil,
-                sessionStore: SessionStore(groups: [], selectedSessionID: nil, pinnedSessionIDs: []),
-                sidebarPosition: .left,
-                hostPresentation: SidebarHostPresentationState()
-            ).ignoresSafeArea(.container))
+            rootView: VStack(spacing: 0) {
+                NativeTitlebar { _ in
+                    NativeTitlebarBoundaryProbe()
+                        .frame(width: 1, height: 1)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
+                Spacer()
+            }
+            .ignoresSafeArea(.container)
+        )
         hosting.safeAreaRegions = []
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
         hosting.frame = container.bounds
@@ -130,9 +200,13 @@ struct NativeTitlebarTests {
         await drainMainQueue()
         hosting.layoutSubtreeIfNeeded()
         let close = try #require(window.standardWindowButton(.closeButton))
+        let probe = try #require(
+            SidebarHostedTestHarness.firstDescendant(of: NativeTitlebarBoundaryProbeView.self, in: hosting)
+        )
         let nativeFrame = close.convert(close.bounds, to: nil)
         let centreFromTop = window.frame.height - nativeFrame.midY
-        #expect(abs(hosting.fittingSize.height / 2 - centreFromTop) < 0.5)
+        let probeCentreFromTop = window.frame.height - probe.convert(probe.bounds, to: nil).midY
+        #expect(abs(probeCentreFromTop - centreFromTop) < 0.5)
         let measured = try #require(NativeTitlebarGeometry(window: window))
         let zoom = try #require(window.standardWindowButton(.zoomButton))
         #expect(measured.leadingInset >= zoom.convert(zoom.bounds, to: nil).maxX + 10)
@@ -144,6 +218,17 @@ struct NativeTitlebarTests {
         await drainMainQueue()
         hosting.layoutSubtreeIfNeeded()
         let changedFrame = close.convert(close.bounds, to: nil)
-        #expect(abs(hosting.fittingSize.height / 2 - (window.frame.height - changedFrame.midY)) < 0.5)
+        let changedProbeCentreFromTop = window.frame.height - probe.convert(probe.bounds, to: nil).midY
+        #expect(abs(changedProbeCentreFromTop - (window.frame.height - changedFrame.midY)) < 0.5)
     }
 }
+
+private struct NativeTitlebarBoundaryProbe: NSViewRepresentable {
+    func makeNSView(context: Context) -> NativeTitlebarBoundaryProbeView {
+        NativeTitlebarBoundaryProbeView()
+    }
+
+    func updateNSView(_ nsView: NativeTitlebarBoundaryProbeView, context: Context) {}
+}
+
+private final class NativeTitlebarBoundaryProbeView: NSView {}

@@ -15,6 +15,9 @@ enum AppTitlebarMetrics {
     }
 
     static let panelTitlebarHeight: CGFloat = 32
+    /// Keeps the legacy compact band with a small bottom-only cushion below
+    /// the native controls.
+    static let layoutHeight: CGFloat = 44
 
     /// Initial room while a view is unattached. Live bands use AppKit's
     /// measured controls rather than assuming a toolbar style has this height.
