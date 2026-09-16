@@ -67,6 +67,7 @@ private final class WindowChromeConfigView: NSView {
     private let standardWindowButtonVisibility: StandardWindowButtonVisibility
     private let windowRole: AwesoMuxWindowRole?
     private var keyObserver: NSObjectProtocol?
+    private var fullScreenObservers: [NSObjectProtocol] = []
     private weak var roleWindow: NSWindow?
 
     init(
@@ -90,6 +91,7 @@ private final class WindowChromeConfigView: NSView {
     deinit {
         MainActor.assumeIsolated {
             removeKeyObserver()
+            removeFullScreenObservers()
             clearWindowRole()
         }
     }
@@ -98,11 +100,26 @@ private final class WindowChromeConfigView: NSView {
         super.viewDidMoveToWindow()
 
         removeKeyObserver()
+        removeFullScreenObservers()
         clearWindowRole()
 
         guard let window else { return }
 
         configureWindow(window)
+
+        if windowRole == .primaryContent {
+            fullScreenObservers = [
+                NSWindow.didEnterFullScreenNotification,
+                NSWindow.didExitFullScreenNotification,
+            ].map { notification in
+                NotificationCenter.default.addObserver(forName: notification, object: window, queue: .main) {
+                    [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.scheduleDeferredConfigure()
+                    }
+                }
+            }
+        }
 
         guard reassertsOnBecomeKey else { return }
         keyObserver = NotificationCenter.default.addObserver(
@@ -122,6 +139,13 @@ private final class WindowChromeConfigView: NSView {
             NotificationCenter.default.removeObserver(keyObserver)
         }
         keyObserver = nil
+    }
+
+    private func removeFullScreenObservers() {
+        for observer in fullScreenObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        fullScreenObservers.removeAll()
     }
 
     func configureAttachedWindow(requiresTitlebarRelayout: Bool = false) {
@@ -207,6 +231,7 @@ private final class WindowChromeConfigView: NSView {
                 NativeTitlebarChrome.apply(to: window)
                 corrected = true
             }
+            corrected = removeContentSafeAreaReservation(from: window) || corrected
         } else if window.toolbarStyle != .unifiedCompact {
             window.toolbarStyle = .unifiedCompact
             corrected = true
@@ -221,6 +246,17 @@ private final class WindowChromeConfigView: NSView {
         }
 
         return corrected
+    }
+
+    private func removeContentSafeAreaReservation(from window: NSWindow) -> Bool {
+        guard let contentView = window.contentView else { return false }
+        var additionalInsets = contentView.additionalSafeAreaInsets
+        let inheritedTopInset = contentView.safeAreaInsets.top - additionalInsets.top
+        let targetTopInset = -inheritedTopInset
+        guard additionalInsets.top != targetTopInset else { return false }
+        additionalInsets.top = targetTopInset
+        contentView.additionalSafeAreaInsets = additionalInsets
+        return true
     }
 
     private func forceTitlebarRelayout(for window: NSWindow) {
