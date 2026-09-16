@@ -76,9 +76,16 @@ enum RemoteMarkdownTabRefresh {
     ///   path while the first SSH round trip is still finishing.
     ///
     /// A `nil` fetch still records a refresh-failed policy note against the
-    /// tab's current path (the stale banner) and, when `announceOutcome` is
-    /// set, speaks the unavailable outcome. No alert is presented: the banner
-    /// and announcement already tell the whole story.
+    /// tab's current path (the stale banner) and speaks the unavailable outcome
+    /// when `announceOutcome` (the send-bar Refresh, which also speaks success)
+    /// or `announceFailure` (restore, which speaks only a failure for the tab
+    /// the user is looking at) is set. No alert is presented: the banner and
+    /// announcement already tell the whole story.
+    ///
+    /// - Parameter announceFailure: Speaks only the unavailable outcome, not
+    ///   success. Restore uses it for the selected tab so a launch-time failure
+    ///   over the visible document is announced, while background tabs stay
+    ///   silent and a launch-time success is not narrated.
     @MainActor
     @discardableResult
     static func refresh(
@@ -89,6 +96,7 @@ enum RemoteMarkdownTabRefresh {
         sessionStore: SessionStore,
         selectingTab: Bool,
         announceOutcome: Bool = false,
+        announceFailure: Bool = false,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
         fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
@@ -124,7 +132,7 @@ enum RemoteMarkdownTabRefresh {
             }
             let path = tab.fileURL.standardizedFileURL.path
             RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
-            if announceOutcome {
+            if announceOutcome || announceFailure {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
             }
             return nil
@@ -199,6 +207,10 @@ enum RemoteMarkdownTabRefresh {
                             sessionStore: store,
                             selectingTab: false,
                             announceOutcome: false,
+                            // Speak a failure only for the tab the user is
+                            // looking at; background tabs stay silent and a
+                            // launch-time success is never narrated.
+                            announceFailure: isSelectedRestoreTarget(target, in: store),
                             coordinator: coordinator,
                             fetch: fetch
                         )
@@ -239,6 +251,20 @@ enum RemoteMarkdownTabRefresh {
             }
         }
         return targets
+    }
+
+    /// Whether `target` is the document tab the user is currently looking at.
+    /// Restore uses it to decide which failure may speak: narrating every tab at
+    /// launch would be noise, but a failure over the visible document is a
+    /// status change the reader must hear.
+    @MainActor
+    static func isSelectedRestoreTarget(
+        _ target: RestoreTarget,
+        in store: SessionStore
+    ) -> Bool {
+        store.selectedSessionID == target.sessionID
+            && store.session(id: target.sessionID)?.layout.firstDocumentGroup?.selectedTabID
+                == target.documentID
     }
 }
 
