@@ -51,20 +51,20 @@ enum RemoteMarkdownTypedPathOpen {
         RemoteMarkdownReference.make(typedPath: typedPath, target: target)
     }
 
-    /// Interactive typed-path open. Mirrors OSC / Md→Md a11y: announce loading
-    /// before the fetch, then announce the outcome via
-    /// `RemoteMarkdownTabRefresh.apply(announceOutcome:)`.
+    /// Sheet-submit prelude: validate, announce loading **immediately** (sheet
+    /// still up), then the caller dismisses and fetches. Returns false when the
+    /// path fails closed before announce.
     ///
-    /// Sheet submit should call `announceLoadingIfValid` *before* dismissing the
-    /// sheet, then pass `onAnnounceLoading: {}` here so VO is not deferred until
-    /// after dismiss.
+    /// Uses `announceRemoteMarkdownLoadingImmediately` rather than the async
+    /// hop in `announceRemoteMarkdownLoading` — dismiss starts on this turn, and
+    /// a deferred AX post can lose or reorder the cue during sheet teardown.
     @MainActor
     @discardableResult
     static func announceLoadingIfValid(
         typedPath: String,
         target: RemoteTarget,
         onAnnounceLoading: @MainActor () -> Void = {
-            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoadingImmediately()
         },
         onRoutingFailure: @MainActor () -> Void = {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
@@ -78,6 +78,10 @@ enum RemoteMarkdownTypedPathOpen {
         return true
     }
 
+    /// Interactive typed-path open. Mirrors OSC / Md→Md a11y for non-sheet
+    /// callers (async loading hop via `announceRemoteMarkdownLoading`). Sheet
+    /// submit should call `announceLoadingIfValid` first (immediate post while
+    /// the sheet is up), dismiss, then pass `onAnnounceLoading: {}` here.
     @MainActor
     @discardableResult
     static func open(

@@ -6,6 +6,40 @@ import Testing
 @MainActor
 @Suite("Terminal accessibility announcements")
 struct TerminalAccessibilityAnnouncerTests {
+    @Test("immediate remote Markdown loading posts on this turn; async hop does not")
+    func remoteMarkdownLoadingImmediatePostsSynchronously() async {
+        var posted: [String] = []
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.announcementPoster = { message, _ in
+            posted.append(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.announcementPoster = previous }
+
+        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+        #expect(
+            posted.isEmpty,
+            "announceRemoteMarkdownLoading must keep the async hop for menu/drag callers"
+        )
+
+        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoadingImmediately()
+        #expect(
+            posted == [TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement],
+            "immediate loading must post before the next runloop tick (sheet still up)"
+        )
+
+        // Drain the deferred hop from announceRemoteMarkdownLoading without
+        // inventing a second cue from immediate.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(
+            posted == [
+                TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement,
+                TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement,
+            ]
+        )
+    }
+
     @Test func remoteMarkdownAnnouncementsDescribeEveryOutcome() {
         let snapshot = RemoteMarkdownSnapshot(
             fileURL: URL(fileURLWithPath: "/tmp/example.md"),

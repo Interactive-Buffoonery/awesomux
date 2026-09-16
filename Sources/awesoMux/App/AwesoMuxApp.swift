@@ -619,8 +619,9 @@ struct AwesoMuxApp: App {
                         let sessionID = request.sessionID
                         let paneID = request.associatedPaneID
                         let target = request.target
-                        // Announce loading while the sheet is still up — VO
-                        // misses the cue if it lands only after dismiss.
+                        // Immediate AX post while the sheet is still up — the
+                        // async hop in announceRemoteMarkdownLoading can lose
+                        // the cue once dismiss starts on this turn.
                         guard
                             RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
                                 typedPath: path,
