@@ -720,13 +720,13 @@ enum TerminalAccessibilityAnnouncer {
         )
     }
 
-#if DEBUG
-    static func setAnnouncementPosterForTesting(
-        _ poster: @escaping (String, NSAccessibilityPriorityLevel) -> Void
-    ) {
-        announcementPoster = poster
-    }
-#endif
+    #if DEBUG
+        static func setAnnouncementPosterForTesting(
+            _ poster: @escaping (String, NSAccessibilityPriorityLevel) -> Void
+        ) {
+            announcementPoster = poster
+        }
+    #endif
 
     private static func post(_ message: String, priority: NSAccessibilityPriorityLevel) {
         announcementPoster(message, priority)
