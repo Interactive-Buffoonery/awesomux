@@ -97,6 +97,31 @@ struct UpdateAvailableIndicatorTests {
         #expect(fixture.fittedSize.height >= 40)
     }
 
+    @Test("the native menu wires its two actions to the controller callbacks") @MainActor
+    func nativeMenuWiresUpdateActions() throws {
+        var checks = 0
+        var skips = 0
+        let button = UpdateAvailableMenuNSButton()
+        button.onCheckForUpdates = { checks += 1 }
+        button.onSkipAvailableUpdate = { skips += 1 }
+
+        let menu = button.makeMenu()
+        #expect(menu.items.count == 2)
+        let updateItem = try #require(menu.items.first)
+        let skipItem = try #require(menu.items.dropFirst().first)
+        #expect(updateItem.title.contains("Update"))
+        #expect(skipItem.title.contains("Skip"))
+        #expect(updateItem.target === button)
+        #expect(skipItem.target === button)
+
+        menu.performActionForItem(at: 0)
+        #expect(checks == 1)
+        #expect(skips == 0)
+        menu.performActionForItem(at: 1)
+        #expect(checks == 1)
+        #expect(skips == 1)
+    }
+
 }
 
 @MainActor
