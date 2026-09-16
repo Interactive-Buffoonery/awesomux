@@ -116,14 +116,21 @@ enum RemoteMarkdownTypedPathOpen {
             onRoutingFailure()
             return nil
         }
-        let openedID = RemoteMarkdownTabRefresh.apply(
-            outcome,
-            in: sessionID,
-            associatedWith: paneID,
-            sessionStore: sessionStore,
-            selectingTab: true,
-            announceOutcome: false
-        )
+        guard
+            let openedID = RemoteMarkdownTabRefresh.apply(
+                outcome,
+                in: sessionID,
+                associatedWith: paneID,
+                sessionStore: sessionStore,
+                selectingTab: true,
+                announceOutcome: false
+            )
+        else {
+            // Fetch succeeded but the tab did not open (session gone, etc.) —
+            // do not speak a success/outcome cue with nothing on screen.
+            onRoutingFailure()
+            return nil
+        }
         onAnnounceOutcome(outcome)
         return openedID
     }
