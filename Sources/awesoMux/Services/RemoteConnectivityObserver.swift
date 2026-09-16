@@ -29,7 +29,7 @@ final class RemoteConnectivityObserver {
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: (any ConnectivityPathMonitoring)?
     private var debounceTask: Task<Void, Never>?
-    private var hasSeenInitialPathUpdate = false
+    private var lastPath: NWPath?
 
     init(
         notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
@@ -54,7 +54,7 @@ final class RemoteConnectivityObserver {
             return
         }
 
-        hasSeenInitialPathUpdate = false
+        lastPath = nil
         wakeObserver = notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -66,9 +66,9 @@ final class RemoteConnectivityObserver {
         }
 
         let monitor = pathMonitorFactory()
-        monitor.pathUpdateHandler = { [weak self] _ in
+        monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
-                self?.recordPathMonitorUpdate()
+                self?.recordPathMonitorUpdate(path)
             }
         }
         monitor.start(queue: pathMonitorQueue)
@@ -85,15 +85,17 @@ final class RemoteConnectivityObserver {
         pathMonitor = nil
         debounceTask?.cancel()
         debounceTask = nil
-        hasSeenInitialPathUpdate = false
+        lastPath = nil
     }
 
-    func recordPathMonitorUpdate() {
-        guard hasSeenInitialPathUpdate else {
-            hasSeenInitialPathUpdate = true
+    func recordPathMonitorUpdate(_ path: NWPath) {
+        guard let lastPath else {
+            self.lastPath = path
             return
         }
+        guard lastPath != path else { return }
 
+        self.lastPath = path
         recordConnectivitySignal()
     }
 
