@@ -9,7 +9,7 @@ write-capable token.
 
 The `Require fast CI` repository ruleset requires these stable check names:
 
-- `Fast deterministic guards` runs the Linux source-policy, review-automation,
+- `Fast deterministic guards` runs the Linux source-policy, CI automation,
   localization, test-wait, toolchain, and changed-line formatting checks.
 - `CodeQL interpreted complete` aggregates the automatic Actions CodeQL
   analysis.
@@ -18,8 +18,8 @@ The `Require fast CI` repository ruleset requires these stable check names:
   human-authored description check because GitHub owns their generated bodies.
 
 The ruleset does not require a branch to be up to date before merging. Other
-checks, including tint contrast, pull-request sizing, automated review, and
-native CI, remain useful but advisory.
+checks, including tint contrast, pull-request sizing, and native CI, remain
+useful but advisory.
 
 The strongest pre-PR gate remains local:
 
@@ -165,9 +165,6 @@ trusted and untrusted workflow contexts:
    dispatches the isolated cleanup workflow. Cleanup deletes only the exact ref
    in the `native-ci-runs/run-...` namespace; neither job downloads artifacts or
    executes pull-request code.
-
-OpenCode review uses a different passive-data boundary and never executes pull
-request code. See [`code-review.md`](code-review.md).
 
 ## Native preparation and caching
 
