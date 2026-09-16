@@ -62,11 +62,16 @@ struct DocumentPaneSendBar: View {
     /// environment roots, which do not carry the app's coordinator. A missing
     /// coordinator means no busy state, never a crash.
     @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator: BranchChangesCoordinator?
+    /// Same optional contract as `branchChangesCoordinator`: survives
+    /// `DocumentNudgeSendBarID` remounts so a mid-refresh shell-activity flip
+    /// cannot clear the busy latch and double-announce.
+    @Environment(RemoteMarkdownRefreshCoordinator.self) private var remoteMarkdownRefreshCoordinator:
+        RemoteMarkdownRefreshCoordinator?
     /// Bridges the gap between the click and the coordinator's set updating, so
     /// a double-click cannot start two runs. Cleared in the refresh completion.
     @State private var refreshRequested = false
-    /// Same latch for remote Markdown Refresh — the SSH round trip is slow, and
-    /// nothing else tracks in-flight fetches per document tab.
+    /// Local gap-fill only — authoritative in-flight state is
+    /// `remoteMarkdownRefreshCoordinator` (see above).
     @State private var remoteRefreshRequested = false
 
     /// INT-569 field diagnostics: the one line that says why a send bar is
@@ -455,7 +460,7 @@ struct DocumentPaneSendBar: View {
                                 "Send-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
                         ),
                         failed: false,
-                        isBusy: remoteRefreshRequested,
+                        isBusy: isRemoteRefreshing,
                         unavailableDescription: nil,
                         action: refreshRemoteSnapshot
                     )
@@ -484,8 +489,13 @@ struct DocumentPaneSendBar: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var isRemoteRefreshing: Bool {
+        remoteRefreshRequested
+            || (remoteMarkdownRefreshCoordinator?.isRefreshing(pane.id) ?? false)
+    }
+
     private func refreshRemoteSnapshot() {
-        guard !remoteRefreshRequested,
+        guard !isRemoteRefreshing,
             pane.remoteResourceIdentity != nil,
             let remoteMarkdownRefresh
         else { return }

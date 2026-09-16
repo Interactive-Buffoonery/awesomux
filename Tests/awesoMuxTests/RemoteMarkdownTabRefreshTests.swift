@@ -50,12 +50,13 @@ struct RemoteMarkdownTabRefreshTests {
         let terminalID = session.activePaneID
         let remoteIdentity = remoteIdentity()
         let cacheURL = URL(fileURLWithPath: "/tmp/remote-cache-\(UUID().uuidString).md")
-        _ = store.openDocumentPane(
-            fileURL: cacheURL,
-            in: sessionID,
-            associatedWith: terminalID,
-            remoteResourceIdentity: remoteIdentity
-        )
+        let tabID = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL,
+                in: sessionID,
+                associatedWith: terminalID,
+                remoteResourceIdentity: remoteIdentity
+            ))
         _ = store.openDocumentPane(
             fileURL: URL(fileURLWithPath: "/tmp/local-\(UUID().uuidString).md"),
             in: sessionID,
@@ -66,6 +67,7 @@ struct RemoteMarkdownTabRefreshTests {
 
         #expect(targets.count == 1)
         #expect(targets[0].sessionID == sessionID)
+        #expect(targets[0].documentID == tabID)
         #expect(targets[0].identity == remoteIdentity)
         #expect(targets[0].associatedTerminalPaneID == terminalID)
     }
@@ -153,6 +155,7 @@ struct RemoteMarkdownTabRefreshTests {
 
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
+            documentID: tabID,
             in: sessionID,
             associatedWith: nil,
             sessionStore: store,
@@ -183,6 +186,7 @@ struct RemoteMarkdownTabRefreshTests {
 
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
+            documentID: tabID,
             in: sessionID,
             associatedWith: nil,
             sessionStore: store,
@@ -207,7 +211,7 @@ struct RemoteMarkdownTabRefreshTests {
         let identity = remoteIdentity()
         let path = "/tmp/awesomux-refresh-nil-\(UUID().uuidString).md"
         defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
-        let (store, sessionID, _) = try storeWithRemoteTab(
+        let (store, sessionID, tabID) = try storeWithRemoteTab(
             identity: identity,
             cacheURL: URL(fileURLWithPath: path)
         )
@@ -230,6 +234,7 @@ struct RemoteMarkdownTabRefreshTests {
 
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
+            documentID: tabID,
             in: sessionID,
             associatedWith: nil,
             sessionStore: store,
@@ -275,6 +280,7 @@ struct RemoteMarkdownTabRefreshTests {
 
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
+            documentID: tabID,
             in: sessionID,
             associatedWith: nil,
             sessionStore: store,

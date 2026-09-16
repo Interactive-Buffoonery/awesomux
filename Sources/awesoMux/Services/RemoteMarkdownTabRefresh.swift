@@ -10,6 +10,7 @@ import SwiftUI
 enum RemoteMarkdownTabRefresh {
     struct RestoreTarget: Equatable, Sendable {
         let sessionID: TerminalSession.ID
+        let documentID: DocumentPane.ID
         let identity: ResourceIdentity
         let associatedTerminalPaneID: TerminalPane.ID?
     }
@@ -55,33 +56,43 @@ enum RemoteMarkdownTabRefresh {
 
     /// Fetches one remote snapshot and applies the outcome when the tab is
     /// still present. Returns the outcome for tests; `nil` means the fetch was
-    /// refused, the tab disappeared mid-flight, or the cache/failure write
-    /// failed.
+    /// refused, the tab disappeared mid-flight, the cache/failure write failed,
+    /// or another refresh for this tab is already in flight.
     ///
     /// - Parameter onFetchUnavailable: Called when `fetch` returns `nil` while
     ///   the tab is still open — the live OSC path's failure presentation.
     ///   Restore omits this so relaunch does not stack alerts; it still records
     ///   a refresh-failed policy note against the tab's current path.
+    /// - Parameter coordinator: When provided, gates concurrent callers for the
+    ///   same document id so a send-bar remount cannot start a second announce
+    ///   path while the first SSH round trip is still finishing.
     @MainActor
     @discardableResult
     static func refresh(
         identity: ResourceIdentity,
+        documentID: DocumentPane.ID,
         in sessionID: TerminalSession.ID,
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
         selectingTab: Bool,
         announceOutcome: Bool = false,
+        coordinator: RemoteMarkdownRefreshCoordinator? = nil,
         onFetchUnavailable: (@MainActor () -> Void)? = nil,
         fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         }
     ) async -> RemoteMarkdownFetchOutcome? {
+        if let coordinator, !coordinator.begin(documentID: documentID) {
+            return nil
+        }
+        defer { coordinator?.finish(documentID: documentID) }
+
         guard let reference = RemoteMarkdownReference.make(identity: identity) else {
             return nil
         }
         guard
             sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
-                .tab(forRemoteResource: identity) != nil
+                .tab(id: documentID) != nil
         else {
             return nil
         }
@@ -92,7 +103,7 @@ enum RemoteMarkdownTabRefresh {
             // present the same alert the live OSC path uses.
             guard
                 let tab = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
-                    .tab(forRemoteResource: identity)
+                    .tab(id: documentID)
             else {
                 return nil
             }
@@ -108,7 +119,7 @@ enum RemoteMarkdownTabRefresh {
         // as branch-changes Refresh carrying its originating document id.
         guard
             sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
-                .tab(forRemoteResource: identity) != nil
+                .tab(id: documentID) != nil
         else {
             return nil
         }
@@ -133,6 +144,7 @@ enum RemoteMarkdownTabRefresh {
     @MainActor
     static func scheduleRestoreRefresh(
         for store: SessionStore,
+        coordinator: RemoteMarkdownRefreshCoordinator? = nil,
         fetch: @escaping @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         }
@@ -141,11 +153,13 @@ enum RemoteMarkdownTabRefresh {
             Task { @MainActor in
                 _ = await refresh(
                     identity: target.identity,
+                    documentID: target.documentID,
                     in: target.sessionID,
                     associatedWith: target.associatedTerminalPaneID,
                     sessionStore: store,
                     selectingTab: false,
                     announceOutcome: false,
+                    coordinator: coordinator,
                     fetch: fetch
                 )
             }
@@ -171,6 +185,7 @@ enum RemoteMarkdownTabRefresh {
                     targets.append(
                         RestoreTarget(
                             sessionID: session.id,
+                            documentID: tab.id,
                             identity: identity,
                             associatedTerminalPaneID: tab.associatedTerminalPaneID
                         )

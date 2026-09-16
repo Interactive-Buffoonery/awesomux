@@ -139,6 +139,7 @@ struct ContentView: View {
     // Same re-injection reason as the store above: the branch-changes tab's
     // Refresh button reads both from the environment inside the split.
     @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator
+    @Environment(RemoteMarkdownRefreshCoordinator.self) private var remoteMarkdownRefreshCoordinator
     @Environment(\.branchChangesRefresh) private var branchChangesRefresh
     @Environment(\.remoteMarkdownRefresh) private var remoteMarkdownRefresh
     @Environment(\.controlActiveState) private var controlActiveState
@@ -447,6 +448,7 @@ struct ContentView: View {
                     .environment(appSettingsStore)
                     .environment(documentTabActions)
                     .environment(branchChangesCoordinator)
+                    .environment(remoteMarkdownRefreshCoordinator)
                     .environment(documentTabActions)
                     .environment(\.branchChangesRefresh, branchChangesRefresh)
                     .environment(\.remoteMarkdownRefresh, remoteMarkdownRefresh)
