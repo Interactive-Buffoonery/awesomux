@@ -477,7 +477,7 @@ struct DocumentPaneSendBar: View {
                     )
                 )
                 .font(.system(size: 11))
-                .foregroundStyle(Color.aw.text2)
+                .foregroundStyle(Color.aw.railText)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))

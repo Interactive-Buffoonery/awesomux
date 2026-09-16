@@ -87,6 +87,24 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         markdownDestination: String,
         relativeTo source: ResourceIdentity
     ) -> RemoteMarkdownReference? {
+        guard let relative = MarkdownLinkIntercept.relativeMarkdownDestination(markdownDestination)
+        else {
+            return nil
+        }
+        return resolvedReference(
+            forRelativeMarkdownDestination: relative,
+            relativeTo: source
+        )?.reference
+    }
+
+    /// Resolves an already-parsed relative Markdown destination against the
+    /// source document's remote directory, returning the reference plus the
+    /// destination fragment. Parsing once lets `make` and `linkURL` share a
+    /// single `relativeMarkdownDestination` call.
+    private static func resolvedReference(
+        forRelativeMarkdownDestination relative: (path: String, fragment: String?),
+        relativeTo source: ResourceIdentity
+    ) -> (reference: RemoteMarkdownReference, fragment: String?)? {
         guard source.isSupportedRemoteMarkdownSnapshot else {
             return nil
         }
@@ -94,18 +112,21 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         let baseDirectory = (sourcePath as NSString).deletingLastPathComponent
         guard !baseDirectory.isEmpty,
             baseDirectory != ".",
-            let resolved = MarkdownLinkIntercept.resolvedDocumentPath(
-                forMarkdownDestination: markdownDestination,
-                relativeToDirectory: baseDirectory
+            let joined = MarkdownLinkIntercept.joinRelativeDocumentPath(
+                relative.path,
+                toDirectory: baseDirectory
             )
         else {
             return nil
         }
         let identity = ResourceIdentity(
             location: source.location,
-            path: ResourcePath(rawValue: resolved.path)
+            path: ResourcePath(rawValue: joined)
         )
-        return make(identity: identity)
+        guard let reference = make(identity: identity) else {
+            return nil
+        }
+        return (reference, relative.fragment)
     }
 
     /// Click-time rebuild from a link URL produced for a remote snapshot tab.
@@ -157,8 +178,12 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         forMarkdownDestination destination: String,
         relativeTo source: ResourceIdentity
     ) -> URL? {
-        guard let reference = make(markdownDestination: destination, relativeTo: source),
-            var url = linkURL(forRemotePath: reference.remotePath)
+        guard let relative = MarkdownLinkIntercept.relativeMarkdownDestination(destination),
+            let resolved = resolvedReference(
+                forRelativeMarkdownDestination: relative,
+                relativeTo: source
+            ),
+            var url = linkURL(forRemotePath: resolved.reference.remotePath)
         else {
             return nil
         }
@@ -166,9 +191,7 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         // the click path reads them back to announce the at-top landing, so
         // they must survive the render→click round trip instead of being
         // dropped with the identity.
-        if let fragment = MarkdownLinkIntercept.relativeMarkdownDestination(destination)?.fragment,
-            !fragment.isEmpty
-        {
+        if let fragment = resolved.fragment, !fragment.isEmpty {
             url = withFragment(fragment, on: url) ?? url
         }
         return url
