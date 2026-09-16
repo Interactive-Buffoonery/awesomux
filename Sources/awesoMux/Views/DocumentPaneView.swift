@@ -65,8 +65,7 @@ struct DocumentPaneSendBar: View {
     /// Same optional contract as `branchChangesCoordinator`: survives
     /// `DocumentNudgeSendBarID` remounts so a mid-refresh shell-activity flip
     /// cannot clear the busy latch and double-announce.
-    @Environment(RemoteMarkdownRefreshCoordinator.self) private var remoteMarkdownRefreshCoordinator:
-        RemoteMarkdownRefreshCoordinator?
+    @Environment(RemoteMarkdownRefreshCoordinator.self) private var remoteMarkdownRefreshCoordinator: RemoteMarkdownRefreshCoordinator?
     /// Bridges the gap between the click and the coordinator's set updating, so
     /// a double-click cannot start two runs. Cleared in the refresh completion.
     @State private var refreshRequested = false
