@@ -82,6 +82,10 @@ enum RemoteMarkdownTypedPathOpen {
     /// callers (async loading hop via `announceRemoteMarkdownLoading`). Sheet
     /// submit should call `announceLoadingIfValid` first (immediate post while
     /// the sheet is up), dismiss, then pass `onAnnounceLoading: {}` here.
+    ///
+    /// The outcome announcement is a closure (not a flag) like the loading
+    /// one, so tests can observe the full loading→fetch→outcome order without
+    /// posting through the global announcer that parallel suites share.
     @MainActor
     @discardableResult
     static func open(
@@ -98,6 +102,9 @@ enum RemoteMarkdownTypedPathOpen {
         },
         onAnnounceLoading: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+        },
+        onAnnounceOutcome: @MainActor (RemoteMarkdownFetchOutcome) -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdown($0)
         }
     ) async -> DocumentPane.ID? {
         guard let reference = reference(typedPath: typedPath, target: target) else {
@@ -109,13 +116,30 @@ enum RemoteMarkdownTypedPathOpen {
             onRoutingFailure()
             return nil
         }
-        return RemoteMarkdownTabRefresh.apply(
+        let openedID = RemoteMarkdownTabRefresh.apply(
             outcome,
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
             selectingTab: true,
-            announceOutcome: true
+            announceOutcome: false
         )
+        onAnnounceOutcome(outcome)
+        return openedID
+    }
+}
+
+/// Remembers the last submitted typed path per SSH destination so a reopened
+/// sheet — typically after a failed fetch — starts from the previous attempt
+/// instead of an empty field. Paths only, never file contents.
+struct RemoteMarkdownTypedPathHistory: Sendable, Equatable {
+    private var lastPaths: [RemoteTarget: String] = [:]
+
+    mutating func remember(_ path: String, for target: RemoteTarget) {
+        lastPaths[target] = path
+    }
+
+    func lastPath(for target: RemoteTarget) -> String? {
+        lastPaths[target]
     }
 }

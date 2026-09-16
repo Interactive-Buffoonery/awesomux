@@ -166,6 +166,10 @@ struct AwesoMuxApp: App {
     @State private var workspaceGroupRenameRequest: WorkspaceGroupRenameRequest?
     @State private var quickSettingsRequest: QuickSettingsRequest?
     @State private var remoteMarkdownPathOpenRequest: RemoteMarkdownPathOpenRequest?
+    /// Last submitted typed path per SSH destination, used to prefill the
+    /// remote-markdown sheet so a retry after a failed fetch starts from the
+    /// previous attempt instead of an empty field.
+    @State private var remoteMarkdownTypedPathHistory = RemoteMarkdownTypedPathHistory()
     @State private var remoteAdditionalSSHFeaturesSheetPresenter =
         RemoteAdditionalSSHFeaturesSheetPresenter.shared
     // True only after a request sheet's content actually appeared. Guards the
@@ -614,11 +618,16 @@ struct AwesoMuxApp: App {
                 request in
                 RemoteMarkdownPathOpenSheet(
                     target: request.target,
+                    initialPath: remoteMarkdownTypedPathHistory.lastPath(for: request.target) ?? "",
                     onCancel: { remoteMarkdownPathOpenRequest = nil },
                     onOpen: { path in
                         let sessionID = request.sessionID
                         let paneID = request.associatedPaneID
                         let target = request.target
+                        // Remember the attempt before fetching: a failed fetch
+                        // dismisses the sheet, and the next ⌘O prefills this
+                        // path so a near-miss needs an edit, not a retype.
+                        remoteMarkdownTypedPathHistory.remember(path, for: target)
                         // Immediate AX post while the sheet is still up — the
                         // async hop in announceRemoteMarkdownLoading can lose
                         // the cue once dismiss starts on this turn.

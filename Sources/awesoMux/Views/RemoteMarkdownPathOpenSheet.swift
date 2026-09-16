@@ -9,13 +9,25 @@ struct RemoteMarkdownPathOpenSheet: View {
     let onCancel: () -> Void
     let onOpen: (String) -> Void
 
-    @State private var draftPath = ""
+    @State private var draftPath: String
     @FocusState private var isPathFocused: Bool
+
+    init(
+        target: RemoteTarget,
+        initialPath: String = "",
+        onCancel: @escaping () -> Void,
+        onOpen: @escaping (String) -> Void
+    ) {
+        self.target = target
+        self.onCancel = onCancel
+        self.onOpen = onOpen
+        _draftPath = State(initialValue: initialPath)
+    }
 
     var body: some View {
         let normalizedPath = Self.normalizedSupportedPath(draftPath)
-        let trimmedPath = draftPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let openDisabledHint = Self.openDisabledAccessibilityHint(forDraft: draftPath)
+        let validationMessage = Self.validationMessage(forDraft: draftPath)
         VStack(alignment: .leading, spacing: 16) {
             Text(
                 String(
@@ -65,18 +77,11 @@ struct RemoteMarkdownPathOpenSheet: View {
                 )
                 .onSubmit { submit(normalizedPath) }
 
-            if !trimmedPath.isEmpty, normalizedPath == nil {
-                Text(
-                    String(
-                        localized:
-                            "Enter an absolute /… or ~/… path ending in .md or .markdown.",
-                        comment:
-                            "Validation caption when the remote Markdown typed path is unsupported"
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let message = validationMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -95,13 +100,20 @@ struct RemoteMarkdownPathOpenSheet: View {
         }
         .padding(20)
         .frame(minWidth: 360, idealWidth: 480)
+        // Grouped children, but no container-level label: the title header
+        // above already names the dialog, and repeating it here double-speaks
+        // the name on presentation.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(
-            String(
-                localized: "Open Remote Markdown",
-                comment: "Title for the typed-path sheet that opens a remote Markdown file over SSH"
-            )
-        )
+        .onChange(of: validationMessage) { _, newMessage in
+            // Announce the error where the user is typing: VoiceOver may never
+            // land on the disabled Open button carrying the same hint, and
+            // SwiftUI has no live-region modifier, so the transition itself is
+            // the announcement. The message is constant while invalid (no
+            // per-keystroke spam); clearing the field stays silent.
+            if let newMessage {
+                TerminalAccessibilityAnnouncer.announce(newMessage)
+            }
+        }
         .onAppear { isPathFocused = true }
     }
 
@@ -112,6 +124,21 @@ struct RemoteMarkdownPathOpenSheet: View {
 
     static func normalizedSupportedPath(_ draft: String) -> String? {
         RemoteMarkdownReference.normalizedTypedPath(draft)
+    }
+
+    /// The visible validation caption: present only for a non-empty draft that
+    /// fails the typed-path gate. Empty drafts show no error — the disabled
+    /// Open button's hint covers that case.
+    static func validationMessage(forDraft draft: String) -> String? {
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            normalizedSupportedPath(draft) == nil
+        else {
+            return nil
+        }
+        return String(
+            localized: "Enter an absolute /… or ~/… path ending in .md or .markdown.",
+            comment: "Validation caption when the remote Markdown typed path is unsupported"
+        )
     }
 
     /// Why the Open button is disabled, for VoiceOver. Empty field gets an
@@ -125,10 +152,7 @@ struct RemoteMarkdownPathOpenSheet: View {
                     "Accessibility hint for the disabled Open button when the remote Markdown path field is empty"
             )
         }
-        return String(
-            localized: "Enter an absolute /… or ~/… path ending in .md or .markdown.",
-            comment: "Validation caption when the remote Markdown typed path is unsupported"
-        )
+        return validationMessage(forDraft: draft)
     }
 
     private func submit(_ path: String?) {

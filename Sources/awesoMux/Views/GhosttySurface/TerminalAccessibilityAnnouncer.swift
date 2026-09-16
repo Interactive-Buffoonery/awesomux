@@ -705,7 +705,9 @@ enum TerminalAccessibilityAnnouncer {
     /// Test seam + production poster. Tests replace this to observe whether a
     /// cue posts on the current turn (immediate) or only after a main-queue
     /// drain (async hop). Production default posts through AppKit AX.
-    static var announcementPoster: (String, NSAccessibilityPriorityLevel) -> Void = {
+    /// Production code must never reassign this; tests use
+    /// `setAnnouncementPosterForTesting` (debug builds only).
+    private(set) static var announcementPoster: (String, NSAccessibilityPriorityLevel) -> Void = {
         message,
         priority in
         NSAccessibility.post(
@@ -717,6 +719,14 @@ enum TerminalAccessibilityAnnouncer {
             ]
         )
     }
+
+#if DEBUG
+    static func setAnnouncementPosterForTesting(
+        _ poster: @escaping (String, NSAccessibilityPriorityLevel) -> Void
+    ) {
+        announcementPoster = poster
+    }
+#endif
 
     private static func post(_ message: String, priority: NSAccessibilityPriorityLevel) {
         announcementPoster(message, priority)
