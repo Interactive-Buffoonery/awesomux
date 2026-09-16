@@ -506,6 +506,9 @@ struct DocumentPaneSendBar: View {
             pane.remoteResourceIdentity != nil,
             let remoteMarkdownRefresh
         else { return }
+        // Same loading cue every other remote fetch starts with; without it the
+        // footer Refresh goes silent for the whole SSH round trip.
+        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
         remoteRefreshRequested = true
         remoteMarkdownRefresh.run(session.id, pane.id) { remoteRefreshRequested = false }
     }
@@ -972,6 +975,24 @@ private struct SendToAgentButton: NSViewRepresentable {
             }
         }
 
+        /// Visible text while an attempt is in flight, when the busy state
+        /// needs a signal that is not just color. The button otherwise only
+        /// dims, which is exactly how a disabled button looks (WCAG 1.4.1); the
+        /// failure state already sets the precedent of a shape change, and this
+        /// is the same idea for text. Nil keeps the resting title.
+        var busyTitle: String? {
+            switch self {
+            case .refreshRemoteSnapshot:
+                String(
+                    localized: "Refreshing…",
+                    comment:
+                        "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
+                )
+            case .sendToAgent, .resumeSession, .refreshBranchChanges:
+                nil
+            }
+        }
+
         /// Spoken copy while an attempt is in flight. Per purpose: the busy
         /// state is the one label that names what the button is actually
         /// waiting on, so a shared sentence speaks the wrong thing on every
@@ -1049,7 +1070,7 @@ private struct SendToAgentButton: NSViewRepresentable {
         // perceive (WCAG 1.4.1), and this button can't be keyboard-focused for
         // the tooltip.
         nsView.attributedTitle = Self.makeTitle(
-            title,
+            isBusy ? (purpose.busyTitle ?? title) : title,
             color: accent,
             symbolName: showsFailure ? "exclamationmark.triangle.fill" : purpose.symbolName
         )

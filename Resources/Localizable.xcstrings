@@ -3448,6 +3448,9 @@
     "Refreshing" : {
       "comment" : "Diagnostics refresh button busy state"
     },
+    "Refreshing…" : {
+      "comment" : "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
+    },
     "Reload Terminal" : {
 
     },
