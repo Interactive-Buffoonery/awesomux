@@ -847,6 +847,7 @@ final class GhosttyRuntime {
         stopVisibleSurfaceSamplingIfIdle()
         secureInputCoordinator.reset()
         for surfaceView in surfaceViews.values {
+            RemoteMarkdownFetchProgressCoordinator.shared.unregisterSurface(surfaceView)
             surfaceView.disposeNativeSurface()
             surfaceView.removeFromSuperview()
         }

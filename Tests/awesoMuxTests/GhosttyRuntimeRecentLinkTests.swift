@@ -344,6 +344,39 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
     }
 
+    @Test func remoteMarkdownSpinnerRecreatesWhenDetachedFromSuperview() {
+        RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting()
+        defer { RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting() }
+
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/local",
+            executionPlan: .local
+        )
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+        defer { runtime.discardAllSurfaces() }
+
+        view.syncRemoteMarkdownFetchProgress(isBusy: true)
+        let first = view.remoteMarkdownFetchProgressIndicator
+        #expect(first != nil)
+        first?.removeFromSuperview()
+        #expect(first?.superview == nil)
+        view.syncRemoteMarkdownFetchProgress(isBusy: true)
+        let second = view.remoteMarkdownFetchProgressIndicator
+        #expect(second != nil)
+        #expect(second !== first)
+        #expect(second?.superview === view)
+    }
+
     private func makeStore(
         workingDirectory: String
     ) -> (SessionStore, TerminalSession, TerminalPane) {

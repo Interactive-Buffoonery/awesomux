@@ -62,6 +62,8 @@ enum RemoteMarkdownTypedPathOpen {
 
     /// Resolves progress chrome for a typed-path open: snapshot tabs keep the
     /// document overlay; an SSH pane with no remote tab uses the surface spinner.
+    ///
+    /// Capture this at sheet submit — do not re-read live selection after dismiss.
     static func fetchProgressOrigin(
         for session: TerminalSession
     ) -> RemoteMarkdownFetchProgressCoordinator.Origin {
@@ -74,9 +76,15 @@ enum RemoteMarkdownTypedPathOpen {
         return .document
     }
 
-    /// Sheet-submit prelude: validate, announce loading **immediately** for the
-    /// first waiter (sheet still up), then the caller dismisses and fetches.
-    /// Returns false when the path fails closed before announce.
+    /// Source-tab pin for document-origin chrome. Frozen at submit with origin.
+    static func overlayIdentity(for session: TerminalSession) -> ResourceIdentity? {
+        session.layout.firstDocumentGroup?.selectedTab?.remoteResourceIdentity
+    }
+
+    /// Sheet-submit prelude: validate, **begin** the waiter (first-waiter +
+    /// chrome reserved), announce loading immediately only when that begin
+    /// returned first-waiter, then the caller dismisses and `open` adopts the
+    /// claim. Returns `nil` when the path fails closed before begin.
     ///
     /// Uses `announceRemoteMarkdownLoadingImmediately` rather than the async
     /// hop in `announceRemoteMarkdownLoading` — dismiss starts on this turn, and
@@ -87,36 +95,44 @@ enum RemoteMarkdownTypedPathOpen {
     static func announceLoadingIfValid(
         typedPath: String,
         target: RemoteTarget,
-        sessionID: TerminalSession.ID? = nil,
-        progress: RemoteMarkdownFetchProgressCoordinator? = nil,
+        sessionID: TerminalSession.ID,
+        origin: RemoteMarkdownFetchProgressCoordinator.Origin,
+        overlayIdentity: ResourceIdentity? = nil,
+        progress: RemoteMarkdownFetchProgressCoordinator = .shared,
         onAnnounceLoading: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoadingImmediately()
         },
         onRoutingFailure: @MainActor () -> Void = {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
         }
-    ) -> Bool {
+    ) -> RemoteMarkdownFetchProgressCoordinator.Claim? {
         guard let reference = reference(typedPath: typedPath, target: target) else {
             onRoutingFailure()
-            return false
+            return nil
         }
-        if let sessionID, let progress,
-            progress.isInFlight(sessionID: sessionID, identity: reference.identity)
-        {
-            return true
+        let claim = progress.beginClaim(
+            sessionID: sessionID,
+            identity: reference.identity,
+            origin: origin,
+            overlayIdentity: overlayIdentity
+        )
+        if claim.isFirstWaiter {
+            onAnnounceLoading()
         }
-        onAnnounceLoading()
-        return true
+        return claim
     }
 
     /// Interactive typed-path open. Mirrors OSC / Md→Md a11y for non-sheet
     /// callers (async loading hop via `announceRemoteMarkdownLoading`). Sheet
-    /// submit should call `announceLoadingIfValid` first (immediate post while
-    /// the sheet is up), dismiss, then pass `onAnnounceLoading: {}` here.
+    /// submit must call `announceLoadingIfValid` first (begin + immediate post
+    /// while the sheet is up), dismiss, then pass that `progressClaim` here so
+    /// this path does not begin a second waiter. `origin` is the frozen
+    /// submit-time chrome host — never re-read from live selection after dismiss
+    /// when a claim is already adopted.
     ///
-    /// The outcome announcement is a closure (not a flag) like the loading
-    /// one, so tests can observe the full loading→fetch→outcome order without
-    /// posting through the global announcer that parallel suites share.
+    /// Loading and outcome announcements are first-waiter-only, matching OSC /
+    /// recent-link. Closures (not flags) let tests observe order without posting
+    /// through the global announcer that parallel suites share.
     @MainActor
     @discardableResult
     static func open(
@@ -141,31 +157,46 @@ enum RemoteMarkdownTypedPathOpen {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdown($0)
         },
         origin: RemoteMarkdownFetchProgressCoordinator.Origin? = nil,
+        overlayIdentity: ResourceIdentity? = nil,
+        progressClaim: RemoteMarkdownFetchProgressCoordinator.Claim? = nil,
         progress: RemoteMarkdownFetchProgressCoordinator = .shared
     ) async -> DocumentPane.ID? {
         guard let reference = reference(typedPath: typedPath, target: target) else {
+            if let progressClaim {
+                progress.finish(progressClaim)
+            }
             onRoutingFailure()
             return nil
         }
-        let resolvedOrigin =
-            origin
-            ?? sessionStore.session(id: sessionID).map(fetchProgressOrigin(for:))
-            ?? .document
-        let isFirstWaiter = progress.begin(
-            sessionID: sessionID,
-            identity: reference.identity,
-            origin: resolvedOrigin
-        )
-        if isFirstWaiter {
-            onAnnounceLoading()
-        }
-        defer {
-            progress.finish(
+        let claim: RemoteMarkdownFetchProgressCoordinator.Claim
+        if let progressClaim {
+            claim = progressClaim
+        } else {
+            let resolvedOrigin =
+                origin
+                ?? sessionStore.session(id: sessionID).map(fetchProgressOrigin(for:))
+                ?? .document
+            let resolvedOverlay: ResourceIdentity?
+            if let overlayIdentity {
+                resolvedOverlay = overlayIdentity
+            } else if case .document = resolvedOrigin {
+                resolvedOverlay = sessionStore.session(id: sessionID).flatMap(
+                    Self.overlayIdentity(for:)
+                )
+            } else {
+                resolvedOverlay = nil
+            }
+            claim = progress.beginClaim(
                 sessionID: sessionID,
                 identity: reference.identity,
-                origin: resolvedOrigin
+                origin: resolvedOrigin,
+                overlayIdentity: resolvedOverlay
             )
+            if claim.isFirstWaiter {
+                onAnnounceLoading()
+            }
         }
+        defer { progress.finish(claim) }
         guard let outcome = await fetch(reference) else {
             onFetchFailure()
             return nil
@@ -200,7 +231,9 @@ enum RemoteMarkdownTypedPathOpen {
             // to explain.
             return nil
         }
-        onAnnounceOutcome(outcome)
+        if claim.isFirstWaiter {
+            onAnnounceOutcome(outcome)
+        }
         return openedID
     }
 

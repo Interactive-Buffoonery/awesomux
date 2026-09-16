@@ -441,7 +441,13 @@ final class GhosttySurfaceNSView: NSView {
 
     func syncRemoteMarkdownFetchProgress(isBusy: Bool) {
         if isBusy {
-            guard remoteMarkdownFetchProgressIndicator == nil else { return }
+            // A remount can leave the property pointing at a spinner that is
+            // no longer in this view's hierarchy. Treat that as missing and
+            // recreate so chrome is not orphaned off-screen.
+            if let existing = remoteMarkdownFetchProgressIndicator, existing.superview === self {
+                return
+            }
+            clearRemoteMarkdownFetchProgress()
             let progressIndicator = NSProgressIndicator()
             progressIndicator.style = .spinning
             progressIndicator.controlSize = .small
@@ -474,6 +480,9 @@ final class GhosttySurfaceNSView: NSView {
         }
         if window == nil {
             accessibilityFocusRequested = false
+            if remoteMarkdownFetchProgressIndicator?.superview !== self {
+                remoteMarkdownFetchProgressIndicator = nil
+            }
             // Detaching (workspace switch, pane close) must not leave a peek
             // popover orphaned against a windowless view, nor let a deferred
             // click-open fire against a detached pane.

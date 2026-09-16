@@ -16,10 +16,11 @@ enum RemoteMarkdownDocumentLinkNavigation {
     }
 
     /// Interactive Md→Md open. Mirrors OSC remote-open a11y: first-waiter
-    /// loading speech, then announce the outcome via
+    /// loading speech and first-waiter outcome via
     /// `RemoteMarkdownTabRefresh.apply(announceOutcome:)`. Routing failures keep
     /// the existing alert presenter. Progress chrome is identity-keyed document
-    /// overlay — never a provisional `DocumentPane`.
+    /// overlay on the source pin plus fetch identity — never a provisional
+    /// `DocumentPane`.
     ///
     /// A destination that carries a `#fragment` opens at the top only when it
     /// mounts a *new* tab — fragment scroll is deferred — and says so through
@@ -66,7 +67,8 @@ enum RemoteMarkdownDocumentLinkNavigation {
         let isFirstWaiter = progress.begin(
             sessionID: sessionID,
             identity: reference.identity,
-            origin: origin
+            origin: origin,
+            overlayIdentity: source
         )
         if isFirstWaiter {
             onAnnounceLoading()
@@ -75,7 +77,8 @@ enum RemoteMarkdownDocumentLinkNavigation {
             progress.finish(
                 sessionID: sessionID,
                 identity: reference.identity,
-                origin: origin
+                origin: origin,
+                overlayIdentity: source
             )
         }
         guard let outcome = await fetch(reference) else {
@@ -96,7 +99,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
             associatedWith: paneID,
             sessionStore: sessionStore,
             selectingTab: true,
-            announceOutcome: true
+            announceOutcome: isFirstWaiter
         )
         // Only announce the at-top landing for a fresh snapshot on a newly
         // mounted tab. Stale cache and failure pages still open a tab but

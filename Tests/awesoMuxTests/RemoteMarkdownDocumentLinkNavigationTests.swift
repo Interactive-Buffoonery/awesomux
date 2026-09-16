@@ -403,7 +403,7 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
 
         #expect(events == ["loading", "fetch:/repo/docs/sibling.md"])
         #expect(openedID != nil)
-        // Outcome announcement goes through apply(announceOutcome: true) →
+        // Outcome announcement goes through apply(announceOutcome: isFirstWaiter) →
         // TerminalAccessibilityAnnouncer; loading order vs fetch is the
         // interactive contract this test pins.
     }

@@ -628,15 +628,25 @@ struct AwesoMuxApp: App {
                         // dismisses the sheet, and the next ⌘O prefills this
                         // path so a near-miss needs an edit, not a retype.
                         remoteMarkdownTypedPathHistory.remember(path, for: target)
-                        // Immediate AX post while the sheet is still up — the
-                        // async hop in announceRemoteMarkdownLoading can lose
-                        // the cue once dismiss starts on this turn.
+                        // Freeze origin + overlay pin from submit-time context,
+                        // then begin (first-waiter + chrome) before dismiss so
+                        // a coalesced waiter cannot sneak in as first. Immediate
+                        // AX post while the sheet is still up — the async hop
+                        // in announceRemoteMarkdownLoading can lose the cue
+                        // once dismiss starts on this turn.
+                        let session = sessionStore.session(id: sessionID)
+                        let origin =
+                            session.map(RemoteMarkdownTypedPathOpen.fetchProgressOrigin(for:))
+                            ?? .document
+                        let overlayIdentity =
+                            session.flatMap(RemoteMarkdownTypedPathOpen.overlayIdentity(for:))
                         guard
-                            RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
+                            let claim = RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
                                 typedPath: path,
                                 target: target,
                                 sessionID: sessionID,
-                                progress: RemoteMarkdownFetchProgressCoordinator.shared
+                                origin: origin,
+                                overlayIdentity: overlayIdentity
                             )
                         else {
                             remoteMarkdownPathOpenRequest = nil
@@ -644,10 +654,6 @@ struct AwesoMuxApp: App {
                         }
                         remoteMarkdownPathOpenRequest = nil
                         Task { @MainActor in
-                            let origin =
-                                sessionStore.session(id: sessionID).map {
-                                    RemoteMarkdownTypedPathOpen.fetchProgressOrigin(for: $0)
-                                } ?? .document
                             guard
                                 let tabID = await RemoteMarkdownTypedPathOpen.open(
                                     typedPath: path,
@@ -655,8 +661,7 @@ struct AwesoMuxApp: App {
                                     in: sessionID,
                                     associatedWith: paneID,
                                     sessionStore: sessionStore,
-                                    onAnnounceLoading: {},
-                                    origin: origin
+                                    progressClaim: claim
                                 )
                             else { return }
                             documentTabActions.requestFocus(for: tabID, in: sessionID)
