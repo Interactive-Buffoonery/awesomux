@@ -256,7 +256,7 @@ struct BuildAndRunScriptTests {
         let manifest = try Self.contents(of: "Package.swift")
         let script = try Self.contents(of: "script/build_and_run.sh")
 
-        #expect(manifest.contains(".package(url: \"https://github.com/sparkle-project/Sparkle\", from: \"2.9.6\")"))
+        #expect(manifest.contains(".package(url: \"https://github.com/sparkle-project/Sparkle\", from: \"2.10.0\")"))
         #expect(manifest.contains(".product(name: \"Sparkle\", package: \"Sparkle\")"))
         #expect(script.contains("Sparkle.framework"))
         #expect(script.contains("@executable_path/../Frameworks"))
