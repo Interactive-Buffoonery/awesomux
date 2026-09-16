@@ -25,7 +25,10 @@ enum RemoteMarkdownTabRefresh {
     /// - Parameter announceOutcome: When true (footer Refresh), speak the
     ///   fetch result. Restore leaves this false so relaunch does not narrate
     ///   every remote tab.
+    /// - Returns: The document tab id that received the snapshot, when open
+    ///   succeeded — used by Md→Md navigation to request focus.
     @MainActor
+    @discardableResult
     static func apply(
         _ outcome: RemoteMarkdownFetchOutcome,
         in sessionID: TerminalSession.ID,
@@ -33,14 +36,14 @@ enum RemoteMarkdownTabRefresh {
         sessionStore: SessionStore,
         selectingTab: Bool,
         announceOutcome: Bool = false
-    ) {
+    ) -> DocumentPane.ID? {
         // Before opening: `DocumentPaneView` seeds its banner state at init, so
         // a note recorded afterwards would not be seen until the next remount.
         // The same order matters for an in-place refresh whose fileURL does not
         // change — the notification must land while the view is already up.
         RemoteSnapshotStalePolicy.record(outcome)
         let snapshot = outcome.snapshot
-        sessionStore.openDocumentPane(
+        let openedID = sessionStore.openDocumentPane(
             fileURL: snapshot.fileURL,
             in: sessionID,
             associatedWith: paneID,
@@ -57,6 +60,7 @@ enum RemoteMarkdownTabRefresh {
         if announceOutcome {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
         }
+        return openedID
     }
 
     /// Fetches one remote snapshot and applies the outcome when the tab is

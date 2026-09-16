@@ -51,6 +51,144 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         return RemoteMarkdownReference(identity: identity)
     }
 
+    /// Md→Md: resolve a Markdown link destination against the *source
+    /// document's* remote directory, keeping the declared execution location.
+    /// Parent traversal that escapes that directory fails closed — the same
+    /// containment policy local document links use (INT-758).
+    static func make(
+        markdownDestination: String,
+        relativeTo source: ResourceIdentity
+    ) -> RemoteMarkdownReference? {
+        guard source.isSupportedRemoteMarkdownSnapshot else {
+            return nil
+        }
+        let sourcePath = source.path.rawValue
+        let baseDirectory = (sourcePath as NSString).deletingLastPathComponent
+        guard !baseDirectory.isEmpty,
+            baseDirectory != ".",
+            let resolved = MarkdownLinkIntercept.resolvedDocumentPath(
+                forMarkdownDestination: markdownDestination,
+                relativeToDirectory: baseDirectory
+            )
+        else {
+            return nil
+        }
+        let identity = ResourceIdentity(
+            location: source.location,
+            path: ResourcePath(rawValue: resolved.path)
+        )
+        return make(identity: identity)
+    }
+
+    /// Click-time rebuild from a link URL produced for a remote snapshot tab.
+    /// Absolute `file://` links that are not contained under the source
+    /// document directory fail closed so remote markdown cannot open local
+    /// files or walk outside the intended root.
+    static func make(
+        openedLinkURL url: URL,
+        relativeTo source: ResourceIdentity
+    ) -> RemoteMarkdownReference? {
+        guard source.isSupportedRemoteMarkdownSnapshot,
+            let remotePath = remotePath(fromOpenedLinkURL: url)
+        else {
+            return nil
+        }
+        let sourcePath = source.path.rawValue
+        let baseDirectory = (sourcePath as NSString).deletingLastPathComponent
+        guard !baseDirectory.isEmpty,
+            baseDirectory != ".",
+            MarkdownLinkIntercept.contains(childPath: remotePath, in: baseDirectory)
+        else {
+            return nil
+        }
+        let identity = ResourceIdentity(
+            location: source.location,
+            path: ResourcePath(rawValue: remotePath)
+        )
+        return make(identity: identity)
+    }
+
+    /// Link URL embedded in attributed text for a remote-relative destination.
+    /// Absolute remote paths use `file://` so `MarkdownLinkRouting` still
+    /// classifies them as documents; `~/…` paths use a dedicated scheme so they
+    /// are never confused with the local filesystem.
+    static func linkURL(
+        forMarkdownDestination destination: String,
+        relativeTo source: ResourceIdentity
+    ) -> URL? {
+        guard let reference = make(markdownDestination: destination, relativeTo: source)
+        else {
+            return nil
+        }
+        return linkURL(forRemotePath: reference.remotePath)
+    }
+
+    static func linkURL(forRemotePath path: String) -> URL? {
+        guard ResourceIdentity.isSupportedRemoteMarkdownPath(path) else {
+            return nil
+        }
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        if path.hasPrefix("~/") {
+            var components = URLComponents()
+            components.scheme = remoteMarkdownLinkScheme
+            // Keep the leading `~/` in the path; URLComponents requires a path
+            // that starts with `/` when a scheme is set, so encode as
+            // `awesomux-remote-md:/~/…`.
+            guard
+                let encoded = path.addingPercentEncoding(
+                    withAllowedCharacters: remoteMarkdownPathAllowed
+                )
+            else {
+                return nil
+            }
+            components.percentEncodedPath = "/" + encoded
+            return components.url
+        }
+        return nil
+    }
+
+    static let remoteMarkdownLinkScheme = "awesomux-remote-md"
+
+    private static let remoteMarkdownPathAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.insert(charactersIn: "~")
+        return allowed
+    }()
+
+    private static func remotePath(fromOpenedLinkURL url: URL) -> String? {
+        if url.isFileURL {
+            guard let documentURL = MarkdownLinkIntercept.documentURL(forFileURL: url) else {
+                return nil
+            }
+            let path = documentURL.path
+            guard ResourceIdentity.isSupportedRemoteMarkdownPath(path) else {
+                return nil
+            }
+            return path
+        }
+        guard url.scheme?.lowercased() == remoteMarkdownLinkScheme else {
+            return nil
+        }
+        // `percentEncodedPath` is `/~/repo/file.md`; drop the synthetic root `/`.
+        let encoded = url.path
+        let path: String
+        if encoded.hasPrefix("/~/") {
+            path = String(encoded.dropFirst())  // → `~/…`
+        } else if encoded.hasPrefix("/") {
+            path = encoded
+        } else {
+            return nil
+        }
+        guard ResourceIdentity.isSupportedRemoteMarkdownPath(path),
+            !MarkdownLinkIntercept.containsUnsafePathScalars(path)
+        else {
+            return nil
+        }
+        return path
+    }
+
     static func isPotentialPayload(_ payload: String) -> Bool {
         guard let path = remotePath(from: payload),
             !path.isEmpty,

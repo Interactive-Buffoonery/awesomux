@@ -283,12 +283,6 @@ struct DocumentGroupView: View {
                     // A link inside a document inherits the CURRENT tab's
                     // terminal, not the active pane's (INT-748 PR2).
                     onOpenDocumentLink: { url in
-                        guard document.isEditable else { return }
-                        // Re-assert the router's contract at the sink: the old
-                        // GhosttyRuntime.openURL path re-ran this exact check,
-                        // and a future caller that skips the router shouldn't
-                        // get a free pass into the tab model (review finding).
-                        guard let documentURL = MarkdownLinkIntercept.documentURL(forFileURL: url) else { return }
                         // Preserve the source tab's association only when it is
                         // still live. A stale id must not poison an existing
                         // nil-associated tab during same-file dedup, and nil stays
@@ -296,6 +290,26 @@ struct DocumentGroupView: View {
                         let liveAssociation = document.associatedTerminalPaneID.flatMap {
                             session.layout.pane(id: $0)?.id
                         }
+                        if let sourceIdentity = document.remoteResourceIdentity {
+                            Task { @MainActor in
+                                if let openedID = await RemoteMarkdownDocumentLinkNavigation.open(
+                                    url: url,
+                                    from: sourceIdentity,
+                                    in: session.id,
+                                    associatedWith: liveAssociation,
+                                    sessionStore: sessionStore
+                                ) {
+                                    documentTabActions.requestFocus(for: openedID, in: session.id)
+                                }
+                            }
+                            return
+                        }
+                        guard document.isEditable else { return }
+                        // Re-assert the router's contract at the sink: the old
+                        // GhosttyRuntime.openURL path re-ran this exact check,
+                        // and a future caller that skips the router shouldn't
+                        // get a free pass into the tab model (review finding).
+                        guard let documentURL = MarkdownLinkIntercept.documentURL(forFileURL: url) else { return }
                         if let openedID = sessionStore.openDocumentPane(
                             fileURL: documentURL,
                             in: session.id,

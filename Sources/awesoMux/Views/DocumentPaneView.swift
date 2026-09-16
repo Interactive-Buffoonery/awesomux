@@ -1791,8 +1791,17 @@ struct DocumentPaneView: View {
                             highlightColor: highlightColor,
                             textColor: markdownTextColor,
                             terminalBackground: NSColor(terminalBackgroundColor),
-                            relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
-                            allowsDocumentLinks: !isReadOnly,
+                            // Editable local documents resolve relative links against the
+                            // on-disk directory. Remote snapshots resolve against the
+                            // remote document directory via `remoteDocumentLinkIdentity`
+                            // — never the local cache folder.
+                            relativeLinkBaseURL: pane.remoteResourceIdentity == nil
+                                ? pane.fileURL.deletingLastPathComponent()
+                                : nil,
+                            remoteDocumentLinkIdentity: pane.remoteResourceIdentity,
+                            // Remote Md→Md navigation is allowed; generated read-only
+                            // documents (transcripts, diffs) stay plain-text for .md links.
+                            allowsDocumentLinks: pane.isEditable || pane.remoteResourceIdentity != nil,
                             annotationsInteractive: annotationsInteractive,
                             copiesPlainTextOnly: copyModeActive,
                             onPillClicked: { markID, pillRect, anchorView in

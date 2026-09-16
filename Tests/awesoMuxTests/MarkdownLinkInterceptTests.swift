@@ -256,6 +256,20 @@ import Testing
 
         #expect(resolved?.path == "/tmp/source-doc/spec.md")
     }
+
+    @Test func resolvedDocumentPathSupportsTildeBasesWithContainment() {
+        let ok = MarkdownLinkIntercept.resolvedDocumentPath(
+            forMarkdownDestination: "guide.md",
+            relativeToDirectory: "~/repo/docs"
+        )
+        #expect(ok?.path == "~/repo/docs/guide.md")
+
+        let escaped = MarkdownLinkIntercept.resolvedDocumentPath(
+            forMarkdownDestination: "../secret.md",
+            relativeToDirectory: "~/repo/docs"
+        )
+        #expect(escaped == nil)
+    }
 }
 
 // INT-740: bridge panes never emit OSC 7, so libghostty can't resolve

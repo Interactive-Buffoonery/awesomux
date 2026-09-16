@@ -37,6 +37,15 @@ struct MarkdownLinkRoutingTests {
 
     // MARK: - .external route
 
+    @Test("awesomux-remote-md tilde path → .document route")
+    func remoteTildeMarkdownRoute() throws {
+        let url = try #require(
+            RemoteMarkdownReference.linkURL(forRemotePath: "~/repo/docs/guide.md")
+        )
+        let route = MarkdownLinkRouting.route(url)
+        #expect(route == .document(url))
+    }
+
     @Test("https URL → .external route")
     func httpsExternalRoute() {
         let url = URL(string: "https://example.com/page")!
