@@ -100,14 +100,7 @@ enum RemoteMarkdownTabRefresh {
             RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
             onFetchUnavailable?()
             if announceOutcome {
-                TerminalAccessibilityAnnouncer.announce(
-                    String(
-                        localized:
-                            "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
-                        comment:
-                            "VoiceOver announcement when a remote Markdown refresh returns no outcome"
-                    )
-                )
+                TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
             }
             return nil
         }

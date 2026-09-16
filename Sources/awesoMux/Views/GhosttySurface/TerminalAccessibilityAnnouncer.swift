@@ -15,6 +15,14 @@ enum TerminalAccessibilityAnnouncer {
         announce(remoteMarkdownAnnouncement(for: outcome))
     }
 
+    /// Same VoiceOver sentence as a `.cached` outcome: the tab still shows the
+    /// last copy that arrived, and the attempt itself failed. Used when fetch
+    /// returns `nil` (cache/failure-page write miss) so Refresh does not invent
+    /// a second translation unit for the same fact.
+    static func announceRemoteMarkdownRefreshUnavailable() {
+        announce(remoteMarkdownRefreshFailedAnnouncement)
+    }
+
     static func remoteMarkdownAnnouncement(for outcome: RemoteMarkdownFetchOutcome) -> String {
         switch outcome {
         case .fresh:
@@ -26,10 +34,7 @@ enum TerminalAccessibilityAnnouncer {
         // announcement here would say the same thing twice to the only user
         // who hears it.
         case .cached:
-            String(
-                localized: "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
-                comment: "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
-            )
+            remoteMarkdownRefreshFailedAnnouncement
         // Per reason, not one string for the case: the generated page's heading
         // renders inside a `.staticText` body, so it is not reachable as an AX
         // heading. This announcement is the only place a VoiceOver user learns
@@ -53,6 +58,12 @@ enum TerminalAccessibilityAnnouncer {
             )
         }
     }
+
+    /// Shared by `.cached` outcomes and a nil fetch result from Refresh/restore.
+    private static let remoteMarkdownRefreshFailedAnnouncement = String(
+        localized: "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
+        comment: "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
+    )
 
     static func announceSettingsError(
         _ message: String?,
