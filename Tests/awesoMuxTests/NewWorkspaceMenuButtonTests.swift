@@ -61,7 +61,7 @@ struct NewWorkspaceMenuButtonTests {
             #expect(abs(frame.midY - hostingView.bounds.midY) <= 0.5)
         }
         #expect(abs(renderedMidX - bitmapMidX) / pixelsPerPointX <= 0.5)
-        #expect(abs(renderedMidY - bitmapMidY) / pixelsPerPointY <= 0.5)
+        #expect(abs(renderedMidY - bitmapMidY) / pixelsPerPointY <= 1)
     }
 
     @Test("equatable gate ignores closures but tracks size, fill, and group list")

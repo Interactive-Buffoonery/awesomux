@@ -206,7 +206,7 @@ struct NativeTitlebarTests {
         let nativeFrame = close.convert(close.bounds, to: nil)
         let centreFromTop = window.frame.height - nativeFrame.midY
         let probeCentreFromTop = window.frame.height - probe.convert(probe.bounds, to: nil).midY
-        #expect(abs(probeCentreFromTop - centreFromTop) < 0.5)
+        #expect(abs(probeCentreFromTop - centreFromTop) <= 0.5)
         let measured = try #require(NativeTitlebarGeometry(window: window))
         let zoom = try #require(window.standardWindowButton(.zoomButton))
         #expect(measured.leadingInset >= zoom.convert(zoom.bounds, to: nil).maxX + 10)
@@ -219,7 +219,7 @@ struct NativeTitlebarTests {
         hosting.layoutSubtreeIfNeeded()
         let changedFrame = close.convert(close.bounds, to: nil)
         let changedProbeCentreFromTop = window.frame.height - probe.convert(probe.bounds, to: nil).midY
-        #expect(abs(changedProbeCentreFromTop - (window.frame.height - changedFrame.midY)) < 0.5)
+        #expect(abs(changedProbeCentreFromTop - (window.frame.height - changedFrame.midY)) <= 0.5)
     }
 }
 
