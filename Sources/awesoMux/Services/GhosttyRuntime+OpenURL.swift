@@ -119,6 +119,28 @@ extension GhosttyRuntime {
         isRemoteMarkdownRoutingFailurePresented = false
     }
 
+    /// Presented when a remote Markdown *fetch* produced nothing to show — in
+    /// practice a failed local cache/failure-page write, not a rejected path.
+    /// Kept separate from `remoteMarkdownRoutingFailurePresenter` so the
+    /// boundary-violation copy is never shown for an ordinary save failure, and
+    /// presented as a sheet on the key window so it does not block the run loop
+    /// while the send bar's busy latch is still held.
+    @MainActor
+    private(set) static var isRemoteMarkdownFetchFailurePresented = false
+
+    @MainActor
+    static var remoteMarkdownFetchFailurePresenter: @MainActor (NSView?) -> Void = {
+        presentRemoteMarkdownFetchFailure(from: $0)
+    }
+
+    @MainActor
+    static func resetRemoteMarkdownFetchFailurePresenterForTesting() {
+        remoteMarkdownFetchFailurePresenter = {
+            presentRemoteMarkdownFetchFailure(from: $0)
+        }
+        isRemoteMarkdownFetchFailurePresented = false
+    }
+
     @MainActor
     static var terminalLinkOpenFailurePresenter: @MainActor (NSView?) -> Void = {
         presentTerminalLinkOpenFailure(from: $0)
@@ -151,7 +173,7 @@ extension GhosttyRuntime {
                 return
             }
             guard let outcome = await recentLinkRemoteSnapshotProvider(reference) else {
-                remoteMarkdownRoutingFailurePresenter(nil)
+                remoteMarkdownFetchFailurePresenter(nil)
                 return
             }
             let hadVisibleDocument =
@@ -433,6 +455,34 @@ extension GhosttyRuntime {
             }
         } else {
             defer { isRemoteMarkdownRoutingFailurePresented = false }
+            alert.runModal()
+        }
+    }
+
+    /// A fetch that returns nothing to show is a local write failure — the
+    /// downloaded copy could not be saved — so the copy names that, not path
+    /// trust. Prefer the key window so the alert sheets rather than blocking.
+    @MainActor
+    private static func presentRemoteMarkdownFetchFailure(from view: NSView?) {
+        guard !isRemoteMarkdownFetchFailurePresented else { return }
+        isRemoteMarkdownFetchFailurePresented = true
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "Couldn’t Open Remote Markdown",
+            comment: "Title when a remote Markdown fetch completed but nothing could be saved to show"
+        )
+        alert.informativeText = String(
+            localized:
+                "awesoMux fetched the file but could not save it locally. Check available disk space and permissions, then try again.",
+            comment: "Explanation for a remote Markdown cache write failure"
+        )
+        if let window = view?.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { _ in
+                isRemoteMarkdownFetchFailurePresented = false
+            }
+        } else {
+            defer { isRemoteMarkdownFetchFailurePresented = false }
             alert.runModal()
         }
     }

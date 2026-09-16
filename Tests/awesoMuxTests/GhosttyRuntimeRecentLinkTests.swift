@@ -106,10 +106,10 @@ struct GhosttyRuntimeRecentLinkTests {
 
     @Test func remoteMarkdownUsesCapturedPaneRoutingContext() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         defer {
             GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         }
         let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
         let pane = TerminalPane(
@@ -125,10 +125,10 @@ struct GhosttyRuntimeRecentLinkTests {
             captured = reference
             return nil
         }
-        // Stub the presenter: nil-provider-result now surfaces a failure
-        // (see nilRemoteSnapshotPresentsRoutingFailure), which would otherwise
+        // Stub the presenter: nil-provider-result now surfaces a fetch failure
+        // (see nilRemoteSnapshotPresentsFetchFailure), which would otherwise
         // block this test on a real NSAlert.
-        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { _ in }
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
 
         await GhosttyRuntime.openRecentLink(
             "docs/readme.md",
@@ -142,10 +142,10 @@ struct GhosttyRuntimeRecentLinkTests {
 
     @Test func remoteMarkdownLineReferenceNeverFallsThroughToSameNamedLocalFile() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         defer {
             GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         }
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -167,10 +167,10 @@ struct GhosttyRuntimeRecentLinkTests {
             captured = reference
             return nil
         }
-        // Stub the presenter: nil-provider-result now surfaces a failure
-        // (see nilRemoteSnapshotPresentsRoutingFailure), which would otherwise
+        // Stub the presenter: nil-provider-result now surfaces a fetch failure
+        // (see nilRemoteSnapshotPresentsFetchFailure), which would otherwise
         // block this test on a real NSAlert.
-        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { _ in }
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
 
         await GhosttyRuntime.openRecentLink(
             "README.md:12",
@@ -241,12 +241,12 @@ struct GhosttyRuntimeRecentLinkTests {
         )
     }
 
-    @Test func nilRemoteSnapshotPresentsRoutingFailure() async throws {
+    @Test func nilRemoteSnapshotPresentsFetchFailure() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         defer {
             GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         }
         let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
         let pane = TerminalPane(
@@ -259,7 +259,7 @@ struct GhosttyRuntimeRecentLinkTests {
         let store = makeStore(session)
         GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in nil }
         var didPresent = false
-        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { view in
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { view in
             #expect(view == nil)
             didPresent = true
         }

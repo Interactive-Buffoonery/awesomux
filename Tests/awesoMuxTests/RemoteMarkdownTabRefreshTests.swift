@@ -267,8 +267,8 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: failurePath) == nil)
     }
 
-    @Test("a nil fetch outcome notes refresh-failed and invokes the unavailable hook")
-    func nilFetchOutcomeNotesPolicyAndPresentsFailure() async throws {
+    @Test("a nil fetch outcome notes refresh-failed for the stale banner")
+    func nilFetchOutcomeNotesPolicy() async throws {
         let identity = remoteIdentity()
         let path = "/tmp/awesomux-refresh-nil-\(UUID().uuidString).md"
         defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
@@ -276,22 +276,6 @@ struct RemoteMarkdownTabRefreshTests {
             identity: identity,
             cacheURL: URL(fileURLWithPath: path)
         )
-
-        final class Hook: @unchecked Sendable {
-            private let lock = NSLock()
-            private var _count = 0
-            var count: Int {
-                lock.lock()
-                defer { lock.unlock() }
-                return _count
-            }
-            func fire() {
-                lock.lock()
-                _count += 1
-                lock.unlock()
-            }
-        }
-        let hook = Hook()
 
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
@@ -301,19 +285,17 @@ struct RemoteMarkdownTabRefreshTests {
             sessionStore: store,
             selectingTab: true,
             announceOutcome: false,
-            onFetchUnavailable: { hook.fire() },
             fetch: { _ in nil }
         )
 
         #expect(outcome == nil)
-        #expect(hook.count == 1)
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteRefreshFailed)
         #expect(
             store.session(id: sessionID)?.layout.firstDocumentGroup?
                 .tab(forRemoteResource: identity)?.fileURL.standardizedFileURL.path == path)
     }
 
-    @Test("a nil fetch after the tab closed does not note policy or alert")
+    @Test("a nil fetch after the tab closed does not note policy")
     func nilFetchOnClosedTabIsSilent() async throws {
         let identity = remoteIdentity()
         let path = "/tmp/awesomux-refresh-nil-closed-\(UUID().uuidString).md"
@@ -323,22 +305,6 @@ struct RemoteMarkdownTabRefreshTests {
             cacheURL: URL(fileURLWithPath: path)
         )
 
-        final class Hook: @unchecked Sendable {
-            private let lock = NSLock()
-            private var _count = 0
-            var count: Int {
-                lock.lock()
-                defer { lock.unlock() }
-                return _count
-            }
-            func fire() {
-                lock.lock()
-                _count += 1
-                lock.unlock()
-            }
-        }
-        let hook = Hook()
-
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
             documentID: tabID,
@@ -346,7 +312,6 @@ struct RemoteMarkdownTabRefreshTests {
             associatedWith: nil,
             sessionStore: store,
             selectingTab: true,
-            onFetchUnavailable: { hook.fire() },
             fetch: { _ in
                 store.closeDocumentPane(documentID: tabID, in: sessionID)
                 return nil
@@ -354,7 +319,6 @@ struct RemoteMarkdownTabRefreshTests {
         )
 
         #expect(outcome == nil)
-        #expect(hook.count == 0)
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
     }
 

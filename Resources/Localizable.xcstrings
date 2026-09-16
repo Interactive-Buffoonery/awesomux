@@ -1485,6 +1485,9 @@
     "Couldn't verify what's running in this transcript's terminal" : {
       "comment" : "Unavailable reason for resuming a session when foreground process evidence is unavailable"
     },
+    "Couldn’t Open Remote Markdown" : {
+      "comment" : "Title when a remote Markdown fetch completed but nothing could be saved to show"
+    },
     "Couldn’t Read Scrollback" : {
       "comment" : "Heading when Show Scrollback cannot read terminal history"
     },
@@ -2860,9 +2863,6 @@
     "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
     },
-    "Open Remote Markdown" : {
-      "comment" : "Title for the typed-path sheet that opens a remote Markdown file over SSH"
-    },
     "Open" : {
       "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
     },
@@ -2874,6 +2874,9 @@
     },
     "Open Recent Link" : {
       "comment" : "Command palette action for opening a link detected in a terminal pane"
+    },
+    "Open Remote Markdown" : {
+      "comment" : "Title for the typed-path sheet that opens a remote Markdown file over SSH"
     },
     "Open System Settings" : {
 
@@ -2942,9 +2945,6 @@
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
     },
     "Opens a menu to create a new workspace group or a workspace in a specific group." : {
-
-    },
-    "Opens a menu with New Workspace, New Workspace in a chosen group, and New Workspace Group" : {
 
     },
     "Opens a read-only snapshot from %arg." : {
@@ -5334,6 +5334,9 @@
     },
     "awesoMux doesn't know which session this pane belongs to. If an agent is running, send it a prompt, then try again." : {
       "comment" : "Transcript failure when no provider session id has been reported"
+    },
+    "awesoMux fetched the file but could not save it locally. Check available disk space and permissions, then try again." : {
+      "comment" : "Explanation for a remote Markdown cache write failure"
     },
     "awesoMux found a .git here but wouldn't run git against it — it may be a symlink, or point somewhere outside the repository." : {
       "comment" : "Branch diff failure when the repository's .git failed admin-directory validation"

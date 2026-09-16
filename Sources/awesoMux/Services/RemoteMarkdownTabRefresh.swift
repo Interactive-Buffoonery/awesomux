@@ -71,13 +71,14 @@ enum RemoteMarkdownTabRefresh {
     /// refused, the tab disappeared mid-flight, the cache/failure write failed,
     /// or another refresh for this tab is already in flight.
     ///
-    /// - Parameter onFetchUnavailable: Called when `fetch` returns `nil` while
-    ///   the tab is still open — the live OSC path's failure presentation.
-    ///   Restore omits this so relaunch does not stack alerts; it still records
-    ///   a refresh-failed policy note against the tab's current path.
     /// - Parameter coordinator: When provided, gates concurrent callers for the
     ///   same document id so a send-bar remount cannot start a second announce
     ///   path while the first SSH round trip is still finishing.
+    ///
+    /// A `nil` fetch still records a refresh-failed policy note against the
+    /// tab's current path (the stale banner) and, when `announceOutcome` is
+    /// set, speaks the unavailable outcome. No alert is presented: the banner
+    /// and announcement already tell the whole story.
     @MainActor
     @discardableResult
     static func refresh(
@@ -89,7 +90,6 @@ enum RemoteMarkdownTabRefresh {
         selectingTab: Bool,
         announceOutcome: Bool = false,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
-        onFetchUnavailable: (@MainActor () -> Void)? = nil,
         fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         }
@@ -114,8 +114,8 @@ enum RemoteMarkdownTabRefresh {
         guard let outcome = await fetch(reference) else {
             // A nil outcome is a failed attempt (typically a cache/failure-page
             // write miss), not success. Note the policy against the tab's
-            // current path so the stale banner can say so, and optionally
-            // present the same alert the live OSC path uses.
+            // current path so the stale banner can say so, and speak it for the
+            // send-bar Refresh. No alert: the banner and announcement cover it.
             guard
                 let tab = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                     .tab(id: documentID)
@@ -124,7 +124,6 @@ enum RemoteMarkdownTabRefresh {
             }
             let path = tab.fileURL.standardizedFileURL.path
             RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
-            onFetchUnavailable?()
             if announceOutcome {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
             }

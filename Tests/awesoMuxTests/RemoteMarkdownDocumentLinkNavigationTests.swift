@@ -347,6 +347,38 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         // TerminalAccessibilityAnnouncer; loading order vs fetch is the
         // interactive contract this test pins.
     }
+
+    /// A nil fetch is a local write failure, not a rejected destination, so it
+    /// must not present the boundary-violation copy.
+    @Test("open routes a nil fetch to the fetch-failure hook, not the path gate")
+    @MainActor
+    func openRoutesNilFetchToFetchFailure() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md",
+                relativeTo: source
+            )
+        )
+        var routingFailures = 0
+        var fetchFailures = 0
+        let openedID = await RemoteMarkdownDocumentLinkNavigation.open(
+            url: link,
+            from: source,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            fetch: { _ in nil },
+            onRoutingFailure: { routingFailures += 1 },
+            onFetchFailure: { fetchFailures += 1 },
+            onAnnounceLoading: {}
+        )
+        #expect(openedID == nil)
+        #expect(routingFailures == 0)
+        #expect(fetchFailures == 1)
+    }
 }
 
 @Suite("Remote markdown attributed document links")

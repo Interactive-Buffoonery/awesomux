@@ -37,6 +37,9 @@ enum RemoteMarkdownDocumentLinkNavigation {
         onRoutingFailure: @MainActor () -> Void = {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
         },
+        onFetchFailure: @MainActor () -> Void = {
+            GhosttyRuntime.remoteMarkdownFetchFailurePresenter(nil)
+        },
         onAnnounceLoading: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
         },
@@ -50,7 +53,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
         }
         onAnnounceLoading()
         guard let outcome = await fetch(reference) else {
-            onRoutingFailure()
+            onFetchFailure()
             return nil
         }
         let openedID = RemoteMarkdownTabRefresh.apply(

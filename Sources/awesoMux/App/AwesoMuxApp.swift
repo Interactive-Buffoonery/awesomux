@@ -4029,10 +4029,7 @@ struct AwesoMuxApp: App {
                 sessionStore: sessionStore,
                 selectingTab: true,
                 announceOutcome: true,
-                coordinator: remoteMarkdownRefreshCoordinator,
-                onFetchUnavailable: {
-                    GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
-                }
+                coordinator: remoteMarkdownRefreshCoordinator
             )
         }
     }
