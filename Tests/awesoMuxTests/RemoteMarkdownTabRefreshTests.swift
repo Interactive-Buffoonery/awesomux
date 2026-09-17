@@ -123,7 +123,8 @@ struct RemoteMarkdownTabRefreshTests {
                 associatedWith: terminalID,
                 remoteResourceIdentity: identityB
             ))
-        // Select A, then apply a refresh for B without selecting.
+        // Applying B without selecting must leave A selected so this
+        // assertion catches a selection steal.
         store.selectDocumentTab(tabID: tabA, in: sessionID)
         #expect(
             store.session(id: sessionID)?.layout.firstDocumentGroup?.selectedTabID == tabA)
@@ -139,6 +140,66 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(
             store.session(id: sessionID)?.layout.firstDocumentGroup?.selectedTabID == tabA)
         #expect(tabB != tabA)
+    }
+
+    @Test("selecting apply heals a dead association; restore apply preserves nil")
+    func applyHealsDeadAssociationOnlyWhenSelecting() throws {
+        let identityLive = remoteIdentity(path: "/repo/live.md")
+        let identityRestore = remoteIdentity(path: "/repo/restore.md")
+        let pathLive = "/tmp/awesomux-refresh-heal-\(UUID().uuidString).md"
+        let pathRestore = "/tmp/awesomux-refresh-preserve-\(UUID().uuidString).md"
+        defer {
+            RemoteSnapshotStalePolicy.note(nil, path: pathLive)
+            RemoteSnapshotStalePolicy.note(nil, path: pathRestore)
+        }
+
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let session = try #require(store.session(id: sessionID))
+        let terminalID = session.activePaneID
+        // Restore remaps a missing pane id to nil; that is the dead
+        // association footer Refresh and restore re-fetch both see.
+        let liveTab = try #require(
+            store.openDocumentPane(
+                fileURL: URL(fileURLWithPath: pathLive),
+                in: sessionID,
+                associatedWith: nil,
+                remoteResourceIdentity: identityLive,
+                associationPolicy: .preserveNil
+            ))
+        let restoreTab = try #require(
+            store.openDocumentPane(
+                fileURL: URL(fileURLWithPath: pathRestore),
+                in: sessionID,
+                associatedWith: nil,
+                remoteResourceIdentity: identityRestore,
+                associationPolicy: .preserveNil
+            ))
+        #expect(
+            store.session(id: sessionID)?.layout.firstDocumentGroup?
+                .tab(id: liveTab)?.associatedTerminalPaneID == nil)
+        #expect(
+            store.session(id: sessionID)?.layout.firstDocumentGroup?
+                .tab(id: restoreTab)?.associatedTerminalPaneID == nil)
+
+        RemoteMarkdownTabRefresh.apply(
+            .fresh(snapshot(path: pathLive, identity: identityLive)),
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: true
+        )
+        RemoteMarkdownTabRefresh.apply(
+            .fresh(snapshot(path: pathRestore, identity: identityRestore)),
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: false
+        )
+
+        let group = try #require(store.session(id: sessionID)?.layout.firstDocumentGroup)
+        #expect(group.tab(id: liveTab)?.associatedTerminalPaneID == terminalID)
+        #expect(group.tab(id: restoreTab)?.associatedTerminalPaneID == nil)
     }
 
     @Test("refresh refuses a closed tab and does not reopen it")

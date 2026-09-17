@@ -17,9 +17,11 @@ enum RemoteMarkdownTabRefresh {
 
     /// Records the outcome, then opens or updates the matching document tab.
     ///
-    /// - Parameter selectingTab: Live opens pass `true` (subject to the compose
-    ///   guard inside `openDocumentPane`). Restore re-fetch passes `false` so a
-    ///   late SSH round-trip cannot steal selection from another tab.
+    /// - Parameter selectingTab: Live opens and footer Refresh pass `true`
+    ///   (subject to the compose guard inside `openDocumentPane`) and heal a
+    ///   dead terminal association so send/stage is not stuck disabled. Restore
+    ///   re-fetch passes `false` so a late SSH round-trip cannot steal selection
+    ///   or capture whichever pane is active at launch.
     /// - Parameter announceOutcome: When true (footer Refresh), speak the
     ///   fetch result. Restore leaves this false so relaunch does not narrate
     ///   every remote tab.
@@ -43,7 +45,10 @@ enum RemoteMarkdownTabRefresh {
             in: sessionID,
             associatedWith: paneID,
             remoteResourceIdentity: snapshot.identity,
-            associationPolicy: .preserveNil,
+            // Footer Refresh / live open: heal a dead (restored-nil)
+            // association. Restore re-fetch keeps `.preserveNil` so a
+            // background tab cannot capture the launch-time active pane.
+            associationPolicy: selectingTab ? .captureActivePaneWhenNil : .preserveNil,
             // `true` means "prefer select" — leave the compose-guard default
             // inside `openDocumentPane`. `false` is an explicit never-select
             // for restore re-fetch of background tabs.
