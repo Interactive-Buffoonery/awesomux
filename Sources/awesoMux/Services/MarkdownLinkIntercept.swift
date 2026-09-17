@@ -287,8 +287,7 @@ enum MarkdownLinkIntercept {
         } else {
             joined = (normalizedBase as NSString).appendingPathComponent(relativePath)
         }
-        guard let resolved = normalizedTildeDirectory(joined) ?? normalizedTildeFilePath(joined)
-        else {
+        guard let resolved = normalizedTildeFilePath(joined) else {
             return nil
         }
         guard contains(childPath: resolved, in: normalizedBase) else {
@@ -316,8 +315,10 @@ enum MarkdownLinkIntercept {
         return components.isEmpty ? "~" : "~/" + components.joined(separator: "/")
     }
 
-    /// Like `normalizedTildeDirectory`, but requires a non-directory final
-    /// segment so `~/repo/docs/../file.md` keeps the filename.
+    /// Like `normalizedTildeDirectory`, but rejects a collapse back to `~`.
+    /// The walk does not inspect whether the final segment is a directory;
+    /// `~/repo/docs/../file.md` keeps the filename because `file.md` remains
+    /// after `..` is applied, the same as the directory walk.
     private static func normalizedTildeFilePath(_ path: String) -> String? {
         guard path.hasPrefix("~/") else { return nil }
         var components: [Substring] = []
