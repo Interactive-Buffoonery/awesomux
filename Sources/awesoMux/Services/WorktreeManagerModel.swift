@@ -325,30 +325,34 @@ final class WorktreeManagerModel {
         destination: WorktreeOpenDestination,
         capturedSplitTarget: WorktreeWorkspaceMatch?
     ) async -> WorktreeManagerOpenOutcome {
-        switch await service.validateRepositoryIdentity(repositoryContext) {
-        case .valid:
-            break
-        case .changed:
-            let message = String(
-                localized: "The Git repository changed. Reopen Worktree Manager from the active workspace.",
-                comment: "Worktree Manager open error when the captured repository is no longer current."
-            )
-            await refresh()
-            return .failed(message)
-        case .failed:
-            let message = String(
-                localized: "Couldn’t refresh worktrees. Check Git and try again.",
-                comment: "Worktree Manager open error when repository identity validation fails."
-            )
-            await refresh()
-            return .failed(message)
+        let currentRecords: [GitWorktreeRecord]
+        switch await service.list(in: repositoryContext) {
+        case .success(let result):
+            currentRecords = result.records
+        case .repositoryChanged:
+            return .failed(
+                String(
+                    localized: "The Git repository changed. Reopen Worktree Manager from the active workspace.",
+                    comment: "Worktree Manager open error when the captured repository is no longer current."
+                ))
+        case .failure:
+            return .failed(
+                String(
+                    localized: "Couldn’t refresh worktrees. Check Git and try again.",
+                    comment: "Worktree Manager open error when repository identity validation fails."
+                ))
         }
-
-        let worktreePathComponents = state.rows.map {
-            canonicalPathComponents($0.record.canonicalPath)
+        let worktreeComponents = canonicalPathComponents(record.canonicalPath)
+        let worktreePathComponents = currentRecords.map { canonicalPathComponents($0.canonicalPath) }
+        guard worktreePathComponents.contains(worktreeComponents) else {
+            return .failed(
+                String(
+                    localized: "Couldn’t refresh worktrees. Check Git and try again.",
+                    comment: "Worktree Manager open error when repository identity validation fails."
+                ))
         }
         if let match = projection.match(
-            worktreeComponents: canonicalPathComponents(record.canonicalPath),
+            worktreeComponents: worktreeComponents,
             canonicalWorktreePathComponents: worktreePathComponents,
             groups: groups()
         ) {

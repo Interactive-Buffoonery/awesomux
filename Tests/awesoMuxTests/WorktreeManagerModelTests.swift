@@ -11,7 +11,9 @@ struct WorktreeManagerModelTests {
         let groupID = UUID()
         var openedPath: String?
         let service = StubWorktreeListing(
-            outcomes: [.success(.init(records: [record()], diagnostics: []))],
+            outcomes: Array(
+                repeating: .success(.init(records: [record()], diagnostics: [])),
+                count: 2),
             createOutcomes: [.success(record())]
         )
         let model = makeModel(
@@ -102,7 +104,9 @@ struct WorktreeManagerModelTests {
         let main = mainRecord()
         let linked = record(path: "/tmp/repo/.worktrees/int-857")
         let service = StubWorktreeListing(
-            outcomes: [.success(.init(records: [main, linked], diagnostics: []))]
+            outcomes: Array(
+                repeating: .success(.init(records: [main, linked], diagnostics: [])),
+                count: 3)
         )
         var focused: WorktreeWorkspaceMatch?
         var openedPath: String?
@@ -127,6 +131,36 @@ struct WorktreeManagerModelTests {
         let linkedOutcome = await model.open(row: model.state.rows[1])
         #expect(linkedOutcome == .focused(try #require(focused)))
         #expect(focused?.sessionID == linkedSession.id)
+    }
+
+    @Test("open uses the current roster when a nested worktree was added after refresh")
+    func openUsesCurrentRoster() async {
+        let nestedSession = TerminalSession(
+            title: "nested",
+            workingDirectory: "/tmp/repo/.worktrees/new/Sources"
+        )
+        let group = SessionGroup(name: "work", sessions: [nestedSession])
+        let main = mainRecord()
+        let nested = record(path: "/tmp/repo/.worktrees/new")
+        let service = StubWorktreeListing(outcomes: [
+            .success(.init(records: [main], diagnostics: [])),
+            .success(.init(records: [main, nested], diagnostics: [])),
+        ])
+        var focusCalls = 0
+        let createdID = UUID()
+        let model = makeModel(
+            service: service,
+            groups: { [group] },
+            currentGroupID: { group.id },
+            focus: { _ in focusCalls += 1 },
+            add: { _, _, _ in createdID }
+        )
+
+        await model.refresh()
+        let outcome = await model.open(row: model.state.rows[0])
+
+        #expect(outcome == .created(createdID))
+        #expect(focusCalls == 0)
     }
 
     @Test("initial refresh failure transitions to error")
@@ -274,7 +308,7 @@ struct WorktreeManagerModelTests {
         var addCalls = 0
         let service = StubWorktreeListing(
             outcomes: [.repositoryChanged],
-            identityOutcomes: [.changed]
+            identityOutcomes: [.valid]
         )
         let model = makeModel(
             service: service,
@@ -294,10 +328,6 @@ struct WorktreeManagerModelTests {
         #expect(message.contains("repository changed"))
         #expect(focusCalls == 0)
         #expect(addCalls == 0)
-        guard case .error = model.state else {
-            Issue.record("Expected repository-change refresh to update model state")
-            return
-        }
     }
 
     @Test("open fails closed when identity validation itself fails, not just when it detects drift")
@@ -305,8 +335,8 @@ struct WorktreeManagerModelTests {
         var focusCalls = 0
         var addCalls = 0
         let service = StubWorktreeListing(
-            outcomes: [.failure(.spawnFailure)],
-            identityOutcomes: [.failed(.spawnFailure)]
+            outcomes: [.failure(.repositoryValidationFailed(.spawnFailure))],
+            identityOutcomes: [.valid]
         )
         let model = makeModel(
             service: service,
@@ -327,6 +357,66 @@ struct WorktreeManagerModelTests {
         #expect(addCalls == 0)
     }
 
+    @Test("open fails closed when the selected worktree was removed after refresh")
+    func openFailsWhenSelectedWorktreeWasRemoved() async {
+        var focusCalls = 0
+        var addCalls = 0
+        let model = makeModel(
+            service: StubWorktreeListing(outcomes: [.success(.init(records: [mainRecord()], diagnostics: []))]),
+            currentGroupID: { UUID() },
+            focus: { _ in focusCalls += 1 },
+            add: { _, _, _ in
+                addCalls += 1; return UUID()
+            }
+        )
+
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+
+        #expect(outcome == .failed("Couldn’t refresh worktrees. Check Git and try again."))
+        #expect(focusCalls == 0)
+        #expect(addCalls == 0)
+    }
+
+    @Test("open fails closed when the current worktree roster cannot be read")
+    func openFailsWhenCurrentRosterFails() async {
+        var focusCalls = 0
+        var addCalls = 0
+        let model = makeModel(
+            service: StubWorktreeListing(outcomes: [.failure(.spawnFailure)]),
+            currentGroupID: { UUID() },
+            focus: { _ in focusCalls += 1 },
+            add: { _, _, _ in
+                addCalls += 1; return UUID()
+            }
+        )
+
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+
+        #expect(outcome == .failed("Couldn’t refresh worktrees. Check Git and try again."))
+        #expect(focusCalls == 0)
+        #expect(addCalls == 0)
+    }
+
+    @Test("open fails closed when the repository changes during the current roster read")
+    func openFailsWhenCurrentRosterChangesRepository() async {
+        var focusCalls = 0
+        var addCalls = 0
+        let model = makeModel(
+            service: StubWorktreeListing(outcomes: [.repositoryChanged]),
+            currentGroupID: { UUID() },
+            focus: { _ in focusCalls += 1 },
+            add: { _, _, _ in
+                addCalls += 1; return UUID()
+            }
+        )
+
+        let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
+
+        #expect(outcome == .failed("The Git repository changed. Reopen Worktree Manager from the active workspace."))
+        #expect(focusCalls == 0)
+        #expect(addCalls == 0)
+    }
+
     @Test("split destinations create and focus local worktree panes", arguments: [WorktreeOpenDestination.splitRight, .splitDown])
     func openAsSplit(destination: WorktreeOpenDestination) async throws {
         let session = TerminalSession(title: "original", workingDirectory: "/tmp/original")
@@ -334,7 +424,8 @@ struct WorktreeManagerModelTests {
         let store = SessionStore(groups: [group])
         let model = WorktreeManagerModel(
             repositoryContext: request(groupID: group.id).repositoryContext,
-            service: StubWorktreeListing(outcomes: []), sessionStore: store)
+            service: StubWorktreeListing(outcomes: [.success(.init(records: [record()], diagnostics: []))]),
+            sessionStore: store)
         #expect(model.canOpenAsSplit)
         let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil), destination: destination)
         guard case .split(let match) = outcome else { Issue.record("Expected split"); return }
@@ -359,10 +450,11 @@ struct WorktreeManagerModelTests {
         let store = SessionStore(groups: [group])
         let model = WorktreeManagerModel(
             repositoryContext: request(groupID: group.id).repositoryContext,
-            service: StubWorktreeListing(outcomes: []), sessionStore: store)
+            service: StubWorktreeListing(outcomes: [.success(.init(records: [record()], diagnostics: []))]),
+            sessionStore: store)
         #expect(!model.canOpenAsSplit)
         let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil), destination: .splitRight)
-        guard case .failed = outcome else { Issue.record("Expected unavailable split failure"); return }
+        #expect(outcome == .failed("Select a local terminal pane, then try again."))
         #expect(store.groups[0].sessions.count == (remote ? 1 : 0))
     }
 
@@ -373,7 +465,9 @@ struct WorktreeManagerModelTests {
         let group = SessionGroup(name: "work", sessions: [first, second])
         let store = SessionStore(groups: [group])
         let service = StubWorktreeListing(
-            outcomes: [.success(.init(records: [record()], diagnostics: []))],
+            outcomes: Array(
+                repeating: .success(.init(records: [record()], diagnostics: [])),
+                count: 2),
             createOutcomes: [.success(record())], gatesCreate: true)
         let model = WorktreeManagerModel(
             repositoryContext: request(groupID: group.id).repositoryContext,
@@ -394,7 +488,9 @@ struct WorktreeManagerModelTests {
         let group = SessionGroup(name: "work", sessions: [session])
         let store = SessionStore(groups: [group])
         let service = StubWorktreeListing(
-            outcomes: [.success(.init(records: [record()], diagnostics: []))],
+            outcomes: Array(
+                repeating: .success(.init(records: [record()], diagnostics: [])),
+                count: 2),
             createOutcomes: [.success(record())])
         let model = WorktreeManagerModel(
             repositoryContext: request(groupID: group.id).repositoryContext,
@@ -421,19 +517,20 @@ struct WorktreeManagerModelTests {
         var splitCalls = 0
         let model = WorktreeManagerModel(
             repositoryContext: request(groupID: group.id).repositoryContext,
-            service: StubWorktreeListing(outcomes: []), groups: { [group] }, currentGroupID: { group.id },
+            service: StubWorktreeListing(outcomes: [.success(.init(records: [record()], diagnostics: []))]),
+            groups: { [group] }, currentGroupID: { group.id },
             focus: { _ in }, addLocalSession: { _, _, _ in nil }, currentSession: { session },
             splitLocalPane: { _, _, _ in
                 splitCalls += 1; return UUID()
             })
         #expect(!model.canOpenAsSplit)
         let result = await model.open(row: .init(record: record(), liveMatch: nil), destination: .splitDown)
-        guard case .failed = result else { Issue.record("Expected unavailable document destination"); return }
+        #expect(result == .failed("Select a local terminal pane, then try again."))
         #expect(splitCalls == 0)
     }
 
     private func makeModel(
-        service: any GitWorktreeManaging = StubWorktreeListing(outcomes: []),
+        service: (any GitWorktreeManaging)? = nil,
         groups: @escaping () -> [SessionGroup] = { [] },
         currentGroupID: @escaping () -> SessionGroup.ID? = { nil },
         focus: @escaping (WorktreeWorkspaceMatch) -> Void = { _ in },
@@ -445,7 +542,8 @@ struct WorktreeManagerModelTests {
                 canonicalCommonGitDirectory: URL(fileURLWithPath: "/tmp/repo/.git"),
                 displayName: "repo"
             ),
-            service: service,
+            service: service
+                ?? StubWorktreeListing(outcomes: [.success(.init(records: [record()], diagnostics: []))]),
             // Fixture working directories are fictional paths — stub existence
             // so live-match tests don't depend on the real filesystem.
             projection: WorktreeWorkspaceProjection(directoryExists: { _ in true }),
