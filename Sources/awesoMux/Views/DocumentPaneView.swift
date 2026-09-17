@@ -447,7 +447,7 @@ struct DocumentPaneSendBar: View {
                     .truncationMode(.middle)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.aw.text2)
-                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .frame(height: 28)
                     .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
                 } else {
                     SendToAgentButton(
