@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 usage() {
     cat <<'EOF'
-Usage: ./script/test.sh <unit|adapter|system|timing|sidebar|nontiming|zmx|all> [swift test arguments]
+Usage: ./script/test.sh <unit|adapter|system|timing|sidebar|announcement|nontiming|zmx|all> [swift test arguments]
 EOF
 }
 
@@ -27,6 +27,10 @@ EOF
 timing_pattern='AwesoMuxConfigTests\.AppSettingsSymlinkWatchTests|awesoMuxTests\.(ProcessCommandRunnerTests|BoundedCommandRunnerTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentPluginRunnerTests|AgentTranscriptLiveRefreshWatchTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests|RemoteHandoffTests|MarkdownDiffLineStylingTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.(EventRecorderTests|ProcessBoundedWaitTests)'
 timing_test_pattern='AwesoMuxAgentHookSupportTests\.AgentIntegrationTemplateTests/piTemplateBoundsHungHelpersAndPreservesNormalEvents(\(|$)'
 sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
+# Suites that replace the global TerminalAccessibilityAnnouncer poster stub.
+# They must not run in the same parallel `swift test` process as each other
+# or unrelated suites, or one test can observe another suite's stub mid-flight.
+announcement_pattern='awesoMuxTests\.(TerminalAccessibilityAnnouncerTests|RemoteMarkdownTypedPathOpenTests|RemoteMarkdownTabRefreshTests)'
 
 group="${1:-}"
 if [[ -z "$group" ]]; then
@@ -54,8 +58,11 @@ case "$group" in
         filter="^($sidebar_pattern)/"
         export AWESOMUX_APPKIT_TEST_HOST=1
         ;;
+    announcement)
+        filter="^($announcement_pattern)/"
+        ;;
     nontiming)
-        skip="^(($timing_pattern|$sidebar_pattern)/|$timing_test_pattern)"
+        skip="^(($timing_pattern|$sidebar_pattern|$announcement_pattern)/|$timing_test_pattern)"
         ;;
     zmx)
         if [[ "$#" -ne 0 ]]; then
@@ -76,6 +83,7 @@ case "$group" in
         echo "Swift test reports: $report_dir"
         "$ROOT_DIR/script/test.sh" timing --xunit-output "$report_dir/timing.xml"
         "$ROOT_DIR/script/test.sh" sidebar --skip-build --xunit-output "$report_dir/sidebar.xml"
+        "$ROOT_DIR/script/test.sh" announcement --skip-build --xunit-output "$report_dir/announcement.xml"
         "$ROOT_DIR/script/test.sh" nontiming --skip-build --xunit-output "$report_dir/nontiming.xml"
         exit 0
         ;;
@@ -94,7 +102,7 @@ args=()
 [[ -n "$filter" ]] && args+=(--filter "$filter")
 [[ -n "$skip" ]] && args+=(--skip "$skip")
 case "$group" in
-    timing|sidebar|nontiming)
+    timing|sidebar|announcement|nontiming)
         report_path=''
         expects_report_path=false
         for argument in "$@"; do

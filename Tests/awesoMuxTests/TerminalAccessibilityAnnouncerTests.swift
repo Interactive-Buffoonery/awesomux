@@ -4,7 +4,7 @@ import Testing
 @testable import awesoMux
 
 @MainActor
-@Suite("Terminal accessibility announcements")
+@Suite("Terminal accessibility announcements", .serialized)
 struct TerminalAccessibilityAnnouncerTests {
     @Test("immediate remote Markdown loading posts on this turn; async hop does not")
     func remoteMarkdownLoadingImmediatePostsSynchronously() async {

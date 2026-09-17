@@ -5,7 +5,7 @@ import Testing
 @testable import awesoMux
 
 @MainActor
-@Suite("Remote Markdown tab refresh")
+@Suite("Remote Markdown tab refresh", .serialized)
 struct RemoteMarkdownTabRefreshTests {
     private func remoteIdentity(path: String = "/repo/doc.md") -> ResourceIdentity {
         ResourceIdentity(
