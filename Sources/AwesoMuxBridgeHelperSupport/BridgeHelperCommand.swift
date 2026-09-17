@@ -225,7 +225,7 @@ public enum BridgeHelperCommand {
         while runtime.pendingCount > 0 {
             let liveDeadlines = requestDeadlines.filter { runtime.peek(id: $0.key) != nil }
             guard let wallDeadline = liveDeadlines.values.min() else { break }
-            let monotonicDeadline = HelperConnection.defaultMonotonicNow().addingTimeInterval(
+            let monotonicDeadline = connection.monotonicNow().addingTimeInterval(
                 max(0, wallDeadline.timeIntervalSince(now()))
             )
 

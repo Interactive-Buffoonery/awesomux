@@ -37,7 +37,10 @@ public final class HelperConnection {
     /// grow with total traffic.
     private var queuedFramesCursor = 0
     private var closeAfterQueuedFrames = false
-    private let monotonicNow: () -> Date
+    /// Injected monotonic clock. Deadline arguments to `readPermissionDecision`
+    /// must be built from this same closure; a separate `MonotonicClock.now()`
+    /// lives on a different timeline when tests inject a fake clock.
+    let monotonicNow: () -> Date
     /// Reused across every `readFrame` poll instead of reallocating on each
     /// readiness event. Safe because nothing calls a connection concurrently:
     /// `BridgeHelperCommand` is the only caller and drives it from one
@@ -52,7 +55,7 @@ public final class HelperConnection {
         fileDescriptor: Int32,
         token: String,
         session: String,
-        monotonicNow: @escaping () -> Date = HelperConnection.defaultMonotonicNow
+        monotonicNow: @escaping () -> Date = MonotonicClock.now
     ) {
         fd = fileDescriptor
         self.token = token
@@ -72,7 +75,7 @@ public final class HelperConnection {
     public static func connect(
         state: BridgeStateFile,
         session: String,
-        monotonicNow: @escaping () -> Date = HelperConnection.defaultMonotonicNow
+        monotonicNow: @escaping () -> Date = MonotonicClock.now
     ) throws -> HelperConnection {
         // Glibc's overlay imports SOCK_STREAM as the enum __socket_type, not
         // Int32; musl's imports it as a plain Int32. Normalize per-platform.
@@ -303,11 +306,5 @@ public final class HelperConnection {
             }
         }
         guard result == 0 else { throw ConnectionError.connectFailed }
-    }
-
-    public static func defaultMonotonicNow() -> Date {
-        var time = timespec()
-        clock_gettime(CLOCK_MONOTONIC, &time)
-        return Date(timeIntervalSinceReferenceDate: Double(time.tv_sec) + Double(time.tv_nsec) / 1_000_000_000)
     }
 }
