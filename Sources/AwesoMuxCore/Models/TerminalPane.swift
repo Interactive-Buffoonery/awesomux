@@ -60,15 +60,23 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// renders it.
     public var liveTerminalTitle: String?
 
+    /// True while durable or confirmed remote observations are attached to this
+    /// locally executing pane. Used by agent-launch gating and other safety
+    /// checks that must not treat a merely submitted `ssh` offer as remote yet.
+    public var hasObservedManagedSSH: Bool {
+        executionPlan == .local
+            && (remoteHost != nil || remoteSSHTarget != nil
+                || hasConsumedManagedSSHWorkspaceOffer)
+    }
+
     /// True while runtime remote observations are attached to this locally
     /// executing pane. Single definition shared by the managed-SSH clear path
     /// and the agent-exit probe gate so the two can't drift.
     public var hasManagedSSHObservation: Bool {
-        executionPlan == .local
-            && (remoteHost != nil || remoteSSHTarget != nil
-                || hasConsumedManagedSSHWorkspaceOffer
-                || pendingRemoteSSHTarget != nil
-                || hasObservedPendingRemoteSSHProcess)
+        hasObservedManagedSSH
+            || (executionPlan == .local
+                && (pendingRemoteSSHTarget != nil
+                    || hasObservedPendingRemoteSSHProcess))
     }
 
     // Agent state moved down from `TerminalSession` (INT-504): runtime events are

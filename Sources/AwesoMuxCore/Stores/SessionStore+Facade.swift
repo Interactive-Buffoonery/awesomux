@@ -929,6 +929,10 @@ extension SessionStore {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        // Unreachable today: `noteSubmittedCommand` only clears presentation
+        // hosts under `mayReplaceRuntimeObservation`, which requires no durable
+        // remote markers. Kept aligned with the presentation-host transition so
+        // a future reducer width change cannot drift `remotePaneIDs` silently.
         if oldPane?.remotePresentationHost != nil,
             session.layout.pane(id: paneID)?.remotePresentationHost == nil
         {

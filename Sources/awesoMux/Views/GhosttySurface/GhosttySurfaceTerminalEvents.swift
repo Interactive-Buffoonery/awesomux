@@ -242,6 +242,8 @@ extension GhosttySurfaceNSView {
             pendingSSHForegroundProbeAttemptsRemaining > 0
         {
             pendingSSHForegroundProbeAttemptsRemaining -= 1
+        } else if livePane?.pendingRemoteSSHTarget == nil {
+            pendingSSHForegroundProbeAttemptsRemaining = Self.pendingSSHForegroundProbeLimit
         }
         // Codex's SessionStart hook arrives batched with the first prompt, so a
         // fresh Codex pane shows the generic shell icon until the user types —

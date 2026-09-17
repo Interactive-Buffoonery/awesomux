@@ -239,24 +239,26 @@ extension GhosttyRuntime {
 
             let exitCode = action.action.command_finished.exit_code
             let finishedAt = Date().timeIntervalSinceReferenceDate
-            // KNOWN remaining gap (INT-608 follow-up, not an oversight):
-            // `handleCommandFinished` reads live `sessionID`/`paneID` and can
-            // write the same attention fields GHOSTTY_ACTION_RING_BELL /
-            // GHOSTTY_ACTION_DESKTOP_NOTIFICATION do, so it shares this
-            // codebase's pane-recycle race in principle. Left on `Task`
-            // rather than `onMainThreadSynchronously` because its synchronous
-            // call graph (`refreshShellActivity` → `shellActivitySnapshot()`)
-            // reaches native libghostty calls on OTHER surfaces
-            // (`ghostty_surface_needs_confirm_quit`), which is unproven safe
-            // to invoke from inside this surface's own `action_cb` — that
-            // needs its own investigation. The bell/notification cases above
-            // stay Task-dispatched to match this one and avoid a NEW,
-            // deterministic ordering inversion — but matching dispatch
-            // styles alone doesn't guarantee FIFO order between separate
-            // `Task`s on the same actor, so the pre-existing race between
-            // all three isn't fixed either. A real fix needs explicit
-            // sequencing/serialization across all three together.
+            let capturedSessionID = view.sessionID
+            let capturedPaneID = view.paneID
+            // Left on `Task` rather than `onMainThreadSynchronously` because
+            // `handleCommandFinished`'s synchronous call graph
+            // (`refreshShellActivity` → `shellActivitySnapshot()`) reaches
+            // native libghostty calls on OTHER surfaces
+            // (`ghostty_surface_needs_confirm_quit`), which is unproven safe to
+            // invoke from inside this surface's own `action_cb`. The
+            // pane-recycle guard below matches other deferred terminal-event
+            // handlers; bell/notification still need the combined INT-608
+            // sequencing follow-up.
             Task { @MainActor in
+                guard
+                    DeferredPaneEventDispatchGuard.shouldApply(
+                        capturedSessionID: capturedSessionID,
+                        capturedPaneID: capturedPaneID,
+                        currentSessionID: view.sessionID,
+                        currentPaneID: view.paneID
+                    )
+                else { return }
                 view.handleCommandFinished(exitCode: exitCode, finishedAt: finishedAt)
             }
             return true
