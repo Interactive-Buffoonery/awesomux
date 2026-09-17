@@ -57,13 +57,21 @@ struct DocumentPaneSendBar: View {
     // instead of waiting on an unrelated render (CodeRabbit finding).
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.branchChangesRefresh) private var branchChangesRefresh
+    @Environment(\.remoteMarkdownRefresh) private var remoteMarkdownRefresh
     /// Optional on purpose: the terminal panels host this bar from their own
     /// environment roots, which do not carry the app's coordinator. A missing
     /// coordinator means no busy state, never a crash.
     @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator: BranchChangesCoordinator?
+    /// Same optional contract as `branchChangesCoordinator`: survives
+    /// `DocumentNudgeSendBarID` remounts so a mid-refresh shell-activity flip
+    /// cannot clear the busy latch and double-announce.
+    @Environment(RemoteMarkdownRefreshCoordinator.self) private var remoteMarkdownRefreshCoordinator: RemoteMarkdownRefreshCoordinator?
     /// Bridges the gap between the click and the coordinator's set updating, so
     /// a double-click cannot start two runs. Cleared in the refresh completion.
     @State private var refreshRequested = false
+    /// Local gap-fill only — authoritative in-flight state is
+    /// `remoteMarkdownRefreshCoordinator` (see above).
+    @State private var remoteRefreshRequested = false
 
     /// INT-569 field diagnostics: the one line that says why a send bar is
     /// disabled. Each individual probe already names its own guard, but nothing
@@ -417,16 +425,95 @@ struct DocumentPaneSendBar: View {
         branchChangesRefresh.run(target.id, pane.id) { refreshRequested = false }
     }
 
-    var body: some View {
-        HStack(spacing: 0) {
-            if let origin = pane.remoteSnapshotOrigin {
-                Label("Read-only snapshot from \(origin)", systemImage: "lock")
+    // MARK: - Remote snapshot footer
+
+    /// Refresh re-fetches the remote file over SSH into the same cache slot.
+    /// The tab stays read-only; there is no writeback. When the environment
+    /// action is missing (terminal-panel hosts), fall back to the lock label
+    /// so the bar never crashes.
+    private func remoteSnapshotControls(origin: String) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 8) {
+                if remoteMarkdownRefresh == nil {
+                    Label(
+                        String(
+                            localized: "Read-only snapshot from \(origin)",
+                            comment:
+                                "Send-bar label on a remote Markdown snapshot tab when Refresh is unavailable"
+                        ),
+                        systemImage: "lock"
+                    )
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.aw.text2)
                     .frame(maxWidth: .infinity, minHeight: 28)
-                    .accessibilityLabel(Text("Read-only remote Markdown snapshot from \(origin)"))
+                    .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
+                } else {
+                    SendToAgentButton(
+                        purpose: .refreshRemoteSnapshot,
+                        title: String(
+                            localized: "Refresh",
+                            comment:
+                                "Send-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
+                        ),
+                        failed: false,
+                        isBusy: isRemoteRefreshing,
+                        unavailableDescription: nil,
+                        action: refreshRemoteSnapshot
+                    )
+                    .frame(height: 28)
+                }
+            }
+            if remoteMarkdownRefresh != nil {
+                // Visually secondary under Refresh, but exposed to VoiceOver so
+                // the read-only + origin signal is not dropped when the lock
+                // label is replaced by the button.
+                Text(
+                    String(
+                        localized: "Read-only snapshot from \(origin)",
+                        comment:
+                            "Caption under Refresh on a remote Markdown snapshot tab; the placeholder is the remote origin"
+                    )
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Color.aw.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Single source for the VoiceOver label shared by the lock fallback and
+    /// the Refresh caption, so the two cannot drift apart.
+    private func readOnlySnapshotAccessibilityLabel(origin: String) -> Text {
+        Text(
+            String(
+                localized: "Read-only remote Markdown snapshot from \(origin)",
+                comment: "Accessibility label on a remote Markdown snapshot tab naming its remote origin"
+            ))
+    }
+
+    private var isRemoteRefreshing: Bool {
+        remoteRefreshRequested
+            || (remoteMarkdownRefreshCoordinator?.isRefreshing(pane.id) ?? false)
+    }
+
+    private func refreshRemoteSnapshot() {
+        guard !isRemoteRefreshing,
+            pane.remoteResourceIdentity != nil,
+            let remoteMarkdownRefresh
+        else { return }
+        remoteRefreshRequested = true
+        remoteMarkdownRefresh.run(session.id, pane.id) { remoteRefreshRequested = false }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if let origin = pane.remoteSnapshotOrigin {
+                remoteSnapshotControls(origin: origin)
             } else if let identity = pane.agentTranscriptIdentity {
                 // Resume REPLACES Send on a transcript tab rather than sitting
                 // beside it: a transcript is not editable, so it can hold no
@@ -847,12 +934,13 @@ private struct SendToAgentButton: NSViewRepresentable {
         case sendToAgent
         case resumeSession
         case refreshBranchChanges
+        case refreshRemoteSnapshot
 
         var symbolName: String {
             switch self {
             case .sendToAgent: "paperplane.fill"
             case .resumeSession: "play.fill"
-            case .refreshBranchChanges: "arrow.clockwise"
+            case .refreshBranchChanges, .refreshRemoteSnapshot: "arrow.clockwise"
             }
         }
 
@@ -874,6 +962,12 @@ private struct SendToAgentButton: NSViewRepresentable {
                 String(
                     localized: "re-runs the branch comparison for this tab's terminal",
                     comment: "Accessibility/tooltip phrase describing what the branch changes refresh button does"
+                )
+            case .refreshRemoteSnapshot:
+                String(
+                    localized: "re-fetches this remote Markdown file over SSH",
+                    comment:
+                        "Accessibility/tooltip phrase describing what the remote Markdown Refresh button does"
                 )
             }
         }
@@ -902,6 +996,11 @@ private struct SendToAgentButton: NSViewRepresentable {
                 String(
                     localized: "re-running the comparison",
                     comment: "Accessibility phrase while a branch changes Refresh is re-running git"
+                )
+            case .refreshRemoteSnapshot:
+                String(
+                    localized: "re-fetching remote Markdown",
+                    comment: "Accessibility phrase while a remote Markdown Refresh is fetching over SSH"
                 )
             }
         }
@@ -1226,12 +1325,13 @@ struct DocumentPaneView: View {
     @State private var scrollAnchorCapture: (@MainActor () -> Int?)? = nil
     @State private var pendingScrollAnchor: Int? = nil
     /// Latches the one live-refresh announcement this mount is allowed (#494).
-    /// `@State` behind the view's `.id(fileURL)` gives it exactly the lifetime
-    /// the rule needs: it resets on a remount and on a transcript-identity
-    /// change (the cache slot is keyed by agent kind and session id, so a
-    /// different session is a different path), and it does NOT reset on a
-    /// window-activation flip, which restarts the refresh loop but is not a new
-    /// document to warn the reader about.
+    /// `@State` behind the parent's remount identity (file URL for local tabs;
+    /// stable tab id for remote snapshots — see `DocumentPaneContentIdentity`)
+    /// gives it exactly the lifetime the rule needs: it resets on a remount and
+    /// on a transcript-identity change (the cache slot is keyed by agent kind
+    /// and session id, so a different session is a different path), and it does
+    /// NOT reset on a window-activation flip, which restarts the refresh loop
+    /// but is not a new document to warn the reader about.
     @State private var announcedLiveTranscriptRefresh = false
 
     /// `cachedRender` seeds `loadResult`/`renderedDoc` so a tab the user
@@ -1403,6 +1503,20 @@ struct DocumentPaneView: View {
                 change.path == pane.fileURL.standardizedFileURL.path
             else { return }
             remoteStaleBannerKind = change.kind
+        }
+        .onChange(of: pane.fileURL) { _, newURL in
+            // Remount identity for remote snapshots is the tab id (see
+            // `DocumentPaneContentIdentity`), not the cache path — so a
+            // cache↔failure slot move updates `pane.fileURL` on the same
+            // mount. Re-seed the banner from the policy for the new path,
+            // and restart the vnode watcher onto that path: without this
+            // it stays bound to the abandoned slot until a full remount
+            // (same class of bug as the transcript-identity restart below).
+            // Same-path refresh outcomes still arrive via
+            // `didChangeNotification` above without changing `fileURL`.
+            remoteStaleBannerKind = RemoteSnapshotStalePolicy.bannerKind(
+                path: newURL.standardizedFileURL.path)
+            startWatcher()
         }
         .onAppear {
             reloadCompletion = DocumentReloadCompletion()

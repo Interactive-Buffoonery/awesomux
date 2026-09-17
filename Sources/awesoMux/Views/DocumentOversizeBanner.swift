@@ -114,15 +114,14 @@ enum DocumentOversizePolicy {
 ///
 /// Deliberately NOT persisted, and not carried on `DocumentPane`. The banner
 /// kind records why the last refresh attempt failed — knowledge that only
-/// exists because an attempt was made. Session restore does not re-fetch
-/// remote tabs (`SessionPersistence` only prunes the cache), so a persisted
-/// value would let the app keep asserting a refresh failure it never
-/// re-verified. Claiming an unverified fact is the exact shape of bug the
-/// oversize work exists to remove.
+/// exists because an attempt was made. Persisting a value across relaunch
+/// without re-fetching would let the app keep asserting a refresh failure it
+/// never re-verified. Claiming an unverified fact is the exact shape of bug
+/// the oversize work exists to remove.
 ///
-/// The consequence is honest but real: the banner does not survive a relaunch.
-/// Closing that wants re-fetching remote tabs on restore, which is its own
-/// piece of work.
+/// Restore therefore re-fetches each remote Markdown tab asynchronously
+/// (`RemoteMarkdownTabRefresh.scheduleRestoreRefresh`) so the banner is raised
+/// again only when this launch has genuinely tried and failed.
 enum RemoteSnapshotStalePolicy {
     struct Change: Sendable {
         let path: String

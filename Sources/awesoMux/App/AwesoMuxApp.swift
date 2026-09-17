@@ -222,6 +222,7 @@ struct AwesoMuxApp: App {
     @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
     @State private var branchChangesCoordinator = BranchChangesCoordinator()
+    @State private var remoteMarkdownRefreshCoordinator: RemoteMarkdownRefreshCoordinator
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -332,8 +333,16 @@ struct AwesoMuxApp: App {
         )
         terminalAppearancePreferencesCache.update(persistedTerminalAppearance)
         let loadResult: SessionPersistence.LoadResult
+        let remoteMarkdownRefreshCoordinator = RemoteMarkdownRefreshCoordinator()
         if appSettingsStore.general.value.restoreWorkspaces {
             loadResult = SessionPersistence.load()
+            // After prune is scheduled inside load: re-fetch each remote
+            // Markdown tab so stale banners are raised from a real attempt on
+            // this launch, not remembered from the last one.
+            RemoteMarkdownTabRefresh.scheduleRestoreRefresh(
+                for: loadResult.store,
+                coordinator: remoteMarkdownRefreshCoordinator
+            )
         } else {
             let store = SessionStore()
             SessionPersistence.scheduleGeneratedDocumentPrune(keeping: store)
@@ -341,6 +350,7 @@ struct AwesoMuxApp: App {
         }
         _appSettingsStore = State(initialValue: appSettingsStore)
         _sessionStore = State(initialValue: loadResult.store)
+        _remoteMarkdownRefreshCoordinator = State(initialValue: remoteMarkdownRefreshCoordinator)
         if let warning = loadResult.recoveryWarning {
             switch warning.kind {
             case .archivedSnapshot, .snapshotConflict:
@@ -916,12 +926,22 @@ struct AwesoMuxApp: App {
                 // re-injects them into the split's pane closures — the split's
                 // NSHostingControllers are fresh environment roots.
                 .environment(branchChangesCoordinator)
+                .environment(remoteMarkdownRefreshCoordinator)
                 .environment(
                     \.branchChangesRefresh,
                     BranchChangesRefreshAction { paneID, originatingDocumentID, completion in
                         showBranchChanges(
                             forPane: paneID,
                             originatingDocumentID: originatingDocumentID,
+                            completion: completion)
+                    }
+                )
+                .environment(
+                    \.remoteMarkdownRefresh,
+                    RemoteMarkdownRefreshAction { sessionID, documentID, completion in
+                        refreshRemoteMarkdown(
+                            sessionID: sessionID,
+                            documentID: documentID,
                             completion: completion)
                     }
                 )
@@ -3928,6 +3948,38 @@ struct AwesoMuxApp: App {
                     ) {
                         focusIntent = nil
                     }
+                }
+            )
+        }
+    }
+
+    /// Re-fetches the remote Markdown file behind one document tab. Same apply
+    /// path as restore re-fetch and the live link open — policy + openDocumentPane.
+    private func refreshRemoteMarkdown(
+        sessionID: TerminalSession.ID,
+        documentID: DocumentPane.ID,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        guard let session = sessionStore.session(id: sessionID),
+            let tab = session.layout.firstDocumentGroup?.tab(id: documentID),
+            let identity = tab.remoteResourceIdentity
+        else {
+            completion()
+            return
+        }
+        Task { @MainActor in
+            defer { completion() }
+            _ = await RemoteMarkdownTabRefresh.refresh(
+                identity: identity,
+                documentID: documentID,
+                in: sessionID,
+                associatedWith: tab.associatedTerminalPaneID,
+                sessionStore: sessionStore,
+                selectingTab: true,
+                announceOutcome: true,
+                coordinator: remoteMarkdownRefreshCoordinator,
+                onFetchUnavailable: {
+                    GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
                 }
             )
         }

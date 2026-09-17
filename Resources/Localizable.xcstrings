@@ -3323,10 +3323,10 @@
       "comment" : "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
     },
     "Read-only remote Markdown snapshot from %arg" : {
-
+      "comment" : "Accessibility label on a remote Markdown snapshot tab naming its remote origin"
     },
     "Read-only snapshot from %arg" : {
-
+      "comment" : "Caption under Refresh on a remote Markdown snapshot tab; the placeholder is the remote origin\nSend-bar label on a remote Markdown snapshot tab when Refresh is unavailable"
     },
     "Reading branch changes." : {
       "comment" : "VoiceOver announcement when rendering a pane's branch diff starts"
@@ -3407,7 +3407,7 @@
       }
     },
     "Refresh" : {
-      "comment" : "Refresh Worktree Manager action.\nSend-bar button title on a branch changes tab that re-runs the comparison"
+      "comment" : "Refresh Worktree Manager action.\nSend-bar button title on a branch changes tab that re-runs the comparison\nSend-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
     },
     "Refresh Markdown files" : {
 
@@ -5471,6 +5471,12 @@
     },
     "promote" : {
       "comment" : "Footer pill label for promoting the Terminal Companion to a workspace."
+    },
+    "re-fetches this remote Markdown file over SSH" : {
+      "comment" : "Accessibility/tooltip phrase describing what the remote Markdown Refresh button does"
+    },
+    "re-fetching remote Markdown" : {
+      "comment" : "Accessibility phrase while a remote Markdown Refresh is fetching over SSH"
     },
     "re-running the comparison" : {
       "comment" : "Accessibility phrase while a branch changes Refresh is re-running git"

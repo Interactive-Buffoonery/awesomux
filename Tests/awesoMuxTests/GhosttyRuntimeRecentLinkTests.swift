@@ -212,6 +212,35 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(didPresent)
     }
 
+    @Test("recent-link remote outcome announces on first open and in-place refresh only")
+    func recentLinkRemoteOutcomeFollowsNowShowingPolicy() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appending(path: "Sources/awesoMux/Services/GhosttyRuntime+OpenURL.swift"),
+            encoding: .utf8
+        )
+        guard let openRecentRange = source.range(of: "static func openRecentLink(") else {
+            Issue.record("missing openRecentLink")
+            return
+        }
+        let body = String(source[openRecentRange.lowerBound...].prefix(2800))
+        #expect(
+            body.contains("hadVisibleDocument"),
+            "openRecentLink must detect whether a document view was already mounted"
+        )
+        #expect(
+            body.contains("previousRemoteIdentity == currentRemoteIdentity"),
+            "openRecentLink must announce on same-identity in-place refresh"
+        )
+        #expect(
+            !body.contains("DocumentShownAnnouncementPolicy.shouldAnnounceNowShowing"),
+            "openRecentLink must not rely on shouldAnnounceNowShowing alone; first open has no .onChange"
+        )
+    }
+
     @Test func nilRemoteSnapshotPresentsRoutingFailure() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
         GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()

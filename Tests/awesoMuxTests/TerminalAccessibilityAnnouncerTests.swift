@@ -22,6 +22,14 @@ struct TerminalAccessibilityAnnouncerTests {
                     for: .cached(snapshot, staleReason: reason)
                 ).contains("stale"))
         }
+        // Nil fetch from Refresh/restore shares that sentence rather than a
+        // second translation unit for the same "attempt failed, cache remains"
+        // fact.
+        #expect(
+            TerminalAccessibilityAnnouncer.remoteMarkdownAnnouncement(
+                for: .cached(snapshot, staleReason: .connection)
+            )
+                == "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.")
         // Per reason: the generated page's heading is not exposed as an AX
         // heading, so this announcement is where a VoiceOver user learns
         // whether retrying is worth another eight-second SSH round trip.

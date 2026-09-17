@@ -122,6 +122,20 @@ struct DocumentGroupView: View {
         let active: Bool
     }
 
+    /// Drives the content-change handler: path for local remount agreement,
+    /// remote identity so cache↔failure slot moves can suppress "Now showing".
+    private struct DocumentShownChangeKey: Equatable {
+        let tabID: DocumentPane.ID
+        let path: String
+        let remoteIdentity: ResourceIdentity?
+
+        init(_ document: DocumentPane) {
+            tabID = document.id
+            path = document.fileURL.standardizedFileURL.path
+            remoteIdentity = document.remoteResourceIdentity
+        }
+    }
+
     /// Keyed on what the pin is actually *of* — never on activation, which is
     /// part of the task id. Keying on the whole id would discard the pin on
     /// every window-activation flip and re-run full discovery, which is the one
@@ -315,7 +329,7 @@ struct DocumentGroupView: View {
                     collapsedSections: tabMemory.collapsedSections(for: document),
                     onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }
                 )
-                .id(document.fileURL.standardizedFileURL.path)
+                .id(DocumentPaneContentIdentity.remountID(for: document))
                 DocumentPaneSendBar(
                     pane: document,
                     session: session,
@@ -435,12 +449,15 @@ struct DocumentGroupView: View {
                 documentFocus.request(incomingID)
             }
         }
-        // Same key as DocumentPaneView's .id above so the tracker reset and the
-        // child remount agree on what counts as "a different file".
-        .onChange(of: document.fileURL.standardizedFileURL.path) { _, _ in
-            // Switching the pane to a different file starts a fresh tracker: the
-            // new file's first count is an initial load, not a resolve of the old
-            // file's comments. Also drop any notice left over from the old file.
+        // Same key as DocumentPaneView's remount `.id` above so the tracker
+        // reset and the child remount agree on what counts as different content.
+        .onChange(of: DocumentShownChangeKey(document)) { oldKey, newKey in
+            guard oldKey != newKey else { return }
+            // Switching the pane to different content starts a fresh tracker:
+            // the new file's first count is an initial load, not a resolve of
+            // the old file's comments. Also drop any notice left over from the
+            // old file. Remote cache↔failure slot moves still change `path`
+            // and need this reset even though they do not remount.
             settleTask?.cancel()
             commentResolution = CommentResolutionTracker()
             showAllResolvedNotice = false
@@ -454,12 +471,20 @@ struct DocumentGroupView: View {
             // The single announcement for EVERY selection path — strip click,
             // keyboard next/previous-tab, dedup open, agent hook. The strip's
             // pills don't announce on their own, so this doesn't double-speak.
-            TerminalAccessibilityAnnouncer.announce(
-                String(
-                    localized: "Now showing \(document.title)",
-                    comment: "VoiceOver announcement when the visible document tab changes"
+            // Suppressed when a remote tab only moved between cache and failure
+            // slots: that is a refresh, and `RemoteMarkdownTabRefresh` speaks
+            // the fetch outcome instead.
+            if DocumentShownAnnouncementPolicy.shouldAnnounceNowShowing(
+                previousRemoteIdentity: oldKey.remoteIdentity,
+                currentRemoteIdentity: newKey.remoteIdentity
+            ) {
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Now showing \(document.title)",
+                        comment: "VoiceOver announcement when the visible document tab changes"
+                    )
                 )
-            )
+            }
         }
         .onAppear(perform: consumeFileBrowserRequest)
         .onChange(of: documentTabActions.fileBrowserRequest?.id) { _, _ in

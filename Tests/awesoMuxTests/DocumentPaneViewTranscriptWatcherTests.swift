@@ -48,6 +48,23 @@ struct DocumentPaneViewTranscriptWatcherTests {
         )
     }
 
+    @Test("the watcher restarts when a remote tab moves between cache slots")
+    func watcherRestartsOnFileURLChange() throws {
+        let body = try SourceContract.declarationBody(
+            after: ".onChange(of: pane.fileURL) {",
+            in: try SourceContract.source(at: Self.panePath),
+            path: Self.panePath
+        )
+        #expect(
+            body.contains("startWatcher()"),
+            """
+            The fileURL onChange no longer restarts the watcher. Remote tabs \
+            remount on tab id, so a cache↔failure slot move leaves the vnode \
+            watcher bound to the abandoned path until a full remount.
+            """
+        )
+    }
+
     @Test("the coalescing mode is derived from the pane's transcript identity")
     func coalescingModeFollowsTheTranscriptIdentity() throws {
         let body = try SourceContract.declarationBody(
