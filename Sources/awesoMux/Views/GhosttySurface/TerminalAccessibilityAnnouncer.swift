@@ -3,11 +3,41 @@ import AwesoMuxCore
 
 @MainActor
 enum TerminalAccessibilityAnnouncer {
+    /// Shared loading sentence for remote Markdown fetches (OSC, recent-link,
+    /// Md→Md, typed path) and the matching spinner accessibility label. Builders
+    /// and both post timings (async hop vs immediate) share this one
+    /// `String(localized:)` so wording cannot drift (ADR-0014).
+    static let remoteMarkdownLoadingAnnouncement = String(
+        localized: "Loading remote Markdown.",
+        comment: "Progress status and VoiceOver announcement while fetching a remote Markdown snapshot"
+    )
+
+    /// Default loading announcement — hops to the next main-runloop tick via
+    /// `announce(_:)`. Prefer `announceRemoteMarkdownLoadingImmediately()` when
+    /// the announcing UI is still presented and about to dismiss (typed-path
+    /// sheet submit); the hop exists so *teardown* does not swallow speech.
     static func announceRemoteMarkdownLoading() {
+        announce(remoteMarkdownLoadingAnnouncement)
+    }
+
+    /// Posts the loading announcement on the current turn. Use while a sheet
+    /// (or other presenting UI) is still up and about to dismiss — posting
+    /// through `announce(_:)`'s async hop can lose or reorder the cue once
+    /// dismiss starts on this turn. Does not change the global hop used by
+    /// menu/drag callers.
+    static func announceRemoteMarkdownLoadingImmediately() {
+        post(remoteMarkdownLoadingAnnouncement, priority: .medium)
+    }
+
+    /// Posted after a Markdown→Markdown open whose destination carried a
+    /// `#fragment`. Fragment scroll is deferred (same as local INT-758), so
+    /// the document opens at the top — VoiceOver says so instead of leaving
+    /// the user hunting for the section.
+    static func announceRemoteMarkdownOpenedAtTop() {
         announce(
             String(
-                localized: "Loading remote Markdown.",
-                comment: "VoiceOver announcement when a remote Markdown fetch starts"
+                localized: "Opened at the top of the document. Section jumps are not supported yet.",
+                comment: "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
             ))
     }
 
@@ -661,6 +691,10 @@ enum TerminalAccessibilityAnnouncer {
     /// is tearing down) lets the announcement get swallowed by the system's own
     /// AX traffic. The single shared implementation used by the app commands and
     /// the pane drag/drop path so the two can't drift.
+    ///
+    /// Callers that still have presenting UI up (typed-path sheet submit) should
+    /// use `post` / `announceRemoteMarkdownLoadingImmediately()` instead so the
+    /// cue lands before dismiss starts on this turn.
     static func announce(_ message: String, priority: NSAccessibilityPriorityLevel = .medium) {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
@@ -669,7 +703,14 @@ enum TerminalAccessibilityAnnouncer {
         }
     }
 
-    private static func post(_ message: String, priority: NSAccessibilityPriorityLevel) {
+    /// Test seam + production poster. Tests replace this to observe whether a
+    /// cue posts on the current turn (immediate) or only after a main-queue
+    /// drain (async hop). Production default posts through AppKit AX.
+    /// Production code must never reassign this; tests use
+    /// `setAnnouncementPosterForTesting` (debug builds only).
+    private(set) static var announcementPoster: (String, NSAccessibilityPriorityLevel) -> Void = {
+        message,
+        priority in
         NSAccessibility.post(
             element: NSApplication.shared,
             notification: .announcementRequested,
@@ -678,5 +719,17 @@ enum TerminalAccessibilityAnnouncer {
                 .priority: priority.rawValue,
             ]
         )
+    }
+
+    #if DEBUG
+        static func setAnnouncementPosterForTesting(
+            _ poster: @escaping (String, NSAccessibilityPriorityLevel) -> Void
+        ) {
+            announcementPoster = poster
+        }
+    #endif
+
+    private static func post(_ message: String, priority: NSAccessibilityPriorityLevel) {
+        announcementPoster(message, priority)
     }
 }

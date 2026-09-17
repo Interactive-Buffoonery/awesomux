@@ -18,7 +18,12 @@ enum MarkdownLinkRouting {
     ///
     /// Delegates the local-markdown check entirely to `MarkdownLinkIntercept` so the
     /// same codepoint-safety fence that guards OSC 8 terminal links applies here too.
+    /// Remote Md→Md links may use `awesomux-remote-md:` for `~/…` paths that must
+    /// not be confused with the local filesystem.
     static func route(_ url: URL) -> Route {
+        if url.scheme?.lowercased() == RemoteMarkdownReference.remoteMarkdownLinkScheme {
+            return .document(url)
+        }
         if let documentURL = MarkdownLinkIntercept.documentURL(forFileURL: url) {
             return .document(documentURL)
         }

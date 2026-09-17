@@ -5,7 +5,7 @@ import Testing
 @testable import awesoMux
 
 @MainActor
-@Suite("Remote Markdown tab refresh")
+@Suite("Remote Markdown tab refresh", .serialized)
 struct RemoteMarkdownTabRefreshTests {
     private func remoteIdentity(path: String = "/repo/doc.md") -> ResourceIdentity {
         ResourceIdentity(
@@ -40,6 +40,52 @@ struct RemoteMarkdownTabRefreshTests {
                 remoteResourceIdentity: identity
             ))
         return (store, sessionID, tabID)
+    }
+
+    private let refreshFailedMessage =
+        "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale."
+
+    /// Captures announcer output and can await one specific message, so a test
+    /// can assert on the fire-and-forget restore sweep deterministically. The
+    /// announcer poster is global and parallel suites post through it, so
+    /// assertions count the sentence under test rather than the whole log.
+    private final class AnnouncementProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var messages: [String] = []
+        private var expected: String?
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        func record(_ message: String) {
+            lock.lock()
+            messages.append(message)
+            let resume = expected.map { messages.contains($0) } ?? false
+            let waiter = resume ? self.waiter : nil
+            if resume { self.waiter = nil }
+            lock.unlock()
+            waiter?.resume()
+        }
+
+        /// Resumes once `message` has been recorded, or immediately if it
+        /// already has been.
+        func waitFor(_ message: String) async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if messages.contains(message) {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                expected = message
+                waiter = continuation
+                lock.unlock()
+            }
+        }
+
+        func count(of message: String) -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return messages.filter { $0 == message }.count
+        }
     }
 
     @Test("restore targets collect every remote Markdown tab and skip local docs")
@@ -267,8 +313,8 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: failurePath) == nil)
     }
 
-    @Test("a nil fetch outcome notes refresh-failed and invokes the unavailable hook")
-    func nilFetchOutcomeNotesPolicyAndPresentsFailure() async throws {
+    @Test("a nil fetch outcome notes refresh-failed for the stale banner")
+    func nilFetchOutcomeNotesPolicy() async throws {
         let identity = remoteIdentity()
         let path = "/tmp/awesomux-refresh-nil-\(UUID().uuidString).md"
         defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
@@ -276,22 +322,6 @@ struct RemoteMarkdownTabRefreshTests {
             identity: identity,
             cacheURL: URL(fileURLWithPath: path)
         )
-
-        final class Hook: @unchecked Sendable {
-            private let lock = NSLock()
-            private var _count = 0
-            var count: Int {
-                lock.lock()
-                defer { lock.unlock() }
-                return _count
-            }
-            func fire() {
-                lock.lock()
-                _count += 1
-                lock.unlock()
-            }
-        }
-        let hook = Hook()
 
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
@@ -301,19 +331,17 @@ struct RemoteMarkdownTabRefreshTests {
             sessionStore: store,
             selectingTab: true,
             announceOutcome: false,
-            onFetchUnavailable: { hook.fire() },
             fetch: { _ in nil }
         )
 
         #expect(outcome == nil)
-        #expect(hook.count == 1)
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteRefreshFailed)
         #expect(
             store.session(id: sessionID)?.layout.firstDocumentGroup?
                 .tab(forRemoteResource: identity)?.fileURL.standardizedFileURL.path == path)
     }
 
-    @Test("a nil fetch after the tab closed does not note policy or alert")
+    @Test("a nil fetch after the tab closed does not note policy")
     func nilFetchOnClosedTabIsSilent() async throws {
         let identity = remoteIdentity()
         let path = "/tmp/awesomux-refresh-nil-closed-\(UUID().uuidString).md"
@@ -323,22 +351,6 @@ struct RemoteMarkdownTabRefreshTests {
             cacheURL: URL(fileURLWithPath: path)
         )
 
-        final class Hook: @unchecked Sendable {
-            private let lock = NSLock()
-            private var _count = 0
-            var count: Int {
-                lock.lock()
-                defer { lock.unlock() }
-                return _count
-            }
-            func fire() {
-                lock.lock()
-                _count += 1
-                lock.unlock()
-            }
-        }
-        let hook = Hook()
-
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
             documentID: tabID,
@@ -346,7 +358,6 @@ struct RemoteMarkdownTabRefreshTests {
             associatedWith: nil,
             sessionStore: store,
             selectingTab: true,
-            onFetchUnavailable: { hook.fire() },
             fetch: { _ in
                 store.closeDocumentPane(documentID: tabID, in: sessionID)
                 return nil
@@ -354,7 +365,6 @@ struct RemoteMarkdownTabRefreshTests {
         )
 
         #expect(outcome == nil)
-        #expect(hook.count == 0)
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
     }
 
@@ -568,6 +578,188 @@ struct RemoteMarkdownTabRefreshTests {
                 )
             ) == nil
         )
+    }
+
+    @Test("refresh speaks the unavailable outcome when announceFailure is set")
+    func refreshAnnouncesFailureWhenRequested() async throws {
+        let identity = remoteIdentity()
+        let path = "/tmp/awesomux-refresh-announce-\(UUID().uuidString).md"
+        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
+        let (store, sessionID, tabID) = try storeWithRemoteTab(
+            identity: identity,
+            cacheURL: URL(fileURLWithPath: path)
+        )
+
+        let probe = AnnouncementProbe()
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            probe.record(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity,
+            documentID: tabID,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: false,
+            announceOutcome: false,
+            announceFailure: true,
+            fetch: { _ in nil }
+        )
+
+        await probe.waitFor(refreshFailedMessage)
+        #expect(probe.count(of: refreshFailedMessage) == 1)
+    }
+
+    @Test("refresh stays silent on failure when neither announce flag is set")
+    func refreshFailureSilentWithoutFlags() async throws {
+        let identity = remoteIdentity()
+        let path = "/tmp/awesomux-refresh-quiet-\(UUID().uuidString).md"
+        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
+        let (store, sessionID, tabID) = try storeWithRemoteTab(
+            identity: identity,
+            cacheURL: URL(fileURLWithPath: path)
+        )
+
+        let probe = AnnouncementProbe()
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            probe.record(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity,
+            documentID: tabID,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: false,
+            announceOutcome: false,
+            announceFailure: false,
+            fetch: { _ in nil }
+        )
+
+        #expect(probe.count(of: refreshFailedMessage) == 0)
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteRefreshFailed)
+    }
+
+    @Test("refresh does not speak success when only announceFailure is set")
+    func refreshSuccessSilentForFailureOnlyAnnounce() async throws {
+        let identity = remoteIdentity()
+        let path = "/tmp/awesomux-refresh-success-quiet-\(UUID().uuidString).md"
+        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
+        let (store, sessionID, tabID) = try storeWithRemoteTab(
+            identity: identity,
+            cacheURL: URL(fileURLWithPath: path)
+        )
+
+        let probe = AnnouncementProbe()
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            probe.record(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity,
+            documentID: tabID,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: false,
+            announceOutcome: false,
+            announceFailure: true,
+            fetch: { reference in
+                .fresh(
+                    RemoteMarkdownSnapshot(
+                        fileURL: URL(fileURLWithPath: path),
+                        identity: reference.identity
+                    )
+                )
+            }
+        )
+
+        #expect(probe.count(of: refreshFailedMessage) == 0)
+    }
+
+    @Test("restore marks only the selected tab's target as selected")
+    func selectedRestoreTargetIsTheVisibleTab() throws {
+        let identity = remoteIdentity()
+        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-selected-\(UUID().uuidString).md")
+        let (store, sessionID, _) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        let target = try #require(RemoteMarkdownTabRefresh.restoreTargets(in: store).first)
+        #expect(RemoteMarkdownTabRefresh.isSelectedRestoreTarget(target, in: store))
+
+        // Open a local tab after the remote one: it becomes selected, so the
+        // remote target is now a background tab and must not be spoken for.
+        let session = try #require(store.session(id: sessionID))
+        _ = store.openDocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/local-\(UUID().uuidString).md"),
+            in: sessionID,
+            associatedWith: session.activePaneID
+        )
+        #expect(!RemoteMarkdownTabRefresh.isSelectedRestoreTarget(target, in: store))
+    }
+
+    @Test("restore speaks a refresh failure for the selected tab")
+    func restoreAnnouncesFailureForSelectedTab() async throws {
+        let identity = remoteIdentity()
+        let path = "/tmp/awesomux-restore-announce-\(UUID().uuidString).md"
+        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
+        let (store, _, _) = try storeWithRemoteTab(
+            identity: identity,
+            cacheURL: URL(fileURLWithPath: path)
+        )
+
+        let probe = AnnouncementProbe()
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            probe.record(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
+
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store) { _ in nil }
+
+        await probe.waitFor(refreshFailedMessage)
+        #expect(probe.count(of: refreshFailedMessage) == 1)
+    }
+
+    @Test("a nil fetch on a failure-page tab banners and speaks nothing")
+    func nilFetchOnFailurePageIsSilent() async throws {
+        let identity = remoteIdentity()
+        let path = "/tmp/awesomux-failure-page-\(UUID().uuidString).failure.md"
+        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
+        let (store, sessionID, tabID) = try storeWithRemoteTab(
+            identity: identity,
+            cacheURL: URL(fileURLWithPath: path)
+        )
+
+        let probe = AnnouncementProbe()
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            probe.record(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity,
+            documentID: tabID,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: false,
+            announceOutcome: true,
+            announceFailure: true,
+            fetch: { _ in nil }
+        )
+
+        // The tab shows the app-generated failure page, so "showing the last
+        // copy that arrived" is not true — neither the banner nor the cue.
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
+        #expect(probe.count(of: refreshFailedMessage) == 0)
     }
 }
 

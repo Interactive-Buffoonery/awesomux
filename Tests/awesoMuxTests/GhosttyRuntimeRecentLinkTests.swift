@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -106,10 +107,10 @@ struct GhosttyRuntimeRecentLinkTests {
 
     @Test func remoteMarkdownUsesCapturedPaneRoutingContext() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         defer {
             GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         }
         let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
         let pane = TerminalPane(
@@ -125,10 +126,10 @@ struct GhosttyRuntimeRecentLinkTests {
             captured = reference
             return nil
         }
-        // Stub the presenter: nil-provider-result now surfaces a failure
-        // (see nilRemoteSnapshotPresentsRoutingFailure), which would otherwise
+        // Stub the presenter: nil-provider-result now surfaces a fetch failure
+        // (see nilRemoteSnapshotPresentsFetchFailure), which would otherwise
         // block this test on a real NSAlert.
-        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { _ in }
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
 
         await GhosttyRuntime.openRecentLink(
             "docs/readme.md",
@@ -142,10 +143,10 @@ struct GhosttyRuntimeRecentLinkTests {
 
     @Test func remoteMarkdownLineReferenceNeverFallsThroughToSameNamedLocalFile() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         defer {
             GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         }
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -167,10 +168,10 @@ struct GhosttyRuntimeRecentLinkTests {
             captured = reference
             return nil
         }
-        // Stub the presenter: nil-provider-result now surfaces a failure
-        // (see nilRemoteSnapshotPresentsRoutingFailure), which would otherwise
+        // Stub the presenter: nil-provider-result now surfaces a fetch failure
+        // (see nilRemoteSnapshotPresentsFetchFailure), which would otherwise
         // block this test on a real NSAlert.
-        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { _ in }
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
 
         await GhosttyRuntime.openRecentLink(
             "README.md:12",
@@ -241,12 +242,12 @@ struct GhosttyRuntimeRecentLinkTests {
         )
     }
 
-    @Test func nilRemoteSnapshotPresentsRoutingFailure() async throws {
+    @Test func nilRemoteSnapshotPresentsFetchFailure() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-        GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         defer {
             GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
-            GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
         }
         let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
         let pane = TerminalPane(
@@ -259,7 +260,7 @@ struct GhosttyRuntimeRecentLinkTests {
         let store = makeStore(session)
         GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in nil }
         var didPresent = false
-        GhosttyRuntime.remoteMarkdownRoutingFailurePresenter = { view in
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { view in
             #expect(view == nil)
             didPresent = true
         }
@@ -273,6 +274,107 @@ struct GhosttyRuntimeRecentLinkTests {
 
         #expect(didPresent)
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+    }
+
+    @Test func remoteMarkdownShowsSurfaceSpinnerAndAnnouncesLoading() async throws {
+        GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+        GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
+        RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting()
+        defer {
+            GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
+            GhosttyRuntime.resetRemoteMarkdownFetchFailurePresenterForTesting()
+            RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting()
+        }
+
+        let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/local",
+            remoteWorkingDirectory: "/srv/project",
+            executionPlan: .ssh(.init(target: target))
+        )
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+        defer { runtime.discardAllSurfaces() }
+
+        let hold = AsyncGate()
+        var loadingAnnouncements = 0
+        let previousPoster = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            if message == TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement {
+                loadingAnnouncements += 1
+            }
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previousPoster) }
+
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in
+            await hold.wait()
+            return nil
+        }
+        GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
+
+        let openTask = Task { @MainActor in
+            await GhosttyRuntime.openRecentLink(
+                "docs/readme.md",
+                in: session.id,
+                associatedWith: pane.id,
+                sessionStore: store
+            )
+        }
+
+        #expect(
+            await waitUntil {
+                view.remoteMarkdownFetchProgressIndicator != nil
+            }
+        )
+        await drainMainQueue(rounds: 2)
+        #expect(loadingAnnouncements >= 1)
+
+        hold.open()
+        await openTask.value
+        #expect(view.remoteMarkdownFetchProgressIndicator == nil)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+    }
+
+    @Test func remoteMarkdownSpinnerRecreatesWhenDetachedFromSuperview() {
+        RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting()
+        defer { RemoteMarkdownFetchProgressCoordinator.shared.resetForTesting() }
+
+        let pane = TerminalPane(
+            title: "remote",
+            workingDirectory: "/local",
+            executionPlan: .local
+        )
+        let session = makeSession(pane)
+        let store = makeStore(session)
+        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+        let view = runtime.surfaceView(
+            sessionStore: store,
+            session: session,
+            pane: pane,
+            enabledAgentRuntimeFileDropSources: [],
+            grokIconEnabled: false
+        )
+        defer { runtime.discardAllSurfaces() }
+
+        view.syncRemoteMarkdownFetchProgress(isBusy: true)
+        let first = view.remoteMarkdownFetchProgressIndicator
+        #expect(first != nil)
+        first?.removeFromSuperview()
+        #expect(first?.superview == nil)
+        view.syncRemoteMarkdownFetchProgress(isBusy: true)
+        let second = view.remoteMarkdownFetchProgressIndicator
+        #expect(second != nil)
+        #expect(second !== first)
+        #expect(second?.superview === view)
     }
 
     private func makeStore(

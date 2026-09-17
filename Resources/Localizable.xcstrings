@@ -487,6 +487,9 @@
     ", resolved" : {
       "comment" : "Resolved state suffix in an annotation accessibility label"
     },
+    "/absolute/path/file.md or ~/path/file.md" : {
+      "comment" : "Placeholder example for the remote Markdown typed-path field"
+    },
     "/absolute/path/to/agent" : {
 
     },
@@ -1482,6 +1485,9 @@
     "Couldn't verify what's running in this transcript's terminal" : {
       "comment" : "Unavailable reason for resuming a session when foreground process evidence is unavailable"
     },
+    "Couldn’t Open Remote Markdown" : {
+      "comment" : "Title when a remote Markdown fetch completed but nothing could be saved to show"
+    },
     "Couldn’t Read Scrollback" : {
       "comment" : "Heading when Show Scrollback cannot read terminal history"
     },
@@ -1879,6 +1885,9 @@
     "Enter a name." : {
       "comment" : "Validation message when the custom command name is empty"
     },
+    "Enter a remote Markdown path to enable Open" : {
+      "comment" : "Accessibility hint for the disabled Open button when the remote Markdown path field is empty"
+    },
     "Enter a valid branch name." : {
       "comment" : "Invalid branch name syntax validation.\nWorktree creation failure message for an invalid branch name."
     },
@@ -1902,6 +1911,12 @@
     },
     "Enter an SSH alias, hostname, or user@host, not a command option." : {
       "comment" : "Validation message when a managed SSH workspace destination is invalid"
+    },
+    "Enter an absolute /… or ~/… path ending in .md or .markdown." : {
+      "comment" : "Validation caption when the remote Markdown typed path is unsupported"
+    },
+    "Enter an absolute path or a path starting with ~/ that ends in .md or .markdown." : {
+      "comment" : "Accessibility hint for the remote Markdown typed-path field"
     },
     "Error" : {
       "comment" : "Agent state label\nDiagnostics event severity",
@@ -2353,10 +2368,10 @@
 
     },
     "Loading document" : {
-      "comment" : "Progress status while fetching a remote Markdown snapshot"
+      "comment" : "Progress status while a Markdown document is loading"
     },
     "Loading remote Markdown." : {
-      "comment" : "VoiceOver announcement when a remote Markdown fetch starts"
+      "comment" : "Progress status and VoiceOver announcement while fetching a remote Markdown snapshot"
     },
     "Loading worktrees…" : {
       "comment" : "Worktree Manager loading state."
@@ -2860,6 +2875,9 @@
     "Open Recent Link" : {
       "comment" : "Command palette action for opening a link detected in a terminal pane"
     },
+    "Open Remote Markdown" : {
+      "comment" : "Title for the typed-path sheet that opens a remote Markdown file over SSH"
+    },
     "Open System Settings" : {
 
     },
@@ -2920,11 +2938,17 @@
     "Open the searchable keyboard shortcuts overlay." : {
       "comment" : "Keys settings hint."
     },
+    "Opened at the top of the document. Section jumps are not supported yet." : {
+      "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
+    },
     "Opening agent transcript." : {
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
     },
     "Opens a menu to create a new workspace group or a workspace in a specific group." : {
 
+    },
+    "Opens a read-only snapshot from %arg." : {
+      "comment" : "Caption under the remote Markdown path sheet title; placeholder is the declared SSH destination"
     },
     "Opens menu" : {
 
@@ -3424,6 +3448,9 @@
     "Refreshing" : {
       "comment" : "Diagnostics refresh button busy state"
     },
+    "Refreshing…" : {
+      "comment" : "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
+    },
     "Reload Terminal" : {
 
     },
@@ -3459,6 +3486,9 @@
     },
     "Remote Markdown loaded." : {
       "comment" : "VoiceOver announcement after a fresh remote Markdown document loads"
+    },
+    "Remote Markdown path" : {
+      "comment" : "Accessibility label for the remote Markdown typed-path field"
     },
     "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale." : {
       "comment" : "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
@@ -3521,6 +3551,9 @@
     },
     "Remote panes on %arg" : {
       "comment" : "VoiceOver location summary for a group with more than one remote destination.\nVoiceOver location summary for panes that all run on one declared SSH destination."
+    },
+    "Remote path" : {
+      "comment" : "Label for the remote Markdown absolute or ~/ path field"
     },
     "Remote session %arg" : {
       "comment" : "Accessibility label for the remote session name on an always-managed SSH row"
@@ -5304,6 +5337,9 @@
     },
     "awesoMux doesn't know which session this pane belongs to. If an agent is running, send it a prompt, then try again." : {
       "comment" : "Transcript failure when no provider session id has been reported"
+    },
+    "awesoMux fetched the file but could not save it locally. Check available disk space and permissions, then try again." : {
+      "comment" : "Explanation for a remote Markdown cache write failure"
     },
     "awesoMux found a .git here but wouldn't run git against it — it may be a symlink, or point somewhere outside the repository." : {
       "comment" : "Branch diff failure when the repository's .git failed admin-directory validation"

@@ -127,6 +127,11 @@ enum MarkdownAttributedStringBuilder {
         textColor: NSColor? = nil,
         terminalBackground: NSColor? = nil,
         relativeLinkBaseURL: URL? = nil,
+        /// When set, schemeless Markdown destinations resolve against this
+        /// remote snapshot identity (remote dirname), not `relativeLinkBaseURL`.
+        /// Absolute `file://` document links stay plain text so a remote body
+        /// cannot open local files.
+        remoteDocumentLinkIdentity: ResourceIdentity? = nil,
         allowsDocumentLinks: Bool = true,
         sectionIndex: BranchDiffSectionIndex? = nil
     ) -> NSAttributedString {
@@ -208,10 +213,17 @@ enum MarkdownAttributedStringBuilder {
                 if let url = URL(string: dest),
                     let scheme = url.scheme?.lowercased()
                 {
-                    let isAllowed =
-                        scheme == "https" || scheme == "http"
-                        || MarkdownLinkIntercept.shouldOpenAsDocument(url)
-                    linkURL = isAllowed ? url : nil
+                    let isRemoteDocumentLinkContext = remoteDocumentLinkIdentity != nil
+                    let isAllowedWeb = scheme == "https" || scheme == "http"
+                    let isAllowedLocalDocument =
+                        !isRemoteDocumentLinkContext
+                        && MarkdownLinkIntercept.shouldOpenAsDocument(url)
+                    linkURL = (isAllowedWeb || isAllowedLocalDocument) ? url : nil
+                } else if let remoteIdentity = remoteDocumentLinkIdentity {
+                    linkURL = RemoteMarkdownReference.linkURL(
+                        forMarkdownDestination: dest,
+                        relativeTo: remoteIdentity
+                    )
                 } else {
                     linkURL = MarkdownLinkIntercept.documentURL(
                         forMarkdownDestination: dest,
@@ -228,7 +240,8 @@ enum MarkdownAttributedStringBuilder {
                     to: result,
                     runText: run.text,
                     runRange: range,
-                    relativeTo: relativeLinkBaseURL
+                    relativeTo: relativeLinkBaseURL,
+                    remoteDocumentLinkIdentity: remoteDocumentLinkIdentity
                 )
             }
         }
@@ -237,6 +250,9 @@ enum MarkdownAttributedStringBuilder {
     }
 
     private static func isDocumentLink(_ url: URL) -> Bool {
+        if url.scheme?.lowercased() == RemoteMarkdownReference.remoteMarkdownLinkScheme {
+            return true
+        }
         if case .document = MarkdownLinkRouting.route(url) {
             return true
         }
@@ -257,21 +273,29 @@ enum MarkdownAttributedStringBuilder {
         to result: NSMutableAttributedString,
         runText: String,
         runRange: NSRange,
-        relativeTo relativeLinkBaseURL: URL?
+        relativeTo relativeLinkBaseURL: URL?,
+        remoteDocumentLinkIdentity: ResourceIdentity?
     ) {
-        guard relativeLinkBaseURL != nil else { return }
+        guard relativeLinkBaseURL != nil || remoteDocumentLinkIdentity != nil else { return }
 
         let nsText = runText as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
         bareRelativeMarkdownPathRegex.enumerateMatches(in: runText, range: fullRange) { match, _, _ in
             guard let match else { return }
             let candidate = nsText.substring(with: match.range)
-            guard
-                let linkURL = MarkdownLinkIntercept.documentURL(
+            let linkURL: URL?
+            if let remoteIdentity = remoteDocumentLinkIdentity {
+                linkURL = RemoteMarkdownReference.linkURL(
+                    forMarkdownDestination: candidate,
+                    relativeTo: remoteIdentity
+                )
+            } else {
+                linkURL = MarkdownLinkIntercept.documentURL(
                     forMarkdownDestination: candidate,
                     relativeTo: relativeLinkBaseURL
                 )
-            else {
+            }
+            guard let linkURL else {
                 return
             }
 

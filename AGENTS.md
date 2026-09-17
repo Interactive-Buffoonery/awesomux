@@ -62,10 +62,13 @@ architecture without checking.
 - Only the issue assignee pushes to its branch or updates its PR unless
   ownership is handed off. Other contributors review on GitHub and reply to the
   specific review thread.
-- Treat GitHub issues synchronized with Linear as public. Do not expose internal
-  notes, private links, credentials, or private tracker references. Draft new
-  roadmap issues for maintainer review; do not restructure synchronized roadmap
-  issues without approval, and preserve labels.
+- Treat GitHub issues synchronized with Linear as public. Referencing synced
+  Linear issue keys (e.g., `INT-758`) in PR descriptions, GitHub issues, and
+  review comments is expected cross-linking, not a privacy leak. Do not expose
+  internal notes, private links, credentials, or unpublished tracker content
+  (draft issues, internal-only URLs). Draft new roadmap issues for maintainer
+  review; do not restructure synchronized roadmap issues without approval, and
+  preserve labels.
 - When using Linear in this checkout, use workspace `interactive-buffoonery` and team `INT`.
 - In public text, use neutral terms such as “review” or “code review findings”;
   do not name internal reviewer personas.

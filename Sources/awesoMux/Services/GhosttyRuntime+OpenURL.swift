@@ -119,6 +119,28 @@ extension GhosttyRuntime {
         isRemoteMarkdownRoutingFailurePresented = false
     }
 
+    /// Presented when a remote Markdown *fetch* produced nothing to show — in
+    /// practice a failed local cache/failure-page write, not a rejected path.
+    /// Kept separate from `remoteMarkdownRoutingFailurePresenter` so the
+    /// boundary-violation copy is never shown for an ordinary save failure, and
+    /// presented as a sheet on the key window so it does not block the run loop
+    /// while the send bar's busy latch is still held.
+    @MainActor
+    private(set) static var isRemoteMarkdownFetchFailurePresented = false
+
+    @MainActor
+    static var remoteMarkdownFetchFailurePresenter: @MainActor (NSView?) -> Void = {
+        presentRemoteMarkdownFetchFailure(from: $0)
+    }
+
+    @MainActor
+    static func resetRemoteMarkdownFetchFailurePresenterForTesting() {
+        remoteMarkdownFetchFailurePresenter = {
+            presentRemoteMarkdownFetchFailure(from: $0)
+        }
+        isRemoteMarkdownFetchFailurePresented = false
+    }
+
     @MainActor
     static var terminalLinkOpenFailurePresenter: @MainActor (NSView?) -> Void = {
         presentTerminalLinkOpenFailure(from: $0)
@@ -150,8 +172,25 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
+            let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
+            let progress = RemoteMarkdownFetchProgressCoordinator.shared
+            let announcesOutcome = progress.begin(
+                sessionID: sessionID,
+                identity: reference.identity,
+                origin: origin
+            )
+            if announcesOutcome {
+                TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+            }
+            defer {
+                progress.finish(
+                    sessionID: sessionID,
+                    identity: reference.identity,
+                    origin: origin
+                )
+            }
             guard let outcome = await recentLinkRemoteSnapshotProvider(reference) else {
-                remoteMarkdownRoutingFailurePresenter(nil)
+                remoteMarkdownFetchFailurePresenter(nil)
                 return
             }
             let hadVisibleDocument =
@@ -172,7 +211,9 @@ extension GhosttyRuntime {
             // never fires, so this call is the only announcement. Otherwise
             // speak only for a same-identity in-place refresh, where
             // DocumentGroupView intentionally suppresses "Now showing".
-            if !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity {
+            if announcesOutcome,
+                !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity
+            {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
             return
@@ -229,6 +270,14 @@ extension GhosttyRuntime {
     /// confirm is already on screen.
     @MainActor
     static func openURL(_ url: URL) {
+        // `awesomux-remote-md:` links are an app-internal document-link
+        // encoding for remote snapshot tabs. They must only ever be handled
+        // by the document-link sink — never by this generic terminal/OSC
+        // surface, and never by the OS or the URL classifier. Drop them here
+        // so a crafted terminal hyperlink cannot arrive with our own scheme.
+        guard url.scheme?.lowercased() != RemoteMarkdownReference.remoteMarkdownLinkScheme else {
+            return
+        }
         // Intercept local Markdown links before URLClassifier (which would
         // pass them straight to NSWorkspace). An injected handler routes the
         // URL into the active session's document pane; if none is configured
@@ -324,17 +373,25 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(view)
                 return
             }
-            let announcesOutcome = presentRemoteMarkdownFetchProgress(
-                in: view,
+            let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
+            let progress = RemoteMarkdownFetchProgressCoordinator.shared
+            let announcesOutcome = progress.begin(
                 sessionID: workspaceID,
-                paneID: paneID
+                identity: reference.identity,
+                origin: origin
             )
             if announcesOutcome {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
-            defer { finishRemoteMarkdownFetchProgress(in: view, sessionID: workspaceID, paneID: paneID) }
+            defer {
+                progress.finish(
+                    sessionID: workspaceID,
+                    identity: reference.identity,
+                    origin: origin
+                )
+            }
             guard let outcome = await RemoteMarkdownSnapshotFetcher().fetch(reference) else {
-                remoteMarkdownRoutingFailurePresenter(view)
+                remoteMarkdownFetchFailurePresenter(view)
                 return
             }
             // A rejected dispatch means the pane/session moved on while this
@@ -429,6 +486,34 @@ extension GhosttyRuntime {
         }
     }
 
+    /// A fetch that returns nothing to show is a local write failure — the
+    /// downloaded copy could not be saved — so the copy names that, not path
+    /// trust. Prefer the key window so the alert sheets rather than blocking.
+    @MainActor
+    private static func presentRemoteMarkdownFetchFailure(from view: NSView?) {
+        guard !isRemoteMarkdownFetchFailurePresented else { return }
+        isRemoteMarkdownFetchFailurePresented = true
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "Couldn’t Open Remote Markdown",
+            comment: "Title when a remote Markdown fetch completed but nothing could be saved to show"
+        )
+        alert.informativeText = String(
+            localized:
+                "awesoMux fetched the file but could not save it locally. Check available disk space and permissions, then try again.",
+            comment: "Explanation for a remote Markdown cache write failure"
+        )
+        if let window = view?.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { _ in
+                isRemoteMarkdownFetchFailurePresented = false
+            }
+        } else {
+            defer { isRemoteMarkdownFetchFailurePresented = false }
+            alert.runModal()
+        }
+    }
+
     @MainActor
     private(set) static var isTerminalLinkOpenFailurePresented = false
 
@@ -498,56 +583,5 @@ extension GhosttyRuntime {
             displayHost: displayHost,
             punycodeHost: punycodeHost
         )
-    }
-
-    @MainActor
-    private static func presentRemoteMarkdownFetchProgress(
-        in view: GhosttySurfaceNSView,
-        sessionID: TerminalSession.ID,
-        paneID: TerminalPane.ID
-    ) -> Bool {
-        if let identity = view.remoteMarkdownFetchProgressIdentity,
-            identity.sessionID == sessionID,
-            identity.paneID == paneID,
-            view.remoteMarkdownFetchProgressIndicator != nil
-        {
-            view.remoteMarkdownFetchProgressCount += 1
-            return false
-        }
-        view.clearRemoteMarkdownFetchProgress()
-        let progressIndicator = NSProgressIndicator()
-        progressIndicator.style = .spinning
-        progressIndicator.controlSize = .small
-        progressIndicator.translatesAutoresizingMaskIntoConstraints = false
-        progressIndicator.setAccessibilityLabel(
-            String(
-                localized: "Loading document",
-                comment: "Progress status while fetching a remote Markdown snapshot"
-            ))
-        view.addSubview(progressIndicator)
-        NSLayoutConstraint.activate([
-            progressIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            progressIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-        progressIndicator.startAnimation(nil)
-        view.remoteMarkdownFetchProgressIndicator = progressIndicator
-        view.remoteMarkdownFetchProgressIdentity = (sessionID, paneID)
-        view.remoteMarkdownFetchProgressCount = 1
-        return true
-    }
-
-    private static func finishRemoteMarkdownFetchProgress(
-        in view: GhosttySurfaceNSView,
-        sessionID: TerminalSession.ID,
-        paneID: TerminalPane.ID
-    ) {
-        guard let identity = view.remoteMarkdownFetchProgressIdentity,
-            identity.sessionID == sessionID,
-            identity.paneID == paneID
-        else { return }
-        view.remoteMarkdownFetchProgressCount -= 1
-        if view.remoteMarkdownFetchProgressCount == 0 {
-            view.clearRemoteMarkdownFetchProgress()
-        }
     }
 }

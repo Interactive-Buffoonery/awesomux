@@ -61,7 +61,7 @@ struct SheetWedgeRecoveryPolicyTests {
     @Test("any-window sheet vetoes scrollback healing but not request vars")
     func anyWindowSheetVetoesScrollbackOnly() {
         // Scrollback dumps can be hosted in floating/companion panels, so a
-        // sheet anywhere may be a live dump; the seven request sheets present
+        // sheet anywhere may be a live dump; the eight request sheets present
         // only on the primary content window.
         let initial = snapshot(keys: ["paneEdit"], scrollbackPanes: [Self.paneA])
         let recheck = snapshot(keys: ["paneEdit"], scrollbackPanes: [Self.paneA], anySheet: true)
@@ -131,10 +131,11 @@ struct SheetWedgeRecoveryPolicyTests {
                 remoteWorkspaceGroupCreate: true,
                 sshWorkspaceConnect: true,
                 workspaceGroupRename: true,
-                quickSettings: true
+                quickSettings: true,
+                remoteMarkdownPathOpen: true
             ) == SheetWedgeRecoveryPolicy.RequestKey.all
         )
-        #expect(SheetWedgeRecoveryPolicy.RequestKey.all.count == 7)
+        #expect(SheetWedgeRecoveryPolicy.RequestKey.all.count == 8)
     }
 
     @Test("pending request keys map each var to its stable key")
@@ -147,7 +148,8 @@ struct SheetWedgeRecoveryPolicyTests {
                 remoteWorkspaceGroupCreate: false,
                 sshWorkspaceConnect: true,
                 workspaceGroupRename: false,
-                quickSettings: true
+                quickSettings: true,
+                remoteMarkdownPathOpen: false
             ) == ["workspaceEdit", "workspaceGroupCreate", "sshWorkspaceConnect", "quickSettings"]
         )
         #expect(
@@ -158,8 +160,12 @@ struct SheetWedgeRecoveryPolicyTests {
                 remoteWorkspaceGroupCreate: true,
                 sshWorkspaceConnect: false,
                 workspaceGroupRename: true,
-                quickSettings: false
-            ) == ["paneEdit", "remoteWorkspaceGroupCreate", "workspaceGroupRename"]
+                quickSettings: false,
+                remoteMarkdownPathOpen: true
+            ) == [
+                "paneEdit", "remoteWorkspaceGroupCreate", "workspaceGroupRename",
+                "remoteMarkdownPathOpen",
+            ]
         )
     }
 }

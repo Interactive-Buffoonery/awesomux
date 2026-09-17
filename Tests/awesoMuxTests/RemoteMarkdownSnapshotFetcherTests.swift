@@ -218,6 +218,199 @@ struct RemoteMarkdownReferenceTests {
             ) == nil)
     }
 
+    @Test("Md→Md resolves relative destinations against the source document directory")
+    func markdownDestinationResolvesAgainstSourceDocumentDirectory() throws {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                markdownDestination: "guide.md#install",
+                relativeTo: source
+            )
+        )
+        #expect(reference.remotePath == "/repo/docs/guide.md")
+        #expect(reference.sshTarget == "my-purple")
+        #expect(reference.identity.location == source.location)
+    }
+
+    @Test("Md→Md rejects parent traversal outside the source document directory")
+    func markdownDestinationCannotEscapeSourceDirectory() {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        #expect(
+            RemoteMarkdownReference.make(
+                markdownDestination: "../secret.md",
+                relativeTo: source
+            ) == nil
+        )
+    }
+
+    @Test("Md→Md allows contained normalization under the source directory")
+    func markdownDestinationAllowsContainedNormalization() throws {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                markdownDestination: "nested/../sibling.md",
+                relativeTo: source
+            )
+        )
+        #expect(reference.remotePath == "/repo/docs/sibling.md")
+    }
+
+    @Test("Md→Md rejects queries and keeps tilde sources on the declared target")
+    func markdownDestinationRejectsQueryAndSupportsTildeSource() throws {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "alice@my-purple")!),
+            path: ResourcePath(rawValue: "~/repo/docs/README.md")
+        )
+        #expect(
+            RemoteMarkdownReference.make(
+                markdownDestination: "guide.md?raw=1",
+                relativeTo: source
+            ) == nil
+        )
+        let reference = try #require(
+            RemoteMarkdownReference.make(
+                markdownDestination: "guide.md",
+                relativeTo: source
+            )
+        )
+        #expect(reference.remotePath == "~/repo/docs/guide.md")
+        #expect(reference.sshTarget == "alice@my-purple")
+
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "guide.md",
+                relativeTo: source
+            )
+        )
+        #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
+
+        let reopened = try #require(
+            RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
+        )
+        #expect(reopened.remotePath == "~/repo/docs/guide.md")
+    }
+
+    @Test("Md→Md click gate rejects local file URLs outside the source directory")
+    func openedLinkURLRejectsLocalEscape() {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        #expect(
+            RemoteMarkdownReference.make(
+                openedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
+                relativeTo: source
+            ) == nil
+        )
+        #expect(
+            RemoteMarkdownDocumentLinkNavigation.reference(
+                forOpenedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
+                from: source
+            ) == nil
+        )
+    }
+
+    @Test("Md→Md click gate accepts a contained absolute file link URL")
+    func openedLinkURLAcceptsContainedAbsolutePath() throws {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        let link = URL(fileURLWithPath: "/repo/docs/sibling.md")
+        let reference = try #require(
+            RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
+        )
+        #expect(reference.remotePath == "/repo/docs/sibling.md")
+        #expect(reference.sshTarget == "my-purple")
+    }
+
+    @Test("absolute remote destination encodes with the scheme, never a local file URL")
+    func absoluteDestinationNeverEncodesAsLocalFileURL() throws {
+        let source = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md",
+                relativeTo: source
+            )
+        )
+        #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
+        #expect(!link.isFileURL)
+        // Still round-trips through the click gate back to the same remote path.
+        let reopened = try #require(
+            RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
+        )
+        #expect(reopened.remotePath == "/repo/docs/sibling.md")
+        #expect(reopened.sshTarget == "my-purple")
+    }
+
+    @Test("failure-page path predicate matches only the app-generated suffix")
+    func failureDocumentPathPredicate() {
+        #expect(
+            RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
+                URL(fileURLWithPath: "/tmp/abc.failure.md")))
+        #expect(
+            !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
+                URL(fileURLWithPath: "/tmp/abc.md")))
+        #expect(
+            !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
+                URL(fileURLWithPath: "/tmp/failure.md")))
+    }
+
+    @Test("Md→Md click gate normalizes before containment and rejects crafted ../ escapes")
+    func openedLinkURLRejectsCraftedParentTraversalUnderPrefix() throws {
+        let absoluteSource = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "/repo/docs/README.md")
+        )
+        let tildeSource = ResourceIdentity(
+            location: .remote(RemoteTarget(parsing: "my-purple")!),
+            path: ResourcePath(rawValue: "~/repo/docs/README.md")
+        )
+
+        // Raw prefix would match `…/docs/../secret.md`; normalize must collapse
+        // first so containment sees `/repo/secret.md` / `~/repo/secret.md`.
+        let craftedFile = try #require(URL(string: "file:///repo/docs/../secret.md"))
+        #expect(
+            RemoteMarkdownReference.make(
+                openedLinkURL: craftedFile,
+                relativeTo: absoluteSource
+            ) == nil
+        )
+
+        var tildeComponents = URLComponents()
+        tildeComponents.scheme = RemoteMarkdownReference.remoteMarkdownLinkScheme
+        tildeComponents.percentEncodedPath = "/~/repo/docs/../secret.md"
+        let craftedTilde = try #require(tildeComponents.url)
+        #expect(
+            RemoteMarkdownReference.make(
+                openedLinkURL: craftedTilde,
+                relativeTo: tildeSource
+            ) == nil
+        )
+
+        // Contained normalization after the same walk still opens.
+        let containedFile = try #require(URL(string: "file:///repo/docs/nested/../sibling.md"))
+        let contained = try #require(
+            RemoteMarkdownReference.make(
+                openedLinkURL: containedFile,
+                relativeTo: absoluteSource
+            )
+        )
+        #expect(contained.remotePath == "/repo/docs/sibling.md")
+    }
+
     @Test func remoteMarkdownRejectsUnsafeOrUnsupportedPaths() {
         let pane = remotePane()
         #expect(RemoteMarkdownReference.make(payload: "/repo/script.sh", pane: pane) == nil)

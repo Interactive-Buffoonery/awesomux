@@ -51,6 +51,225 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         return RemoteMarkdownReference(identity: identity)
     }
 
+    /// Typed-path open (V0): absolute `/…` or current-user `~/…` paths ending
+    /// in `.md` / `.markdown`. Normalizes with the same helpers as Md→Md click
+    /// gates, then binds the path to a declared `RemoteTarget` — never a title
+    /// host. Relative paths and escapes fail closed.
+    static func make(typedPath: String, target: RemoteTarget) -> RemoteMarkdownReference? {
+        guard let normalized = normalizedTypedPath(typedPath) else {
+            return nil
+        }
+        let identity = ResourceIdentity(
+            location: .remote(target),
+            path: ResourcePath(rawValue: normalized)
+        )
+        return make(identity: identity)
+    }
+
+    /// Lexical normalize + extension gate for a typed remote Markdown path.
+    /// Shared by the open sheet (enable Open) and `make(typedPath:target:)`.
+    static func normalizedTypedPath(_ typedPath: String) -> String? {
+        let trimmed = typedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalized = MarkdownLinkIntercept.normalizedDocumentFilePath(trimmed),
+            ResourceIdentity.isSupportedRemoteMarkdownPath(normalized),
+            !MarkdownLinkIntercept.containsUnsafePathScalars(normalized)
+        else {
+            return nil
+        }
+        return normalized
+    }
+
+    /// Md→Md: resolve a Markdown link destination against the *source
+    /// document's* remote directory, keeping the declared execution location.
+    /// Parent traversal that escapes that directory fails closed — the same
+    /// containment policy local document links use (INT-758).
+    static func make(
+        markdownDestination: String,
+        relativeTo source: ResourceIdentity
+    ) -> RemoteMarkdownReference? {
+        guard let relative = MarkdownLinkIntercept.relativeMarkdownDestination(markdownDestination)
+        else {
+            return nil
+        }
+        return resolvedReference(
+            forRelativeMarkdownDestination: relative,
+            relativeTo: source
+        )?.reference
+    }
+
+    /// Resolves an already-parsed relative Markdown destination against the
+    /// source document's remote directory, returning the reference plus the
+    /// destination fragment. Parsing once lets `make` and `linkURL` share a
+    /// single `relativeMarkdownDestination` call.
+    private static func resolvedReference(
+        forRelativeMarkdownDestination relative: (path: String, fragment: String?),
+        relativeTo source: ResourceIdentity
+    ) -> (reference: RemoteMarkdownReference, fragment: String?)? {
+        guard source.isSupportedRemoteMarkdownSnapshot else {
+            return nil
+        }
+        let sourcePath = source.path.rawValue
+        let baseDirectory = (sourcePath as NSString).deletingLastPathComponent
+        guard !baseDirectory.isEmpty,
+            baseDirectory != ".",
+            let joined = MarkdownLinkIntercept.joinRelativeDocumentPath(
+                relative.path,
+                toDirectory: baseDirectory
+            )
+        else {
+            return nil
+        }
+        let identity = ResourceIdentity(
+            location: source.location,
+            path: ResourcePath(rawValue: joined)
+        )
+        guard let reference = make(identity: identity) else {
+            return nil
+        }
+        return (reference, relative.fragment)
+    }
+
+    /// Click-time rebuild from a link URL produced for a remote snapshot tab.
+    /// Absolute `file://` links that are not contained under the source
+    /// document directory fail closed so remote markdown cannot open local
+    /// files or walk outside the intended root.
+    ///
+    /// A source at the filesystem root (or `~`) intentionally scopes to that
+    /// whole root — the same containment local document links use, and no
+    /// wider than the typed-path sheet already offers the same user on the
+    /// same host. Reads stay read-only under the declared target either way.
+    ///
+    /// Paths are normalized with the same absolute `standardizingPath` / tilde
+    /// lexical `..` walk as render-time resolve *before* containment — a raw
+    /// `…/docs/../secret.md` string must not pass a prefix check.
+    static func make(
+        openedLinkURL url: URL,
+        relativeTo source: ResourceIdentity
+    ) -> RemoteMarkdownReference? {
+        guard source.isSupportedRemoteMarkdownSnapshot,
+            let remotePath = remotePath(fromOpenedLinkURL: url)
+        else {
+            return nil
+        }
+        let sourcePath = source.path.rawValue
+        let rawBaseDirectory = (sourcePath as NSString).deletingLastPathComponent
+        guard !rawBaseDirectory.isEmpty,
+            rawBaseDirectory != ".",
+            let baseDirectory = MarkdownLinkIntercept.normalizedDocumentDirectoryPath(
+                rawBaseDirectory
+            ),
+            let normalizedPath = MarkdownLinkIntercept.normalizedDocumentFilePath(remotePath),
+            MarkdownLinkIntercept.contains(childPath: normalizedPath, in: baseDirectory)
+        else {
+            return nil
+        }
+        let identity = ResourceIdentity(
+            location: source.location,
+            path: ResourcePath(rawValue: normalizedPath)
+        )
+        return make(identity: identity)
+    }
+
+    /// Link URL embedded in attributed text for a remote-relative destination.
+    /// Every remote destination uses the dedicated `awesomux-remote-md:` scheme
+    /// so no remote path is ever a real local `file://` URL that another
+    /// consumer could mistake for a file on this Mac. `MarkdownLinkRouting`
+    /// already classifies the scheme as a document link.
+    static func linkURL(
+        forMarkdownDestination destination: String,
+        relativeTo source: ResourceIdentity
+    ) -> URL? {
+        guard let relative = MarkdownLinkIntercept.relativeMarkdownDestination(destination),
+            let resolved = resolvedReference(
+                forRelativeMarkdownDestination: relative,
+                relativeTo: source
+            ),
+            var url = linkURL(forRemotePath: resolved.reference.remotePath)
+        else {
+            return nil
+        }
+        // Fragments do not navigate yet (same deferral as local INT-758), but
+        // the click path reads them back to announce the at-top landing, so
+        // they must survive the render→click round trip instead of being
+        // dropped with the identity.
+        if let fragment = resolved.fragment, !fragment.isEmpty {
+            url = withFragment(fragment, on: url) ?? url
+        }
+        return url
+    }
+
+    /// Re-attaches a Markdown `#fragment` to a link URL. Advisory only: the
+    /// click gate resolves identity from the fragment-free path, and the
+    /// navigation layer reads the fragment back to announce the deferred
+    /// at-top landing.
+    private static func withFragment(_ fragment: String, on url: URL) -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let encoded = fragment.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed)
+        else {
+            return nil
+        }
+        components.percentEncodedFragment = encoded
+        return components.url
+    }
+
+    static func linkURL(forRemotePath path: String) -> URL? {
+        // `isSupportedRemoteMarkdownPath` already restricts to `/…` or `~/…`.
+        guard ResourceIdentity.isSupportedRemoteMarkdownPath(path),
+            let encoded = path.addingPercentEncoding(
+                withAllowedCharacters: remoteMarkdownPathAllowed
+            )
+        else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = remoteMarkdownLinkScheme
+        // URLComponents requires a scheme-bearing path to start with `/`. An
+        // absolute path already has its own root; a home-relative path needs a
+        // synthetic one, so `~/…` encodes as `awesomux-remote-md:/~/…`.
+        components.percentEncodedPath = path.hasPrefix("~/") ? "/" + encoded : encoded
+        return components.url
+    }
+
+    static let remoteMarkdownLinkScheme = "awesomux-remote-md"
+
+    private static let remoteMarkdownPathAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.insert(charactersIn: "~")
+        return allowed
+    }()
+
+    private static func remotePath(fromOpenedLinkURL url: URL) -> String? {
+        if url.isFileURL {
+            guard let documentURL = MarkdownLinkIntercept.documentURL(forFileURL: url) else {
+                return nil
+            }
+            let path = documentURL.path
+            guard ResourceIdentity.isSupportedRemoteMarkdownPath(path) else {
+                return nil
+            }
+            return path
+        }
+        guard url.scheme?.lowercased() == remoteMarkdownLinkScheme else {
+            return nil
+        }
+        // `percentEncodedPath` is `/~/repo/file.md`; drop the synthetic root `/`.
+        let encoded = url.path
+        let path: String
+        if encoded.hasPrefix("/~/") {
+            path = String(encoded.dropFirst())  // → `~/…`
+        } else if encoded.hasPrefix("/") {
+            path = encoded
+        } else {
+            return nil
+        }
+        guard ResourceIdentity.isSupportedRemoteMarkdownPath(path),
+            !MarkdownLinkIntercept.containsUnsafePathScalars(path)
+        else {
+            return nil
+        }
+        return path
+    }
+
     static func isPotentialPayload(_ payload: String) -> Bool {
         guard let path = remotePath(from: payload),
             !path.isEmpty,
@@ -601,7 +820,19 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     /// The extension is always `md` because the page is app-authored Markdown,
     /// whatever extension the remote file carried.
     private func failureFileName(for reference: RemoteMarkdownReference) -> String {
-        "\(Self.stableHash(Self.cacheIdentityKey(reference.identity))).failure.md"
+        "\(Self.stableHash(Self.cacheIdentityKey(reference.identity)))\(Self.failureDocumentSuffix)"
+    }
+
+    /// The suffix of the app-generated failure page filename. Exposed so the
+    /// refresh path can tell "showing the failure page" from "showing a cached
+    /// copy" without reproducing the cache hash.
+    static let failureDocumentSuffix = ".failure.md"
+
+    /// Whether `fileURL` names the app-generated failure page rather than a
+    /// cached copy of the remote file. A remote file artificially named
+    /// `x.failure.md` cannot collide: its cache name is `<hash>.md`.
+    static func isFailureDocumentPath(_ fileURL: URL) -> Bool {
+        fileURL.lastPathComponent.hasSuffix(failureDocumentSuffix)
     }
 
     private func failureMarkdown(

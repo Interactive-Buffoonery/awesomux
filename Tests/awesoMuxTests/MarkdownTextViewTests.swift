@@ -217,7 +217,7 @@ struct MarkdownTextViewTests {
         #expect(selectedSourceSpan != nil)
     }
 
-    @Test("read-only snapshots render document links as plain text")
+    @Test("generated read-only documents render document links as plain text")
     func readOnlySnapshotDocumentLinksArePlainText() throws {
         let doc = AttributedMarkdownBuilder.build("[local](next.md) [web](https://example.com)")
         let attr = MarkdownAttributedStringBuilder.attributedString(

@@ -759,6 +759,7 @@ final class GhosttyRuntime {
             #endif
             return
         }
+        RemoteMarkdownFetchProgressCoordinator.shared.unregisterSurface(surfaceView)
         surfaceCacheRevision &+= 1
 
         // Resolve the recovery-record key from the linked record, the active bridge
@@ -846,6 +847,7 @@ final class GhosttyRuntime {
         stopVisibleSurfaceSamplingIfIdle()
         secureInputCoordinator.reset()
         for surfaceView in surfaceViews.values {
+            RemoteMarkdownFetchProgressCoordinator.shared.unregisterSurface(surfaceView)
             surfaceView.disposeNativeSurface()
             surfaceView.removeFromSuperview()
         }

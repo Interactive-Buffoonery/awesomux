@@ -94,7 +94,6 @@ struct RemoteMarkdownRefreshCoordinatorGateTests {
             }
         }
         let fetchCalls = Box()
-        let unavailableCalls = Box()
 
         let outcome = await RemoteMarkdownTabRefresh.refresh(
             identity: identity,
@@ -105,7 +104,6 @@ struct RemoteMarkdownRefreshCoordinatorGateTests {
             selectingTab: true,
             announceOutcome: true,
             coordinator: coordinator,
-            onFetchUnavailable: { unavailableCalls.increment() },
             fetch: { _ in
                 fetchCalls.increment()
                 return .fresh(
@@ -119,7 +117,6 @@ struct RemoteMarkdownRefreshCoordinatorGateTests {
 
         #expect(outcome == nil)
         #expect(fetchCalls.count == 0)
-        #expect(unavailableCalls.count == 0)
         // The refused call must not clear the latch owned by the in-flight run.
         #expect(coordinator.isRefreshing(tabID))
         coordinator.finish(documentID: tabID)

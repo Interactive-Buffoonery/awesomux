@@ -109,15 +109,67 @@ enum MarkdownLinkIntercept {
         forMarkdownDestination destination: String,
         relativeTo baseDirectoryURL: URL?
     ) -> URL? {
-        guard let baseDirectoryURL,
-              baseDirectoryURL.isFileURL,
-              let components = URLComponents(string: destination),
-              components.scheme == nil,
-              components.host == nil,
-              components.query == nil else {
+        guard let baseDirectoryURL, baseDirectoryURL.isFileURL else {
             return nil
         }
+        guard
+            let resolved = resolvedDocumentPath(
+                forMarkdownDestination: destination,
+                relativeToDirectory: baseDirectoryURL.path
+            )
+        else {
+            return nil
+        }
+        let fileURL = fileURL(
+            for: DocumentPathPayload(
+                path: resolved.path,
+                fragment: resolved.fragment,
+                line: nil,
+                column: nil
+            )
+        )
+        guard shouldOpenAsDocument(fileURL) else {
+            return nil
+        }
+        return fileURL
+    }
 
+    /// Lexical join of a schemeless relative Markdown destination onto a
+    /// directory path. No filesystem I/O. Shared by local document panes and
+    /// remote Md→Md navigation so containment and destination parsing cannot
+    /// drift.
+    ///
+    /// Absolute `/…` bases standardize like local file URLs. Current-user
+    /// `~/…` bases use a tilde-preserving walk that still rejects escape above
+    /// the source directory. Other base shapes fail closed.
+    static func resolvedDocumentPath(
+        forMarkdownDestination destination: String,
+        relativeToDirectory baseDirectory: String
+    ) -> (path: String, fragment: String?)? {
+        guard let relative = relativeMarkdownDestination(destination) else {
+            return nil
+        }
+        guard let joined = joinRelativeDocumentPath(relative.path, toDirectory: baseDirectory)
+        else {
+            return nil
+        }
+        return (joined, relative.fragment)
+    }
+
+    /// Parses a Markdown link destination into a relative document path +
+    /// optional fragment. Rejects schemes, hosts, queries, absolute/`~`
+    /// forms, bad extensions, and unsafe scalars — the same pre-join gate
+    /// local and remote Md→Md resolution share.
+    static func relativeMarkdownDestination(
+        _ destination: String
+    ) -> (path: String, fragment: String?)? {
+        guard let components = URLComponents(string: destination),
+            components.scheme == nil,
+            components.host == nil,
+            components.query == nil
+        else {
+            return nil
+        }
         guard let path = components.percentEncodedPath.removingPercentEncoding else {
             return nil
         }
@@ -126,32 +178,163 @@ enum MarkdownLinkIntercept {
             fallbackFragment: components.percentEncodedFragment?.removingPercentEncoding
         )
         guard !payload.path.isEmpty,
-              !payload.path.hasPrefix("/"),
-              !payload.path.hasPrefix("~"),
-              DocumentURLValidator.allowedExtensions.contains((payload.path as NSString).pathExtension.lowercased()),
-              !containsUnsafePathScalars(payload.path) else {
+            !payload.path.hasPrefix("/"),
+            !payload.path.hasPrefix("~"),
+            DocumentURLValidator.allowedExtensions.contains(
+                (payload.path as NSString).pathExtension.lowercased()
+            ),
+            !containsUnsafePathScalars(payload.path)
+        else {
             return nil
         }
-
-        let basePath = (baseDirectoryURL.path as NSString).standardizingPath
-        var resolvedPayload = payload
-        resolvedPayload.path = ((basePath as NSString).appendingPathComponent(payload.path) as NSString)
-            .standardizingPath
-        guard contains(childPath: resolvedPayload.path, in: basePath) else {
-            return nil
-        }
-        let fileURL = fileURL(for: resolvedPayload)
-        guard shouldOpenAsDocument(fileURL) else {
-            return nil
-        }
-        return fileURL
+        return (payload.path, payload.fragment)
     }
 
-    private static func contains(childPath: String, in basePath: String) -> Bool {
+    /// Joins a relative document path onto `baseDirectory` and requires the
+    /// result to stay inside that directory (INT-758 containment).
+    static func joinRelativeDocumentPath(
+        _ relativePath: String,
+        toDirectory baseDirectory: String
+    ) -> String? {
+        guard !relativePath.isEmpty,
+            !relativePath.hasPrefix("/"),
+            !relativePath.hasPrefix("~")
+        else {
+            return nil
+        }
+        if baseDirectory.hasPrefix("/") {
+            let basePath = (baseDirectory as NSString).standardizingPath
+            let resolved =
+                ((basePath as NSString).appendingPathComponent(relativePath) as NSString)
+                .standardizingPath
+            guard contains(childPath: resolved, in: basePath) else {
+                return nil
+            }
+            return resolved
+        }
+        if baseDirectory == "~" || baseDirectory.hasPrefix("~/") {
+            return joinRelativeDocumentPathUnderTilde(
+                relativePath,
+                baseDirectory: baseDirectory
+            )
+        }
+        return nil
+    }
+
+    static func contains(childPath: String, in basePath: String) -> Bool {
         if basePath == "/" {
             return childPath.hasPrefix("/") && childPath != "/"
         }
+        if basePath == "~" {
+            return childPath.hasPrefix("~/") && childPath != "~"
+        }
         return childPath.hasPrefix(basePath + "/")
+    }
+
+    /// Lexically normalize an absolute `/…` or current-user `~/…` *file* path
+    /// with the same absolute `standardizingPath` / tilde `..` walk used by
+    /// `joinRelativeDocumentPath`. Rejects escape above `~/`. Callers must run
+    /// this before containment checks so crafted `…/docs/../secret.md` strings
+    /// cannot pass a raw prefix test.
+    static func normalizedDocumentFilePath(_ path: String) -> String? {
+        if path.hasPrefix("/") {
+            let standardized = (path as NSString).standardizingPath
+            guard standardized.hasPrefix("/"), standardized != "/" else {
+                return nil
+            }
+            return standardized
+        }
+        if path.hasPrefix("~/") {
+            return normalizedTildeFilePath(path)
+        }
+        return nil
+    }
+
+    /// Lexically normalize an absolute `/…` or `~/…` *directory* path for use
+    /// as a containment root. Same walk family as `normalizedDocumentFilePath`.
+    static func normalizedDocumentDirectoryPath(_ path: String) -> String? {
+        if path == "/" {
+            return "/"
+        }
+        if path.hasPrefix("/") {
+            let standardized = (path as NSString).standardizingPath
+            guard standardized.hasPrefix("/") else {
+                return nil
+            }
+            return standardized
+        }
+        if path == "~" || path.hasPrefix("~/") {
+            return normalizedTildeDirectory(path)
+        }
+        return nil
+    }
+
+    private static func joinRelativeDocumentPathUnderTilde(
+        _ relativePath: String,
+        baseDirectory: String
+    ) -> String? {
+        let normalizedBase: String
+        if baseDirectory == "~" {
+            normalizedBase = "~"
+        } else if let base = normalizedTildeDirectory(baseDirectory) {
+            normalizedBase = base
+        } else {
+            return nil
+        }
+        let joined: String
+        if normalizedBase == "~" {
+            joined = "~/" + relativePath
+        } else {
+            joined = (normalizedBase as NSString).appendingPathComponent(relativePath)
+        }
+        guard let resolved = normalizedTildeFilePath(joined) else {
+            return nil
+        }
+        guard contains(childPath: resolved, in: normalizedBase) else {
+            return nil
+        }
+        return resolved
+    }
+
+    /// Lexically normalizes a `~/…` directory path, rejecting escape above `~/`.
+    private static func normalizedTildeDirectory(_ path: String) -> String? {
+        guard path == "~" || path.hasPrefix("~/") else { return nil }
+        if path == "~" { return "~" }
+        var components: [Substring] = []
+        for component in path.dropFirst(2).split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                guard !components.isEmpty else { return nil }
+                components.removeLast()
+            default:
+                components.append(component)
+            }
+        }
+        return components.isEmpty ? "~" : "~/" + components.joined(separator: "/")
+    }
+
+    /// Like `normalizedTildeDirectory`, but rejects a collapse back to `~`.
+    /// The walk does not inspect whether the final segment is a directory;
+    /// `~/repo/docs/../file.md` keeps the filename because `file.md` remains
+    /// after `..` is applied, the same as the directory walk.
+    private static func normalizedTildeFilePath(_ path: String) -> String? {
+        guard path.hasPrefix("~/") else { return nil }
+        var components: [Substring] = []
+        for component in path.dropFirst(2).split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                guard !components.isEmpty else { return nil }
+                components.removeLast()
+            default:
+                components.append(component)
+            }
+        }
+        guard !components.isEmpty else { return nil }
+        return "~/" + components.joined(separator: "/")
     }
 
     /// Pure pre-gate for the OPEN_URL handler: is this payload a schemeless
@@ -225,7 +408,7 @@ enum MarkdownLinkIntercept {
         return String(scalars)
     }
 
-    private struct DocumentPathPayload {
+    struct DocumentPathPayload {
         var path: String
         var fragment: String?
         var line: Int?

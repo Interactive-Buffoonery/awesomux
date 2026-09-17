@@ -205,8 +205,11 @@ struct MarkdownTextView: NSViewRepresentable {
     var terminalBackground: NSColor? = nil
     /// Directory used to resolve schemeless relative Markdown links in document panes.
     var relativeLinkBaseURL: URL? = nil
-    /// Remote snapshots keep external web links actionable but render document
-    /// links as plain text because they cannot safely resolve another file.
+    /// When set, schemeless Markdown destinations resolve against this remote
+    /// snapshot identity instead of the local cache directory.
+    var remoteDocumentLinkIdentity: ResourceIdentity? = nil
+    /// Remote snapshots keep document links actionable for Md→Md navigation;
+    /// generated read-only documents still render them as plain text.
     var allowsDocumentLinks = true
     /// Whether snapshot-backed annotation actions can run. Pills remain visible
     /// while false so existing comments still provide location context.
@@ -446,6 +449,7 @@ struct MarkdownTextView: NSViewRepresentable {
             textColor: textColor,
             terminalBackground: terminalBackground,
             relativeLinkBaseURL: relativeLinkBaseURL,
+            remoteDocumentLinkIdentity: remoteDocumentLinkIdentity,
             allowsDocumentLinks: allowsDocumentLinks,
             sectionIndex: sectionIndex
         )
@@ -599,7 +603,9 @@ struct MarkdownTextView: NSViewRepresentable {
         let textColorChanged =
             context.coordinator.lastTextColor != textColor
             || context.coordinator.lastTerminalBackground != terminalBackground
-        let linkBaseChanged = context.coordinator.lastRelativeLinkBaseURL != relativeLinkBaseURL
+        let linkBaseChanged =
+            context.coordinator.lastRelativeLinkBaseURL != relativeLinkBaseURL
+            || context.coordinator.lastRemoteDocumentLinkIdentity != remoteDocumentLinkIdentity
         let documentLinkPolicyChanged =
             context.coordinator.lastAllowsDocumentLinks != allowsDocumentLinks
         // Capture before the coordinator's last* fields are overwritten below.
@@ -740,6 +746,7 @@ struct MarkdownTextView: NSViewRepresentable {
                 context.coordinator.lastTextColor = textColor
                 context.coordinator.lastTerminalBackground = terminalBackground
                 context.coordinator.lastRelativeLinkBaseURL = relativeLinkBaseURL
+                context.coordinator.lastRemoteDocumentLinkIdentity = remoteDocumentLinkIdentity
                 context.coordinator.lastAllowsDocumentLinks = allowsDocumentLinks
                 context.coordinator.lastCollapsedSections = collapsedSections
                 context.coordinator.lastSectionIndex = sectionIndex
@@ -1052,6 +1059,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     var lastTextColor: NSColor? = nil
     var lastTerminalBackground: NSColor? = nil
     var lastRelativeLinkBaseURL: URL? = nil
+    var lastRemoteDocumentLinkIdentity: ResourceIdentity? = nil
     var lastAllowsDocumentLinks: Bool? = nil
     var currentAttr: NSMutableAttributedString? = nil
     private var textStorageRevision = 0

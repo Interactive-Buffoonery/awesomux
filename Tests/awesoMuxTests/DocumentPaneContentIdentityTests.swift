@@ -125,4 +125,60 @@ struct RemoteRefreshFooterAccessibilityTests {
             !window.contains("accessibilityHidden(true)"),
             "Refresh caption must remain exposed to VoiceOver")
     }
+
+    @Test("footer Refresh speaks loading and shows a non-color busy title")
+    func refreshAnnouncesLoadingAndShowsBusyTitle() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appending(
+                path: "Sources/awesoMux/Views/DocumentPaneView.swift"),
+            encoding: .utf8
+        )
+        guard let refreshRange = source.range(of: "func refreshRemoteSnapshot()") else {
+            Issue.record("missing refreshRemoteSnapshot")
+            return
+        }
+        let window = String(source[refreshRange.upperBound...].prefix(600))
+        #expect(
+            window.contains("announceRemoteMarkdownLoading()"),
+            "footer Refresh must speak a loading cue like every other remote fetch")
+        // Busy must not be a color-only dim: the button shows a distinct title.
+        #expect(
+            try AwesoMuxStringCatalog.keys().contains("Refreshing…"),
+            "the busy title must be a catalog key")
+        #expect(source.contains("isBusy ? (purpose.busyTitle ?? title) : title"))
+    }
+}
+
+@Suite("Remote snapshot in-place refresh reload")
+struct RemoteSnapshotCacheReloadTests {
+    /// A fetch that rewrites the cache file under a pane whose watcher already
+    /// gave up must reload; otherwise the fetch succeeds and the error page
+    /// stays on screen forever.
+    @Test("a fresh or failure-document change reloads a pane stuck on a read error")
+    func reloadsReadErrorPane() {
+        #expect(
+            DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: nil, isShowingReadError: true))
+    }
+
+    @Test("a stale-banner change does not reload the pane")
+    func staleChangeDoesNotReload() {
+        #expect(
+            !DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: .remoteRefreshFailed, isShowingReadError: true))
+        #expect(
+            !DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: .remoteStoppedRefreshing, isShowingReadError: true))
+    }
+
+    @Test("a loaded pane relies on the watcher, not this reload")
+    func loadedPaneDoesNotReload() {
+        #expect(
+            !DocumentPaneView.shouldReloadRemoteSnapshotCache(
+                kind: nil, isShowingReadError: false))
+    }
 }

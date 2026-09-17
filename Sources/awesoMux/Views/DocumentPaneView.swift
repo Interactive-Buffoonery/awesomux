@@ -447,22 +447,29 @@ struct DocumentPaneSendBar: View {
                     .truncationMode(.middle)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.aw.text2)
-                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .frame(height: 28)
                     .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
                 } else {
-                    SendToAgentButton(
-                        purpose: .refreshRemoteSnapshot,
-                        title: String(
-                            localized: "Refresh",
-                            comment:
-                                "Send-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
-                        ),
-                        failed: false,
-                        isBusy: isRemoteRefreshing,
-                        unavailableDescription: nil,
-                        action: refreshRemoteSnapshot
-                    )
-                    .frame(height: 28)
+                    HStack(spacing: 8) {
+                        if isRemoteRefreshing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityHidden(true)
+                        }
+                        SendToAgentButton(
+                            purpose: .refreshRemoteSnapshot,
+                            title: String(
+                                localized: "Refresh",
+                                comment:
+                                    "Send-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
+                            ),
+                            failed: false,
+                            isBusy: isRemoteRefreshing,
+                            unavailableDescription: nil,
+                            action: refreshRemoteSnapshot
+                        )
+                        .frame(height: 28)
+                    }
                 }
             }
             if remoteMarkdownRefresh != nil {
@@ -477,7 +484,7 @@ struct DocumentPaneSendBar: View {
                     )
                 )
                 .font(.system(size: 11))
-                .foregroundStyle(Color.aw.text2)
+                .foregroundStyle(Color.aw.railText)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
@@ -506,6 +513,9 @@ struct DocumentPaneSendBar: View {
             pane.remoteResourceIdentity != nil,
             let remoteMarkdownRefresh
         else { return }
+        // Same loading cue every other remote fetch starts with; without it the
+        // footer Refresh goes silent for the whole SSH round trip.
+        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
         remoteRefreshRequested = true
         remoteMarkdownRefresh.run(session.id, pane.id) { remoteRefreshRequested = false }
     }
@@ -972,6 +982,24 @@ private struct SendToAgentButton: NSViewRepresentable {
             }
         }
 
+        /// Visible text while an attempt is in flight, when the busy state
+        /// needs a signal that is not just color. The button otherwise only
+        /// dims, which is exactly how a disabled button looks (WCAG 1.4.1); the
+        /// failure state already sets the precedent of a shape change, and this
+        /// is the same idea for text. Nil keeps the resting title.
+        var busyTitle: String? {
+            switch self {
+            case .refreshRemoteSnapshot:
+                String(
+                    localized: "Refreshing…",
+                    comment:
+                        "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
+                )
+            case .sendToAgent, .resumeSession, .refreshBranchChanges:
+                nil
+            }
+        }
+
         /// Spoken copy while an attempt is in flight. Per purpose: the busy
         /// state is the one label that names what the button is actually
         /// waiting on, so a shared sentence speaks the wrong thing on every
@@ -1049,7 +1077,7 @@ private struct SendToAgentButton: NSViewRepresentable {
         // perceive (WCAG 1.4.1), and this button can't be keyboard-focused for
         // the tooltip.
         nsView.attributedTitle = Self.makeTitle(
-            title,
+            isBusy ? (purpose.busyTitle ?? title) : title,
             color: accent,
             symbolName: showsFailure ? "exclamationmark.triangle.fill" : purpose.symbolName
         )
@@ -1448,6 +1476,28 @@ struct DocumentPaneView: View {
         return snapshot
     }
 
+    private var isShowingReadError: Bool {
+        guard case .readError? = loadResult else { return false }
+        return true
+    }
+
+    /// Whether a remote-snapshot cache change must force a reload.
+    ///
+    /// A fetch rewrites the cache file in place, but this pane's vnode watcher
+    /// gives up if the file was missing when the pane mounted (it retries
+    /// briefly, then stops), so a same-path rewrite can land under a pane stuck
+    /// on a read error with no watcher signal. `change.kind == nil` is a fresh
+    /// or failure document — content now exists at this path — so a read-error
+    /// pane reloads to replace the error page. A loaded pane already reloads
+    /// through the watcher, so it is left alone to avoid a duplicate rebuild.
+    /// Static and pure so the rule is testable without hosting the view.
+    static func shouldReloadRemoteSnapshotCache(
+        kind: DocumentOversizeBanner.Kind?,
+        isShowingReadError: Bool
+    ) -> Bool {
+        kind == nil && isShowingReadError
+    }
+
     var body: some View {
         let reloadTaskID = ReloadTaskID(
             fileURL: pane.fileURL,
@@ -1503,6 +1553,12 @@ struct DocumentPaneView: View {
                 change.path == pane.fileURL.standardizedFileURL.path
             else { return }
             remoteStaleBannerKind = change.kind
+            if Self.shouldReloadRemoteSnapshotCache(
+                kind: change.kind,
+                isShowingReadError: isShowingReadError
+            ) {
+                triggerReload()
+            }
         }
         .onChange(of: pane.fileURL) { _, newURL in
             // Remount identity for remote snapshots is the tab id (see
@@ -1791,8 +1847,17 @@ struct DocumentPaneView: View {
                             highlightColor: highlightColor,
                             textColor: markdownTextColor,
                             terminalBackground: NSColor(terminalBackgroundColor),
-                            relativeLinkBaseURL: pane.fileURL.deletingLastPathComponent(),
-                            allowsDocumentLinks: !isReadOnly,
+                            // Editable local documents resolve relative links against the
+                            // on-disk directory. Remote snapshots resolve against the
+                            // remote document directory via `remoteDocumentLinkIdentity`
+                            // — never the local cache folder.
+                            relativeLinkBaseURL: pane.remoteResourceIdentity == nil
+                                ? pane.fileURL.deletingLastPathComponent()
+                                : nil,
+                            remoteDocumentLinkIdentity: pane.remoteResourceIdentity,
+                            // Remote Md→Md navigation is allowed; generated read-only
+                            // documents (transcripts, diffs) stay plain-text for .md links.
+                            allowsDocumentLinks: pane.isEditable || pane.remoteResourceIdentity != nil,
                             annotationsInteractive: annotationsInteractive,
                             copiesPlainTextOnly: copyModeActive,
                             onPillClicked: { markID, pillRect, anchorView in

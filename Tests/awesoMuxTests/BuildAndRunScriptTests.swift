@@ -387,6 +387,7 @@ struct BuildAndRunScriptTests {
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" zmx"))
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" timing"))
         #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" sidebar --skip-build"))
+        #expect(testScript.contains("\"$ROOT_DIR/script/test.sh\" announcement --skip-build"))
         #expect(testScript.contains("nontiming --skip-build"))
         #expect(testScript.contains("The all group does not accept swift test arguments"))
         #expect(swiftTestScript.contains("exec \"$ROOT_DIR/script/test.sh\" all"))

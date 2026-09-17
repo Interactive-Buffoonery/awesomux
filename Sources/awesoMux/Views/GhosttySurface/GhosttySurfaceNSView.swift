@@ -41,8 +41,6 @@ final class GhosttySurfaceNSView: NSView {
     var pane: TerminalPane
     var paneID: TerminalPane.ID
     var remoteMarkdownFetchProgressIndicator: NSProgressIndicator?
-    var remoteMarkdownFetchProgressIdentity: (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)?
-    var remoteMarkdownFetchProgressCount = 0
     var enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>
     /// Whether a text-detected `grok` session may adopt the Grok agent kind (and
     /// thus its sidebar icon). The same setting gates Grok runtime events.
@@ -238,6 +236,11 @@ final class GhosttySurfaceNSView: NSView {
         // GhosttySurfaceDragAndDrop.swift for the NSDraggingDestination
         // conformance this registration enables.
         registerForDraggedTypes(Array(Self.dropTypes))
+        RemoteMarkdownFetchProgressCoordinator.shared.registerSurface(
+            self,
+            sessionID: session.id,
+            paneID: pane.id
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -246,6 +249,7 @@ final class GhosttySurfaceNSView: NSView {
 
     deinit {
         MainActor.assumeIsolated {
+            RemoteMarkdownFetchProgressCoordinator.shared.unregisterSurface(self)
             lifecycleState.pendingSurfaceCreationWorkItem?.cancel()
             lifecycleState.pendingSurfaceCreationWorkItem = nil
             lifecycleState.remoteHandoffTask?.cancel()
@@ -367,9 +371,7 @@ final class GhosttySurfaceNSView: NSView {
                 attachCommandAvailable: true,
                 errorLatched: commandBridgeEnactor.errorLatched
             )
-        if sessionID != session.id || paneID != pane.id {
-            clearRemoteMarkdownFetchProgress()
-        }
+        let fetchProgressIdentityChanged = sessionID != session.id || paneID != pane.id
         var shouldRestartBridgePreflight =
             (bridgePreflightIdentityChanged || bridgePreflightPolicyInvalidated)
             && invalidateBridgePreflight()
@@ -398,6 +400,13 @@ final class GhosttySurfaceNSView: NSView {
         }
         self.pane = pane
         self.paneID = pane.id
+        if fetchProgressIdentityChanged {
+            RemoteMarkdownFetchProgressCoordinator.shared.registerSurface(
+                self,
+                sessionID: session.id,
+                paneID: pane.id
+            )
+        }
         if pane.remoteReconnect != nil, window?.firstResponder === self {
             window?.makeFirstResponder(nil)
         }
@@ -428,14 +437,52 @@ final class GhosttySurfaceNSView: NSView {
     func clearRemoteMarkdownFetchProgress() {
         remoteMarkdownFetchProgressIndicator?.removeFromSuperview()
         remoteMarkdownFetchProgressIndicator = nil
-        remoteMarkdownFetchProgressIdentity = nil
-        remoteMarkdownFetchProgressCount = 0
+    }
+
+    func syncRemoteMarkdownFetchProgress(isBusy: Bool) {
+        if isBusy {
+            // A remount can leave the property pointing at a spinner that is
+            // no longer in this view's hierarchy. Treat that as missing and
+            // recreate so chrome is not orphaned off-screen.
+            if let existing = remoteMarkdownFetchProgressIndicator, existing.superview === self {
+                return
+            }
+            clearRemoteMarkdownFetchProgress()
+            let progressIndicator = NSProgressIndicator()
+            progressIndicator.style = .spinning
+            progressIndicator.controlSize = .small
+            progressIndicator.translatesAutoresizingMaskIntoConstraints = false
+            progressIndicator.setAccessibilityLabel(
+                TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement
+            )
+            addSubview(progressIndicator)
+            NSLayoutConstraint.activate([
+                progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+                progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+            progressIndicator.startAnimation(nil)
+            remoteMarkdownFetchProgressIndicator = progressIndicator
+        } else {
+            clearRemoteMarkdownFetchProgress()
+        }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil {
+            // Detach can drop the spinner subview; remount must reshow while
+            // the identity-keyed waiter is still in flight.
+            RemoteMarkdownFetchProgressCoordinator.shared.registerSurface(
+                self,
+                sessionID: sessionID,
+                paneID: paneID
+            )
+        }
         if window == nil {
             accessibilityFocusRequested = false
+            if remoteMarkdownFetchProgressIndicator?.superview !== self {
+                remoteMarkdownFetchProgressIndicator = nil
+            }
             // Detaching (workspace switch, pane close) must not leave a peek
             // popover orphaned against a windowless view, nor let a deferred
             // click-open fire against a detached pane.
@@ -651,3 +698,5 @@ final class GhosttySurfaceNSView: NSView {
         accessibilityFocusRequested
     }
 }
+
+extension GhosttySurfaceNSView: RemoteMarkdownFetchProgressSurfacePresenting {}

@@ -4,8 +4,60 @@ import Testing
 @testable import awesoMux
 
 @MainActor
-@Suite("Terminal accessibility announcements")
+@Suite("Terminal accessibility announcements", .serialized)
 struct TerminalAccessibilityAnnouncerTests {
+    @Test("immediate remote Markdown loading posts on this turn; async hop does not")
+    func remoteMarkdownLoadingImmediatePostsSynchronously() async {
+        var posted: [String] = []
+        let previous = TerminalAccessibilityAnnouncer.announcementPoster
+        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
+            posted.append(message)
+        }
+        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
+
+        // Flush announcements already enqueued by parallel suites so the
+        // deltas below measure only this test's cues. Suites running alongside
+        // can only add to the counts afterwards, never remove — and the two
+        // synchronous assertions below allow no interleaving at all, since
+        // neither suspends.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        let baselineLoading = posted.filter {
+            $0 == TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement
+        }.count
+        let baseline = posted.count
+
+        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+        #expect(
+            posted.count == baseline,
+            "announceRemoteMarkdownLoading must keep the async hop for menu/drag callers"
+        )
+
+        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoadingImmediately()
+        #expect(
+            posted.count == baseline + 1
+                && posted.last == TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement,
+            "immediate loading must post before the next runloop tick (sheet still up)"
+        )
+
+        // Drain the deferred hop from announceRemoteMarkdownLoading without
+        // inventing a second cue from immediate.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(
+            posted.filter({ $0 == TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement })
+                .count >= baselineLoading + 2,
+            """
+            Both loading cues must arrive after a drain: the immediate post \
+            plus the earlier async hop. A parallel suite's own loading \
+            announcements may add further entries, which is why this asserts \
+            a floor rather than an exact sequence.
+            """
+        )
+    }
+
     @Test func remoteMarkdownAnnouncementsDescribeEveryOutcome() {
         let snapshot = RemoteMarkdownSnapshot(
             fileURL: URL(fileURLWithPath: "/tmp/example.md"),
