@@ -158,7 +158,7 @@ final class WorktreeManagerModel {
         )
     }
 
-    func refresh() async {
+    func refresh(announcingFailures: Bool = true) async {
         if state.rows.isEmpty {
             state = .loading
         }
@@ -178,36 +178,43 @@ final class WorktreeManagerModel {
 
         switch outcome {
         case .success(let result):
-            let liveGroups = groups()
-            let canonicalRecords = result.records.map { record in
-                (record, canonicalPathComponents(record.canonicalPath))
-            }
-            let worktreePathComponents = canonicalRecords.map(\.1)
-            state = .loaded(
-                canonicalRecords.map { record, worktreeComponents in
-                    WorktreeManagerRow(
-                        record: record,
-                        liveMatch: projection.match(
-                            worktreeComponents: worktreeComponents,
-                            canonicalWorktreePathComponents: worktreePathComponents,
-                            groups: liveGroups
-                        )
-                    )
-                })
+            state = .loaded(rows(for: result.records))
         case .repositoryChanged:
             let message = String(
                 localized: "The Git repository changed. Reopen Worktree Manager from the active workspace.",
                 comment: "Worktree Manager refresh error when the captured repository is no longer current."
             )
             state = .error(lastGoodRows: previousRows, message: message)
-            announce(message)
+            if announcingFailures {
+                announce(message)
+            }
         case .failure:
             let message = String(
                 localized: "Couldn’t refresh worktrees. Check Git and try again.",
                 comment: "Worktree Manager refresh error when the Git command fails."
             )
             state = .error(lastGoodRows: previousRows, message: message)
-            announce(message)
+            if announcingFailures {
+                announce(message)
+            }
+        }
+    }
+
+    private func rows(for records: [GitWorktreeRecord]) -> [WorktreeManagerRow] {
+        let liveGroups = groups()
+        let canonicalRecords = records.map { record in
+            (record, canonicalPathComponents(record.canonicalPath))
+        }
+        let worktreePathComponents = canonicalRecords.map(\.1)
+        return canonicalRecords.map { record, worktreeComponents in
+            WorktreeManagerRow(
+                record: record,
+                liveMatch: projection.match(
+                    worktreeComponents: worktreeComponents,
+                    canonicalWorktreePathComponents: worktreePathComponents,
+                    groups: liveGroups
+                )
+            )
         }
     }
 
@@ -330,14 +337,14 @@ final class WorktreeManagerModel {
         case .success(let result):
             currentRecords = result.records
         case .repositoryChanged:
-            await refresh()
+            await refresh(announcingFailures: false)
             return .failed(
                 String(
                     localized: "The Git repository changed. Reopen Worktree Manager from the active workspace.",
                     comment: "Worktree Manager open error when the captured repository is no longer current."
                 ))
         case .failure:
-            await refresh()
+            await refresh(announcingFailures: false)
             return .failed(
                 String(
                     localized: "Couldn’t refresh worktrees. Check Git and try again.",
@@ -347,6 +354,7 @@ final class WorktreeManagerModel {
         let worktreeComponents = canonicalPathComponents(record.canonicalPath)
         let worktreePathComponents = currentRecords.map { canonicalPathComponents($0.canonicalPath) }
         guard worktreePathComponents.contains(worktreeComponents) else {
+            state = .loaded(rows(for: currentRecords))
             return .failed(
                 String(
                     localized: "Couldn’t refresh worktrees. Check Git and try again.",

@@ -318,6 +318,8 @@ struct WorktreeManagerModelTests {
                 addCalls += 1
                 return UUID()
             })
+        var announcements: [String] = []
+        model.announce = { announcements.append($0) }
 
         let outcome = await model.open(row: WorktreeManagerRow(record: record(), liveMatch: nil))
 
@@ -328,6 +330,7 @@ struct WorktreeManagerModelTests {
         #expect(message.contains("repository changed"))
         #expect(focusCalls == 0)
         #expect(addCalls == 0)
+        #expect(announcements.isEmpty)
         guard case .error = model.state else {
             Issue.record("Expected repository-change refresh to update model state")
             return
@@ -382,6 +385,11 @@ struct WorktreeManagerModelTests {
         #expect(outcome == .failed("Couldn’t refresh worktrees. Check Git and try again."))
         #expect(focusCalls == 0)
         #expect(addCalls == 0)
+        guard case .loaded(let rows) = model.state else {
+            Issue.record("Expected the current roster to replace the removed worktree")
+            return
+        }
+        #expect(rows.map(\.record.canonicalPath.path) == ["/tmp/repo"])
     }
 
     @Test("open fails closed when the current worktree roster cannot be read")
