@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import DesignSystem
 import SwiftUI
 
 /// Typed absolute/`~/` path sheet for opening a remote Markdown snapshot.
@@ -35,7 +36,7 @@ struct RemoteMarkdownPathOpenSheet: View {
                     comment: "Title for the typed-path sheet that opens a remote Markdown file over SSH"
                 )
             )
-            .font(.headline)
+            .awFont(AwFont.UI.title)
             .accessibilityAddTraits(.isHeader)
 
             Text(
@@ -45,7 +46,7 @@ struct RemoteMarkdownPathOpenSheet: View {
                         "Caption under the remote Markdown path sheet title; placeholder is the declared SSH destination"
                 )
             )
-            .font(.caption)
+            .awFont(AwFont.UI.meta)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -55,7 +56,7 @@ struct RemoteMarkdownPathOpenSheet: View {
                     comment: "Label for the remote Markdown absolute or ~/ path field"
                 )
             )
-            .font(.caption)
+            .awFont(AwFont.UI.label)
             .foregroundStyle(.secondary)
 
             TextField(Self.pathPlaceholder, text: $draftPath)
@@ -79,7 +80,7 @@ struct RemoteMarkdownPathOpenSheet: View {
 
             if let message = validationMessage {
                 Text(message)
-                    .font(.caption)
+                    .awFont(AwFont.UI.meta)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

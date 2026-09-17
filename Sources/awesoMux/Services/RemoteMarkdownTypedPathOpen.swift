@@ -16,16 +16,30 @@ enum RemoteMarkdownTypedPathOpen {
     /// Resolves whether ⌘O / Open Markdown should use the local open panel or
     /// the remote typed-path sheet.
     ///
-    /// Order: selected remote snapshot tab → remote; selected **non-remote**
-    /// document tab → local (even when the active pane is SSH); else active
-    /// SSH pane → remote; else local.
+    /// Order: selected **non-remote** document tab → local (even when the
+    /// active pane is SSH); selected remote snapshot tab → remote, unless the
+    /// active SSH pane names a *different* host (then that pane wins, so a
+    /// leftover tab for host A cannot fetch from A while focus is on B); else
+    /// active SSH pane → remote; else local.
     static func context(for session: TerminalSession) -> Context {
+        let activeSSHContext: Context? = {
+            guard let pane = session.activePane,
+                case .ssh(let execution) = pane.executionPlan
+            else { return nil }
+            return .remote(target: execution.target, associatedPaneID: pane.id)
+        }()
+
         if let tab = session.layout.firstDocumentGroup?.selectedTab {
             if let identity = tab.remoteResourceIdentity,
-                let target = identity.remoteTarget
+                let tabTarget = identity.remoteTarget
             {
+                if case .remote(let sshTarget, let paneID)? = activeSSHContext,
+                    sshTarget != tabTarget
+                {
+                    return .remote(target: sshTarget, associatedPaneID: paneID)
+                }
                 return .remote(
-                    target: target,
+                    target: tabTarget,
                     associatedPaneID: tab.associatedTerminalPaneID ?? session.activePaneID
                 )
             }
@@ -33,12 +47,7 @@ enum RemoteMarkdownTypedPathOpen {
             // open panel — do not let a sibling SSH pane steal it.
             return .local
         }
-        if let pane = session.activePane,
-            case .ssh(let execution) = pane.executionPlan
-        {
-            return .remote(target: execution.target, associatedPaneID: pane.id)
-        }
-        return .local
+        return activeSSHContext ?? .local
     }
 
     /// Pure reference construction for tests and the sheet submit path. Fail
@@ -119,6 +128,19 @@ enum RemoteMarkdownTypedPathOpen {
             onFetchFailure()
             return nil
         }
+        // Sheet dismiss already happened; the associated SSH pane can reconnect
+        // or repoint during the round trip. Applying host-A bytes onto a pane
+        // that now names host B would attach the snapshot to the wrong context.
+        guard
+            associatedContextStillMatches(
+                capturedTarget: target,
+                in: sessionID,
+                associatedWith: paneID,
+                sessionStore: sessionStore
+            )
+        else {
+            return nil
+        }
         guard
             let openedID = RemoteMarkdownTabRefresh.apply(
                 outcome,
@@ -138,6 +160,30 @@ enum RemoteMarkdownTypedPathOpen {
         }
         onAnnounceOutcome(outcome)
         return openedID
+    }
+
+    /// After a fetch, refuse apply when the originating session/pane is gone or
+    /// the associated SSH pane now names a different host than the one we
+    /// fetched from. A local associated pane is not a conflicting host.
+    static func associatedContextStillMatches(
+        capturedTarget: RemoteTarget,
+        in sessionID: TerminalSession.ID,
+        associatedWith paneID: TerminalPane.ID?,
+        sessionStore: SessionStore
+    ) -> Bool {
+        guard let session = sessionStore.session(id: sessionID) else {
+            return false
+        }
+        guard let paneID else {
+            return true
+        }
+        guard let pane = session.layout.pane(id: paneID) else {
+            return false
+        }
+        if let liveTarget = pane.executionPlan.remoteTarget {
+            return liveTarget == capturedTarget
+        }
+        return true
     }
 }
 

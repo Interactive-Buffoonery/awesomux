@@ -491,6 +491,115 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(fragmentAnnouncements == 1)
     }
 
+    @Test("a fragment link announces at-top when the already-open tab closes during fetch")
+    @MainActor
+    func fragmentLinkAnnouncesAtTopWhenTabClosesDuringFetch() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-close-during-fetch-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var fragmentAnnouncements = 0
+        func open(
+            destination: String,
+            closeExistingDuringFetch: Bool
+        ) async throws -> DocumentPane.ID? {
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(
+                    forMarkdownDestination: destination,
+                    relativeTo: source
+                )
+            )
+            return await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                fetch: { reference in
+                    if closeExistingDuringFetch,
+                        let existing = store.session(id: sessionID)?
+                            .layout.firstDocumentGroup?
+                            .tab(forRemoteResource: reference.identity)
+                    {
+                        store.closeDocumentPane(documentID: existing.id, in: sessionID)
+                    }
+                    let identity = ResourceIdentity(
+                        location: reference.identity.location,
+                        path: ResourcePath(rawValue: reference.remotePath)
+                    )
+                    return .fresh(
+                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity)
+                    )
+                },
+                onRoutingFailure: { Issue.record("routing failure should not fire") },
+                onAnnounceLoading: {},
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+            )
+        }
+
+        let firstID = try #require(
+            await open(destination: "sibling.md#install", closeExistingDuringFetch: false)
+        )
+        #expect(fragmentAnnouncements == 1)
+        let secondID = try #require(
+            await open(destination: "sibling.md#install", closeExistingDuringFetch: true)
+        )
+        #expect(secondID != firstID)
+        #expect(fragmentAnnouncements == 2)
+    }
+
+    @Test("a fragment link stays silent when another task opens the tab during fetch")
+    @MainActor
+    func fragmentLinkStaysSilentWhenTabOpensDuringFetch() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-open-during-fetch-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var fragmentAnnouncements = 0
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md#install",
+                relativeTo: source
+            )
+        )
+        let openedID = try #require(
+            await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                fetch: { reference in
+                    let identity = ResourceIdentity(
+                        location: reference.identity.location,
+                        path: ResourcePath(rawValue: reference.remotePath)
+                    )
+                    _ = store.openDocumentPane(
+                        fileURL: cacheURL,
+                        in: sessionID,
+                        remoteResourceIdentity: identity
+                    )
+                    return .fresh(
+                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity)
+                    )
+                },
+                onRoutingFailure: { Issue.record("routing failure should not fire") },
+                onAnnounceLoading: {},
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+            )
+        )
+        #expect(openedID != nil)
+        #expect(fragmentAnnouncements == 0)
+    }
+
     @Test("a second open for the same in-flight link is dropped")
     @MainActor
     func secondOpenForSameInFlightLinkIsDropped() async throws {
