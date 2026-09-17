@@ -212,7 +212,7 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(didPresent)
     }
 
-    @Test("recent-link remote outcome follows the Now showing suppression policy")
+    @Test("recent-link remote outcome announces on first open and in-place refresh only")
     func recentLinkRemoteOutcomeFollowsNowShowingPolicy() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -226,14 +226,18 @@ struct GhosttyRuntimeRecentLinkTests {
             Issue.record("missing openRecentLink")
             return
         }
-        let body = String(source[openRecentRange.lowerBound...].prefix(2500))
+        let body = String(source[openRecentRange.lowerBound...].prefix(2800))
         #expect(
-            body.contains("DocumentShownAnnouncementPolicy.shouldAnnounceNowShowing"),
-            "openRecentLink must gate the fetch-outcome announcement on the same policy as DocumentGroupView"
+            body.contains("hadVisibleDocument"),
+            "openRecentLink must detect whether a document view was already mounted"
         )
         #expect(
-            body.contains("previousRemoteIdentity"),
-            "openRecentLink must capture the selected tab's remote identity before apply"
+            body.contains("previousRemoteIdentity == currentRemoteIdentity"),
+            "openRecentLink must announce on same-identity in-place refresh"
+        )
+        #expect(
+            !body.contains("DocumentShownAnnouncementPolicy.shouldAnnounceNowShowing"),
+            "openRecentLink must not rely on shouldAnnounceNowShowing alone; first open has no .onChange"
         )
     }
 

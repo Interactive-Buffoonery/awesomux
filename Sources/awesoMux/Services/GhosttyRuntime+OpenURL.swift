@@ -154,6 +154,9 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
+            let hadVisibleDocument =
+                sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
+                .selectedTab != nil
             let previousRemoteIdentity =
                 sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                 .selectedTab?.remoteResourceIdentity
@@ -165,14 +168,11 @@ extension GhosttyRuntime {
                 sessionStore: sessionStore,
                 selectingTab: true
             )
-            // Match DocumentGroupView's selection announcement: speak the fetch
-            // outcome only when "Now showing {title}" is suppressed for a
-            // same-identity in-place refresh. A palette open of a new or
-            // different tab already announces on selection change.
-            if !DocumentShownAnnouncementPolicy.shouldAnnounceNowShowing(
-                previousRemoteIdentity: previousRemoteIdentity,
-                currentRemoteIdentity: currentRemoteIdentity
-            ) {
+            // When no document view was mounted, DocumentGroupView's .onChange
+            // never fires, so this call is the only announcement. Otherwise
+            // speak only for a same-identity in-place refresh, where
+            // DocumentGroupView intentionally suppresses "Now showing".
+            if !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
             return
