@@ -67,10 +67,15 @@ enum RemoteMarkdownTypedPathOpen {
     static func fetchProgressOrigin(
         for session: TerminalSession
     ) -> RemoteMarkdownFetchProgressCoordinator.Origin {
-        if session.layout.firstDocumentGroup?.selectedTab?.remoteResourceIdentity != nil {
+        let resolved = context(for: session)
+        if case .remote(let target, _) = resolved,
+            let tabTarget = session.layout.firstDocumentGroup?.selectedTab?
+                .remoteResourceIdentity?.remoteTarget,
+            tabTarget == target
+        {
             return .document
         }
-        if case .remote(_, let paneID) = context(for: session), let paneID {
+        if case .remote(_, let paneID) = resolved, let paneID {
             return .surface(paneID: paneID)
         }
         return .document
