@@ -468,7 +468,7 @@ struct DocumentPaneSendBar: View {
             if remoteMarkdownRefresh != nil {
                 // Visually secondary under Refresh, but exposed to VoiceOver so
                 // the read-only + origin signal is not dropped when the lock
-                // Label is replaced by the button (review-all on #665).
+                // label is replaced by the button.
                 Text(
                     String(
                         localized: "Read-only snapshot from \(origin)",
@@ -489,7 +489,11 @@ struct DocumentPaneSendBar: View {
     /// Single source for the VoiceOver label shared by the lock fallback and
     /// the Refresh caption, so the two cannot drift apart.
     private func readOnlySnapshotAccessibilityLabel(origin: String) -> Text {
-        Text("Read-only remote Markdown snapshot from \(origin)")
+        Text(
+            String(
+                localized: "Read-only remote Markdown snapshot from \(origin)",
+                comment: "Accessibility label on a remote Markdown snapshot tab naming its remote origin"
+            ))
     }
 
     private var isRemoteRefreshing: Bool {
