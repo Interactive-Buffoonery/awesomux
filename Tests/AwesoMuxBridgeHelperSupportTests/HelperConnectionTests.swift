@@ -189,6 +189,54 @@ struct HelperConnectionTests {
     }
 
     @Test
+    func emitPermissionDeadlineUsesConnectionMonotonicClock() async throws {
+        // Regression: --emit used to stamp monotonicDeadline with
+        // MonotonicClock.now() while readPermissionDecision compared against
+        // the connection's injected clock. A clock ahead of the global
+        // monotonic reader then saw an already-passed deadline and timed out
+        // before the decision arrived, fail-closing the still-live request.
+        let server = try TestUnixServer()
+        let temporaryDirectory = try TemporaryDirectory(prefix: "awesomux-helper-fixture")
+        let fixtureURL = temporaryDirectory.url.appending(path: "events.jsonl")
+        defer { withExtendedLifetime(temporaryDirectory) {} }
+        let wallNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let expiresAt = wallNow.addingTimeInterval(30).timeIntervalSince1970
+        try "{\"type\":\"permission-request\",\"id\":\"request\",\"tool\":\"Bash\",\"target\":\"build\",\"expiresAt\":\(expiresAt)}\n"
+            .write(to: fixtureURL, atomically: true, encoding: .utf8)
+
+        let injectedMonotonic = Date(timeIntervalSince1970: 4_000_000_000)
+        let serverTask = Task.detached { () -> BridgeEnvelope? in
+            try server.acceptHelloAndAck()
+            let request = try server.readEnvelope()
+            try server.write(
+                BridgeEnvelope(
+                    token: "token", session: "session", id: "decision",
+                    ts: wallNow.timeIntervalSince1970,
+                    message: .permissionDecision(
+                        PermissionDecision(
+                            inReplyTo: request.id, decision: .allow, scope: .once, target: "build")
+                    )
+                ).encodedLine())
+            return try? server.readEnvelope()
+        }
+
+        let state = BridgeStateFile(proto: "awesomux-bridge-v1", gen: 1, socket: server.path, token: "token")
+        let status = BridgeHelperCommand.run(
+            arguments: ["--emit", fixtureURL.path],
+            environment: ["AWESOMUX_BRIDGE_STATE": "/state", "AWESOMUX_BRIDGE_SESSION": "session"],
+            now: { wallNow },
+            readState: { _ in state },
+            connect: { state, session in
+                try HelperConnection.connect(
+                    state: state, session: session, monotonicNow: { injectedMonotonic })
+            }
+        )
+        #expect(status == 0)
+        let trailing = try await serverTask.value
+        #expect(trailing == nil)
+    }
+
+    @Test
     func alreadyExpiredPermissionRequestDeniesAndTerminates() async throws {
         // Regression (review P1): an expiresAt at/below now used to exit the
         // wait loop via a nil return that bypassed the expiry sweep — the

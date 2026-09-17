@@ -37,7 +37,10 @@ public final class HelperConnection {
     /// grow with total traffic.
     private var queuedFramesCursor = 0
     private var closeAfterQueuedFrames = false
-    private let monotonicNow: () -> Date
+    /// Injected monotonic clock. Deadline arguments to `readPermissionDecision`
+    /// must be built from this same closure; a separate `MonotonicClock.now()`
+    /// lives on a different timeline when tests inject a fake clock.
+    let monotonicNow: () -> Date
     /// Reused across every `readFrame` poll instead of reallocating on each
     /// readiness event. Safe because nothing calls a connection concurrently:
     /// `BridgeHelperCommand` is the only caller and drives it from one
