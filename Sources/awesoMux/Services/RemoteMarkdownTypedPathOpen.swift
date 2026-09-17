@@ -165,6 +165,7 @@ enum RemoteMarkdownTypedPathOpen {
     /// After a fetch, refuse apply when the originating session/pane is gone or
     /// the associated SSH pane now names a different host than the one we
     /// fetched from. A local associated pane is not a conflicting host.
+    @MainActor
     static func associatedContextStillMatches(
         capturedTarget: RemoteTarget,
         in sessionID: TerminalSession.ID,
