@@ -307,7 +307,7 @@ struct WorktreeManagerModelTests {
         var focusCalls = 0
         var addCalls = 0
         let service = StubWorktreeListing(
-            outcomes: [.repositoryChanged],
+            outcomes: [.repositoryChanged, .repositoryChanged],
             identityOutcomes: [.valid]
         )
         let model = makeModel(
@@ -328,6 +328,10 @@ struct WorktreeManagerModelTests {
         #expect(message.contains("repository changed"))
         #expect(focusCalls == 0)
         #expect(addCalls == 0)
+        guard case .error = model.state else {
+            Issue.record("Expected repository-change refresh to update model state")
+            return
+        }
     }
 
     @Test("open fails closed when identity validation itself fails, not just when it detects drift")
@@ -335,7 +339,10 @@ struct WorktreeManagerModelTests {
         var focusCalls = 0
         var addCalls = 0
         let service = StubWorktreeListing(
-            outcomes: [.failure(.repositoryValidationFailed(.spawnFailure))],
+            outcomes: [
+                .failure(.repositoryValidationFailed(.spawnFailure)),
+                .failure(.spawnFailure),
+            ],
             identityOutcomes: [.valid]
         )
         let model = makeModel(
@@ -382,7 +389,7 @@ struct WorktreeManagerModelTests {
         var focusCalls = 0
         var addCalls = 0
         let model = makeModel(
-            service: StubWorktreeListing(outcomes: [.failure(.spawnFailure)]),
+            service: StubWorktreeListing(outcomes: [.failure(.spawnFailure), .failure(.spawnFailure)]),
             currentGroupID: { UUID() },
             focus: { _ in focusCalls += 1 },
             add: { _, _, _ in
@@ -402,7 +409,7 @@ struct WorktreeManagerModelTests {
         var focusCalls = 0
         var addCalls = 0
         let model = makeModel(
-            service: StubWorktreeListing(outcomes: [.repositoryChanged]),
+            service: StubWorktreeListing(outcomes: [.repositoryChanged, .repositoryChanged]),
             currentGroupID: { UUID() },
             focus: { _ in focusCalls += 1 },
             add: { _, _, _ in

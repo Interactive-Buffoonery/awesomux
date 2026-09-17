@@ -330,12 +330,14 @@ final class WorktreeManagerModel {
         case .success(let result):
             currentRecords = result.records
         case .repositoryChanged:
+            await refresh()
             return .failed(
                 String(
                     localized: "The Git repository changed. Reopen Worktree Manager from the active workspace.",
                     comment: "Worktree Manager open error when the captured repository is no longer current."
                 ))
         case .failure:
+            await refresh()
             return .failed(
                 String(
                     localized: "Couldn’t refresh worktrees. Check Git and try again.",
