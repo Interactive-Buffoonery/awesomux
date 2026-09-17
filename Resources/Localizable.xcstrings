@@ -3326,7 +3326,7 @@
       "comment" : "Accessibility label on a remote Markdown snapshot send-bar lock affordance; the placeholder is the remote origin"
     },
     "Read-only snapshot from %arg" : {
-      "comment" : "Send-bar label/caption on a remote Markdown snapshot tab; the placeholder is the remote origin"
+      "comment" : "Caption under Refresh on a remote Markdown snapshot tab; the placeholder is the remote origin\nSend-bar label on a remote Markdown snapshot tab when Refresh is unavailable"
     },
     "Reading branch changes." : {
       "comment" : "VoiceOver announcement when rendering a pane's branch diff starts"
@@ -5472,11 +5472,11 @@
     "promote" : {
       "comment" : "Footer pill label for promoting the Terminal Companion to a workspace."
     },
-    "re-fetching remote Markdown" : {
-      "comment" : "Accessibility phrase while a remote Markdown Refresh is fetching over SSH"
-    },
     "re-fetches this remote Markdown file over SSH" : {
       "comment" : "Accessibility/tooltip phrase describing what the remote Markdown Refresh button does"
+    },
+    "re-fetching remote Markdown" : {
+      "comment" : "Accessibility phrase while a remote Markdown Refresh is fetching over SSH"
     },
     "re-running the comparison" : {
       "comment" : "Accessibility phrase while a branch changes Refresh is re-running git"
