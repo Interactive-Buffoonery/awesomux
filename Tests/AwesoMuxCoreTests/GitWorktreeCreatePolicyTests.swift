@@ -140,7 +140,7 @@ struct GitWorktreeCreatePolicyTests {
         // user-typed absolute string, same as `WorktreeCreateForm.submit()`.
         let typed = root.appendingPathComponent("new-worktree").path
         let request = GitWorktreeCreateRequest(
-            repositoryContext: context, mode: .newBranchFromHEAD("test-branch"),
+            repositoryContext: context, mode: .newBranchFromMain("test-branch"),
             targetPath: URL(fileURLWithPath: typed), destinationWorkspaceGroupID: UUID())
 
         let issues = policy.validate(request, currentWorktrees: [])
@@ -158,7 +158,7 @@ struct GitWorktreeCreatePolicyTests {
         // overlap check iterated every record, main included).
         let fresh = fixture.worktreesDir.appendingPathComponent("brand-new-name", isDirectory: true)
         let issues = policy.validate(
-            request(fixture.context, .newBranchFromHEAD("brand-new-name"), fresh), currentWorktrees: fixture.currentWorktrees)
+            request(fixture.context, .newBranchFromMain("brand-new-name"), fresh), currentWorktrees: fixture.currentWorktrees)
         #expect(issues.isEmpty)
     }
 
@@ -169,7 +169,7 @@ struct GitWorktreeCreatePolicyTests {
 
         let insideLinked = fixture.linked.appendingPathComponent("nested", isDirectory: true)
         let issues = policy.validate(
-            request(fixture.context, .newBranchFromHEAD("x"), insideLinked), currentWorktrees: fixture.currentWorktrees)
+            request(fixture.context, .newBranchFromMain("x"), insideLinked), currentWorktrees: fixture.currentWorktrees)
         #expect(issues.contains(.targetOverlapsWorktree(fixture.linked)))
     }
 
@@ -180,7 +180,7 @@ struct GitWorktreeCreatePolicyTests {
 
         // `.worktrees/` itself is an ancestor of the linked worktree below it.
         let issues = policy.validate(
-            request(fixture.context, .newBranchFromHEAD("x"), fixture.worktreesDir), currentWorktrees: fixture.currentWorktrees)
+            request(fixture.context, .newBranchFromMain("x"), fixture.worktreesDir), currentWorktrees: fixture.currentWorktrees)
         #expect(issues.contains(.targetOverlapsWorktree(fixture.linked)))
     }
 
@@ -201,7 +201,7 @@ struct GitWorktreeCreatePolicyTests {
         #expect(prefill == fixture.worktreesDir.appendingPathComponent("can-it-have-spaces", isDirectory: true).path)
 
         let issues = policy.validate(
-            request(linkedContext, .newBranchFromHEAD("can-it-have-spaces"), URL(fileURLWithPath: prefill)),
+            request(linkedContext, .newBranchFromMain("can-it-have-spaces"), URL(fileURLWithPath: prefill)),
             currentWorktrees: fixture.currentWorktrees)
         #expect(issues.isEmpty)
     }
@@ -221,7 +221,7 @@ struct GitWorktreeCreatePolicyTests {
         try FileManager.default.createDirectory(at: linkedWorktreesDir, withIntermediateDirectories: true)
         let target = linkedWorktreesDir.appendingPathComponent("brand-new-name", isDirectory: true)
         let issues = policy.validate(
-            request(linkedContext, .newBranchFromHEAD("brand-new-name"), target), currentWorktrees: fixture.currentWorktrees)
+            request(linkedContext, .newBranchFromMain("brand-new-name"), target), currentWorktrees: fixture.currentWorktrees)
         #expect(issues.isEmpty)
     }
 
@@ -238,7 +238,7 @@ struct GitWorktreeCreatePolicyTests {
         let linkedContext = fixture.linkedInvocationContext()
         let elsewhere = fixture.context.invocationRoot.appendingPathComponent("not-worktrees/leaf", isDirectory: true)
         let issues = policy.validate(
-            request(linkedContext, .newBranchFromHEAD("x"), elsewhere), currentWorktrees: fixture.currentWorktrees)
+            request(linkedContext, .newBranchFromMain("x"), elsewhere), currentWorktrees: fixture.currentWorktrees)
         #expect(issues.contains(.parentDirectoryMissing))
     }
 
@@ -259,7 +259,7 @@ struct GitWorktreeCreatePolicyTests {
         let linkedContext = fixture.linkedInvocationContext()
         let insideThird = thirdWorktree.appendingPathComponent("nested", isDirectory: true)
         let issues = policy.validate(
-            request(linkedContext, .newBranchFromHEAD("x"), insideThird), currentWorktrees: fixture.currentWorktrees + [thirdRecord])
+            request(linkedContext, .newBranchFromMain("x"), insideThird), currentWorktrees: fixture.currentWorktrees + [thirdRecord])
         #expect(issues.contains(.targetOverlapsWorktree(thirdWorktree)))
     }
 

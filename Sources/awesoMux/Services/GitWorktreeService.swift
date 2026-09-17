@@ -169,7 +169,7 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
             canonicalPathComponents($0.canonicalPath) == canonicalPathComponents(request.targetPath)
         }
         var branchesBefore: Set<String> = []
-        if case .newBranchFromHEAD(let name) = request.mode {
+        if case .newBranchFromMain(let name) = request.mode {
             switch await validateNewBranchName(name, in: request.repositoryContext) {
             case .valid: break
             case .blank: return .failure(.invalidRequest([.blankBranchName]))
@@ -192,8 +192,8 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
         switch request.mode {
         case .existingBranch(let branch):
             arguments = ["worktree", "add", request.targetPath.path, "refs/heads/\(branch)"]
-        case .newBranchFromHEAD(let branch):
-            arguments = ["worktree", "add", "-b", branch, request.targetPath.path, "HEAD"]
+        case .newBranchFromMain(let branch):
+            arguments = ["worktree", "add", "-b", branch, request.targetPath.path, "refs/remotes/origin/main"]
         }
         let commandResult = await runner.run(
             arguments: arguments,
@@ -218,7 +218,7 @@ struct GitWorktreeService: GitWorktreeManaging, Sendable {
             return .failure(.reconciliationFailed)
         }
 
-        if case .newBranchFromHEAD(let branch) = request.mode, !branchesBefore.contains(branch),
+        if case .newBranchFromMain(let branch) = request.mode, !branchesBefore.contains(branch),
             case .success(let names) = await branches(in: request.repositoryContext),
             names.contains(branch)
         {

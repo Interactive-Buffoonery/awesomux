@@ -45,7 +45,7 @@ struct WorktreeCreateForm: View {
             Picker(String(localized: "Branch mode", comment: "Worktree create branch mode label."), selection: $mode) {
                 Text(String(localized: "Existing local branch", comment: "Existing branch create mode."))
                     .tag(Mode.existing)
-                Text(String(localized: "New branch from HEAD", comment: "New branch create mode."))
+                Text(String(localized: "New branch from origin/main", comment: "New branch create mode."))
                     .tag(Mode.new)
             }
             .pickerStyle(.segmented)
@@ -260,7 +260,7 @@ struct WorktreeCreateForm: View {
         let createMode: GitWorktreeCreateMode =
             mode == .existing
             ? .existingBranch(selectedBranch)
-            : .newBranchFromHEAD(newBranchName)
+            : .newBranchFromMain(newBranchName)
         let request = GitWorktreeCreateRequest(
             repositoryContext: model.repositoryContext,
             mode: createMode,
