@@ -281,6 +281,76 @@ import Testing
                 == "~/repo/secret.md"
         )
         #expect(MarkdownLinkIntercept.normalizedDocumentFilePath("~/../secret.md") == nil)
+        #expect(
+            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/docs/guide.md")
+                == "~/repo/docs/guide.md"
+        )
+        // Collapsing above the source directory is enforced by join/containment,
+        // not by rejecting every `..` that stays under `~/`.
+        #expect(
+            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/../secret.md")
+                == "~/secret.md"
+        )
+    }
+}
+
+@Suite("Markdown document path join helpers")
+struct MarkdownDocumentPathJoinTests {
+    @Test func resolvedDocumentPathJoinsRelativeMarkdown() {
+        let resolved = MarkdownLinkIntercept.resolvedDocumentPath(
+            forMarkdownDestination: "docs/file.md",
+            relativeToDirectory: "/repo/source"
+        )
+        #expect(resolved?.path == "/repo/source/docs/file.md")
+        #expect(resolved?.fragment == nil)
+    }
+
+    @Test func resolvedDocumentPathRejectsParentEscape() {
+        #expect(
+            MarkdownLinkIntercept.resolvedDocumentPath(
+                forMarkdownDestination: "../secret.md",
+                relativeToDirectory: "/repo/source"
+            ) == nil
+        )
+    }
+
+    @Test func relativeMarkdownDestinationRejectsAbsoluteTildeAndBadExtension() {
+        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("/abs.md") == nil)
+        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("~/notes.md") == nil)
+        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("docs/file.txt") == nil)
+        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("docs/file.md")?.path == "docs/file.md")
+    }
+
+    @Test func joinRelativeDocumentPathRejectsAbsoluteRelativeForms() {
+        #expect(MarkdownLinkIntercept.joinRelativeDocumentPath("/abs.md", toDirectory: "/repo") == nil)
+        #expect(MarkdownLinkIntercept.joinRelativeDocumentPath("~/x.md", toDirectory: "/repo") == nil)
+        #expect(
+            MarkdownLinkIntercept.joinRelativeDocumentPath("docs/file.md", toDirectory: "/repo/source")
+                == "/repo/source/docs/file.md"
+        )
+    }
+
+    @Test func tildeDirectoryJoinNormalizesBaseAndRejectsEscape() {
+        #expect(
+            MarkdownLinkIntercept.joinRelativeDocumentPath("guide.md", toDirectory: "~/repo/docs")
+                == "~/repo/docs/guide.md"
+        )
+        #expect(
+            MarkdownLinkIntercept.joinRelativeDocumentPath("guide.md", toDirectory: "~")
+                == "~/guide.md"
+        )
+        #expect(
+            MarkdownLinkIntercept.resolvedDocumentPath(
+                forMarkdownDestination: "../secret.md",
+                relativeToDirectory: "~/repo/docs"
+            ) == nil
+        )
+        #expect(
+            MarkdownLinkIntercept.resolvedDocumentPath(
+                forMarkdownDestination: "../../x.md",
+                relativeToDirectory: "~/repo/docs"
+            ) == nil
+        )
     }
 }
 

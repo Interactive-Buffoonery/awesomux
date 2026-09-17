@@ -148,6 +148,47 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(fragmentAnnouncements == 1)
     }
 
+    @Test("open stays silent for fragment links when apply returns nil")
+    @MainActor
+    func openStaysSilentForFragmentWhenApplyReturnsNil() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md#install",
+                relativeTo: source
+            )
+        )
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-fragment-nil-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var fragmentAnnouncements = 0
+        let openedID = await RemoteMarkdownDocumentLinkNavigation.open(
+            url: link,
+            from: source,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            fetch: { reference in
+                store.closeSession(id: sessionID)
+                let identity = ResourceIdentity(
+                    location: reference.identity.location,
+                    path: ResourcePath(rawValue: reference.remotePath)
+                )
+                return .fresh(
+                    RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity)
+                )
+            },
+            onAnnounceLoading: {},
+            onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+        )
+        #expect(openedID == nil)
+        #expect(fragmentAnnouncements == 0)
+    }
+
     @Test("open fails closed and presents routing failure for escapes")
     @MainActor
     func openFailsClosedForEscapes() async {

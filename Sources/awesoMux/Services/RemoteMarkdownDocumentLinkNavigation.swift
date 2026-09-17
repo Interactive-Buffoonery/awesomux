@@ -61,7 +61,10 @@ enum RemoteMarkdownDocumentLinkNavigation {
             selectingTab: true,
             announceOutcome: true
         )
-        if let fragment = url.fragment, !fragment.isEmpty {
+        if openedID != nil,
+            let fragment = url.fragment,
+            !fragment.isEmpty
+        {
             onAnnounceFragmentOpened()
         }
         return openedID
