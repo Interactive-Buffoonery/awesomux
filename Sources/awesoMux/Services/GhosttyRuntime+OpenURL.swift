@@ -364,7 +364,7 @@ extension GhosttyRuntime {
             }
             defer { finishRemoteMarkdownFetchProgress(in: view, sessionID: workspaceID, paneID: paneID) }
             guard let outcome = await RemoteMarkdownSnapshotFetcher().fetch(reference) else {
-                remoteMarkdownRoutingFailurePresenter(view)
+                remoteMarkdownFetchFailurePresenter(view)
                 return
             }
             // A rejected dispatch means the pane/session moved on while this
