@@ -57,7 +57,10 @@ enum RemoteMarkdownTabRefresh {
             // for restore re-fetch of background tabs.
             selectingNewTab: selectingTab ? nil : false
         )
-        if announceOutcome {
+        // Speak the outcome only when a tab actually opened. A session torn
+        // down mid-fetch returns nil, and a success cue with nothing on screen
+        // misleads VoiceOver.
+        if announceOutcome, openedID != nil {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
         }
         return openedID

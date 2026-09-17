@@ -189,6 +189,90 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(fragmentAnnouncements == 0)
     }
 
+    @Test("open stays silent for fragment links when fetch returns stale cache")
+    @MainActor
+    func openStaysSilentForFragmentWhenFetchReturnsStaleCache() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md#install",
+                relativeTo: source
+            )
+        )
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-fragment-cached-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var fragmentAnnouncements = 0
+        _ = try #require(
+            await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                fetch: { reference in
+                    let identity = ResourceIdentity(
+                        location: reference.identity.location,
+                        path: ResourcePath(rawValue: reference.remotePath)
+                    )
+                    return .cached(
+                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity),
+                        staleReason: .connection
+                    )
+                },
+                onAnnounceLoading: {},
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+            )
+        )
+        #expect(fragmentAnnouncements == 0)
+    }
+
+    @Test("open stays silent for fragment links when fetch returns a failure document")
+    @MainActor
+    func openStaysSilentForFragmentWhenFetchReturnsFailureDocument() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md#install",
+                relativeTo: source
+            )
+        )
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-fragment-failure-\(UUID().uuidString).md")
+        try "# Couldn't fetch remote Markdown\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        var fragmentAnnouncements = 0
+        _ = try #require(
+            await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                fetch: { reference in
+                    let identity = ResourceIdentity(
+                        location: reference.identity.location,
+                        path: ResourcePath(rawValue: reference.remotePath)
+                    )
+                    return .failureDocument(
+                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: identity),
+                        reason: .connection
+                    )
+                },
+                onAnnounceLoading: {},
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+            )
+        )
+        #expect(fragmentAnnouncements == 0)
+    }
+
     @Test("open fails closed and presents routing failure for escapes")
     @MainActor
     func openFailsClosedForEscapes() async {

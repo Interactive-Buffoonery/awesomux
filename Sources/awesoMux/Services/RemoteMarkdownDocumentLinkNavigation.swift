@@ -61,7 +61,11 @@ enum RemoteMarkdownDocumentLinkNavigation {
             selectingTab: true,
             announceOutcome: true
         )
+        // Only announce the at-top landing for a fresh snapshot with a fragment.
+        // Stale cache and failure pages still open a tab but contradict the cue;
+        // a session gone mid-fetch returns nil from apply.
         if openedID != nil,
+            case .fresh = outcome,
             let fragment = url.fragment,
             !fragment.isEmpty
         {
