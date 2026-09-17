@@ -3323,7 +3323,7 @@
       "comment" : "Footer label on a generated document tab; also the caption under Refresh on a branch changes tab"
     },
     "Read-only remote Markdown snapshot from %arg" : {
-      "comment" : "Accessibility label on a remote Markdown snapshot send-bar lock affordance; the placeholder is the remote origin"
+      "comment" : "Accessibility label on a remote Markdown snapshot tab naming its remote origin"
     },
     "Read-only snapshot from %arg" : {
       "comment" : "Caption under Refresh on a remote Markdown snapshot tab; the placeholder is the remote origin\nSend-bar label on a remote Markdown snapshot tab when Refresh is unavailable"
