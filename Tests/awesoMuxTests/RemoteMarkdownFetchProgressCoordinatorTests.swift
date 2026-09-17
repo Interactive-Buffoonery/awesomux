@@ -8,7 +8,7 @@ import Testing
 @MainActor
 @Suite("Remote Markdown fetch progress coordinator")
 struct RemoteMarkdownFetchProgressCoordinatorTests {
-    private func identity(path: String = "/repo/doc.md") -> ResourceIdentity {
+    private func makeIdentity(path: String = "/repo/doc.md") -> ResourceIdentity {
         ResourceIdentity(
             location: .remote(RemoteTarget(parsing: "devbox")!),
             path: ResourcePath(rawValue: path)
@@ -19,7 +19,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
     func firstWaiterIsDistinguished() {
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let sessionID = UUID()
-        let identity = identity()
+        let identity = makeIdentity()
         #expect(
             progress.begin(
                 sessionID: sessionID,
@@ -47,7 +47,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let sessionID = UUID()
         let paneID = UUID()
-        let identity = identity()
+        let identity = makeIdentity()
         _ = progress.begin(
             sessionID: sessionID,
             identity: identity,
@@ -55,7 +55,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         )
         #expect(progress.isSurfaceBusy(sessionID: sessionID, paneID: paneID))
         #expect(!progress.isDocumentOverlayBusy(sessionID: sessionID, identity: identity))
-        let documentIdentity = identity(path: "/repo/other.md")
+        let documentIdentity = makeIdentity(path: "/repo/other.md")
         _ = progress.begin(
             sessionID: sessionID,
             identity: documentIdentity,
@@ -76,8 +76,8 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let firstSession = UUID()
         let secondSession = UUID()
-        let first = identity()
-        let second = identity(path: "/repo/other.md")
+        let first = makeIdentity()
+        let second = makeIdentity(path: "/repo/other.md")
         #expect(progress.begin(sessionID: firstSession, identity: first, origin: .document))
         #expect(progress.begin(sessionID: firstSession, identity: second, origin: .document))
         #expect(progress.begin(sessionID: secondSession, identity: first, origin: .document))
@@ -98,7 +98,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
 
         _ = progress.begin(
             sessionID: sessionID,
-            identity: identity(),
+            identity: makeIdentity(),
             origin: .surface(paneID: paneID)
         )
         #expect(presenter.isBusy)
@@ -109,7 +109,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
 
         progress.finish(
             sessionID: sessionID,
-            identity: identity(),
+            identity: makeIdentity(),
             origin: .surface(paneID: paneID)
         )
         #expect(!presenter.isBusy)
@@ -124,7 +124,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         let presenter = FakeSurfacePresenter()
         _ = progress.begin(
             sessionID: sessionID,
-            identity: identity(),
+            identity: makeIdentity(),
             origin: .surface(paneID: firstPane)
         )
         progress.registerSurface(presenter, sessionID: sessionID, paneID: firstPane)
@@ -135,7 +135,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
 
         _ = progress.begin(
             sessionID: sessionID,
-            identity: identity(path: "/repo/other.md"),
+            identity: makeIdentity(path: "/repo/other.md"),
             origin: .surface(paneID: secondPane)
         )
         #expect(presenter.isBusy)
@@ -145,9 +145,9 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
     func documentOverlayIsIdentityScoped() {
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let sessionID = UUID()
-        let source = identity(path: "/repo/docs/README.md")
-        let destination = identity(path: "/repo/docs/sibling.md")
-        let unrelated = identity(path: "/repo/other.md")
+        let source = makeIdentity(path: "/repo/docs/README.md")
+        let destination = makeIdentity(path: "/repo/docs/sibling.md")
+        let unrelated = makeIdentity(path: "/repo/other.md")
         _ = progress.begin(
             sessionID: sessionID,
             identity: destination,
@@ -172,7 +172,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let sessionID = UUID()
         let paneID = UUID()
-        let identity = identity()
+        let identity = makeIdentity()
         progress.finish(sessionID: sessionID, identity: identity, origin: .document)
         #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
 
@@ -390,17 +390,16 @@ struct RemoteMarkdownFetchProgressWiringTests {
             location: .remote(target),
             path: ResourcePath(rawValue: "/repo/NOTES.md")
         )
-        let claim = try #require(
-            RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
-                typedPath: "/repo/NOTES.md",
-                target: target,
-                sessionID: sessionID,
-                origin: .document,
-                progress: progress,
-                onAnnounceLoading: { events.append("loading") }
-            )
+        let claim = RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
+            typedPath: "/repo/NOTES.md",
+            target: target,
+            sessionID: sessionID,
+            origin: .document,
+            progress: progress,
+            onAnnounceLoading: { events.append("loading") }
         )
-        #expect(claim.isFirstWaiter)
+        let resolvedClaim = try #require(claim)
+        #expect(resolvedClaim.isFirstWaiter)
         #expect(progress.isInFlight(sessionID: sessionID, identity: identity))
         events.append("dismiss")
 
@@ -425,11 +424,10 @@ struct RemoteMarkdownFetchProgressWiringTests {
                 },
                 onAnnounceLoading: { events.append("loading-again") },
                 onAnnounceOutcome: { _ in events.append("outcome") },
-                progressClaim: claim,
+                progressClaim: resolvedClaim,
                 progress: progress
             )
         )
-        #expect(openedID != nil)
         #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
         #expect(
             events == [
