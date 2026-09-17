@@ -47,6 +47,9 @@ enum RemoteMarkdownDocumentLinkNavigation {
         onAnnounceLoading: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
         },
+        onAnnounceOutcome: @MainActor (RemoteMarkdownFetchOutcome) -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdown($0)
+        },
         onAnnounceFragmentOpened: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownOpenedAtTop()
         },
@@ -99,8 +102,11 @@ enum RemoteMarkdownDocumentLinkNavigation {
             associatedWith: paneID,
             sessionStore: sessionStore,
             selectingTab: true,
-            announceOutcome: isFirstWaiter
+            announceOutcome: false
         )
+        if isFirstWaiter, openedID != nil {
+            onAnnounceOutcome(outcome)
+        }
         // Only announce the at-top landing for a fresh snapshot on a newly
         // mounted tab. Stale cache and failure pages still open a tab but
         // contradict the cue; a session gone mid-fetch returns nil from apply.

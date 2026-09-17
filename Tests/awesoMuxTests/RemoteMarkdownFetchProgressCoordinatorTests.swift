@@ -199,7 +199,7 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
 }
 
 @MainActor
-@Suite("Remote Markdown fetch progress wiring")
+@Suite("Remote Markdown fetch progress wiring", .serialized)
 struct RemoteMarkdownFetchProgressWiringTests {
     @Test("Md→Md announces loading and outcome only for the first waiter")
     func documentLinkFirstWaiterOnlyAnnouncesLoadingAndOutcome() async throws {
@@ -230,13 +230,6 @@ struct RemoteMarkdownFetchProgressWiringTests {
         let hold = AsyncGate()
         var loadingCount = 0
         var outcomeCount = 0
-        let previousPoster = TerminalAccessibilityAnnouncer.announcementPoster
-        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
-            if message != TerminalAccessibilityAnnouncer.remoteMarkdownLoadingAnnouncement {
-                outcomeCount += 1
-            }
-        }
-        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previousPoster) }
 
         func outcome(for reference: RemoteMarkdownReference) -> RemoteMarkdownFetchOutcome {
             .fresh(
@@ -250,6 +243,8 @@ struct RemoteMarkdownFetchProgressWiringTests {
             )
         }
 
+        // Disable the Md→Md link latch so this test can exercise progress
+        // coalescing; link-drop behavior lives in DocumentLinkNavigationTests.
         let first = Task { @MainActor in
             await RemoteMarkdownDocumentLinkNavigation.open(
                 url: link,
@@ -257,17 +252,19 @@ struct RemoteMarkdownFetchProgressWiringTests {
                 in: sessionID,
                 associatedWith: nil,
                 sessionStore: store,
+                coordinator: nil,
                 fetch: { reference in
                     await hold.wait()
                     return outcome(for: reference)
                 },
                 onAnnounceLoading: { loadingCount += 1 },
+                onAnnounceOutcome: { _ in outcomeCount += 1 },
                 progress: progress
             )
         }
 
         #expect(
-            await waitUntil {
+            await waitUntilEventually {
                 progress.isDocumentOverlayBusy(sessionID: sessionID, identity: source)
                     && progress.isDocumentOverlayBusy(sessionID: sessionID, identity: destination)
             }
@@ -280,11 +277,13 @@ struct RemoteMarkdownFetchProgressWiringTests {
             in: sessionID,
             associatedWith: nil,
             sessionStore: store,
+            coordinator: nil,
             fetch: { reference in
                 hold.open()
                 return outcome(for: reference)
             },
             onAnnounceLoading: { loadingCount += 1 },
+            onAnnounceOutcome: { _ in outcomeCount += 1 },
             progress: progress
         )
 
@@ -701,7 +700,7 @@ struct RemoteMarkdownFetchProgressSourceContractTests {
         let documentLink = try SourceContract.source(
             at: "Sources/awesoMux/Services/RemoteMarkdownDocumentLinkNavigation.swift"
         )
-        #expect(documentLink.contains("announceOutcome: isFirstWaiter"))
+        #expect(documentLink.contains("onAnnounceOutcome(outcome)"))
         #expect(documentLink.contains("overlayIdentity: source"))
         let typedPath = try SourceContract.source(
             at: "Sources/awesoMux/Services/RemoteMarkdownTypedPathOpen.swift"
