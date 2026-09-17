@@ -266,7 +266,8 @@ struct PaneLayoutReducerTests {
             PaneLayoutReducer.noteSubmittedCommand(
                 in: session,
                 paneID: pane.id,
-                command: "ssh -p 2222 devbox"
+                command: "ssh -p 2222 devbox",
+                submittedFromLocalShell: true
             ) == nil
         )
     }
