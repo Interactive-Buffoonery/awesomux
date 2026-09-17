@@ -666,6 +666,79 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(firstID != nil)
         #expect(loadingAnnouncements == 1)
     }
+
+    @Test("concurrent opens in different sessions for the same link are not dropped")
+    @MainActor
+    func concurrentOpensInDifferentSessionsAreNotDropped() async throws {
+        let store = SessionStore()
+        let firstSessionID = store.addSession(workingDirectory: "/tmp")
+        let secondSessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md",
+                relativeTo: source
+            )
+        )
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-cross-session-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+
+        let coordinator = RemoteMarkdownDocumentLinkCoordinator()
+        let gate = FetchGate()
+        var fetchCount = 0
+
+        let first = Task { @MainActor in
+            await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: firstSessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                coordinator: coordinator,
+                fetch: { reference in
+                    await gate.waitThenReturn()
+                    return .fresh(
+                        RemoteMarkdownSnapshot(
+                            fileURL: cacheURL,
+                            identity: reference.identity
+                        )
+                    )
+                },
+                onRoutingFailure: { Issue.record("routing failure should not fire") },
+                onAnnounceLoading: {}
+            )
+        }
+
+        await gate.waitUntilStarted()
+        fetchCount += 1
+        let second = await RemoteMarkdownDocumentLinkNavigation.open(
+            url: link,
+            from: source,
+            in: secondSessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            coordinator: coordinator,
+            fetch: { reference in
+                fetchCount += 1
+                return .fresh(
+                    RemoteMarkdownSnapshot(
+                        fileURL: cacheURL,
+                        identity: reference.identity
+                    )
+                )
+            },
+            onRoutingFailure: { Issue.record("routing failure should not fire") },
+            onAnnounceLoading: {}
+        )
+        #expect(second != nil)
+
+        gate.releaseGate()
+        let firstID = await first.value
+        #expect(firstID != nil)
+        #expect(fetchCount == 2)
+    }
 }
 
 @Suite("Remote markdown attributed document links")

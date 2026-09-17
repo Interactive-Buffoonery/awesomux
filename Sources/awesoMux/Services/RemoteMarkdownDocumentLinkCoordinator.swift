@@ -2,7 +2,7 @@ import AwesoMuxCore
 import Foundation
 
 /// In-flight latch for Markdown→Markdown remote document opens, keyed by the
-/// resolved remote file.
+/// destination session plus resolved remote file.
 ///
 /// The fetch layer already coalesces identical network requests, but each
 /// click still runs the announce → apply → announce sequence on its own. A
@@ -16,16 +16,21 @@ import Foundation
 final class RemoteMarkdownDocumentLinkCoordinator {
     static let shared = RemoteMarkdownDocumentLinkCoordinator()
 
-    private var inFlight: Set<ResourceIdentity> = []
-
-    /// Claims the file for one open. Returns `false` when another open for the
-    /// same file is already in flight.
-    @discardableResult
-    func begin(_ identity: ResourceIdentity) -> Bool {
-        inFlight.insert(identity).inserted
+    private struct Key: Hashable {
+        let sessionID: TerminalSession.ID
+        let identity: ResourceIdentity
     }
 
-    func finish(_ identity: ResourceIdentity) {
-        inFlight.remove(identity)
+    private var inFlight: Set<Key> = []
+
+    /// Claims the file for one open in a session. Returns `false` when another
+    /// open for the same file in that session is already in flight.
+    @discardableResult
+    func begin(sessionID: TerminalSession.ID, identity: ResourceIdentity) -> Bool {
+        inFlight.insert(Key(sessionID: sessionID, identity: identity)).inserted
+    }
+
+    func finish(sessionID: TerminalSession.ID, identity: ResourceIdentity) {
+        inFlight.remove(Key(sessionID: sessionID, identity: identity))
     }
 }

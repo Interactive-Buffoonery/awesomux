@@ -57,10 +57,10 @@ enum RemoteMarkdownDocumentLinkNavigation {
         // Drop a re-click for a file that is already opening: the fetch layer
         // would coalesce the network work, but this second caller would still
         // load-announce, apply, and outcome-announce again.
-        if let coordinator, !coordinator.begin(reference.identity) {
+        if let coordinator, !coordinator.begin(sessionID: sessionID, identity: reference.identity) {
             return nil
         }
-        defer { coordinator?.finish(reference.identity) }
+        defer { coordinator?.finish(sessionID: sessionID, identity: reference.identity) }
         onAnnounceLoading()
         guard let outcome = await fetch(reference) else {
             onFetchFailure()
