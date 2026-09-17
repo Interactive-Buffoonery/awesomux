@@ -1026,7 +1026,9 @@ struct PaneLayoutReducer: Sendable {
                 || (pane.remoteHost == nil && pane.pendingRemoteSSHTarget == nil)
         else { return nil }
         guard target != nil else {
-            guard let layout = session.layout.replacingPane(id: paneID, with: .pane(pane)) else {
+            guard mayReplaceRuntimeObservation, hadRuntimeObservation,
+                let layout = session.layout.replacingPane(id: paneID, with: .pane(pane))
+            else {
                 return nil
             }
             session.layout = layout

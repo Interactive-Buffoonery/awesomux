@@ -88,6 +88,18 @@ struct AgentSetupStoreTests {
         }
     }
 
+    @Test func observedPendingSSHProcessIsRejectedDespiteLocalExecutionPlan() throws {
+        let directory = FileManager.default.homeDirectoryForCurrentUser.path
+        var pane = TerminalPane(title: "SSH", workingDirectory: directory, executionPlan: .local)
+        pane.pendingRemoteSSHTarget = "remote.example"
+        pane.hasObservedPendingRemoteSSHProcess = true
+        let session = TerminalSession(title: "SSH", workingDirectory: directory, layout: .pane(pane))
+
+        #expect(throws: (any Error).self) {
+            try AgentSetup.launchDirectory(session: session, groups: [], defaultGroup: "local")
+        }
+    }
+
     @Test func paletteIdentitySurvivesRenameAndUsesFullListPosition() {
         var setup = AgentSetup(name: "First", provider: .codex, executablePath: "/bin/echo")
         let first = PaletteCommand.agentSetup(setup, position: 3) {}
