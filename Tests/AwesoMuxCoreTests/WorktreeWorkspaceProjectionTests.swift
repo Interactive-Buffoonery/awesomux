@@ -40,6 +40,44 @@ struct WorktreeWorkspaceProjectionTests {
             ) != nil)
     }
 
+    @Test("the most-specific worktree owns a nested pane")
+    func mostSpecificWorktreeWins() throws {
+        let main = URL(fileURLWithPath: "/tmp/repo")
+        let linked = URL(fileURLWithPath: "/tmp/repo/.worktrees/feature")
+        let groups = groups(path: "/tmp/repo/.worktrees/feature/Sources/App")
+
+        #expect(
+            projection.match(
+                canonicalWorktreePath: main,
+                canonicalWorktreePaths: [main, linked],
+                groups: groups
+            ) == nil)
+        #expect(
+            projection.match(
+                canonicalWorktreePath: linked,
+                canonicalWorktreePaths: [main, linked],
+                groups: groups
+            ) != nil)
+    }
+
+    @Test("a nested pane does not hide a later pane in the main worktree")
+    func rejectedNestedPaneContinuesSearching() throws {
+        let main = URL(fileURLWithPath: "/tmp/repo")
+        let linked = URL(fileURLWithPath: "/tmp/repo/.worktrees/feature")
+        let nestedSession = TerminalSession(title: "linked", workingDirectory: linked.path)
+        let mainSession = TerminalSession(title: "main", workingDirectory: main.appendingPathComponent("Sources").path)
+        let groups = [SessionGroup(name: "work", sessions: [nestedSession, mainSession])]
+
+        let match = try #require(
+            projection.match(
+                canonicalWorktreePath: main,
+                canonicalWorktreePaths: [main, linked, main.standardizedFileURL],
+                groups: groups
+            ))
+
+        #expect(match.sessionID == mainSession.id)
+    }
+
     @Test("rejects a sibling that merely shares the string prefix")
     func siblingPrefixDoesNotMatch() {
         #expect(

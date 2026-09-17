@@ -92,6 +92,43 @@ struct WorktreeManagerModelTests {
         }
     }
 
+    @Test("nested linked worktree owns its pane during refresh and open")
+    func nestedWorktreeOwnership() async throws {
+        let linkedSession = TerminalSession(
+            title: "linked",
+            workingDirectory: "/tmp/repo/.worktrees/int-857/Sources"
+        )
+        let group = SessionGroup(name: "work", sessions: [linkedSession])
+        let main = mainRecord()
+        let linked = record(path: "/tmp/repo/.worktrees/int-857")
+        let service = StubWorktreeListing(
+            outcomes: [.success(.init(records: [main, linked], diagnostics: []))]
+        )
+        var focused: WorktreeWorkspaceMatch?
+        var openedPath: String?
+        let createdID = UUID()
+        let model = makeModel(
+            service: service,
+            groups: { [group] },
+            currentGroupID: { group.id },
+            focus: { focused = $0 },
+            add: { _, path, _ in
+                openedPath = path; return createdID
+            }
+        )
+
+        await model.refresh()
+
+        #expect(model.state.rows[0].liveMatch == nil)
+        #expect(model.state.rows[1].liveMatch?.sessionID == linkedSession.id)
+        #expect(await model.open(row: model.state.rows[0]) == .created(createdID))
+        #expect(openedPath == "/tmp/repo")
+
+        let linkedOutcome = await model.open(row: model.state.rows[1])
+        #expect(linkedOutcome == .focused(try #require(focused)))
+        #expect(focused?.sessionID == linkedSession.id)
+    }
+
     @Test("initial refresh failure transitions to error")
     func refreshFails() async {
         let model = makeModel(service: StubWorktreeListing(outcomes: [.failure(.spawnFailure)]))
@@ -419,14 +456,28 @@ struct WorktreeManagerModelTests {
         )
     }
 
-    private func record() -> GitWorktreeRecord {
+    private func record(path: String = "/tmp/worktrees/int-857") -> GitWorktreeRecord {
         GitWorktreeRecord(
-            canonicalPath: URL(fileURLWithPath: "/tmp/worktrees/int-857"),
+            canonicalPath: URL(fileURLWithPath: path),
             headObjectID: "abc",
             branchRef: "refs/heads/feature/int-857",
             isDetached: false,
             displayBranch: "feature/int-857",
             isMainWorktree: false,
+            isBare: false,
+            lockReason: nil,
+            prunableReason: nil
+        )
+    }
+
+    private func mainRecord() -> GitWorktreeRecord {
+        GitWorktreeRecord(
+            canonicalPath: URL(fileURLWithPath: "/tmp/repo"),
+            headObjectID: "def",
+            branchRef: "refs/heads/main",
+            isDetached: false,
+            displayBranch: "main",
+            isMainWorktree: true,
             isBare: false,
             lockReason: nil,
             prunableReason: nil
