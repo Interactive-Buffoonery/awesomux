@@ -12,7 +12,7 @@ struct WorktreeWorkspaceProjectionTests {
     func noMatch() {
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups(path: "/tmp/elsewhere")
             ) == nil)
     }
@@ -22,7 +22,7 @@ struct WorktreeWorkspaceProjectionTests {
         let groups = groups(path: "/tmp/worktree")
         let match = try #require(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups
             ))
 
@@ -35,7 +35,7 @@ struct WorktreeWorkspaceProjectionTests {
     func nestedMatch() {
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo")),
                 groups: groups(path: "/tmp/x/repo-worktrees/foo/Sources/App")
             ) != nil)
     }
@@ -48,14 +48,14 @@ struct WorktreeWorkspaceProjectionTests {
 
         #expect(
             projection.match(
-                canonicalWorktreePath: main,
-                canonicalWorktreePaths: [main, linked],
+                worktreeComponents: canonicalPathComponents(main),
+                canonicalWorktreePathComponents: [main, linked].map(canonicalPathComponents),
                 groups: groups
             ) == nil)
         #expect(
             projection.match(
-                canonicalWorktreePath: linked,
-                canonicalWorktreePaths: [main, linked],
+                worktreeComponents: canonicalPathComponents(linked),
+                canonicalWorktreePathComponents: [main, linked].map(canonicalPathComponents),
                 groups: groups
             ) != nil)
     }
@@ -70,8 +70,8 @@ struct WorktreeWorkspaceProjectionTests {
 
         let match = try #require(
             projection.match(
-                canonicalWorktreePath: main,
-                canonicalWorktreePaths: [main, linked, main.standardizedFileURL],
+                worktreeComponents: canonicalPathComponents(main),
+                canonicalWorktreePathComponents: [main, linked, main.standardizedFileURL].map(canonicalPathComponents),
                 groups: groups
             ))
 
@@ -82,7 +82,7 @@ struct WorktreeWorkspaceProjectionTests {
     func siblingPrefixDoesNotMatch() {
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo")),
                 groups: groups(path: "/tmp/x/repo-worktrees/foo-bar/sub")
             ) == nil)
     }
@@ -92,7 +92,7 @@ struct WorktreeWorkspaceProjectionTests {
         let remote = try #require(RemoteTarget(parsing: "dev@example.com"))
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups(
                     path: "/tmp/worktree",
                     executionPlan: .ssh(SSHExecution(target: remote))
@@ -105,7 +105,7 @@ struct WorktreeWorkspaceProjectionTests {
         let stale = WorktreeWorkspaceProjection(directoryExists: { _ in false })
         #expect(
             stale.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups(path: "/tmp/worktree")
             ) == nil)
     }

@@ -179,14 +179,17 @@ final class WorktreeManagerModel {
         switch outcome {
         case .success(let result):
             let liveGroups = groups()
-            let worktreePaths = result.records.map(\.canonicalPath)
+            let canonicalRecords = result.records.map { record in
+                (record, canonicalPathComponents(record.canonicalPath))
+            }
+            let worktreePathComponents = canonicalRecords.map(\.1)
             state = .loaded(
-                result.records.map { record in
+                canonicalRecords.map { record, worktreeComponents in
                     WorktreeManagerRow(
                         record: record,
                         liveMatch: projection.match(
-                            canonicalWorktreePath: record.canonicalPath,
-                            canonicalWorktreePaths: worktreePaths,
+                            worktreeComponents: worktreeComponents,
+                            canonicalWorktreePathComponents: worktreePathComponents,
                             groups: liveGroups
                         )
                     )
@@ -341,9 +344,12 @@ final class WorktreeManagerModel {
             return .failed(message)
         }
 
+        let worktreePathComponents = state.rows.map {
+            canonicalPathComponents($0.record.canonicalPath)
+        }
         if let match = projection.match(
-            canonicalWorktreePath: record.canonicalPath,
-            canonicalWorktreePaths: state.rows.map(\.record.canonicalPath),
+            worktreeComponents: canonicalPathComponents(record.canonicalPath),
+            canonicalWorktreePathComponents: worktreePathComponents,
             groups: groups()
         ) {
             focus(match)

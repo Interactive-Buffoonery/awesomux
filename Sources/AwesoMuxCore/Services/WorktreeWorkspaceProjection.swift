@@ -28,14 +28,12 @@ public struct WorktreeWorkspaceProjection: Sendable {
     }
 
     public func match(
-        canonicalWorktreePath: URL,
-        canonicalWorktreePaths: [URL] = [],
+        worktreeComponents: [String],
+        canonicalWorktreePathComponents: [[String]] = [],
         groups: [SessionGroup]
     ) -> WorktreeWorkspaceMatch? {
-        let worktreeComponents = canonicalPathComponents(canonicalWorktreePath)
         let moreSpecificWorktreeComponents =
-            canonicalWorktreePaths
-            .map(canonicalPathComponents)
+            canonicalWorktreePathComponents
             .filter { $0.count > worktreeComponents.count && $0.starts(with: worktreeComponents) }
         for group in groups {
             for session in group.sessions {
