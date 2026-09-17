@@ -78,7 +78,7 @@ struct RemoteConnectivityObserverTests {
         )
 
         observer.start()
-        observer.recordPathMonitorUpdate()
+        observer.recordPathMonitorUpdate(NWPathMonitor().currentPath)
         await drainMainQueue()
         // sleepCallCount == 0 proves no injected wait was entered for the
         // baseline update; the positive assertion below proves the seam is
@@ -86,7 +86,65 @@ struct RemoteConnectivityObserverTests {
         #expect(markCount == 0)
         #expect(gate.sleepCallCount == 0)
 
-        observer.recordPathMonitorUpdate()
+        observer.recordConnectivitySignal()
+        #expect(await waitUntil { markCount == 1 })
+        #expect(gate.sleepCallCount == 1)
+        observer.stop()
+    }
+
+    @Test("separate equivalent path monitor updates do not mark remote panes stale")
+    func equivalentPathMonitorUpdatesAreIgnored() async {
+        let gate = TestScheduler()
+        gate.advance()
+        var monitors: [SpyPathMonitor] = []
+        var markCount = 0
+        let observer = RemoteConnectivityObserver(
+            notificationCenter: NotificationCenter(),
+            pathMonitorFactory: {
+                let monitor = SpyPathMonitor()
+                monitors.append(monitor)
+                return monitor
+            },
+            sleep: { duration in await gate.wait(for: duration) },
+            markRemotePanesPossiblyStale: {
+                markCount += 1
+            }
+        )
+
+        observer.start()
+        let firstPath = NWPathMonitor().currentPath
+        let secondPath = NWPathMonitor().currentPath
+        #expect(firstPath == secondPath)
+        monitors[0].pathUpdateHandler?(firstPath)
+        monitors[0].pathUpdateHandler?(secondPath)
+        await drainMainQueue()
+
+        #expect(markCount == 0)
+        #expect(gate.sleepCallCount == 0)
+        observer.stop()
+    }
+
+    @Test("a changed path monitor update marks remote panes stale")
+    func changedPathMonitorUpdateMarksRemotePanesStale() async throws {
+        let gate = TestScheduler()
+        gate.advance()
+        let monitor = SpyPathMonitor()
+        var markCount = 0
+        let observer = RemoteConnectivityObserver(
+            notificationCenter: NotificationCenter(),
+            pathMonitorFactory: { monitor },
+            pathsAreEqual: { _, _ in false },
+            sleep: { duration in await gate.wait(for: duration) },
+            markRemotePanesPossiblyStale: {
+                markCount += 1
+            }
+        )
+        let path = NWPathMonitor().currentPath
+
+        observer.start()
+        monitor.pathUpdateHandler?(path)
+        monitor.pathUpdateHandler?(path)
+
         #expect(await waitUntil { markCount == 1 })
         #expect(gate.sleepCallCount == 1)
         observer.stop()
@@ -138,13 +196,13 @@ struct RemoteConnectivityObserverTests {
         )
 
         observer.start()
-        observer.recordPathMonitorUpdate()
-        observer.recordPathMonitorUpdate()
+        observer.recordPathMonitorUpdate(NWPathMonitor().currentPath)
+        observer.recordConnectivitySignal()
         #expect(await waitUntil { markCount == 1 })
 
         observer.stop()
         observer.start()
-        observer.recordPathMonitorUpdate()
+        observer.recordPathMonitorUpdate(NWPathMonitor().currentPath)
         await drainMainQueue()
         // Flat sleepCallCount proves no injected wait was entered for the
         // post-restart baseline update; the earlier and later positive
@@ -152,7 +210,7 @@ struct RemoteConnectivityObserverTests {
         #expect(markCount == 1)
         #expect(gate.sleepCallCount == 1)
 
-        observer.recordPathMonitorUpdate()
+        observer.recordConnectivitySignal()
         #expect(await waitUntil { markCount == 2 })
         #expect(gate.sleepCallCount == 2)
         observer.stop()
