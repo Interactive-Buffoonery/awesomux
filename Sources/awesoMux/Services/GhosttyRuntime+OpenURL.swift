@@ -154,6 +154,10 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
+            let previousRemoteIdentity =
+                sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
+                .selectedTab?.remoteResourceIdentity
+            let currentRemoteIdentity = outcome.snapshot.identity
             RemoteMarkdownTabRefresh.apply(
                 outcome,
                 in: sessionID,
@@ -161,12 +165,16 @@ extension GhosttyRuntime {
                 sessionStore: sessionStore,
                 selectingTab: true
             )
-            // Announce the outcome here, as the live openURLAction path does.
-            // Reopening an already-open remote link changes its content key
-            // without changing identity, so the document viewer suppresses
-            // "Now showing" — this announcement is the only VoiceOver feedback
-            // that reaches the user for the in-place refresh.
-            TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
+            // Match DocumentGroupView's selection announcement: speak the fetch
+            // outcome only when "Now showing {title}" is suppressed for a
+            // same-identity in-place refresh. A palette open of a new or
+            // different tab already announces on selection change.
+            if !DocumentShownAnnouncementPolicy.shouldAnnounceNowShowing(
+                previousRemoteIdentity: previousRemoteIdentity,
+                currentRemoteIdentity: currentRemoteIdentity
+            ) {
+                TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
+            }
             return
         }
 

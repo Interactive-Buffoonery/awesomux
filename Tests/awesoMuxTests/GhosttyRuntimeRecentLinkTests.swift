@@ -212,6 +212,31 @@ struct GhosttyRuntimeRecentLinkTests {
         #expect(didPresent)
     }
 
+    @Test("recent-link remote outcome follows the Now showing suppression policy")
+    func recentLinkRemoteOutcomeFollowsNowShowingPolicy() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appending(path: "Sources/awesoMux/Services/GhosttyRuntime+OpenURL.swift"),
+            encoding: .utf8
+        )
+        guard let openRecentRange = source.range(of: "static func openRecentLink(") else {
+            Issue.record("missing openRecentLink")
+            return
+        }
+        let body = String(source[openRecentRange.lowerBound...].prefix(2500))
+        #expect(
+            body.contains("DocumentShownAnnouncementPolicy.shouldAnnounceNowShowing"),
+            "openRecentLink must gate the fetch-outcome announcement on the same policy as DocumentGroupView"
+        )
+        #expect(
+            body.contains("previousRemoteIdentity"),
+            "openRecentLink must capture the selected tab's remote identity before apply"
+        )
+    }
+
     @Test func nilRemoteSnapshotPresentsRoutingFailure() async throws {
         GhosttyRuntime.resetRecentLinkRemoteSnapshotProviderForTesting()
         GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
