@@ -161,6 +161,12 @@ extension GhosttyRuntime {
                 sessionStore: sessionStore,
                 selectingTab: true
             )
+            // Announce the outcome here, as the live openURLAction path does.
+            // Reopening an already-open remote link changes its content key
+            // without changing identity, so the document viewer suppresses
+            // "Now showing" — this announcement is the only VoiceOver feedback
+            // that reaches the user for the in-place refresh.
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             return
         }
 

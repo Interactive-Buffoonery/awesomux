@@ -98,8 +98,10 @@ struct RemoteRefreshFooterAccessibilityTests {
                 path: "Sources/awesoMux/Views/DocumentPaneView.swift"),
             encoding: .utf8
         )
-        // Pin the two halves of the fix: the caption under Refresh must carry
-        // the historical AX label, and must not be accessibilityHidden.
+        // Pin the fix: the caption under Refresh must carry the shared AX
+        // label, that label must live in exactly one place so the lock
+        // fallback and the caption cannot drift, and the caption must not be
+        // accessibilityHidden.
         guard
             let refreshRange = source.range(
                 of: "Caption under Refresh on a remote Markdown snapshot tab")
@@ -110,8 +112,15 @@ struct RemoteRefreshFooterAccessibilityTests {
         let afterCaption = source[refreshRange.upperBound...]
         let window = String(afterCaption.prefix(500))
         #expect(
-            window.contains("Read-only remote Markdown snapshot from \\(origin)"),
+            window.contains("readOnlySnapshotAccessibilityLabel(origin: origin)"),
             "Refresh caption must keep the prior VoiceOver label")
+        let labelOccurrences =
+            source.components(
+                separatedBy: "Read-only remote Markdown snapshot from \\(origin)"
+            ).count - 1
+        #expect(
+            labelOccurrences == 1,
+            "The VoiceOver label must have a single source so the caption and lock fallback cannot drift")
         #expect(
             !window.contains("accessibilityHidden(true)"),
             "Refresh caption must remain exposed to VoiceOver")

@@ -448,8 +448,7 @@ struct DocumentPaneSendBar: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.aw.text2)
                     .frame(maxWidth: .infinity, minHeight: 28)
-                    .accessibilityLabel(
-                        Text("Read-only remote Markdown snapshot from \(origin)"))
+                    .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
                 } else {
                     SendToAgentButton(
                         purpose: .refreshRemoteSnapshot,
@@ -481,11 +480,16 @@ struct DocumentPaneSendBar: View {
                 .foregroundStyle(Color.aw.text2)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .accessibilityLabel(
-                    Text("Read-only remote Markdown snapshot from \(origin)"))
+                .accessibilityLabel(readOnlySnapshotAccessibilityLabel(origin: origin))
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Single source for the VoiceOver label shared by the lock fallback and
+    /// the Refresh caption, so the two cannot drift apart.
+    private func readOnlySnapshotAccessibilityLabel(origin: String) -> Text {
+        Text("Read-only remote Markdown snapshot from \(origin)")
     }
 
     private var isRemoteRefreshing: Bool {
