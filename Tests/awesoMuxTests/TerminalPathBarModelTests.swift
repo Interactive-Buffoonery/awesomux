@@ -6,6 +6,32 @@ import Testing
 
 @Suite("Terminal Path Bar model")
 struct TerminalPathBarModelTests {
+    @Test("observed titleless SSH suppresses stale local path state")
+    func observedTitlelessSSHSuppressesLocalState() {
+        let pane = TerminalPane(
+            title: "Codex",
+            workingDirectory: "/tmp/local-repo",
+            pendingRemoteSSHTarget: "imaca8c",
+            hasObservedPendingRemoteSSHProcess: true,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "Codex",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let preview = TerminalPathBarModel.preview(session: session)
+        let resolved = TerminalPathBarModel.make(session: session)
+
+        #expect(preview.remoteHost == "imaca8c")
+        #expect(preview.revealURL == nil)
+        #expect(resolved.remoteHost == "imaca8c")
+        #expect(resolved.revealURL == nil)
+        #expect(resolved.repoRootPath == nil)
+    }
+
     private final class ProbeCountingFileManager: FileManager {
         var probeCount = 0
 
@@ -185,6 +211,32 @@ struct TerminalPathBarModelTests {
         #expect(
             PathBarExecutionAnnouncement.message(from: remote, to: local)
                 == "Pane now runs locally."
+        )
+    }
+
+    @Test("observed titleless SSH announces remote entry and local return")
+    func observedTitlelessSSHAnnouncements() {
+        var pane = TerminalPane(
+            title: "Codex",
+            workingDirectory: "~",
+            pendingRemoteSSHTarget: "imaca8c",
+            hasObservedPendingRemoteSSHProcess: true,
+            executionPlan: .local
+        )
+        let remote = PathBarExecutionAnnouncementState(pane: pane)
+
+        #expect(
+            PathBarExecutionAnnouncement.message(from: .local, to: remote)
+                == "Pane now runs on imaca8c."
+        )
+
+        pane.pendingRemoteSSHTarget = nil
+        pane.hasObservedPendingRemoteSSHProcess = false
+        #expect(
+            PathBarExecutionAnnouncement.message(
+                from: remote,
+                to: PathBarExecutionAnnouncementState(pane: pane)
+            ) == "Pane now runs locally."
         )
     }
 

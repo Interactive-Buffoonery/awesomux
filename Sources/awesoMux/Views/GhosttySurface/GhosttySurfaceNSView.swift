@@ -68,6 +68,8 @@ final class GhosttySurfaceNSView: NSView {
         )
     }
     var shellCommandFinishedIdleLatched = false
+    static let pendingSSHForegroundProbeLimit = 8
+    var pendingSSHForegroundProbeAttemptsRemaining = 0
     var terminalPromptObserved = false
     private var accessibilityFocusRequested = false
     /// Owns command-bridge lifecycle state + sequencing; this view is the thin

@@ -67,6 +67,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         executionPlan == .local
             && (remoteHost != nil || remoteSSHTarget != nil
                 || hasConsumedManagedSSHWorkspaceOffer
+                || pendingRemoteSSHTarget != nil
                 || hasObservedPendingRemoteSSHProcess)
     }
 
@@ -256,17 +257,18 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
 
 public extension TerminalPane {
     /// Host identity used by remote presentation and conservative safety gates.
-    /// A durable SSH plan always wins; title-derived observation is only a
-    /// fallback for an ordinary local pane that the live terminal proves has
-    /// entered SSH.
+    /// A durable SSH plan always wins; title-derived observation and a submitted
+    /// target whose process was observed are presentation-only fallbacks.
     var remotePresentationHost: String? {
         if let target = executionPlan.remoteTarget {
             return target.sshDestination
         }
-        guard let remoteHost else {
-            return nil
+        if let remoteHost {
+            let trimmed = remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
         }
-        let trimmed = remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hasObservedPendingRemoteSSHProcess, let pendingRemoteSSHTarget else { return nil }
+        let trimmed = pendingRemoteSSHTarget.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 

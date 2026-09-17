@@ -68,13 +68,13 @@ enum PathBarExecutionAnnouncementState: Equatable {
     case remote(host: String, health: RemoteConnectionHealth)
 
     init(pane: TerminalPane?) {
-        guard let remote = pane?.executionPlan.remoteTarget else {
+        guard let pane, let remoteHost = pane.remotePresentationHost else {
             self = .local
             return
         }
         self = .remote(
-            host: remote.host,
-            health: pane?.remoteConnectionHealth ?? .active
+            host: remoteHost,
+            health: pane.remoteConnectionHealth
         )
     }
 }

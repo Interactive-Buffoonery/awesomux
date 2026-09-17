@@ -984,21 +984,54 @@ struct PaneLayoutReducer: Sendable {
     static func noteSubmittedCommand(
         in session: TerminalSession,
         paneID: TerminalPane.ID,
-        command: String
+        command: String,
+        submittedFromLocalShell: Bool = false
     ) -> TerminalSession? {
         var session = session
         guard var pane = session.layout.pane(id: paneID) else {
             return nil
         }
 
-        guard pane.remoteHost == nil,
-            pane.pendingRemoteSSHTarget == nil,
-            RemoteSSHCommandTarget.isSSHCommand(command)
-        else {
-            return nil
+        let mayReplaceRuntimeObservation =
+            submittedFromLocalShell && pane.executionPlan == .local
+            && !pane.hasObservedPendingRemoteSSHProcess
+            && pane.remoteHost == nil
+            && pane.remoteSSHTarget == nil
+            && !pane.hasConsumedManagedSSHWorkspaceOffer
+        let hadRuntimeObservation =
+            pane.remoteHost != nil
+            || pane.remoteSSHTarget != nil
+            || pane.pendingRemoteSSHTarget != nil
+            || pane.hasConsumedManagedSSHWorkspaceOffer
+        if mayReplaceRuntimeObservation {
+            pane.remoteHost = nil
+            pane.remoteSSHTarget = nil
+            pane.pendingRemoteSSHTarget = nil
+            pane.hasObservedPendingRemoteSSHProcess = false
+            pane.hasConsumedManagedSSHWorkspaceOffer = false
+            pane.remoteWorkingDirectory = nil
+            pane.remoteConnectionHealth = .active
+            pane.remoteForegroundLivenessSnapshot = nil
+        }
+        guard RemoteSSHCommandTarget.isSSHCommand(command) else {
+            guard mayReplaceRuntimeObservation, hadRuntimeObservation,
+                let layout = session.layout.replacingPane(id: paneID, with: .pane(pane))
+            else { return nil }
+            session.layout = layout
+            return session
         }
         let target = RemoteSSHCommandTarget.parseManagedWorkspaceOffer(command)
-        guard target != nil else { return nil }
+        guard
+            mayReplaceRuntimeObservation
+                || (pane.remoteHost == nil && pane.pendingRemoteSSHTarget == nil)
+        else { return nil }
+        guard target != nil else {
+            guard let layout = session.layout.replacingPane(id: paneID, with: .pane(pane)) else {
+                return nil
+            }
+            session.layout = layout
+            return session
+        }
         pane.pendingRemoteSSHTarget = target
         pane.hasObservedPendingRemoteSSHProcess = false
 

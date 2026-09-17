@@ -192,12 +192,12 @@ struct TerminalPathBarView: View {
                     isActive: isWindowActive
                 )
 
-                // Remote (SSH) pane: the local cwd/branch/git state is the STALE
+                // Remote-presenting SSH pane: the local cwd/branch/git state is the STALE
                 // LOCAL machine's, so `make()`'s filesystem walk + git reads would be
                 // discarded — skip them entirely (title churn over SSH would repeat
                 // the work). The remote indicator renders from model.remoteHost. Clear
                 // chips only when set, for the same no-churn reason as the flip above.
-                if activeExecutionPlan.remoteTarget != nil {
+                if activeHost != nil {
                     if model.pullRequest != nil { model.pullRequest = nil }
                     if model.gitStatus != nil { model.gitStatus = nil }
                     if model.ciStatus != nil { model.ciStatus = nil }
@@ -1156,7 +1156,7 @@ extension TerminalPathBarView: Equatable {
     ///     restart on it.
     /// Everything else the body reads off `session` is `activeAgentKind` (chip
     /// command-injection gate) and `PathBarExecutionAnnouncementState`, which is
-    /// derived from executionPlan + remoteConnectionHealth. Both keyed.
+    /// derived from remoteHost + remoteConnectionHealth. Both keyed.
     nonisolated private var renderKey: RenderKey {
         let pane = session.activePane
         return RenderKey(

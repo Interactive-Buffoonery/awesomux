@@ -179,7 +179,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
     }
 
     private static func remoteModel(for pane: TerminalPane) -> TerminalPathBarModel? {
-        guard let target = pane.executionPlan.remoteTarget else { return nil }
+        guard let remoteHost = pane.remotePresentationHost else { return nil }
         let rawPath = pane.workingDirectory.trimmingCharacters(in: .newlines)
         let displayPath = rawPath.isEmpty ? "~" : rawPath
         return TerminalPathBarModel(
@@ -195,7 +195,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             pullRequest: nil,
             gitStatus: nil,
             ciStatus: nil,
-            remoteHost: target.sshDestination,
+            remoteHost: remoteHost,
             executionPlan: pane.executionPlan,
             remoteConnectionHealth: pane.remoteConnectionHealth
         )

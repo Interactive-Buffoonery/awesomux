@@ -238,6 +238,7 @@ extension GhosttyRuntime {
             }
 
             let exitCode = action.action.command_finished.exit_code
+            let finishedAt = Date().timeIntervalSinceReferenceDate
             // KNOWN remaining gap (INT-608 follow-up, not an oversight):
             // `handleCommandFinished` reads live `sessionID`/`paneID` and can
             // write the same attention fields GHOSTTY_ACTION_RING_BELL /
@@ -256,7 +257,7 @@ extension GhosttyRuntime {
             // all three isn't fixed either. A real fix needs explicit
             // sequencing/serialization across all three together.
             Task { @MainActor in
-                view.handleCommandFinished(exitCode: exitCode)
+                view.handleCommandFinished(exitCode: exitCode, finishedAt: finishedAt)
             }
             return true
 

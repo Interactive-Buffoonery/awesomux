@@ -912,18 +912,28 @@ extension SessionStore {
     public func noteSubmittedCommand(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
-        command: String
+        command: String,
+        submittedFromLocalShell: Bool = false
     ) {
-        guard let position = position(for: sessionID),
+        guard let position = position(for: sessionID) else { return }
+        let oldPane = _groups[position.groupIndex].sessions[position.sessionIndex]
+            .layout.pane(id: paneID)
+        guard
             let session = PaneLayoutReducer.noteSubmittedCommand(
                 in: _groups[position.groupIndex].sessions[position.sessionIndex],
                 paneID: paneID,
-                command: command
+                command: command,
+                submittedFromLocalShell: submittedFromLocalShell
             )
         else {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        if oldPane?.remotePresentationHost != nil,
+            session.layout.pane(id: paneID)?.remotePresentationHost == nil
+        {
+            commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: false]))
+        }
     }
 
     /// The offer this pane would consume, without consuming it. The caller has
@@ -1011,7 +1021,8 @@ extension SessionStore {
     public func clearManagedSSHObservationIfExitedToLocalShell(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
-        liveness: ForegroundProcessLiveness
+        liveness: ForegroundProcessLiveness,
+        foregroundCommand: String? = nil
     ) {
         guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
             pane.executionPlan == .local
@@ -1021,10 +1032,13 @@ extension SessionStore {
 
         if pane.pendingRemoteSSHTarget != nil,
             !pane.hasObservedPendingRemoteSSHProcess,
-            liveness == .liveCommand || liveness == .bridgedBusy
+            foregroundCommand == "ssh"
         {
-            _ = mutatePane(sessionID: sessionID, paneID: paneID) {
+            let changed = mutatePane(sessionID: sessionID, paneID: paneID) {
                 $0.hasObservedPendingRemoteSSHProcess = true
+            }
+            if changed {
+                commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: true]))
             }
             return
         }
@@ -1036,7 +1050,9 @@ extension SessionStore {
             liveness == .idleShell
             && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
                 || pane.hasConsumedManagedSSHWorkspaceOffer)
-        guard pendingProcessReturned || confirmedProcessReturned else { return }
+        guard pendingProcessReturned || confirmedProcessReturned else {
+            return
+        }
 
         let changed = mutatePane(sessionID: sessionID, paneID: paneID) { pane in
             pane.remoteHost = nil

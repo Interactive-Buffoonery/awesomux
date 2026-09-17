@@ -58,6 +58,14 @@ struct GhosttySurfaceAttentionTests {
             GhosttySurfaceNSView.shouldProbeForAgentExit(
                 agentKind: .shell,
                 hasManagedSSHObservation: true,
+                mayProbeManagedSSHObservation: false,
+                hasObservedAgentActivity: false,
+                shellHasForegroundCommand: false
+            ) == false)
+        #expect(
+            GhosttySurfaceNSView.shouldProbeForAgentExit(
+                agentKind: .shell,
+                hasManagedSSHObservation: true,
                 hasObservedAgentActivity: false,
                 shellHasForegroundCommand: false
             ))
