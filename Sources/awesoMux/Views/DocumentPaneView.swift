@@ -462,7 +462,7 @@ struct DocumentPaneSendBar: View {
                         unavailableDescription: nil,
                         action: refreshRemoteSnapshot
                     )
-                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .frame(height: 28)
                 }
             }
             if remoteMarkdownRefresh != nil {
