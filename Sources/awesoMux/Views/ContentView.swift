@@ -141,7 +141,7 @@ struct ContentView: View {
     @Environment(BranchChangesCoordinator.self) private var branchChangesCoordinator
     @Environment(RemoteMarkdownRefreshCoordinator.self) private var remoteMarkdownRefreshCoordinator
     @Environment(RemoteMarkdownFetchProgressCoordinator.self)
-        private var remoteMarkdownFetchProgressCoordinator
+    private var remoteMarkdownFetchProgressCoordinator
     @Environment(\.branchChangesRefresh) private var branchChangesRefresh
     @Environment(\.remoteMarkdownRefresh) private var remoteMarkdownRefresh
     @Environment(\.controlActiveState) private var controlActiveState
