@@ -59,9 +59,9 @@ architecture without checking.
   explicit user approval.
 - Do not publish issues, open PRs, push commits, or post review comments or
   replies without direct human approval of that action and its content.
-- Only the issue assignee pushes to its branch or updates its PR unless
-  ownership is handed off. Other contributors review on GitHub and reply to the
-  specific review thread.
+- External contributors must be the issue assignee (or have ownership handed off)
+  to push or update that issue's PR. Maintainers (`serabi`, `edequalsawesome`)
+  are exempt.
 - Treat GitHub issues synchronized with Linear as public. Referencing synced
   Linear issue keys (e.g., `INT-758`) in PR descriptions, GitHub issues, and
   review comments is expected cross-linking, not a privacy leak. Do not expose
