@@ -153,14 +153,27 @@ struct TerminalPathBarView: View {
                 }
             }
             .task(id: resolveKey) {
-                let activePaneID = session.activePane?.id
+                let activePane = session.activePane
+                let activePaneID = activePane?.id
+                let activeHost = activePane?.remotePresentationHost
+                let activeExecutionPlan = activePane?.executionPlan ?? .local
+                let activeHealth = activePane?.remoteConnectionHealth ?? .active
+                let preview = TerminalPathBarModel.preview(session: session)
+                let remotePresentationChanged =
+                    model.remoteHost != preview.remoteHost
+                    || (activeHost != nil
+                        && (model.project != preview.project
+                            || model.path != preview.path
+                            || model.copyPath != preview.copyPath))
                 // Re-seed the cheap preview on first paint AND on a pane SWITCH (a
                 // different active pane), so a switch never renders the PREVIOUS
                 // pane's stale path/branch/chips/Reveal while `make()` resolves the
-                // new one. NOT on same-pane title churn — that would blink the chips
-                // (the carry-forward below preserves them there instead).
-                if !hasResolved || activePaneID != resolvedPaneID {
-                    model = .preview(session: session)
+                // new one. A remote presentation change also re-seeds it so a
+                // remote cwd update replaces the prior path immediately. NOT on
+                // same-pane title churn — that would blink the chips (the
+                // carry-forward below preserves them there instead).
+                if !hasResolved || activePaneID != resolvedPaneID || remotePresentationChanged {
+                    model = preview
                 }
                 if resolvedPaneID != activePaneID { resolvedPaneID = activePaneID }
 
@@ -172,10 +185,7 @@ struct TerminalPathBarView: View {
                 // so this flips to the remote indicator immediately. The model
                 // helper guards each write on an ACTUAL change so a same-pane title
                 // spinner (INT-523) doesn't re-invalidate the view on every OSC tick.
-                let activeHost = session.activePane?.remotePresentationHost
-                let activeExecutionPlan = session.activePane?.executionPlan ?? .local
-                let activeHealth = session.activePane?.remoteConnectionHealth ?? .active
-                model.synchronizeExecutionPresentation(with: session.activePane)
+                model.synchronizeExecutionPresentation(with: activePane)
 
                 // The inputs that drive make()'s OUTPUT (cwd / pane / remote / focus).
                 // A re-fire that leaves these unchanged is title-only churn (see the
@@ -188,6 +198,7 @@ struct TerminalPathBarView: View {
                         ?? session.workingDirectory,
                     executionPlan: activeExecutionPlan,
                     remoteHost: activeHost,
+                    remoteWorkingDirectory: activePane?.remoteWorkingDirectory,
                     remoteConnectionHealth: activeHealth,
                     isActive: isWindowActive
                 )
@@ -378,6 +389,7 @@ struct TerminalPathBarView: View {
             isActive: isWindowActive,
             executionPlan: pane?.executionPlan ?? .local,
             remoteHost: pane?.remotePresentationHost,
+            remoteWorkingDirectory: pane?.remoteWorkingDirectory,
             remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active
         )
     }
@@ -1147,7 +1159,8 @@ extension TerminalPathBarView: Equatable {
     /// mechanical rather than remembered:
     ///   - `resolveKey`: activePaneID, activePaneWorkingDirectory /
     ///     sessionWorkingDirectory, activePaneTitle, workspaceTitle,
-    ///     isWindowActive, executionPlan, remoteHost, remoteConnectionHealth.
+    ///     isWindowActive, executionPlan, remoteHost, remoteWorkingDirectory,
+    ///     remoteConnectionHealth.
     ///   - `menuDismissKey`: a subset of the above.
     ///   - `bridgePollKey`: activePaneID, activePaneTerminalSessionID,
     ///     isActivePaneBridgeEstablished, isCommandBridgeEnabled, isWindowActive.
@@ -1169,6 +1182,7 @@ extension TerminalPathBarView: Equatable {
             activePaneWorkingDirectory: pane?.workingDirectory,
             executionPlan: pane?.executionPlan ?? .local,
             remoteHost: pane?.remotePresentationHost,
+            remoteWorkingDirectory: pane?.remoteWorkingDirectory,
             remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active,
             activeAgentKind: session.activeAgentKind,
             workspaceTitle: displayedWorkspaceTitle,
@@ -1199,6 +1213,9 @@ extension TerminalPathBarView: Equatable {
         let activePaneWorkingDirectory: String?
         let executionPlan: PaneExecutionPlan
         let remoteHost: String?
+        /// Runtime-observed remote cwd drives the displayed and copied path even
+        /// when the remote host remains unchanged.
+        let remoteWorkingDirectory: String?
         /// Drives the remote indicator's icon/copy AND the spoken
         /// `PathBarExecutionAnnouncement` transition.
         let remoteConnectionHealth: RemoteConnectionHealth

@@ -18,6 +18,7 @@ struct TerminalPathBarResolvePolicyTests {
         cwd: String = "/Users/x/repo",
         executionPlan: PaneExecutionPlan = .local,
         remoteHost: String? = nil,
+        remoteWorkingDirectory: String? = nil,
         health: RemoteConnectionHealth = .active,
         isActive: Bool = true
     ) -> TerminalPathBarResolvePolicy.ResolveInputs {
@@ -26,6 +27,7 @@ struct TerminalPathBarResolvePolicyTests {
             workingDirectory: cwd,
             executionPlan: executionPlan,
             remoteHost: remoteHost,
+            remoteWorkingDirectory: remoteWorkingDirectory,
             remoteConnectionHealth: health,
             isActive: isActive
         )
@@ -71,6 +73,15 @@ struct TerminalPathBarResolvePolicyTests {
             previous: inputs(remoteHost: nil),
             current: inputs(remoteHost: "webserver")
         ) == .immediate)
+    }
+
+    @Test("remote cwd change walks immediately")
+    func remoteWorkingDirectoryChange() {
+        #expect(
+            TerminalPathBarResolvePolicy.classify(
+                previous: inputs(remoteWorkingDirectory: "~/one"),
+                current: inputs(remoteWorkingDirectory: "~/two")
+            ) == .immediate)
     }
 
     @Test("execution-plan flip walks immediately before shell observation")

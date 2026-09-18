@@ -61,6 +61,28 @@ struct TerminalPathBarModelTests {
         #expect(model.revealURL == nil)
     }
 
+    @Test("title-derived remote host never exposes the local working directory")
+    func titleDerivedRemoteHostUsesUnknownRemotePath() {
+        let pane = TerminalPane(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: "/tmp/local-repo",
+            remoteHost: "buildbox",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let model = TerminalPathBarModel.make(session: session)
+
+        #expect(model.path == "~")
+        #expect(model.copyPath == "~")
+        #expect(model.revealURL == nil)
+    }
+
     private final class ProbeCountingFileManager: FileManager {
         var probeCount = 0
 

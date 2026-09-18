@@ -184,7 +184,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
         // `workingDirectory` is still the local checkout.
         let pathSource =
             pane.remoteWorkingDirectory
-            ?? ((pane.remoteHost != nil || pane.executionPlan.remoteTarget != nil)
+            ?? (pane.executionPlan.remoteTarget != nil
                 ? pane.workingDirectory
                 : nil)
         let rawPath = pathSource?.trimmingCharacters(in: .newlines)

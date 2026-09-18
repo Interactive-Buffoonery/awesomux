@@ -24,6 +24,8 @@ struct ResolveKey: Equatable {
     let executionPlan: PaneExecutionPlan
     /// Re-resolve when remote state flips even if cwd/title are unchanged.
     let remoteHost: String?
+    /// Re-resolve when a runtime-observed remote changes its displayed cwd.
+    let remoteWorkingDirectory: String?
     let remoteConnectionHealth: RemoteConnectionHealth
 }
 
