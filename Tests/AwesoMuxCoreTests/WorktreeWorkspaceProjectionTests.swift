@@ -12,7 +12,7 @@ struct WorktreeWorkspaceProjectionTests {
     func noMatch() {
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups(path: "/tmp/elsewhere")
             ) == nil)
     }
@@ -22,7 +22,7 @@ struct WorktreeWorkspaceProjectionTests {
         let groups = groups(path: "/tmp/worktree")
         let match = try #require(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups
             ))
 
@@ -35,16 +35,54 @@ struct WorktreeWorkspaceProjectionTests {
     func nestedMatch() {
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo")),
                 groups: groups(path: "/tmp/x/repo-worktrees/foo/Sources/App")
             ) != nil)
+    }
+
+    @Test("the most-specific worktree owns a nested pane")
+    func mostSpecificWorktreeWins() throws {
+        let main = URL(fileURLWithPath: "/tmp/repo")
+        let linked = URL(fileURLWithPath: "/tmp/repo/.worktrees/feature")
+        let groups = groups(path: "/tmp/repo/.worktrees/feature/Sources/App")
+
+        #expect(
+            projection.match(
+                worktreeComponents: canonicalPathComponents(main),
+                canonicalWorktreePathComponents: [main, linked].map(canonicalPathComponents),
+                groups: groups
+            ) == nil)
+        #expect(
+            projection.match(
+                worktreeComponents: canonicalPathComponents(linked),
+                canonicalWorktreePathComponents: [main, linked].map(canonicalPathComponents),
+                groups: groups
+            ) != nil)
+    }
+
+    @Test("a nested pane does not hide a later pane in the main worktree")
+    func rejectedNestedPaneContinuesSearching() throws {
+        let main = URL(fileURLWithPath: "/tmp/repo")
+        let linked = URL(fileURLWithPath: "/tmp/repo/.worktrees/feature")
+        let nestedSession = TerminalSession(title: "linked", workingDirectory: linked.path)
+        let mainSession = TerminalSession(title: "main", workingDirectory: main.appendingPathComponent("Sources").path)
+        let groups = [SessionGroup(name: "work", sessions: [nestedSession, mainSession])]
+
+        let match = try #require(
+            projection.match(
+                worktreeComponents: canonicalPathComponents(main),
+                canonicalWorktreePathComponents: [main, linked, main.standardizedFileURL].map(canonicalPathComponents),
+                groups: groups
+            ))
+
+        #expect(match.sessionID == mainSession.id)
     }
 
     @Test("rejects a sibling that merely shares the string prefix")
     func siblingPrefixDoesNotMatch() {
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo")),
                 groups: groups(path: "/tmp/x/repo-worktrees/foo-bar/sub")
             ) == nil)
     }
@@ -54,7 +92,7 @@ struct WorktreeWorkspaceProjectionTests {
         let remote = try #require(RemoteTarget(parsing: "dev@example.com"))
         #expect(
             projection.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups(
                     path: "/tmp/worktree",
                     executionPlan: .ssh(SSHExecution(target: remote))
@@ -67,7 +105,7 @@ struct WorktreeWorkspaceProjectionTests {
         let stale = WorktreeWorkspaceProjection(directoryExists: { _ in false })
         #expect(
             stale.match(
-                canonicalWorktreePath: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
                 groups: groups(path: "/tmp/worktree")
             ) == nil)
     }
