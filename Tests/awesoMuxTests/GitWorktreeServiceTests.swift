@@ -37,7 +37,7 @@ struct GitWorktreeServiceTests {
 
     @Test(arguments: [
         (false, ["worktree", "add", "/tmp/awesomux-phase3-target", "refs/heads/feature/foo"]),
-        (true, ["worktree", "add", "-b", "feature/foo", "/tmp/awesomux-phase3-target", "HEAD"]),
+        (true, ["worktree", "add", "-b", "feature/foo", "/tmp/awesomux-phase3-target", "refs/remotes/origin/main"]),
     ])
     func createUsesExactArgv(newBranch: Bool, expected: [String]) async {
         let context = repositoryContext()
@@ -57,7 +57,7 @@ struct GitWorktreeServiceTests {
         outcomes.append(.success(after))
         let runner = StubLocalGitRunner(outcomes: outcomes)
         let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
-        let mode: GitWorktreeCreateMode = newBranch ? .newBranchFromHEAD("feature/foo") : .existingBranch("feature/foo")
+        let mode: GitWorktreeCreateMode = newBranch ? .newBranchFromMain("feature/foo") : .existingBranch("feature/foo")
         let outcome = await service.create(
             .init(
                 repositoryContext: context, mode: mode, targetPath: URL(fileURLWithPath: "/tmp/awesomux-phase3-target"),
@@ -135,7 +135,7 @@ struct GitWorktreeServiceTests {
         let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
         let outcome = await service.create(
             .init(
-                repositoryContext: context, mode: .newBranchFromHEAD("feature/foo"),
+                repositoryContext: context, mode: .newBranchFromMain("feature/foo"),
                 targetPath: URL(fileURLWithPath: "/tmp/awesomux-phase3-target"), destinationWorkspaceGroupID: UUID()))
         #expect(outcome == .failure(.nonZeroExit(128)))
     }
@@ -212,7 +212,7 @@ struct GitWorktreeServiceTests {
         let service = GitWorktreeService(locator: LocalGitRepositoryLocator(runner: validation), runner: runner)
         let outcome = await service.create(
             .init(
-                repositoryContext: context, mode: .newBranchFromHEAD("feature/foo"),
+                repositoryContext: context, mode: .newBranchFromMain("feature/foo"),
                 targetPath: URL(fileURLWithPath: "/tmp/awesomux-phase3-target"), destinationWorkspaceGroupID: UUID()))
         #expect(outcome == .branchCreatedWithoutWorktree(branchName: "feature/foo", diagnostic: .nonZeroExit(4)))
     }
