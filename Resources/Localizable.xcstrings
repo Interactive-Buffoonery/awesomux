@@ -2707,7 +2707,7 @@
     "New annotation" : {
       "comment" : "Accessibility label for the new annotation popover"
     },
-    "New branch from HEAD" : {
+    "New branch from origin/main" : {
       "comment" : "New branch create mode."
     },
     "New branch name" : {

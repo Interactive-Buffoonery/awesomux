@@ -14,11 +14,11 @@ public struct GitRepositoryContext: Equatable, Sendable {
 
 public enum GitWorktreeCreateMode: Equatable, Sendable {
     case existingBranch(String)
-    case newBranchFromHEAD(String)
+    case newBranchFromMain(String)
 
     public var branchName: String {
         switch self {
-        case .existingBranch(let name), .newBranchFromHEAD(let name): name
+        case .existingBranch(let name), .newBranchFromMain(let name): name
         }
     }
 }
