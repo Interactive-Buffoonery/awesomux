@@ -36,15 +36,14 @@ struct TerminalPathBarModelTests {
         #expect(resolved.repoRootPath == nil)
     }
 
-    @Test("runtime-observed remote path uses remoteWorkingDirectory when known")
-    func runtimeObservedRemotePathUsesRemoteWorkingDirectory() {
+    @Test("managed SSH path uses remoteWorkingDirectory when known")
+    func managedSSHPathUsesRemoteWorkingDirectory() throws {
+        let target = try #require(RemoteTarget(user: "deploy", host: "buildbox"))
         let pane = TerminalPane(
             title: "deploy@buildbox: ~/app",
             workingDirectory: "/tmp/local-repo",
-            pendingRemoteSSHTarget: "buildbox",
-            hasObservedPendingRemoteSSHProcess: true,
             remoteWorkingDirectory: "~/app",
-            executionPlan: .local
+            executionPlan: .ssh(SSHExecution(target: target))
         )
         let session = TerminalSession(
             title: "deploy@buildbox: ~/app",
@@ -55,7 +54,7 @@ struct TerminalPathBarModelTests {
 
         let model = TerminalPathBarModel.make(session: session)
 
-        #expect(model.remoteHost == "buildbox")
+        #expect(model.remoteHost == "deploy@buildbox")
         #expect(model.path == "~/app")
         #expect(model.copyPath == "~/app")
         #expect(model.revealURL == nil)

@@ -242,6 +242,7 @@ struct TerminalPathBarEquatableTests {
     @Test("a remote cwd change compares NOT equal")
     func remoteWorkingDirectoryChangeRerenders() throws {
         let fixture = try Fixture()
+        let target = try #require(RemoteTarget(parsing: "devbox"))
         let id = UUID()
         let paneID = UUID()
         let amx = TerminalSessionID.generate()
@@ -250,14 +251,16 @@ struct TerminalPathBarEquatableTests {
             paneID: paneID,
             terminalSessionID: amx,
             remoteHost: "devbox",
-            remoteWorkingDirectory: "~/one"
+            remoteWorkingDirectory: "~/one",
+            executionPlan: .ssh(SSHExecution(target: target))
         )
         let second = Fixture.session(
             id: id,
             paneID: paneID,
             terminalSessionID: amx,
             remoteHost: "devbox",
-            remoteWorkingDirectory: "~/two"
+            remoteWorkingDirectory: "~/two",
+            executionPlan: .ssh(SSHExecution(target: target))
         )
 
         #expect(fixture.bar(session: first) != fixture.bar(session: second))

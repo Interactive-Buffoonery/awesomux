@@ -180,8 +180,9 @@ struct TerminalPathBarModel: Equatable, Sendable {
 
     private static func remoteModel(for pane: TerminalPane) -> TerminalPathBarModel? {
         guard let remoteHost = pane.remotePresentationHost else { return nil }
-        // Runtime-observed remotes have no delivered remote cwd yet;
-        // `workingDirectory` is still the local checkout.
+        // `remoteWorkingDirectory` is only populated for managed SSH plans; a
+        // runtime-observed remote has no delivered cwd, so it falls through to
+        // `~` instead of the local checkout still tracked in `workingDirectory`.
         let pathSource =
             pane.remoteWorkingDirectory
             ?? (pane.executionPlan.remoteTarget != nil
