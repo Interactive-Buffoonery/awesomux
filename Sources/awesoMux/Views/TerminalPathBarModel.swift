@@ -179,9 +179,22 @@ struct TerminalPathBarModel: Equatable, Sendable {
     }
 
     private static func remoteModel(for pane: TerminalPane) -> TerminalPathBarModel? {
-        guard let target = pane.executionPlan.remoteTarget else { return nil }
-        let rawPath = pane.workingDirectory.trimmingCharacters(in: .newlines)
-        let displayPath = rawPath.isEmpty ? "~" : rawPath
+        guard let remoteHost = pane.remotePresentationHost else { return nil }
+        // `remoteWorkingDirectory` is only populated for managed SSH plans; a
+        // runtime-observed remote has no delivered cwd, so it falls through to
+        // `~` instead of the local checkout still tracked in `workingDirectory`.
+        let pathSource =
+            pane.remoteWorkingDirectory
+            ?? (pane.executionPlan.remoteTarget != nil
+                ? pane.workingDirectory
+                : nil)
+        let rawPath = pathSource?.trimmingCharacters(in: .newlines)
+        let displayPath =
+            if let rawPath, !rawPath.isEmpty {
+                rawPath
+            } else {
+                "~"
+            }
         return TerminalPathBarModel(
             project: (displayPath as NSString).lastPathComponent,
             path: displayPath,
@@ -195,7 +208,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             pullRequest: nil,
             gitStatus: nil,
             ciStatus: nil,
-            remoteHost: target.sshDestination,
+            remoteHost: remoteHost,
             executionPlan: pane.executionPlan,
             remoteConnectionHealth: pane.remoteConnectionHealth
         )

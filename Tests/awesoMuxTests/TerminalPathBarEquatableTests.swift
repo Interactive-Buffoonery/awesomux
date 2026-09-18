@@ -239,6 +239,33 @@ struct TerminalPathBarEquatableTests {
         #expect(fixture.bar(session: active) != fixture.bar(session: stale))
     }
 
+    @Test("a remote cwd change compares NOT equal")
+    func remoteWorkingDirectoryChangeRerenders() throws {
+        let fixture = try Fixture()
+        let target = try #require(RemoteTarget(parsing: "devbox"))
+        let id = UUID()
+        let paneID = UUID()
+        let amx = TerminalSessionID.generate()
+        let first = Fixture.session(
+            id: id,
+            paneID: paneID,
+            terminalSessionID: amx,
+            remoteHost: "devbox",
+            remoteWorkingDirectory: "~/one",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let second = Fixture.session(
+            id: id,
+            paneID: paneID,
+            terminalSessionID: amx,
+            remoteHost: "devbox",
+            remoteWorkingDirectory: "~/two",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+
+        #expect(fixture.bar(session: first) != fixture.bar(session: second))
+    }
+
     @Test("a declared SSH execution plan compares NOT equal")
     func executionPlanChangeRerenders() throws {
         // Declared SSH identity, with the presentation host UNCHANGED — so this
@@ -466,6 +493,7 @@ struct TerminalPathBarEquatableTests {
             terminalSessionID: TerminalSessionID = .generate(),
             terminalBackendMetadata: TerminalBackendMetadata = .empty,
             remoteHost: String? = nil,
+            remoteWorkingDirectory: String? = nil,
             health: RemoteConnectionHealth = .active,
             agentKind: AgentKind = .shell,
             executionPlan: PaneExecutionPlan = .local
@@ -478,6 +506,7 @@ struct TerminalPathBarEquatableTests {
                 workingDirectory: "/tmp/repo",
                 remoteHost: remoteHost,
                 remoteConnectionHealth: health,
+                remoteWorkingDirectory: remoteWorkingDirectory,
                 agentKind: agentKind,
                 executionPlan: executionPlan
             )

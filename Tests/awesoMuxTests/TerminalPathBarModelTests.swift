@@ -6,6 +6,82 @@ import Testing
 
 @Suite("Terminal Path Bar model")
 struct TerminalPathBarModelTests {
+    @Test("observed titleless SSH suppresses stale local path state")
+    func observedTitlelessSSHSuppressesLocalState() {
+        let pane = TerminalPane(
+            title: "Codex",
+            workingDirectory: "/tmp/local-repo",
+            pendingRemoteSSHTarget: "imaca8c",
+            hasObservedPendingRemoteSSHProcess: true,
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "Codex",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let preview = TerminalPathBarModel.preview(session: session)
+        let resolved = TerminalPathBarModel.make(session: session)
+
+        #expect(preview.remoteHost == "imaca8c")
+        #expect(preview.path == "~")
+        #expect(preview.copyPath == "~")
+        #expect(preview.revealURL == nil)
+        #expect(resolved.remoteHost == "imaca8c")
+        #expect(resolved.path == "~")
+        #expect(resolved.copyPath == "~")
+        #expect(resolved.revealURL == nil)
+        #expect(resolved.repoRootPath == nil)
+    }
+
+    @Test("managed SSH path uses remoteWorkingDirectory when known")
+    func managedSSHPathUsesRemoteWorkingDirectory() throws {
+        let target = try #require(RemoteTarget(user: "deploy", host: "buildbox"))
+        let pane = TerminalPane(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: "/tmp/local-repo",
+            remoteWorkingDirectory: "~/app",
+            executionPlan: .ssh(SSHExecution(target: target))
+        )
+        let session = TerminalSession(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let model = TerminalPathBarModel.make(session: session)
+
+        #expect(model.remoteHost == "deploy@buildbox")
+        #expect(model.path == "~/app")
+        #expect(model.copyPath == "~/app")
+        #expect(model.revealURL == nil)
+    }
+
+    @Test("title-derived remote host never exposes the local working directory")
+    func titleDerivedRemoteHostUsesUnknownRemotePath() {
+        let pane = TerminalPane(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: "/tmp/local-repo",
+            remoteHost: "buildbox",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let model = TerminalPathBarModel.make(session: session)
+
+        #expect(model.path == "~")
+        #expect(model.copyPath == "~")
+        #expect(model.revealURL == nil)
+    }
+
     private final class ProbeCountingFileManager: FileManager {
         var probeCount = 0
 
@@ -185,6 +261,32 @@ struct TerminalPathBarModelTests {
         #expect(
             PathBarExecutionAnnouncement.message(from: remote, to: local)
                 == "Pane now runs locally."
+        )
+    }
+
+    @Test("observed titleless SSH announces remote entry and local return")
+    func observedTitlelessSSHAnnouncements() {
+        var pane = TerminalPane(
+            title: "Codex",
+            workingDirectory: "~",
+            pendingRemoteSSHTarget: "imaca8c",
+            hasObservedPendingRemoteSSHProcess: true,
+            executionPlan: .local
+        )
+        let remote = PathBarExecutionAnnouncementState(pane: pane)
+
+        #expect(
+            PathBarExecutionAnnouncement.message(from: .local, to: remote)
+                == "Pane now runs on imaca8c."
+        )
+
+        pane.pendingRemoteSSHTarget = nil
+        pane.hasObservedPendingRemoteSSHProcess = false
+        #expect(
+            PathBarExecutionAnnouncement.message(
+                from: remote,
+                to: PathBarExecutionAnnouncementState(pane: pane)
+            ) == "Pane now runs locally."
         )
     }
 

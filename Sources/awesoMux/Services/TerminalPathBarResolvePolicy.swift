@@ -30,6 +30,7 @@ enum TerminalPathBarResolvePolicy {
         var workingDirectory: String
         var executionPlan: PaneExecutionPlan
         var remoteHost: String?
+        var remoteWorkingDirectory: String?
         var remoteConnectionHealth: RemoteConnectionHealth
         var isActive: Bool
 
@@ -38,6 +39,7 @@ enum TerminalPathBarResolvePolicy {
             workingDirectory: String,
             executionPlan: PaneExecutionPlan,
             remoteHost: String?,
+            remoteWorkingDirectory: String?,
             remoteConnectionHealth: RemoteConnectionHealth,
             isActive: Bool
         ) {
@@ -45,6 +47,7 @@ enum TerminalPathBarResolvePolicy {
             self.workingDirectory = workingDirectory
             self.executionPlan = executionPlan
             self.remoteHost = remoteHost
+            self.remoteWorkingDirectory = remoteWorkingDirectory
             self.remoteConnectionHealth = remoteConnectionHealth
             self.isActive = isActive
         }

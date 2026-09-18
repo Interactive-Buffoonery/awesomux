@@ -252,6 +252,26 @@ struct PaneLayoutReducerTests {
         #expect(session.activePane?.pendingRemoteSSHTarget == nil)
     }
 
+    @Test("an unrecognized ssh command does not republish an unchanged pane")
+    func unrecognizedSSHCommandDoesNotRepublishUnchangedPane() {
+        let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
+        let session = TerminalSession(
+            title: "shell",
+            workingDirectory: "~",
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        #expect(
+            PaneLayoutReducer.noteSubmittedCommand(
+                in: session,
+                paneID: pane.id,
+                command: "ssh -p 2222 devbox",
+                submittedFromLocalShell: true
+            ) == nil
+        )
+    }
+
     // MARK: - resetPaneAgentChromeToShell
 
     @Test("resetPaneAgentChromeToShell clears agent identity to shell defaults")

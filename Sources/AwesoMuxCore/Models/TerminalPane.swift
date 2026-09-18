@@ -60,14 +60,23 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// renders it.
     public var liveTerminalTitle: String?
 
+    /// True while durable or confirmed remote observations are attached to this
+    /// locally executing pane. Used by agent-launch gating and other safety
+    /// checks that must not treat a merely submitted `ssh` offer as remote yet.
+    public var hasObservedManagedSSH: Bool {
+        executionPlan == .local
+            && (remoteHost != nil || remoteSSHTarget != nil
+                || hasConsumedManagedSSHWorkspaceOffer)
+    }
+
     /// True while runtime remote observations are attached to this locally
     /// executing pane. Single definition shared by the managed-SSH clear path
     /// and the agent-exit probe gate so the two can't drift.
     public var hasManagedSSHObservation: Bool {
-        executionPlan == .local
-            && (remoteHost != nil || remoteSSHTarget != nil
-                || hasConsumedManagedSSHWorkspaceOffer
-                || hasObservedPendingRemoteSSHProcess)
+        hasObservedManagedSSH
+            || (executionPlan == .local
+                && (pendingRemoteSSHTarget != nil
+                    || hasObservedPendingRemoteSSHProcess))
     }
 
     // Agent state moved down from `TerminalSession` (INT-504): runtime events are
@@ -256,17 +265,18 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
 
 public extension TerminalPane {
     /// Host identity used by remote presentation and conservative safety gates.
-    /// A durable SSH plan always wins; title-derived observation is only a
-    /// fallback for an ordinary local pane that the live terminal proves has
-    /// entered SSH.
+    /// A durable SSH plan always wins; title-derived observation and a submitted
+    /// target whose process was observed are presentation-only fallbacks.
     var remotePresentationHost: String? {
         if let target = executionPlan.remoteTarget {
             return target.sshDestination
         }
-        guard let remoteHost else {
-            return nil
+        if let remoteHost {
+            let trimmed = remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
         }
-        let trimmed = remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hasObservedPendingRemoteSSHProcess, let pendingRemoteSSHTarget else { return nil }
+        let trimmed = pendingRemoteSSHTarget.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 

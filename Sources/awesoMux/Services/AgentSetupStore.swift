@@ -21,7 +21,8 @@ struct AgentSetup: Codable, Identifiable, Equatable, Sendable {
     }
 
     static func launchDirectory(session: TerminalSession?, groups: [SessionGroup], defaultGroup: String) throws -> String {
-        guard let session, let pane = session.activePane, pane.executionPlan.remoteTarget == nil, !pane.hasManagedSSHObservation,
+        guard let session, let pane = session.activePane, pane.executionPlan.remoteTarget == nil,
+            !pane.hasObservedManagedSSH, !pane.hasObservedPendingRemoteSSHProcess,
             !groups.contains(where: {
                 SessionStore.groupLookupKey($0.name).caseInsensitiveCompare(SessionStore.groupLookupKey(defaultGroup)) == .orderedSame
                     && $0.remote != nil

@@ -1131,6 +1131,7 @@ extension GhosttySurfaceNSView {
             // different screen, and register with the centralized sampler.
             updateSurfaceDisplayID()
             runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
+            replenishPendingSSHForegroundProbeBudget()
         } else if !isVisible, wasVisible {
             runtime.noteSurfaceVisibility(paneID: paneID, isVisible: false)
         }
@@ -1151,6 +1152,7 @@ extension GhosttySurfaceNSView {
         // case where `windowDidChangeScreen` no-op'd mid-drag.
         updateSurfaceDisplayID()
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
+        replenishPendingSSHForegroundProbeBudget()
     }
 
     @objc func activeSpaceDidChange(_ notification: Notification) {
@@ -1165,5 +1167,6 @@ extension GhosttySurfaceNSView {
         refreshSurfaceDisplay()
         updateSurfaceDisplayID()
         runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
+        replenishPendingSSHForegroundProbeBudget()
     }
 }

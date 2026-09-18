@@ -63,6 +63,15 @@ struct AgentSetupStoreTests {
         #expect(!AgentSetup.supportsShell("claude"))
     }
 
+    @Test func pendingSSHSubmissionDoesNotBlockAgentLaunch() throws {
+        let directory = FileManager.default.homeDirectoryForCurrentUser.path
+        var pane = TerminalPane(title: "SSH", workingDirectory: directory, executionPlan: .local)
+        pane.pendingRemoteSSHTarget = "remote.example"
+        let session = TerminalSession(title: "SSH", workingDirectory: directory, layout: .pane(pane))
+        let canonicalDirectory = WorkingDirectoryValidator.canonicalizedPath(directory)
+        #expect(try AgentSetup.launchDirectory(session: session, groups: [], defaultGroup: "local") == canonicalDirectory)
+    }
+
     @Test func observedSSHSourceIsRejectedDespiteLocalExecutionPlan() throws {
         let directory = FileManager.default.homeDirectoryForCurrentUser.path
         for observedTarget in [false, true] {
@@ -76,6 +85,18 @@ struct AgentSetupStoreTests {
             #expect(throws: (any Error).self) {
                 try AgentSetup.launchDirectory(session: session, groups: [], defaultGroup: "local")
             }
+        }
+    }
+
+    @Test func observedPendingSSHProcessIsRejectedDespiteLocalExecutionPlan() throws {
+        let directory = FileManager.default.homeDirectoryForCurrentUser.path
+        var pane = TerminalPane(title: "SSH", workingDirectory: directory, executionPlan: .local)
+        pane.pendingRemoteSSHTarget = "remote.example"
+        pane.hasObservedPendingRemoteSSHProcess = true
+        let session = TerminalSession(title: "SSH", workingDirectory: directory, layout: .pane(pane))
+
+        #expect(throws: (any Error).self) {
+            try AgentSetup.launchDirectory(session: session, groups: [], defaultGroup: "local")
         }
     }
 

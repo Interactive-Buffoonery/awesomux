@@ -24,6 +24,8 @@ struct ResolveKey: Equatable {
     let executionPlan: PaneExecutionPlan
     /// Re-resolve when remote state flips even if cwd/title are unchanged.
     let remoteHost: String?
+    /// Re-resolve when a runtime-observed remote changes its displayed cwd.
+    let remoteWorkingDirectory: String?
     let remoteConnectionHealth: RemoteConnectionHealth
 }
 
@@ -68,13 +70,13 @@ enum PathBarExecutionAnnouncementState: Equatable {
     case remote(host: String, health: RemoteConnectionHealth)
 
     init(pane: TerminalPane?) {
-        guard let remote = pane?.executionPlan.remoteTarget else {
+        guard let pane, let remoteHost = pane.remotePresentationHost else {
             self = .local
             return
         }
         self = .remote(
-            host: remote.host,
-            health: pane?.remoteConnectionHealth ?? .active
+            host: remoteHost,
+            health: pane.remoteConnectionHealth
         )
     }
 }

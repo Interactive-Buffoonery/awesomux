@@ -130,6 +130,222 @@ struct ManagedSSHObservationLivenessTests {
 
         let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
         #expect(pane.pendingRemoteSSHTarget == "next-alias")
+        #expect(pane.hasManagedSSHObservation)
+    }
+
+    @Test("pending target survives a sampled shell before exec")
+    func pendingTargetSurvivesSampledShell() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "next-alias",
+            hasConsumedOffer: false
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .busyShell,
+            foregroundCommand: "zsh"
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.pendingRemoteSSHTarget == "next-alias")
+        #expect(pane.hasManagedSSHObservation)
+    }
+
+    @Test("foreground SSH retains an active observed SSH process")
+    func foregroundSSHRetainsActiveObservedSSH() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "next-alias",
+            hasConsumedOffer: false
+        )
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.remotePresentationHost == "next-alias")
+        #expect(store.index.remotePaneIDs.contains(paneID))
+    }
+
+    @Test("a pre-launch helper preserves pending SSH until the next local submission")
+    func preLaunchHelperPreservesPendingSSHUntilNextLocalSubmission() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "next-alias",
+            hasConsumedOffer: false
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "make"
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(!pane.hasObservedPendingRemoteSSHProcess)
+        #expect(pane.pendingRemoteSSHTarget == "next-alias")
+        #expect(pane.remotePresentationHost == nil)
+        #expect(!store.index.remotePaneIDs.contains(paneID))
+
+        store.noteSubmittedCommand(
+            sessionID: sessionID,
+            paneID: paneID,
+            command: "echo done",
+            submittedFromLocalShell: true
+        )
+        #expect(store.session(id: sessionID)?.layout.pane(id: paneID)?.pendingRemoteSSHTarget == nil)
+    }
+
+    @Test("a new local prompt SSH submission replaces an unobserved stale target")
+    func newSSHSubmissionReplacesUnobservedStaleTarget() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "failed-alias",
+            hasConsumedOffer: false
+        )
+
+        store.noteSubmittedCommand(
+            sessionID: sessionID,
+            paneID: paneID,
+            command: "ssh retry-alias",
+            submittedFromLocalShell: true
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.pendingRemoteSSHTarget == "retry-alias")
+        #expect(!pane.hasObservedPendingRemoteSSHProcess)
+    }
+
+    @Test("a shell-named wrapper cannot replace an observed SSH target")
+    func shellNamedWrapperCannotReplaceObservedSSHTarget() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "old-alias",
+            hasConsumedOffer: false
+        )
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
+        )
+        #expect(store.index.remotePaneIDs.contains(paneID))
+
+        store.noteSubmittedCommand(
+            sessionID: sessionID,
+            paneID: paneID,
+            command: "echo remote-input",
+            submittedFromLocalShell: true
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.pendingRemoteSSHTarget == "old-alias")
+        #expect(pane.hasObservedPendingRemoteSSHProcess)
+        #expect(pane.remotePresentationHost == "old-alias")
+        #expect(store.index.remotePaneIDs.contains(paneID))
+    }
+
+    @Test("an optioned command cannot replace an observed SSH target")
+    func optionedCommandCannotReplaceObservedSSHTarget() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "old-alias",
+            hasConsumedOffer: false
+        )
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
+        )
+
+        store.noteSubmittedCommand(
+            sessionID: sessionID,
+            paneID: paneID,
+            command: "ssh -p 2222 new-host",
+            submittedFromLocalShell: true
+        )
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.pendingRemoteSSHTarget == "old-alias")
+        #expect(pane.remotePresentationHost == "old-alias")
+        #expect(store.index.remotePaneIDs.contains(paneID))
+    }
+
+    @Test("title-confirmed wrapped SSH survives a bridged shell sample")
+    func titleConfirmedWrappedSSHSurvivesBridgedShellSample() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "next-alias",
+            hasConsumedOffer: false
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .bridgedBusy,
+            foregroundCommand: "ssh"
+        )
+        store.updatePane(
+            sessionID: sessionID,
+            paneID: paneID,
+            title: "deploy@next.example: ~"
+        )
+        #expect(store.index.remotePaneIDs.contains(paneID))
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
+        )
+        #expect(
+            store.session(id: sessionID)?.layout.pane(id: paneID)?.remotePresentationHost
+                == "next.example"
+        )
+
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .bridged
+        )
+
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.remotePresentationHost == "next.example")
+        #expect(store.index.remotePaneIDs.contains(paneID))
     }
 
     @Test("an observed SSH command clears after returning to the local shell")
@@ -145,7 +361,8 @@ struct ManagedSSHObservationLivenessTests {
         store.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
-            liveness: .liveCommand
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
         )
         #expect(
             store.managedSSHConversionSuggestion(
@@ -180,8 +397,14 @@ struct ManagedSSHObservationLivenessTests {
         store.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
-            liveness: .bridgedBusy
+            liveness: .bridgedBusy,
+            foregroundCommand: "ssh"
         )
+
+        let observed = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(observed.remotePresentationHost == "next-alias")
+        #expect(store.index.remotePaneIDs.contains(paneID))
+
         store.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
@@ -190,6 +413,8 @@ struct ManagedSSHObservationLivenessTests {
 
         let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
         #expect(pane.pendingRemoteSSHTarget == nil)
+        #expect(pane.remotePresentationHost == nil)
+        #expect(!store.index.remotePaneIDs.contains(paneID))
     }
 
     private func makeStore(

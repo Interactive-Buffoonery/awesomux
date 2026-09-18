@@ -263,6 +263,29 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(!view.inputState.submittedSSHCommandCaptureDisabled)
     }
 
+    @Test("a proven local submission clears stale SSH after capture is disabled")
+    func localSubmissionClearsStaleSSHAfterCaptureIsDisabled() {
+        let (store, session, pane, view) = agentFixture()
+        store.noteSubmittedCommand(sessionID: session.id, paneID: pane.id, command: "ssh old-host")
+
+        view.observeSubmittedSSHCommandInput(
+            action: GHOSTTY_ACTION_PRESS,
+            event: keyEvent(keyCode: 0, modifiers: [], characters: "echo done"),
+            text: "echo done", handled: true, isCommandSubmit: false,
+            submittedAtObservedShellPrompt: true
+        )
+        #expect(view.inputState.submittedSSHCommandCaptureDisabled)
+        view.observeSubmittedSSHCommandInput(
+            action: GHOSTTY_ACTION_PRESS,
+            event: keyEvent(keyCode: 36, modifiers: [], characters: "\r"),
+            text: "\r", handled: true, isCommandSubmit: true,
+            submittedAtObservedShellPrompt: true,
+            submittedFromLocalShell: true
+        )
+
+        #expect(store.session(id: session.id)?.layout.pane(id: pane.id)?.pendingRemoteSSHTarget == nil)
+    }
+
     @Test("repeated input does not replay an erased SSH command")
     func repeatedInputDoesNotReplayAnErasedSSHCommand() {
         let (store, session, pane, view) = agentFixture()

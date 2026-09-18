@@ -1179,6 +1179,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         let submittedAtObservedShellPrompt =
             isCommandSubmit
             && promptMarkerIsAwayFromPrompt() == false
+        let submittedFromLocalShell =
+            submittedAtObservedShellPrompt
+            && documentNudgeForegroundComm().map(ShellRecognition.isRecognizedShell) == true
         prepareShellActivityCommandSubmit(
             shouldRefreshShellActivity: shouldRefreshShellActivity
         )
@@ -1198,7 +1201,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                 text: text,
                 handled: handled,
                 isCommandSubmit: isCommandSubmit,
-                submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
+                submittedAtObservedShellPrompt: submittedAtObservedShellPrompt,
+                submittedFromLocalShell: submittedFromLocalShell
             )
             scheduleShellActivityRefreshIfCommandSubmitted(
                 handled: handled,
@@ -1217,7 +1221,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             text: text,
             handled: handled,
             isCommandSubmit: isCommandSubmit,
-            submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
+            submittedAtObservedShellPrompt: submittedAtObservedShellPrompt,
+            submittedFromLocalShell: submittedFromLocalShell
         )
         scheduleShellActivityRefreshIfCommandSubmitted(
             handled: handled,
@@ -1239,7 +1244,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         text: String?,
         handled: Bool,
         isCommandSubmit: Bool,
-        submittedAtObservedShellPrompt: Bool
+        submittedAtObservedShellPrompt: Bool,
+        submittedFromLocalShell: Bool = false
     ) {
         guard handled else {
             return
@@ -1255,10 +1261,11 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         if isCommandSubmit {
             let command = inputState.submittedSSHCommandBuffer
             inputState.resetSubmittedSSHCommandCapture()
-            if !command.isEmpty {
+            if !command.isEmpty || submittedFromLocalShell {
                 recordSubmittedCommand(
                     command,
-                    submittedAtObservedShellPrompt: submittedAtObservedShellPrompt
+                    submittedAtObservedShellPrompt: submittedAtObservedShellPrompt,
+                    submittedFromLocalShell: submittedFromLocalShell
                 )
             }
             return
@@ -1301,7 +1308,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
 
     func recordSubmittedCommand(
         _ command: String,
-        submittedAtObservedShellPrompt: Bool
+        submittedAtObservedShellPrompt: Bool,
+        submittedFromLocalShell: Bool = false
     ) {
         let liveAgentKind =
             sessionStore.session(id: sessionID)?
@@ -1323,8 +1331,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         sessionStore.noteSubmittedCommand(
             sessionID: sessionID,
             paneID: paneID,
-            command: command
+            command: command,
+            submittedFromLocalShell: submittedFromLocalShell
         )
+        replenishPendingSSHForegroundProbeBudget()
     }
 
     /// Sends IME-committed preedit text as its own key event, deliberately

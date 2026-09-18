@@ -199,6 +199,7 @@ extension GhosttySurfaceNSView {
         // pass, which would re-probe (and re-announce) every sampler tick.
         let livePane = sessionStore.session(id: sessionID)?
             .layout.pane(id: paneID)
+        let promptIsAway = promptMarkerIsAwayFromPrompt()
         let shouldProbe =
             livePane.map { pane in
                 // The away-from-prompt marker (cheap libghostty read) keeps the
@@ -210,18 +211,39 @@ extension GhosttySurfaceNSView {
                 Self.shouldProbeForAgentExit(
                     agentKind: pane.agentKind,
                     hasManagedSSHObservation: pane.hasManagedSSHObservation,
+                    mayProbeManagedSSHObservation: pane.pendingRemoteSSHTarget == nil
+                        || pane.hasObservedPendingRemoteSSHProcess
+                        || pane.remoteHost != nil
+                        || pane.remoteSSHTarget != nil
+                        || pendingSSHForegroundProbeAttemptsRemaining > 0,
                     hasObservedAgentActivity: terminalEventState.hasObservedAgentActivity,
                     shellHasForegroundCommand: pane.agentKind == .shell
-                        && (promptMarkerIsAwayFromPrompt() ?? false)
+                        && (promptIsAway ?? false)
                 )
             } ?? false
         let foregroundProcess = foregroundProcessLivenessAndSample(
             includeLibprocSample: shouldProbe
         )
+        let foregroundCommand =
+            if shouldProbe, commandBridgeSessionID != nil {
+                commandBridgeEnactor.foregroundComm()
+            } else {
+                foregroundProcess.sample?.comm
+            }
         sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
-            liveness: foregroundProcess.liveness
+            liveness: foregroundProcess.liveness,
+            foregroundCommand: foregroundCommand
+        )
+        Self.updatePendingSSHForegroundProbeBudget(
+            pendingTarget: livePane?.pendingRemoteSSHTarget,
+            hasObservedPendingRemoteSSHProcess:
+                livePane?.hasObservedPendingRemoteSSHProcess == true,
+            shouldProbe: shouldProbe,
+            pendingTargetIdentity: &pendingSSHForegroundProbeTarget,
+            attemptsRemaining: &pendingSSHForegroundProbeAttemptsRemaining,
+            limit: Self.pendingSSHForegroundProbeLimit
         )
         // Codex's SessionStart hook arrives batched with the first prompt, so a
         // fresh Codex pane shows the generic shell icon until the user types —
@@ -264,13 +286,54 @@ extension GhosttySurfaceNSView {
             ))
     }
 
+    /// Refills the bounded libproc probe budget while a pending SSH target
+    /// waits for foreground observation. Background sampler ticks can drain the
+    /// budget before ssh reaches the foreground; visibility edges and
+    /// pending-target identity changes reopen the window.
+    @MainActor
+    func replenishPendingSSHForegroundProbeBudget() {
+        guard let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
+            let pendingTarget = pane.pendingRemoteSSHTarget,
+            !pane.hasObservedPendingRemoteSSHProcess
+        else {
+            return
+        }
+        pendingSSHForegroundProbeTarget = pendingTarget
+        pendingSSHForegroundProbeAttemptsRemaining = Self.pendingSSHForegroundProbeLimit
+    }
+
+    nonisolated static func updatePendingSSHForegroundProbeBudget(
+        pendingTarget: String?,
+        hasObservedPendingRemoteSSHProcess: Bool,
+        shouldProbe: Bool,
+        pendingTargetIdentity: inout String?,
+        attemptsRemaining: inout Int,
+        limit: Int
+    ) {
+        let hasUnobservedPendingSSH =
+            pendingTarget != nil && !hasObservedPendingRemoteSSHProcess
+        if pendingTarget == nil {
+            pendingTargetIdentity = nil
+            attemptsRemaining = limit
+        } else if hasUnobservedPendingSSH {
+            if pendingTargetIdentity != pendingTarget {
+                pendingTargetIdentity = pendingTarget
+                attemptsRemaining = limit
+            } else if shouldProbe, attemptsRemaining > 0 {
+                attemptsRemaining -= 1
+            }
+        }
+    }
+
     nonisolated static func shouldProbeForAgentExit(
         agentKind: AgentKind,
         hasManagedSSHObservation: Bool,
+        mayProbeManagedSSHObservation: Bool = true,
         hasObservedAgentActivity: Bool,
         shellHasForegroundCommand: Bool
     ) -> Bool {
-        agentKind != .shell || hasManagedSSHObservation || hasObservedAgentActivity
+        agentKind != .shell || (hasManagedSSHObservation && mayProbeManagedSSHObservation)
+            || hasObservedAgentActivity
             || shellHasForegroundCommand
     }
 
@@ -560,13 +623,29 @@ extension GhosttySurfaceNSView {
         !(isKeyWindow && isSelectedWorkspace)
     }
 
-    func handleCommandFinished(exitCode: Int16) {
+    func handleCommandFinished(
+        exitCode: Int16,
+        finishedAt: TimeInterval = Date().timeIntervalSinceReferenceDate
+    ) {
         // Cache the exit code for `closeAfterProcessExit` to consult. This event
         // fires after every shell command, so process-exit supervision must wait
         // for libghostty's separate close callback.
         commandExitCache.record(
             exitCode: exitCode,
-            at: Date().timeIntervalSinceReferenceDate
+            at: finishedAt
+        )
+        let foregroundProcess = foregroundProcessLivenessAndSample(includeLibprocSample: true)
+        let foregroundCommand =
+            if commandBridgeSessionID != nil {
+                commandBridgeEnactor.foregroundComm()
+            } else {
+                foregroundProcess.sample?.comm
+            }
+        sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: foregroundProcess.liveness,
+            foregroundCommand: foregroundCommand
         )
 
         let isShellSession = session.layout.pane(id: paneID)?.agentKind == .shell
