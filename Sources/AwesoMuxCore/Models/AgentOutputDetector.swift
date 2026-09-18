@@ -75,7 +75,8 @@ public struct AgentOutputDetector: Sendable {
             hasGrokIdentity: hasGrokIdentity,
             hasHermesIdentity: hasHermesIdentity
         )
-        let attentionCueAgentKind = hasGrokIdentity
+        let attentionCueAgentKind =
+            hasGrokIdentity
             ? AgentKind.grok
             : (hasHermesIdentity ? AgentKind.hermes : stateCueAgentKind)
 
@@ -129,7 +130,8 @@ public struct AgentOutputDetector: Sendable {
     }
 
     public func observesAgentContext(in visibleText: String) -> Bool {
-        let normalized = visibleText
+        let normalized =
+            visibleText
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
         return containsAgentContext(normalized, lines: lines)
@@ -231,12 +233,15 @@ public struct AgentOutputDetector: Sendable {
         // "claude code" or "claude ·" in prose, grep output, or another agent's
         // docs must not first-tag the pane Claude — that was the widest sticky
         // net. Keep genuine Claude Code splash/status lines working.
-        if lineHasAnchoredPrefix(lines, [
-            "claude code",
-            "claude ·",
-            "claude >",
-            "claude ›",
-        ]) {
+        if lineHasAnchoredPrefix(
+            lines,
+            [
+                "claude code",
+                "claude ·",
+                "claude >",
+                "claude ›",
+            ])
+        {
             return true
         }
         guard allowsPromptLaunch else {

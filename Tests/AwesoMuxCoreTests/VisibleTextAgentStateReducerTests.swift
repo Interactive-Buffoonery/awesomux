@@ -108,24 +108,27 @@ struct VisibleTextAgentStateReducerTests {
 
     @Test("Hermes identity waiting clears sticky thinking while hooks stay silent")
     func hermesIdentityWaitingClearsStickyThinking() {
-        #expect(reducer.shouldApplyVisibleTextState(
-            detectedState: .waiting,
-            liveAgentKind: .hermes,
-            liveExecutionState: .thinking,
-            liveDisplayState: .thinking
-        ))
-        #expect(!reducer.shouldApplyVisibleTextState(
-            detectedState: .waiting,
-            liveAgentKind: .claudeCode,
-            liveExecutionState: .thinking,
-            liveDisplayState: .thinking
-        ))
-        #expect(!reducer.shouldApplyVisibleTextState(
-            detectedState: .waiting,
-            liveAgentKind: .hermes,
-            liveExecutionState: .waiting,
-            liveDisplayState: .waiting
-        ))
+        #expect(
+            reducer.shouldApplyVisibleTextState(
+                detectedState: .waiting,
+                liveAgentKind: .hermes,
+                liveExecutionState: .thinking,
+                liveDisplayState: .thinking
+            ))
+        #expect(
+            !reducer.shouldApplyVisibleTextState(
+                detectedState: .waiting,
+                liveAgentKind: .claudeCode,
+                liveExecutionState: .thinking,
+                liveDisplayState: .thinking
+            ))
+        #expect(
+            !reducer.shouldApplyVisibleTextState(
+                detectedState: .waiting,
+                liveAgentKind: .hermes,
+                liveExecutionState: .waiting,
+                liveDisplayState: .waiting
+            ))
     }
 
     @Test("scraped needs-attention never overrides a hook agent, still applies to non-hook kinds")
@@ -430,11 +433,12 @@ struct VisibleTextAgentStateReducerTests {
             detectedKindIsAuthoritative: true,
             liveAgentKind: .claudeCode
         ) == .grok)
-        #expect(reducer.agentKindCorrection(
-            detectedAgentKind: .hermes,
-            detectedKindIsAuthoritative: true,
-            liveAgentKind: .claudeCode
-        ) == .hermes)
+        #expect(
+            reducer.agentKindCorrection(
+                detectedAgentKind: .hermes,
+                detectedKindIsAuthoritative: true,
+                liveAgentKind: .claudeCode
+            ) == .hermes)
 
         // The mirror bug the adversarial pass caught: a TEXT detection (default
         // non-authoritative) must NOT reclaim a live grok. A stale Codex splash

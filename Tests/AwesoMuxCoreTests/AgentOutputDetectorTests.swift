@@ -520,4 +520,3 @@ struct AgentOutputDetectorHermesIdentityTests {
         #expect(detector.detectedOutput(in: "then ❯ hermes --resume in the guide") == nil)
     }
 }
-
