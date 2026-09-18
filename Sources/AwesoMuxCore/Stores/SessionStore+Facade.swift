@@ -1031,7 +1031,7 @@ extension SessionStore {
         if pane.pendingRemoteSSHTarget != nil,
             !pane.hasObservedPendingRemoteSSHProcess,
             (liveness == .liveCommand || liveness == .bridgedBusy),
-            foregroundCommand == "ssh"
+            ShellRecognition.normalizedCommandName(foregroundCommand ?? "") == "ssh"
         {
             let changed = mutatePane(sessionID: sessionID, paneID: paneID) {
                 $0.hasObservedPendingRemoteSSHProcess = true

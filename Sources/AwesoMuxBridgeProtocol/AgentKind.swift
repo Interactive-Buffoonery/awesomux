@@ -37,4 +37,17 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
             false
         }
     }
+
+    /// Identity-only viewport `.waiting` may clear sticky `.thinking`.
+    ///
+    /// Do not generalize this to `!usesReliableHooks`: Grok reports reliable
+    /// hooks but 0.2.x never fires Stop, and Hermes has no hooks at all.
+    public var usesIdentityWaitingToClearThinking: Bool {
+        switch self {
+        case .grok, .hermes:
+            true
+        case .claudeCode, .codex, .openCode, .pi, .shell, .generic:
+            false
+        }
+    }
 }

@@ -409,6 +409,28 @@ struct AgentOutputDetectorClaudeIdentityTests {
         #expect(
             detector.detectedOutput(in: "❯ claude")?.agentKind == .claudeCode
         )
+        #expect(
+            detector.detectedOutput(in: "$ claude --resume")?.agentKind == .claudeCode
+        )
+    }
+
+    @Test("punctuation, quotes, and digits around claude code do not first-tag")
+    func doesNotInferClaudeFromWrappedOrNumberedMentions() {
+        for text in [
+            "(claude code…)",
+            "\"claude code\"",
+            "[claude code]",
+            "**claude code**",
+            "42 claude code",
+        ] {
+            #expect(detector.detectedOutput(in: text) == nil)
+        }
+    }
+
+    @Test("mid-sentence prompt quotes do not first-tag Claude")
+    func midSentencePromptQuotesDoNotFirstTagClaude() {
+        #expect(detector.detectedOutput(in: "docs say run `$ claude` to start") == nil)
+        #expect(detector.detectedOutput(in: "try ❯ claude from the shell notes") == nil)
     }
 }
 
@@ -455,6 +477,47 @@ struct AgentOutputDetectorHermesIdentityTests {
             detector.detectedOutput(in: "Hermes\nesc to interrupt")
                 == AgentOutputDetection(state: .waiting, agentKind: .hermes)
         )
+        let mixed = """
+            claude code v1.7.2
+            Hermes
+            gpt-5.6-sol
+            esc to interrupt
+            claude · thinking
+            """
+        let detection = detector.detectedOutput(in: mixed)
+        #expect(detection?.agentKind == .hermes)
+        #expect(detection?.state != .thinking)
+        #expect(detection?.state == .waiting)
+    }
+
+    @Test("a lone ruminating status line does not first-tag Hermes")
+    func ruminatingAloneDoesNotFirstTagHermes() {
+        #expect(detector.detectedOutput(in: "Ruminating…") == nil)
+        #expect(detector.detectedOutput(in: "ruminating") == nil)
+    }
+
+    @Test("historical mid-line ruminating does not keep Thinking")
+    func midLineRuminatingDoesNotKeepThinking() {
+        let text = """
+            Hermes
+            gpt-5.6-sol
+            the previous turn was ruminating for 12s
+            """
+        #expect(
+            detector.detectedOutput(in: text)
+                == AgentOutputDetection(state: .waiting, agentKind: .hermes)
+        )
+    }
+
+    @Test("parenthetical hermes prose does not first-tag")
+    func doesNotInferHermesFromParentheticalProse() {
+        #expect(detector.detectedOutput(in: "(hermes is a mission)") == nil)
+    }
+
+    @Test("mid-sentence prompt quotes do not first-tag Hermes")
+    func midSentencePromptQuotesDoNotFirstTagHermes() {
+        #expect(detector.detectedOutput(in: "the README quotes `$ hermes` as the launch") == nil)
+        #expect(detector.detectedOutput(in: "then ❯ hermes --resume in the guide") == nil)
     }
 }
 

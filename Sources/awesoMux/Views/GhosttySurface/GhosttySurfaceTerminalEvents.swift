@@ -821,7 +821,8 @@ extension GhosttySurfaceNSView {
         guard
             let detection = terminalEventState.agentOutputDetector.detectedOutput(
                 in: visibleText,
-                assumingAgentContext: terminalEventState.hasObservedAgentActivity
+                assumingAgentContext: terminalEventState.hasObservedAgentActivity,
+                liveAgentKind: liveKindForGate
             )
         else {
             return
@@ -930,12 +931,12 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // Grok can clear sticky thinking via identity-only waiting, but only when
-        // the shell is quiet — mid-turn pure inference may drop live cues while
-        // tools are still about to run; busy shell keeps the thinking chrome.
+        // Grok/Hermes can clear sticky thinking via identity-only waiting, but
+        // only when the shell is quiet — mid-turn pure inference may drop live
+        // cues while tools are still about to run; busy shell keeps thinking.
         var applyState = decision.shouldApplyState ? detection.state : nil
         if applyState == .waiting,
-            liveAgentKind == .grok,
+            liveAgentKind.usesIdentityWaitingToClearThinking,
             (liveExecutionState == .thinking || liveDisplayState == .thinking),
             livePane?.shellActivity == .busy
         {

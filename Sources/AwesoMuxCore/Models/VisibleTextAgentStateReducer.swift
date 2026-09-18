@@ -244,10 +244,10 @@ public struct VisibleTextAgentStateReducer: Sendable {
         guard detectedState != .waiting else {
             // Text → waiting is normally forbidden (ADR-0007): waiting requires
             // an explicit runtime Stop. Grok Build 0.2.x never fires those hooks,
-            // so without this carve-out a Grok pane that entered `.thinking` via
-            // viewport cues can never leave until the process dies. Allow
-            // identity-only waiting to clear sticky thinking for Grok only.
-            if liveAgentKind == .grok,
+            // and Hermes has none, so without this carve-out a pane that entered
+            // `.thinking` via viewport cues can never leave until idle-shell/SSH
+            // wipe. Allow identity-only waiting to clear sticky thinking.
+            if liveAgentKind.usesIdentityWaitingToClearThinking,
                 (liveDisplayState == .thinking || liveExecutionState == .thinking)
             {
                 return liveDisplayState != .waiting
