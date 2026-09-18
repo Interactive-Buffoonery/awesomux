@@ -7,6 +7,7 @@ public enum AwAgentIcon: Sendable, Equatable, Hashable {
     case openCode
     case pi
     case grok
+    case hermes
     case generic
     case shell
 }
@@ -150,6 +151,10 @@ public struct AgentTile: View, Equatable {
         case .grok:
             GrokGlyph()
                 .stroke(Color.aw.green, style: glyphStroke)
+                .frame(width: size * 0.55, height: size * 0.55)
+        case .hermes:
+            HermesGlyph()
+                .stroke(Color.aw.yellow, style: glyphStroke)
                 .frame(width: size * 0.55, height: size * 0.55)
         case .generic:
             GenericAgentGlyph()
@@ -409,6 +414,33 @@ private struct GrokGlyph: Shape {
     }
 }
 
+// Outward wings on a staff — messenger/speed, distinct from generic inward
+// `< >` and OpenCode's square brackets. Yellow is unused in the family.
+private struct HermesGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let s = min(rect.width, rect.height)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let staffTop = CGPoint(x: center.x, y: rect.minY + s * 0.14)
+        let staffBottom = CGPoint(x: center.x, y: rect.maxY - s * 0.14)
+        path.move(to: staffTop)
+        path.addLine(to: staffBottom)
+
+        let wingSpread = s * 0.38
+        let wingHeight = s * 0.22
+        let wingY = rect.minY + s * 0.34
+        path.move(to: CGPoint(x: center.x, y: wingY))
+        path.addLine(to: CGPoint(x: center.x - wingSpread, y: wingY - wingHeight))
+        path.move(to: CGPoint(x: center.x, y: wingY))
+        path.addLine(to: CGPoint(x: center.x - wingSpread, y: wingY + wingHeight))
+        path.move(to: CGPoint(x: center.x, y: wingY))
+        path.addLine(to: CGPoint(x: center.x + wingSpread, y: wingY - wingHeight))
+        path.move(to: CGPoint(x: center.x, y: wingY))
+        path.addLine(to: CGPoint(x: center.x + wingSpread, y: wingY + wingHeight))
+        return path
+    }
+}
+
 // Angle brackets — generic coding agent (Muse, Cursor, Windsurf, etc.).
 // `< >` reads as "generic code" and stays distinct from shell `>_` and
 // OpenCode's square `[ ]`.
@@ -461,6 +493,8 @@ public extension AwAgentIcon {
             "Pi"
         case .grok:
             "Grok"
+        case .hermes:
+            "Hermes"
         case .generic:
             String(
                 localized: "Agent",

@@ -10,16 +10,16 @@ actor RemoteLivenessPoller {
 
     private struct Active {
         let nonce: UUID
-        let task: Task<RemoteForegroundLiveness?, Never>
+        let task: Task<RemoteForegroundLivenessSample?, Never>
     }
 
     private let limiter: RemoteProbeConcurrencyLimiter
-    private let probe: @Sendable (String) async -> RemoteForegroundLiveness?
+    private let probe: @Sendable (String) async -> RemoteForegroundLivenessSample?
     private var active: [Key: Active] = [:]
 
     init(
         maximumConcurrentProbes: Int = 3,
-        probe: @escaping @Sendable (String) async -> RemoteForegroundLiveness? = { command in
+        probe: @escaping @Sendable (String) async -> RemoteForegroundLivenessSample? = { command in
             try? await RemoteLivenessProbe.run(command: command)
         }
     ) {
@@ -27,12 +27,12 @@ actor RemoteLivenessPoller {
         self.probe = probe
     }
 
-    func sample(key: Key, command: String) async -> RemoteForegroundLiveness? {
+    func sample(key: Key, command: String) async -> RemoteForegroundLivenessSample? {
         if let existing = active[key] { return await existing.task.value }
         let nonce = UUID()
         let limiter = limiter
         let probe = probe
-        let task = Task<RemoteForegroundLiveness?, Never> {
+        let task = Task<RemoteForegroundLivenessSample?, Never> {
             guard await limiter.acquire() else { return nil }
             defer { Task { await limiter.release() } }
             guard !Task.isCancelled else { return nil }

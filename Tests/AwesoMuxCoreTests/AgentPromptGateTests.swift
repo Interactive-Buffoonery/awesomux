@@ -52,8 +52,8 @@ struct AgentPromptGateTests {
     }
 
     @Test(
-        "shell and grok never verify, even waiting with a provider-looking foreground",
-        arguments: [AgentKind.shell, .grok]
+        "shell, grok, and hermes never verify, even waiting with a provider-looking foreground",
+        arguments: [AgentKind.shell, .grok, .hermes]
     )
     func unsupportedKindsDecline(kind: AgentKind) {
         #expect(verdict(kind: kind, comm: "claude") == .unavailable(.noVerifiedAgent))

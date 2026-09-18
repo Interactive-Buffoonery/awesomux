@@ -68,7 +68,7 @@ struct ForegroundProcessLivenessTests {
 struct AgentLivenessPolicyTests {
     @Test(
         "only an idle shell under an agent-tagged pane resets agent chrome",
-        arguments: [AgentKind.claudeCode, .codex, .openCode, .pi, .grok, .generic]
+        arguments: [AgentKind.claudeCode, .codex, .openCode, .pi, .grok, .hermes, .generic]
     )
     func idleShellResetsEveryAgentKind(kind: AgentKind) {
         #expect(AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, liveness: .idleShell))
@@ -104,5 +104,43 @@ struct AgentLivenessPolicyTests {
     )
     func liveOrUnprovenLivenessDoesNotReset(liveness: ForegroundProcessLiveness) {
         #expect(!AgentLivenessPolicy.shouldResetAgentChrome(agentKind: .openCode, liveness: liveness))
+    }
+
+    @Test("a remote idle shell resets leftover agent chrome")
+    func remoteIdleShellResetsAgentChrome() {
+        #expect(
+            AgentLivenessPolicy.shouldResetAgentChrome(
+                agentKind: .claudeCode,
+                remoteLiveness: .idleShell
+            ))
+        #expect(
+            !AgentLivenessPolicy.shouldResetAgentChrome(
+                agentKind: .claudeCode,
+                remoteLiveness: .liveCommand
+            ))
+        #expect(
+            !AgentLivenessPolicy.shouldResetAgentChrome(
+                agentKind: .shell,
+                remoteLiveness: .idleShell
+            ))
+    }
+
+    @Test("observing the local ssh client wipes leftover chrome once")
+    func sshForegroundObservationWipesOnce() {
+        #expect(
+            AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
+                agentKind: .claudeCode,
+                justObservedSSHClient: true
+            ))
+        #expect(
+            !AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
+                agentKind: .claudeCode,
+                justObservedSSHClient: false
+            ))
+        #expect(
+            !AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
+                agentKind: .shell,
+                justObservedSSHClient: true
+            ))
     }
 }

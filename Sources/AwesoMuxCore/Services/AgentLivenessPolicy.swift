@@ -37,4 +37,27 @@ public enum AgentLivenessPolicy {
     ) -> Bool {
         agentKind != .shell && (liveness == .idleShell || liveness == .bridged)
     }
+
+    /// Remote helper samples: only a proven idle remote shell may drop agent
+    /// chrome. `liveCommand` on the far host may be the agent itself; local
+    /// `ssh` must not be treated as that proof.
+    public static func shouldResetAgentChrome(
+        agentKind: AgentKind,
+        remoteLiveness: RemoteForegroundLiveness
+    ) -> Bool {
+        agentKind != .shell && remoteLiveness == .idleShell
+    }
+
+    /// First observation of the local SSH client becoming foreground. This is
+    /// the aggressive SSH-entry wipe: leftover Claude/Codex chrome must not
+    /// ride into the remote session. It is an edge trigger (`justObserved`),
+    /// not "comm is ssh", so a managed pane whose local process is always ssh
+    /// is not continuously reset, and a still-foreground agent that merely
+    /// printed "ssh" is not wiped.
+    public static func shouldResetAgentChromeOnSSHForegroundObservation(
+        agentKind: AgentKind,
+        justObservedSSHClient: Bool
+    ) -> Bool {
+        agentKind != .shell && justObservedSSHClient
+    }
 }

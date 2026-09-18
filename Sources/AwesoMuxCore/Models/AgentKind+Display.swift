@@ -21,6 +21,8 @@ extension AgentKind {
             "Pi"
         case .grok:
             "Grok"
+        case .hermes:
+            "Hermes"
         case .generic:
             String(
                 localized: "Agent",
@@ -61,7 +63,7 @@ extension AgentKind {
         switch self {
         case .generic, .shell:
             localizedShortName(bundle: bundle, locale: locale)
-        case .claudeCode, .codex, .openCode, .pi, .grok:
+        case .claudeCode, .codex, .openCode, .pi, .grok, .hermes:
             rawValue
         }
     }

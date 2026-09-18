@@ -217,7 +217,7 @@ public enum AgentPromptGate {
             if AgentProcessRecognition.agentKind(forCommand: observedCommand) == .generic {
                 return true
             }
-        case .grok, .shell:
+        case .grok, .hermes, .shell:
             return false
         }
 

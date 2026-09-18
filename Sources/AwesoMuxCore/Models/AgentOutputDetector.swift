@@ -46,18 +46,23 @@ public struct AgentOutputDetector: Sendable {
 
         let hasStatefulAgentContext = containsStatefulAgentContext(normalized)
         let hasGrokIdentity = containsConfidentGrokIdentity(normalized)
+        let hasHermesIdentity = containsConfidentHermesIdentity(normalized, allowsPromptLaunch: true)
         let canEvaluateStateCues = hasStatefulAgentContext
-            || (assumingAgentContext && !hasGrokIdentity)
+            || (assumingAgentContext && !hasGrokIdentity && !hasHermesIdentity)
         let canEvaluateAttentionCues = hasStatefulAgentContext
             || assumingAgentContext
             || hasGrokIdentity
+            || hasHermesIdentity
         let stateCueAgentKind = inferredAgentKind(
             normalized,
             allowsPromptLaunch: false,
             allowsGrokIdentity: false,
-            hasGrokIdentity: hasGrokIdentity
+            hasGrokIdentity: hasGrokIdentity,
+            hasHermesIdentity: hasHermesIdentity
         )
-        let attentionCueAgentKind = hasGrokIdentity ? AgentKind.grok : stateCueAgentKind
+        let attentionCueAgentKind = hasGrokIdentity
+            ? AgentKind.grok
+            : (hasHermesIdentity ? AgentKind.hermes : stateCueAgentKind)
 
         // Grok Build currently does not invoke plugin lifecycle hooks (verified
         // against 0.2.x), so the sidebar cannot rely on UserPromptSubmit /
@@ -68,6 +73,10 @@ public struct AgentOutputDetector: Sendable {
         // an old `[y/n]` line does not beat an active thinking cue.
         if hasGrokIdentity && containsGrokThinkingCue(normalized) {
             return AgentOutputDetection(state: .thinking, agentKind: .grok)
+        }
+
+        if hasHermesIdentity && containsHermesThinkingCue(normalized) {
+            return AgentOutputDetection(state: .thinking, agentKind: .hermes)
         }
 
         if canEvaluateAttentionCues && containsNeedsAttentionPrompt(normalized) {
@@ -90,7 +99,8 @@ public struct AgentOutputDetector: Sendable {
             normalized,
             allowsPromptLaunch: true,
             allowsGrokIdentity: true,
-            hasGrokIdentity: hasGrokIdentity
+            hasGrokIdentity: hasGrokIdentity,
+            hasHermesIdentity: hasHermesIdentity
         )
         if let agentKind {
             return AgentOutputDetection(state: .waiting, agentKind: agentKind)
@@ -133,15 +143,11 @@ public struct AgentOutputDetector: Sendable {
     private func containsAgentContext(_ text: String) -> Bool {
         containsStatefulAgentContext(text)
             || containsConfidentGrokIdentity(text)
+            || containsConfidentHermesIdentity(text, allowsPromptLaunch: true)
     }
 
     private func containsStatefulAgentContext(_ text: String) -> Bool {
-        text.contains("claude code")
-            || text.contains("claude ·")
-            || text.contains("claude >")
-            || text.contains("claude ›")
-            || text.contains("$ claude")
-            || text.contains("❯ claude")
+        containsConfidentClaudeIdentity(text, allowsPromptLaunch: true)
             || containsConfidentOpenCodeIdentity(text, allowsPromptLaunch: true)
             || containsConfidentCodexIdentity(text, allowsPromptLaunch: true)
             || containsConfidentGenericIdentity(text, allowsPromptLaunch: true)
@@ -154,7 +160,8 @@ public struct AgentOutputDetector: Sendable {
         _ text: String,
         allowsPromptLaunch: Bool,
         allowsGrokIdentity: Bool,
-        hasGrokIdentity: Bool
+        hasGrokIdentity: Bool,
+        hasHermesIdentity: Bool
     ) -> AgentKind? {
         // Generic checked before Claude so a Muse/Cursor pane that mentions
         // "claude code" in prose does not get hijacked. Generic is prompt-anchored
@@ -162,7 +169,13 @@ public struct AgentOutputDetector: Sendable {
         if containsConfidentGenericIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {
             return .generic
         }
-        if containsConfidentClaudeIdentity(text) {
+        // Hermes before Claude: Claude's old unanchored needles were the widest
+        // sticky net, and a Hermes splash that also mentions Claude in docs
+        // must still first-tag as Hermes.
+        if hasHermesIdentity {
+            return .hermes
+        }
+        if containsConfidentClaudeIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {
             return .claudeCode
         }
         if allowsGrokIdentity, hasGrokIdentity {
@@ -191,11 +204,76 @@ public struct AgentOutputDetector: Sendable {
             || text.contains("\ngrok\n")
     }
 
-    private func containsConfidentClaudeIdentity(_ text: String) -> Bool {
-        text.contains("claude code")
-            || text.contains("claude ·")
-            || text.contains("claude >")
-            || text.contains("claude ›")
+    private func containsConfidentClaudeIdentity(
+        _ text: String,
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        // Banner- and prompt-anchored only. A viewport that merely *mentions*
+        // "claude code" or "claude ·" in prose, grep output, or another agent's
+        // docs must not first-tag the pane Claude — that was the widest sticky
+        // net. Keep genuine Claude Code splash/status lines working.
+        if lineHasAnchoredPrefix(text, [
+            "claude code",
+            "claude ·",
+            "claude >",
+            "claude ›",
+        ]) {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return text.contains("$ claude") || text.contains("❯ claude")
+    }
+
+    // Hermes heading / config-path / prompt-anchored launch. Bare "hermes" in
+    // prose (NASA, mythology, a package name) is not identity.
+    private func containsConfidentHermesIdentity(
+        _ text: String,
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        if lineIsHermesHeading(text)
+            || text.contains("~/.hermes")
+            || text.contains("/.hermes/")
+            || lineHasAnchoredPrefix(text, ["ruminating"])
+        {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return text.contains("$ hermes") || text.contains("❯ hermes")
+    }
+
+    private func containsHermesThinkingCue(_ text: String) -> Bool {
+        lineHasAnchoredPrefix(text, ["ruminating"])
+            || text.contains("ruminating")
+    }
+
+    /// True when a line, after leading whitespace and decorative box-drawing,
+    /// starts with one of the prefixes. Mid-sentence mentions do not match.
+    private func lineHasAnchoredPrefix(_ text: String, _ prefixes: [String]) -> Bool {
+        text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+            let content = dropDecorativePrefix(line)
+            return prefixes.contains { prefix in
+                content.hasPrefix(prefix)
+            }
+        }
+    }
+
+    private func lineIsHermesHeading(_ text: String) -> Bool {
+        text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+            let content = dropDecorativePrefix(line)
+            guard content.hasPrefix("hermes") else {
+                return false
+            }
+            let rest = content.dropFirst("hermes".count)
+            return rest.isEmpty || rest.first?.isWhitespace == true
+        }
+    }
+
+    private func dropDecorativePrefix(_ line: Substring) -> Substring {
+        line.drop(while: { $0.isWhitespace || !$0.isLetter })
     }
 
     // Codex has no status-hook identity at launch: its SessionStart hook event

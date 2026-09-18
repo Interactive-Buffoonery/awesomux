@@ -396,7 +396,7 @@ struct VisibleTextAgentStateReducerTests {
         // on the wrong agent before the first hook landed. A live foreground
         // process `comm` sample is authoritative and may correct that; scraped
         // viewport text still must not.
-        for reclaiming in [AgentKind.codex, .openCode, .claudeCode, .pi, .generic] {
+        for reclaiming in [AgentKind.codex, .openCode, .claudeCode, .pi, .hermes, .generic] {
             #expect(reducer.agentKindCorrection(
                 detectedAgentKind: reclaiming,
                 detectedKindIsAuthoritative: true,
@@ -408,11 +408,16 @@ struct VisibleTextAgentStateReducerTests {
             detectedKindIsAuthoritative: true,
             liveAgentKind: .claudeCode
         ) == .grok)
+        #expect(reducer.agentKindCorrection(
+            detectedAgentKind: .hermes,
+            detectedKindIsAuthoritative: true,
+            liveAgentKind: .claudeCode
+        ) == .hermes)
 
         // The mirror bug the adversarial pass caught: a TEXT detection (default
         // non-authoritative) must NOT reclaim a live grok. A stale Codex splash
         // banner sitting in a live Grok pane's scrollback stays grok.
-        for textKind in [AgentKind.codex, .openCode, .claudeCode, .pi] {
+        for textKind in [AgentKind.codex, .openCode, .claudeCode, .pi, .hermes] {
             #expect(reducer.agentKindCorrection(
                 detectedAgentKind: textKind,
                 liveAgentKind: .grok
