@@ -916,8 +916,6 @@ extension SessionStore {
         submittedFromLocalShell: Bool = false
     ) {
         guard let position = position(for: sessionID) else { return }
-        let oldPane = _groups[position.groupIndex].sessions[position.sessionIndex]
-            .layout.pane(id: paneID)
         guard
             let session = PaneLayoutReducer.noteSubmittedCommand(
                 in: _groups[position.groupIndex].sessions[position.sessionIndex],
@@ -929,15 +927,6 @@ extension SessionStore {
             return
         }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
-        // Unreachable today: `noteSubmittedCommand` only clears presentation
-        // hosts under `mayReplaceRuntimeObservation`, which requires no durable
-        // remote markers. Kept aligned with the presentation-host transition so
-        // a future reducer width change cannot drift `remotePaneIDs` silently.
-        if oldPane?.remotePresentationHost != nil,
-            session.layout.pane(id: paneID)?.remotePresentationHost == nil
-        {
-            commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: false]))
-        }
     }
 
     /// The offer this pane would consume, without consuming it. The caller has
@@ -1036,6 +1025,7 @@ extension SessionStore {
 
         if pane.pendingRemoteSSHTarget != nil,
             !pane.hasObservedPendingRemoteSSHProcess,
+            (liveness == .liveCommand || liveness == .bridgedBusy),
             foregroundCommand == "ssh"
         {
             let changed = mutatePane(sessionID: sessionID, paneID: paneID) {

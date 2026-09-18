@@ -26,10 +26,39 @@ struct TerminalPathBarModelTests {
         let resolved = TerminalPathBarModel.make(session: session)
 
         #expect(preview.remoteHost == "imaca8c")
+        #expect(preview.path == "~")
+        #expect(preview.copyPath == "~")
         #expect(preview.revealURL == nil)
         #expect(resolved.remoteHost == "imaca8c")
+        #expect(resolved.path == "~")
+        #expect(resolved.copyPath == "~")
         #expect(resolved.revealURL == nil)
         #expect(resolved.repoRootPath == nil)
+    }
+
+    @Test("runtime-observed remote path uses remoteWorkingDirectory when known")
+    func runtimeObservedRemotePathUsesRemoteWorkingDirectory() {
+        let pane = TerminalPane(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: "/tmp/local-repo",
+            pendingRemoteSSHTarget: "buildbox",
+            hasObservedPendingRemoteSSHProcess: true,
+            remoteWorkingDirectory: "~/app",
+            executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "deploy@buildbox: ~/app",
+            workingDirectory: pane.workingDirectory,
+            layout: .pane(pane),
+            activePaneID: pane.id
+        )
+
+        let model = TerminalPathBarModel.make(session: session)
+
+        #expect(model.remoteHost == "buildbox")
+        #expect(model.path == "~/app")
+        #expect(model.copyPath == "~/app")
+        #expect(model.revealURL == nil)
     }
 
     private final class ProbeCountingFileManager: FileManager {

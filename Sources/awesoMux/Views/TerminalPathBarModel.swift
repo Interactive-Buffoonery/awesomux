@@ -180,8 +180,20 @@ struct TerminalPathBarModel: Equatable, Sendable {
 
     private static func remoteModel(for pane: TerminalPane) -> TerminalPathBarModel? {
         guard let remoteHost = pane.remotePresentationHost else { return nil }
-        let rawPath = pane.workingDirectory.trimmingCharacters(in: .newlines)
-        let displayPath = rawPath.isEmpty ? "~" : rawPath
+        // Runtime-observed remotes have no delivered remote cwd yet;
+        // `workingDirectory` is still the local checkout.
+        let pathSource =
+            pane.remoteWorkingDirectory
+            ?? ((pane.remoteHost != nil || pane.executionPlan.remoteTarget != nil)
+                ? pane.workingDirectory
+                : nil)
+        let rawPath = pathSource?.trimmingCharacters(in: .newlines)
+        let displayPath =
+            if let rawPath, !rawPath.isEmpty {
+                rawPath
+            } else {
+                "~"
+            }
         return TerminalPathBarModel(
             project: (displayPath as NSString).lastPathComponent,
             path: displayPath,

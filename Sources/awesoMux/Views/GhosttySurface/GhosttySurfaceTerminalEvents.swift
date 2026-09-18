@@ -236,15 +236,15 @@ extension GhosttySurfaceNSView {
             liveness: foregroundProcess.liveness,
             foregroundCommand: foregroundCommand
         )
-        if shouldProbe,
-            livePane?.pendingRemoteSSHTarget != nil,
-            livePane?.hasObservedPendingRemoteSSHProcess == false,
-            pendingSSHForegroundProbeAttemptsRemaining > 0
-        {
-            pendingSSHForegroundProbeAttemptsRemaining -= 1
-        } else if livePane?.pendingRemoteSSHTarget == nil {
-            pendingSSHForegroundProbeAttemptsRemaining = Self.pendingSSHForegroundProbeLimit
-        }
+        Self.updatePendingSSHForegroundProbeBudget(
+            pendingTarget: livePane?.pendingRemoteSSHTarget,
+            hasObservedPendingRemoteSSHProcess:
+                livePane?.hasObservedPendingRemoteSSHProcess == true,
+            shouldProbe: shouldProbe,
+            pendingTargetIdentity: &pendingSSHForegroundProbeTarget,
+            attemptsRemaining: &pendingSSHForegroundProbeAttemptsRemaining,
+            limit: Self.pendingSSHForegroundProbeLimit
+        )
         // Codex's SessionStart hook arrives batched with the first prompt, so a
         // fresh Codex pane shows the generic shell icon until the user types —
         // and its fragile text signature (splash banner / prompt-anchored
@@ -284,6 +284,45 @@ extension GhosttySurfaceNSView {
                 executionState: .idle,
                 phase: .sessionEnd
             ))
+    }
+
+    /// Refills the bounded libproc probe budget while a pending SSH target
+    /// waits for foreground observation. Background sampler ticks can drain the
+    /// budget before ssh reaches the foreground; visibility edges and
+    /// pending-target identity changes reopen the window.
+    @MainActor
+    func replenishPendingSSHForegroundProbeBudget() {
+        guard let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
+            let pendingTarget = pane.pendingRemoteSSHTarget,
+            !pane.hasObservedPendingRemoteSSHProcess
+        else {
+            return
+        }
+        pendingSSHForegroundProbeTarget = pendingTarget
+        pendingSSHForegroundProbeAttemptsRemaining = Self.pendingSSHForegroundProbeLimit
+    }
+
+    nonisolated static func updatePendingSSHForegroundProbeBudget(
+        pendingTarget: String?,
+        hasObservedPendingRemoteSSHProcess: Bool,
+        shouldProbe: Bool,
+        pendingTargetIdentity: inout String?,
+        attemptsRemaining: inout Int,
+        limit: Int
+    ) {
+        let hasUnobservedPendingSSH =
+            pendingTarget != nil && !hasObservedPendingRemoteSSHProcess
+        if pendingTarget == nil {
+            pendingTargetIdentity = nil
+            attemptsRemaining = limit
+        } else if hasUnobservedPendingSSH {
+            if pendingTargetIdentity != pendingTarget {
+                pendingTargetIdentity = pendingTarget
+                attemptsRemaining = limit
+            } else if shouldProbe, attemptsRemaining > 0 {
+                attemptsRemaining -= 1
+            }
+        }
     }
 
     nonisolated static func shouldProbeForAgentExit(

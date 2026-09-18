@@ -70,6 +70,8 @@ final class GhosttySurfaceNSView: NSView {
     var shellCommandFinishedIdleLatched = false
     static let pendingSSHForegroundProbeLimit = 8
     var pendingSSHForegroundProbeAttemptsRemaining = 0
+    /// Pending-target identity the probe budget was last replenished for.
+    var pendingSSHForegroundProbeTarget: String?
     var terminalPromptObserved = false
     private var accessibilityFocusRequested = false
     /// Owns command-bridge lifecycle state + sequencing; this view is the thin
@@ -528,6 +530,7 @@ final class GhosttySurfaceNSView: NSView {
             scheduleOrphanRescueCheckAfterDetach()
         } else if surface != nil, windowIsVisible {
             runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
+            replenishPendingSSHForegroundProbeBudget()
         }
     }
 

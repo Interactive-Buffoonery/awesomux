@@ -45,6 +45,47 @@ struct GhosttySurfaceAttentionTests {
         #expect(updatedPane.agentState == .thinking)
     }
 
+    @Test("pending SSH probe budget replenishes on target identity change")
+    @MainActor
+    func pendingSSHProbeBudgetReplenishesOnTargetChange() {
+        var targetIdentity: String?
+        var attemptsRemaining = 0
+
+        GhosttySurfaceNSView.updatePendingSSHForegroundProbeBudget(
+            pendingTarget: "host-a",
+            hasObservedPendingRemoteSSHProcess: false,
+            shouldProbe: true,
+            pendingTargetIdentity: &targetIdentity,
+            attemptsRemaining: &attemptsRemaining,
+            limit: GhosttySurfaceNSView.pendingSSHForegroundProbeLimit
+        )
+        #expect(targetIdentity == "host-a")
+        #expect(attemptsRemaining == GhosttySurfaceNSView.pendingSSHForegroundProbeLimit)
+
+        for _ in 0..<GhosttySurfaceNSView.pendingSSHForegroundProbeLimit {
+            GhosttySurfaceNSView.updatePendingSSHForegroundProbeBudget(
+                pendingTarget: "host-a",
+                hasObservedPendingRemoteSSHProcess: false,
+                shouldProbe: true,
+                pendingTargetIdentity: &targetIdentity,
+                attemptsRemaining: &attemptsRemaining,
+                limit: GhosttySurfaceNSView.pendingSSHForegroundProbeLimit
+            )
+        }
+        #expect(attemptsRemaining == 0)
+
+        GhosttySurfaceNSView.updatePendingSSHForegroundProbeBudget(
+            pendingTarget: "host-b",
+            hasObservedPendingRemoteSSHProcess: false,
+            shouldProbe: false,
+            pendingTargetIdentity: &targetIdentity,
+            attemptsRemaining: &attemptsRemaining,
+            limit: GhosttySurfaceNSView.pendingSSHForegroundProbeLimit
+        )
+        #expect(targetIdentity == "host-b")
+        #expect(attemptsRemaining == GhosttySurfaceNSView.pendingSSHForegroundProbeLimit)
+    }
+
     @Test("agent-exit probe eligibility excludes only idle unobserved shells")
     func agentExitProbeEligibility() {
         #expect(

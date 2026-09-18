@@ -1315,10 +1315,6 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             sessionStore.session(id: sessionID)?
             .layout.pane(id: paneID)?.agentKind ?? .shell
         let isSSHCommand = RemoteSSHCommandTarget.isSSHCommand(command)
-        if RemoteSSHCommandTarget.parseManagedWorkspaceOffer(command) != nil {
-            pendingSSHForegroundProbeAttemptsRemaining =
-                Self.pendingSSHForegroundProbeLimit
-        }
         if Self.shouldResetAgentIdentityForSubmittedSSH(
             command: command,
             agentKind: liveAgentKind,
@@ -1338,6 +1334,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             command: command,
             submittedFromLocalShell: submittedFromLocalShell
         )
+        replenishPendingSSHForegroundProbeBudget()
     }
 
     /// Sends IME-committed preedit text as its own key event, deliberately
