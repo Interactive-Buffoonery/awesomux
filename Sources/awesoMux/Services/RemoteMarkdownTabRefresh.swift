@@ -152,7 +152,11 @@ enum RemoteMarkdownTabRefresh {
                 onFinished: nil
             )
         } else {
-            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(reference, consumer: consumer)
+            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+                reference,
+                consumer: consumer,
+                announcementSessionID: sessionID
+            )
         }
         let participatesInAnnouncementOwnership = announceOutcome || announceFailure
         let ownsAnnouncements: Bool
@@ -184,7 +188,7 @@ enum RemoteMarkdownTabRefresh {
             if let fetchedOutcome,
                 announceOutcome,
                 ownsAnnouncements,
-                attempt.cohort.hasCoalescedInteractiveConsumer,
+                attempt.hasCoalescedInteractiveConsumer,
                 sessionStore.session(id: sessionID) != nil
             {
                 onAnnounceOutcome(fetchedOutcome)
@@ -194,7 +198,7 @@ enum RemoteMarkdownTabRefresh {
         guard let outcome = fetchedOutcome else {
             let ownsFailureAnnouncement =
                 announceFailure
-                ? !attempt.cohort.hasInteractiveConsumer
+                ? !attempt.hasInteractiveConsumer
                 : ownsAnnouncements
             // A nil outcome is a failed attempt (typically a cache/failure-page
             // write miss), not success. Note the policy against the tab's
@@ -206,8 +210,8 @@ enum RemoteMarkdownTabRefresh {
             else {
                 if announceOutcome,
                     ownsFailureAnnouncement,
-                    attempt.cohort.hasCoalescedInteractiveConsumer,
-                    !attempt.cohort.hasDocumentConsumer,
+                    attempt.hasCoalescedInteractiveConsumer,
+                    !attempt.hasFailurePresenter,
                     sessionStore.session(id: sessionID) != nil
                 {
                     onAnnounceFailure()
@@ -223,7 +227,7 @@ enum RemoteMarkdownTabRefresh {
                 RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
                 if ownsFailureAnnouncement,
                     announceOutcome || announceFailure,
-                    !attempt.cohort.hasDocumentConsumer
+                    !attempt.hasFailurePresenter
                 {
                     onAnnounceFailure()
                 }
@@ -238,7 +242,7 @@ enum RemoteMarkdownTabRefresh {
         guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else {
             if announceOutcome,
                 ownsAnnouncements,
-                attempt.cohort.hasCoalescedInteractiveConsumer
+                attempt.hasCoalescedInteractiveConsumer
             {
                 onAnnounceOutcome(outcome)
             }

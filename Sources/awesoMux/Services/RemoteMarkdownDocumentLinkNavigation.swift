@@ -83,7 +83,8 @@ enum RemoteMarkdownDocumentLinkNavigation {
         } else {
             prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
                 reference,
-                consumer: .document
+                consumer: .document,
+                announcementSessionID: sessionID
             )
         }
         let origin = RemoteMarkdownFetchProgressCoordinator.Origin.document

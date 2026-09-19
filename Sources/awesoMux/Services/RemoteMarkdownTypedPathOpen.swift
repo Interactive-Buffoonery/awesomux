@@ -154,7 +154,11 @@ enum RemoteMarkdownTypedPathOpen {
             onRoutingFailure()
             return nil
         }
-        let attempt = RemoteMarkdownSnapshotFetcher().startAttempt(reference, consumer: .other)
+        let attempt = RemoteMarkdownSnapshotFetcher().startAttempt(
+            reference,
+            consumer: .failurePresenter,
+            announcementSessionID: sessionID
+        )
         let claim = progress.beginClaim(
             sessionID: sessionID,
             identity: reference.identity,

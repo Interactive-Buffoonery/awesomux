@@ -122,7 +122,7 @@ struct GhosttyRuntimeRecentLinkTests {
         let session = makeSession(pane)
         let store = makeStore(session)
         var captured: RemoteMarkdownReference?
-        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { reference in
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { reference, _ in
             captured = reference
             return preparedRecentLinkAttempt { nil }
         }
@@ -164,7 +164,7 @@ struct GhosttyRuntimeRecentLinkTests {
         let session = makeSession(pane)
         let store = makeStore(session)
         var captured: RemoteMarkdownReference?
-        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { reference in
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { reference, _ in
             captured = reference
             return preparedRecentLinkAttempt { nil }
         }
@@ -258,7 +258,7 @@ struct GhosttyRuntimeRecentLinkTests {
         )
         let session = makeSession(pane)
         let store = makeStore(session)
-        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _, _ in
             preparedRecentLinkAttempt { nil }
         }
         var didPresent = false
@@ -317,7 +317,7 @@ struct GhosttyRuntimeRecentLinkTests {
         }
         defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previousPoster) }
 
-        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _, _ in
             preparedRecentLinkAttempt {
                 await hold.wait()
                 return nil

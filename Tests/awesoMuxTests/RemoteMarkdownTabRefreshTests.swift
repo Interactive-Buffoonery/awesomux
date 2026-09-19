@@ -1172,6 +1172,69 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(restoreFailures == 1)
     }
 
+    @Test("Refresh defers nil speech to a same-session failure presenter")
+    func refreshDefersNilToFailurePresenter() async throws {
+        let identity = remoteIdentity()
+        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-presenter-\(UUID().uuidString).md")
+        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+        _ = cohort.register(.failurePresenter, sessionID: sessionID)
+        var failures = 0
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity,
+            documentID: tabID,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: true,
+            announceOutcome: true,
+            onAnnounceLoading: {},
+            onAnnounceFailure: { failures += 1 },
+            startAttempt: { _ in
+                preparedAttempt(
+                    consumer: .refresh,
+                    outcome: nil,
+                    cohort: cohort,
+                    announcementSessionID: sessionID
+                )
+            }
+        )
+
+        #expect(failures == 0)
+    }
+
+    @Test("another session's presenter does not suppress restore failure")
+    func restoreFailureOwnershipIsSessionScoped() async throws {
+        let identity = remoteIdentity()
+        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-session-scope-\(UUID().uuidString).md")
+        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+        _ = cohort.register(.failurePresenter, sessionID: UUID())
+        var failures = 0
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity,
+            documentID: tabID,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            selectingTab: false,
+            announceFailure: true,
+            onAnnounceFailure: { failures += 1 },
+            startAttempt: { _ in
+                preparedAttempt(
+                    consumer: .restore,
+                    outcome: nil,
+                    cohort: cohort,
+                    announcementSessionID: sessionID
+                )
+            }
+        )
+
+        #expect(failures == 1)
+    }
+
     @Test("later Refresh cohort owns success while prior document progress remains")
     func laterRefreshCohortOwnsSuccess() async throws {
         let identity = remoteIdentity()
@@ -1412,19 +1475,26 @@ struct RemoteMarkdownTabRefreshTests {
 private func preparedAttempt(
     consumer: RemoteMarkdownFetchCoordinator.Cohort.Consumer,
     outcome: RemoteMarkdownFetchOutcome?,
-    cohort: RemoteMarkdownFetchCoordinator.Cohort
+    cohort: RemoteMarkdownFetchCoordinator.Cohort,
+    announcementSessionID: UUID? = nil
 ) -> RemoteMarkdownFetchCoordinator.PreparedAttempt {
-    preparedAttempt(consumer: consumer, cohort: cohort) { outcome }
+    preparedAttempt(
+        consumer: consumer,
+        cohort: cohort,
+        announcementSessionID: announcementSessionID
+    ) { outcome }
 }
 
 private func preparedAttempt(
     consumer: RemoteMarkdownFetchCoordinator.Cohort.Consumer,
     cohort: RemoteMarkdownFetchCoordinator.Cohort,
+    announcementSessionID: UUID? = nil,
     operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
 ) -> RemoteMarkdownFetchCoordinator.PreparedAttempt {
     .init(
         cohort: cohort,
-        ownsAnnouncements: cohort.register(consumer),
+        announcementSessionID: announcementSessionID,
+        ownsAnnouncements: cohort.register(consumer, sessionID: announcementSessionID),
         task: Task { await operation() },
         isNew: true,
         onCoalesced: nil,

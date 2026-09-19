@@ -95,14 +95,23 @@ struct OpenURLAction {
 
 extension GhosttyRuntime {
     @MainActor
-    static var recentLinkRemoteSnapshotProvider: @MainActor (RemoteMarkdownReference) -> RemoteMarkdownFetchCoordinator.PreparedAttempt = {
-        RemoteMarkdownSnapshotFetcher().startAttempt($0, consumer: .other)
+    static var recentLinkRemoteSnapshotProvider:
+        @MainActor (RemoteMarkdownReference, UUID) -> RemoteMarkdownFetchCoordinator.PreparedAttempt = {
+            RemoteMarkdownSnapshotFetcher().startAttempt(
+                $0,
+                consumer: .failurePresenter,
+                announcementSessionID: $1
+            )
     }
 
     @MainActor
     static func resetRecentLinkRemoteSnapshotProviderForTesting() {
         recentLinkRemoteSnapshotProvider = {
-            RemoteMarkdownSnapshotFetcher().startAttempt($0, consumer: .other)
+            RemoteMarkdownSnapshotFetcher().startAttempt(
+                $0,
+                consumer: .failurePresenter,
+                announcementSessionID: $1
+            )
         }
     }
 
@@ -172,7 +181,7 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
-            let prepared = recentLinkRemoteSnapshotProvider(reference)
+            let prepared = recentLinkRemoteSnapshotProvider(reference, sessionID)
             let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
             let progress = RemoteMarkdownFetchProgressCoordinator.shared
             _ = progress.begin(
@@ -375,7 +384,11 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(view)
                 return
             }
-            let prepared = RemoteMarkdownSnapshotFetcher().startAttempt(reference, consumer: .other)
+            let prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+                reference,
+                consumer: .failurePresenter,
+                announcementSessionID: workspaceID
+            )
             let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
             let progress = RemoteMarkdownFetchProgressCoordinator.shared
             _ = progress.begin(

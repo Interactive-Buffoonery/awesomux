@@ -968,6 +968,65 @@ struct RemoteMarkdownReferenceTests {
         #expect(secondAttempt.ownsAnnouncements)
     }
 
+    @Test func coalescedFetchKeepsAnnouncementOwnersPerSession() async throws {
+        let reference = try #require(
+            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
+        )
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let gate = AsyncGate()
+        let fetcher = RemoteMarkdownSnapshotFetcher(
+            cacheDirectoryURL: cacheDirectory,
+            fetchOverride: { _ in
+                await gate.enterAndWait()
+                return .success(Data("current".utf8))
+            }
+        )
+        let firstSession = UUID()
+        let secondSession = UUID()
+
+        let first = fetcher.startAttempt(
+            reference,
+            consumer: .refresh,
+            announcementSessionID: firstSession
+        )
+        let firstResult = Task { await first.value() }
+        await gate.waitForEntries(1)
+        let sameSession = fetcher.startAttempt(
+            reference,
+            consumer: .document,
+            announcementSessionID: firstSession
+        )
+        let otherSession = fetcher.startAttempt(
+            reference,
+            consumer: .document,
+            announcementSessionID: secondSession
+        )
+
+        #expect(first.cohort === sameSession.cohort)
+        #expect(first.cohort === otherSession.cohort)
+        #expect(first.ownsAnnouncements)
+        #expect(!sameSession.ownsAnnouncements)
+        #expect(otherSession.ownsAnnouncements)
+        #expect(first.cohort.hasFailurePresenter(sessionID: firstSession))
+        #expect(first.cohort.hasFailurePresenter(sessionID: secondSession))
+
+        await gate.release()
+        _ = await firstResult.value
+        _ = await sameSession.value()
+        _ = await otherSession.value()
+    }
+
+    @Test func repeatedConsumerTypeStillCountsAsCoalesced() {
+        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+        let sessionID = UUID()
+
+        #expect(cohort.register(.refresh, sessionID: sessionID))
+        #expect(!cohort.register(.refresh, sessionID: sessionID))
+        #expect(cohort.hasCoalescedInteractiveConsumer(sessionID: sessionID))
+    }
+
     @Test func differentCacheDirectoriesDoNotShareInFlightResults() async throws {
         let reference = try #require(
             RemoteMarkdownReference.make(
