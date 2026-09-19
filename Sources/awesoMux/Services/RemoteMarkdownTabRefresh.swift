@@ -98,6 +98,16 @@ enum RemoteMarkdownTabRefresh {
         announceOutcome: Bool = false,
         announceFailure: Bool = false,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
+        progress: RemoteMarkdownFetchProgressCoordinator = .shared,
+        onAnnounceLoading: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+        },
+        onAnnounceOutcome: @MainActor (RemoteMarkdownFetchOutcome) -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdown($0)
+        },
+        onAnnounceFailure: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
+        },
         fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
             await RemoteMarkdownSnapshotFetcher().fetch($0)
         }
@@ -119,6 +129,32 @@ enum RemoteMarkdownTabRefresh {
         else {
             return nil
         }
+        // Footer Refresh shares announcement ownership with link opens for the
+        // same remote file. Keep the tab latch above as the stronger duplicate
+        // guard for repeated Refresh clicks; this identity-keyed claim only
+        // decides which otherwise-valid caller speaks.
+        let ownsAnnouncements: Bool
+        if announceOutcome {
+            ownsAnnouncements = progress.begin(
+                sessionID: sessionID,
+                identity: identity,
+                origin: .refresh
+            )
+            if ownsAnnouncements {
+                onAnnounceLoading()
+            }
+        } else {
+            ownsAnnouncements = true
+        }
+        defer {
+            if announceOutcome {
+                progress.finish(
+                    sessionID: sessionID,
+                    identity: identity,
+                    origin: .refresh
+                )
+            }
+        }
         guard let outcome = await fetch(reference) else {
             // A nil outcome is a failed attempt (typically a cache/failure-page
             // write miss), not success. Note the policy against the tab's
@@ -128,6 +164,13 @@ enum RemoteMarkdownTabRefresh {
                 let tab = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                     .tab(id: documentID)
             else {
+                if announceOutcome,
+                    ownsAnnouncements,
+                    progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity),
+                    sessionStore.session(id: sessionID) != nil
+                {
+                    onAnnounceFailure()
+                }
                 return nil
             }
             let path = tab.fileURL.standardizedFileURL.path
@@ -137,32 +180,51 @@ enum RemoteMarkdownTabRefresh {
             // itself already explains the state.
             if !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL) {
                 RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
-                if announceOutcome || announceFailure {
-                    TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
+                if ownsAnnouncements, announceOutcome || announceFailure {
+                    onAnnounceFailure()
                 }
             }
             return nil
         }
-        // Dropped while the fetch was in flight (a superseded restore sweep):
-        // stay silent rather than noting a failure nobody caused or presenting
-        // an alert for a tab nobody is waiting on.
-        guard !Task.isCancelled else { return nil }
-        // A closed tab must not be resurrected by a late fetch — same contract
-        // as branch-changes Refresh carrying its originating document id.
-        guard
-            sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
-                .tab(id: documentID) != nil
-        else {
+        // A superseded restore sweep stays silent. An interactive Refresh that
+        // owned speech still completes the shared announcement sequence when
+        // another caller joined its fetch; that caller deliberately stayed
+        // quiet and may already have applied the same outcome.
+        if Task.isCancelled {
+            if announceOutcome,
+                ownsAnnouncements,
+                progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity),
+                sessionStore.session(id: sessionID) != nil
+            {
+                onAnnounceOutcome(outcome)
+            }
             return nil
         }
-        apply(
+        // A closed tab must not be resurrected by a late fetch — same contract
+        // as branch-changes Refresh carrying its originating document id.
+        guard let liveSession = sessionStore.session(id: sessionID) else {
+            return nil
+        }
+        guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else {
+            if announceOutcome,
+                ownsAnnouncements,
+                progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity)
+            {
+                onAnnounceOutcome(outcome)
+            }
+            return nil
+        }
+        let openedID = apply(
             outcome,
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
             selectingTab: selectingTab,
-            announceOutcome: announceOutcome
+            announceOutcome: false
         )
+        if announceOutcome, ownsAnnouncements, openedID != nil {
+            onAnnounceOutcome(outcome)
+        }
         return outcome
     }
 

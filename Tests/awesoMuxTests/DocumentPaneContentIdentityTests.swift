@@ -137,14 +137,22 @@ struct RemoteRefreshFooterAccessibilityTests {
                 path: "Sources/awesoMux/Views/DocumentPaneView.swift"),
             encoding: .utf8
         )
+        let refreshService = try String(
+            contentsOf: repositoryRoot.appending(
+                path: "Sources/awesoMux/Services/RemoteMarkdownTabRefresh.swift"),
+            encoding: .utf8
+        )
         guard let refreshRange = source.range(of: "func refreshRemoteSnapshot()") else {
             Issue.record("missing refreshRemoteSnapshot")
             return
         }
         let window = String(source[refreshRange.upperBound...].prefix(600))
         #expect(
-            window.contains("announceRemoteMarkdownLoading()"),
-            "footer Refresh must speak a loading cue like every other remote fetch")
+            refreshService.contains("onAnnounceLoading()"),
+            "the shared Refresh service must speak the loading cue")
+        #expect(
+            !window.contains("announceRemoteMarkdownLoading()"),
+            "the footer must not bypass shared announcement ownership")
         // Busy must not be a color-only dim: the button shows a distinct title.
         #expect(
             try AwesoMuxStringCatalog.keys().contains("Refreshing…"),

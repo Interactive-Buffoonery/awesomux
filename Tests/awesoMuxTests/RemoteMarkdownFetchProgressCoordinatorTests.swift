@@ -71,6 +71,19 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         #expect(progress.isDocumentOverlayBusy(sessionID: sessionID, identity: documentIdentity))
     }
 
+    @Test("Refresh shares ownership without adding document overlay chrome")
+    func refreshOriginDoesNotAddChrome() {
+        let progress = RemoteMarkdownFetchProgressCoordinator()
+        let sessionID = UUID()
+        let identity = makeIdentity()
+
+        #expect(progress.begin(sessionID: sessionID, identity: identity, origin: .refresh))
+        #expect(progress.isInFlight(sessionID: sessionID, identity: identity))
+        #expect(!progress.isDocumentOverlayBusy(sessionID: sessionID, identity: identity))
+        progress.finish(sessionID: sessionID, identity: identity, origin: .refresh)
+        #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
+    }
+
     @Test("different sessions and identities do not block each other")
     func keysAreIndependent() {
         let progress = RemoteMarkdownFetchProgressCoordinator()

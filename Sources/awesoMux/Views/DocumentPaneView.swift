@@ -513,9 +513,6 @@ struct DocumentPaneSendBar: View {
             pane.remoteResourceIdentity != nil,
             let remoteMarkdownRefresh
         else { return }
-        // Same loading cue every other remote fetch starts with; without it the
-        // footer Refresh goes silent for the whole SSH round trip.
-        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
         remoteRefreshRequested = true
         remoteMarkdownRefresh.run(session.id, pane.id) { remoteRefreshRequested = false }
     }

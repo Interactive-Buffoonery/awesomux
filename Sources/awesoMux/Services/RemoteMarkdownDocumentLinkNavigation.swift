@@ -85,7 +85,9 @@ enum RemoteMarkdownDocumentLinkNavigation {
             )
         }
         guard let outcome = await fetch(reference) else {
-            onFetchFailure()
+            if isFirstWaiter {
+                onFetchFailure()
+            }
             return nil
         }
         // A fragment link lands at the top only when it mounts a *new* tab. An
@@ -110,7 +112,8 @@ enum RemoteMarkdownDocumentLinkNavigation {
         // Only announce the at-top landing for a fresh snapshot on a newly
         // mounted tab. Stale cache and failure pages still open a tab but
         // contradict the cue; a session gone mid-fetch returns nil from apply.
-        if openedID != nil,
+        if isFirstWaiter,
+            openedID != nil,
             !targetAlreadyOpen,
             case .fresh = outcome,
             let fragment = url.fragment,

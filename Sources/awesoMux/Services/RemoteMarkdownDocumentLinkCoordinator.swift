@@ -10,8 +10,9 @@ import Foundation
 /// hears one set of cues and only one focus request fires.
 ///
 /// The footer Refresh owns a separate latch keyed by document tab
-/// (`RemoteMarkdownRefreshCoordinator`); the two are intentionally independent,
-/// so a Refresh racing a link open can still announce twice for one file.
+/// (`RemoteMarkdownRefreshCoordinator`). The latches remain independent, while
+/// `RemoteMarkdownFetchProgressCoordinator` assigns shared announcement
+/// ownership when a Refresh races a link open for the same file.
 @MainActor
 final class RemoteMarkdownDocumentLinkCoordinator {
     static let shared = RemoteMarkdownDocumentLinkCoordinator()
