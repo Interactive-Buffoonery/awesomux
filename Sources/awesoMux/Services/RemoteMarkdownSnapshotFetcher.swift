@@ -814,6 +814,13 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         cacheDirectoryURL.appending(path: failureFileName(for: reference))
     }
 
+    func snapshotFileURLs(for identity: ResourceIdentity) -> Set<URL>? {
+        guard let reference = RemoteMarkdownReference.make(identity: identity) else {
+            return nil
+        }
+        return [cacheFileURL(for: reference), failureFileURL(for: reference)]
+    }
+
     /// Deliberately not `cacheFileName`: an app-generated failure page written to
     /// the snapshot path would be found by `cachedSnapshot` on the next failed
     /// fetch and presented to the user as a point-in-time copy of their file.

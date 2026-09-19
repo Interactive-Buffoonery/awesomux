@@ -522,14 +522,15 @@ enum SessionPersistence {
     static func scheduleGeneratedDocumentPrune(keeping store: SessionStore) {
         let transcriptStore = AgentTranscriptStore()
         let branchChanges = BranchChangesOpener()
-        let references = generatedDocumentReferences(
-            keeping: store,
-            transcripts: transcriptStore,
-            branchChanges: branchChanges
-        )
         let cacheDirectoryURL =
             supportDirectoryURL
             .appending(path: "remote-markdown", directoryHint: .isDirectory)
+        let references = generatedDocumentReferences(
+            keeping: store,
+            remoteMarkdown: RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL),
+            transcripts: transcriptStore,
+            branchChanges: branchChanges
+        )
         RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL)
             .schedulePruneUnreferencedSnapshots(keeping: references.remoteMarkdownSnapshots)
         transcriptStore.schedulePruneUnreferenced(keeping: references.agentTranscripts)
@@ -541,6 +542,7 @@ enum SessionPersistence {
         let branchChanges = BranchChangesOpener()
         let references = generatedDocumentReferences(
             keeping: store,
+            remoteMarkdown: RemoteMarkdownSnapshotFetcher(),
             transcripts: transcriptStore,
             branchChanges: branchChanges
         )
@@ -552,6 +554,7 @@ enum SessionPersistence {
 
     static func generatedDocumentReferences(
         keeping store: SessionStore,
+        remoteMarkdown: RemoteMarkdownSnapshotFetcher = RemoteMarkdownSnapshotFetcher(),
         transcripts: AgentTranscriptStore = AgentTranscriptStore(),
         branchChanges: BranchChangesOpener = BranchChangesOpener()
     ) -> GeneratedDocumentReferences {
@@ -560,6 +563,7 @@ enum SessionPersistence {
             for session in group.sessions {
                 collectGeneratedDocumentURLs(
                     from: session.layout,
+                    remoteMarkdown: remoteMarkdown,
                     transcripts: transcripts,
                     branchChanges: branchChanges,
                     into: &references
@@ -572,6 +576,7 @@ enum SessionPersistence {
         for entry in store.recentlyClosed {
             collectGeneratedDocumentURLs(
                 from: entry.layout,
+                remoteMarkdown: remoteMarkdown,
                 transcripts: transcripts,
                 branchChanges: branchChanges,
                 into: &references
@@ -582,6 +587,7 @@ enum SessionPersistence {
 
     private static func collectGeneratedDocumentURLs(
         from layout: TerminalPaneLayout,
+        remoteMarkdown: RemoteMarkdownSnapshotFetcher,
         transcripts: AgentTranscriptStore,
         branchChanges: BranchChangesOpener,
         into references: inout GeneratedDocumentReferences
@@ -591,8 +597,10 @@ enum SessionPersistence {
             return
         case let .documentGroup(group):
             for tab in group.tabs {
-                if tab.remoteResourceIdentity?.isSupportedRemoteMarkdownSnapshot == true {
-                    references.remoteMarkdownSnapshots.insert(tab.fileURL)
+                if let identity = tab.remoteResourceIdentity,
+                    let siblingURLs = remoteMarkdown.snapshotFileURLs(for: identity)
+                {
+                    references.remoteMarkdownSnapshots.formUnion(siblingURLs)
                 }
                 // Same union of the two signals as the transcript arm below,
                 // for the same reasons.
@@ -615,12 +623,14 @@ enum SessionPersistence {
         case let .split(split):
             collectGeneratedDocumentURLs(
                 from: split.first,
+                remoteMarkdown: remoteMarkdown,
                 transcripts: transcripts,
                 branchChanges: branchChanges,
                 into: &references
             )
             collectGeneratedDocumentURLs(
                 from: split.second,
+                remoteMarkdown: remoteMarkdown,
                 transcripts: transcripts,
                 branchChanges: branchChanges,
                 into: &references

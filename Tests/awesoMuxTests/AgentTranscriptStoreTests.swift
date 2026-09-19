@@ -537,6 +537,15 @@ extension SessionPersistenceSerializationDomainTests {
             directoryHint: .isDirectory
         )
         let transcriptURL = cacheDirectory.appending(path: "one.transcript.md")
+            let remoteCacheDirectory = temporaryDirectory.url.appending(
+                path: "remote-markdown",
+                directoryHint: .isDirectory
+            )
+            let remoteFetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: remoteCacheDirectory)
+            let remoteIdentity = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "devbox")!),
+                path: ResourcePath(rawValue: "/repo/remote.md")
+            )
         let snapshotURL = temporaryDirectory.url.appending(path: "remote.md")
         let userFileURL = temporaryDirectory.url.appending(path: "notes.transcript.md")
 
@@ -546,10 +555,7 @@ extension SessionPersistenceSerializationDomainTests {
             DocumentPane(
                 fileURL: snapshotURL,
                 title: "remote.md",
-                remoteResourceIdentity: ResourceIdentity(
-                    location: .remote(RemoteTarget(parsing: "devbox")!),
-                    path: ResourcePath(rawValue: "/repo/remote.md")
-                )
+                    remoteResourceIdentity: remoteIdentity
             ),
             DocumentPane(fileURL: userFileURL, title: "notes.transcript.md"),
         ]
@@ -574,11 +580,15 @@ extension SessionPersistenceSerializationDomainTests {
 
         let references = SessionPersistence.generatedDocumentReferences(
             keeping: store,
+                remoteMarkdown: remoteFetcher,
             transcripts: AgentTranscriptStore(cacheDirectoryURL: cacheDirectory)
         )
 
         #expect(references.agentTranscripts == [transcriptURL])
-        #expect(references.remoteMarkdownSnapshots == [snapshotURL])
+            #expect(
+                references.remoteMarkdownSnapshots
+                    == remoteFetcher.snapshotFileURLs(for: remoteIdentity)
+            )
         // Membership is by directory, not by name: a user's own file that
         // happens to end in `.transcript.md` is not an app-authored artifact.
         #expect(!references.agentTranscripts.contains(userFileURL))

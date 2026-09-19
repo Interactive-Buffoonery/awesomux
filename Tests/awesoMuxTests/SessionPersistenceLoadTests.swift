@@ -299,10 +299,19 @@ extension SessionPersistenceSerializationDomainTests {
                     withIntermediateDirectories: true,
                     attributes: [.posixPermissions: 0o700]
                 )
-                let cachedSnapshot = cacheDir.appending(path: "offline.md")
+                let target = try #require(RemoteTarget(parsing: "alice@devbox"))
+                let identity = ResourceIdentity(
+                    location: .remote(target),
+                    path: ResourcePath(rawValue: "/repo/offline.md")
+                )
+                let fetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
+                let cachedSnapshot = try #require(
+                    fetcher.snapshotFileURLs(for: identity)?.first {
+                        !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath($0)
+                    }
+                )
                 try Data("# Offline snapshot".utf8).write(to: cachedSnapshot)
 
-                let target = try #require(RemoteTarget(parsing: "alice@devbox"))
                 let terminal = TerminalPane(
                     title: "remote shell",
                     workingDirectory: "~",
@@ -312,10 +321,7 @@ extension SessionPersistenceSerializationDomainTests {
                     fileURL: cachedSnapshot,
                     title: "offline.md",
                     associatedTerminalPaneID: terminal.id,
-                    remoteResourceIdentity: ResourceIdentity(
-                        location: .remote(target),
-                        path: ResourcePath(rawValue: "/repo/offline.md")
-                    )
+                    remoteResourceIdentity: identity
                 )
                 let session = TerminalSession(
                     title: "remote shell",
@@ -368,7 +374,16 @@ extension SessionPersistenceSerializationDomainTests {
                     withIntermediateDirectories: true,
                     attributes: [.posixPermissions: 0o700]
                 )
-                let kept = cacheDir.appending(path: "kept.md")
+                let identity = ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/kept.md")
+                )
+                let fetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
+                let kept = try #require(
+                    fetcher.snapshotFileURLs(for: identity)?.first {
+                        !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath($0)
+                    }
+                )
                 let orphan = cacheDir.appending(path: "orphan.md")
                 try Data("kept".utf8).write(to: kept)
                 try Data("orphan".utf8).write(to: orphan)
@@ -377,10 +392,7 @@ extension SessionPersistenceSerializationDomainTests {
                 let doc = DocumentPane(
                     fileURL: kept,
                     title: "kept.md",
-                    remoteResourceIdentity: ResourceIdentity(
-                        location: .remote(RemoteTarget(parsing: "devbox")!),
-                        path: ResourcePath(rawValue: "/repo/kept.md")
-                    )
+                    remoteResourceIdentity: identity
                 )
                 let session = TerminalSession(
                     title: "shell",
@@ -422,7 +434,16 @@ extension SessionPersistenceSerializationDomainTests {
                     withIntermediateDirectories: true,
                     attributes: [.posixPermissions: 0o700]
                 )
-                let kept = cacheDir.appending(path: "recent.md")
+                let identity = ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/recent.md")
+                )
+                let fetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
+                let kept = try #require(
+                    fetcher.snapshotFileURLs(for: identity)?.first {
+                        !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath($0)
+                    }
+                )
                 let orphan = cacheDir.appending(path: "orphan.md")
                 try Data("recent".utf8).write(to: kept)
                 try Data("orphan".utf8).write(to: orphan)
@@ -431,10 +452,7 @@ extension SessionPersistenceSerializationDomainTests {
                 let doc = DocumentPane(
                     fileURL: kept,
                     title: "recent.md",
-                    remoteResourceIdentity: ResourceIdentity(
-                        location: .remote(RemoteTarget(parsing: "devbox")!),
-                        path: ResourcePath(rawValue: "/repo/recent.md")
-                    )
+                    remoteResourceIdentity: identity
                 )
                 let layout = TerminalPaneLayout.split(
                     TerminalSplit(
@@ -466,6 +484,83 @@ extension SessionPersistenceSerializationDomainTests {
 
                 #expect(FileManager.default.fileExists(atPath: kept.path))
                 #expect(!FileManager.default.fileExists(atPath: orphan.path))
+            }
+        }
+
+        @Test("remote markdown cache keeps both slots for a live remote identity")
+        func remoteMarkdownCacheKeepsBothSlotsForLiveIdentity() async throws {
+            try await Self.withTemporarySupportDirectoryAsync { tempDir in
+                let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
+                try FileManager.default.createDirectory(
+                    at: cacheDir,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                let identity = ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/README.md")
+                )
+                let fetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
+                let siblingURLs = try #require(fetcher.snapshotFileURLs(for: identity))
+                let failureURL = try #require(
+                    siblingURLs.first(where: RemoteMarkdownSnapshotFetcher.isFailureDocumentPath)
+                )
+                let cacheURL = try #require(
+                    siblingURLs.first { !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath($0) }
+                )
+                let staleDisplayedURL = cacheDir.appending(path: "stale-display.md")
+                let orphan = cacheDir.appending(path: "orphan.md")
+                for url in [failureURL, cacheURL, staleDisplayedURL, orphan] {
+                    try Data(url.lastPathComponent.utf8).write(to: url)
+                }
+
+                let terminal = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
+                let doc = DocumentPane(
+                    fileURL: staleDisplayedURL,
+                    title: "README.md",
+                    remoteResourceIdentity: identity
+                )
+                let session = TerminalSession(
+                    title: "shell",
+                    workingDirectory: "~",
+                    layout: .split(
+                        TerminalSplit(
+                            orientation: .vertical,
+                            first: .pane(terminal),
+                            second: .documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
+                        )),
+                    activePaneID: terminal.id
+                )
+                let store = SessionStore(
+                    restoring: SessionSnapshot(
+                        groups: [SessionGroup(name: "ops", sessions: [session])],
+                        selectedSessionID: session.id
+                    )
+                )
+                let references = SessionPersistence.generatedDocumentReferences(
+                    keeping: store,
+                    remoteMarkdown: fetcher
+                )
+
+                fetcher.pruneUnreferencedSnapshotsImmediately(
+                    keeping: references.remoteMarkdownSnapshots
+                )
+
+                #expect(FileManager.default.fileExists(atPath: failureURL.path))
+                #expect(FileManager.default.fileExists(atPath: cacheURL.path))
+                #expect(!FileManager.default.fileExists(atPath: staleDisplayedURL.path))
+                #expect(!FileManager.default.fileExists(atPath: orphan.path))
+
+                let failedRefresh = RemoteMarkdownSnapshotFetcher(
+                    cacheDirectoryURL: cacheDir,
+                    fetchOverride: { _ in .nonZeroExit(255) }
+                )
+                let reference = try #require(RemoteMarkdownReference.make(identity: identity))
+                guard case .cached(let snapshot, _) = await failedRefresh.fetch(reference) else {
+                    Issue.record("expected the retained cache slot after a failed refresh")
+                    return
+                }
+                #expect(snapshot.fileURL == cacheURL)
             }
         }
 
@@ -1147,16 +1242,41 @@ extension SessionPersistenceSerializationDomainTests {
                     withIntermediateDirectories: true,
                     attributes: [.posixPermissions: 0o700]
                 )
-                let openedCacheURL = cacheDir.appending(path: "opened.md")
-                let replacementCacheURL = cacheDir.appending(path: "replacement.md")
+                let fetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
+                let openedIdentity = ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/opened.md")
+                )
+                let replacementIdentity = ResourceIdentity(
+                    location: .remote(RemoteTarget(parsing: "devbox")!),
+                    path: ResourcePath(rawValue: "/repo/replacement.md")
+                )
+                let openedCacheURL = try #require(
+                    fetcher.snapshotFileURLs(for: openedIdentity)?.first {
+                        !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath($0)
+                    }
+                )
+                let replacementCacheURL = try #require(
+                    fetcher.snapshotFileURLs(for: replacementIdentity)?.first {
+                        !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath($0)
+                    }
+                )
                 try Data("opened cache".utf8).write(to: openedCacheURL)
                 try Data("replacement cache".utf8).write(to: replacementCacheURL)
                 let openedData = try Self.write(
-                    Self.remoteSnapshot(groupName: "opened", cacheURL: openedCacheURL),
+                    Self.remoteSnapshot(
+                        groupName: "opened",
+                        cacheURL: openedCacheURL,
+                        remotePath: "/repo/opened.md"
+                    ),
                     to: tempDir
                 )
                 let replacementData = try Self.write(
-                    Self.remoteSnapshot(groupName: "replacement", cacheURL: replacementCacheURL),
+                    Self.remoteSnapshot(
+                        groupName: "replacement",
+                        cacheURL: replacementCacheURL,
+                        remotePath: "/repo/replacement.md"
+                    ),
                     to: tempDir,
                     url: replacementURL
                 )
@@ -2186,14 +2306,18 @@ extension SessionPersistenceSerializationDomainTests {
             )
         }
 
-        private static func remoteSnapshot(groupName: String, cacheURL: URL) -> SessionSnapshot {
+        private static func remoteSnapshot(
+            groupName: String,
+            cacheURL: URL,
+            remotePath: String
+        ) -> SessionSnapshot {
             let terminal = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
             let document = DocumentPane(
                 fileURL: cacheURL,
                 title: cacheURL.lastPathComponent,
                 remoteResourceIdentity: ResourceIdentity(
                     location: .remote(RemoteTarget(parsing: "devbox")!),
-                    path: ResourcePath(rawValue: "/repo/\(cacheURL.lastPathComponent)")
+                    path: ResourcePath(rawValue: remotePath)
                 )
             )
             let session = TerminalSession(
