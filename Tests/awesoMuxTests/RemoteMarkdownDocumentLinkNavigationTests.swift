@@ -472,12 +472,9 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(fetchFailures == 0)
     }
 
-    /// An already-open target does not move: a self-link stays put and a
-    /// background tab reopens at its saved position. Announcing "opened at the
-    /// top" for either would be false, so the cue fires only for a new tab.
-    @Test("a fragment link to an already-open tab does not announce an at-top landing")
+    @Test("a fragment link scrolls an already-open tab before announcing its landing")
     @MainActor
-    func alreadyOpenFragmentTargetDoesNotAnnounceAtTop() async throws {
+    func alreadyOpenFragmentTargetScrollsAndAnnouncesAtTop() async throws {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
@@ -487,6 +484,7 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         defer { try? FileManager.default.removeItem(at: cacheURL) }
 
         var fragmentAnnouncements = 0
+        var scrolledTabIDs: [DocumentPane.ID] = []
         func open(destination: String) async throws -> DocumentPane.ID? {
             let link = try #require(
                 RemoteMarkdownReference.linkURL(
@@ -511,16 +509,94 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
                 },
                 onRoutingFailure: { Issue.record("routing failure should not fire") },
                 onAnnounceLoading: {},
-                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 },
+                onScrollFragmentTargetToTop: { tabID in
+                    scrolledTabIDs.append(tabID)
+                    return true
+                }
             )
         }
 
         // First open mounts a new tab, so the at-top cue is true.
         _ = try #require(await open(destination: "sibling.md#install"))
         #expect(fragmentAnnouncements == 1)
-        // Second open hits the already-open tab and must stay silent.
-        _ = try #require(await open(destination: "sibling.md#install"))
-        #expect(fragmentAnnouncements == 1)
+        // Second open hits the already-open tab, resets it, then truthfully
+        // announces the same visible landing.
+        let reopened = try #require(await open(destination: "sibling.md#install"))
+        #expect(scrolledTabIDs == [reopened])
+        #expect(fragmentAnnouncements == 2)
+    }
+
+    @Test("a coalesced fragment link scrolls without duplicating speech")
+    @MainActor
+    func coalescedFragmentLinkStillScrolls() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let progress = RemoteMarkdownFetchProgressCoordinator()
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-md-link-coalesced-\(UUID().uuidString).md")
+        try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md#install",
+                relativeTo: source
+            )
+        )
+        let reference = try #require(
+            RemoteMarkdownDocumentLinkNavigation.reference(forOpenedLinkURL: link, from: source)
+        )
+        _ = store.openDocumentPane(
+            fileURL: cacheURL,
+            in: sessionID,
+            remoteResourceIdentity: reference.identity
+        )
+        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+        #expect(cohort.register(.refresh, sessionID: sessionID))
+        #expect(!cohort.register(.document, sessionID: sessionID))
+
+        var scrolledTabID: DocumentPane.ID?
+        var fragmentAnnouncements = 0
+        let openedID = try #require(
+            await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                startAttempt: { reference in
+                    .init(
+                        cohort: cohort,
+                        announcementSessionID: sessionID,
+                        ownsAnnouncements: false,
+                        task: Task {
+                            .fresh(
+                                RemoteMarkdownSnapshot(
+                                    fileURL: cacheURL,
+                                    identity: reference.identity
+                                )
+                            )
+                        },
+                        isNew: false,
+                        onCoalesced: nil,
+                        onRegistered: nil,
+                        onFinished: nil
+                    )
+                },
+                onRoutingFailure: { Issue.record("routing failure should not fire") },
+                onAnnounceLoading: { Issue.record("coalesced link should not announce loading") },
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 },
+                onScrollFragmentTargetToTop: { tabID in
+                    scrolledTabID = tabID
+                    return true
+                },
+                progress: progress
+            )
+        )
+
+        #expect(scrolledTabID == openedID)
+        #expect(fragmentAnnouncements == 0)
     }
 
     @Test("a fragment link announces at-top when the already-open tab closes during fetch")
@@ -584,7 +660,7 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(fragmentAnnouncements == 2)
     }
 
-    @Test("a fragment link stays silent when another task opens the tab during fetch")
+    @Test("a fragment link resets a tab another task opens during fetch")
     @MainActor
     func fragmentLinkStaysSilentWhenTabOpensDuringFetch() async throws {
         let store = SessionStore()
@@ -596,6 +672,7 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         defer { try? FileManager.default.removeItem(at: cacheURL) }
 
         var fragmentAnnouncements = 0
+        var resetTabID: DocumentPane.ID?
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md#install",
@@ -625,11 +702,16 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
                 },
                 onRoutingFailure: { Issue.record("routing failure should not fire") },
                 onAnnounceLoading: {},
-                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 }
+                onAnnounceFragmentOpened: { fragmentAnnouncements += 1 },
+                onScrollFragmentTargetToTop: { tabID in
+                    resetTabID = tabID
+                    return true
+                }
             )
         )
         #expect(openedID != nil)
-        #expect(fragmentAnnouncements == 0)
+        #expect(resetTabID == openedID)
+        #expect(fragmentAnnouncements == 1)
     }
 
     @Test("a second open for the same in-flight link is dropped")

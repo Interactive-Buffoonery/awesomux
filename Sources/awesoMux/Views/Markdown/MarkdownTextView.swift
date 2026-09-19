@@ -253,9 +253,9 @@ struct MarkdownTextView: NSViewRepresentable {
 
     var scrollAnchorOffset: Int? = nil
 
-    /// Called from `makeNSView`/`updateNSView` with a closure that captures
-    /// the coordinator's `scrollAnchorSourceOffset()` method.
-    var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil
+    /// Called from `makeNSView`/`updateNSView` with closures that read and set
+    /// the coordinator's source-anchored scroll position.
+    var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?, @escaping @MainActor (Int) -> Bool) -> Void)? = nil
 
     /// INT-748 PR2: routes a clicked local-markdown link so the opened tab
     /// inherits this document's terminal association. External links are
@@ -561,9 +561,14 @@ struct MarkdownTextView: NSViewRepresentable {
         onTextViewAvailable?(textView)
 
         // Register the scroll-anchor capture closure with the parent view.
-        onRegisterScrollAnchorCapture?({ [weak coordinator = context.coordinator] in
-            coordinator?.scrollAnchorSourceOffset()
-        })
+        onRegisterScrollAnchorCapture?(
+            { [weak coordinator = context.coordinator] in
+                coordinator?.scrollAnchorSourceOffset()
+            },
+            { [weak coordinator = context.coordinator] offset in
+                coordinator?.scrollToSourceOffset(offset) ?? false
+            }
+        )
 
         return scrollView
     }
@@ -884,9 +889,14 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         // Re-register the capture closure on every update pass.
-        onRegisterScrollAnchorCapture?({ [weak coordinator = context.coordinator] in
-            coordinator?.scrollAnchorSourceOffset()
-        })
+        onRegisterScrollAnchorCapture?(
+            { [weak coordinator = context.coordinator] in
+                coordinator?.scrollAnchorSourceOffset()
+            },
+            { [weak coordinator = context.coordinator] offset in
+                coordinator?.scrollToSourceOffset(offset) ?? false
+            }
+        )
 
         // Reposition and update callbacks on the badge overlay.
         // The overlay autoresizes with the text view's bounds (it's a subview), so we
@@ -1828,32 +1838,39 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
     }
 
     /// Scrolls the text view so the line containing `sourceOffset` is at the top.
-    func scrollToSourceOffset(_ targetOffset: Int) {
+    @discardableResult
+    func scrollToSourceOffset(_ targetOffset: Int) -> Bool {
         guard let textView,
             let attr = currentAttr,
             attr.length > 0,
             let doc = lastDoc
-        else { return }
+        else { return false }
 
-        guard
-            let mapped = SelectionSourceMapping.renderedUTF16Offset(
-                forSourceOffset: targetOffset, in: doc
-            )
-        else { return }
+        let mapped: Int
+        if targetOffset == 0 {
+            mapped = 0
+        } else {
+            guard
+                let sourceMapped = SelectionSourceMapping.renderedUTF16Offset(
+                    forSourceOffset: targetOffset, in: doc
+                )
+            else { return false }
+            mapped = sourceMapped
+        }
         // The preceding-run fallback can return the rendered end of the last run
         // (== attr.length); clamp so the location/fragment lookup below stays valid.
         let idx = min(mapped, attr.length - 1)
 
         guard let layoutManager = textView.textLayoutManager,
             let contentStorage = textView.textContentStorage
-        else { return }
+        else { return false }
 
         guard
             let location = contentStorage.location(
                 contentStorage.documentRange.location,
                 offsetBy: idx
             )
-        else { return }
+        else { return false }
 
         // INT-567: a TextKit 2 layout fragment spans a whole paragraph, so
         // fragment.minY alone would restore to the paragraph start no matter how
@@ -1880,7 +1897,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
             return false
         }
 
-        guard let y = targetY else { return }
+        guard let y = targetY else { return false }
 
         let inset = textView.textContainerInset
         let scrollY = max(0, y + inset.height - 4)
@@ -1891,6 +1908,7 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         // carried-over x if the new content is narrower.
         let currentX = textView.enclosingScrollView?.contentView.bounds.origin.x ?? 0
         textView.scroll(NSPoint(x: currentX, y: scrollY))
+        return true
     }
 
 }

@@ -22,10 +22,10 @@ enum RemoteMarkdownDocumentLinkNavigation {
     /// overlay on the source pin plus fetch identity — never a provisional
     /// `DocumentPane`.
     ///
-    /// A destination that carries a `#fragment` opens at the top only when it
-    /// mounts a *new* tab — fragment scroll is deferred — and says so through
-    /// `onAnnounceFragmentOpened`. An already-open target is left where it is
-    /// and stays silent, because nothing moved.
+    /// A destination that carries a `#fragment` opens at the top. A new tab is
+    /// already there; an existing tab asks its document group to reset either
+    /// the mounted TextKit viewport or the unmounted tab's saved anchor before
+    /// selection. Heading-specific jumps remain deferred.
     @MainActor
     @discardableResult
     static func open(
@@ -52,6 +52,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
         onAnnounceFragmentOpened: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownOpenedAtTop()
         },
+        onScrollFragmentTargetToTop: @MainActor (DocumentPane.ID) -> Bool = { _ in false },
         progress: RemoteMarkdownFetchProgressCoordinator = .shared
     ) async -> DocumentPane.ID? {
         guard let reference = reference(forOpenedLinkURL: url, from: source) else {
@@ -117,9 +118,6 @@ enum RemoteMarkdownDocumentLinkNavigation {
             onFetchFailure()
             return nil
         }
-        // A fragment link lands at the top only when it mounts a *new* tab. An
-        // already-open target either stays where it is (a self-link) or reopens
-        // at its saved reading position, so the at-top cue would be false.
         // Checked after the fetch so a tab opened or closed elsewhere during
         // the SSH round trip is not judged against a stale snapshot.
         let targetAlreadyOpen =
@@ -136,17 +134,19 @@ enum RemoteMarkdownDocumentLinkNavigation {
         if isFirstWaiter, openedID != nil {
             onAnnounceOutcome(outcome)
         }
-        // Only announce the at-top landing for a fresh snapshot on a newly
-        // mounted tab. Stale cache and failure pages still open a tab but
-        // contradict the cue; a session gone mid-fetch returns nil from apply.
-        if isFirstWaiter,
-            openedID != nil,
-            !targetAlreadyOpen,
+        // Stale cache and failure pages contradict the cue; a session gone
+        // mid-fetch returns nil from apply. Existing tabs must confirm that
+        // their mounted viewport or saved unmounted anchor was reset first.
+        if let openedID,
             case .fresh = outcome,
             let fragment = url.fragment,
             !fragment.isEmpty
         {
-            onAnnounceFragmentOpened()
+            let landedAtTop =
+                !targetAlreadyOpen || onScrollFragmentTargetToTop(openedID)
+            if isFirstWaiter, landedAtTop {
+                onAnnounceFragmentOpened()
+            }
         }
         return openedID
     }
