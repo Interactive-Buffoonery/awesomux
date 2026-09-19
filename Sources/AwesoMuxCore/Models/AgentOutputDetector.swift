@@ -99,15 +99,15 @@ public struct AgentOutputDetector: Sendable {
             return AgentOutputDetection(state: .needsAttention, agentKind: attentionCueAgentKind)
         }
 
-        // Claude interrupt/status needles must not drive Hermes (or Grok)
-        // thinking: leftover Claude chrome is common after SSH, and Hermes has
-        // no Stop hooks to clear a false `.thinking`.
-        let skipClaudeThinking = treatAsHermes || hasGrokIdentity || liveAgentKind == .grok
-        if canEvaluateStateCues && !skipClaudeThinking && containsThinkingCue(normalized) {
+        // Claude thinking/done needles must not drive Hermes (or Grok): leftover
+        // Claude chrome is common after SSH, and Hermes has no Stop hooks to
+        // clear a false `.thinking` or `.done`.
+        let skipClaudeStateCues = treatAsHermes || hasGrokIdentity || liveAgentKind == .grok
+        if canEvaluateStateCues && !skipClaudeStateCues && containsThinkingCue(normalized) {
             return AgentOutputDetection(state: .thinking, agentKind: stateCueAgentKind)
         }
 
-        if canEvaluateStateCues && containsDoneCue(normalized) {
+        if canEvaluateStateCues && !skipClaudeStateCues && containsDoneCue(normalized) {
             return AgentOutputDetection(state: .done, agentKind: stateCueAgentKind)
         }
 

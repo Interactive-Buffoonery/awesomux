@@ -500,6 +500,27 @@ struct AgentOutputDetectorHermesIdentityTests {
         #expect(detection?.state == .waiting)
     }
 
+    @Test("leftover Claude done chrome does not mark a Hermes pane done")
+    func leftoverClaudeDoneDoesNotStickHermes() {
+        let mixed = """
+            claude code v1.7.2
+            Hermes
+            gpt-5.6-sol
+            awaiting your review
+            task complete
+            """
+        let detection = detector.detectedOutput(in: mixed)
+        #expect(detection?.agentKind == .hermes)
+        #expect(detection?.state != .done)
+        #expect(detection?.state == .waiting)
+        #expect(
+            detector.detectedOutput(
+                in: "claude code v1.7.2\nawaiting your review",
+                liveAgentKind: .hermes
+            )?.state != .done
+        )
+    }
+
     @Test("a lone ruminating status line does not first-tag Hermes")
     func ruminatingAloneDoesNotFirstTagHermes() {
         #expect(detector.detectedOutput(in: "Ruminating…") == nil)
