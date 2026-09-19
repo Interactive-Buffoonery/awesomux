@@ -44,6 +44,7 @@ struct UpdateAvailableIndicator: View {
             .frame(
                 minHeight: displayMode == .collapsed ? nil : 32
             )
+            .frame(maxWidth: displayMode == .collapsed ? .infinity : nil, alignment: .center)
             .padding(.horizontal, displayMode == .collapsed ? 10 : 12)
             .padding(.vertical, 6)
     }
