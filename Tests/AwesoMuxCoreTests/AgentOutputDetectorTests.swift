@@ -526,6 +526,33 @@ struct AgentOutputDetectorHermesIdentityTests {
         )
     }
 
+    @Test("a path-only Hermes marker does not override stronger agent identity")
+    func pathOnlyHermesDoesNotOverrideStrongerAgentIdentity() {
+        #expect(
+            detector.detectedOutput(in: "❯ grok\nconfig: ~/.hermes")?.agentKind == .grok
+        )
+        #expect(
+            detector.detectedOutput(
+                in: "OpenAI Codex (v0.142.5)\nconfig: ~/.hermes"
+            )?.agentKind == .codex
+        )
+        #expect(
+            detector.detectedOutput(in: "❯ opencode\nconfig: ~/.hermes")?.agentKind
+                == .openCode
+        )
+    }
+
+    @Test("a live Claude pane evaluates state cues alongside a Hermes path")
+    func liveClaudeEvaluatesStateCuesAlongsideHermesPath() {
+        #expect(
+            detector.detectedState(
+                in: "cat ~/.hermes/logs/session.json\nesc to interrupt",
+                assumingAgentContext: true,
+                liveAgentKind: .claudeCode
+            ) == .thinking
+        )
+    }
+
     @Test("path-only Hermes ignores leftover Claude thinking and done cues")
     func pathOnlyHermesIgnoresLeftoverClaudeStateCues() {
         let thinking = """

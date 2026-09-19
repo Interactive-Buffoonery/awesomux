@@ -62,11 +62,15 @@ public struct AgentOutputDetector: Sendable {
         )
         let hasHermesIdentity =
             hasStrongHermesIdentity || containsHermesConfigPath(normalized)
-        // Path-only `/.hermes/` dumps must not suppress Claude cues; splash
-        // heading, prompt launch, and a live Hermes process still do.
+        // Path-only `/.hermes/` dumps must not suppress cues in a pane already
+        // known to be Claude; splash heading, prompt launch, and a live Hermes
+        // process still do.
         let treatAsHermes = hasStrongHermesIdentity || liveAgentKind == .hermes
         let canEvaluateStateCues = hasStatefulAgentContext
-            || (assumingAgentContext && !hasGrokIdentity && !hasHermesIdentity)
+            || (assumingAgentContext
+                && !hasGrokIdentity
+                && (!hasHermesIdentity
+                    || (liveAgentKind == .claudeCode && !hasStrongHermesIdentity)))
         let canEvaluateAttentionCues = hasStatefulAgentContext
             || assumingAgentContext
             || hasGrokIdentity
@@ -205,17 +209,10 @@ public struct AgentOutputDetector: Sendable {
         if containsConfidentGenericIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .generic
         }
-        // Strong Hermes (splash/prompt) before Claude: leftover Claude docs in
-        // a Hermes viewport must still first-tag as Hermes. Path-only `/.hermes/`
-        // also wins over leftover Claude chrome unless the live pane is Claude.
+        // Strong Hermes (splash/prompt) before all other provider text: leftover
+        // agent docs in a Hermes viewport must still first-tag as Hermes.
         if hasStrongHermesIdentity {
             return .hermes
-        }
-        if hasHermesIdentity, liveAgentKind != .claudeCode {
-            return .hermes
-        }
-        if containsConfidentClaudeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
-            return .claudeCode
         }
         if allowsGrokIdentity, hasGrokIdentity {
             return .grok
@@ -226,8 +223,13 @@ public struct AgentOutputDetector: Sendable {
         if containsConfidentOpenCodeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .openCode
         }
-        if hasHermesIdentity {
+        // A config path is weaker than every provider's strong signature, but
+        // it still beats leftover Claude chrome unless the live pane is Claude.
+        if hasHermesIdentity, liveAgentKind != .claudeCode {
             return .hermes
+        }
+        if containsConfidentClaudeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
+            return .claudeCode
         }
         return nil
     }
