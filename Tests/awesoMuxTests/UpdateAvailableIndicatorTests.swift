@@ -95,6 +95,9 @@ struct UpdateAvailableIndicatorTests {
         #expect(control.accessibilityValue() == nil)
         #expect(fixture.fittedSize.width >= 40)
         #expect(fixture.fittedSize.height >= 40)
+        let controlFrame = control.convert(control.bounds, to: fixture.hostingView)
+        #expect(abs(controlFrame.midX - fixture.hostingView.bounds.midX) < 0.5)
+        #expect(controlFrame.size == CGSize(width: 40, height: 40))
     }
 
     @Test("the native menu wires its two actions to the controller callbacks") @MainActor
@@ -157,7 +160,12 @@ private final class HostedIndicatorFixture {
         )
         let hosted = SidebarHostedTestHarness.makeWindow(
             rootView: rootView,
-            frame: NSRect(x: 0, y: 0, width: 220, height: 80)
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: displayMode == .collapsed ? SidebarWidthPolicy.collapsedWidth : 220,
+                height: 80
+            )
         )
         window = hosted.window
         hostingView = hosted.hostingView
