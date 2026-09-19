@@ -33,6 +33,8 @@ final class RemoteMarkdownFetchProgressCoordinator {
     enum Origin: Equatable, Sendable {
         case surface(paneID: TerminalPane.ID)
         case document
+        case refresh
+        case restore
     }
 
     struct Key: Hashable, Sendable {
@@ -57,8 +59,11 @@ final class RemoteMarkdownFetchProgressCoordinator {
 
     private struct WaiterState {
         var count = 0
+        var hadCoalescedWaiter = false
         var surfacePaneIDs: [TerminalPane.ID: Int] = [:]
         var documentCount = 0
+        var refreshCount = 0
+        var restoreCount = 0
     }
 
     private final class WeakSurfacePresenter {
@@ -96,7 +101,11 @@ final class RemoteMarkdownFetchProgressCoordinator {
     ) -> Bool {
         let key = Key(sessionID: sessionID, identity: identity)
         var state = waiters[key] ?? WaiterState()
-        let isFirstWaiter = state.count == 0
+        let isRestore = origin == .restore
+        let isFirstWaiter = !isRestore && state.count == state.restoreCount
+        if !isRestore, state.count > state.restoreCount {
+            state.hadCoalescedWaiter = true
+        }
         state.count += 1
         switch origin {
         case .surface(let paneID):
@@ -108,6 +117,10 @@ final class RemoteMarkdownFetchProgressCoordinator {
             if let overlayIdentity, overlayIdentity != identity {
                 incrementOverlay(sessionID: sessionID, identity: overlayIdentity)
             }
+        case .refresh:
+            state.refreshCount += 1
+        case .restore:
+            state.restoreCount += 1
         }
         waiters[key] = state
         notify(origin: origin, sessionID: sessionID)
@@ -162,6 +175,12 @@ final class RemoteMarkdownFetchProgressCoordinator {
             if let overlayIdentity, overlayIdentity != identity {
                 decrementOverlay(sessionID: sessionID, identity: overlayIdentity)
             }
+        case .refresh:
+            guard state.refreshCount > 0 else { return }
+            state.refreshCount -= 1
+        case .restore:
+            guard state.restoreCount > 0 else { return }
+            state.restoreCount -= 1
         }
         state.count -= 1
         if state.count == 0 {
@@ -183,6 +202,10 @@ final class RemoteMarkdownFetchProgressCoordinator {
 
     func isInFlight(sessionID: TerminalSession.ID, identity: ResourceIdentity) -> Bool {
         (waiters[Key(sessionID: sessionID, identity: identity)]?.count ?? 0) > 0
+    }
+
+    func hadCoalescedWaiter(sessionID: TerminalSession.ID, identity: ResourceIdentity) -> Bool {
+        waiters[Key(sessionID: sessionID, identity: identity)]?.hadCoalescedWaiter == true
     }
 
     func isSurfaceBusy(sessionID: TerminalSession.ID, paneID: TerminalPane.ID) -> Bool {
@@ -279,6 +302,10 @@ final class RemoteMarkdownFetchProgressCoordinator {
                 presenterKeys.removeValue(forKey: box.objectID)
             }
         case .document:
+            break
+        case .refresh:
+            break
+        case .restore:
             break
         }
     }

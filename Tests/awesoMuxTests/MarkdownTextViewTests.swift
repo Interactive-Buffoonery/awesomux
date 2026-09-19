@@ -101,6 +101,11 @@ struct MarkdownTextViewTests {
 
         #expect(await waitUntil { fixture.capturedAnchor != nil })
         #expect(try #require(fixture.capturedAnchor) > 0)
+
+        let scrollToTopFromParent = try #require(fixture.scrollToTopFromParent)
+        #expect(scrollToTopFromParent())
+        let effectiveTop = textView.textContainerInset.height - 4
+        #expect(abs(scrollView.contentView.bounds.minY - effectiveTop) < 1)
     }
 
     @Test("scroll capture ignores teardown registrations while Files is visible")
@@ -108,19 +113,64 @@ struct MarkdownTextViewTests {
     func scrollCaptureIgnoresTeardownRegistrationsWhileFilesVisible() {
         let capture = DocumentGroupScrollAnchorCapture()
         let tabID = DocumentPane.ID()
-        capture.register(tabID: tabID) { 100 }
+        capture.register(tabID: tabID, capture: { 100 }, scroll: { _ in true })
 
         #expect(capture.registeredCapture(for: tabID)?() == 100)
+        #expect(capture.registeredScroll(for: tabID)?(0) == true)
 
         capture.stopAcceptingRegistrations()
-        capture.register(tabID: tabID) { 200 }
+        capture.register(tabID: tabID, capture: { 200 }, scroll: { _ in true })
 
         #expect(capture.registeredCapture(for: tabID) == nil)
+        #expect(capture.registeredScroll(for: tabID) == nil)
 
         capture.resumeAcceptingRegistrations()
-        capture.register(tabID: tabID) { 300 }
+        capture.register(tabID: tabID, capture: { 300 }, scroll: { $0 == 0 })
 
         #expect(capture.registeredCapture(for: tabID)?() == 300)
+        #expect(capture.registeredScroll(for: tabID)?(0) == true)
+    }
+
+    @Test("an unmounted fragment target stores top without requiring a live view")
+    @MainActor
+    func unmountedFragmentTargetStoresTop() {
+        let access = DocumentGroupScrollAnchorCapture()
+        let tabID = DocumentPane.ID()
+        var storedAnchors: [Int] = []
+
+        #expect(
+            DocumentGroupFragmentLanding.scrollToTop(
+                tabID: tabID,
+                access: access,
+                storeAnchor: { storedAnchors.append($0) }
+            )
+        )
+        #expect(storedAnchors == [0])
+    }
+
+    @Test("a mounted fragment target requires the registered live scroll")
+    @MainActor
+    func mountedFragmentTargetUsesLiveScroll() {
+        let access = DocumentGroupScrollAnchorCapture()
+        let tabID = DocumentPane.ID()
+        var scrolledOffsets: [Int] = []
+        access.register(
+            tabID: tabID,
+            capture: { 42 },
+            scroll: { offset in
+                scrolledOffsets.append(offset)
+                return true
+            }
+        )
+
+        #expect(
+            DocumentGroupFragmentLanding.scrollToTop(
+                tabID: tabID,
+                access: access,
+                storeAnchor: { _ in }
+            )
+        )
+        #expect(scrolledOffsets == [0])
     }
 
     @Test("selection changes coalesce to the final state per run-loop turn")
@@ -1041,6 +1091,7 @@ private final class MarkdownScrollCaptureFixture {
     var textView: NSTextView?
     var capturedAnchor: Int?
     var captureFromParent: (() -> Void)?
+    var scrollToTopFromParent: (() -> Bool)?
 }
 
 @MainActor
@@ -1052,16 +1103,24 @@ private struct MarkdownScrollCaptureStateHost: View {
         VStack(spacing: 0) {
             MarkdownTextView(
                 doc: AttributedMarkdownBuilder.build(
-                    String(repeating: "A long markdown line for scrolling.\n", count: 400)
+                    "# Heading\n\n"
+                        + String(repeating: "A long markdown line for scrolling.\n", count: 400)
                 ),
                 selectedSourceSpan: .constant(nil),
                 onTextViewAvailable: { fixture.textView = $0 },
-                onRegisterScrollAnchorCapture: { registeredCapture in
-                    capture.register(tabID: fixture.tabID, capture: registeredCapture)
+                onRegisterScrollAnchorCapture: { registeredCapture, registeredScroll in
+                    capture.register(
+                        tabID: fixture.tabID,
+                        capture: registeredCapture,
+                        scroll: registeredScroll
+                    )
                 }
             )
             MarkdownScrollCaptureActionRelay(fixture: fixture) {
                 fixture.capturedAnchor = capture.registeredCapture(for: fixture.tabID)?()
+                fixture.scrollToTopFromParent = {
+                    capture.registeredScroll(for: fixture.tabID)?(0) ?? false
+                }
             }
         }
     }

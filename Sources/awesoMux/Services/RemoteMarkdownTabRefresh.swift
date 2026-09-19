@@ -8,6 +8,12 @@ import SwiftUI
 /// `RemoteSnapshotStalePolicy`, then open/update the document tab the same way
 /// the live path always has.
 enum RemoteMarkdownTabRefresh {
+    static func fetchConsumer(
+        announcesOutcome: Bool
+    ) -> RemoteMarkdownFetchCoordinator.Cohort.Consumer {
+        announcesOutcome ? .refresh : .restore
+    }
+
     struct RestoreTarget: Equatable, Sendable {
         let sessionID: TerminalSession.ID
         let documentID: DocumentPane.ID
@@ -98,9 +104,18 @@ enum RemoteMarkdownTabRefresh {
         announceOutcome: Bool = false,
         announceFailure: Bool = false,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
-        fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
-            await RemoteMarkdownSnapshotFetcher().fetch($0)
-        }
+        progress: RemoteMarkdownFetchProgressCoordinator = .shared,
+        onAnnounceLoading: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
+        },
+        onAnnounceOutcome: @MainActor (RemoteMarkdownFetchOutcome) -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdown($0)
+        },
+        onAnnounceFailure: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
+        },
+        startAttempt: (@MainActor (RemoteMarkdownReference) -> RemoteMarkdownFetchCoordinator.PreparedAttempt)? = nil,
+        fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) async -> RemoteMarkdownFetchOutcome? {
         // A cancelled sweep must neither claim the coordinator latch nor
         // record a failure it never attempted.
@@ -119,7 +134,75 @@ enum RemoteMarkdownTabRefresh {
         else {
             return nil
         }
-        guard let outcome = await fetch(reference) else {
+        // Footer Refresh shares announcement ownership with link opens for the
+        // same remote file. Keep the tab latch above as the stronger duplicate
+        // guard for repeated Refresh clicks; this identity-keyed claim only
+        // decides which otherwise-valid caller speaks.
+        let consumer = fetchConsumer(announcesOutcome: announceOutcome)
+        let prepared: RemoteMarkdownFetchCoordinator.PreparedAttempt
+        if let startAttempt {
+            prepared = startAttempt(reference)
+        } else if let fetch {
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(consumer)
+            prepared = .init(
+                cohort: cohort,
+                ownsAnnouncements: consumer != .restore,
+                task: Task { await fetch(reference) },
+                isNew: true,
+                onCoalesced: nil,
+                onRegistered: nil,
+                onFinished: nil
+            )
+        } else {
+            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+                reference,
+                consumer: consumer,
+                announcementSessionID: sessionID
+            )
+        }
+        let participatesInAnnouncementOwnership = announceOutcome || announceFailure
+        let ownsAnnouncements: Bool
+        if participatesInAnnouncementOwnership {
+            _ = progress.begin(
+                sessionID: sessionID,
+                identity: identity,
+                origin: announceOutcome ? .refresh : .restore
+            )
+            ownsAnnouncements = prepared.ownsAnnouncements
+            if announceOutcome, ownsAnnouncements {
+                onAnnounceLoading()
+            }
+        } else {
+            ownsAnnouncements = true
+        }
+        defer {
+            if participatesInAnnouncementOwnership {
+                progress.finish(
+                    sessionID: sessionID,
+                    identity: identity,
+                    origin: announceOutcome ? .refresh : .restore
+                )
+            }
+        }
+        let attempt = await prepared.value()
+        let fetchedOutcome = attempt.outcome
+        if Task.isCancelled {
+            if let fetchedOutcome,
+                announceOutcome,
+                ownsAnnouncements,
+                attempt.hasCoalescedInteractiveConsumer,
+                sessionStore.session(id: sessionID) != nil
+            {
+                onAnnounceOutcome(fetchedOutcome)
+            }
+            return nil
+        }
+        guard let outcome = fetchedOutcome else {
+            let ownsFailureAnnouncement =
+                announceFailure
+                ? !attempt.hasInteractiveConsumer
+                : ownsAnnouncements
             // A nil outcome is a failed attempt (typically a cache/failure-page
             // write miss), not success. Note the policy against the tab's
             // current path so the stale banner can say so, and speak it for the
@@ -128,6 +211,14 @@ enum RemoteMarkdownTabRefresh {
                 let tab = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                     .tab(id: documentID)
             else {
+                if announceOutcome,
+                    ownsFailureAnnouncement,
+                    attempt.hasCoalescedInteractiveConsumer,
+                    !attempt.hasFailurePresenter,
+                    sessionStore.session(id: sessionID) != nil
+                {
+                    onAnnounceFailure()
+                }
                 return nil
             }
             let path = tab.fileURL.standardizedFileURL.path
@@ -137,32 +228,40 @@ enum RemoteMarkdownTabRefresh {
             // itself already explains the state.
             if !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL) {
                 RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
-                if announceOutcome || announceFailure {
-                    TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
+                if ownsFailureAnnouncement,
+                    announceOutcome || announceFailure,
+                    !attempt.hasFailurePresenter
+                {
+                    onAnnounceFailure()
                 }
             }
             return nil
         }
-        // Dropped while the fetch was in flight (a superseded restore sweep):
-        // stay silent rather than noting a failure nobody caused or presenting
-        // an alert for a tab nobody is waiting on.
-        guard !Task.isCancelled else { return nil }
         // A closed tab must not be resurrected by a late fetch — same contract
         // as branch-changes Refresh carrying its originating document id.
-        guard
-            sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
-                .tab(id: documentID) != nil
-        else {
+        guard let liveSession = sessionStore.session(id: sessionID) else {
             return nil
         }
-        apply(
+        guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else {
+            if announceOutcome,
+                ownsAnnouncements,
+                attempt.hasCoalescedInteractiveConsumer
+            {
+                onAnnounceOutcome(outcome)
+            }
+            return nil
+        }
+        let openedID = apply(
             outcome,
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
             selectingTab: selectingTab,
-            announceOutcome: announceOutcome
+            announceOutcome: false
         )
+        if announceOutcome, ownsAnnouncements, openedID != nil {
+            onAnnounceOutcome(outcome)
+        }
         return outcome
     }
 
@@ -184,9 +283,7 @@ enum RemoteMarkdownTabRefresh {
     static func scheduleRestoreRefresh(
         for store: SessionStore,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
-        fetch: @escaping @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
-            await RemoteMarkdownSnapshotFetcher().fetch($0)
-        }
+        fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) {
         let targets = restoreTargets(in: store)
         guard !targets.isEmpty else { return }

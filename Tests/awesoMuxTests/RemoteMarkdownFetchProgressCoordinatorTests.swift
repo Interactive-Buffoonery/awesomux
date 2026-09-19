@@ -71,6 +71,19 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         #expect(progress.isDocumentOverlayBusy(sessionID: sessionID, identity: documentIdentity))
     }
 
+    @Test("Refresh shares ownership without adding document overlay chrome")
+    func refreshOriginDoesNotAddChrome() {
+        let progress = RemoteMarkdownFetchProgressCoordinator()
+        let sessionID = UUID()
+        let identity = makeIdentity()
+
+        #expect(progress.begin(sessionID: sessionID, identity: identity, origin: .refresh))
+        #expect(progress.isInFlight(sessionID: sessionID, identity: identity))
+        #expect(!progress.isDocumentOverlayBusy(sessionID: sessionID, identity: identity))
+        progress.finish(sessionID: sessionID, identity: identity, origin: .refresh)
+        #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
+    }
+
     @Test("different sessions and identities do not block each other")
     func keysAreIndependent() {
         let progress = RemoteMarkdownFetchProgressCoordinator()
@@ -189,6 +202,21 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         #expect(!progress.isDocumentOverlayBusy(sessionID: sessionID, identity: identity))
     }
 
+    @Test("restore tracks work without taking interactive announcement ownership")
+    func restoreLeavesInteractiveOwnershipAvailable() {
+        let progress = RemoteMarkdownFetchProgressCoordinator()
+        let sessionID = UUID()
+        let identity = makeIdentity()
+
+        #expect(!progress.begin(sessionID: sessionID, identity: identity, origin: .restore))
+        #expect(progress.begin(sessionID: sessionID, identity: identity, origin: .document))
+        #expect(!progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity))
+
+        progress.finish(sessionID: sessionID, identity: identity, origin: .document)
+        progress.finish(sessionID: sessionID, identity: identity, origin: .restore)
+        #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
+    }
+
     private final class FakeSurfacePresenter: RemoteMarkdownFetchProgressSurfacePresenting {
         var isBusy = false
 
@@ -230,6 +258,7 @@ struct RemoteMarkdownFetchProgressWiringTests {
         let hold = AsyncGate()
         var loadingCount = 0
         var outcomeCount = 0
+        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
 
         func outcome(for reference: RemoteMarkdownReference) -> RemoteMarkdownFetchOutcome {
             .fresh(
@@ -253,9 +282,19 @@ struct RemoteMarkdownFetchProgressWiringTests {
                 associatedWith: nil,
                 sessionStore: store,
                 coordinator: nil,
-                fetch: { reference in
-                    await hold.wait()
-                    return outcome(for: reference)
+                startAttempt: { reference in
+                    .init(
+                        cohort: cohort,
+                        ownsAnnouncements: cohort.register(.document),
+                        task: Task {
+                            await hold.wait()
+                            return outcome(for: reference)
+                        },
+                        isNew: true,
+                        onCoalesced: nil,
+                        onRegistered: nil,
+                        onFinished: nil
+                    )
                 },
                 onAnnounceLoading: { loadingCount += 1 },
                 onAnnounceOutcome: { _ in outcomeCount += 1 },
@@ -278,9 +317,19 @@ struct RemoteMarkdownFetchProgressWiringTests {
             associatedWith: nil,
             sessionStore: store,
             coordinator: nil,
-            fetch: { reference in
-                hold.open()
-                return outcome(for: reference)
+            startAttempt: { reference in
+                .init(
+                    cohort: cohort,
+                    ownsAnnouncements: cohort.register(.document),
+                    task: Task {
+                        hold.open()
+                        return outcome(for: reference)
+                    },
+                    isNew: false,
+                    onCoalesced: nil,
+                    onRegistered: nil,
+                    onFinished: nil
+                )
             },
             onAnnounceLoading: { loadingCount += 1 },
             onAnnounceOutcome: { _ in outcomeCount += 1 },
@@ -341,101 +390,6 @@ struct RemoteMarkdownFetchProgressWiringTests {
         #expect(RemoteMarkdownTypedPathOpen.fetchProgressOrigin(for: snapshotSession) == .document)
         #expect(RemoteMarkdownTypedPathOpen.overlayIdentity(for: snapshotSession) == identity)
         #expect(RemoteMarkdownTypedPathOpen.overlayIdentity(for: sshSession) == nil)
-    }
-
-    @Test("announceLoadingIfValid begins and stays silent for a coalesced waiter")
-    func typedPathLoadingSkipsCoalescedWaiter() {
-        let target = RemoteTarget(parsing: "my-purple")!
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let sessionID = UUID()
-        let identity = ResourceIdentity(
-            location: .remote(target),
-            path: ResourcePath(rawValue: "/repo/NOTES.md")
-        )
-        _ = progress.begin(sessionID: sessionID, identity: identity, origin: .document)
-
-        var announcements = 0
-        let claim = RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
-            typedPath: "/repo/NOTES.md",
-            target: target,
-            sessionID: sessionID,
-            origin: .document,
-            progress: progress,
-            onAnnounceLoading: { announcements += 1 }
-        )
-        #expect(claim != nil)
-        #expect(claim?.isFirstWaiter == false)
-        #expect(announcements == 0)
-        progress.finish(sessionID: sessionID, identity: identity, origin: .document)
-        if let claim {
-            progress.finish(claim)
-        }
-        #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
-    }
-
-    @Test("announceLoadingIfValid begins before dismiss; open adopts without a second begin")
-    func typedPathBeginHappensBeforeDismiss() async throws {
-        let target = RemoteTarget(parsing: "my-purple")!
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let store = SessionStore()
-        let sessionID = store.addSession(workingDirectory: "/tmp")
-        let cacheURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("remote-md-begin-before-dismiss-\(UUID().uuidString).md")
-        try "# notes\n".write(to: cacheURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: cacheURL) }
-
-        var events: [String] = []
-        let identity = ResourceIdentity(
-            location: .remote(target),
-            path: ResourcePath(rawValue: "/repo/NOTES.md")
-        )
-        let claim = RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
-            typedPath: "/repo/NOTES.md",
-            target: target,
-            sessionID: sessionID,
-            origin: .document,
-            progress: progress,
-            onAnnounceLoading: { events.append("loading") }
-        )
-        let resolvedClaim = try #require(claim)
-        #expect(resolvedClaim.isFirstWaiter)
-        #expect(progress.isInFlight(sessionID: sessionID, identity: identity))
-        events.append("dismiss")
-
-        let openedID = try #require(
-            await RemoteMarkdownTypedPathOpen.open(
-                typedPath: "/repo/NOTES.md",
-                target: target,
-                in: sessionID,
-                associatedWith: nil,
-                sessionStore: store,
-                fetch: { reference in
-                    events.append("fetch:\(reference.remotePath)")
-                    return .fresh(
-                        RemoteMarkdownSnapshot(
-                            fileURL: cacheURL,
-                            identity: ResourceIdentity(
-                                location: reference.identity.location,
-                                path: ResourcePath(rawValue: reference.remotePath)
-                            )
-                        )
-                    )
-                },
-                onAnnounceLoading: { events.append("loading-again") },
-                onAnnounceOutcome: { _ in events.append("outcome") },
-                progressClaim: resolvedClaim,
-                progress: progress
-            )
-        )
-        #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
-        #expect(
-            events == [
-                "loading",
-                "dismiss",
-                "fetch:/repo/NOTES.md",
-                "outcome",
-            ]
-        )
     }
 
     @Test("typed-path outcome is first-waiter only")
@@ -686,11 +640,11 @@ struct RemoteMarkdownFetchProgressSourceContractTests {
             in: source,
             path: "Sources/awesoMux/App/AwesoMuxApp.swift"
         )
-        #expect(onOpen.contains("announceLoadingIfValid("))
-        #expect(onOpen.contains("progressClaim: claim"))
-        let announceIndex = try #require(onOpen.range(of: "announceLoadingIfValid("))
+        #expect(onOpen.contains("prepareLoadingIfValid("))
+        #expect(onOpen.contains("preparedOpen: preparedOpen"))
+        let announceIndex = try #require(onOpen.range(of: "prepareLoadingIfValid("))
         let dismissIndex = try #require(onOpen.range(of: "remoteMarkdownPathOpenRequest = nil"))
-        let adoptIndex = try #require(onOpen.range(of: "progressClaim: claim"))
+        let adoptIndex = try #require(onOpen.range(of: "preparedOpen: preparedOpen"))
         #expect(announceIndex.lowerBound < dismissIndex.lowerBound)
         #expect(dismissIndex.lowerBound < adoptIndex.lowerBound)
     }

@@ -513,9 +513,6 @@ struct DocumentPaneSendBar: View {
             pane.remoteResourceIdentity != nil,
             let remoteMarkdownRefresh
         else { return }
-        // Same loading cue every other remote fetch starts with; without it the
-        // footer Refresh goes silent for the whole SSH round trip.
-        TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
         remoteRefreshRequested = true
         remoteMarkdownRefresh.run(session.id, pane.id) { remoteRefreshRequested = false }
     }
@@ -1282,7 +1279,7 @@ struct DocumentPaneView: View {
     var onSendAnnotation: (String, [String]) -> Void = { _, _ in }
     /// Surfaces the coordinator's scroll-anchor capture to the group view so it
     /// can snapshot the outgoing tab's position on a tab switch (INT-748 PR2).
-    var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)?
+    var onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?, @escaping @MainActor (Int) -> Bool) -> Void)?
     /// Collapsed branch-diff section keys, owned by the group's tab memory.
     /// The index itself is NOT an input: this view owns it (`localSectionIndex`),
     /// computed from the document it actually renders, so a group-held index
@@ -1352,6 +1349,7 @@ struct DocumentPaneView: View {
     // `body` ever reads it; keep reads inside event closures.
     @State private var scrollAnchorCapture: (@MainActor () -> Int?)? = nil
     @State private var pendingScrollAnchor: Int? = nil
+    @State private var fragmentLandingGeneration = 0
     /// Latches the one live-refresh announcement this mount is allowed (#494).
     /// `@State` behind the parent's remount identity (file URL for local tabs;
     /// stable tab id for remote snapshots — see `DocumentPaneContentIdentity`)
@@ -1386,7 +1384,8 @@ struct DocumentPaneView: View {
         onRevision: @escaping (LineDiffCount.ExternalEdit) -> Void = { _ in },
         annotationHandoffProvider: (() -> AnnotationHandoffPresentation)? = nil,
         onSendAnnotation: @escaping (String, [String]) -> Void = { _, _ in },
-        onRegisterScrollAnchorCapture: ((@escaping @MainActor () -> Int?) -> Void)? = nil,
+        onRegisterScrollAnchorCapture:
+            ((@escaping @MainActor () -> Int?, @escaping @MainActor (Int) -> Bool) -> Void)? = nil,
         collapsedSections: Set<String> = [],
         onSectionToggled: ((String) -> Void)? = nil
     ) {
@@ -1931,9 +1930,15 @@ struct DocumentPaneView: View {
                                 }
                             },
                             scrollAnchorOffset: pendingScrollAnchor,
-                            onRegisterScrollAnchorCapture: { capture in
+                            onRegisterScrollAnchorCapture: { capture, scroll in
                                 scrollAnchorCapture = capture
-                                onRegisterScrollAnchorCapture?(capture)
+                                onRegisterScrollAnchorCapture?(capture) { offset in
+                                    if offset == 0 {
+                                        fragmentLandingGeneration += 1
+                                        pendingScrollAnchor = nil
+                                    }
+                                    return scroll(offset)
+                                }
                             },
                             onOpenDocumentLink: onOpenDocumentLink,
                             hiddenAnnotationIDs: hiddenIDs,
@@ -2843,6 +2848,7 @@ struct DocumentPaneView: View {
         watcherReloadTask?.cancel()
         watcherReloadGeneration += 1
         let generation = watcherReloadGeneration
+        let landingGeneration = fragmentLandingGeneration
         let anchor = scrollAnchorCapture?()
         let fileURL = pane.fileURL
 
@@ -2861,7 +2867,8 @@ struct DocumentPaneView: View {
                 // The load task, not this branch, decides which reload result
                 // is retained; the anchor is only wasted state when it isn't.
                 guard let onDisk, let onDiskSource = onDisk.source else {
-                    pendingScrollAnchor = anchor
+                    pendingScrollAnchor =
+                        landingGeneration == fragmentLandingGeneration ? anchor : nil
                     triggerReload()
                     watcherReloadTask = nil
                     return nil
@@ -2899,7 +2906,8 @@ struct DocumentPaneView: View {
                         Self.liveTranscriptRefreshAnnouncement
                     )
                 }
-                pendingScrollAnchor = anchor
+                pendingScrollAnchor =
+                    landingGeneration == fragmentLandingGeneration ? anchor : nil
                 triggerReload(snapshot: onDisk)
                 if context == nil { watcherReloadTask = nil }
                 return context

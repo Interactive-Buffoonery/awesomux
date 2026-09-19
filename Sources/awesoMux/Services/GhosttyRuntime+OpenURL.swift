@@ -95,14 +95,23 @@ struct OpenURLAction {
 
 extension GhosttyRuntime {
     @MainActor
-    static var recentLinkRemoteSnapshotProvider: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
-        await RemoteMarkdownSnapshotFetcher().fetch($0)
+    static var recentLinkRemoteSnapshotProvider:
+        @MainActor (RemoteMarkdownReference, UUID) -> RemoteMarkdownFetchCoordinator.PreparedAttempt = {
+            RemoteMarkdownSnapshotFetcher().startAttempt(
+                $0,
+                consumer: .failurePresenter,
+                announcementSessionID: $1
+            )
     }
 
     @MainActor
     static func resetRecentLinkRemoteSnapshotProviderForTesting() {
         recentLinkRemoteSnapshotProvider = {
-            await RemoteMarkdownSnapshotFetcher().fetch($0)
+            RemoteMarkdownSnapshotFetcher().startAttempt(
+                $0,
+                consumer: .failurePresenter,
+                announcementSessionID: $1
+            )
         }
     }
 
@@ -172,13 +181,15 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(nil)
                 return
             }
+            let prepared = recentLinkRemoteSnapshotProvider(reference, sessionID)
             let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
             let progress = RemoteMarkdownFetchProgressCoordinator.shared
-            let announcesOutcome = progress.begin(
+            _ = progress.begin(
                 sessionID: sessionID,
                 identity: reference.identity,
                 origin: origin
             )
+            let announcesOutcome = prepared.ownsAnnouncements
             if announcesOutcome {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
@@ -189,7 +200,7 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            guard let outcome = await recentLinkRemoteSnapshotProvider(reference) else {
+            guard let outcome = await prepared.value().outcome else {
                 remoteMarkdownFetchFailurePresenter(nil)
                 return
             }
@@ -373,13 +384,19 @@ extension GhosttyRuntime {
                 remoteMarkdownRoutingFailurePresenter(view)
                 return
             }
+            let prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+                reference,
+                consumer: .failurePresenter,
+                announcementSessionID: workspaceID
+            )
             let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
             let progress = RemoteMarkdownFetchProgressCoordinator.shared
-            let announcesOutcome = progress.begin(
+            _ = progress.begin(
                 sessionID: workspaceID,
                 identity: reference.identity,
                 origin: origin
             )
+            let announcesOutcome = prepared.ownsAnnouncements
             if announcesOutcome {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
@@ -390,7 +407,7 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            guard let outcome = await RemoteMarkdownSnapshotFetcher().fetch(reference) else {
+            guard let outcome = await prepared.value().outcome else {
                 remoteMarkdownFetchFailurePresenter(view)
                 return
             }
