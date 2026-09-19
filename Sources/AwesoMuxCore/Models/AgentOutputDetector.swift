@@ -291,15 +291,61 @@ public struct AgentOutputDetector: Sendable {
         lineHasAnchoredPrefix(lines, ["$ \(command)", "❯ \(command)"])
     }
 
+    /// Folded `hermes`, optionally `agent`, optionally `v0.21.3`-style version.
+    /// Ordinary sentences (`hermes is a messaging protocol`) are not identity.
     private func lineIsHermesHeading(_ lines: [Substring]) -> Bool {
         lines.contains { line in
             let content = dropDecorativePrefix(line)
             guard hasTokenBoundedPrefix(content, "hermes") else {
                 return false
             }
-            let rest = content.dropFirst("hermes".count)
-            return rest.isEmpty || rest.first?.isWhitespace == true
+            var remaining = content.dropFirst("hermes".count).drop(while: \.isWhitespace)
+            if remaining.isEmpty {
+                return true
+            }
+            guard hasTokenBoundedPrefix(remaining, "agent") else {
+                return false
+            }
+            remaining = remaining.dropFirst("agent".count).drop(while: \.isWhitespace)
+            if remaining.isEmpty {
+                return true
+            }
+            return remainderIsHermesBannerVersion(remaining)
         }
+    }
+
+    /// Optional `v` plus dotted digits, then trailing whitespace only.
+    private func remainderIsHermesBannerVersion(_ rest: Substring) -> Bool {
+        var remaining = rest
+        if remaining.first == "v" {
+            remaining = remaining.dropFirst()
+        }
+        guard remaining.first?.isNumber == true else {
+            return false
+        }
+        var expectingDigit = false
+        var index = remaining.startIndex
+        while index < remaining.endIndex {
+            let character = remaining[index]
+            if character.isNumber {
+                expectingDigit = false
+                index = remaining.index(after: index)
+                continue
+            }
+            if character == "." {
+                if expectingDigit {
+                    return false
+                }
+                expectingDigit = true
+                index = remaining.index(after: index)
+                continue
+            }
+            break
+        }
+        if expectingDigit {
+            return false
+        }
+        return remaining[index...].allSatisfy(\.isWhitespace)
     }
 
     /// Needle at the start of the remaining line, not continuing an identifier

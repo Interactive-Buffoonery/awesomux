@@ -446,6 +446,16 @@ struct AgentOutputDetectorHermesIdentityTests {
         #expect(detector.detectedOutput(in: "$ hermes --resume")?.agentKind == .hermes)
     }
 
+    @Test("infers Hermes from the real splash version line")
+    func infersHermesFromSplashVersionLine() {
+        #expect(detector.detectedOutput(in: "Hermes Agent v0.21.3")?.agentKind == .hermes)
+    }
+
+    @Test("does not infer Hermes from a sentence that starts with Hermes")
+    func doesNotInferHermesFromSentence() {
+        #expect(detector.detectedOutput(in: "Hermes is a messaging protocol") == nil)
+    }
+
     @Test("Hermes ruminating is live thinking, not a generic done cue")
     func hermesRuminatingIsThinking() {
         #expect(
