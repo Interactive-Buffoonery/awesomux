@@ -377,3 +377,267 @@ struct AgentOutputDetectorGenericIdentityTests {
         #expect(detector.detectedOutput(in: text) == nil)
     }
 }
+
+@Suite("AgentOutputDetector Claude identity")
+struct AgentOutputDetectorClaudeIdentityTests {
+    private let detector = AgentOutputDetector()
+
+    @Test("does not first-tag from a mid-line mention of claude code")
+    func doesNotInferClaudeFromProse() {
+        #expect(
+            detector.detectedOutput(
+                in: "we use claude code for reviews\npermission needed\n[y] yes  [n] no"
+            ) == nil
+        )
+        #expect(
+            detector.detectedOutput(
+                in: "the log said claude · thinking while Hermes ran"
+            ) == nil
+        )
+        #expect(detector.detectedState(in: "docs/foo.md: claude code v1.7.2") == nil)
+    }
+
+    @Test("still tags genuine Claude Code splash and status lines")
+    func infersClaudeFromAnchoredSplashAndPrompt() {
+        #expect(
+            detector.detectedOutput(in: "claude code v1.7.2")?.agentKind == .claudeCode
+        )
+        #expect(
+            detector.detectedOutput(in: "╭─── Claude Code v2.1.214 ───╮\nready")?.agentKind
+                == .claudeCode
+        )
+        #expect(
+            detector.detectedOutput(in: "❯ claude")?.agentKind == .claudeCode
+        )
+        #expect(
+            detector.detectedOutput(in: "$ claude --resume")?.agentKind == .claudeCode
+        )
+    }
+
+    @Test("Claude identity outranks stale non-Claude signatures")
+    func claudeIdentityOutranksStaleNonClaudeSignatures() {
+        let text = """
+            claude code v1.7.2
+            ❯ grok
+            OpenAI Codex (v0.142.5)
+            ❯ opencode
+            """
+
+        #expect(detector.detectedOutput(in: text)?.agentKind == .claudeCode)
+    }
+
+    @Test("punctuation, quotes, and digits around claude code do not first-tag")
+    func doesNotInferClaudeFromWrappedOrNumberedMentions() {
+        for text in [
+            "(claude code…)",
+            "\"claude code\"",
+            "[claude code]",
+            "**claude code**",
+            "42 claude code",
+        ] {
+            #expect(detector.detectedOutput(in: text) == nil)
+        }
+    }
+
+    @Test("mid-sentence prompt quotes do not first-tag Claude")
+    func midSentencePromptQuotesDoNotFirstTagClaude() {
+        #expect(detector.detectedOutput(in: "docs say run `$ claude` to start") == nil)
+        #expect(detector.detectedOutput(in: "try ❯ claude from the shell notes") == nil)
+    }
+}
+
+@Suite("AgentOutputDetector Hermes identity")
+struct AgentOutputDetectorHermesIdentityTests {
+    private let detector = AgentOutputDetector()
+
+    @Test("infers Hermes from its heading, config path, and prompt")
+    func infersHermesFromSplashCues() {
+        #expect(detector.detectedOutput(in: "Hermes\ngpt-5.6-sol")?.agentKind == .hermes)
+        #expect(detector.detectedOutput(in: "config: ~/.hermes")?.agentKind == .hermes)
+        #expect(detector.detectedOutput(in: "❯ hermes")?.agentKind == .hermes)
+        #expect(detector.detectedOutput(in: "$ hermes --resume")?.agentKind == .hermes)
+    }
+
+    @Test("infers Hermes from the real splash version line")
+    func infersHermesFromSplashVersionLine() {
+        #expect(detector.detectedOutput(in: "Hermes Agent v0.21.3")?.agentKind == .hermes)
+    }
+
+    @Test("does not infer Hermes from a sentence that starts with Hermes")
+    func doesNotInferHermesFromSentence() {
+        #expect(detector.detectedOutput(in: "Hermes is a messaging protocol") == nil)
+    }
+
+    @Test("Hermes ruminating is live thinking, not a generic done cue")
+    func hermesRuminatingIsThinking() {
+        #expect(
+            detector.detectedOutput(in: "Hermes\nruminating\ngpt-5.6-sol")
+                == AgentOutputDetection(state: .thinking, agentKind: .hermes)
+        )
+    }
+
+    @Test("does not tag a session from a bare mention of hermes in prose")
+    func doesNotInferHermesFromProse() {
+        #expect(detector.detectedState(in: "the hermes package landed last week") == nil)
+        #expect(detector.detectedState(in: "NASA Hermes mission notes") == nil)
+    }
+
+    @Test("Hermes identity wins over leftover Claude prose in the same viewport")
+    func hermesWinsOverClaudeProse() {
+        let text = """
+            Hermes
+            gpt-5.6-sol
+            ~/.hermes
+            see also: we used to run claude code on this host
+            """
+        #expect(detector.detectedOutput(in: text)?.agentKind == .hermes)
+    }
+
+    @Test("leftover Claude interrupt cues do not flip a Hermes pane to thinking")
+    func leftoverClaudeThinkingDoesNotStickHermes() {
+        #expect(
+            detector.detectedOutput(in: "Hermes\nesc to interrupt")
+                == AgentOutputDetection(state: .waiting, agentKind: .hermes)
+        )
+        let mixed = """
+            claude code v1.7.2
+            Hermes
+            gpt-5.6-sol
+            esc to interrupt
+            claude · thinking
+            """
+        let detection = detector.detectedOutput(in: mixed)
+        #expect(detection?.agentKind == .hermes)
+        #expect(detection?.state != .thinking)
+        #expect(detection?.state == .waiting)
+        #expect(
+            detector.detectedOutput(
+                in: "claude code v1.7.2\nesc to interrupt",
+                liveAgentKind: .hermes
+            )?.state != .thinking
+        )
+    }
+
+    @Test("a stray hermes path in a Claude pane does not suppress thinking")
+    func strayHermesPathDoesNotSuppressClaudeThinking() {
+        let text = """
+            claude code v1.7.2
+            claude · thinking
+            cat /.hermes/config
+            """
+        #expect(
+            detector.detectedOutput(in: text, liveAgentKind: .claudeCode)
+                == AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
+        )
+        #expect(
+            detector.detectedOutput(
+                in: "claude code v1.7.2\nesc to interrupt\n~/.hermes/logs/session.json",
+                liveAgentKind: .claudeCode
+            )
+                == AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
+        )
+    }
+
+    @Test("a path-only Hermes marker does not override stronger agent identity")
+    func pathOnlyHermesDoesNotOverrideStrongerAgentIdentity() {
+        #expect(
+            detector.detectedOutput(in: "❯ grok\nconfig: ~/.hermes")?.agentKind == .grok
+        )
+        #expect(
+            detector.detectedOutput(
+                in: "OpenAI Codex (v0.142.5)\nconfig: ~/.hermes"
+            )?.agentKind == .codex
+        )
+        #expect(
+            detector.detectedOutput(in: "❯ opencode\nconfig: ~/.hermes")?.agentKind
+                == .openCode
+        )
+    }
+
+    @Test("a live Claude pane evaluates state cues alongside a Hermes path")
+    func liveClaudeEvaluatesStateCuesAlongsideHermesPath() {
+        #expect(
+            detector.detectedState(
+                in: "cat ~/.hermes/logs/session.json\nesc to interrupt",
+                assumingAgentContext: true,
+                liveAgentKind: .claudeCode
+            ) == .thinking
+        )
+    }
+
+    @Test("path-only Hermes ignores leftover Claude thinking and done cues")
+    func pathOnlyHermesIgnoresLeftoverClaudeStateCues() {
+        let thinking = """
+            cat /.hermes/config
+            claude code v1.7.2
+            esc to interrupt
+            claude · thinking
+            """
+        let thinkingDetection = detector.detectedOutput(in: thinking)
+        #expect(thinkingDetection?.agentKind == .hermes)
+        #expect(thinkingDetection?.state != .thinking)
+        #expect(thinkingDetection?.state == .waiting)
+
+        let done = """
+            config: ~/.hermes
+            claude code v1.7.2
+            awaiting your review
+            task complete
+            """
+        let doneDetection = detector.detectedOutput(in: done)
+        #expect(doneDetection?.agentKind == .hermes)
+        #expect(doneDetection?.state != .done)
+        #expect(doneDetection?.state == .waiting)
+    }
+
+    @Test("leftover Claude done chrome does not mark a Hermes pane done")
+    func leftoverClaudeDoneDoesNotStickHermes() {
+        let mixed = """
+            claude code v1.7.2
+            Hermes
+            gpt-5.6-sol
+            awaiting your review
+            task complete
+            """
+        let detection = detector.detectedOutput(in: mixed)
+        #expect(detection?.agentKind == .hermes)
+        #expect(detection?.state != .done)
+        #expect(detection?.state == .waiting)
+        #expect(
+            detector.detectedOutput(
+                in: "claude code v1.7.2\nawaiting your review",
+                liveAgentKind: .hermes
+            )?.state != .done
+        )
+    }
+
+    @Test("a lone ruminating status line does not first-tag Hermes")
+    func ruminatingAloneDoesNotFirstTagHermes() {
+        #expect(detector.detectedOutput(in: "Ruminating…") == nil)
+        #expect(detector.detectedOutput(in: "ruminating") == nil)
+    }
+
+    @Test("historical mid-line ruminating does not keep Thinking")
+    func midLineRuminatingDoesNotKeepThinking() {
+        let text = """
+            Hermes
+            gpt-5.6-sol
+            the previous turn was ruminating for 12s
+            """
+        #expect(
+            detector.detectedOutput(in: text)
+                == AgentOutputDetection(state: .waiting, agentKind: .hermes)
+        )
+    }
+
+    @Test("parenthetical hermes prose does not first-tag")
+    func doesNotInferHermesFromParentheticalProse() {
+        #expect(detector.detectedOutput(in: "(hermes is a mission)") == nil)
+    }
+
+    @Test("mid-sentence prompt quotes do not first-tag Hermes")
+    func midSentencePromptQuotesDoNotFirstTagHermes() {
+        #expect(detector.detectedOutput(in: "the README quotes `$ hermes` as the launch") == nil)
+        #expect(detector.detectedOutput(in: "then ❯ hermes --resume in the guide") == nil)
+    }
+}

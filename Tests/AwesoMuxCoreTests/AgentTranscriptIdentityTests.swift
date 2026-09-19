@@ -19,7 +19,7 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         #expect(AgentTranscriptIdentity(agentKind: .codex, sessionID: sessionA) != nil)
         #expect(AgentTranscriptIdentity(agentKind: .pi, sessionID: "pi-session-1") != nil)
         #expect(AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC") != nil)
-        for kind in [AgentKind.grok, .generic, .shell] {
+        for kind in [AgentKind.grok, .hermes, .generic, .shell] {
             #expect(AgentTranscriptIdentity(agentKind: kind, sessionID: sessionA) == nil)
         }
     }

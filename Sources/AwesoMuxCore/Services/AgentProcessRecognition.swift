@@ -33,6 +33,9 @@ public enum AgentProcessRecognition {
         if name == "grok" || name.hasPrefix("grok-") {
             return .grok
         }
+        if name == "hermes" || name.hasPrefix("hermes-") {
+            return .hermes
+        }
         // Exact basename only, mirroring AgentPromptGate's `.pi` arm so the two
         // mappers agree on what the provider binary is called. Pi ships no
         // sibling binaries, and a prefix arm here would claim unrelated
@@ -42,6 +45,8 @@ public enum AgentProcessRecognition {
         }
         // Claude Code: native installer executes version-named files (e.g. 2.1.214)
         // and suffixed launchers (claude-*), mirrored in AgentPromptGate.
+        // Keep the bare-version heuristic scoped to Claude only — a `1.2.3`
+        // comm on any other CLI is not Claude identity.
         let rawName = ShellRecognition.basename(command).lowercased()
         if name == "claude" || name.hasPrefix("claude-") || isBareVersionName(rawName) {
             return .claudeCode

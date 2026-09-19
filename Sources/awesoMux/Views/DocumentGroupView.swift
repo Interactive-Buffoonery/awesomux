@@ -885,7 +885,7 @@ struct DocumentGroupView: View {
                 case .openCode: integrations.openCode.enabled
                 case .pi: integrations.pi.enabled
                 case .grok: integrations.grok.enabled
-                case .shell, .generic: false
+                case .shell, .hermes, .generic: false
                 }
             },
             agentBinaryPath: { kind in
@@ -895,7 +895,7 @@ struct DocumentGroupView: View {
                 case .openCode: integrations.openCode.binaryPath
                 case .pi: integrations.pi.binaryPath
                 case .grok: integrations.grok.binaryPath
-                case .shell, .generic: nil
+                case .shell, .hermes, .generic: nil
                 }
             },
             foregroundComm: { runtime.foregroundComm(in: $0) },

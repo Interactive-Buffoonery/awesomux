@@ -1,3 +1,4 @@
+import AwesoMuxCore
 import Foundation
 import Testing
 @testable import awesoMux
@@ -9,7 +10,12 @@ struct RemoteLivenessProbeTests {
         #expect(
             try RemoteLivenessProbe.decode(
                 Data(#"{"state":"idle-shell","v":1,"comm":"zsh","hasChildren":false}"#.utf8)
-            ) == .idleShell
+            ) == RemoteForegroundLivenessSample(liveness: .idleShell, comm: "zsh")
+        )
+        #expect(
+            try RemoteLivenessProbe.decode(
+                Data(#"{"state":"live-command","v":1,"comm":"hermes"}"#.utf8)
+            ) == RemoteForegroundLivenessSample(liveness: .liveCommand, comm: "hermes")
         )
     }
 

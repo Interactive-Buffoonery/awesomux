@@ -13,6 +13,9 @@ struct AgentProcessRecognitionTests {
         #expect(AgentProcessRecognition.agentKind(forCommand: "grok") == .grok)
         #expect(AgentProcessRecognition.agentKind(forCommand: "/Users/example/.grok/bin/grok") == .grok)
         #expect(AgentProcessRecognition.agentKind(forCommand: "grok-arm64") == .grok)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "hermes") == .hermes)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "/Users/example/.hermes/bin/hermes") == .hermes)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "hermes-bin") == .hermes)
         #expect(AgentProcessRecognition.agentKind(forCommand: "pi") == .pi)
         #expect(AgentProcessRecognition.agentKind(forCommand: "/opt/homebrew/bin/pi") == .pi)
     }
@@ -44,6 +47,7 @@ struct AgentProcessRecognitionTests {
                 forCommand: "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.exe") == .codex)
         #expect(AgentProcessRecognition.agentKind(forCommand: "opencode.exe") == .openCode)
         #expect(AgentProcessRecognition.agentKind(forCommand: "grok.exe") == .grok)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "hermes.exe") == .hermes)
         #expect(AgentProcessRecognition.agentKind(forCommand: "CODEX.EXE") == .codex)
     }
 
@@ -61,5 +65,12 @@ struct AgentProcessRecognitionTests {
         #expect(AgentProcessRecognition.agentKind(forCommand: "amplify") == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: "rootlesskit") == nil)
         #expect(AgentProcessRecognition.agentKind(forCommand: "cursorctl") == nil)
+    }
+
+    @Test("bare version names stay Claude-only and do not claim Hermes")
+    func bareVersionNamesStayClaudeOnly() {
+        #expect(AgentProcessRecognition.agentKind(forCommand: "2.1.214") == .claudeCode)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "hermes") == .hermes)
+        #expect(AgentProcessRecognition.agentKind(forCommand: "1") == nil)
     }
 }

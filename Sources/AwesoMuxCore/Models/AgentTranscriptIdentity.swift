@@ -48,7 +48,7 @@ public struct AgentTranscriptIdentity: Hashable, Sendable {
         case .codex: .codex
         case .openCode: .openCode
         case .pi: .pi
-        case .grok, .shell, .generic: nil
+        case .grok, .hermes, .shell, .generic: nil
         }
     }
 
