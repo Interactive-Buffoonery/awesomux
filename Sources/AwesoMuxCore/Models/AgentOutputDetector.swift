@@ -238,9 +238,6 @@ public struct AgentOutputDetector: Sendable {
         if hasHermesIdentity, liveAgentKind != .claudeCode {
             return .hermes
         }
-        if hasClaudeIdentity {
-            return .claudeCode
-        }
         return nil
     }
 
