@@ -4,7 +4,7 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `d4c88d8069912b653d707191388ca98e24751f12` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `b32f20f3e8d25bb925ec545c54498e93518e7ced` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
 > The current pin also includes upstream fixes for safe empty-output pointers
