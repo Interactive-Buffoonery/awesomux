@@ -11,12 +11,18 @@ import SwiftUI
 final class DocumentGroupScrollAnchorCapture {
     private var tabID: DocumentPane.ID?
     private var capture: (@MainActor () -> Int?)?
+    private var scroll: (@MainActor (Int) -> Bool)?
     private var acceptsRegistrations = true
 
-    func register(tabID: DocumentPane.ID, capture: @escaping @MainActor () -> Int?) {
+    func register(
+        tabID: DocumentPane.ID,
+        capture: @escaping @MainActor () -> Int?,
+        scroll: @escaping @MainActor (Int) -> Bool
+    ) {
         guard acceptsRegistrations else { return }
         self.tabID = tabID
         self.capture = capture
+        self.scroll = scroll
     }
 
     func registeredCapture(for tabID: DocumentPane.ID) -> (@MainActor () -> Int?)? {
@@ -24,9 +30,15 @@ final class DocumentGroupScrollAnchorCapture {
         return capture
     }
 
+    func registeredScroll(for tabID: DocumentPane.ID) -> (@MainActor (Int) -> Bool)? {
+        guard self.tabID == tabID else { return nil }
+        return scroll
+    }
+
     func clear() {
         tabID = nil
         capture = nil
+        scroll = nil
     }
 
     func stopAcceptingRegistrations() {
@@ -36,6 +48,19 @@ final class DocumentGroupScrollAnchorCapture {
 
     func resumeAcceptingRegistrations() {
         acceptsRegistrations = true
+    }
+}
+
+@MainActor
+enum DocumentGroupFragmentLanding {
+    static func scrollToTop(
+        tabID: DocumentPane.ID,
+        access: DocumentGroupScrollAnchorCapture,
+        storeAnchor: (Int) -> Void
+    ) -> Bool {
+        storeAnchor(0)
+        guard let scroll = access.registeredScroll(for: tabID) else { return true }
+        return scroll(0)
     }
 }
 
@@ -297,7 +322,10 @@ struct DocumentGroupView: View {
                                     from: sourceIdentity,
                                     in: session.id,
                                     associatedWith: liveAssociation,
-                                    sessionStore: sessionStore
+                                    sessionStore: sessionStore,
+                                    onScrollFragmentTargetToTop: { tabID in
+                                        scrollFragmentTargetToTop(tabID: tabID)
+                                    }
                                 ) {
                                     documentTabActions.requestFocus(for: openedID, in: session.id)
                                 }
@@ -337,8 +365,12 @@ struct DocumentGroupView: View {
                             openAnnotationIDs: openAnnotationIDs
                         )
                     },
-                    onRegisterScrollAnchorCapture: { capture in
-                        scrollAnchorCapture.register(tabID: document.id, capture: capture)
+                    onRegisterScrollAnchorCapture: { capture, scroll in
+                        scrollAnchorCapture.register(
+                            tabID: document.id,
+                            capture: capture,
+                            scroll: scroll
+                        )
                     },
                     collapsedSections: tabMemory.collapsedSections(for: document),
                     onSectionToggled: { key in tabMemory.toggleSection(key, for: document) }
@@ -683,6 +715,20 @@ struct DocumentGroupView: View {
             scrollAnchorCapture.resumeAcceptingRegistrations()
         }
         mode = visible ? .files : .document
+    }
+
+    private func scrollFragmentTargetToTop(tabID: DocumentPane.ID) -> Bool {
+        guard
+            let currentGroup = sessionStore.session(id: session.id)?.layout.documentGroup(id: group.id),
+            let target = currentGroup.tab(id: tabID)
+        else { return false }
+        return DocumentGroupFragmentLanding.scrollToTop(
+            tabID: tabID,
+            access: scrollAnchorCapture,
+            storeAnchor: { anchor in
+                tabMemory.storeScrollAnchor(anchor, for: target)
+            }
+        )
     }
 
     private func consumeFileBrowserRequest() {
