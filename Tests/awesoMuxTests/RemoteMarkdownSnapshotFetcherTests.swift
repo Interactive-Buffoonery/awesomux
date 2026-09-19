@@ -904,16 +904,24 @@ struct RemoteMarkdownReferenceTests {
             onCoalescedFetch: { await coalesced.signal() }
         )
 
-        let first = Task { await fetcher.fetch(reference) }
+        let firstAttempt = fetcher.startAttempt(reference, consumer: .other)
+        let first = Task { await firstAttempt.value() }
         await operationGate.waitForEntries(1)
-        let second = Task { await fetcher.fetch(reference) }
+        let secondAttempt = fetcher.startAttempt(reference, consumer: .document)
+        let second = Task { await secondAttempt.value() }
         await coalesced.wait()
         await operationGate.release()
         let results = await [first.value, second.value]
 
         #expect(await counter.count == 1)
-        #expect(results[0]?.snapshot.fileURL == results[1]?.snapshot.fileURL)
-        #expect(try Data(contentsOf: #require(results[0]?.snapshot.fileURL)) == Data("current".utf8))
+        #expect(firstAttempt.cohort === secondAttempt.cohort)
+        #expect(firstAttempt.ownsAnnouncements)
+        #expect(!secondAttempt.ownsAnnouncements)
+        #expect(results[0].outcome?.snapshot.fileURL == results[1].outcome?.snapshot.fileURL)
+        #expect(
+            try Data(contentsOf: #require(results[0].outcome?.snapshot.fileURL))
+                == Data("current".utf8)
+        )
     }
 
     @Test func completedFetchIsRemovedBeforeItsCallerFinishes() async throws {
@@ -944,15 +952,20 @@ struct RemoteMarkdownReferenceTests {
             onFetchRegistered: { await secondRegistered.signal() }
         )
 
-        let firstResult = Task { await first.fetch(reference) }
+        let firstAttempt = first.startAttempt(reference, consumer: .document)
+        let firstResult = Task { await firstAttempt.value() }
         await firstFinished.waitForEntries(1)
-        let secondResult = Task { await second.fetch(reference) }
+        let secondAttempt = second.startAttempt(reference, consumer: .refresh)
+        let secondResult = Task { await secondAttempt.value() }
         await secondRegistered.wait()
         await firstFinished.release()
 
-        #expect(await firstResult.value != nil)
-        #expect(await secondResult.value != nil)
+        #expect(await firstResult.value.outcome != nil)
+        #expect(await secondResult.value.outcome != nil)
         #expect(await counter.count == 2)
+        #expect(firstAttempt.cohort !== secondAttempt.cohort)
+        #expect(firstAttempt.ownsAnnouncements)
+        #expect(secondAttempt.ownsAnnouncements)
     }
 
     @Test func differentCacheDirectoriesDoNotShareInFlightResults() async throws {

@@ -202,6 +202,21 @@ struct RemoteMarkdownFetchProgressCoordinatorTests {
         #expect(!progress.isDocumentOverlayBusy(sessionID: sessionID, identity: identity))
     }
 
+    @Test("restore tracks work without taking interactive announcement ownership")
+    func restoreLeavesInteractiveOwnershipAvailable() {
+        let progress = RemoteMarkdownFetchProgressCoordinator()
+        let sessionID = UUID()
+        let identity = makeIdentity()
+
+        #expect(!progress.begin(sessionID: sessionID, identity: identity, origin: .restore))
+        #expect(progress.begin(sessionID: sessionID, identity: identity, origin: .document))
+        #expect(!progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity))
+
+        progress.finish(sessionID: sessionID, identity: identity, origin: .document)
+        progress.finish(sessionID: sessionID, identity: identity, origin: .restore)
+        #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
+    }
+
     private final class FakeSurfacePresenter: RemoteMarkdownFetchProgressSurfacePresenting {
         var isBusy = false
 
@@ -243,6 +258,7 @@ struct RemoteMarkdownFetchProgressWiringTests {
         let hold = AsyncGate()
         var loadingCount = 0
         var outcomeCount = 0
+        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
 
         func outcome(for reference: RemoteMarkdownReference) -> RemoteMarkdownFetchOutcome {
             .fresh(
@@ -266,9 +282,19 @@ struct RemoteMarkdownFetchProgressWiringTests {
                 associatedWith: nil,
                 sessionStore: store,
                 coordinator: nil,
-                fetch: { reference in
-                    await hold.wait()
-                    return outcome(for: reference)
+                startAttempt: { reference in
+                    .init(
+                        cohort: cohort,
+                        ownsAnnouncements: cohort.register(.document),
+                        task: Task {
+                            await hold.wait()
+                            return outcome(for: reference)
+                        },
+                        isNew: true,
+                        onCoalesced: nil,
+                        onRegistered: nil,
+                        onFinished: nil
+                    )
                 },
                 onAnnounceLoading: { loadingCount += 1 },
                 onAnnounceOutcome: { _ in outcomeCount += 1 },
@@ -291,9 +317,19 @@ struct RemoteMarkdownFetchProgressWiringTests {
             associatedWith: nil,
             sessionStore: store,
             coordinator: nil,
-            fetch: { reference in
-                hold.open()
-                return outcome(for: reference)
+            startAttempt: { reference in
+                .init(
+                    cohort: cohort,
+                    ownsAnnouncements: cohort.register(.document),
+                    task: Task {
+                        hold.open()
+                        return outcome(for: reference)
+                    },
+                    isNew: false,
+                    onCoalesced: nil,
+                    onRegistered: nil,
+                    onFinished: nil
+                )
             },
             onAnnounceLoading: { loadingCount += 1 },
             onAnnounceOutcome: { _ in outcomeCount += 1 },
@@ -699,11 +735,11 @@ struct RemoteMarkdownFetchProgressSourceContractTests {
             in: source,
             path: "Sources/awesoMux/App/AwesoMuxApp.swift"
         )
-        #expect(onOpen.contains("announceLoadingIfValid("))
-        #expect(onOpen.contains("progressClaim: claim"))
-        let announceIndex = try #require(onOpen.range(of: "announceLoadingIfValid("))
+        #expect(onOpen.contains("prepareLoadingIfValid("))
+        #expect(onOpen.contains("preparedOpen: preparedOpen"))
+        let announceIndex = try #require(onOpen.range(of: "prepareLoadingIfValid("))
         let dismissIndex = try #require(onOpen.range(of: "remoteMarkdownPathOpenRequest = nil"))
-        let adoptIndex = try #require(onOpen.range(of: "progressClaim: claim"))
+        let adoptIndex = try #require(onOpen.range(of: "preparedOpen: preparedOpen"))
         #expect(announceIndex.lowerBound < dismissIndex.lowerBound)
         #expect(dismissIndex.lowerBound < adoptIndex.lowerBound)
     }

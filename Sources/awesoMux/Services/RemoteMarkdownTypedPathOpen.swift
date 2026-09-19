@@ -8,6 +8,12 @@ import Foundation
 /// declared `RemoteTarget` (plan or tab identity) authorizes the fetch; title
 /// host never does.
 enum RemoteMarkdownTypedPathOpen {
+    struct PreparedOpen {
+        let reference: RemoteMarkdownReference
+        let attempt: RemoteMarkdownFetchCoordinator.PreparedAttempt
+        let progressClaim: RemoteMarkdownFetchProgressCoordinator.Claim
+    }
+
     enum Context: Equatable, Sendable {
         case local
         case remote(target: RemoteTarget, associatedPaneID: TerminalPane.ID?)
@@ -127,6 +133,40 @@ enum RemoteMarkdownTypedPathOpen {
         return claim
     }
 
+    /// Production sheet-submit path. Register the fetch cohort before the
+    /// immediate loading cue so every entry point agrees on one speech owner.
+    @MainActor
+    static func prepareLoadingIfValid(
+        typedPath: String,
+        target: RemoteTarget,
+        sessionID: TerminalSession.ID,
+        origin: RemoteMarkdownFetchProgressCoordinator.Origin,
+        overlayIdentity: ResourceIdentity? = nil,
+        progress: RemoteMarkdownFetchProgressCoordinator = .shared,
+        onAnnounceLoading: @MainActor () -> Void = {
+            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoadingImmediately()
+        },
+        onRoutingFailure: @MainActor () -> Void = {
+            GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
+        }
+    ) -> PreparedOpen? {
+        guard let reference = reference(typedPath: typedPath, target: target) else {
+            onRoutingFailure()
+            return nil
+        }
+        let attempt = RemoteMarkdownSnapshotFetcher().startAttempt(reference, consumer: .other)
+        let claim = progress.beginClaim(
+            sessionID: sessionID,
+            identity: reference.identity,
+            origin: origin,
+            overlayIdentity: overlayIdentity
+        )
+        if attempt.ownsAnnouncements {
+            onAnnounceLoading()
+        }
+        return PreparedOpen(reference: reference, attempt: attempt, progressClaim: claim)
+    }
+
     /// Interactive typed-path open. Mirrors OSC / Md→Md a11y for non-sheet
     /// callers (async loading hop via `announceRemoteMarkdownLoading`). Sheet
     /// submit must call `announceLoadingIfValid` first (begin + immediate post
@@ -164,9 +204,10 @@ enum RemoteMarkdownTypedPathOpen {
         origin: RemoteMarkdownFetchProgressCoordinator.Origin? = nil,
         overlayIdentity: ResourceIdentity? = nil,
         progressClaim: RemoteMarkdownFetchProgressCoordinator.Claim? = nil,
+        preparedOpen: PreparedOpen? = nil,
         progress: RemoteMarkdownFetchProgressCoordinator = .shared
     ) async -> DocumentPane.ID? {
-        guard let reference = reference(typedPath: typedPath, target: target) else {
+        guard let reference = preparedOpen?.reference ?? reference(typedPath: typedPath, target: target) else {
             if let progressClaim {
                 progress.finish(progressClaim)
             }
@@ -174,7 +215,9 @@ enum RemoteMarkdownTypedPathOpen {
             return nil
         }
         let claim: RemoteMarkdownFetchProgressCoordinator.Claim
-        if let progressClaim {
+        if let preparedOpen {
+            claim = preparedOpen.progressClaim
+        } else if let progressClaim {
             claim = progressClaim
         } else {
             let resolvedOrigin =
@@ -202,7 +245,13 @@ enum RemoteMarkdownTypedPathOpen {
             }
         }
         defer { progress.finish(claim) }
-        guard let outcome = await fetch(reference) else {
+        let outcome =
+            if let preparedOpen {
+                await preparedOpen.attempt.value().outcome
+            } else {
+                await fetch(reference)
+            }
+        guard let outcome else {
             onFetchFailure()
             return nil
         }
@@ -236,7 +285,7 @@ enum RemoteMarkdownTypedPathOpen {
             // to explain.
             return nil
         }
-        if claim.isFirstWaiter {
+        if preparedOpen?.attempt.ownsAnnouncements ?? claim.isFirstWaiter {
             onAnnounceOutcome(outcome)
         }
         return openedID

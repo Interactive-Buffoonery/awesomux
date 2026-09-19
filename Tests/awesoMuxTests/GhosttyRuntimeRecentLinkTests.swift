@@ -124,7 +124,7 @@ struct GhosttyRuntimeRecentLinkTests {
         var captured: RemoteMarkdownReference?
         GhosttyRuntime.recentLinkRemoteSnapshotProvider = { reference in
             captured = reference
-            return nil
+            return preparedRecentLinkAttempt { nil }
         }
         // Stub the presenter: nil-provider-result now surfaces a fetch failure
         // (see nilRemoteSnapshotPresentsFetchFailure), which would otherwise
@@ -166,7 +166,7 @@ struct GhosttyRuntimeRecentLinkTests {
         var captured: RemoteMarkdownReference?
         GhosttyRuntime.recentLinkRemoteSnapshotProvider = { reference in
             captured = reference
-            return nil
+            return preparedRecentLinkAttempt { nil }
         }
         // Stub the presenter: nil-provider-result now surfaces a fetch failure
         // (see nilRemoteSnapshotPresentsFetchFailure), which would otherwise
@@ -258,7 +258,9 @@ struct GhosttyRuntimeRecentLinkTests {
         )
         let session = makeSession(pane)
         let store = makeStore(session)
-        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in nil }
+        GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in
+            preparedRecentLinkAttempt { nil }
+        }
         var didPresent = false
         GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { view in
             #expect(view == nil)
@@ -316,8 +318,10 @@ struct GhosttyRuntimeRecentLinkTests {
         defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previousPoster) }
 
         GhosttyRuntime.recentLinkRemoteSnapshotProvider = { _ in
-            await hold.wait()
-            return nil
+            preparedRecentLinkAttempt {
+                await hold.wait()
+                return nil
+            }
         }
         GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
 
@@ -404,4 +408,19 @@ struct GhosttyRuntimeRecentLinkTests {
             selectedSessionID: session.id
         )
     }
+}
+
+private func preparedRecentLinkAttempt(
+    operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
+) -> RemoteMarkdownFetchCoordinator.PreparedAttempt {
+    let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+    return .init(
+        cohort: cohort,
+        ownsAnnouncements: cohort.register(.other),
+        task: Task { await operation() },
+        isNew: true,
+        onCoalesced: nil,
+        onRegistered: nil,
+        onFinished: nil
+    )
 }

@@ -35,9 +35,8 @@ enum RemoteMarkdownDocumentLinkNavigation {
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
         coordinator: RemoteMarkdownDocumentLinkCoordinator? = .shared,
-        fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
-            await RemoteMarkdownSnapshotFetcher().fetch($0)
-        },
+        startAttempt: (@MainActor (RemoteMarkdownReference) -> RemoteMarkdownFetchCoordinator.PreparedAttempt)? = nil,
+        fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil,
         onRoutingFailure: @MainActor () -> Void = {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
         },
@@ -66,13 +65,35 @@ enum RemoteMarkdownDocumentLinkNavigation {
             return nil
         }
         defer { coordinator?.finish(sessionID: sessionID, identity: reference.identity) }
+        let prepared: RemoteMarkdownFetchCoordinator.PreparedAttempt
+        if let startAttempt {
+            prepared = startAttempt(reference)
+        } else if let fetch {
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.document)
+            prepared = .init(
+                cohort: cohort,
+                ownsAnnouncements: true,
+                task: Task { await fetch(reference) },
+                isNew: true,
+                onCoalesced: nil,
+                onRegistered: nil,
+                onFinished: nil
+            )
+        } else {
+            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+                reference,
+                consumer: .document
+            )
+        }
         let origin = RemoteMarkdownFetchProgressCoordinator.Origin.document
-        let isFirstWaiter = progress.begin(
+        _ = progress.begin(
             sessionID: sessionID,
             identity: reference.identity,
             origin: origin,
             overlayIdentity: source
         )
+        let isFirstWaiter = prepared.ownsAnnouncements
         if isFirstWaiter {
             onAnnounceLoading()
         }
@@ -84,10 +105,15 @@ enum RemoteMarkdownDocumentLinkNavigation {
                 overlayIdentity: source
             )
         }
-        guard let outcome = await fetch(reference) else {
-            if isFirstWaiter {
-                onFetchFailure()
+        let attempt = await prepared.value()
+        guard let outcome = attempt.outcome else {
+            guard sessionStore.session(id: sessionID) != nil else {
+                return nil
             }
+            // The sheet is both the sighted failure state and VoiceOver's
+            // result cue. Refresh/restore owners defer to it when a document
+            // waiter joined, so presenting it here does not double-speak.
+            onFetchFailure()
             return nil
         }
         // A fragment link lands at the top only when it mounts a *new* tab. An

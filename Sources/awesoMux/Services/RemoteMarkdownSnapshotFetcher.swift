@@ -374,7 +374,7 @@ enum RemoteMarkdownFetchOutcome: Equatable, Sendable {
     }
 }
 
-private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
+final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     struct Key: Hashable, Sendable {
         let identity: ResourceIdentity
         let cacheDirectoryPath: String
@@ -386,7 +386,84 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     // an actor method could let a later fetch enqueue first while the call is
     // suspended at the actor boundary.
     private let lock = NSLock()
-    private var inFlight: [Key: Task<RemoteMarkdownFetchOutcome?, Never>] = [:]
+    final class Cohort: @unchecked Sendable {
+        enum Consumer: Hashable, Sendable {
+            case document
+            case refresh
+            case restore
+            case other
+        }
+
+        let id = UUID()
+        private let lock = NSLock()
+        private var consumers: Set<Consumer> = []
+        private var hasAnnouncementOwner = false
+
+        func register(_ consumer: Consumer) -> Bool {
+            lock.withLock {
+                consumers.insert(consumer)
+                guard consumer != .restore, !hasAnnouncementOwner else { return false }
+                hasAnnouncementOwner = true
+                return true
+            }
+        }
+
+        func add(_ consumer: Consumer) {
+            _ = lock.withLock { consumers.insert(consumer) }
+        }
+
+        var hasDocumentConsumer: Bool {
+            lock.withLock { consumers.contains(.document) }
+        }
+
+        var hasInteractiveConsumer: Bool {
+            lock.withLock {
+                consumers.contains(.document) || consumers.contains(.refresh)
+                    || consumers.contains(.other)
+            }
+        }
+
+        var hasCoalescedInteractiveConsumer: Bool {
+            lock.withLock {
+                consumers.filter { $0 != .restore }.count > 1
+            }
+        }
+    }
+
+    struct Attempt: Sendable {
+        let outcome: RemoteMarkdownFetchOutcome?
+        let cohort: Cohort
+    }
+
+    struct PreparedAttempt: Sendable {
+        let cohort: Cohort
+        let ownsAnnouncements: Bool
+        let task: Task<RemoteMarkdownFetchOutcome?, Never>
+        let isNew: Bool
+        let onCoalesced: (@Sendable () async -> Void)?
+        let onRegistered: (@Sendable () async -> Void)?
+        let onFinished: (@Sendable () async -> Void)?
+
+        func value() async -> Attempt {
+            if isNew {
+                await onRegistered?()
+            } else {
+                await onCoalesced?()
+            }
+            let outcome = await task.value
+            if isNew {
+                await onFinished?()
+            }
+            return Attempt(outcome: outcome, cohort: cohort)
+        }
+    }
+
+    private struct InFlightFetch {
+        let task: Task<RemoteMarkdownFetchOutcome?, Never>
+        let cohort: Cohort
+    }
+
+    private var inFlight: [Key: InFlightFetch] = [:]
     private struct DirectoryTail {
         let id: UUID
         let task: Task<Void, Never>
@@ -422,36 +499,69 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
 
     func value(
         for key: Key,
+        consumer: Cohort.Consumer = .other,
         onCoalesced: (@Sendable () async -> Void)? = nil,
         onRegistered: (@Sendable () async -> Void)? = nil,
         onFinished: (@Sendable () async -> Void)? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
-    ) async -> RemoteMarkdownFetchOutcome? {
-        switch registerFetch(for: key, operation: operation) {
-        case .existing(let existing):
-            await onCoalesced?()
-            return await existing.value
-        case .new(let task):
-            await onRegistered?()
-            let result = await task.value
-            await onFinished?()
-            return result
+    ) async -> Attempt {
+        await prepare(
+            for: key,
+            consumer: consumer,
+            onCoalesced: onCoalesced,
+            onRegistered: onRegistered,
+            onFinished: onFinished,
+            operation: operation
+        ).value()
+    }
+
+    func prepare(
+        for key: Key,
+        consumer: Cohort.Consumer = .other,
+        onCoalesced: (@Sendable () async -> Void)? = nil,
+        onRegistered: (@Sendable () async -> Void)? = nil,
+        onFinished: (@Sendable () async -> Void)? = nil,
+        operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
+    ) -> PreparedAttempt {
+        switch registerFetch(for: key, consumer: consumer, operation: operation) {
+        case .existing(let task, let cohort, let ownsAnnouncements):
+            PreparedAttempt(
+                cohort: cohort,
+                ownsAnnouncements: ownsAnnouncements,
+                task: task,
+                isNew: false,
+                onCoalesced: onCoalesced,
+                onRegistered: onRegistered,
+                onFinished: onFinished
+            )
+        case .new(let task, let cohort, let ownsAnnouncements):
+            PreparedAttempt(
+                cohort: cohort,
+                ownsAnnouncements: ownsAnnouncements,
+                task: task,
+                isNew: true,
+                onCoalesced: onCoalesced,
+                onRegistered: onRegistered,
+                onFinished: onFinished
+            )
         }
     }
 
     private enum FetchRegistration {
-        case existing(Task<RemoteMarkdownFetchOutcome?, Never>)
-        case new(Task<RemoteMarkdownFetchOutcome?, Never>)
+        case existing(Task<RemoteMarkdownFetchOutcome?, Never>, Cohort, Bool)
+        case new(Task<RemoteMarkdownFetchOutcome?, Never>, Cohort, Bool)
     }
 
     private func registerFetch(
         for key: Key,
+        consumer: Cohort.Consumer,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) -> FetchRegistration {
         lock.lock()
         defer { lock.unlock() }
         if let existing = inFlight[key] {
-            return .existing(existing)
+            let ownsAnnouncements = existing.cohort.register(consumer)
+            return .existing(existing.task, existing.cohort, ownsAnnouncements)
         }
         // Chain after the previous fetch for this target and after the latest
         // prune for this directory. Both predecessors are captured under the
@@ -464,6 +574,8 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         let previousFetch = directoryTails[scope]
         let previousPrune = directoryTails[Self.pruneScope(cacheDirectoryPath: key.cacheDirectoryPath)]
         let id = UUID()
+        let cohort = Cohort()
+        let ownsAnnouncements = cohort.register(consumer)
         let task = Task<RemoteMarkdownFetchOutcome?, Never> {
             await previousPrune?.task.value
             await previousFetch?.task.value
@@ -475,12 +587,12 @@ private final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
             )
             return result
         }
-        inFlight[key] = task
+        inFlight[key] = InFlightFetch(task: task, cohort: cohort)
         let tail = Task {
             _ = await task.value
         }
         directoryTails[scope] = DirectoryTail(id: id, task: tail)
-        return .new(task)
+        return .new(task, cohort, ownsAnnouncements)
     }
 
     private func finishFetch(for key: Key, scope: String, scopeID: UUID) {
@@ -575,12 +687,27 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     var onPruneEnumerated: (@Sendable () async -> Void)?
 
     func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? {
+        await fetchAttempt(reference, consumer: .other).outcome
+    }
+
+    func fetchAttempt(
+        _ reference: RemoteMarkdownReference,
+        consumer: RemoteMarkdownFetchCoordinator.Cohort.Consumer
+    ) async -> RemoteMarkdownFetchCoordinator.Attempt {
+        await startAttempt(reference, consumer: consumer).value()
+    }
+
+    func startAttempt(
+        _ reference: RemoteMarkdownReference,
+        consumer: RemoteMarkdownFetchCoordinator.Cohort.Consumer
+    ) -> RemoteMarkdownFetchCoordinator.PreparedAttempt {
         let key = RemoteMarkdownFetchCoordinator.Key(
             identity: reference.identity,
             cacheDirectoryPath: cacheDirectoryURL.standardizedFileURL.path
         )
-        return await RemoteMarkdownFetchCoordinator.shared.value(
+        return RemoteMarkdownFetchCoordinator.shared.prepare(
             for: key,
+            consumer: consumer,
             onCoalesced: onCoalescedFetch,
             onRegistered: onFetchRegistered,
             onFinished: onFetchFinished

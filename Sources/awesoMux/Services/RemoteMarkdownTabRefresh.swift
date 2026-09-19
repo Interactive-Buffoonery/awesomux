@@ -108,9 +108,8 @@ enum RemoteMarkdownTabRefresh {
         onAnnounceFailure: @MainActor () -> Void = {
             TerminalAccessibilityAnnouncer.announceRemoteMarkdownRefreshUnavailable()
         },
-        fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
-            await RemoteMarkdownSnapshotFetcher().fetch($0)
-        }
+        startAttempt: (@MainActor (RemoteMarkdownReference) -> RemoteMarkdownFetchCoordinator.PreparedAttempt)? = nil,
+        fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) async -> RemoteMarkdownFetchOutcome? {
         // A cancelled sweep must neither claim the coordinator latch nor
         // record a failure it never attempted.
@@ -133,29 +132,70 @@ enum RemoteMarkdownTabRefresh {
         // same remote file. Keep the tab latch above as the stronger duplicate
         // guard for repeated Refresh clicks; this identity-keyed claim only
         // decides which otherwise-valid caller speaks.
+        let consumer =
+            announceOutcome
+            ? RemoteMarkdownFetchCoordinator.Cohort.Consumer.refresh
+            : announceFailure ? .restore : .other
+        let prepared: RemoteMarkdownFetchCoordinator.PreparedAttempt
+        if let startAttempt {
+            prepared = startAttempt(reference)
+        } else if let fetch {
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(consumer)
+            prepared = .init(
+                cohort: cohort,
+                ownsAnnouncements: consumer != .restore,
+                task: Task { await fetch(reference) },
+                isNew: true,
+                onCoalesced: nil,
+                onRegistered: nil,
+                onFinished: nil
+            )
+        } else {
+            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(reference, consumer: consumer)
+        }
+        let participatesInAnnouncementOwnership = announceOutcome || announceFailure
         let ownsAnnouncements: Bool
-        if announceOutcome {
-            ownsAnnouncements = progress.begin(
+        if participatesInAnnouncementOwnership {
+            _ = progress.begin(
                 sessionID: sessionID,
                 identity: identity,
-                origin: .refresh
+                origin: announceOutcome ? .refresh : .restore
             )
-            if ownsAnnouncements {
+            ownsAnnouncements = prepared.ownsAnnouncements
+            if announceOutcome, ownsAnnouncements {
                 onAnnounceLoading()
             }
         } else {
             ownsAnnouncements = true
         }
         defer {
-            if announceOutcome {
+            if participatesInAnnouncementOwnership {
                 progress.finish(
                     sessionID: sessionID,
                     identity: identity,
-                    origin: .refresh
+                    origin: announceOutcome ? .refresh : .restore
                 )
             }
         }
-        guard let outcome = await fetch(reference) else {
+        let attempt = await prepared.value()
+        let fetchedOutcome = attempt.outcome
+        if Task.isCancelled {
+            if let fetchedOutcome,
+                announceOutcome,
+                ownsAnnouncements,
+                attempt.cohort.hasCoalescedInteractiveConsumer,
+                sessionStore.session(id: sessionID) != nil
+            {
+                onAnnounceOutcome(fetchedOutcome)
+            }
+            return nil
+        }
+        guard let outcome = fetchedOutcome else {
+            let ownsFailureAnnouncement =
+                announceFailure
+                ? !attempt.cohort.hasInteractiveConsumer
+                : ownsAnnouncements
             // A nil outcome is a failed attempt (typically a cache/failure-page
             // write miss), not success. Note the policy against the tab's
             // current path so the stale banner can say so, and speak it for the
@@ -165,8 +205,9 @@ enum RemoteMarkdownTabRefresh {
                     .tab(id: documentID)
             else {
                 if announceOutcome,
-                    ownsAnnouncements,
-                    progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity),
+                    ownsFailureAnnouncement,
+                    attempt.cohort.hasCoalescedInteractiveConsumer,
+                    !attempt.cohort.hasDocumentConsumer,
                     sessionStore.session(id: sessionID) != nil
                 {
                     onAnnounceFailure()
@@ -180,23 +221,12 @@ enum RemoteMarkdownTabRefresh {
             // itself already explains the state.
             if !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL) {
                 RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
-                if ownsAnnouncements, announceOutcome || announceFailure {
+                if ownsFailureAnnouncement,
+                    announceOutcome || announceFailure,
+                    !attempt.cohort.hasDocumentConsumer
+                {
                     onAnnounceFailure()
                 }
-            }
-            return nil
-        }
-        // A superseded restore sweep stays silent. An interactive Refresh that
-        // owned speech still completes the shared announcement sequence when
-        // another caller joined its fetch; that caller deliberately stayed
-        // quiet and may already have applied the same outcome.
-        if Task.isCancelled {
-            if announceOutcome,
-                ownsAnnouncements,
-                progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity),
-                sessionStore.session(id: sessionID) != nil
-            {
-                onAnnounceOutcome(outcome)
             }
             return nil
         }
@@ -208,7 +238,7 @@ enum RemoteMarkdownTabRefresh {
         guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else {
             if announceOutcome,
                 ownsAnnouncements,
-                progress.hadCoalescedWaiter(sessionID: sessionID, identity: identity)
+                attempt.cohort.hasCoalescedInteractiveConsumer
             {
                 onAnnounceOutcome(outcome)
             }
@@ -246,9 +276,7 @@ enum RemoteMarkdownTabRefresh {
     static func scheduleRestoreRefresh(
         for store: SessionStore,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
-        fetch: @escaping @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
-            await RemoteMarkdownSnapshotFetcher().fetch($0)
-        }
+        fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) {
         let targets = restoreTargets(in: store)
         guard !targets.isEmpty else { return }

@@ -641,7 +641,7 @@ struct AwesoMuxApp: App {
                         let overlayIdentity =
                             session.flatMap(RemoteMarkdownTypedPathOpen.overlayIdentity(for:))
                         guard
-                            let claim = RemoteMarkdownTypedPathOpen.announceLoadingIfValid(
+                            let preparedOpen = RemoteMarkdownTypedPathOpen.prepareLoadingIfValid(
                                 typedPath: path,
                                 target: target,
                                 sessionID: sessionID,
@@ -661,7 +661,7 @@ struct AwesoMuxApp: App {
                                     in: sessionID,
                                     associatedWith: paneID,
                                     sessionStore: sessionStore,
-                                    progressClaim: claim
+                                    preparedOpen: preparedOpen
                                 )
                             else { return }
                             documentTabActions.requestFocus(for: tabID, in: sessionID)

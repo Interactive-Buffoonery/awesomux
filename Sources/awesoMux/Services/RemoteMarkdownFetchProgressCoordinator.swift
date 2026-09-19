@@ -34,6 +34,7 @@ final class RemoteMarkdownFetchProgressCoordinator {
         case surface(paneID: TerminalPane.ID)
         case document
         case refresh
+        case restore
     }
 
     struct Key: Hashable, Sendable {
@@ -62,6 +63,7 @@ final class RemoteMarkdownFetchProgressCoordinator {
         var surfacePaneIDs: [TerminalPane.ID: Int] = [:]
         var documentCount = 0
         var refreshCount = 0
+        var restoreCount = 0
     }
 
     private final class WeakSurfacePresenter {
@@ -99,8 +101,9 @@ final class RemoteMarkdownFetchProgressCoordinator {
     ) -> Bool {
         let key = Key(sessionID: sessionID, identity: identity)
         var state = waiters[key] ?? WaiterState()
-        let isFirstWaiter = state.count == 0
-        if !isFirstWaiter {
+        let isRestore = origin == .restore
+        let isFirstWaiter = !isRestore && state.count == state.restoreCount
+        if !isRestore, state.count > state.restoreCount {
             state.hadCoalescedWaiter = true
         }
         state.count += 1
@@ -116,6 +119,8 @@ final class RemoteMarkdownFetchProgressCoordinator {
             }
         case .refresh:
             state.refreshCount += 1
+        case .restore:
+            state.restoreCount += 1
         }
         waiters[key] = state
         notify(origin: origin, sessionID: sessionID)
@@ -173,6 +178,9 @@ final class RemoteMarkdownFetchProgressCoordinator {
         case .refresh:
             guard state.refreshCount > 0 else { return }
             state.refreshCount -= 1
+        case .restore:
+            guard state.restoreCount > 0 else { return }
+            state.restoreCount -= 1
         }
         state.count -= 1
         if state.count == 0 {
@@ -296,6 +304,8 @@ final class RemoteMarkdownFetchProgressCoordinator {
         case .document:
             break
         case .refresh:
+            break
+        case .restore:
             break
         }
     }

@@ -440,6 +440,38 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(fetchFailures == 1)
     }
 
+    @Test("a nil fetch after session close does not present stale failure UI")
+    @MainActor
+    func nilFetchAfterSessionCloseStaysSilent() async throws {
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let source = remoteIdentity()
+        let link = try #require(
+            RemoteMarkdownReference.linkURL(
+                forMarkdownDestination: "sibling.md",
+                relativeTo: source
+            )
+        )
+        var fetchFailures = 0
+
+        let openedID = await RemoteMarkdownDocumentLinkNavigation.open(
+            url: link,
+            from: source,
+            in: sessionID,
+            associatedWith: nil,
+            sessionStore: store,
+            fetch: { _ in
+                store.closeSession(id: sessionID)
+                return nil
+            },
+            onFetchFailure: { fetchFailures += 1 },
+            onAnnounceLoading: {}
+        )
+
+        #expect(openedID == nil)
+        #expect(fetchFailures == 0)
+    }
+
     /// An already-open target does not move: a self-link stays put and a
     /// background tab reopens at its saved position. Announcing "opened at the
     /// top" for either would be false, so the cue fires only for a new tab.
