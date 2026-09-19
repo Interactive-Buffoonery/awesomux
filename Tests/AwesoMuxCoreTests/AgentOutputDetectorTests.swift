@@ -414,6 +414,18 @@ struct AgentOutputDetectorClaudeIdentityTests {
         )
     }
 
+    @Test("Claude identity outranks stale non-Claude signatures")
+    func claudeIdentityOutranksStaleNonClaudeSignatures() {
+        let text = """
+            claude code v1.7.2
+            ❯ grok
+            OpenAI Codex (v0.142.5)
+            ❯ opencode
+            """
+
+        #expect(detector.detectedOutput(in: text)?.agentKind == .claudeCode)
+    }
+
     @Test("punctuation, quotes, and digits around claude code do not first-tag")
     func doesNotInferClaudeFromWrappedOrNumberedMentions() {
         for text in [

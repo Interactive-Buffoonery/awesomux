@@ -214,6 +214,16 @@ public struct AgentOutputDetector: Sendable {
         if hasStrongHermesIdentity {
             return .hermes
         }
+        let hasClaudeIdentity = containsConfidentClaudeIdentity(
+            lines,
+            allowsPromptLaunch: allowsPromptLaunch
+        )
+        // Preserve Claude's established precedence over stale provider text.
+        // Only a path-only Hermes marker makes Claude defer so stronger
+        // non-Claude signatures can win before the Hermes fallback.
+        if hasClaudeIdentity && (!hasHermesIdentity || liveAgentKind == .claudeCode) {
+            return .claudeCode
+        }
         if allowsGrokIdentity, hasGrokIdentity {
             return .grok
         }
@@ -228,7 +238,7 @@ public struct AgentOutputDetector: Sendable {
         if hasHermesIdentity, liveAgentKind != .claudeCode {
             return .hermes
         }
-        if containsConfidentClaudeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
+        if hasClaudeIdentity {
             return .claudeCode
         }
         return nil
