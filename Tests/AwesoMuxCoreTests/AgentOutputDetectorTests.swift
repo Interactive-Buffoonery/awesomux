@@ -514,15 +514,41 @@ struct AgentOutputDetectorHermesIdentityTests {
             cat /.hermes/config
             """
         #expect(
-            detector.detectedOutput(in: text)
+            detector.detectedOutput(in: text, liveAgentKind: .claudeCode)
                 == AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
         )
         #expect(
             detector.detectedOutput(
-                in: "claude code v1.7.2\nesc to interrupt\n~/.hermes/logs/session.json"
+                in: "claude code v1.7.2\nesc to interrupt\n~/.hermes/logs/session.json",
+                liveAgentKind: .claudeCode
             )
                 == AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
         )
+    }
+
+    @Test("path-only Hermes ignores leftover Claude thinking and done cues")
+    func pathOnlyHermesIgnoresLeftoverClaudeStateCues() {
+        let thinking = """
+            cat /.hermes/config
+            claude code v1.7.2
+            esc to interrupt
+            claude · thinking
+            """
+        let thinkingDetection = detector.detectedOutput(in: thinking)
+        #expect(thinkingDetection?.agentKind == .hermes)
+        #expect(thinkingDetection?.state != .thinking)
+        #expect(thinkingDetection?.state == .waiting)
+
+        let done = """
+            config: ~/.hermes
+            claude code v1.7.2
+            awaiting your review
+            task complete
+            """
+        let doneDetection = detector.detectedOutput(in: done)
+        #expect(doneDetection?.agentKind == .hermes)
+        #expect(doneDetection?.state != .done)
+        #expect(doneDetection?.state == .waiting)
     }
 
     @Test("leftover Claude done chrome does not mark a Hermes pane done")

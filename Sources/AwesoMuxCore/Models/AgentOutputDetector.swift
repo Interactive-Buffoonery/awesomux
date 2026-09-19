@@ -77,7 +77,8 @@ public struct AgentOutputDetector: Sendable {
             allowsGrokIdentity: false,
             hasGrokIdentity: hasGrokIdentity,
             hasStrongHermesIdentity: hasStrongHermesIdentity,
-            hasHermesIdentity: hasHermesIdentity
+            hasHermesIdentity: hasHermesIdentity,
+            liveAgentKind: liveAgentKind
         )
         let attentionCueAgentKind =
             hasGrokIdentity
@@ -105,8 +106,14 @@ public struct AgentOutputDetector: Sendable {
 
         // Claude thinking/done needles must not drive Hermes (or Grok): leftover
         // Claude chrome is common after SSH, and Hermes has no Stop hooks to
-        // clear a false `.thinking` or `.done`.
-        let skipClaudeStateCues = treatAsHermes || hasGrokIdentity || liveAgentKind == .grok
+        // clear a false `.thinking` or `.done`. Path-only `/.hermes/` is Hermes
+        // for this skip unless the live pane is already Claude — a live Claude
+        // pane that merely prints that path must still show Claude thinking.
+        let skipClaudeStateCues =
+            treatAsHermes
+            || hasGrokIdentity
+            || liveAgentKind == .grok
+            || (hasHermesIdentity && liveAgentKind != .claudeCode)
         if canEvaluateStateCues && !skipClaudeStateCues && containsThinkingCue(normalized) {
             return AgentOutputDetection(state: .thinking, agentKind: stateCueAgentKind)
         }
@@ -125,7 +132,8 @@ public struct AgentOutputDetector: Sendable {
             allowsGrokIdentity: true,
             hasGrokIdentity: hasGrokIdentity,
             hasStrongHermesIdentity: hasStrongHermesIdentity,
-            hasHermesIdentity: hasHermesIdentity
+            hasHermesIdentity: hasHermesIdentity,
+            liveAgentKind: liveAgentKind
         )
         if let agentKind {
             return AgentOutputDetection(state: .waiting, agentKind: agentKind)
@@ -188,7 +196,8 @@ public struct AgentOutputDetector: Sendable {
         allowsGrokIdentity: Bool,
         hasGrokIdentity: Bool,
         hasStrongHermesIdentity: Bool,
-        hasHermesIdentity: Bool
+        hasHermesIdentity: Bool,
+        liveAgentKind: AgentKind
     ) -> AgentKind? {
         // Generic checked before Claude so a Muse/Cursor pane that mentions
         // "claude code" in prose does not get hijacked. Generic is prompt-anchored
@@ -197,9 +206,12 @@ public struct AgentOutputDetector: Sendable {
             return .generic
         }
         // Strong Hermes (splash/prompt) before Claude: leftover Claude docs in
-        // a Hermes viewport must still first-tag as Hermes. A stray `/.hermes/`
-        // path is weaker and waits until after Claude/Grok/Codex/OpenCode.
+        // a Hermes viewport must still first-tag as Hermes. Path-only `/.hermes/`
+        // also wins over leftover Claude chrome unless the live pane is Claude.
         if hasStrongHermesIdentity {
+            return .hermes
+        }
+        if hasHermesIdentity, liveAgentKind != .claudeCode {
             return .hermes
         }
         if containsConfidentClaudeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
