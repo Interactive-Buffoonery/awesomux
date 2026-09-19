@@ -92,49 +92,11 @@ enum RemoteMarkdownTypedPathOpen {
         session.layout.firstDocumentGroup?.selectedTab?.remoteResourceIdentity
     }
 
-    /// Sheet-submit prelude: validate, **begin** the waiter (first-waiter +
-    /// chrome reserved), announce loading immediately only when that begin
-    /// returned first-waiter, then the caller dismisses and `open` adopts the
-    /// claim. Returns `nil` when the path fails closed before begin.
-    ///
-    /// Uses `announceRemoteMarkdownLoadingImmediately` rather than the async
-    /// hop in `announceRemoteMarkdownLoading` — dismiss starts on this turn, and
-    /// a deferred AX post can lose or reorder the cue during sheet teardown.
-    /// Coalesced waiters stay silent, matching OSC first-waiter-only speech.
-    @MainActor
-    @discardableResult
-    static func announceLoadingIfValid(
-        typedPath: String,
-        target: RemoteTarget,
-        sessionID: TerminalSession.ID,
-        origin: RemoteMarkdownFetchProgressCoordinator.Origin,
-        overlayIdentity: ResourceIdentity? = nil,
-        progress: RemoteMarkdownFetchProgressCoordinator = .shared,
-        onAnnounceLoading: @MainActor () -> Void = {
-            TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoadingImmediately()
-        },
-        onRoutingFailure: @MainActor () -> Void = {
-            GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
-        }
-    ) -> RemoteMarkdownFetchProgressCoordinator.Claim? {
-        guard let reference = reference(typedPath: typedPath, target: target) else {
-            onRoutingFailure()
-            return nil
-        }
-        let claim = progress.beginClaim(
-            sessionID: sessionID,
-            identity: reference.identity,
-            origin: origin,
-            overlayIdentity: overlayIdentity
-        )
-        if claim.isFirstWaiter {
-            onAnnounceLoading()
-        }
-        return claim
-    }
-
-    /// Production sheet-submit path. Register the fetch cohort before the
-    /// immediate loading cue so every entry point agrees on one speech owner.
+    /// Sheet-submit prelude: validate, register the fetch cohort, and reserve
+    /// progress chrome before dismiss. The cohort's speech owner announces
+    /// loading immediately, then `open` adopts the returned fetch attempt and
+    /// progress claim. Returns `nil` when the path fails closed before either
+    /// registration.
     @MainActor
     static func prepareLoadingIfValid(
         typedPath: String,
@@ -148,17 +110,20 @@ enum RemoteMarkdownTypedPathOpen {
         },
         onRoutingFailure: @MainActor () -> Void = {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
-        }
+        },
+        startAttempt: (@MainActor (RemoteMarkdownReference) -> RemoteMarkdownFetchCoordinator.PreparedAttempt)? = nil
     ) -> PreparedOpen? {
         guard let reference = reference(typedPath: typedPath, target: target) else {
             onRoutingFailure()
             return nil
         }
-        let attempt = RemoteMarkdownSnapshotFetcher().startAttempt(
-            reference,
-            consumer: .failurePresenter,
-            announcementSessionID: sessionID
-        )
+        let attempt =
+            startAttempt?(reference)
+            ?? RemoteMarkdownSnapshotFetcher().startAttempt(
+                reference,
+                consumer: .failurePresenter,
+                announcementSessionID: sessionID
+            )
         let claim = progress.beginClaim(
             sessionID: sessionID,
             identity: reference.identity,
@@ -173,11 +138,12 @@ enum RemoteMarkdownTypedPathOpen {
 
     /// Interactive typed-path open. Mirrors OSC / Md→Md a11y for non-sheet
     /// callers (async loading hop via `announceRemoteMarkdownLoading`). Sheet
-    /// submit must call `announceLoadingIfValid` first (begin + immediate post
-    /// while the sheet is up), dismiss, then pass that `progressClaim` here so
-    /// this path does not begin a second waiter. `origin` is the frozen
-    /// submit-time chrome host — never re-read from live selection after dismiss
-    /// when a claim is already adopted.
+    /// submit must call `prepareLoadingIfValid` first (register + begin +
+    /// immediate post while the sheet is up), dismiss, then pass that
+    /// `preparedOpen` here so this path reuses both the registered fetch attempt
+    /// and its progress claim. `origin` is the frozen submit-time chrome host —
+    /// never re-read from live selection after dismiss when a prepared open is
+    /// already adopted.
     ///
     /// Loading and outcome announcements are first-waiter-only, matching OSC /
     /// recent-link. Closures (not flags) let tests observe order without posting
@@ -207,22 +173,16 @@ enum RemoteMarkdownTypedPathOpen {
         },
         origin: RemoteMarkdownFetchProgressCoordinator.Origin? = nil,
         overlayIdentity: ResourceIdentity? = nil,
-        progressClaim: RemoteMarkdownFetchProgressCoordinator.Claim? = nil,
         preparedOpen: PreparedOpen? = nil,
         progress: RemoteMarkdownFetchProgressCoordinator = .shared
     ) async -> DocumentPane.ID? {
         guard let reference = preparedOpen?.reference ?? reference(typedPath: typedPath, target: target) else {
-            if let progressClaim {
-                progress.finish(progressClaim)
-            }
             onRoutingFailure()
             return nil
         }
         let claim: RemoteMarkdownFetchProgressCoordinator.Claim
         if let preparedOpen {
             claim = preparedOpen.progressClaim
-        } else if let progressClaim {
-            claim = progressClaim
         } else {
             let resolvedOrigin =
                 origin
