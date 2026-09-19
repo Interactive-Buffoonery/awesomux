@@ -240,7 +240,27 @@ extension SessionPersistenceSerializationDomainTests {
         @Test("genuine v6 snapshot warns and archives while preserving healthy remote tabs")
         func genuineV6MixedSnapshotRecoversThroughFullLoadPipeline() throws {
             try Self.withTemporarySupportDirectory { tempDir in
-                let fixtureData = try Data(contentsOf: Self.v6MixedSnapshotFixtureURL)
+                let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
+                try FileManager.default.createDirectory(
+                    at: cacheDir,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                let legacyDisplayedURL = cacheDir.appending(path: "legacy-origin-hash.md")
+                let orphanURL = cacheDir.appending(path: "orphan.md")
+                try Data("# Legacy snapshot".utf8).write(to: legacyDisplayedURL)
+                try Data("orphan".utf8).write(to: orphanURL)
+                let fixture = try String(contentsOf: Self.v6MixedSnapshotFixtureURL, encoding: .utf8)
+                let encodedLegacyURL = legacyDisplayedURL.absoluteString.replacingOccurrences(
+                    of: "/",
+                    with: "\\/"
+                )
+                let fixtureData = Data(
+                    fixture.replacingOccurrences(
+                        of: "file:\\/\\/\\/tmp\\/awesomux-v6-cache\\/remote.md",
+                        with: encodedLegacyURL
+                    ).utf8
+                )
                 try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
                 try fixtureData.write(to: tempDir.appending(path: "session-state.json"))
 
@@ -277,6 +297,25 @@ extension SessionPersistenceSerializationDomainTests {
                 let remoteDocument = try #require(documentGroup.tabs.last)
                 #expect(remoteDocument.remoteResourceIdentity?.remoteTarget?.sshDestination == "devbox")
                 #expect(remoteDocument.remoteResourceIdentity?.path.rawValue == "/repo/generated:/README.md")
+                #expect(remoteDocument.fileURL == legacyDisplayedURL)
+
+                let fetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDir)
+                let migratedIdentity = try #require(remoteDocument.remoteResourceIdentity)
+                let canonicalURLs = try #require(
+                    fetcher.snapshotFileURLs(for: migratedIdentity)
+                )
+                #expect(!canonicalURLs.contains(legacyDisplayedURL))
+                let references = SessionPersistence.generatedDocumentReferences(
+                    keeping: result.store,
+                    remoteMarkdown: fetcher
+                )
+                #expect(references.remoteMarkdownSnapshots.isSuperset(of: canonicalURLs))
+                #expect(references.remoteMarkdownSnapshots.contains(legacyDisplayedURL))
+                fetcher.pruneUnreferencedSnapshotsImmediately(
+                    keeping: references.remoteMarkdownSnapshots
+                )
+                #expect(FileManager.default.fileExists(atPath: legacyDisplayedURL.path))
+                #expect(!FileManager.default.fileExists(atPath: orphanURL.path))
 
                 let fallbackSession = try #require(result.store.groups.last?.sessions.first)
                 guard case let .pane(fallbackPane) = fallbackSession.layout else {
@@ -487,8 +526,8 @@ extension SessionPersistenceSerializationDomainTests {
             }
         }
 
-        @Test("remote markdown cache keeps both slots for a live remote identity")
-        func remoteMarkdownCacheKeepsBothSlotsForLiveIdentity() async throws {
+        @Test("remote markdown cache keeps displayed and sibling slots for a live remote identity")
+        func remoteMarkdownCacheKeepsDisplayedAndSiblingSlotsForLiveIdentity() async throws {
             try await Self.withTemporarySupportDirectoryAsync { tempDir in
                 let cacheDir = tempDir.appending(path: "remote-markdown", directoryHint: .isDirectory)
                 try FileManager.default.createDirectory(
@@ -508,15 +547,15 @@ extension SessionPersistenceSerializationDomainTests {
                 let cacheURL = try #require(
                     siblingURLs.first { !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath($0) }
                 )
-                let staleDisplayedURL = cacheDir.appending(path: "stale-display.md")
+                let legacyDisplayedURL = cacheDir.appending(path: "legacy-display.md")
                 let orphan = cacheDir.appending(path: "orphan.md")
-                for url in [failureURL, cacheURL, staleDisplayedURL, orphan] {
+                for url in [failureURL, cacheURL, legacyDisplayedURL, orphan] {
                     try Data(url.lastPathComponent.utf8).write(to: url)
                 }
 
                 let terminal = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
                 let doc = DocumentPane(
-                    fileURL: staleDisplayedURL,
+                    fileURL: legacyDisplayedURL,
                     title: "README.md",
                     remoteResourceIdentity: identity
                 )
@@ -548,7 +587,7 @@ extension SessionPersistenceSerializationDomainTests {
 
                 #expect(FileManager.default.fileExists(atPath: failureURL.path))
                 #expect(FileManager.default.fileExists(atPath: cacheURL.path))
-                #expect(!FileManager.default.fileExists(atPath: staleDisplayedURL.path))
+                #expect(FileManager.default.fileExists(atPath: legacyDisplayedURL.path))
                 #expect(!FileManager.default.fileExists(atPath: orphan.path))
 
                 let failedRefresh = RemoteMarkdownSnapshotFetcher(

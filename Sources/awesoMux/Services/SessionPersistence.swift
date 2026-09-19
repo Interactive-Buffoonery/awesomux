@@ -601,6 +601,7 @@ enum SessionPersistence {
                     let siblingURLs = remoteMarkdown.snapshotFileURLs(for: identity)
                 {
                     references.remoteMarkdownSnapshots.formUnion(siblingURLs)
+                    references.remoteMarkdownSnapshots.insert(tab.fileURL)
                 }
                 // Same union of the two signals as the transcript arm below,
                 // for the same reasons.

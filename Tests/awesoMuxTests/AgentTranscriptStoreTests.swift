@@ -587,7 +587,7 @@ extension SessionPersistenceSerializationDomainTests {
         #expect(references.agentTranscripts == [transcriptURL])
             #expect(
                 references.remoteMarkdownSnapshots
-                    == remoteFetcher.snapshotFileURLs(for: remoteIdentity)
+                    == remoteFetcher.snapshotFileURLs(for: remoteIdentity)?.union([snapshotURL])
             )
         // Membership is by directory, not by name: a user's own file that
         // happens to end in `.transcript.md` is not an app-authored artifact.
