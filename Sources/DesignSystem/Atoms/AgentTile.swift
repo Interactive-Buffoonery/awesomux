@@ -414,29 +414,30 @@ private struct GrokGlyph: Shape {
     }
 }
 
-// Outward wings on a staff — messenger/speed, distinct from generic inward
-// `< >` and OpenCode's square brackets. Yellow is unused in the family.
+// Short tucked wings plus tiny lower S nubs on a staff — messenger/speed,
+// without the long diagonals that read as an asterisk. Yellow is unused in
+// the family. Coordinates match the option-F 100×100 mock.
 private struct HermesGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         let s = min(rect.width, rect.height)
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let staffTop = CGPoint(x: center.x, y: rect.minY + s * 0.14)
-        let staffBottom = CGPoint(x: center.x, y: rect.maxY - s * 0.14)
-        path.move(to: staffTop)
-        path.addLine(to: staffBottom)
+        let origin = CGPoint(x: rect.midX - s / 2, y: rect.midY - s / 2)
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: origin.x + x / 100 * s, y: origin.y + y / 100 * s)
+        }
 
-        let wingSpread = s * 0.38
-        let wingHeight = s * 0.22
-        let wingY = rect.minY + s * 0.34
-        path.move(to: CGPoint(x: center.x, y: wingY))
-        path.addLine(to: CGPoint(x: center.x - wingSpread, y: wingY - wingHeight))
-        path.move(to: CGPoint(x: center.x, y: wingY))
-        path.addLine(to: CGPoint(x: center.x - wingSpread, y: wingY + wingHeight))
-        path.move(to: CGPoint(x: center.x, y: wingY))
-        path.addLine(to: CGPoint(x: center.x + wingSpread, y: wingY - wingHeight))
-        path.move(to: CGPoint(x: center.x, y: wingY))
-        path.addLine(to: CGPoint(x: center.x + wingSpread, y: wingY + wingHeight))
+        path.move(to: pt(50, 16))
+        path.addLine(to: pt(50, 86))
+
+        path.move(to: pt(50, 28))
+        path.addQuadCurve(to: pt(32, 26), control: pt(40, 16))
+        path.move(to: pt(50, 28))
+        path.addQuadCurve(to: pt(68, 26), control: pt(60, 16))
+
+        path.move(to: pt(40, 48))
+        path.addCurve(to: pt(40, 62), control1: pt(36, 52), control2: pt(36, 58))
+        path.move(to: pt(60, 48))
+        path.addCurve(to: pt(60, 62), control1: pt(64, 52), control2: pt(64, 58))
         return path
     }
 }
