@@ -56,12 +56,15 @@ public struct AgentOutputDetector: Sendable {
 
         let hasStatefulAgentContext = containsStatefulAgentContext(lines)
         let hasGrokIdentity = containsConfidentGrokIdentity(normalized)
-        let hasHermesIdentity = containsConfidentHermesIdentity(
-            normalized,
-            lines: lines,
+        let hasStrongHermesIdentity = containsStrongHermesIdentity(
+            lines,
             allowsPromptLaunch: true
         )
-        let treatAsHermes = hasHermesIdentity || liveAgentKind == .hermes
+        let hasHermesIdentity =
+            hasStrongHermesIdentity || containsHermesConfigPath(normalized)
+        // Path-only `/.hermes/` dumps must not suppress Claude cues; splash
+        // heading, prompt launch, and a live Hermes process still do.
+        let treatAsHermes = hasStrongHermesIdentity || liveAgentKind == .hermes
         let canEvaluateStateCues = hasStatefulAgentContext
             || (assumingAgentContext && !hasGrokIdentity && !hasHermesIdentity)
         let canEvaluateAttentionCues = hasStatefulAgentContext
@@ -73,12 +76,13 @@ public struct AgentOutputDetector: Sendable {
             allowsPromptLaunch: false,
             allowsGrokIdentity: false,
             hasGrokIdentity: hasGrokIdentity,
+            hasStrongHermesIdentity: hasStrongHermesIdentity,
             hasHermesIdentity: hasHermesIdentity
         )
         let attentionCueAgentKind =
             hasGrokIdentity
             ? AgentKind.grok
-            : (hasHermesIdentity ? AgentKind.hermes : stateCueAgentKind)
+            : (hasStrongHermesIdentity ? AgentKind.hermes : stateCueAgentKind)
 
         // Grok Build currently does not invoke plugin lifecycle hooks (verified
         // against 0.2.x), so the sidebar cannot rely on UserPromptSubmit /
@@ -120,6 +124,7 @@ public struct AgentOutputDetector: Sendable {
             allowsPromptLaunch: true,
             allowsGrokIdentity: true,
             hasGrokIdentity: hasGrokIdentity,
+            hasStrongHermesIdentity: hasStrongHermesIdentity,
             hasHermesIdentity: hasHermesIdentity
         )
         if let agentKind {
@@ -182,6 +187,7 @@ public struct AgentOutputDetector: Sendable {
         allowsPromptLaunch: Bool,
         allowsGrokIdentity: Bool,
         hasGrokIdentity: Bool,
+        hasStrongHermesIdentity: Bool,
         hasHermesIdentity: Bool
     ) -> AgentKind? {
         // Generic checked before Claude so a Muse/Cursor pane that mentions
@@ -190,10 +196,10 @@ public struct AgentOutputDetector: Sendable {
         if containsConfidentGenericIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .generic
         }
-        // Hermes before Claude: Claude's old unanchored needles were the widest
-        // sticky net, and a Hermes splash that also mentions Claude in docs
-        // must still first-tag as Hermes.
-        if hasHermesIdentity {
+        // Strong Hermes (splash/prompt) before Claude: leftover Claude docs in
+        // a Hermes viewport must still first-tag as Hermes. A stray `/.hermes/`
+        // path is weaker and waits until after Claude/Grok/Codex/OpenCode.
+        if hasStrongHermesIdentity {
             return .hermes
         }
         if containsConfidentClaudeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
@@ -207,6 +213,9 @@ public struct AgentOutputDetector: Sendable {
         }
         if containsConfidentOpenCodeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .openCode
+        }
+        if hasHermesIdentity {
+            return .hermes
         }
         return nil
     }
@@ -258,16 +267,27 @@ public struct AgentOutputDetector: Sendable {
         lines: [Substring],
         allowsPromptLaunch: Bool
     ) -> Bool {
-        if lineIsHermesHeading(lines)
-            || text.contains("~/.hermes")
-            || text.contains("/.hermes/")
-        {
+        containsStrongHermesIdentity(lines, allowsPromptLaunch: allowsPromptLaunch)
+            || containsHermesConfigPath(text)
+    }
+
+    /// Splash heading or a prompt-anchored `hermes` launch. Strong enough to
+    /// suppress leftover Claude chrome. A config-path dump is not.
+    private func containsStrongHermesIdentity(
+        _ lines: [Substring],
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        if lineIsHermesHeading(lines) {
             return true
         }
         guard allowsPromptLaunch else {
             return false
         }
         return lineHasPromptLaunch(lines, command: "hermes")
+    }
+
+    private func containsHermesConfigPath(_ text: String) -> Bool {
+        text.contains("~/.hermes") || text.contains("/.hermes/")
     }
 
     /// Anchored live status only. Mid-line historical "ruminating" in a recap

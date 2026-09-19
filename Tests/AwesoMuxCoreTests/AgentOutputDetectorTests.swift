@@ -498,6 +498,31 @@ struct AgentOutputDetectorHermesIdentityTests {
         #expect(detection?.agentKind == .hermes)
         #expect(detection?.state != .thinking)
         #expect(detection?.state == .waiting)
+        #expect(
+            detector.detectedOutput(
+                in: "claude code v1.7.2\nesc to interrupt",
+                liveAgentKind: .hermes
+            )?.state != .thinking
+        )
+    }
+
+    @Test("a stray hermes path in a Claude pane does not suppress thinking")
+    func strayHermesPathDoesNotSuppressClaudeThinking() {
+        let text = """
+            claude code v1.7.2
+            claude · thinking
+            cat /.hermes/config
+            """
+        #expect(
+            detector.detectedOutput(in: text)
+                == AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
+        )
+        #expect(
+            detector.detectedOutput(
+                in: "claude code v1.7.2\nesc to interrupt\n~/.hermes/logs/session.json"
+            )
+                == AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
+        )
     }
 
     @Test("leftover Claude done chrome does not mark a Hermes pane done")
