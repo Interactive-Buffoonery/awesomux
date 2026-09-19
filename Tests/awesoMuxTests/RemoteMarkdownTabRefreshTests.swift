@@ -175,6 +175,12 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(targets[0].associatedTerminalPaneID == terminalID)
     }
 
+    @Test("silent background refresh registers as restore")
+    func silentBackgroundRefreshDoesNotClaimSpeech() {
+        #expect(RemoteMarkdownTabRefresh.fetchConsumer(announcesOutcome: false) == .restore)
+        #expect(RemoteMarkdownTabRefresh.fetchConsumer(announcesOutcome: true) == .refresh)
+    }
+
     @Test("apply records the outcome through RemoteSnapshotStalePolicy")
     func applyRecordsThroughStalePolicy() throws {
         let identity = remoteIdentity()

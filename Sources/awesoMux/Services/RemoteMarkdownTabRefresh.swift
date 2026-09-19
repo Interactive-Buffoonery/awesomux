@@ -8,6 +8,12 @@ import SwiftUI
 /// `RemoteSnapshotStalePolicy`, then open/update the document tab the same way
 /// the live path always has.
 enum RemoteMarkdownTabRefresh {
+    static func fetchConsumer(
+        announcesOutcome: Bool
+    ) -> RemoteMarkdownFetchCoordinator.Cohort.Consumer {
+        announcesOutcome ? .refresh : .restore
+    }
+
     struct RestoreTarget: Equatable, Sendable {
         let sessionID: TerminalSession.ID
         let documentID: DocumentPane.ID
@@ -132,10 +138,7 @@ enum RemoteMarkdownTabRefresh {
         // same remote file. Keep the tab latch above as the stronger duplicate
         // guard for repeated Refresh clicks; this identity-keyed claim only
         // decides which otherwise-valid caller speaks.
-        let consumer =
-            announceOutcome
-            ? RemoteMarkdownFetchCoordinator.Cohort.Consumer.refresh
-            : announceFailure ? .restore : .other
+        let consumer = fetchConsumer(announcesOutcome: announceOutcome)
         let prepared: RemoteMarkdownFetchCoordinator.PreparedAttempt
         if let startAttempt {
             prepared = startAttempt(reference)
