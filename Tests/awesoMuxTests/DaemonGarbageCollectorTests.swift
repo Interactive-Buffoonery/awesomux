@@ -406,6 +406,50 @@ struct DaemonGarbageCollectorTests {
         #expect(await AmxBackend.processSnapshot(forPIDs: []) == [])
     }
 
+    @Test("orphan confirm resolves daemon parents from the fresh snapshot")
+    func orphanConfirmUsesFreshSnapshotForDaemonParents() async {
+        let listedSession = TerminalSessionID(rawValue: Self.orphanUUID)!
+        let candidatePID: Int32 = 500
+        let freshShellPID: Int32 = 501
+        let recorder = OrphanConfirmRecorder()
+
+        await DaemonGarbageCollector.reapOrphanAttachClients(
+            live: [
+                LiveDaemon(
+                    id: listedSession, pid: 100, createdEpoch: 1, clients: 1,
+                    daemonPID: 99)
+            ],
+            snapshot: [
+                ProcEntry(pid: candidatePID, ppid: 1, command: "/Applications/awesoMux.app/Contents/MacOS/amx")
+            ],
+            listSessionsRawOutput: {
+                "name=\(Self.orphanUUID)\tpid=\(freshShellPID)\tcreated=1\tclients=1"
+            },
+            processSnapshot: { pids in
+                await recorder.recordFreshSnapshot(pids)
+                return [ProcEntry(pid: freshShellPID, ppid: candidatePID, command: "-zsh")]
+            },
+            attachProcessSamples: { pids in
+                await recorder.recordAttachSamples(pids)
+                return [
+                    DaemonGCPlan.AttachProcessSample(
+                        pid: candidatePID, ppid: 1, etimeSeconds: 3_600,
+                        argv0: "/Applications/awesoMux.app/Contents/MacOS/amx",
+                        subcommand: "attach", sessionArgument: Self.orphanUUID)
+                ]
+            },
+            sessionSocketExists: { _ in true },
+            signalConfirmed: { confirmed in
+                await recorder.recordSignals(confirmed.map(\.pid))
+                return confirmed.count
+            }
+        )
+
+        #expect(await recorder.freshSnapshotRequests == [[freshShellPID]])
+        #expect(await recorder.attachSampleRequests == [[candidatePID]])
+        #expect(await recorder.signaledPIDs == [])
+    }
+
     // MARK: - Orphan attach signaling
 
     @Test("orphan signal: unavailable sample before TERM spares the process")
@@ -556,6 +600,24 @@ struct DaemonGarbageCollectorTests {
         func record(pid: Int32, signal: Int32) -> Int32 {
             events.append("\(pid):\(signal)")
             return 0
+        }
+    }
+
+    private actor OrphanConfirmRecorder {
+        private(set) var freshSnapshotRequests: [[Int32]] = []
+        private(set) var attachSampleRequests: [[Int32]] = []
+        private(set) var signaledPIDs: [Int32] = []
+
+        func recordFreshSnapshot(_ pids: [Int32]) {
+            freshSnapshotRequests.append(pids)
+        }
+
+        func recordAttachSamples(_ pids: [Int32]) {
+            attachSampleRequests.append(pids)
+        }
+
+        func recordSignals(_ pids: [Int32]) {
+            signaledPIDs.append(contentsOf: pids)
         }
     }
 }

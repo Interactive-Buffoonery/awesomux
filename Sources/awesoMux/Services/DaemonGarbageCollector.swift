@@ -205,9 +205,27 @@ enum DaemonGarbageCollector {
     /// the shortlist pass costs nothing extra; the confirm pass below only
     /// runs when that shortlist is non-empty (rare — real orphans are
     /// hours-to-days old per the issue's own observed data).
-    nonisolated private static func reapOrphanAttachClients(
+    /// Internal with injectable side effects so the stale-to-fresh snapshot
+    /// handoff stays covered without running subprocesses or sending signals.
+    nonisolated static func reapOrphanAttachClients(
         live: [LiveDaemon],
-        snapshot: [ProcEntry]
+        snapshot: [ProcEntry],
+        listSessionsRawOutput: @escaping @Sendable () async -> String? = {
+            await AmxBackend.listSessionsRawOutput()
+        },
+        processSnapshot: @escaping @Sendable ([Int32]) async -> [ProcEntry]? = {
+            await AmxBackend.processSnapshot(forPIDs: $0)
+        },
+        attachProcessSamples: @escaping @Sendable ([Int32]) async -> [DaemonGCPlan.AttachProcessSample]? = {
+            await AmxBackend.attachProcessSamples(forPIDs: $0)
+        },
+        sessionSocketExists: @escaping @Sendable (String) -> Bool = {
+            DaemonGarbageCollector.sessionSocketExists(
+                named: $0, in: AmxBackend.sessionSocketDirectory())
+        },
+        signalConfirmed: @escaping @Sendable ([DaemonGCPlan.AttachProcessSample]) async -> Int = {
+            await DaemonGarbageCollector.signalConfirmedOrphanAttachClients($0)
+        }
     ) async {
         // A daemon whose own pid we cannot resolve is indistinguishable from a
         // leaked attach client here, and it is missing from the very set that
@@ -234,7 +252,7 @@ enum DaemonGarbageCollector {
         // signal something went wrong, and this pass's whole job is telling
         // a live daemon apart from an orphaned client sharing its binary.
         // Format drift must abort the sweep, not fail open into a kill.
-        guard let freshListOutput = await AmxBackend.listSessionsRawOutput(),
+        guard let freshListOutput = await listSessionsRawOutput(),
             let freshDaemons = DaemonGCPlan.parseAmxListStrict(freshListOutput)
         else {
             log.error("orphan attach GC aborted: fresh daemon list unavailable or unparseable")
@@ -247,8 +265,7 @@ enum DaemonGarbageCollector {
         // unavailable snapshot means we cannot tell a daemon from a leaked
         // client, so abort instead of falling open into a kill.
         guard
-            let freshSnapshot = await AmxBackend.processSnapshot(
-                forPIDs: freshDaemons.map(\.pid))
+            let freshSnapshot = await processSnapshot(freshDaemons.map(\.pid))
         else {
             log.error("orphan attach GC aborted: fresh process snapshot unavailable")
             return
@@ -260,7 +277,7 @@ enum DaemonGarbageCollector {
             log.error("orphan attach GC aborted: a fresh live daemon's own pid is unresolvable")
             return
         }
-        guard let samples = await AmxBackend.attachProcessSamples(forPIDs: candidates) else {
+        guard let samples = await attachProcessSamples(candidates) else {
             log.error("orphan attach GC aborted: process confirm query unavailable")
             return
         }
@@ -274,7 +291,7 @@ enum DaemonGarbageCollector {
         let localSessionSockets = Set(
             samples.compactMap(\.sessionArgument).filter {
                 DaemonGCPlan.isUUIDShaped($0)
-                    && sessionSocketExists(named: $0, in: AmxBackend.sessionSocketDirectory())
+                    && sessionSocketExists($0)
             }
         )
         let foreignCandidates = samples.filter {
@@ -292,7 +309,7 @@ enum DaemonGarbageCollector {
         )
         guard !confirmed.isEmpty else { return }
 
-        let signaled = await signalConfirmedOrphanAttachClients(confirmed)
+        let signaled = await signalConfirmed(confirmed)
         log.notice("daemon GC: signaled \(signaled)/\(confirmed.count) orphan attach client(s)")
     }
 
