@@ -36,6 +36,7 @@ struct UpdateAvailableIndicator: View {
                     onCheckForUpdates: { updateController.checkForUpdates() },
                     onSkipAvailableUpdate: { updateController.skipAvailableUpdate() }
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
             .frame(
                 width: displayMode == .collapsed ? 40 : nil,
@@ -147,6 +148,10 @@ final class UpdateAvailableMenuNSButton: NSButton {
         action = #selector(presentMenu)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
     @available(*, unavailable)
