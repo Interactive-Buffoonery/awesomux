@@ -50,7 +50,7 @@ struct AgentRuntimeConsent: Equatable, Sendable {
             return enabledFileDropSources.contains(.pi)
         case .claudeCode?, .codex?, .grok?:
             return true
-        case .generic?, .shell?, nil:
+        case .generic?, .hermes?, .shell?, nil:
             return true
         }
     }

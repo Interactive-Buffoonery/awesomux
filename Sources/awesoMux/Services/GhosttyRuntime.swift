@@ -179,7 +179,7 @@ final class GhosttyRuntime {
             helperPath: context.helperPath,
             session: terminalSessionID
         )
-        let liveness = await remoteLivenessPoller.sample(
+        let sample = await remoteLivenessPoller.sample(
             key: .init(
                 workspaceID: workspaceID,
                 paneID: paneID,
@@ -196,13 +196,14 @@ final class GhosttyRuntime {
             bridgeGenerationRegistry?.currentToken(for: terminalSessionID) == context.generation
         else { return }
 
-        let snapshot = liveness.map {
+        let snapshot = sample.map {
             RemoteForegroundLivenessSnapshot(
                 workspaceID: workspaceID,
                 paneID: paneID,
                 terminalSessionID: terminalSessionID,
                 connectionGeneration: context.generation,
-                liveness: $0,
+                liveness: $0.liveness,
+                comm: $0.comm,
                 sampledAt: Date()
             )
         }

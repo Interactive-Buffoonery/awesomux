@@ -152,6 +152,35 @@ struct ShellActivityCommandSubmitRefreshTests {
         #expect(updatedPane.pendingRemoteSSHTarget == "devbox")
     }
 
+    @Test("observing the local ssh client clears leftover agent chrome")
+    func observedSSHForegroundResetsStaleAgentIdentity() throws {
+        let (store, session, pane, view) = agentFixture()
+        store.noteSubmittedCommand(sessionID: session.id, paneID: pane.id, command: "ssh devbox")
+        #expect(store.session(id: session.id)?.layout.pane(id: pane.id)?.agentKind == .claudeCode)
+
+        let justObserved = store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: session.id,
+            paneID: pane.id,
+            liveness: .liveCommand,
+            foregroundCommand: "ssh"
+        )
+        #expect(justObserved)
+        view.resetAgentChromeIfEnteringSSH(justObservedSSHClient: justObserved)
+
+        let updatedPane = try #require(store.session(id: session.id)?.layout.pane(id: pane.id))
+        #expect(updatedPane.agentKind == .shell)
+        #expect(updatedPane.agentExecutionState == .idle)
+        #expect(updatedPane.hasObservedPendingRemoteSSHProcess)
+        #expect(!view.terminalEventState.hasObservedAgentActivity)
+    }
+
+    @Test("ssh-shaped noise does not wipe a still-foreground agent")
+    func sshObservationWithoutEdgeKeepsAgentIdentity() throws {
+        let (store, session, pane, view) = agentFixture()
+        view.resetAgentChromeIfEnteringSSH(justObservedSSHClient: false)
+        #expect(store.session(id: session.id)?.layout.pane(id: pane.id)?.agentKind == .claudeCode)
+    }
+
     private func agentFixture() -> (
         SessionStore,
         TerminalSession,

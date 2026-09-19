@@ -11,7 +11,7 @@ enum RemoteLivenessProbe {
         case unsupportedVersion
     }
 
-    static func decode(_ data: Data) throws -> RemoteForegroundLiveness {
+    static func decode(_ data: Data) throws -> RemoteForegroundLivenessSample {
         guard !data.isEmpty, data.count <= maximumOutputByteCount else {
             throw Failure.malformedOutput
         }
@@ -34,7 +34,10 @@ enum RemoteLivenessProbe {
         guard accepted.first == 0x7B, accepted.last == 0x7D else {
             throw Failure.malformedOutput
         }
-        return RemoteForegroundLiveness(report.state)
+        return RemoteForegroundLivenessSample(
+            liveness: RemoteForegroundLiveness(report.state),
+            comm: report.comm
+        )
     }
 
     static func run(
@@ -48,7 +51,7 @@ enum RemoteLivenessProbe {
                 timeout: timeout
             )
         }
-    ) async throws -> RemoteForegroundLiveness {
+    ) async throws -> RemoteForegroundLivenessSample {
         try decode(try await exec(command, timeout, maximumOutputByteCount))
     }
 }

@@ -36,6 +36,7 @@ iteration while staying distinct at the smallest tile size.
   | OpenCode | open brackets | `sky` |
   | Pi | `π` | `mauve` |
   | Grok | three overlapping rings | `green` |
+  | Hermes | outward wings on a staff | `yellow` |
   | Shell | `>_` prompt | `text` |
 
   Grok's rings are the shape this ADR retired from Codex. Reviving them for a

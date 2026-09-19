@@ -230,7 +230,7 @@ extension GhosttySurfaceNSView {
             } else {
                 foregroundProcess.sample?.comm
             }
-        sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
+        let justObservedSSHClient = sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
             liveness: foregroundProcess.liveness,
@@ -245,6 +245,9 @@ extension GhosttySurfaceNSView {
             attemptsRemaining: &pendingSSHForegroundProbeAttemptsRemaining,
             limit: Self.pendingSSHForegroundProbeLimit
         )
+
+        resetAgentChromeIfEnteringSSH(justObservedSSHClient: justObservedSSHClient)
+
         // Codex's SessionStart hook arrives batched with the first prompt, so a
         // fresh Codex pane shows the generic shell icon until the user types —
         // and its fragile text signature (splash banner / prompt-anchored
@@ -252,7 +255,15 @@ extension GhosttySurfaceNSView {
         // tag the pane Codex the moment its process is in front, mirroring the
         // OpenCode/Grok fast-path. This also gives the liveness reset below a
         // correctly-tagged pane once the agent exits back to the shell.
-        if let foregroundAgentKind = AgentProcessRecognition.agentKind(forCommand: foregroundProcess.sample?.comm) {
+        //
+        // Managed SSH: local `p_comm` is the ssh client. Prefer a fresh remote
+        // helper `comm` so a far-host Hermes/Codex process can reclaim a
+        // text-guessed Claude tag.
+        let recognitionComm =
+            sessionStore.session(id: sessionID)?
+            .layout.pane(id: paneID)?.freshRemoteForegroundComm()
+            ?? foregroundProcess.sample?.comm
+        if let foregroundAgentKind = AgentProcessRecognition.agentKind(forCommand: recognitionComm) {
             applyDetectedAgentOutput(
                 AgentOutputDetection(
                     state: .waiting,
@@ -264,12 +275,24 @@ extension GhosttySurfaceNSView {
         guard
             let agentKind = sessionStore.session(id: sessionID)?
                 .layout.pane(id: paneID)?.agentKind,
-            agentKind != .shell,
+            agentKind != .shell
+        else {
+            return
+        }
+        let remoteLiveness = sessionStore.session(id: sessionID)?
+            .layout.pane(id: paneID)?.freshRemoteForegroundLiveness()
+        let shouldReset =
             AgentLivenessPolicy.shouldResetAgentChrome(
                 agentKind: agentKind,
                 liveness: foregroundProcess.liveness
             )
-        else {
+            || remoteLiveness.map {
+                AgentLivenessPolicy.shouldResetAgentChrome(
+                    agentKind: agentKind,
+                    remoteLiveness: $0
+                )
+            } == true
+        guard shouldReset else {
             return
         }
         // App-synthesized from process liveness, not parsed from the agent
@@ -278,6 +301,27 @@ extension GhosttySurfaceNSView {
         // provider input — and routing through the shared wrapper keeps
         // detector suppression and VoiceOver announcements consistent with
         // real hook-delivered session-end events.
+        applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .unknown,
+                executionState: .idle,
+                phase: .sessionEnd
+            ))
+    }
+
+    @MainActor
+    func resetAgentChromeIfEnteringSSH(justObservedSSHClient: Bool) {
+        let agentKind =
+            sessionStore.session(id: sessionID)?
+            .layout.pane(id: paneID)?.agentKind ?? .shell
+        guard
+            AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
+                agentKind: agentKind,
+                justObservedSSHClient: justObservedSSHClient
+            )
+        else {
+            return
+        }
         applyAgentRuntimeEvent(
             AgentRuntimeEvent(
                 source: .unknown,
@@ -641,12 +685,13 @@ extension GhosttySurfaceNSView {
             } else {
                 foregroundProcess.sample?.comm
             }
-        sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
+        let justObservedSSHClient = sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
             liveness: foregroundProcess.liveness,
             foregroundCommand: foregroundCommand
         )
+        resetAgentChromeIfEnteringSSH(justObservedSSHClient: justObservedSSHClient)
 
         let isShellSession = session.layout.pane(id: paneID)?.agentKind == .shell
         if isShellSession {
@@ -776,7 +821,8 @@ extension GhosttySurfaceNSView {
         guard
             let detection = terminalEventState.agentOutputDetector.detectedOutput(
                 in: visibleText,
-                assumingAgentContext: terminalEventState.hasObservedAgentActivity
+                assumingAgentContext: terminalEventState.hasObservedAgentActivity,
+                liveAgentKind: liveKindForGate
             )
         else {
             return
@@ -885,12 +931,12 @@ extension GhosttySurfaceNSView {
             return
         }
 
-        // Grok can clear sticky thinking via identity-only waiting, but only when
-        // the shell is quiet — mid-turn pure inference may drop live cues while
-        // tools are still about to run; busy shell keeps the thinking chrome.
+        // Grok/Hermes can clear sticky thinking via identity-only waiting, but
+        // only when the shell is quiet — mid-turn pure inference may drop live
+        // cues while tools are still about to run; busy shell keeps thinking.
         var applyState = decision.shouldApplyState ? detection.state : nil
         if applyState == .waiting,
-            liveAgentKind == .grok,
+            liveAgentKind.usesIdentityWaitingToClearThinking,
             (liveExecutionState == .thinking || liveDisplayState == .thinking),
             livePane?.shellActivity == .busy
         {

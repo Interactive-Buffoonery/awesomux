@@ -15,13 +15,13 @@ struct RemoteLivenessPollerTests {
         private var firstStartedContinuation: CheckedContinuation<Void, Never>?
         private var firstReleaseContinuation: CheckedContinuation<Void, Never>?
 
-        func run(command: String) async -> RemoteForegroundLiveness? {
+        func run(command: String) async -> RemoteForegroundLivenessSample? {
             commands.append(command)
-            guard command == "first" else { return .idleShell }
+            guard command == "first" else { return RemoteForegroundLivenessSample(liveness: .idleShell) }
             firstStartedContinuation?.resume()
             firstStartedContinuation = nil
             await withCheckedContinuation { firstReleaseContinuation = $0 }
-            return .idleShell
+            return RemoteForegroundLivenessSample(liveness: .idleShell)
         }
 
         func waitForFirstProbe() async {
@@ -43,7 +43,7 @@ struct RemoteLivenessPollerTests {
         let poller = RemoteLivenessPoller { _ in
             await counter.increment()
             try? await Task.sleep(for: .milliseconds(30))
-            return .idleShell
+            return RemoteForegroundLivenessSample(liveness: .idleShell)
         }
         let key = RemoteLivenessPoller.Key(
             workspaceID: UUID(),
@@ -53,8 +53,8 @@ struct RemoteLivenessPollerTests {
 
         async let first = poller.sample(key: key, command: "first")
         async let second = poller.sample(key: key, command: "second")
-        #expect(await first == .idleShell)
-        #expect(await second == .idleShell)
+        #expect(await first == RemoteForegroundLivenessSample(liveness: .idleShell))
+        #expect(await second == RemoteForegroundLivenessSample(liveness: .idleShell))
         #expect(await counter.value == 1)
     }
 
@@ -90,9 +90,9 @@ struct RemoteLivenessPollerTests {
         let final = Task { await poller.sample(key: finalKey, command: "final") }
 
         await gate.releaseFirstProbe()
-        #expect(await first.value == .idleShell)
+        #expect(await first.value == RemoteForegroundLivenessSample(liveness: .idleShell))
         #expect(await cancelled.value == nil)
-        #expect(await final.value == .idleShell)
+        #expect(await final.value == RemoteForegroundLivenessSample(liveness: .idleShell))
         #expect(await gate.receivedCommands() == ["first", "final"])
     }
 
@@ -119,9 +119,9 @@ struct RemoteLivenessPollerTests {
         await gate.waitForFirstProbe()
         let replacement = await poller.sample(key: replacementKey, command: "replacement")
 
-        #expect(replacement == .idleShell)
+        #expect(replacement == RemoteForegroundLivenessSample(liveness: .idleShell))
         #expect(await gate.receivedCommands() == ["first", "replacement"])
         await gate.releaseFirstProbe()
-        #expect(await first.value == .idleShell)
+        #expect(await first.value == RemoteForegroundLivenessSample(liveness: .idleShell))
     }
 }

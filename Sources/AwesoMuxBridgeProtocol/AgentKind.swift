@@ -6,6 +6,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
     case openCode = "OpenCode"
     case pi = "Pi"
     case grok = "Grok"
+    case hermes = "Hermes"
     case shell = "Shell"
     case generic = "Generic"
 
@@ -18,7 +19,7 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .claudeCode, .codex, .openCode, .pi, .grok:
             true
-        case .shell, .generic:
+        case .hermes, .shell, .generic:
             false
         }
     }
@@ -32,7 +33,20 @@ public enum AgentKind: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .claudeCode, .codex, .openCode:
             true
-        case .pi, .grok, .shell, .generic:
+        case .pi, .grok, .hermes, .shell, .generic:
+            false
+        }
+    }
+
+    /// Identity-only viewport `.waiting` may clear sticky `.thinking`.
+    ///
+    /// Do not generalize this to `!usesReliableHooks`: Grok reports reliable
+    /// hooks but 0.2.x never fires Stop, and Hermes has no hooks at all.
+    public var usesIdentityWaitingToClearThinking: Bool {
+        switch self {
+        case .grok, .hermes:
+            true
+        case .claudeCode, .codex, .openCode, .pi, .shell, .generic:
             false
         }
     }

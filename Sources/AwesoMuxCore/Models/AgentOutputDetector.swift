@@ -25,13 +25,22 @@ public struct AgentOutputDetection: Equatable, Sendable {
 public struct AgentOutputDetector: Sendable {
     public init() {}
 
-    public func detectedState(in visibleText: String, assumingAgentContext: Bool = false) -> AgentState? {
-        detectedOutput(in: visibleText, assumingAgentContext: assumingAgentContext)?.state
+    public func detectedState(
+        in visibleText: String,
+        assumingAgentContext: Bool = false,
+        liveAgentKind: AgentKind = .shell
+    ) -> AgentState? {
+        detectedOutput(
+            in: visibleText,
+            assumingAgentContext: assumingAgentContext,
+            liveAgentKind: liveAgentKind
+        )?.state
     }
 
     public func detectedOutput(
         in visibleText: String,
-        assumingAgentContext: Bool = false
+        assumingAgentContext: Bool = false,
+        liveAgentKind: AgentKind = .shell
     ) -> AgentOutputDetection? {
         // locale: nil, not .current — every needle below is ASCII, and a
         // locale-sensitive fold breaks matching outright (Turkish İ/ı turns
@@ -39,25 +48,46 @@ public struct AgentOutputDetector: Sendable {
         // lowercases, so no second .lowercased() pass over the viewport.
         let normalized = visibleText
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
 
-        guard assumingAgentContext || containsAgentContext(normalized) else {
+        guard assumingAgentContext || containsAgentContext(normalized, lines: lines) else {
             return nil
         }
 
-        let hasStatefulAgentContext = containsStatefulAgentContext(normalized)
+        let hasStatefulAgentContext = containsStatefulAgentContext(lines)
         let hasGrokIdentity = containsConfidentGrokIdentity(normalized)
+        let hasStrongHermesIdentity = containsStrongHermesIdentity(
+            lines,
+            allowsPromptLaunch: true
+        )
+        let hasHermesIdentity =
+            hasStrongHermesIdentity || containsHermesConfigPath(normalized)
+        // Path-only `/.hermes/` dumps must not suppress cues in a pane already
+        // known to be Claude; splash heading, prompt launch, and a live Hermes
+        // process still do.
+        let treatAsHermes = hasStrongHermesIdentity || liveAgentKind == .hermes
         let canEvaluateStateCues = hasStatefulAgentContext
-            || (assumingAgentContext && !hasGrokIdentity)
+            || (assumingAgentContext
+                && !hasGrokIdentity
+                && (!hasHermesIdentity
+                    || (liveAgentKind == .claudeCode && !hasStrongHermesIdentity)))
         let canEvaluateAttentionCues = hasStatefulAgentContext
             || assumingAgentContext
             || hasGrokIdentity
+            || hasHermesIdentity
         let stateCueAgentKind = inferredAgentKind(
-            normalized,
+            lines: lines,
             allowsPromptLaunch: false,
             allowsGrokIdentity: false,
-            hasGrokIdentity: hasGrokIdentity
+            hasGrokIdentity: hasGrokIdentity,
+            hasStrongHermesIdentity: hasStrongHermesIdentity,
+            hasHermesIdentity: hasHermesIdentity,
+            liveAgentKind: liveAgentKind
         )
-        let attentionCueAgentKind = hasGrokIdentity ? AgentKind.grok : stateCueAgentKind
+        let attentionCueAgentKind =
+            hasGrokIdentity
+            ? AgentKind.grok
+            : (hasStrongHermesIdentity ? AgentKind.hermes : stateCueAgentKind)
 
         // Grok Build currently does not invoke plugin lifecycle hooks (verified
         // against 0.2.x), so the sidebar cannot rely on UserPromptSubmit /
@@ -70,27 +100,44 @@ public struct AgentOutputDetector: Sendable {
             return AgentOutputDetection(state: .thinking, agentKind: .grok)
         }
 
+        if treatAsHermes && containsHermesThinkingCue(lines) {
+            return AgentOutputDetection(state: .thinking, agentKind: .hermes)
+        }
+
         if canEvaluateAttentionCues && containsNeedsAttentionPrompt(normalized) {
             return AgentOutputDetection(state: .needsAttention, agentKind: attentionCueAgentKind)
         }
 
-        if canEvaluateStateCues && containsThinkingCue(normalized) {
+        // Claude thinking/done needles must not drive Hermes (or Grok): leftover
+        // Claude chrome is common after SSH, and Hermes has no Stop hooks to
+        // clear a false `.thinking` or `.done`. Path-only `/.hermes/` is Hermes
+        // for this skip unless the live pane is already Claude — a live Claude
+        // pane that merely prints that path must still show Claude thinking.
+        let skipClaudeStateCues =
+            treatAsHermes
+            || hasGrokIdentity
+            || liveAgentKind == .grok
+            || (hasHermesIdentity && liveAgentKind != .claudeCode)
+        if canEvaluateStateCues && !skipClaudeStateCues && containsThinkingCue(normalized) {
             return AgentOutputDetection(state: .thinking, agentKind: stateCueAgentKind)
         }
 
-        if canEvaluateStateCues && containsDoneCue(normalized) {
+        if canEvaluateStateCues && !skipClaudeStateCues && containsDoneCue(normalized) {
             return AgentOutputDetection(state: .done, agentKind: stateCueAgentKind)
         }
 
         // Identity without a live activity cue: light the Grok/Codex/… icon and
         // report `.waiting`. For most kinds the reducer treats text-waiting as
-        // kind-only (no state change). For Grok, the reducer allows waiting to
-        // clear sticky thinking while plugin Stop hooks stay dead (0.2.x).
+        // kind-only (no state change). For Grok and Hermes, the reducer allows
+        // waiting to clear sticky thinking while plugin Stop hooks stay dead.
         let agentKind = inferredAgentKind(
-            normalized,
+            lines: lines,
             allowsPromptLaunch: true,
             allowsGrokIdentity: true,
-            hasGrokIdentity: hasGrokIdentity
+            hasGrokIdentity: hasGrokIdentity,
+            hasStrongHermesIdentity: hasStrongHermesIdentity,
+            hasHermesIdentity: hasHermesIdentity,
+            liveAgentKind: liveAgentKind
         )
         if let agentKind {
             return AgentOutputDetection(state: .waiting, agentKind: agentKind)
@@ -100,10 +147,11 @@ public struct AgentOutputDetector: Sendable {
     }
 
     public func observesAgentContext(in visibleText: String) -> Bool {
-        containsAgentContext(
+        let normalized =
             visibleText
-                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-        )
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+        return containsAgentContext(normalized, lines: lines)
     }
 
     public func stateForCommandFinished(
@@ -130,49 +178,65 @@ public struct AgentOutputDetector: Sendable {
         return exitCode == 0 ? .done : .error
     }
 
-    private func containsAgentContext(_ text: String) -> Bool {
-        containsStatefulAgentContext(text)
+    private func containsAgentContext(_ text: String, lines: [Substring]) -> Bool {
+        containsStatefulAgentContext(lines)
             || containsConfidentGrokIdentity(text)
+            || containsConfidentHermesIdentity(text, lines: lines, allowsPromptLaunch: true)
     }
 
-    private func containsStatefulAgentContext(_ text: String) -> Bool {
-        text.contains("claude code")
-            || text.contains("claude ·")
-            || text.contains("claude >")
-            || text.contains("claude ›")
-            || text.contains("$ claude")
-            || text.contains("❯ claude")
-            || containsConfidentOpenCodeIdentity(text, allowsPromptLaunch: true)
-            || containsConfidentCodexIdentity(text, allowsPromptLaunch: true)
-            || containsConfidentGenericIdentity(text, allowsPromptLaunch: true)
+    private func containsStatefulAgentContext(_ lines: [Substring]) -> Bool {
+        containsConfidentClaudeIdentity(lines, allowsPromptLaunch: true)
+            || containsConfidentOpenCodeIdentity(lines)
+            || containsConfidentCodexIdentity(lines)
+            || containsConfidentGenericIdentity(lines, allowsPromptLaunch: true)
     }
 
     // `hasGrokIdentity` is threaded through rather than re-derived here: the
     // caller already scanned for it once (`containsConfidentGrokIdentity` at
     // the top of `detectedOutput`), and this is called twice per sample.
     private func inferredAgentKind(
-        _ text: String,
+        lines: [Substring],
         allowsPromptLaunch: Bool,
         allowsGrokIdentity: Bool,
-        hasGrokIdentity: Bool
+        hasGrokIdentity: Bool,
+        hasStrongHermesIdentity: Bool,
+        hasHermesIdentity: Bool,
+        liveAgentKind: AgentKind
     ) -> AgentKind? {
         // Generic checked before Claude so a Muse/Cursor pane that mentions
         // "claude code" in prose does not get hijacked. Generic is prompt-anchored
         // (or banner-anchored for Muse) so plain prose mentioning these CLIs is safe.
-        if containsConfidentGenericIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {
+        if containsConfidentGenericIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .generic
         }
-        if containsConfidentClaudeIdentity(text) {
+        // Strong Hermes (splash/prompt) before all other provider text: leftover
+        // agent docs in a Hermes viewport must still first-tag as Hermes.
+        if hasStrongHermesIdentity {
+            return .hermes
+        }
+        let hasClaudeIdentity = containsConfidentClaudeIdentity(
+            lines,
+            allowsPromptLaunch: allowsPromptLaunch
+        )
+        // Preserve Claude's established precedence over stale provider text.
+        // Only a path-only Hermes marker makes Claude defer so stronger
+        // non-Claude signatures can win before the Hermes fallback.
+        if hasClaudeIdentity && (!hasHermesIdentity || liveAgentKind == .claudeCode) {
             return .claudeCode
         }
         if allowsGrokIdentity, hasGrokIdentity {
             return .grok
         }
-        if containsConfidentCodexIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {
+        if containsConfidentCodexIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .codex
         }
-        if containsConfidentOpenCodeIdentity(text, allowsPromptLaunch: allowsPromptLaunch) {
+        if containsConfidentOpenCodeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .openCode
+        }
+        // A config path is weaker than every provider's strong signature, but
+        // it still beats leftover Claude chrome unless the live pane is Claude.
+        if hasHermesIdentity, liveAgentKind != .claudeCode {
+            return .hermes
         }
         return nil
     }
@@ -191,11 +255,161 @@ public struct AgentOutputDetector: Sendable {
             || text.contains("\ngrok\n")
     }
 
-    private func containsConfidentClaudeIdentity(_ text: String) -> Bool {
-        text.contains("claude code")
-            || text.contains("claude ·")
-            || text.contains("claude >")
-            || text.contains("claude ›")
+    private func containsConfidentClaudeIdentity(
+        _ lines: [Substring],
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        // Banner- and prompt-anchored only. A viewport that merely *mentions*
+        // "claude code" or "claude ·" in prose, grep output, or another agent's
+        // docs must not first-tag the pane Claude — that was the widest sticky
+        // net. Keep genuine Claude Code splash/status lines working.
+        if lineHasAnchoredPrefix(
+            lines,
+            [
+                "claude code",
+                "claude ·",
+                "claude >",
+                "claude ›",
+            ])
+        {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return lineHasPromptLaunch(lines, command: "claude")
+    }
+
+    // Hermes heading / config-path / prompt-anchored launch. Bare "hermes" in
+    // prose (NASA, mythology, a package name) is not identity, and neither is
+    // a live `Ruminating…` status line on its own.
+    private func containsConfidentHermesIdentity(
+        _ text: String,
+        lines: [Substring],
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        containsStrongHermesIdentity(lines, allowsPromptLaunch: allowsPromptLaunch)
+            || containsHermesConfigPath(text)
+    }
+
+    /// Splash heading or a prompt-anchored `hermes` launch. Strong enough to
+    /// suppress leftover Claude chrome. A config-path dump is not.
+    private func containsStrongHermesIdentity(
+        _ lines: [Substring],
+        allowsPromptLaunch: Bool
+    ) -> Bool {
+        if lineIsHermesHeading(lines) {
+            return true
+        }
+        guard allowsPromptLaunch else {
+            return false
+        }
+        return lineHasPromptLaunch(lines, command: "hermes")
+    }
+
+    private func containsHermesConfigPath(_ text: String) -> Bool {
+        text.contains("~/.hermes") || text.contains("/.hermes/")
+    }
+
+    /// Anchored live status only. Mid-line historical "ruminating" in a recap
+    /// must not keep Thinking after the status line is gone.
+    private func containsHermesThinkingCue(_ lines: [Substring]) -> Bool {
+        lineHasAnchoredPrefix(lines, ["ruminating"])
+    }
+
+    /// True when a line, after a *narrow* decorative strip, starts with one of
+    /// the prefixes at a token boundary. Mid-sentence mentions do not match.
+    private func lineHasAnchoredPrefix(_ lines: [Substring], _ prefixes: [String]) -> Bool {
+        lines.contains { line in
+            let content = dropDecorativePrefix(line)
+            return prefixes.contains { prefix in
+                hasTokenBoundedPrefix(content, prefix)
+            }
+        }
+    }
+
+    private func lineHasPromptLaunch(_ lines: [Substring], command: String) -> Bool {
+        lineHasAnchoredPrefix(lines, ["$ \(command)", "❯ \(command)"])
+    }
+
+    /// Folded `hermes`, optionally `agent`, optionally `v0.21.3`-style version.
+    /// Ordinary sentences (`hermes is a messaging protocol`) are not identity.
+    private func lineIsHermesHeading(_ lines: [Substring]) -> Bool {
+        lines.contains { line in
+            let content = dropDecorativePrefix(line)
+            guard hasTokenBoundedPrefix(content, "hermes") else {
+                return false
+            }
+            var remaining = content.dropFirst("hermes".count).drop(while: \.isWhitespace)
+            if remaining.isEmpty {
+                return true
+            }
+            guard hasTokenBoundedPrefix(remaining, "agent") else {
+                return false
+            }
+            remaining = remaining.dropFirst("agent".count).drop(while: \.isWhitespace)
+            if remaining.isEmpty {
+                return true
+            }
+            return remainderIsHermesBannerVersion(remaining)
+        }
+    }
+
+    /// Optional `v` plus dotted digits, then trailing whitespace only.
+    private func remainderIsHermesBannerVersion(_ rest: Substring) -> Bool {
+        var remaining = rest
+        if remaining.first == "v" {
+            remaining = remaining.dropFirst()
+        }
+        guard remaining.first?.isNumber == true else {
+            return false
+        }
+        var expectingDigit = false
+        var index = remaining.startIndex
+        while index < remaining.endIndex {
+            let character = remaining[index]
+            if character.isNumber {
+                expectingDigit = false
+                index = remaining.index(after: index)
+                continue
+            }
+            if character == "." {
+                if expectingDigit {
+                    return false
+                }
+                expectingDigit = true
+                index = remaining.index(after: index)
+                continue
+            }
+            break
+        }
+        if expectingDigit {
+            return false
+        }
+        return remaining[index...].allSatisfy(\.isWhitespace)
+    }
+
+    /// Needle at the start of the remaining line, not continuing an identifier
+    /// (`$ claudecode` must not count as `$ claude`).
+    private func hasTokenBoundedPrefix(_ content: Substring, _ prefix: String) -> Bool {
+        guard content.hasPrefix(prefix) else {
+            return false
+        }
+        let rest = content.dropFirst(prefix.count)
+        guard let next = rest.first else {
+            return true
+        }
+        if prefix.last?.isLetter == true || prefix.last?.isNumber == true {
+            return !next.isLetter && !next.isNumber
+        }
+        return true
+    }
+
+    /// Strip leading whitespace and known box-drawing / bullet chrome only.
+    /// Quotes, brackets, asterisks, digits, and other punctuation stay so
+    /// `(claude code)` / `42 claude code` cannot first-tag.
+    private func dropDecorativePrefix(_ line: Substring) -> Substring {
+        line.drop(while: { $0.isWhitespace || $0.isAgentDecorativeGlyph })
     }
 
     // Codex has no status-hook identity at launch: its SessionStart hook event
@@ -204,39 +418,43 @@ public struct AgentOutputDetector: Sendable {
     // splash banner and a prompt-anchored launch. Prompt-anchored (not a bare
     // "codex" substring) so prose/paths naming codex don't mis-tag a shell.
     private func containsConfidentCodexIdentity(
-        _ text: String,
-        allowsPromptLaunch: Bool
+        _ lines: [Substring],
+        allowsPromptLaunch: Bool = true
     ) -> Bool {
-        if text.contains("openai codex (") {
+        if lines.contains(where: { $0.contains("openai codex (") }) {
             return true
         }
         guard allowsPromptLaunch else {
             return false
         }
-        return text.contains("$ codex") || text.contains("❯ codex")
+        return lines.contains { line in
+            line.contains("$ codex") || line.contains("❯ codex")
+        }
     }
 
     private func containsConfidentOpenCodeIdentity(
-        _ text: String,
-        allowsPromptLaunch: Bool
+        _ lines: [Substring],
+        allowsPromptLaunch: Bool = true
     ) -> Bool {
         guard allowsPromptLaunch else {
             return false
         }
-        return text.contains("$ opencode") || text.contains("❯ opencode")
+        return lines.contains { line in
+            line.contains("$ opencode") || line.contains("❯ opencode")
+        }
     }
 
     private func containsConfidentGenericIdentity(
-        _ text: String,
+        _ lines: [Substring],
         allowsPromptLaunch: Bool
     ) -> Bool {
-        if containsVersionedMuseBanner(text) {
+        if containsVersionedMuseBanner(lines) {
             return true
         }
         guard allowsPromptLaunch else {
             return false
         }
-        return text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+        return lines.contains { line in
             ["$ ", "❯ "].contains { marker in
                 guard let markerRange = line.range(of: marker) else {
                     return false
@@ -248,8 +466,8 @@ public struct AgentOutputDetector: Sendable {
         }
     }
 
-    private func containsVersionedMuseBanner(_ text: String) -> Bool {
-        text.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
+    private func containsVersionedMuseBanner(_ lines: [Substring]) -> Bool {
+        lines.contains { line in
             let parts = line.split(whereSeparator: \.isWhitespace)
             guard parts.count == 3, parts[0] == "muse", parts[1] == "code" else {
                 return false
@@ -268,14 +486,16 @@ public struct AgentOutputDetector: Sendable {
         if text.contains("permission needed")
             || text.contains("permission required")
             || text.contains("needs permission")
-            || text.contains("approve pending request") {
+            || text.contains("approve pending request")
+        {
             return true
         }
 
         if text.contains("[y/n]")
             || text.contains("[y/n/a]")
             || text.contains("[y/n/s]")
-            || text.contains("[y/n/e]") {
+            || text.contains("[y/n/e]")
+        {
             return true
         }
 
@@ -322,5 +542,24 @@ public struct AgentOutputDetector: Sendable {
             || text.contains("task complete")
             || text.contains("done ·")
             || text.contains("complete ·")
+    }
+}
+
+extension Character {
+    /// Box-drawing and known bullet/block glyphs used as TUI chrome. Not
+    /// arbitrary punctuation or digits — those wrap prose mentions.
+    fileprivate var isAgentDecorativeGlyph: Bool {
+        unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 0x2500...0x257F, 0x2580...0x259F:
+                true
+            case 0x2022, 0x2023, 0x2043, 0x2219,
+                0x25AA, 0x25AB, 0x25B8, 0x25B9, 0x25BA,
+                0x25C6, 0x25CB, 0x25CF, 0x25E6:
+                true
+            default:
+                false
+            }
+        }
     }
 }

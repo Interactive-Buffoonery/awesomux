@@ -28,6 +28,7 @@ public struct RemoteForegroundLivenessSnapshot: Sendable, Hashable {
     public let terminalSessionID: TerminalSessionID
     public let connectionGeneration: String
     public let liveness: RemoteForegroundLiveness
+    public let comm: String?
     public let sampledAt: Date
 
     public init(
@@ -36,6 +37,7 @@ public struct RemoteForegroundLivenessSnapshot: Sendable, Hashable {
         terminalSessionID: TerminalSessionID,
         connectionGeneration: String,
         liveness: RemoteForegroundLiveness,
+        comm: String? = nil,
         sampledAt: Date
     ) {
         self.workspaceID = workspaceID
@@ -43,6 +45,20 @@ public struct RemoteForegroundLivenessSnapshot: Sendable, Hashable {
         self.terminalSessionID = terminalSessionID
         self.connectionGeneration = connectionGeneration
         self.liveness = liveness
+        self.comm = comm
         self.sampledAt = sampledAt
+    }
+}
+
+/// Helper probe result: liveness plus the remote foreground `comm` used for
+/// authoritative process recognition. The probe used to drop `comm` before it
+/// reached `AgentProcessRecognition`.
+public struct RemoteForegroundLivenessSample: Hashable, Sendable {
+    public var liveness: RemoteForegroundLiveness
+    public var comm: String?
+
+    public init(liveness: RemoteForegroundLiveness, comm: String? = nil) {
+        self.liveness = liveness
+        self.comm = comm
     }
 }

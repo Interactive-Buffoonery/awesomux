@@ -1011,22 +1011,27 @@ extension SessionStore {
 
     /// Clears runtime remote observations after local process state proves an
     /// ordinary SSH command returned to its shell.
+    ///
+    /// Returns `true` when this sample newly observed the local `ssh` client
+    /// for a pending target. That edge is the aggressive SSH-entry badge wipe:
+    /// leftover agent chrome must not ride into the remote session.
+    @discardableResult
     public func clearManagedSSHObservationIfExitedToLocalShell(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         liveness: ForegroundProcessLiveness,
         foregroundCommand: String? = nil
-    ) {
+    ) -> Bool {
         guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
             pane.executionPlan == .local
         else {
-            return
+            return false
         }
 
         if pane.pendingRemoteSSHTarget != nil,
             !pane.hasObservedPendingRemoteSSHProcess,
             (liveness == .liveCommand || liveness == .bridgedBusy),
-            foregroundCommand == "ssh"
+            ShellRecognition.normalizedCommandName(foregroundCommand ?? "") == "ssh"
         {
             let changed = mutatePane(sessionID: sessionID, paneID: paneID) {
                 $0.hasObservedPendingRemoteSSHProcess = true
@@ -1034,7 +1039,7 @@ extension SessionStore {
             if changed {
                 commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: true]))
             }
-            return
+            return changed
         }
 
         let pendingProcessReturned =
@@ -1045,7 +1050,7 @@ extension SessionStore {
             && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
                 || pane.hasConsumedManagedSSHWorkspaceOffer)
         guard pendingProcessReturned || confirmedProcessReturned else {
-            return
+            return false
         }
 
         let changed = mutatePane(sessionID: sessionID, paneID: paneID) { pane in
@@ -1058,8 +1063,9 @@ extension SessionStore {
             pane.remoteConnectionHealth = .active
             pane.remoteForegroundLivenessSnapshot = nil
         }
-        guard changed else { return }
+        guard changed else { return false }
         commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: false]))
+        return false
     }
 
     public func markRemotePanesPossiblyStale() {

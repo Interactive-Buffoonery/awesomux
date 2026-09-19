@@ -44,6 +44,23 @@ struct RemoteSidebarActivityTests {
         #expect(disconnected.effectiveChromeState == .idle)
     }
 
+    @Test("fresh remote comm rides with a live helper sample")
+    func freshRemoteCommFollowsLiveness() throws {
+        var pane = try remotePane(liveness: .liveCommand, sampledAt: Date(), comm: "hermes")
+        #expect(pane.freshRemoteForegroundComm() == "hermes")
+
+        pane.remoteForegroundLivenessSnapshot = RemoteForegroundLivenessSnapshot(
+            workspaceID: UUID(),
+            paneID: pane.id,
+            terminalSessionID: pane.terminalSessionID,
+            connectionGeneration: "generation",
+            liveness: .liveCommand,
+            comm: "hermes",
+            sampledAt: Date().addingTimeInterval(-(TerminalPane.remoteLivenessFreshnessThreshold + 1))
+        )
+        #expect(pane.freshRemoteForegroundComm() == nil)
+    }
+
     @Test("fresh evidence from an old connection generation falls back")
     func oldGenerationEvidenceFallsBack() throws {
         var pane = try remotePane(liveness: .idleShell, sampledAt: Date())
@@ -89,7 +106,8 @@ struct RemoteSidebarActivityTests {
 
     private func remotePane(
         liveness: RemoteForegroundLiveness,
-        sampledAt: Date
+        sampledAt: Date,
+        comm: String? = nil
     ) throws -> TerminalPane {
         let target = try #require(RemoteTarget(parsing: "me@example.com"))
         var pane = TerminalPane(
@@ -104,6 +122,7 @@ struct RemoteSidebarActivityTests {
             terminalSessionID: pane.terminalSessionID,
             connectionGeneration: "generation",
             liveness: liveness,
+            comm: comm,
             sampledAt: sampledAt
         )
         pane.remoteConnectionGeneration = "generation"

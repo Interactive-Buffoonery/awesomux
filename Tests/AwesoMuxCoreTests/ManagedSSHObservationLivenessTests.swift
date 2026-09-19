@@ -183,6 +183,26 @@ struct ManagedSSHObservationLivenessTests {
         #expect(store.index.remotePaneIDs.contains(paneID))
     }
 
+    @Test("normalized ssh path observes the pending SSH client")
+    func normalizedSSHPathObservesPendingClient() throws {
+        let (store, sessionID, paneID) = makeStore(
+            executionPlan: .local,
+            remoteHost: nil,
+            remoteSSHTarget: nil,
+            pendingRemoteSSHTarget: "next-alias",
+            hasConsumedOffer: false
+        )
+        let justObserved = store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID,
+            paneID: paneID,
+            liveness: .liveCommand,
+            foregroundCommand: "/usr/bin/ssh"
+        )
+        #expect(justObserved)
+        let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
+        #expect(pane.hasObservedPendingRemoteSSHProcess)
+    }
+
     @Test("a pre-launch helper preserves pending SSH until the next local submission")
     func preLaunchHelperPreservesPendingSSHUntilNextLocalSubmission() throws {
         let (store, sessionID, paneID) = makeStore(

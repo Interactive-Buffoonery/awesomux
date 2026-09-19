@@ -7,6 +7,7 @@ public enum AwAgentIcon: Sendable, Equatable, Hashable {
     case openCode
     case pi
     case grok
+    case hermes
     case generic
     case shell
 }
@@ -150,6 +151,10 @@ public struct AgentTile: View, Equatable {
         case .grok:
             GrokGlyph()
                 .stroke(Color.aw.green, style: glyphStroke)
+                .frame(width: size * 0.55, height: size * 0.55)
+        case .hermes:
+            HermesGlyph()
+                .stroke(Color.aw.yellow, style: glyphStroke)
                 .frame(width: size * 0.55, height: size * 0.55)
         case .generic:
             GenericAgentGlyph()
@@ -409,6 +414,34 @@ private struct GrokGlyph: Shape {
     }
 }
 
+// Short tucked wings plus tiny lower S nubs on a staff — messenger/speed,
+// without the long diagonals that read as an asterisk. Yellow is unused in
+// the family. Coordinates match the option-F 100×100 mock.
+private struct HermesGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let s = min(rect.width, rect.height)
+        let origin = CGPoint(x: rect.midX - s / 2, y: rect.midY - s / 2)
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: origin.x + x / 100 * s, y: origin.y + y / 100 * s)
+        }
+
+        path.move(to: pt(50, 16))
+        path.addLine(to: pt(50, 86))
+
+        path.move(to: pt(50, 28))
+        path.addQuadCurve(to: pt(32, 26), control: pt(40, 16))
+        path.move(to: pt(50, 28))
+        path.addQuadCurve(to: pt(68, 26), control: pt(60, 16))
+
+        path.move(to: pt(40, 48))
+        path.addCurve(to: pt(40, 62), control1: pt(36, 52), control2: pt(36, 58))
+        path.move(to: pt(60, 48))
+        path.addCurve(to: pt(60, 62), control1: pt(64, 52), control2: pt(64, 58))
+        return path
+    }
+}
+
 // Angle brackets — generic coding agent (Muse, Cursor, Windsurf, etc.).
 // `< >` reads as "generic code" and stays distinct from shell `>_` and
 // OpenCode's square `[ ]`.
@@ -461,6 +494,8 @@ public extension AwAgentIcon {
             "Pi"
         case .grok:
             "Grok"
+        case .hermes:
+            "Hermes"
         case .generic:
             String(
                 localized: "Agent",

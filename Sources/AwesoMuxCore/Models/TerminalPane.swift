@@ -380,6 +380,11 @@ public extension TerminalPane {
         return snapshot.liveness
     }
 
+    func freshRemoteForegroundComm(at now: Date = Date()) -> String? {
+        guard freshRemoteForegroundLiveness(at: now) != nil else { return nil }
+        return remoteForegroundLivenessSnapshot?.comm
+    }
+
     /// The close-risk reason when `isCloseRisk` is true, nil when safe. Lets
     /// the confirmation dialog pick honest copy and log WHY it fired instead
     /// of discarding the reason (issue #190, mechanisms 1 and 3).
