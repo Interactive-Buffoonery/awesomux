@@ -445,7 +445,11 @@ enum AmxBackend {
     static func attachCommand(
         for sessionID: TerminalSessionID,
         status: AmxStatusChannel? = nil,
-        remote: RemoteTarget? = nil
+        remote: RemoteTarget? = nil,
+        mode: AmxAttachMode = .createOrAttach(
+            metadata: .init(
+                workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
+                groupRemote: nil, agentKind: nil))
     ) -> String? {
         guard let executableURL = bundledExecutableURL() else {
             return nil
@@ -457,6 +461,7 @@ enum AmxBackend {
             socketDirectory: sessionSocketDirectory(),
             status: status,
             remote: remote,
+            mode: mode,
             ghosttyResourcesDir: inputs.ghosttyResourcesDir,
             inheritedZDOTDIR: inputs.inheritedZDOTDIR,
             inheritedXDGDataDirs: inputs.inheritedXDGDataDirs,
@@ -477,6 +482,10 @@ enum AmxBackend {
         socketDirectory: String,
         status: AmxStatusChannel? = nil,
         remote: RemoteTarget? = nil,
+        mode: AmxAttachMode = .createOrAttach(
+            metadata: .init(
+                workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
+                groupRemote: nil, agentKind: nil)),
         ghosttyResourcesDir: String? = nil,
         inheritedZDOTDIR: String? = nil,
         inheritedXDGDataDirs: String? = nil,
@@ -506,11 +515,16 @@ enum AmxBackend {
             inheritedXDGDataDirs: inheritedXDGDataDirs,
             shellPath: shellPath
         )
-        tokens += [
-            shellQuote(executablePath),
-            "attach",
-            shellQuote(sessionID.rawValue),
-        ]
+        tokens += [shellQuote(executablePath), "attach"]
+        switch mode {
+        case .createOrAttach(let metadata):
+            let labels = metadata.encodedLabelAssignments.sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+            tokens += ["--labels", shellQuote(labels)]
+        case .existingOnly:
+            tokens += ["--existing"]
+        }
+        tokens += [shellQuote(sessionID.rawValue)]
         if let remote {
             tokens += sshTailTokens(for: remote).map(shellQuote)
         }
@@ -1456,6 +1470,29 @@ enum AmxBackend {
         await listSessionsResult() ?? []
     }
 
+    static func setRecoveryMetadata(
+        _ metadata: DaemonRecoveryMetadata,
+        for sessionID: TerminalSessionID
+    ) async -> Bool {
+        guard TerminalSessionID.isValid(sessionID.rawValue), let executableURL = bundledExecutableURL()
+        else { return false }
+        let assignments = metadata.encodedLabelAssignments.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+        let runner = BoundedCommandRunner(
+            executableCandidates: [executableURL.path],
+            timeout: .seconds(2),
+            maxOutputBytes: 4 * 1024,
+            environment: bridgeProcessEnvironment()
+        )
+        if case .success = await runner.runDetailed(
+            arguments: ["set", sessionID.rawValue] + assignments,
+            inDirectory: FileManager.default.currentDirectoryPath
+        ) {
+            return true
+        }
+        return false
+    }
+
     /// Diagnostics needs to distinguish an empty daemon list from an unavailable
     /// `amx` query so it can keep app-process data while naming the partial refresh.
     /// Existing GC callers deliberately retain their best-effort empty-array shape.
@@ -1647,6 +1684,10 @@ enum AmxBackend {
         TerminalBackendMetadata(rawValue: establishedMetadataRawValue)
     }
 
+    static var existingOnlySessionMetadata: TerminalBackendMetadata {
+        TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+    }
+
     /// Environment for spawned `amx list`/`kill`: scrub inherited zmx control
     /// vars and pin `ZMX_DIR` to awesoMux's own socket dir so these commands are
     /// scoped to our daemons only (the ownership boundary GC relies on).
@@ -1675,4 +1716,8 @@ enum AmxBackend {
 
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+}
+enum AmxAttachMode: Hashable, Sendable {
+    case createOrAttach(metadata: DaemonRecoveryMetadata)
+    case existingOnly
 }

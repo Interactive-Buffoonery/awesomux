@@ -170,7 +170,7 @@ struct CommandBridgeEnactorTests {
         // channel-bearing rebuild fails. Arming off the mint alone would leave a
         // watcher on a file the spawned command never names, and the exit path
         // would then trust that permanently empty feed.
-        enactor.attachCommandProvider = { sessionID, status, _ in
+        enactor.attachCommandProvider = { sessionID, status, _, _ in
             status == nil ? "amx attach \(sessionID.rawValue)" : nil
         }
 

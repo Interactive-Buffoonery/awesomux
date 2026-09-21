@@ -2357,6 +2357,20 @@ struct SessionStoreSiblingPaneExitErrorTests {
 @MainActor
 @Suite("SessionStore terminal backend metadata")
 struct SessionStoreTerminalBackendMetadataTests {
+    @Test("amx metadata fails closed for unknown payloads")
+    func amxAttachDisposition() {
+        #expect(TerminalBackendMetadata.empty.amxAttachDisposition == .createOrAttach)
+        #expect(
+            TerminalBackendMetadata(rawValue: "amx:v1:established").amxAttachDisposition
+                == .createOrAttach)
+        #expect(
+            TerminalBackendMetadata(rawValue: "amx:v1:existing-only").amxAttachDisposition
+                == .existingOnly)
+        #expect(
+            TerminalBackendMetadata(rawValue: "amx:v99:surprise").amxAttachDisposition
+                == .existingOnly)
+    }
+
     @Test("writes and persists metadata to the pane")
     func writesMetadata() {
         let session = makeSession()

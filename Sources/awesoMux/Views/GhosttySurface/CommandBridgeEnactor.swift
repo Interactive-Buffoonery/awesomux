@@ -117,9 +117,10 @@ final class CommandBridgeEnactor {
         (
             TerminalSessionID,
             AmxStatusChannel?,
-            RemoteTarget?
-        ) -> String? = { sessionID, status, remote in
-            AmxBackend.attachCommand(for: sessionID, status: status, remote: remote)
+            RemoteTarget?,
+            AmxAttachMode
+        ) -> String? = { sessionID, status, remote, mode in
+            AmxBackend.attachCommand(for: sessionID, status: status, remote: remote, mode: mode)
         }
     var remoteOwnedAttachCommandProvider:
         (
@@ -185,6 +186,7 @@ final class CommandBridgeEnactor {
     /// from `createSurfaceIfNeeded`.
     func prepareAttach(for pane: TerminalPane, bridgeEnabled: Bool) -> SurfaceLaunchCommand {
         let remote = pane.executionPlan.remoteTarget
+        let mode = attachMode(for: pane)
         // Availability probe only, deliberately built WITHOUT a status channel:
         // `attachCommand` fails solely on a missing bundled `amx` (or an invalid
         // id), never on the channel, so the policy can be decided before any
@@ -194,7 +196,7 @@ final class CommandBridgeEnactor {
         // would only have to delete it again.
         let baseAttachCommand: String? =
             bridgeEnabled
-            ? attachCommandProvider(pane.terminalSessionID, nil, remote)
+            ? attachCommandProvider(pane.terminalSessionID, nil, remote, mode)
             : nil
         let policyResult = BridgeSurfaceCommandPolicy.command(
             bridgeEnabled: bridgeEnabled,
@@ -221,7 +223,7 @@ final class CommandBridgeEnactor {
             // never names, so `beginExitSupervision` would trust an empty feed
             // instead of falling back to the legacy exitCode probe.
             if let channel,
-                let command = attachCommandProvider(pane.terminalSessionID, channel, remote)
+                let command = attachCommandProvider(pane.terminalSessionID, channel, remote, mode)
             {
                 beginStatusWatch(channel: channel)
                 return .bridgeAttach(command)
@@ -613,6 +615,11 @@ final class CommandBridgeEnactor {
             guard let sessionID, event.session == sessionID.rawValue else { continue }
             switch event.kind {
             case let .attached(created, daemonPid, daemonCreatedAt):
+                sessionStore.updateTerminalBackendMetadata(
+                    sessionID: hostSessionID,
+                    paneID: paneID,
+                    metadata: AmxBackend.establishedSessionMetadata
+                )
                 let incarnation = AmxDaemonIncarnation(pid: daemonPid, createdAt: daemonCreatedAt)
                 let outcome = respawnLedger.recordAttach(incarnation)
                 // `created` on a first attach means amx launched a new daemon
@@ -709,6 +716,35 @@ final class CommandBridgeEnactor {
                 }
             }
         }
+    }
+
+    private func attachMode(for pane: TerminalPane) -> AmxAttachMode {
+        guard pane.terminalBackendMetadata.amxAttachDisposition == .createOrAttach else {
+            return .existingOnly
+        }
+        for group in sessionStore.groups {
+            guard let session = group.sessions.first(where: { $0.id == hostSessionID }) else {
+                continue
+            }
+            return .createOrAttach(
+                metadata: DaemonRecoveryMetadata(
+                    workspaceTitle: session.title,
+                    paneTitle: pane.title,
+                    groupID: group.id,
+                    groupName: group.name,
+                    groupRemote: group.remote,
+                    agentKind: pane.agentKind
+                ))
+        }
+        return .createOrAttach(
+            metadata: DaemonRecoveryMetadata(
+                workspaceTitle: nil,
+                paneTitle: pane.title,
+                groupID: nil,
+                groupName: nil,
+                groupRemote: nil,
+                agentKind: pane.agentKind
+            ))
     }
 
     /// Schedule the grace-gated respawn-budget refill. Replaces any prior pending

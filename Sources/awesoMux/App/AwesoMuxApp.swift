@@ -228,6 +228,7 @@ struct AwesoMuxApp: App {
     @State private var documentTabActions = DocumentComposeTabActionHandler()
     @State private var branchChangesCoordinator = BranchChangesCoordinator()
     @State private var remoteMarkdownRefreshCoordinator: RemoteMarkdownRefreshCoordinator
+    @State private var daemonRecoveryMetadataSynchronizer = DaemonRecoveryMetadataSynchronizer()
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -725,6 +726,10 @@ struct AwesoMuxApp: App {
                 installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
                 appDelegate.syncMenuBarMiniStatusItem()
+                    Task {
+                        await daemonRecoveryMetadataSynchronizer.synchronize(
+                            groups: sessionStore.groups)
+                    }
                     // Inert by policy, and deliberately still here: every prime
                     // call routes through `NotificationPrimePolicy` so that one
                     // place decides, and `shouldPrime` refuses every launch
@@ -774,6 +779,7 @@ struct AwesoMuxApp: App {
                 rootContentAfterSaveStatus
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
+                    Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
                 dismissWorkspaceEditorIfTargetClosed()
                 dismissWorkspaceGroupEditorIfTargetClosed()

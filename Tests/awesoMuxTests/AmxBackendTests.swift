@@ -12,6 +12,47 @@ import Testing
 // beside the test runner.
 @Suite("AmxBackend attach-command assembly")
 struct AmxBackendAttachCommandTests {
+    @Test("create-or-attach carries sorted recovery labels")
+    func createOrAttachCarriesRecoveryLabels() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-labels"))
+        let metadata = DaemonRecoveryMetadata(
+            workspaceTitle: "Build",
+            paneTitle: nil,
+            groupID: UUID(uuidString: "00000000-0000-0000-0000-000000000001"),
+            groupName: "Work",
+            groupRemote: nil,
+            agentKind: .codex
+        )
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                mode: .createOrAttach(metadata: metadata)
+            ))
+
+        #expect(command.contains(" attach --labels '"))
+        let assignments = metadata.encodedLabelAssignments.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+        #expect(command.contains("'\(assignments)' 'abc123-labels'"))
+    }
+
+    @Test("existing-only attach cannot create or mutate labels")
+    func existingOnlyAttach() throws {
+        let id = try #require(TerminalSessionID(rawValue: "abc123-existing"))
+        let command = try #require(
+            AmxBackend.attachCommand(
+                executablePath: "/Apps/amx",
+                sessionID: id,
+                socketDirectory: "/tmp/amx",
+                mode: .existingOnly
+            ))
+
+        #expect(command.contains(" attach --existing 'abc123-existing'"))
+        #expect(!command.contains("--labels"))
+        #expect(command.contains("-u ZMX_SESSION"))
+    }
+
     @Test("assembles the env-scrubbed, ZMX_DIR-pinned, single-quoted command")
     func assemblesCommand() throws {
         let id = try #require(TerminalSessionID(rawValue: "abc123-def"))
@@ -29,7 +70,10 @@ struct AmxBackendAttachCommandTests {
                 + "-u CLAUDE_CODE_CHILD_SESSION -u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
                 + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN "
                 + "'ZMX_DIR=/tmp/amx' 'ZMX_DIR_MODE=700' "
-                + "'/Apps/awesoMux.app/Contents/MacOS/amx' attach 'abc123-def'")
+                + "'/Apps/awesoMux.app/Contents/MacOS/amx' attach --labels "
+                + "'awesomux.agent-kind=,awesomux.group-id=,awesomux.group-name=,"
+                + "awesomux.group-remote=,awesomux.pane-title=,awesomux.workspace-title=' "
+                + "'abc123-def'")
     }
 
     @Test("appends ssh tail for RemoteTarget")
