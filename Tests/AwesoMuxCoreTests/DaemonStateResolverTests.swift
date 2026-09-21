@@ -16,11 +16,14 @@ struct DaemonStateResolverTests {
         live: [LiveDaemon], idle: [TerminalSessionID: Bool] = [:],
         owned: Set<TerminalSessionID> = [], restorable: Set<TerminalSessionID> = [],
         owners: [TerminalSessionID: String] = [:], pinned: Set<TerminalSessionID> = [],
+        livePresentation: [TerminalSessionID: DaemonPresentation] = [:],
+        snapshotPresentation: [TerminalSessionID: DaemonPresentation] = [:],
         cap: Int? = nil, now: Int = 1000
     ) -> [DaemonRow] {
         DaemonStateResolver.resolve(.init(
             live: live, idleByID: idle, ownedByLivePane: owned, restorable: restorable,
-            owners: owners, pinned: pinned, capThresholdSeconds: cap, now: now
+                owners: owners, pinned: pinned, livePresentation: livePresentation,
+                snapshotPresentation: snapshotPresentation, capThresholdSeconds: cap, now: now
         ))
     }
 
@@ -82,5 +85,51 @@ struct DaemonStateResolverTests {
         let rows = resolve(live: [daemon(a, created: 0, clients: 0)], idle: [id(a): false],
                            cap: 500, now: 1000)
         #expect(rows.first?.lifecycle == .abandoned)
+    }
+
+    @Test("presentation prefers live, snapshot, daemon metadata, then UUID fallback")
+    func presentationPrecedence() {
+        let metadata = DaemonRecoveryMetadata(
+            workspaceTitle: "Daemon",
+            paneTitle: nil,
+            groupID: nil,
+            groupName: "Daemon Group",
+            groupRemote: nil,
+            agentKind: .codex
+        )
+        let liveDaemon = LiveDaemon(
+            id: id(a), pid: 1, createdEpoch: 0, clients: 0,
+            cwd: "/daemon", recoveryMetadata: metadata
+        )
+        let snapshot = DaemonPresentation(
+            label: "Snapshot", directory: "/snapshot", groupName: "Snapshot Group",
+            agentKind: .pi, owner: "snapshot owner"
+        )
+        let live = DaemonPresentation(
+            label: "Live", directory: "/live", groupName: "Live Group",
+            agentKind: .claudeCode, owner: "live owner"
+        )
+
+        let liveRow = resolve(live: [liveDaemon], livePresentation: [id(a): live], snapshotPresentation: [id(a): snapshot])[0]
+        #expect(liveRow.label == "Live")
+        #expect(liveRow.directory == "/live")
+        #expect(liveRow.groupName == "Live Group")
+        #expect(liveRow.agentKind == .claudeCode)
+        #expect(liveRow.owner == "live owner")
+
+        let snapshotRow = resolve(live: [liveDaemon], snapshotPresentation: [id(a): snapshot])[0]
+        #expect(snapshotRow.label == "Snapshot")
+        #expect(snapshotRow.directory == "/snapshot")
+
+        let daemonRow = resolve(live: [liveDaemon])[0]
+        #expect(daemonRow.label == "Daemon")
+        #expect(daemonRow.directory == "/daemon")
+        #expect(daemonRow.groupName == "Daemon Group")
+        #expect(daemonRow.agentKind == .codex)
+        #expect(daemonRow.shortID == "amx:11111111")
+
+        let fallback = resolve(live: [daemon(a)])[0]
+        #expect(fallback.label == a)
+        #expect(fallback.directory == nil)
     }
 }

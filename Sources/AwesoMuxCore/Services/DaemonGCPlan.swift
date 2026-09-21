@@ -51,9 +51,18 @@ public enum DaemonGCPlan {
             // the same `> 1` line: pid 1 is launchd, never a daemon, so
             // accepting it would excuse the wrong process from the sweep.
             let daemonPID = fields["daemon_pid"].flatMap(Int32.init).flatMap { $0 > 1 ? $0 : nil }
+            let recoveryFields = fields.filter { $0.key.hasPrefix(DaemonRecoveryMetadata.labelPrefix) }
+            let recoveryMetadata =
+                recoveryFields.isEmpty
+                ? nil
+                : DaemonRecoveryMetadata.decode(fields: recoveryFields)
+            let cwd = fields["cwd"] ?? fields["start_dir"]
             seen.insert(name)
             result.append(
-                LiveDaemon(id: id, pid: pid, createdEpoch: created, clients: clients, daemonPID: daemonPID))
+                LiveDaemon(
+                    id: id, pid: pid, createdEpoch: created, clients: clients,
+                    daemonPID: daemonPID, cwd: cwd, recoveryMetadata: recoveryMetadata
+                ))
         }
         return result
     }

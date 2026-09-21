@@ -1,6 +1,28 @@
 import AwesoMuxBridgeProtocol
 import Foundation
 
+public struct DaemonPresentation: Equatable, Sendable {
+    public let label: String?
+    public let directory: String?
+    public let groupName: String?
+    public let agentKind: AgentKind?
+    public let owner: String?
+
+    public init(
+        label: String? = nil,
+        directory: String? = nil,
+        groupName: String? = nil,
+        agentKind: AgentKind? = nil,
+        owner: String? = nil
+    ) {
+        self.label = label
+        self.directory = directory
+        self.groupName = groupName
+        self.agentKind = agentKind
+        self.owner = owner
+    }
+}
+
 /// Pure derivation of session-manager rows from a daemon list + the facts the
 /// app gathers around it. Lifecycle × activity × pin are orthogonal axes (see
 /// the design spec §4); keeping this pure makes the whole matrix unit-testable,
@@ -13,6 +35,8 @@ public enum DaemonStateResolver {
         public var restorable: Set<TerminalSessionID>
         public var owners: [TerminalSessionID: String]
         public var pinned: Set<TerminalSessionID>
+        public var livePresentation: [TerminalSessionID: DaemonPresentation]
+        public var snapshotPresentation: [TerminalSessionID: DaemonPresentation]
         /// nil = cap disabled. Otherwise the age threshold in seconds.
         public var capThresholdSeconds: Int?
         public var now: Int
@@ -21,11 +45,15 @@ public enum DaemonStateResolver {
             live: [LiveDaemon], idleByID: [TerminalSessionID: Bool],
             ownedByLivePane: Set<TerminalSessionID>, restorable: Set<TerminalSessionID>,
             owners: [TerminalSessionID: String], pinned: Set<TerminalSessionID>,
+            livePresentation: [TerminalSessionID: DaemonPresentation] = [:],
+            snapshotPresentation: [TerminalSessionID: DaemonPresentation] = [:],
             capThresholdSeconds: Int?, now: Int
         ) {
             self.live = live; self.idleByID = idleByID
             self.ownedByLivePane = ownedByLivePane; self.restorable = restorable
             self.owners = owners; self.pinned = pinned
+            self.livePresentation = livePresentation
+            self.snapshotPresentation = snapshotPresentation
             self.capThresholdSeconds = capThresholdSeconds; self.now = now
         }
     }
@@ -38,10 +66,19 @@ public enum DaemonStateResolver {
             let idle = inputs.idleByID[daemon.id] ?? false
             let activity: DaemonActivity = idle ? .idle : .busy
             let lifecycle = lifecycle(for: daemon, idle: idle, pinned: pinned, inputs: inputs)
+            let live = inputs.livePresentation[daemon.id]
+            let snapshot = inputs.snapshotPresentation[daemon.id]
+            let metadata = daemon.recoveryMetadata
             rows.append(DaemonRow(
                 id: daemon.id, pid: daemon.pid, createdEpoch: daemon.createdEpoch,
                 clients: daemon.clients, lifecycle: lifecycle, activity: activity,
-                pinned: pinned, owner: inputs.owners[daemon.id]
+                    pinned: pinned,
+                    owner: live?.owner ?? snapshot?.owner ?? inputs.owners[daemon.id],
+                    label: live?.label ?? snapshot?.label ?? metadata?.workspaceTitle
+                        ?? metadata?.paneTitle ?? daemon.id.rawValue,
+                    directory: live?.directory ?? snapshot?.directory ?? daemon.cwd,
+                    groupName: live?.groupName ?? snapshot?.groupName ?? metadata?.groupName,
+                    agentKind: live?.agentKind ?? snapshot?.agentKind ?? metadata?.agentKind
             ))
         }
         return rows

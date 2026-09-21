@@ -19,19 +19,25 @@ public struct LiveDaemon: Hashable, Sendable {
     /// nothing (or a zeroed 0), and those are exactly the inherited
     /// daemons GC must not misread as leaked attach clients.
     public let daemonPID: Int32?
+    public let cwd: String?
+    public let recoveryMetadata: DaemonRecoveryMetadata?
 
     public init(
         id: TerminalSessionID,
         pid: Int32,
         createdEpoch: Int,
         clients: Int,
-        daemonPID: Int32? = nil
+        daemonPID: Int32? = nil,
+        cwd: String? = nil,
+        recoveryMetadata: DaemonRecoveryMetadata? = nil
     ) {
         self.id = id
         self.pid = pid
         self.createdEpoch = createdEpoch
         self.clients = clients
         self.daemonPID = daemonPID
+        self.cwd = cwd
+        self.recoveryMetadata = recoveryMetadata
     }
 }
 

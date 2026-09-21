@@ -27,12 +27,53 @@ struct DaemonGCPlanTests {
               name=\(uuidA)\tpid=notanint\tcreated=1782263486
             """
         let daemons = DaemonGCPlan.parseAmxList(raw)
-        #expect(daemons.contains(LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 100, createdEpoch: 1782263486, clients: 0)))
-        #expect(daemons.contains(LiveDaemon(id: TerminalSessionID(rawValue: uuidB)!, pid: 200, createdEpoch: 1782263487, clients: 1)))
+        #expect(
+            daemons.contains(LiveDaemon(id: TerminalSessionID(rawValue: uuidA)!, pid: 100, createdEpoch: 1782263486, clients: 0, cwd: "/x"))
+        )
+        #expect(
+            daemons.contains(
+                LiveDaemon(id: TerminalSessionID(rawValue: uuidB)!, pid: 200, createdEpoch: 1782263487, clients: 1, cwd: "/a b")))
         // "dev" is a valid TerminalSessionID (not UUID), still parsed; the UUID gate applies later.
         #expect(daemons.contains { $0.id.rawValue == "dev" })
         // unparseable pid drops that row entirely (the good uuidA row already parsed).
         #expect(daemons.filter { $0.id.rawValue == uuidA }.count == 1)
+    }
+
+    @Test("amx list parser reads current cwd, legacy start_dir, and recovery labels")
+    func parseListRecoveryFields() {
+        let metadata = DaemonRecoveryMetadata(
+            workspaceTitle: "Deploy",
+            paneTitle: nil,
+            groupID: nil,
+            groupName: "Work",
+            groupRemote: nil,
+            agentKind: .codex
+        )
+        let labels = metadata.encodedLabelAssignments
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+            .joined(separator: "\t")
+        let current = "name=\(uuidA)\tpid=100\tclients=0\tcreated=10\tstart_dir=/old\tcwd=/current\t\(labels)\tdaemon_pid=99"
+        let legacy = "name=\(uuidB)\tpid=200\tclients=0\tcreated=11\tstart_dir=/legacy\tdaemon_pid=199"
+
+        let daemons = DaemonGCPlan.parseAmxList(current + "\n" + legacy)
+        #expect(daemons[0].cwd == "/current")
+        #expect(daemons[0].recoveryMetadata == metadata)
+        #expect(daemons[1].cwd == "/legacy")
+        #expect(daemons[1].recoveryMetadata == nil)
+    }
+
+    @Test("malformed recovery labels and missing cwd do not drop an otherwise valid daemon")
+    func malformedRecoveryLabelsAreTolerant() {
+        let raw =
+            "name=\(uuidA)\tpid=100\tclients=0\tcreated=10\tawesomux.workspace-title=not+base64\tawesomux.group-name=V29yaw\tdaemon_pid=99"
+        let parsed = DaemonGCPlan.parseAmxList(raw)
+
+        #expect(parsed.count == 1)
+        #expect(parsed[0].cwd == nil)
+        #expect(parsed[0].recoveryMetadata?.workspaceTitle == nil)
+        #expect(parsed[0].recoveryMetadata?.groupName == "Work")
+        #expect(DaemonGCPlan.parseAmxListStrict(raw)?.count == 1)
     }
 
     @Test("amx list: missing/unparseable clients fails safe to in-use (clients=1)")
