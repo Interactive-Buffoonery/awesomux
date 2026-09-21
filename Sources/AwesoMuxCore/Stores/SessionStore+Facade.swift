@@ -707,6 +707,70 @@ extension SessionStore {
         return true
     }
 
+    public func recentlyClosedWorkspace(
+        containing terminalSessionID: TerminalSessionID
+    ) -> RecentlyClosedWorkspace? {
+        if let transient = lastClosedTransient,
+            transient.layout.contains(where: { $0.terminalSessionID == terminalSessionID })
+        {
+            return transient
+        }
+        return recentlyClosed.first {
+            $0.layout.contains { $0.terminalSessionID == terminalSessionID }
+        }
+    }
+
+    @discardableResult
+    public func recoverDaemon(
+        id: TerminalSessionID,
+        metadata: DaemonRecoveryMetadata,
+        cwd: String?
+    ) -> (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)? {
+        guard
+            let sessionID = DaemonRecoveryReducer.recover(
+                .init(id: id, metadata: metadata, cwd: cwd), into: &_groups
+            ), let paneID = session(id: sessionID)?.activePaneID
+        else { return nil }
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        return (sessionID, paneID)
+    }
+
+    public func drainRecentlyClosed(containing terminalSessionID: TerminalSessionID) {
+        if lastClosedTransient?.layout.contains(where: {
+            $0.terminalSessionID == terminalSessionID
+        }) == true {
+            lastClosedTransient = nil
+        }
+        recentlyClosed.removeAll {
+            $0.layout.contains { $0.terminalSessionID == terminalSessionID }
+        }
+    }
+
+    public func provisionallyRestore(
+        _ entry: RecentlyClosedWorkspace,
+        daemonID: TerminalSessionID
+    ) -> (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)? {
+        let savedRecent = recentlyClosed
+        let savedTransient = lastClosedTransient
+        guard let sessionID = reopen(entry),
+            let pane = session(id: sessionID)?.panes.first(where: {
+                $0.terminalSessionID == daemonID
+            })
+        else { return nil }
+        recentlyClosed = savedRecent
+        lastClosedTransient = savedTransient
+        _ = updateTerminalBackendMetadata(
+            sessionID: sessionID,
+            paneID: pane.id,
+            metadata: TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+        )
+        return (sessionID, pane.id)
+    }
+
+    public func rollbackDaemonRecovery(sessionID: TerminalSession.ID) {
+        closeSession(id: sessionID, captureRecentlyClosed: false)
+    }
+
     @discardableResult
     public func applyAgentRuntimeEvent(
         _ event: AgentRuntimeEvent,

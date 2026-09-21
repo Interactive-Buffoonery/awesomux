@@ -20,7 +20,8 @@ final class SessionManagerController {
     @ObservationIgnored private let focusState = SessionManagerFocusState()
     @ObservationIgnored private var isDismissing = false
     @ObservationIgnored private weak var model: SessionManagerModel?
-    @ObservationIgnored private var onJump: (TerminalSessionID) -> Void = { _ in }
+    @ObservationIgnored private var onSelect: (TerminalSession.ID, TerminalPane.ID) -> Void = { _, _ in }
+    @ObservationIgnored private var activationInFlight = false
     // Set by the app so this floating-panel root can carry the appearance
     // bridge (accent, glow, UI font, text scale). Without it the panel hosts a
     // detached SwiftUI tree that wouldn't scale with the text-size setting.
@@ -42,22 +43,22 @@ final class SessionManagerController {
     func toggle(
         model: SessionManagerModel,
         relativeTo parentWindow: NSWindow?,
-        onJump: @escaping (TerminalSessionID) -> Void
+        onSelect: @escaping (TerminalSession.ID, TerminalPane.ID) -> Void
     ) {
         if isVisible {
             dismiss()
         } else {
-            show(model: model, relativeTo: parentWindow, onJump: onJump)
+            show(model: model, relativeTo: parentWindow, onSelect: onSelect)
         }
     }
 
     func show(
         model: SessionManagerModel,
         relativeTo parentWindow: NSWindow?,
-        onJump: @escaping (TerminalSessionID) -> Void
+        onSelect: @escaping (TerminalSession.ID, TerminalPane.ID) -> Void
     ) {
         self.model = model
-        self.onJump = onJump
+        self.onSelect = onSelect
         // Inject the a11y announce sink so model snapshot diffs are spoken
         // against this panel (a non-key window's announcements are dropped).
         model.announce = { [weak self] message in
@@ -110,9 +111,8 @@ final class SessionManagerController {
         let root = SessionManagerPanel(
             model: model,
             focusState: focusState,
-            onJump: { [weak self] id in
-                self?.onJump(id)
-                self?.dismiss()
+            onActivate: { [weak self] row in
+                self?.activate(row, model: model)
             },
             onConfigureAutoCleanup: { [weak self] in
                 self?.configureAutoCleanup()
@@ -122,6 +122,26 @@ final class SessionManagerController {
             root.appearanceBridge(appSettingsStore)
         } else {
             root
+        }
+    }
+
+    private func activate(_ row: DaemonRow, model: SessionManagerModel) {
+        guard !activationInFlight else { return }
+        activationInFlight = true
+        Task { [weak self] in
+            let result = await model.activate(row)
+            guard let self else { return }
+            activationInFlight = false
+            switch result {
+            case let .opened(sessionID, paneID), let .restored(sessionID, paneID),
+                let .recovered(sessionID, paneID):
+                onSelect(sessionID, paneID)
+                dismiss()
+            case .unavailable:
+                postAnnouncement("Session is no longer available.")
+            case .changed:
+                postAnnouncement("Session state changed. The list was refreshed.")
+            }
         }
     }
 

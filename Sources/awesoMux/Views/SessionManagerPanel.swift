@@ -56,6 +56,26 @@ enum DaemonLifecyclePresentation {
     }
 }
 
+enum SessionManagerPrimaryAction: Equatable { case open, restore, recover }
+
+extension DaemonRow {
+    var primaryAction: SessionManagerPrimaryAction? {
+        switch lifecycle {
+        case .owned: .open
+        case .detachedRestorable: .restore
+        case .abandoned, .expired: .recover
+        case .inUseElsewhere: nil
+        }
+    }
+
+    func matches(query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        return [label, directory, groupName, agentKind?.displayName, id.rawValue]
+            .compactMap { $0 }
+            .contains { $0.localizedStandardContains(query) }
+    }
+}
+
 // MARK: - Atoms
 
 /// Activity dot + text. Busy = a filled green dot with a soft halo; idle = a
@@ -167,20 +187,21 @@ struct SessionManagerPanel: View {
     let focusState: SessionManagerFocusState
     /// Selects the workspace/pane that owns a daemon, then dismisses. Wired by
     /// the app to the same selection path the command palette uses.
-    let onJump: (TerminalSessionID) -> Void
+    let onActivate: (DaemonRow) -> Void
     let onConfigureAutoCleanup: () -> Void
 
     /// Orphan (abandoned/expired) row awaiting the cheap inline confirm.
     @State private var inlineConfirmID: TerminalSessionID?
     /// Live/restorable row awaiting the full confirm sheet.
     @State private var sheetRow: DaemonRow?
+    @State private var query = ""
 
     static func shortIDSuffix(_ id: TerminalSessionID) -> String {
         String(id.rawValue.prefix(8))
     }
 
     private var groups: [(lifecycle: DaemonLifecycle, rows: [DaemonRow])] {
-        let byLifecycle = Dictionary(grouping: model.rows, by: \.lifecycle)
+        let byLifecycle = Dictionary(grouping: model.rows.filter { $0.matches(query: query) }, by: \.lifecycle)
         return DaemonLifecyclePresentation.groupOrder.compactMap { lifecycle in
             guard let rows = byLifecycle[lifecycle], !rows.isEmpty else { return nil }
             return (lifecycle, rows)
@@ -204,6 +225,10 @@ struct SessionManagerPanel: View {
             if model.rows.isEmpty {
                 emptyState
             } else {
+                TextField("Search sessions", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, AwSpacing.panelPadding)
+                    .padding(.vertical, 8)
                 list
             }
             footer
@@ -327,9 +352,15 @@ struct SessionManagerPanel: View {
             HStack(spacing: 14) {
                 ActivityIndicator(activity: row.activity)
                     .frame(width: 64, alignment: .leading)
-                ShortID(id: row.id)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                OwnerCell(owner: row.owner)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.label).lineLimit(1).truncationMode(.middle)
+                        .awFont(AwFont.UI.meta).foregroundStyle(Color.aw.text)
+                    ShortID(id: row.id)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(row.directory ?? "—")
+                    .lineLimit(1).truncationMode(.middle)
+                    .awFont(AwFont.Mono.meta).foregroundStyle(Color.aw.text2)
                     .frame(width: 180, alignment: .leading)
                 Text(RelativeAge.string(
                     sinceEpoch: row.createdEpoch,
@@ -392,6 +423,18 @@ struct SessionManagerPanel: View {
             .accessibilityLabel(rowAccessibilityLabel(row) + ", can't clean up while in use elsewhere")
         } else {
             HStack(spacing: 2) {
+                if let primaryAction = row.primaryAction {
+                    Button {
+                        onActivate(row)
+                    } label: {
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.aw.text3)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(primaryAction.label)
+                }
                 Button {
                     model.setPinned(!row.pinned, for: row.id)
                 } label: {
@@ -407,19 +450,6 @@ struct SessionManagerPanel: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(row.pinned ? "Unpin session" : "Pin session")
                 .accessibilityHint("Pinned sessions are exempt from auto-cleanup.")
-
-                if row.owner != nil {
-                    Button {
-                        onJump(row.id)
-                    } label: {
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.aw.text3)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Jump to owning pane")
-                }
 
                 Button {
                     confirmOrReap(row)
@@ -445,7 +475,8 @@ struct SessionManagerPanel: View {
         var parts = [
             DaemonLifecyclePresentation.label(row.lifecycle),
             row.activity == .busy ? "busy" : "idle",
-            row.owner ?? "no owner",
+            row.label,
+            row.directory ?? "directory unavailable",
             "\(RelativeAge.string(sinceEpoch: row.createdEpoch, now: Int(Date().timeIntervalSince1970))) old",
             LocalizedPluralStrings.sessionManagerClients(count: row.clients)
         ]
@@ -643,6 +674,16 @@ struct SessionManagerPanel: View {
                 localized: "Auto-cleanup is off.",
                 comment: "Session Manager footer accessibility summary when auto-cleanup is disabled"
             )
+    }
+}
+
+private extension SessionManagerPrimaryAction {
+    var label: String {
+        switch self {
+        case .open: "Open session"
+        case .restore: "Restore session"
+        case .recover: "Recover session"
+        }
     }
 }
 

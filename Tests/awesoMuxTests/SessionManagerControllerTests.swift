@@ -24,7 +24,7 @@ struct SessionManagerControllerTests {
                 fileURL: temporaryDirectory.url.appending(path: "daemon-pins.json")
             )
         )
-        controller.show(model: model, relativeTo: nil, onJump: { _ in })
+        controller.show(model: model, relativeTo: nil, onSelect: { _, _ in })
         defer {
             controller.onConfigureAutoCleanup = {}
             controller.dismiss()

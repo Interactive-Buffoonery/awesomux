@@ -11,6 +11,13 @@ import Observation
 @MainActor
 @Observable
 final class SessionManagerModel {
+    enum ActivationResult: Equatable {
+        case opened(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        case restored(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        case recovered(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        case unavailable
+        case changed
+    }
     private(set) var rows: [DaemonRow] = []
 
     @ObservationIgnored private let store: SessionStore
@@ -123,16 +130,74 @@ final class SessionManagerModel {
         return ok
     }
 
+    func activate(_ row: DaemonRow) async -> ActivationResult {
+        guard let daemon = await AmxBackend.listSessions().first(where: { $0.id == row.id }) else {
+            await refresh()
+            return .unavailable
+        }
+        guard daemon.pid == row.pid, daemon.createdEpoch == row.createdEpoch else {
+            await refresh()
+            return .changed
+        }
+        if let target = jumpTarget(for: row.id) {
+            return .opened(sessionID: target.sessionID, paneID: target.paneID)
+        }
+        guard daemon.clients == 0 else {
+            await refresh()
+            return .changed
+        }
+
+        SessionRecoveryConfirmationCenter.shared.begin(row.id)
+        let provisional: (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        let kind: ActivationResultKind
+        if let entry = store.recentlyClosedWorkspace(containing: row.id),
+            let restored = store.provisionallyRestore(entry, daemonID: row.id)
+        {
+            provisional = restored
+            kind = .restored
+        } else if let recovered = store.recoverDaemon(
+            id: row.id,
+            metadata: daemon.recoveryMetadata
+                ?? DaemonRecoveryMetadata(
+                    workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
+                    groupRemote: nil, agentKind: nil),
+            cwd: daemon.cwd
+        ) {
+            provisional = recovered
+            kind = .recovered
+        } else {
+            return .unavailable
+        }
+
+        guard await SessionRecoveryConfirmationCenter.shared.wait(for: row.id) else {
+            store.rollbackDaemonRecovery(sessionID: provisional.sessionID)
+            await refresh()
+            return .unavailable
+        }
+        store.drainRecentlyClosed(containing: row.id)
+        await refresh()
+        switch kind {
+        case .restored:
+            return .restored(sessionID: provisional.sessionID, paneID: provisional.paneID)
+        case .recovered:
+            return .recovered(sessionID: provisional.sessionID, paneID: provisional.paneID)
+        }
+    }
+
+    private enum ActivationResultKind { case restored, recovered }
+
     // MARK: - Jump target
 
     /// Returns the (groupID, sessionID) needed to select a live workspace pane that
     /// owns this daemon. Returns nil when the daemon has no live pane owner.
-    func jumpTarget(for id: TerminalSessionID) -> (groupID: UUID, sessionID: TerminalSession.ID)? {
+    func jumpTarget(for id: TerminalSessionID) -> (
+        groupID: UUID, sessionID: TerminalSession.ID, paneID: TerminalPane.ID
+    )? {
         for group in store.groups {
             for session in group.sessions {
-                var found = false
-                session.layout.forEachPane { if $0.terminalSessionID == id { found = true } }
-                if found { return (group.id, session.id) }
+                if let pane = session.panes.first(where: { $0.terminalSessionID == id }) {
+                    return (group.id, session.id, pane.id)
+                }
             }
         }
         return nil
