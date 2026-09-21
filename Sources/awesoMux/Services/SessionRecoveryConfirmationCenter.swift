@@ -6,13 +6,22 @@ final class SessionRecoveryConfirmationCenter {
     static let shared = SessionRecoveryConfirmationCenter()
     private var confirmed: Set<TerminalSessionID> = []
     private var waiters: [TerminalSessionID: (UUID, CheckedContinuation<Bool, Never>)] = [:]
+    private var expectations: [TerminalSessionID: (daemonPID: Int32?, createdEpoch: Int)] = [:]
 
-    func begin(_ id: TerminalSessionID) {
+    func begin(_ id: TerminalSessionID, daemonPID: Int32?, createdEpoch: Int) {
         cancel(id)
         confirmed.remove(id)
+        expectations[id] = (daemonPID, createdEpoch)
     }
 
-    func confirm(_ id: TerminalSessionID) {
+    func confirm(_ id: TerminalSessionID, daemonPID: Int, createdEpoch: Int) {
+        guard let expected = expectations[id], expected.createdEpoch == createdEpoch,
+            expected.daemonPID.map({ Int($0) == daemonPID }) ?? true
+        else {
+            cancel(id)
+            return
+        }
+        expectations.removeValue(forKey: id)
         if let (_, continuation) = waiters.removeValue(forKey: id) {
             continuation.resume(returning: true)
         } else {
@@ -22,6 +31,10 @@ final class SessionRecoveryConfirmationCenter {
 
     func wait(for id: TerminalSessionID, timeout: Duration = .seconds(3)) async -> Bool {
         if confirmed.remove(id) != nil { return true }
+        if Task.isCancelled {
+            expectations.removeValue(forKey: id)
+            return false
+        }
         let token = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -44,8 +57,13 @@ final class SessionRecoveryConfirmationCenter {
     }
 
     func cancel(_ id: TerminalSessionID, token: UUID? = nil) {
-        guard let waiter = waiters[id], token == nil || waiter.0 == token else { return }
+        guard let waiter = waiters[id] else {
+            if token == nil { expectations.removeValue(forKey: id) }
+            return
+        }
+        guard token == nil || waiter.0 == token else { return }
         waiters.removeValue(forKey: id)
+        expectations.removeValue(forKey: id)
         waiter.1.resume(returning: false)
     }
 }

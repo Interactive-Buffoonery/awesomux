@@ -152,7 +152,7 @@ final class SessionManagerModel {
             await refresh()
             return .changed
         }
-        if let expected = row.daemonPID, let actual = daemon.daemonPID, expected != actual {
+        if row.daemonPID != daemon.daemonPID {
             await refresh()
             return .changed
         }
@@ -164,8 +164,10 @@ final class SessionManagerModel {
             return .changed
         }
 
-        SessionRecoveryConfirmationCenter.shared.begin(row.id)
-        let provisional: (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        SessionRecoveryConfirmationCenter.shared.begin(
+            row.id, daemonPID: daemon.daemonPID, createdEpoch: daemon.createdEpoch
+        )
+        let provisional: DaemonRecoveryHandle
         let kind: ActivationResultKind
         if let entry = store.recentlyClosedWorkspace(containing: row.id),
             let restored = store.provisionallyRestore(entry, daemonID: row.id)
@@ -187,7 +189,7 @@ final class SessionManagerModel {
         }
 
         guard await SessionRecoveryConfirmationCenter.shared.wait(for: row.id) else {
-            store.rollbackDaemonRecovery(sessionID: provisional.sessionID)
+            store.rollbackDaemonRecovery(provisional)
             await refresh()
             return .unavailable
         }

@@ -615,7 +615,9 @@ final class CommandBridgeEnactor {
             guard let sessionID, event.session == sessionID.rawValue else { continue }
             switch event.kind {
             case let .attached(created, daemonPid, daemonCreatedAt):
-                SessionRecoveryConfirmationCenter.shared.confirm(sessionID)
+                SessionRecoveryConfirmationCenter.shared.confirm(
+                    sessionID, daemonPID: daemonPid, createdEpoch: daemonCreatedAt
+                )
                 sessionStore.updateTerminalBackendMetadata(
                     sessionID: hostSessionID,
                     paneID: paneID,

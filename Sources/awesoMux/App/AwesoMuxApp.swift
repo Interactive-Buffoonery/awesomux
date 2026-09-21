@@ -4297,8 +4297,8 @@ struct AwesoMuxApp: App {
 
     /// Selects the workspace that owns a daemon (reusing the same selection +
     /// terminal-focus path the command palette uses) so "Jump" lands the user on
-    /// the live pane. Session-level by design — the model resolves a daemon to its
-    /// owning session, and we focus that session's active pane.
+    /// the exact live pane. The model resolves both the owning workspace and pane,
+    /// so split workspaces do not fall back to whichever pane happened to be active.
     private func jumpToDaemonOwner(_ id: TerminalSessionID) {
         guard let target = sessionManagerModel.jumpTarget(for: id) else {
             return

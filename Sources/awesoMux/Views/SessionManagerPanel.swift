@@ -195,6 +195,7 @@ struct SessionManagerPanel: View {
     /// Live/restorable row awaiting the full confirm sheet.
     @State private var sheetRow: DaemonRow?
     @State private var query = ""
+    @State private var searchAnnouncementTask: Task<Void, Never>?
 
     static func shortIDSuffix(_ id: TerminalSessionID) -> String {
         String(id.rawValue.prefix(8))
@@ -261,6 +262,8 @@ struct SessionManagerPanel: View {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
+        .onChange(of: query) { _, _ in announceSearchResults() }
+        .onDisappear { searchAnnouncementTask?.cancel() }
         .overlay {
             if let sheetRow {
                 reapSheetOverlay(sheetRow)
@@ -453,6 +456,7 @@ struct SessionManagerPanel: View {
                     .disabled(model.activatingID != nil)
                     .accessibilityLabel("\(primaryAction.label) \(row.label)")
                     .accessibilityHint(row.directory ?? "Session directory unavailable")
+                    .help(primaryAction.label)
                 }
                 Button {
                     model.setPinned(!row.pinned, for: row.id)
@@ -659,11 +663,8 @@ struct SessionManagerPanel: View {
 
             Spacer(minLength: 0)
 
-            // Honest hint: pin/reap are click actions, Esc dismisses. Full
-            // keyboard nav (focus a row, Space/↑↓/P/⌫) is a deferred fast-follow
-            // (INT-577) — don't advertise keys that do nothing yet.
             HStack(spacing: 6) {
-                Text("click to pin · end session").foregroundStyle(Color.aw.textFaint)
+                Text("pin · end session").foregroundStyle(Color.aw.textFaint)
                 KBD("Esc")
                 Text("dismiss").foregroundStyle(Color.aw.textFaint)
             }
@@ -694,6 +695,20 @@ struct SessionManagerPanel: View {
                 localized: "Auto-cleanup is off.",
                 comment: "Session Manager footer accessibility summary when auto-cleanup is disabled"
             )
+    }
+
+    private func announceSearchResults() {
+        searchAnnouncementTask?.cancel()
+        let count = groups.reduce(0) { $0 + $1.rows.count }
+        searchAnnouncementTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            model.announce(
+                count == 0
+                    ? "No matching sessions"
+                    : LocalizedPluralStrings.sessionManagerSessions(count: count)
+            )
+        }
     }
 }
 

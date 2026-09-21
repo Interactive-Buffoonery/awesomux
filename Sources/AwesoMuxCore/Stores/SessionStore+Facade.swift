@@ -1,6 +1,13 @@
 import AwesoMuxBridgeProtocol
 import Foundation
 
+public struct DaemonRecoveryHandle: Sendable {
+    public let sessionID: TerminalSession.ID
+    public let paneID: TerminalPane.ID
+    fileprivate let previousSelection: TerminalSession.ID?
+    fileprivate let createdGroupID: SessionGroup.ID?
+}
+
 extension SessionStore {
     public struct CommandBridgePaneHealResult: Equatable, Sendable {
         public let sessionID: TerminalSession.ID
@@ -725,14 +732,20 @@ extension SessionStore {
         id: TerminalSessionID,
         metadata: DaemonRecoveryMetadata,
         cwd: String?
-    ) -> (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)? {
+    ) -> DaemonRecoveryHandle? {
+        let previousSelection = selectedSessionID
+        let previousGroupIDs = Set(_groups.map(\.id))
         guard
             let sessionID = DaemonRecoveryReducer.recover(
                 .init(id: id, metadata: metadata, cwd: cwd), into: &_groups
             ), let paneID = session(id: sessionID)?.activePaneID
         else { return nil }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
-        return (sessionID, paneID)
+        let groupID = _groups.first(where: { $0.sessions.contains { $0.id == sessionID } })?.id
+        return DaemonRecoveryHandle(
+            sessionID: sessionID, paneID: paneID, previousSelection: previousSelection,
+            createdGroupID: groupID.flatMap { previousGroupIDs.contains($0) ? nil : $0 }
+        )
     }
 
     public func drainRecentlyClosed(containing terminalSessionID: TerminalSessionID) {
@@ -749,7 +762,9 @@ extension SessionStore {
     public func provisionallyRestore(
         _ entry: RecentlyClosedWorkspace,
         daemonID: TerminalSessionID
-    ) -> (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)? {
+    ) -> DaemonRecoveryHandle? {
+        let previousSelection = selectedSessionID
+        let previousGroupIDs = Set(_groups.map(\.id))
         guard
             let sessionID = RecentlyClosedWorkspaceReducer.provisionallyReopen(
                 entry: entry,
@@ -777,11 +792,25 @@ extension SessionStore {
                 return restoredPane
             }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
-        return (sessionID, pane.id)
+        return DaemonRecoveryHandle(
+            sessionID: sessionID, paneID: pane.id, previousSelection: previousSelection,
+            createdGroupID: previousGroupIDs.contains(_groups[groupIndex].id)
+                ? nil : _groups[groupIndex].id
+        )
     }
 
-    public func rollbackDaemonRecovery(sessionID: TerminalSession.ID) {
-        closeSession(id: sessionID, captureRecentlyClosed: false)
+    public func rollbackDaemonRecovery(_ handle: DaemonRecoveryHandle) {
+        for groupIndex in _groups.indices {
+            _groups[groupIndex].sessions.removeAll { $0.id == handle.sessionID }
+        }
+        if let createdGroupID = handle.createdGroupID {
+            _groups.removeAll { $0.id == createdGroupID && $0.sessions.isEmpty }
+        }
+        commit(
+            WorkspaceMutationEffect(
+                needsFullRebuild: true, selection: .set(handle.previousSelection)
+            )
+        )
     }
 
     @discardableResult

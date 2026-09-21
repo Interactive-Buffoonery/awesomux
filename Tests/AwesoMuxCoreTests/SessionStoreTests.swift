@@ -2379,8 +2379,11 @@ struct SessionStoreTerminalBackendMetadataTests {
             groupID: groupID, groupName: "work", groupRemote: nil,
             indexInGroup: 0, closedAt: Date()
         )
+        let existing = TerminalSession(title: "existing", workingDirectory: "/tmp")
+        let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
         let store = SessionStore(
-            groups: [SessionGroup(id: groupID, name: "work", sessions: [])],
+            groups: originalGroups,
+            selectedSessionID: existing.id,
             recentlyClosed: [entry]
         )
 
@@ -2394,9 +2397,11 @@ struct SessionStoreTerminalBackendMetadataTests {
         #expect(panes.count == 2)
         #expect(panes.allSatisfy { $0.terminalBackendMetadata.amxAttachDisposition == .existingOnly })
 
-        store.rollbackDaemonRecovery(sessionID: restored.sessionID)
+        store.rollbackDaemonRecovery(restored)
         #expect(store.session(id: restored.sessionID) == nil)
         #expect(store.recentlyClosed == [entry])
+        #expect(store.groups == originalGroups)
+        #expect(store.selectedSessionID == existing.id)
     }
 
     @Test("amx metadata fails closed for unknown payloads")
