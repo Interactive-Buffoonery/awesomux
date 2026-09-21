@@ -29,7 +29,7 @@ struct SessionManagerPresentationTests {
             id: TerminalSessionID(rawValue: "01234567-abcd")!,
             pid: 1, createdEpoch: 1, clients: 0, lifecycle: lifecycle,
             activity: .idle, pinned: false, owner: nil,
-            label: "Résumé", directory: "/Users/ed/Development/project",
+            label: "Résumé", directory: "/Users/demo/Development/project",
             groupName: "Work", agentKind: .codex
         )
     }
