@@ -22,6 +22,8 @@ final class SessionManagerController {
     @ObservationIgnored private weak var model: SessionManagerModel?
     @ObservationIgnored private var onSelect: (TerminalSession.ID, TerminalPane.ID) -> Void = { _, _ in }
     @ObservationIgnored private var activationInFlight = false
+    @ObservationIgnored private var activationTask: Task<Void, Never>?
+    @ObservationIgnored private var activationToken: UUID?
     // Set by the app so this floating-panel root can carry the appearance
     // bridge (accent, glow, UI font, text scale). Without it the panel hosts a
     // detached SwiftUI tree that wouldn't scale with the text-size setting.
@@ -74,7 +76,7 @@ final class SessionManagerController {
         isVisible = true
         model.startPolling()
         postAnnouncement(
-            "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Pin or End Session. Press Escape to dismiss.",
+            "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Open, Restore, Recover, Pin, or End Session. Press Escape to dismiss.",
             priority: .high
         )
     }
@@ -88,6 +90,11 @@ final class SessionManagerController {
             return
         }
         isDismissing = true
+        activationToken = nil
+        activationTask?.cancel()
+        activationTask = nil
+        activationInFlight = false
+        model?.setActivationState(id: nil, status: nil)
         isVisible = false
         focusState.isKeyWindow = false
         model?.stopPolling()
@@ -128,19 +135,35 @@ final class SessionManagerController {
     private func activate(_ row: DaemonRow, model: SessionManagerModel) {
         guard !activationInFlight else { return }
         activationInFlight = true
-        Task { [weak self] in
+        let pending = "\(row.primaryAction?.label ?? "Opening session") \(row.label)…"
+        model.setActivationState(id: row.id, status: pending)
+        postAnnouncement(pending)
+        let token = UUID()
+        activationToken = token
+        activationTask = Task { [weak self] in
             let result = await model.activate(row)
-            guard let self else { return }
+            guard let self, activationToken == token else { return }
+            activationTask = nil
+            activationToken = nil
             activationInFlight = false
             switch result {
             case let .opened(sessionID, paneID), let .restored(sessionID, paneID),
                 let .recovered(sessionID, paneID):
                 onSelect(sessionID, paneID)
+                model.setActivationState(id: nil, status: nil)
                 dismiss()
             case .unavailable:
-                postAnnouncement("Session is no longer available.")
+                let message = "Session is no longer available."
+                model.setActivationState(id: nil, status: message)
+                postAnnouncement(message)
             case .changed:
-                postAnnouncement("Session state changed. The list was refreshed.")
+                let message = "Session state changed. The list was refreshed."
+                model.setActivationState(id: nil, status: message)
+                postAnnouncement(message)
+            case .inventoryUnavailable:
+                let message = "Couldn't verify the session. Try again."
+                model.setActivationState(id: nil, status: message)
+                postAnnouncement(message)
             }
         }
     }

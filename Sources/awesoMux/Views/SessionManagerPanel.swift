@@ -229,7 +229,24 @@ struct SessionManagerPanel: View {
                     .textFieldStyle(.roundedBorder)
                     .padding(.horizontal, AwSpacing.panelPadding)
                     .padding(.vertical, 8)
-                list
+                if groups.isEmpty {
+                    Text("No matching sessions")
+                        .awFont(AwFont.UI.meta)
+                        .foregroundStyle(Color.aw.text2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityAddTraits(.isStaticText)
+                } else {
+                    list
+                }
+            }
+            if let status = model.activationStatus {
+                Text(status)
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(Color.aw.text2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AwSpacing.panelPadding)
+                    .padding(.vertical, 6)
+                    .accessibilityAddTraits(.updatesFrequently)
             }
             footer
         }
@@ -433,7 +450,9 @@ struct SessionManagerPanel: View {
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(primaryAction.label)
+                    .disabled(model.activatingID != nil)
+                    .accessibilityLabel("\(primaryAction.label) \(row.label)")
+                    .accessibilityHint(row.directory ?? "Session directory unavailable")
                 }
                 Button {
                     model.setPinned(!row.pinned, for: row.id)
@@ -481,6 +500,7 @@ struct SessionManagerPanel: View {
             LocalizedPluralStrings.sessionManagerClients(count: row.clients)
         ]
         if row.pinned { parts.append("pinned") }
+        parts.append(row.shortID)
         return parts.joined(separator: ", ")
     }
 
@@ -499,11 +519,11 @@ struct SessionManagerPanel: View {
 
     private func inlineConfirm(_ row: DaemonRow) -> some View {
         HStack(spacing: 12) {
-            Text("Clean up this ")
+            Text("End this ")
                 .foregroundStyle(Color.aw.text2)
                 + Text(DaemonLifecyclePresentation.label(row.lifecycle).lowercased())
                 .foregroundStyle(Color.aw.peach).bold()
-                + Text(" daemon? It has no owner — nothing restores it.")
+                + Text(" daemon? This discards its scrollback.")
                 .foregroundStyle(Color.aw.text2)
             Spacer(minLength: 0)
             Button("Cancel") { inlineConfirmID = nil }
@@ -677,7 +697,7 @@ struct SessionManagerPanel: View {
     }
 }
 
-private extension SessionManagerPrimaryAction {
+extension SessionManagerPrimaryAction {
     var label: String {
         switch self {
         case .open: "Open session"

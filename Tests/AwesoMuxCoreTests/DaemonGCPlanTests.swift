@@ -63,6 +63,21 @@ struct DaemonGCPlanTests {
         #expect(daemons[1].recoveryMetadata == nil)
     }
 
+    @Test("encoded cwd cannot inject reserved fields or rows")
+    func encodedCwdIsFramed() {
+        let cwd = "/tmp/x\tclients=0\nname=\(uuidB)"
+        let encoded = Data(cwd.utf8).base64EncodedString()
+        let raw = "name=\(uuidA)\tpid=100\tclients=2\tcreated=10\tcwd_b64=\(encoded)\tdaemon_pid=99"
+        let parsed = DaemonGCPlan.parseAmxList(raw)
+
+        #expect(parsed.count == 1)
+        #expect(parsed[0].clients == 2)
+        #expect(parsed[0].cwd == cwd)
+
+        let duplicate = "name=\(uuidA)\tpid=100\tclients=2\tclients=0\tcreated=10"
+        #expect(DaemonGCPlan.parseAmxList(duplicate).isEmpty)
+    }
+
     @Test("malformed recovery labels and missing cwd do not drop an otherwise valid daemon")
     func malformedRecoveryLabelsAreTolerant() {
         let raw =

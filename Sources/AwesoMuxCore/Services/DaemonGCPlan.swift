@@ -26,12 +26,17 @@ public enum DaemonGCPlan {
         var seen = Set<String>()
         for line in raw.split(whereSeparator: \.isNewline) {
             var fields: [String: String] = [:]
+            var duplicateReservedKey = false
             for token in line.split(separator: "\t") {
                 guard let eq = token.firstIndex(of: "=") else { continue }
                 // `amx list` indents each line ("  name=…"), so trim the key.
                 let key = token[..<eq].trimmingCharacters(in: .whitespaces)
+                if fields[key] != nil, reservedListKey(key) {
+                    duplicateReservedKey = true
+                }
                 fields[key] = String(token[token.index(after: eq)...])
             }
+            guard !duplicateReservedKey else { continue }
             guard let name = fields["name"]?.trimmingCharacters(in: .whitespaces),
                 let id = TerminalSessionID(rawValue: name),
                 let pidString = fields["pid"], let pid = Int32(pidString), pid > 0,
@@ -56,7 +61,9 @@ public enum DaemonGCPlan {
                 recoveryFields.isEmpty
                 ? nil
                 : DaemonRecoveryMetadata.decode(fields: recoveryFields)
-            let cwd = fields["cwd"] ?? fields["start_dir"]
+            let cwd =
+                fields["cwd_b64"].flatMap(decodeListValue)
+                ?? fields["cwd"] ?? fields["start_dir"]
             seen.insert(name)
             result.append(
                 LiveDaemon(
@@ -65,6 +72,19 @@ public enum DaemonGCPlan {
                 ))
         }
         return result
+    }
+
+    private static func reservedListKey(_ key: String) -> Bool {
+        ["name", "pid", "clients", "created", "daemon_pid", "cwd", "cwd_b64", "start_dir"]
+            .contains(key)
+    }
+
+    private static func decodeListValue(_ encoded: String) -> String? {
+        guard encoded.utf8.count <= 16_384,
+            let data = Data(base64Encoded: encoded),
+            let value = String(data: data, encoding: .utf8)
+        else { return nil }
+        return value
     }
 
     /// All-or-nothing variant of `parseAmxList` for destructive consumers:

@@ -132,4 +132,32 @@ struct DaemonStateResolverTests {
         #expect(fallback.label == a)
         #expect(fallback.directory == nil)
     }
+
+    @Test("live presentation disambiguates duplicate workspace labels with pane titles")
+    func livePresentationDisambiguatesDuplicateLabels() {
+        let paneA = TerminalPane(
+            terminalSessionID: id(a), title: "api", workingDirectory: "/repo/api",
+            executionPlan: .local
+        )
+        let paneB = TerminalPane(
+            terminalSessionID: id("22222222-2222-4222-8222-222222222222"),
+            title: "tests", workingDirectory: "/repo/tests", executionPlan: .local
+        )
+        let session = TerminalSession(
+            title: "awesomux", workingDirectory: "/repo",
+            layout: .split(
+                TerminalSplit(
+                    orientation: .vertical, first: .pane(paneA), second: .pane(paneB)
+                )), activePaneID: paneA.id
+        )
+
+        let result = DaemonPresentationProjector.live(
+            groups: [SessionGroup(name: "Development", sessions: [session])]
+        )
+
+        #expect(result[paneA.terminalSessionID]?.label == "awesomux · api")
+        #expect(result[paneB.terminalSessionID]?.label == "awesomux · tests")
+        #expect(result[paneA.terminalSessionID]?.directory == "/repo/api")
+        #expect(result[paneA.terminalSessionID]?.groupName == "Development")
+    }
 }

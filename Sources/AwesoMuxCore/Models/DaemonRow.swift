@@ -21,6 +21,7 @@ public enum DaemonActivity: String, Sendable, Equatable {
 public struct DaemonRow: Identifiable, Equatable, Sendable {
     public let id: TerminalSessionID
     public let pid: Int32
+    public let daemonPID: Int32?
     public let createdEpoch: Int
     public let clients: Int
     public let lifecycle: DaemonLifecycle
@@ -34,12 +35,14 @@ public struct DaemonRow: Identifiable, Equatable, Sendable {
     public let shortID: String
 
     public init(
-        id: TerminalSessionID, pid: Int32, createdEpoch: Int, clients: Int,
+        id: TerminalSessionID, pid: Int32, daemonPID: Int32? = nil,
+        createdEpoch: Int, clients: Int,
         lifecycle: DaemonLifecycle, activity: DaemonActivity, pinned: Bool, owner: String?,
         label: String? = nil, directory: String? = nil, groupName: String? = nil,
         agentKind: AgentKind? = nil, shortID: String? = nil
     ) {
-        self.id = id; self.pid = pid; self.createdEpoch = createdEpoch; self.clients = clients
+        self.id = id; self.pid = pid; self.daemonPID = daemonPID
+        self.createdEpoch = createdEpoch; self.clients = clients
         self.lifecycle = lifecycle; self.activity = activity; self.pinned = pinned; self.owner = owner
         self.label = label ?? id.rawValue
         self.directory = directory

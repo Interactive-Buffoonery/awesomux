@@ -750,20 +750,33 @@ extension SessionStore {
         _ entry: RecentlyClosedWorkspace,
         daemonID: TerminalSessionID
     ) -> (sessionID: TerminalSession.ID, paneID: TerminalPane.ID)? {
-        let savedRecent = recentlyClosed
-        let savedTransient = lastClosedTransient
-        guard let sessionID = reopen(entry),
-            let pane = session(id: sessionID)?.panes.first(where: {
+        guard
+            let sessionID = RecentlyClosedWorkspaceReducer.provisionallyReopen(
+                entry: entry,
+                in: &_groups,
+                recentlyClosed: &recentlyClosed,
+                lastClosedTransient: &lastClosedTransient,
+                now: Date()
+            ),
+            let groupIndex = _groups.firstIndex(where: { group in
+                group.sessions.contains { $0.id == sessionID }
+            }),
+            let sessionIndex = _groups[groupIndex].sessions.firstIndex(where: {
+                $0.id == sessionID
+            }),
+            let pane = _groups[groupIndex].sessions[sessionIndex].panes.first(where: {
                 $0.terminalSessionID == daemonID
             })
         else { return nil }
-        recentlyClosed = savedRecent
-        lastClosedTransient = savedTransient
-        _ = updateTerminalBackendMetadata(
-            sessionID: sessionID,
-            paneID: pane.id,
-            metadata: TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
-        )
+        _groups[groupIndex].sessions[sessionIndex].layout = _groups[groupIndex].sessions[sessionIndex]
+            .layout.mappingPanes { restoredPane in
+                var restoredPane = restoredPane
+                restoredPane.terminalBackendMetadata = TerminalBackendMetadata(
+                    rawValue: "amx:v1:existing-only"
+                )
+                return restoredPane
+            }
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
         return (sessionID, pane.id)
     }
 

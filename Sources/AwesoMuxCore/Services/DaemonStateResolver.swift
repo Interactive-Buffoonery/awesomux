@@ -23,6 +23,60 @@ public struct DaemonPresentation: Equatable, Sendable {
     }
 }
 
+public enum DaemonPresentationProjector {
+    public static func live(groups: [SessionGroup]) -> [TerminalSessionID: DaemonPresentation] {
+        let candidates = groups.flatMap { group in
+            group.sessions.flatMap { session in
+                session.panes.map { pane in
+                    (pane, session.title, group.name)
+                }
+            }
+        }
+        let titleCounts = Dictionary(grouping: candidates, by: { $0.1 }).mapValues(\.count)
+        return Dictionary(
+            uniqueKeysWithValues: candidates.map { pane, title, groupName in
+                let label = titleCounts[title, default: 0] > 1 ? "\(title) · \(pane.title)" : title
+                return (
+                    pane.terminalSessionID,
+                    DaemonPresentation(
+                        label: label,
+                        directory: pane.workingDirectory,
+                        groupName: groupName,
+                        agentKind: pane.agentKind,
+                        owner: "\(title) · \(pane.title)"
+                    )
+                )
+            })
+    }
+
+    public static func snapshots(
+        recentlyClosed: [RecentlyClosedWorkspace],
+        lastClosedTransient: RecentlyClosedWorkspace?
+    ) -> [TerminalSessionID: DaemonPresentation] {
+        var entries = recentlyClosed
+        if let lastClosedTransient { entries.insert(lastClosedTransient, at: 0) }
+        let candidates = entries.flatMap { entry in
+            var panes: [TerminalPane] = []
+            entry.layout.forEachPane { panes.append($0) }
+            return panes.map { pane in
+                (pane, entry.localizedTitle(), entry.groupName, entry.agentKind)
+            }
+        }
+        let titleCounts = Dictionary(grouping: candidates, by: { $0.1 }).mapValues(\.count)
+        var presentations: [TerminalSessionID: DaemonPresentation] = [:]
+        for (pane, title, groupName, agentKind) in candidates where presentations[pane.terminalSessionID] == nil {
+            let label = titleCounts[title, default: 0] > 1 ? "\(title) · \(pane.title)" : title
+            presentations[pane.terminalSessionID] = DaemonPresentation(
+                label: label,
+                directory: pane.workingDirectory,
+                groupName: groupName,
+                agentKind: pane.agentKind == .shell ? agentKind : pane.agentKind
+            )
+        }
+        return presentations
+    }
+}
+
 /// Pure derivation of session-manager rows from a daemon list + the facts the
 /// app gathers around it. Lifecycle × activity × pin are orthogonal axes (see
 /// the design spec §4); keeping this pure makes the whole matrix unit-testable,
@@ -70,7 +124,8 @@ public enum DaemonStateResolver {
             let snapshot = inputs.snapshotPresentation[daemon.id]
             let metadata = daemon.recoveryMetadata
             rows.append(DaemonRow(
-                id: daemon.id, pid: daemon.pid, createdEpoch: daemon.createdEpoch,
+                    id: daemon.id, pid: daemon.pid, daemonPID: daemon.daemonPID,
+                    createdEpoch: daemon.createdEpoch,
                 clients: daemon.clients, lifecycle: lifecycle, activity: activity,
                     pinned: pinned,
                     owner: live?.owner ?? snapshot?.owner ?? inputs.owners[daemon.id],

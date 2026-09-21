@@ -17,8 +17,11 @@ final class SessionManagerModel {
         case recovered(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
         case unavailable
         case changed
+        case inventoryUnavailable
     }
     private(set) var rows: [DaemonRow] = []
+    private(set) var activatingID: TerminalSessionID?
+    private(set) var activationStatus: String?
 
     @ObservationIgnored private let store: SessionStore
     @ObservationIgnored private let settings: AppSettingsStore
@@ -53,9 +56,9 @@ final class SessionManagerModel {
     }
 
     func refresh() async {
-        let live = await AmxBackend.listSessions()
-        // nil snapshot means ps failed — keep last good rows rather than treating
-        // every daemon as idle (which would produce false expired rows).
+        // An unavailable inventory or process snapshot keeps the last good rows;
+        // neither failure proves that every daemon vanished or became idle.
+        guard let live = await AmxBackend.listSessionsResult() else { return }
         guard let snapshot = await AmxBackend.currentProcessSnapshot() else { return }
         let reach = DaemonGCPlan.reachability(
             groups: store.groups,
@@ -80,6 +83,8 @@ final class SessionManagerModel {
             restorable: reach.restorable,
             owners: ownerLabels(),
             pinned: policy.pinnedIDs,
+                livePresentation: livePresentations(),
+                snapshotPresentation: snapshotPresentations(),
             capThresholdSeconds: cap,
             now: Int(Date().timeIntervalSince1970)
         ))
@@ -107,6 +112,11 @@ final class SessionManagerModel {
         Task { await refresh() }
     }
 
+    func setActivationState(id: TerminalSessionID?, status: String?) {
+        activatingID = id
+        activationStatus = status
+    }
+
     /// Reaps a daemon after a fresh pre-kill revalidation. The panel poll is up to
     /// one interval stale and the confirm dialog adds more delay, so an orphan the
     /// user confirmed against may have been reattached (e.g. a restore-attach or a
@@ -131,11 +141,18 @@ final class SessionManagerModel {
     }
 
     func activate(_ row: DaemonRow) async -> ActivationResult {
-        guard let daemon = await AmxBackend.listSessions().first(where: { $0.id == row.id }) else {
+        guard let live = await AmxBackend.listSessionsResult() else {
+            return .inventoryUnavailable
+        }
+        guard let daemon = live.first(where: { $0.id == row.id }) else {
             await refresh()
             return .unavailable
         }
         guard daemon.pid == row.pid, daemon.createdEpoch == row.createdEpoch else {
+            await refresh()
+            return .changed
+        }
+        if let expected = row.daemonPID, let actual = daemon.daemonPID, expected != actual {
             await refresh()
             return .changed
         }
@@ -218,6 +235,17 @@ final class SessionManagerModel {
             }
         }
         return labels
+    }
+
+    private func livePresentations() -> [TerminalSessionID: DaemonPresentation] {
+        DaemonPresentationProjector.live(groups: store.groups)
+    }
+
+    private func snapshotPresentations() -> [TerminalSessionID: DaemonPresentation] {
+        DaemonPresentationProjector.snapshots(
+            recentlyClosed: store.recentlyClosed,
+            lastClosedTransient: store.lastClosedTransient
+        )
     }
 
     // MARK: - Ordering

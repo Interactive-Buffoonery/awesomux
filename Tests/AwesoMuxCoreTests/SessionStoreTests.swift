@@ -2357,6 +2357,48 @@ struct SessionStoreSiblingPaneExitErrorTests {
 @MainActor
 @Suite("SessionStore terminal backend metadata")
 struct SessionStoreTerminalBackendMetadataTests {
+    @Test("provisional restore keeps recovery entry and marks every pane existing-only")
+    func provisionalRestoreIsNonDestructiveAndExistingOnly() throws {
+        let first = TerminalPane(
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:established"),
+            title: "first", workingDirectory: "/tmp", executionPlan: .local
+        )
+        let second = TerminalPane(
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:established"),
+            title: "second", workingDirectory: "/tmp", executionPlan: .local
+        )
+        let sessionID = UUID()
+        let groupID = UUID()
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical, first: .pane(first), second: .pane(second)
+            ))
+        let entry = RecentlyClosedWorkspace(
+            sessionID: sessionID, title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: layout, activePaneID: first.id,
+            groupID: groupID, groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let store = SessionStore(
+            groups: [SessionGroup(id: groupID, name: "work", sessions: [])],
+            recentlyClosed: [entry]
+        )
+
+        let restored = try #require(
+            store.provisionallyRestore(
+                entry, daemonID: first.terminalSessionID
+            ))
+        let panes = try #require(store.session(id: restored.sessionID)?.panes)
+
+        #expect(store.recentlyClosed == [entry])
+        #expect(panes.count == 2)
+        #expect(panes.allSatisfy { $0.terminalBackendMetadata.amxAttachDisposition == .existingOnly })
+
+        store.rollbackDaemonRecovery(sessionID: restored.sessionID)
+        #expect(store.session(id: restored.sessionID) == nil)
+        #expect(store.recentlyClosed == [entry])
+    }
+
     @Test("amx metadata fails closed for unknown payloads")
     func amxAttachDisposition() {
         #expect(TerminalBackendMetadata.empty.amxAttachDisposition == .createOrAttach)
