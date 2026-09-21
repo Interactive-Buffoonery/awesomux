@@ -58,10 +58,12 @@ The primary row action depends on lifecycle:
 | Expired | Recover | Same as Abandoned until cleanup is confirmed; expiry never removes the recovery action by itself. |
 | Elsewhere | None | Keep the row non-destructive while another unowned client is attached. |
 
-Detached restoration reuses the existing targeted `SessionStore.reopen` path. If
-the original group still exists, the workspace returns there. If it does not,
-the existing restoration behavior recreates the group with its prior name and
-remote target.
+Detached restoration reuses the existing targeted reconstruction logic but not
+the current eager-draining `SessionStore.reopen` transaction. It first materializes
+a provisional copy while leaving the source entry intact. After confirmed attach,
+the commit transaction drains entries containing that daemon. The original group
+is reused when present and otherwise recreated with its prior name and remote
+target.
 
 Abandoned recovery cannot reconstruct a lost split tree. It creates the smallest
 truthful representation: one workspace containing one terminal pane attached to
@@ -73,6 +75,13 @@ and a normal terminal-pane title.
 
 Recovery must consume or supersede any stale reopen entry for the same daemon so
 one backend cannot appear reachable through two workspace records.
+
+Restore and Recover use an atomic existing-only attach. awesoMux first publishes a
+provisional workspace without draining its recently-closed source. A confirmed
+`attached` event commits the recovery and drains entries containing that daemon;
+if the daemon disappears or attachment otherwise fails, `amx` does not create a
+replacement shell, awesoMux removes the provisional workspace, and the original
+reopen snapshot remains intact.
 
 ## Daemon recovery metadata
 
@@ -86,8 +95,9 @@ namespaced labels through the existing zmx label protocol:
 - `awesomux.group-remote` when applicable
 - `awesomux.agent-kind`
 
-Labels are applied atomically with the first attach using the fork's existing
-`attach --labels` path. awesoMux updates mutable labels after a user rename, pane
+Labels are applied atomically only when the first attach creates a daemon using
+the fork's existing `attach --labels` path. Reattach, heal, Restore, and Recover
+do not write labels from the attach process; awesoMux updates mutable labels after a user rename, pane
 rename, workspace move, or group rename/retarget. Incidental OSC title churn does
 not rewrite durable labels; current live titles may enrich an Owned row without
 becoming recovery metadata.
@@ -119,6 +129,11 @@ label inspection surface.
    daemon labels/cwd, and finally UUID-only diagnostics.
 5. Open, Restore, and Recover all revalidate the daemon and lifecycle immediately
    before mutating the workspace tree.
+6. Restore and Recover mark their terminal panes for `amx attach --existing`; both
+   attach-command availability and launch use that mode, preventing recreation in
+   the interval after step 5.
+7. The daemon's confirmed `attached` event commits the provisional recovery;
+   failure rolls it back without changing reopen history.
 
 No separate recovery registry is added. It would duplicate daemon and snapshot
 state while introducing another synchronization and pruning problem.
@@ -131,10 +146,16 @@ state while introducing another synchronization and pruning problem.
   abort and refresh rather than creating a duplicate owner.
 - If label update fails, terminal attachment still succeeds. UUID, cwd, and any
   surviving snapshot keep the row operable.
+- A pre-label daemon is recovered automatically only when its cwd proves a local
+  execution plan. A remote or ambiguous daemon remains visible and attachable by
+  UUID, but awesoMux does not invent routing that could respawn it incorrectly.
 - If group metadata is incomplete, create the recovered workspace in a local
   group named from the stored group name; if that is also absent, use a localized
   "Recovered Sessions" group.
 - Recovery never kills or restarts the daemon and never discards scrollback.
+- Recovery drains every recently-closed entry containing the recovered daemon
+  only in the confirmation transaction after the provisional workspace reports a
+  successful existing-only attach.
 - Existing pre-kill revalidation remains mandatory for cleanup actions.
 
 ## Accessibility and interaction
