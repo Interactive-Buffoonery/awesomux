@@ -2291,9 +2291,6 @@
     "It's your turn — %arg is waiting for your next message." : {
       "comment" : "Notification body for turn-done banners. Argument is the agent product name."
     },
-    "Jump to owning pane" : {
-
-    },
     "Jumps to the next matching agent" : {
       "comment" : "Accessibility hint for a collapsed-rail footer chip that jumps to the next agent pane in that state"
     },
