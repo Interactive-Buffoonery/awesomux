@@ -75,8 +75,11 @@ public enum DaemonGCPlan {
     }
 
     private static func reservedListKey(_ key: String) -> Bool {
-        ["name", "pid", "clients", "created", "daemon_pid", "cwd", "cwd_b64", "start_dir"]
-            .contains(key)
+        [
+            "name", "pid", "clients", "created", "cwd", "cwd_b64", "start_dir", "cmd",
+            "cmd_b64", "ended", "exit_code", "daemon_pid", "err", "status",
+        ]
+        .contains(key)
     }
 
     private static func decodeListValue(_ encoded: String) -> String? {

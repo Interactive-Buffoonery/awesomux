@@ -76,6 +76,12 @@ struct DaemonGCPlanTests {
 
         let duplicate = "name=\(uuidA)\tpid=100\tclients=2\tclients=0\tcreated=10"
         #expect(DaemonGCPlan.parseAmxList(duplicate).isEmpty)
+
+        for key in ["cmd", "cmd_b64", "ended", "exit_code", "err", "status"] {
+            let duplicateLegacyField =
+                "name=\(uuidA)\tpid=100\tclients=0\tcreated=10\t\(key)=first\t\(key)=second"
+            #expect(DaemonGCPlan.parseAmxList(duplicateLegacyField).isEmpty)
+        }
     }
 
     @Test("malformed recovery labels and missing cwd do not drop an otherwise valid daemon")
