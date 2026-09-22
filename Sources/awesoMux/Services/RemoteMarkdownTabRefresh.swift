@@ -265,9 +265,8 @@ enum RemoteMarkdownTabRefresh {
         return outcome
     }
 
-    /// Walks the restored store and kicks a non-blocking fetch per remote
-    /// Markdown tab. Tabs already mounted from cache; this updates them in
-    /// place and re-establishes any stale banner from a real attempt.
+    /// Marks restored snapshots as saved copies unless launch fetching is enabled.
+    /// Opted-in fetches update tabs in place without changing selection.
     ///
     /// At most `maxConcurrentRestoreRefreshes` round trips are in flight at
     /// once, and fetches for one SSH target still serialize inside
@@ -282,11 +281,22 @@ enum RemoteMarkdownTabRefresh {
     @MainActor
     static func scheduleRestoreRefresh(
         for store: SessionStore,
+        automaticallyRefresh: Bool,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
         fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) {
         let targets = restoreTargets(in: store)
         guard !targets.isEmpty else { return }
+        guard automaticallyRefresh else {
+            for target in targets {
+                guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID),
+                    !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL)
+                else { continue }
+                // The banner is rendered only after a successful document load.
+                RemoteSnapshotStalePolicy.note(.remoteNotRefreshed, path: tab.fileURL.standardizedFileURL.path)
+            }
+            return
+        }
         Task { @MainActor in
             // Bounded drain: awaiting the oldest running refresh before
             // starting past the limit keeps at most `maxConcurrentRestoreRefreshes`

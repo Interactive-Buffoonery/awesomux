@@ -7,6 +7,22 @@ import TOML
 struct TOMLConfigCodecTests {
     private let codec = TOMLConfigCodec()
 
+    @Test("remote Markdown launch refresh requires explicit opt-in")
+    func remoteMarkdownLaunchRefreshIsOptIn() throws {
+        #expect(!GeneralConfig.defaultValue.refreshRemoteMarkdownOnLaunch)
+        #expect(try !codec.decode(Self.v1DefaultTOML).general.refreshRemoteMarkdownOnLaunch)
+        #expect(try !codec.decode(Self.defaultTOML).general.refreshRemoteMarkdownOnLaunch)
+        var config = AwesoMuxConfig.defaultValue
+        config.general.refreshRemoteMarkdownOnLaunch = true
+        let encoded = try codec.encodeString(config)
+        #expect(encoded.contains("refresh_remote_markdown_on_launch = true"))
+        #expect(try codec.decode(encoded).general.refreshRemoteMarkdownOnLaunch)
+        #expect(codec.unknownOwnedSectionKeys(inLines: ["[general]", "refresh_remote_markdown_on_launch = true"]).isEmpty)
+        #expect(throws: ConfigLoadError.self) {
+            try codec.decode(encoded.replacing("refresh_remote_markdown_on_launch = true", with: "refresh_remote_markdown_on_launch = 1"))
+        }
+    }
+
     private struct ParsedUnknownHeaders: Decodable {
         let external: [String: [String: Bool]]
         let literalExternalTool: [String: Bool]

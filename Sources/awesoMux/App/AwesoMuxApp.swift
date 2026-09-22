@@ -341,11 +341,10 @@ struct AwesoMuxApp: App {
         let remoteMarkdownRefreshCoordinator = RemoteMarkdownRefreshCoordinator()
         if appSettingsStore.general.value.restoreWorkspaces {
             loadResult = SessionPersistence.load()
-            // After prune is scheduled inside load: re-fetch each remote
-            // Markdown tab so stale banners are raised from a real attempt on
-            // this launch, not remembered from the last one.
+            // Seed saved-copy banners before views mount, or fetch when opted in.
             RemoteMarkdownTabRefresh.scheduleRestoreRefresh(
                 for: loadResult.store,
+                automaticallyRefresh: appSettingsStore.general.value.refreshRemoteMarkdownOnLaunch,
                 coordinator: remoteMarkdownRefreshCoordinator
             )
         } else {

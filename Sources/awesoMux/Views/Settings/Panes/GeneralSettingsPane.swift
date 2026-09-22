@@ -37,6 +37,20 @@ struct GeneralSettingsPane: View {
                 }
 
                 SettingsField(
+                    label: String(localized: "Refresh remote Markdown on launch", comment: "General settings label."),
+                    hint: String(
+                        localized:
+                            "Fetch restored remote Markdown over SSH at the next launch. When off, use Refresh in a document to fetch its latest copy.",
+                        comment: "General settings hint for optional remote document refresh."),
+                    forwardsAccessibilityToControl: true
+                ) {
+                    Toggle("Refresh remote Markdown on launch", isOn: appSettingsStore.general.binding(\.refreshRemoteMarkdownOnLaunch))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(!appSettingsStore.general.value.restoreWorkspaces)
+                }
+
+                SettingsField(
                     label: Self.openAtLoginLabel,
                     hint: loginItemModel.statusHint,
                     forwardsAccessibilityToControl: true,
