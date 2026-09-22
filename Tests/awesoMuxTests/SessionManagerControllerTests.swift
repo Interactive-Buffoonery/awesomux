@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
 import AwesoMuxTestSupport
@@ -8,6 +9,32 @@ import Testing
 @Suite("Session Manager controller")
 @MainActor
 struct SessionManagerControllerTests {
+    @Test("multi-pane restore requires every daemon to be detached")
+    func multiPaneRestoreRequiresEveryDaemon() {
+        let first = TerminalSessionID.generate()
+        let second = TerminalSessionID.generate()
+        let detached = LiveDaemon(
+            id: first, pid: 10, createdEpoch: 20, clients: 0, daemonPID: 30)
+        let attached = LiveDaemon(
+            id: second, pid: 11, createdEpoch: 21, clients: 1, daemonPID: 31)
+
+        #expect(
+            SessionManagerModel.restorableDaemons(
+                for: [first, second], in: [detached, attached]) == nil)
+        #expect(
+            SessionManagerModel.restorableDaemons(for: [first, second], in: [detached]) == nil)
+        #expect(
+            SessionManagerModel.restorableDaemons(
+                for: [first, second],
+                in: [
+                    detached,
+                    LiveDaemon(
+                        id: second, pid: 11, createdEpoch: 21, clients: 0, daemonPID: 31
+                    ),
+                ]
+            )?.count == 2)
+    }
+
     @Test("Configuring auto-cleanup dismisses before opening Settings")
     func configureAutoCleanupDismissesBeforeCallback() throws {
         let temporaryDirectory = try TemporaryDirectory(prefix: "session-manager-controller")

@@ -33,7 +33,7 @@ struct AmxBackendAttachCommandTests {
 
         #expect(command.contains(" attach --labels '"))
         let assignments = metadata.encodedLabelAssignments.sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+            .map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         #expect(command.contains("'\(assignments)' 'abc123-labels'"))
     }
 
@@ -71,8 +71,8 @@ struct AmxBackendAttachCommandTests {
                 + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN "
                 + "'ZMX_DIR=/tmp/amx' 'ZMX_DIR_MODE=700' "
                 + "'/Apps/awesoMux.app/Contents/MacOS/amx' attach --labels "
-                + "'awesomux.agent-kind=,awesomux.group-id=,awesomux.group-name=,"
-                + "awesomux.group-remote=,awesomux.pane-title=,awesomux.workspace-title=' "
+                + "'awesomux.agent-kind= awesomux.group-id= awesomux.group-name= "
+                + "awesomux.group-remote= awesomux.pane-title= awesomux.workspace-title=' "
                 + "'abc123-def'")
     }
 

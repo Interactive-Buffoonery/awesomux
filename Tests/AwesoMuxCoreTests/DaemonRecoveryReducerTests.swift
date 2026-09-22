@@ -22,19 +22,30 @@ struct DaemonRecoveryReducerTests {
                 == .existingOnly)
     }
 
-    @Test("refuses duplicate ownership and ambiguous unlabeled recovery")
+    @Test("recovers without a reported cwd and refuses duplicate ownership")
     func refusesUnsafeRecovery() throws {
         let id = try #require(TerminalSessionID(rawValue: "recover-two"))
         var groups: [SessionGroup] = []
-        #expect(
-            DaemonRecoveryReducer.recover(
-                .init(id: id, metadata: metadata(groupID: nil), cwd: nil), into: &groups) == nil)
-        _ = DaemonRecoveryReducer.recover(
-            .init(id: id, metadata: metadata(groupID: nil), cwd: NSHomeDirectory()), into: &groups)
+        let recovered = DaemonRecoveryReducer.recover(
+            .init(id: id, metadata: metadata(groupID: nil), cwd: nil), into: &groups)
+        #expect(recovered != nil)
+        #expect(groups[0].sessions[0].workingDirectory == "~")
         #expect(
             DaemonRecoveryReducer.recover(
                 .init(id: id, metadata: metadata(groupID: nil), cwd: NSHomeDirectory()),
                 into: &groups) == nil)
+    }
+
+    @Test("existing-only recovery accepts a reported system directory")
+    func acceptsReportedSystemDirectory() throws {
+        let id = try #require(TerminalSessionID(rawValue: "recover-system-cwd"))
+        var groups: [SessionGroup] = []
+
+        let recovered = DaemonRecoveryReducer.recover(
+            .init(id: id, metadata: metadata(groupID: nil), cwd: "/tmp"), into: &groups)
+
+        #expect(recovered != nil)
+        #expect(groups[0].sessions[0].workingDirectory == "/tmp")
     }
 
     private func metadata(groupID: UUID?) -> DaemonRecoveryMetadata {

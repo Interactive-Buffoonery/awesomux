@@ -82,6 +82,7 @@ final class SessionManagerController {
     }
 
     func dismiss() {
+        guard !activationInFlight else { return }
         guard !isDismissing else { return }
         guard let panel else {
             focusState.isKeyWindow = false
@@ -149,11 +150,11 @@ final class SessionManagerController {
             switch result {
             case let .opened(sessionID, paneID), let .restored(sessionID, paneID),
                 let .recovered(sessionID, paneID):
-                onSelect(sessionID, paneID)
                 model.setActivationState(id: nil, status: nil)
                 if let action = row.primaryAction {
                     postAnnouncement(action.successLabel(for: row.label))
                 }
+                onSelect(sessionID, paneID)
                 dismiss()
             case .unavailable:
                 let message = "Session is no longer available."

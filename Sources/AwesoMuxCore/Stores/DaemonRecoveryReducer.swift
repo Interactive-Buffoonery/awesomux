@@ -31,10 +31,7 @@ public enum DaemonRecoveryReducer {
             directory = request.cwd ?? "~"
             return insert(request, directory: directory, plan: .ssh(SSHExecution(target: remote)), into: &groups)
         }
-        guard let cwd = request.cwd,
-            let validated = WorkingDirectoryValidator.validatedStartupDirectory(cwd)
-        else { return nil }
-        directory = validated
+        directory = request.cwd.flatMap { WorkingDirectoryValidator.validatedReportedDirectory($0) } ?? "~"
         return insert(request, directory: directory, plan: .local, into: &groups)
     }
 

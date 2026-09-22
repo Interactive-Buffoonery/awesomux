@@ -164,32 +164,61 @@ final class SessionManagerModel {
             return .changed
         }
 
-        SessionRecoveryConfirmationCenter.shared.begin(
-            row.id, daemonPID: daemon.daemonPID, createdEpoch: daemon.createdEpoch
-        )
         let provisional: DaemonRecoveryHandle
         let kind: ActivationResultKind
+        let confirmationTargets: [LiveDaemon]
         if let entry = store.recentlyClosedWorkspace(containing: row.id),
-            let restored = store.provisionallyRestore(entry, daemonID: row.id)
+            let restorableDaemons = restorableDaemons(for: entry, in: live)
         {
+            for target in restorableDaemons {
+                SessionRecoveryConfirmationCenter.shared.begin(
+                    target.id, daemonPID: target.daemonPID, createdEpoch: target.createdEpoch
+                )
+            }
+            guard let restored = store.provisionallyRestore(entry, daemonID: row.id) else {
+                for target in restorableDaemons {
+                    SessionRecoveryConfirmationCenter.shared.cancel(target.id)
+                }
+                return .unavailable
+            }
             provisional = restored
             kind = .restored
-        } else if let recovered = store.recoverDaemon(
-            id: row.id,
-            metadata: daemon.recoveryMetadata
-                ?? DaemonRecoveryMetadata(
-                    workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
-                    groupRemote: nil, agentKind: nil),
-            cwd: daemon.cwd
-        ) {
+            confirmationTargets = restorableDaemons
+        } else {
+            SessionRecoveryConfirmationCenter.shared.begin(
+                daemon.id, daemonPID: daemon.daemonPID, createdEpoch: daemon.createdEpoch
+            )
+            guard
+                let recovered = store.recoverDaemon(
+                    id: row.id,
+                    metadata: daemon.recoveryMetadata
+                        ?? DaemonRecoveryMetadata(
+                            workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
+                            groupRemote: nil, agentKind: nil),
+                    cwd: daemon.cwd
+                )
+            else {
+                SessionRecoveryConfirmationCenter.shared.cancel(daemon.id)
+                return .unavailable
+            }
             provisional = recovered
             kind = .recovered
-        } else {
-            SessionRecoveryConfirmationCenter.shared.cancel(row.id)
-            return .unavailable
+            confirmationTargets = [daemon]
         }
-
-        guard await SessionRecoveryConfirmationCenter.shared.wait(for: row.id) else {
+        let confirmed = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            for target in confirmationTargets {
+                group.addTask {
+                    await SessionRecoveryConfirmationCenter.shared.wait(for: target.id)
+                }
+            }
+            for await result in group where !result { return false }
+            return true
+        }
+        let attached = confirmed ? true : await attachmentsMatch(confirmationTargets)
+        guard attached else {
+            for target in confirmationTargets {
+                SessionRecoveryConfirmationCenter.shared.cancel(target.id)
+            }
             store.rollbackDaemonRecovery(provisional)
             await refresh()
             return .unavailable
@@ -209,6 +238,39 @@ final class SessionManagerModel {
     }
 
     private enum ActivationResultKind { case restored, recovered }
+
+    private func restorableDaemons(
+        for entry: RecentlyClosedWorkspace,
+        in live: [LiveDaemon]
+    ) -> [LiveDaemon]? {
+        var ids: Set<TerminalSessionID> = []
+        entry.layout.forEachPane { ids.insert($0.terminalSessionID) }
+        return Self.restorableDaemons(for: ids, in: live)
+    }
+
+    static func restorableDaemons(
+        for ids: Set<TerminalSessionID>,
+        in live: [LiveDaemon]
+    ) -> [LiveDaemon]? {
+        let byID = Dictionary(uniqueKeysWithValues: live.map { ($0.id, $0) })
+        let daemons = ids.compactMap { byID[$0] }
+        guard daemons.count == ids.count, daemons.allSatisfy({ $0.clients == 0 }) else {
+            return nil
+        }
+        return daemons
+    }
+
+    private func attachmentsMatch(_ expected: [LiveDaemon]) async -> Bool {
+        guard let current = await AmxBackend.listSessionsResult() else { return false }
+        let byID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+        return expected.allSatisfy { target in
+            guard let daemon = byID[target.id] else { return false }
+            return daemon.pid == target.pid
+                && daemon.createdEpoch == target.createdEpoch
+                && daemon.daemonPID == target.daemonPID
+                && daemon.clients > 0
+        }
+    }
 
     // MARK: - Jump target
 

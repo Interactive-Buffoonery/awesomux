@@ -519,7 +519,7 @@ enum AmxBackend {
         switch mode {
         case .createOrAttach(let metadata):
             let labels = metadata.encodedLabelAssignments.sorted { $0.key < $1.key }
-                .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+                .map { "\($0.key)=\($0.value)" }.joined(separator: " ")
             tokens += ["--labels", shellQuote(labels)]
         case .existingOnly:
             tokens += ["--existing"]
