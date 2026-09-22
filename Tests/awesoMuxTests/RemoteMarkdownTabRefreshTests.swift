@@ -570,6 +570,50 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: pathB) == .remoteStoppedRefreshing)
     }
 
+    @Test("restore admits distinct hosts before queued tabs on the same host")
+    func restoreAdmissionInterleavesHosts() async throws {
+        let hosts = ["alpha", "alpha", "alpha", "alpha", "beta", "beta", "gamma", "delta"]
+        let store = SessionStore()
+        let sessionID = store.addSession(workingDirectory: "/tmp")
+        let paneID = try #require(store.session(id: sessionID)?.activePaneID)
+        var paths: [ResourceIdentity: URL] = [:]
+        for (index, host) in hosts.enumerated() {
+            let identity = ResourceIdentity(
+                location: .remote(try #require(RemoteTarget(parsing: host))),
+                path: ResourcePath(rawValue: "/repo/doc-\(index).md")
+            )
+            let url = URL(fileURLWithPath: "/tmp/restore-fairness-\(UUID().uuidString).md")
+            paths[identity] = url
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: url, in: sessionID, associatedWith: paneID,
+                    remoteResourceIdentity: identity
+                ))
+        }
+        let gates = hosts.map { _ in FetchGate() }
+        var started: [ResourceIdentity] = []
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: true) { reference in
+            let ordinal = started.count
+            started.append(reference.identity)
+            await gates[ordinal].wait()
+            return .fresh(
+                RemoteMarkdownSnapshot(
+                    fileURL: paths[reference.identity]!, identity: reference.identity
+                ))
+        }
+        await gates[3].waitUntilStarted()
+        #expect(Set(started.compactMap { $0.remoteTarget?.sshDestination }).count == 4)
+        for gate in gates { gate.open() }
+        await gates[hosts.count - 1].waitUntilStarted()
+        #expect(started.count == hosts.count)
+        #expect(Set(started) == Set(paths.keys))
+        for host in Set(hosts) {
+            let actual = started.filter { $0.remoteTarget?.sshDestination == host }.map(\.path.rawValue)
+            let expected = hosts.enumerated().filter { $0.element == host }.map { "/repo/doc-\($0.offset).md" }
+            #expect(actual == expected)
+        }
+    }
+
     @Test("scheduleRestoreRefresh bounds concurrent fetches")
     func scheduleRestoreRefreshBoundsConcurrency() async throws {
         let tabCount = 8
