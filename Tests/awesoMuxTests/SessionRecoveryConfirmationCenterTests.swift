@@ -38,6 +38,19 @@ struct SessionRecoveryConfirmationCenterTests {
         #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
     }
 
+    @Test("pre-attach failure retires its waiter immediately")
+    func preAttachFailureRetiresWaiter() async {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
+        await Task.yield()
+
+        center.cancel(id)
+
+        #expect(await task.value == false)
+    }
+
     @Test("replacement daemon does not confirm recovery")
     func replacementDoesNotConfirm() async {
         let center = SessionRecoveryConfirmationCenter()
