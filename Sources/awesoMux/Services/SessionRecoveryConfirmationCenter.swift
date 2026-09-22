@@ -43,6 +43,13 @@ final class SessionRecoveryConfirmationCenter {
                     continuation.resume(returning: false)
                     return
                 }
+                // `withTaskCancellationHandler` is async, so confirmation may
+                // arrive after the fast path above but before this continuation
+                // is installed. Consume it instead of waiting for a second event.
+                if confirmed.remove(id) != nil {
+                    continuation.resume(returning: true)
+                    return
+                }
                 if let (_, previous) = waiters.removeValue(forKey: id) {
                     previous.resume(returning: false)
                 }

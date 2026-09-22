@@ -92,9 +92,10 @@ final class SessionManagerController {
         isDismissing = true
         activationToken = nil
         activationTask?.cancel()
-        activationTask = nil
-        activationInFlight = false
-        model?.setActivationState(id: nil, status: nil)
+        if activationTask == nil {
+            activationInFlight = false
+            model?.setActivationState(id: nil, status: nil)
+        }
         isVisible = false
         focusState.isKeyWindow = false
         model?.stopPolling()
@@ -142,10 +143,15 @@ final class SessionManagerController {
         activationToken = token
         activationTask = Task { [weak self] in
             let result = await model.activate(row)
-            guard let self, activationToken == token else { return }
+            guard let self else { return }
+            let shouldPresentResult = activationToken == token
             activationTask = nil
             activationToken = nil
             activationInFlight = false
+            guard shouldPresentResult else {
+                model.setActivationState(id: nil, status: nil)
+                return
+            }
             switch result {
             case let .opened(sessionID, paneID), let .restored(sessionID, paneID),
                 let .recovered(sessionID, paneID):
