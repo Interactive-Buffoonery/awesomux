@@ -222,7 +222,7 @@ final class SessionManagerModel {
             }
             store.rollbackDaemonRecovery(provisional)
             await refresh()
-            return .unavailable
+            return Task.isCancelled ? .unavailable : .inventoryUnavailable
         }
         guard store.completeDaemonRecovery(provisional) else {
             await refresh()
