@@ -766,6 +766,7 @@ extension SessionStore {
         _ entry: RecentlyClosedWorkspace,
         daemonID: TerminalSessionID
     ) -> DaemonRecoveryHandle? {
+        guard entry.layout.contains(where: { $0.terminalSessionID == daemonID }) else { return nil }
         let previousSelection = selectedSessionID
         let previousGroupIDs = Set(_groups.map(\.id))
         guard
@@ -805,9 +806,11 @@ extension SessionStore {
         )
     }
 
-    public func completeDaemonRecovery(_ handle: DaemonRecoveryHandle) {
-        guard daemonRecoveryTokens[handle.sessionID] == handle.token else { return }
+    @discardableResult
+    public func completeDaemonRecovery(_ handle: DaemonRecoveryHandle) -> Bool {
+        guard daemonRecoveryTokens[handle.sessionID] == handle.token else { return false }
         daemonRecoveryTokens[handle.sessionID] = nil
+        return true
     }
 
     public func rollbackDaemonRecovery(_ handle: DaemonRecoveryHandle) {

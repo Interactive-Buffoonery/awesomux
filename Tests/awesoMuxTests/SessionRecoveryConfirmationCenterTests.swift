@@ -41,6 +41,22 @@ struct SessionRecoveryConfirmationCenterTests {
         #expect(await task.value == false)
     }
 
+    @Test("second wait retires the first waiter")
+    func secondWaitRetiresFirst() async {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        let first = Task { await center.wait(for: id, timeout: .seconds(10)) }
+        await Task.yield()
+        let second = Task { await center.wait(for: id, timeout: .seconds(10)) }
+        await Task.yield()
+
+        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+
+        #expect(await first.value == false)
+        #expect(await second.value)
+    }
+
     @Test("task cancellation retires its waiter")
     func cancellationRetiresWaiter() async {
         let center = SessionRecoveryConfirmationCenter()

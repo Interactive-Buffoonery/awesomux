@@ -39,8 +39,12 @@ final class SessionRecoveryConfirmationCenter {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if Task.isCancelled {
+                    expectations.removeValue(forKey: id)
                     continuation.resume(returning: false)
                     return
+                }
+                if let (_, previous) = waiters.removeValue(forKey: id) {
+                    previous.resume(returning: false)
                 }
                 waiters[id] = (token, continuation)
                 let components = timeout.components

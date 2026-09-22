@@ -194,7 +194,10 @@ final class SessionManagerModel {
             await refresh()
             return .unavailable
         }
-        store.completeDaemonRecovery(provisional)
+        guard store.completeDaemonRecovery(provisional) else {
+            await refresh()
+            return .unavailable
+        }
         store.drainRecentlyClosed(containing: row.id)
         await refresh()
         switch kind {

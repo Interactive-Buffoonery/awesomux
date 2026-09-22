@@ -699,10 +699,10 @@ struct SessionManagerPanel: View {
 
     private func announceSearchResults() {
         searchAnnouncementTask?.cancel()
-        let count = groups.reduce(0) { $0 + $1.rows.count }
         searchAnnouncementTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
+            let count = groups.reduce(0) { $0 + $1.rows.count }
             model.announce(
                 count == 0
                     ? "No matching sessions"

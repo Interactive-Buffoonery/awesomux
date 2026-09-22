@@ -2420,9 +2420,26 @@ struct SessionStoreTerminalBackendMetadataTests {
 
         store.closeSession(id: recovery.sessionID)
         let reopened = try #require(store.reopen(entry))
+        #expect(!store.completeDaemonRecovery(recovery))
         store.rollbackDaemonRecovery(recovery)
 
         #expect(store.session(id: reopened) != nil)
+    }
+
+    @Test("mismatched daemon cannot partially restore a workspace")
+    func mismatchedDaemonDoesNotMutateStore() {
+        let pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(), title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: .pane(pane), activePaneID: pane.id,
+            groupID: UUID(), groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let store = SessionStore(recentlyClosed: [entry])
+
+        #expect(store.provisionallyRestore(entry, daemonID: .generate()) == nil)
+        #expect(store.groups.isEmpty)
+        #expect(store.recentlyClosed == [entry])
     }
 
     @Test("amx metadata fails closed for unknown payloads")
