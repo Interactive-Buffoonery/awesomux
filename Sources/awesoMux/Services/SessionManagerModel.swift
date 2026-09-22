@@ -185,6 +185,7 @@ final class SessionManagerModel {
             provisional = recovered
             kind = .recovered
         } else {
+            SessionRecoveryConfirmationCenter.shared.cancel(row.id)
             return .unavailable
         }
 
@@ -193,6 +194,7 @@ final class SessionManagerModel {
             await refresh()
             return .unavailable
         }
+        store.completeDaemonRecovery(provisional)
         store.drainRecentlyClosed(containing: row.id)
         await refresh()
         switch kind {

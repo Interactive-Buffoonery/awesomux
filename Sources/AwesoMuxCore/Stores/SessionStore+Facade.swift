@@ -6,6 +6,7 @@ public struct DaemonRecoveryHandle: Sendable {
     public let paneID: TerminalPane.ID
     fileprivate let previousSelection: TerminalSession.ID?
     fileprivate let createdGroupID: SessionGroup.ID?
+    fileprivate let token: UUID
 }
 
 extension SessionStore {
@@ -741,10 +742,12 @@ extension SessionStore {
             ), let paneID = session(id: sessionID)?.activePaneID
         else { return nil }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        let token = UUID()
+        daemonRecoveryTokens[sessionID] = token
         let groupID = _groups.first(where: { $0.sessions.contains { $0.id == sessionID } })?.id
         return DaemonRecoveryHandle(
             sessionID: sessionID, paneID: paneID, previousSelection: previousSelection,
-            createdGroupID: groupID.flatMap { previousGroupIDs.contains($0) ? nil : $0 }
+            createdGroupID: groupID.flatMap { previousGroupIDs.contains($0) ? nil : $0 }, token: token
         )
     }
 
@@ -792,14 +795,24 @@ extension SessionStore {
                 return restoredPane
             }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        let token = UUID()
+        daemonRecoveryTokens[sessionID] = token
         return DaemonRecoveryHandle(
             sessionID: sessionID, paneID: pane.id, previousSelection: previousSelection,
             createdGroupID: previousGroupIDs.contains(_groups[groupIndex].id)
-                ? nil : _groups[groupIndex].id
+                ? nil : _groups[groupIndex].id,
+            token: token
         )
     }
 
+    public func completeDaemonRecovery(_ handle: DaemonRecoveryHandle) {
+        guard daemonRecoveryTokens[handle.sessionID] == handle.token else { return }
+        daemonRecoveryTokens[handle.sessionID] = nil
+    }
+
     public func rollbackDaemonRecovery(_ handle: DaemonRecoveryHandle) {
+        guard daemonRecoveryTokens[handle.sessionID] == handle.token else { return }
+        daemonRecoveryTokens[handle.sessionID] = nil
         for groupIndex in _groups.indices {
             _groups[groupIndex].sessions.removeAll { $0.id == handle.sessionID }
         }

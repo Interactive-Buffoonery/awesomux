@@ -2404,6 +2404,27 @@ struct SessionStoreTerminalBackendMetadataTests {
         #expect(store.selectedSessionID == existing.id)
     }
 
+    @Test("stale rollback cannot remove a later reopen with the same session ID")
+    func staleRollbackPreservesLaterReopen() throws {
+        let pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(), title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: .pane(pane), activePaneID: pane.id,
+            groupID: UUID(), groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let store = SessionStore(recentlyClosed: [entry])
+        let recovery = try #require(
+            store.provisionallyRestore(entry, daemonID: pane.terminalSessionID)
+        )
+
+        store.closeSession(id: recovery.sessionID)
+        let reopened = try #require(store.reopen(entry))
+        store.rollbackDaemonRecovery(recovery)
+
+        #expect(store.session(id: reopened) != nil)
+    }
+
     @Test("amx metadata fails closed for unknown payloads")
     func amxAttachDisposition() {
         #expect(TerminalBackendMetadata.empty.amxAttachDisposition == .createOrAttach)
