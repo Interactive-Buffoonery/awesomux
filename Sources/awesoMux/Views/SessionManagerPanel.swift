@@ -196,6 +196,7 @@ struct SessionManagerPanel: View {
     @State private var sheetRow: DaemonRow?
     @State private var query = ""
     @State private var searchAnnouncementTask: Task<Void, Never>?
+    @FocusState private var focusedRowID: TerminalSessionID?
 
     static func shortIDSuffix(_ id: TerminalSessionID) -> String {
         String(id.rawValue.prefix(8))
@@ -403,6 +404,18 @@ struct SessionManagerPanel: View {
                 inlineConfirm(row)
             }
         }
+        .focusable(row.primaryAction != nil)
+        .focused($focusedRowID, equals: row.id)
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.space, .return], phases: .down) { press in
+            guard row.primaryAction != nil,
+                model.activatingID == nil,
+                press.modifiers.subtracting(.capsLock).isEmpty
+            else { return .ignored }
+            onActivate(row)
+            return .handled
+        }
+        .awFocusRing(focusedRowID == row.id, cornerRadius: AwRadius.panel)
         .background {
             RoundedRectangle(cornerRadius: AwRadius.panel)
                 .fill(isConfirming ? Color.aw.peach.opacity(0.08) : Color.aw.surface.hover.opacity(0.0))
@@ -718,6 +731,14 @@ extension SessionManagerPrimaryAction {
         case .open: "Open session"
         case .restore: "Restore session"
         case .recover: "Recover session"
+        }
+    }
+
+    func successLabel(for sessionLabel: String) -> String {
+        switch self {
+        case .open: "Opened session \(sessionLabel)."
+        case .restore: "Restored session \(sessionLabel)."
+        case .recover: "Recovered session \(sessionLabel)."
         }
     }
 }

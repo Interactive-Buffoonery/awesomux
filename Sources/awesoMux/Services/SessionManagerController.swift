@@ -151,6 +151,9 @@ final class SessionManagerController {
                 let .recovered(sessionID, paneID):
                 onSelect(sessionID, paneID)
                 model.setActivationState(id: nil, status: nil)
+                if let action = row.primaryAction {
+                    postAnnouncement(action.successLabel(for: row.label))
+                }
                 dismiss()
             case .unavailable:
                 let message = "Session is no longer available."

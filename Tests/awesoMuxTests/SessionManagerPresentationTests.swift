@@ -12,6 +12,15 @@ struct SessionManagerPresentationTests {
         #expect(row(.abandoned).primaryAction == .recover)
         #expect(row(.expired).primaryAction == .recover)
         #expect(row(.inUseElsewhere).primaryAction == nil)
+        #expect(SessionManagerPrimaryAction.open.successLabel(for: "Build") == "Opened session Build.")
+        #expect(
+            SessionManagerPrimaryAction.restore.successLabel(for: "Build")
+                == "Restored session Build."
+        )
+        #expect(
+            SessionManagerPrimaryAction.recover.successLabel(for: "Build")
+                == "Recovered session Build."
+        )
     }
 
     @Test("searches human metadata and full UUID case-insensitively")

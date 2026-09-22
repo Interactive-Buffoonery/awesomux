@@ -7,7 +7,7 @@
     "  %arg" : {
 
     },
-    " daemon? It has no owner — nothing restores it." : {
+    " daemon? This discards its scrollback." : {
 
     },
     "%1$@ %2$lld" : {
@@ -1095,9 +1095,6 @@
     "Clean up" : {
 
     },
-    "Clean up this " : {
-
-    },
     "Clear %arg?" : {
       "comment" : "Title of the clear-workspace (permanent close) confirmation dialog. Argument is the bidi-isolated workspace title."
     },
@@ -1862,6 +1859,9 @@
 
     },
     "End session" : {
+
+    },
+    "End this " : {
 
     },
     "End this session?" : {
@@ -2771,6 +2771,9 @@
       "comment" : "Spoken find-bar summary when a search finds nothing."
     },
     "No matching diagnostics" : {
+
+    },
+    "No matching sessions" : {
 
     },
     "No matching shortcuts" : {
@@ -5374,9 +5377,6 @@
     "checking this session's log" : {
       "comment" : "Accessibility phrase while a Resume attempt probes the provider's session log"
     },
-    "click to pin · end session" : {
-
-    },
     "collapsed" : {
       "comment" : "VoiceOver value for a collapsed branch-changes file section"
     },
@@ -5494,6 +5494,9 @@
       "comment" : "Accessibility/tooltip phrase describing what the transcript resume button does"
     },
     "permission needed" : {
+
+    },
+    "pin · end session" : {
 
     },
     "pinned" : {
