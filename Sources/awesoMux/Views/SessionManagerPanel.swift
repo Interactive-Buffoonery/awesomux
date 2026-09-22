@@ -477,8 +477,11 @@ struct SessionManagerPanel: View {
                     .disabled(model.activatingID != nil)
                     .accessibilityLabel(
                         String(
-                            localized: "\(primaryAction.label) \(row.label)",
-                            comment: "Session Manager action followed by the session name"
+                            format: String(
+                                localized: "%1$@ %2$@",
+                                comment: "Session Manager action followed by the session name"
+                            ),
+                            primaryAction.label, row.label
                         )
                     )
                     .accessibilityHint(
@@ -749,11 +752,13 @@ extension SessionManagerPrimaryAction {
     }
 
     func successLabel(for sessionLabel: String) -> String {
-        switch self {
-        case .open: String(localized: "Opened session \(sessionLabel).", comment: "Session Manager successful open announcement")
-        case .restore: String(localized: "Restored session \(sessionLabel).", comment: "Session Manager successful restore announcement")
-        case .recover: String(localized: "Recovered session \(sessionLabel).", comment: "Session Manager successful recovery announcement")
-        }
+        let format =
+            switch self {
+            case .open: String(localized: "Opened session %@.", comment: "Session Manager successful open announcement")
+            case .restore: String(localized: "Restored session %@.", comment: "Session Manager successful restore announcement")
+            case .recover: String(localized: "Recovered session %@.", comment: "Session Manager successful recovery announcement")
+            }
+        return String(format: format, sessionLabel)
     }
 }
 

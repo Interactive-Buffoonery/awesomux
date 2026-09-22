@@ -33,6 +33,25 @@ struct SessionManagerPresentationTests {
         #expect(!row.matches(query: "missing"))
     }
 
+    @Test("localized session formats have runtime-compatible catalog keys")
+    func localizedFormatKeys() throws {
+        let keys = try AwesoMuxStringCatalog.keys()
+        for key in [
+            "Opened session %@.", "Restored session %@.", "Recovered session %@.",
+            "%1$@ %2$@", "%1$@ %2$@…",
+        ] {
+            #expect(keys.contains(key), "Missing runtime localization key: \(key)")
+        }
+    }
+
+    @Test("session names containing format specifiers remain literal")
+    func percentBearingSessionName() {
+        #expect(
+            SessionManagerPrimaryAction.recover.successLabel(for: "Build 100% %@ %1$@")
+                == "Recovered session Build 100% %@ %1$@."
+        )
+    }
+
     private func row(_ lifecycle: DaemonLifecycle) throws -> DaemonRow {
         DaemonRow(
             id: try #require(TerminalSessionID(rawValue: "01234567-abcd")),

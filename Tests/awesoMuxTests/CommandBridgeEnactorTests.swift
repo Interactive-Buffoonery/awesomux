@@ -605,6 +605,53 @@ struct CommandBridgeEnactorTests {
         #expect(fixture.livePane != nil)
     }
 
+    @Test(
+        "pre-attach recovery failures preserve existing-only metadata after deferred error chrome",
+        arguments: [false, true]
+    )
+    func preAttachRecoveryFailurePreservesMetadata(channelCommandUnavailable: Bool) async throws {
+        let sessionID = TerminalSessionID.generate()
+        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: existingOnly,
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        if channelCommandUnavailable {
+            SessionRecoveryConfirmationCenter.shared.begin(
+                sessionID, daemonPID: 42, createdEpoch: 100
+            )
+        }
+        defer { SessionRecoveryConfirmationCenter.shared.cancel(sessionID) }
+        var sawChannelCommand = false
+        enactor.attachCommandProvider = { _, channel, _, mode in
+            #expect(mode == .existingOnly)
+            if channel != nil {
+                sawChannelCommand = true
+                if channelCommandUnavailable { return nil }
+            }
+            return "amx attach --existing"
+        }
+
+        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+        #expect(sawChannelCommand)
+        #expect(launch == .localShell)
+        #expect(enactor.errorLatched)
+        await pumpMainQueue()
+
+        #expect(fixture.livePane?.agentExecutionState == .error)
+        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+        #expect(enactor.statusWatcher == nil)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+    }
+
     @Test("a failed existing-only attach never enters the daemon creation heal path")
     func failedExistingOnlyAttachDoesNotRespawn() async throws {
         let sessionID = try #require(

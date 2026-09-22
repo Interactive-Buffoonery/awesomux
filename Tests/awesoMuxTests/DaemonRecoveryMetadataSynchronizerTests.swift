@@ -10,7 +10,8 @@ struct DaemonRecoveryMetadataSynchronizerTests {
     func cachesSuccessAndRetriesFailure() async throws {
         let id = try #require(TerminalSessionID(rawValue: "sync-test"))
         var attempts = 0
-        let synchronizer = DaemonRecoveryMetadataSynchronizer { receivedID, _ in
+        var now = ContinuousClock.now
+        let synchronizer = DaemonRecoveryMetadataSynchronizer(now: { now }) { receivedID, _ in
             #expect(receivedID == id)
             attempts += 1
             return attempts > 1
@@ -19,9 +20,42 @@ struct DaemonRecoveryMetadataSynchronizerTests {
 
         await synchronizer.synchronize(groups: groups)
         await synchronizer.synchronize(groups: groups)
+        #expect(attempts == 1)
+        now = now.advanced(by: .seconds(30))
+        await synchronizer.synchronize(groups: groups)
         await synchronizer.synchronize(groups: groups)
 
         #expect(attempts == 2)
+    }
+
+    @Test("failed writes throttle changing metadata and retry its latest value")
+    func throttlesFailuresAcrossChanges() async throws {
+        let id = try #require(TerminalSessionID(rawValue: "sync-throttled"))
+        var now = ContinuousClock.now
+        var titles: [String?] = []
+        let synchronizer = DaemonRecoveryMetadataSynchronizer(now: { now }) { _, metadata in
+            titles.append(metadata.workspaceTitle)
+            return false
+        }
+        let original = fixture(id: id)
+        var changed = original
+        changed.sessions[0].title = "Latest"
+
+        await synchronizer.synchronize(groups: [original])
+        for _ in 0..<10 {
+            await synchronizer.synchronize(groups: [changed])
+        }
+        await synchronizer.synchronize(groups: [fixture(id: id, metadata: .empty)])
+        await synchronizer.synchronize(groups: [changed])
+        #expect(titles == ["Workspace"])
+        now = now.advanced(by: .seconds(30))
+        await synchronizer.synchronize(groups: [changed])
+        await synchronizer.synchronize(groups: [changed])
+        #expect(titles == ["Workspace", "Latest"])
+
+        synchronizer.invalidate()
+        await synchronizer.synchronize(groups: [changed])
+        #expect(titles == ["Workspace", "Latest", "Latest"])
     }
 
     @Test("skips remote-owned panes and rewrites after invalidation")
@@ -31,10 +65,10 @@ struct DaemonRecoveryMetadataSynchronizerTests {
         let remote = try #require(RemoteTarget(user: "alice", host: "box"))
         let remoteName = try #require(RemoteSessionName(rawValue: "build"))
         var writes: [TerminalSessionID] = []
-        let synchronizer = DaemonRecoveryMetadataSynchronizer { id, _ in
+        let synchronizer = DaemonRecoveryMetadataSynchronizer(writer: { id, _ in
             writes.append(id)
             return true
-        }
+        })
         let groups = [
             fixture(id: localID),
             fixture(
@@ -54,10 +88,10 @@ struct DaemonRecoveryMetadataSynchronizerTests {
     func waitsForEstablishedBackend() async throws {
         let id = try #require(TerminalSessionID(rawValue: "sync-startup"))
         var writes = 0
-        let synchronizer = DaemonRecoveryMetadataSynchronizer { _, _ in
+        let synchronizer = DaemonRecoveryMetadataSynchronizer(writer: { _, _ in
             writes += 1
             return true
-        }
+        })
         let pending = fixture(id: id, metadata: .empty)
         await synchronizer.synchronize(groups: [pending])
         await synchronizer.synchronize(groups: [pending])

@@ -28,7 +28,10 @@ public enum DaemonRecoveryReducer {
 
         let directory: String
         if let remote = request.metadata.groupRemote {
-            directory = request.cwd ?? "~"
+            directory =
+                request.cwd.flatMap {
+                    RemoteWorkingDirectoryValidator.validatedReportedDirectory($0)
+                } ?? "~"
             return insert(request, directory: directory, plan: .ssh(SSHExecution(target: remote)), into: &groups)
         }
         directory = request.cwd.flatMap { WorkingDirectoryValidator.validatedReportedDirectory($0) } ?? "~"

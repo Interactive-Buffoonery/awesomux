@@ -147,8 +147,11 @@ final class SessionManagerController {
                 comment: "Fallback Session Manager action while opening a session"
             )
         let pending = String(
-            localized: "\(action) \(row.label)…",
-            comment: "Session Manager activation progress; action followed by the session name"
+            format: String(
+                localized: "%1$@ %2$@…",
+                comment: "Session Manager activation progress; action followed by the session name"
+            ),
+            action, row.label
         )
         model.setActivationState(id: row.id, status: pending)
         postAnnouncement(pending)

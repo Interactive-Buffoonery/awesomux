@@ -233,7 +233,7 @@ final class CommandBridgeEnactor {
                 guard mode != .existingOnly || recoveryExpectationToken != nil else {
                     try? FileManager.default.removeItem(at: channel.fileURL)
                     beginStatusWatch(channel: nil)
-                    latchErrorDeferringChrome()
+                    latchErrorDeferringChrome(clearBackendMetadata: false)
                     return .localShell
                 }
                 beginStatusWatch(
@@ -253,7 +253,7 @@ final class CommandBridgeEnactor {
                 // event. A client count cannot identify who attached, so never
                 // launch an existing-only attach without its ownership signal.
                 SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
-                latchErrorDeferringChrome()
+                latchErrorDeferringChrome(clearBackendMetadata: false)
                 return .localShell
             }
             return .bridgeAttach(baseAttachCommand)
@@ -320,9 +320,11 @@ final class CommandBridgeEnactor {
     /// views" runaway guard — an uncaught NSException that beachballs then kills
     /// the app. One runloop hop lands the error chrome in a fresh, non-reentrant
     /// layout pass.
-    private func latchErrorDeferringChrome() {
+    private func latchErrorDeferringChrome(clearBackendMetadata: Bool = true) {
         errorLatched = true
-        DispatchQueue.main.async { [weak self] in self?.markError() }
+        DispatchQueue.main.async { [weak self] in
+            self?.markError(clearBackendMetadata: clearBackendMetadata)
+        }
     }
 
     /// Retire a pending manual reconnect's overlay on a remote-owned pane. That

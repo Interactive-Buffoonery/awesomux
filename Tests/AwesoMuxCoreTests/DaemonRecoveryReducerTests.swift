@@ -48,6 +48,36 @@ struct DaemonRecoveryReducerTests {
         #expect(groups[0].sessions[0].workingDirectory == "/tmp")
     }
 
+    @Test(
+        "remote recovery validates directory form without checking the local filesystem",
+        arguments: [
+            ("/remote/unsafe\npath", "~"),
+            ("relative/project", "~"),
+            ("file://[invalid/path", "~"),
+            ("file://remote/project?query", "~"),
+            ("file://remote/project%0Aunsafe", "~"),
+            ("/remote-only-daemon-recovery/project", "/remote-only-daemon-recovery/project"),
+            ("file://remote/remote-only-daemon-recovery/project", "/remote-only-daemon-recovery/project"),
+        ]
+    )
+    func validatesRemoteDirectory(reported: String, expected: String) throws {
+        let remote = try #require(RemoteTarget(user: "demo", host: "remote.example"))
+        let recoveryMetadata = DaemonRecoveryMetadata(
+            workspaceTitle: "Build", paneTitle: "Codex", groupID: nil,
+            groupName: "Remote", groupRemote: remote, agentKind: .codex
+        )
+        var groups: [SessionGroup] = []
+
+        let recovered = DaemonRecoveryReducer.recover(
+            .init(id: .generate(), metadata: recoveryMetadata, cwd: reported), into: &groups)
+
+        #expect(recovered != nil)
+        let session = try #require(groups.first?.sessions.first)
+        #expect(session.workingDirectory == expected)
+        #expect(session.activePane?.workingDirectory == expected)
+        #expect(session.activePane?.executionPlan == .ssh(SSHExecution(target: remote)))
+    }
+
     private func metadata(groupID: UUID?) -> DaemonRecoveryMetadata {
         DaemonRecoveryMetadata(
             workspaceTitle: "Build", paneTitle: "Codex", groupID: groupID,

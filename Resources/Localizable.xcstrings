@@ -10,6 +10,12 @@
     " daemon? This discards its scrollback." : {
 
     },
+    "%1$@ %2$@" : {
+      "comment" : "Session Manager action followed by the session name"
+    },
+    "%1$@ %2$@…" : {
+      "comment" : "Session Manager activation progress; action followed by the session name"
+    },
     "%1$@ %2$lld" : {
       "comment" : "Generated title for an unnamed workspace. Arguments are the agent or shell name and a positive index.",
       "localizations" : {
@@ -144,17 +150,6 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$arg %2$arg"
-          }
-        }
-      }
-    },
-    "%arg %arg…" : {
-      "comment" : "Session Manager activation progress; action followed by the session name",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$arg %2$arg…"
           }
         }
       }
@@ -2959,7 +2954,7 @@
     "Opened at the top of the document. Section jumps are not supported yet." : {
       "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
     },
-    "Opened session %arg." : {
+    "Opened session %@." : {
       "comment" : "Session Manager successful open announcement"
     },
     "Opening agent transcript." : {
@@ -3446,7 +3441,7 @@
     "Recover session" : {
       "comment" : "Session Manager action to recover an abandoned session"
     },
-    "Recovered session %arg." : {
+    "Recovered session %@." : {
       "comment" : "Session Manager successful recovery announcement"
     },
     "Red" : {
@@ -3850,7 +3845,7 @@
     "Restore workspaces" : {
       "comment" : "General settings label."
     },
-    "Restored session %arg." : {
+    "Restored session %@." : {
       "comment" : "Session Manager successful restore announcement"
     },
     "Resume %arg" : {
