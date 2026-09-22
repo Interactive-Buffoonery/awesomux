@@ -265,10 +265,17 @@ struct SessionManagerPanel: View {
         }
         .onChange(of: query) { _, _ in announceSearchResults() }
         .onDisappear { searchAnnouncementWorkItem?.cancel() }
-        .overlay {
-            if let sheetRow {
-                reapSheetOverlay(sheetRow)
-            }
+        .sheet(item: $sheetRow) { row in
+            SessionManagerReapSheet(
+                row: row,
+                reapDisabled: model.activatingID != nil,
+                onCancel: { sheetRow = nil },
+                onReap: {
+                    guard model.activatingID == nil else { return }
+                    Task { _ = await model.reap(row) }
+                    sheetRow = nil
+                }
+            )
         }
         // No container label: `FloatingPanelTitlebar` carries this panel's
         // identity and hint now, so labelling the container too made VoiceOver
@@ -563,24 +570,6 @@ struct SessionManagerPanel: View {
         .padding(.vertical, 10)
         .overlay(alignment: .top) {
             Rectangle().fill(Color.aw.peach.opacity(0.3)).frame(height: 0.5)
-        }
-    }
-
-    private func reapSheetOverlay(_ row: DaemonRow) -> some View {
-        ZStack {
-            Color.aw.surface.chrome2.opacity(0.55)
-                .ignoresSafeArea()
-                .onTapGesture { sheetRow = nil }
-            SessionManagerReapSheet(
-                row: row,
-                reapDisabled: model.activatingID != nil,
-                onCancel: { sheetRow = nil },
-                onReap: {
-                    guard model.activatingID == nil else { return }
-                    Task { _ = await model.reap(row) }
-                    sheetRow = nil
-                }
-            )
         }
     }
 
