@@ -485,6 +485,7 @@ struct SessionManagerPanel: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .disabled(model.activatingID != nil)
                 .accessibilityLabel(row.pinned ? "Unpin session" : "Pin session")
                 .accessibilityHint("Pinned sessions are exempt from auto-cleanup.")
 
@@ -497,6 +498,7 @@ struct SessionManagerPanel: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
+                .disabled(model.activatingID != nil)
                 .accessibilityLabel("End session")
                 .accessibilityHint("Stops the session's shell and discards its scrollback.")
             }
@@ -547,12 +549,14 @@ struct SessionManagerPanel: View {
             Button("Cancel") { inlineConfirmID = nil }
                 .buttonStyle(SessionManagerGhostButtonStyle())
             Button {
+                guard model.activatingID == nil else { return }
                 Task { _ = await model.reap(row) }
                 inlineConfirmID = nil
             } label: {
                 Label("Clean up", systemImage: "trash")
             }
             .buttonStyle(SessionManagerDangerButtonStyle())
+            .disabled(model.activatingID != nil)
         }
         .awFont(AwFont.UI.meta)
         .padding(.horizontal, 12)
@@ -569,8 +573,10 @@ struct SessionManagerPanel: View {
                 .onTapGesture { sheetRow = nil }
             SessionManagerReapSheet(
                 row: row,
+                reapDisabled: model.activatingID != nil,
                 onCancel: { sheetRow = nil },
                 onReap: {
+                    guard model.activatingID == nil else { return }
                     Task { _ = await model.reap(row) }
                     sheetRow = nil
                 }

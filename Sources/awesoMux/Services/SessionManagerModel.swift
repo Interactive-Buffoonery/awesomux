@@ -167,9 +167,11 @@ final class SessionManagerModel {
         let provisional: DaemonRecoveryHandle
         let kind: ActivationResultKind
         let confirmationTargets: [LiveDaemon]
-        if let entry = store.recentlyClosedWorkspace(containing: row.id),
-            let restorableDaemons = restorableDaemons(for: entry, in: live)
-        {
+        if let entry = store.recentlyClosedWorkspace(containing: row.id) {
+            guard let restorableDaemons = restorableDaemons(for: entry, in: live) else {
+                await refresh()
+                return .changed
+            }
             for target in restorableDaemons {
                 SessionRecoveryConfirmationCenter.shared.begin(
                     target.id, daemonPID: target.daemonPID, createdEpoch: target.createdEpoch
@@ -214,7 +216,7 @@ final class SessionManagerModel {
             for await result in group where !result { return false }
             return true
         }
-        guard confirmed else {
+        guard confirmed, !Task.isCancelled else {
             for target in confirmationTargets {
                 SessionRecoveryConfirmationCenter.shared.cancel(target.id)
             }
