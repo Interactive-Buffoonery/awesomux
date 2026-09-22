@@ -160,4 +160,24 @@ struct DaemonStateResolverTests {
         #expect(result[paneA.terminalSessionID]?.directory == "/repo/api")
         #expect(result[paneA.terminalSessionID]?.groupName == "Development")
     }
+
+    @Test("snapshot presentation counts a transient and persisted close once")
+    func snapshotPresentationDeduplicatesCloseTiers() {
+        let pane = TerminalPane(
+            terminalSessionID: id(a), title: "shell", workingDirectory: "/repo",
+            executionPlan: .local
+        )
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(), title: "awesomux", isTitleUserEdited: true,
+            agentKind: .shell, layout: .pane(pane), activePaneID: pane.id,
+            groupID: UUID(), groupName: "Development", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+
+        let result = DaemonPresentationProjector.snapshots(
+            recentlyClosed: [entry], lastClosedTransient: entry
+        )
+
+        #expect(result[pane.terminalSessionID]?.label == "awesomux")
+    }
 }

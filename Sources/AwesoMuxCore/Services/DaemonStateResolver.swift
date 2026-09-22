@@ -54,7 +54,10 @@ public enum DaemonPresentationProjector {
         lastClosedTransient: RecentlyClosedWorkspace?
     ) -> [TerminalSessionID: DaemonPresentation] {
         var entries = recentlyClosed
-        if let lastClosedTransient { entries.insert(lastClosedTransient, at: 0) }
+        if let lastClosedTransient {
+            entries.removeAll { $0.sessionID == lastClosedTransient.sessionID }
+            entries.insert(lastClosedTransient, at: 0)
+        }
         let candidates = entries.flatMap { entry in
             var panes: [TerminalPane] = []
             entry.layout.forEachPane { panes.append($0) }
