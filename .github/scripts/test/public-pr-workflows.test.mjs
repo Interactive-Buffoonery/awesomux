@@ -340,6 +340,26 @@ test("cheap guards reject stale Ghostty license pins", () => {
   assert.match(workflows.cheapGuards, /\.\/script\/check_ghostty_license_pins\.sh/);
 });
 
+test("cheap guards provision the pinned Linux toolchain before full-history checkout", () => {
+  const workflow = workflows.cheapGuards;
+  const image = `swift:${read(".swift-version").trim()}-noble`;
+  for (const source of [workflow, read(".github/workflows/linux-helper.yml"), read(".github/workflows/release.yml")]) {
+    const images = [...source.matchAll(/^\s+container:\s+(\S+)\s*$/gm)].map((match) => match[1]);
+    assert.ok(images.length > 0, "Linux jobs must select their toolchain container");
+    assert.ok(images.every((actual) => actual === image), "Linux jobs must match the Swift pin and noble baseline");
+  }
+  assert.match(workflow, /defaults:\s*\n\s+run:\s*\n\s+shell: bash/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.doesNotMatch(workflow, /\bsudo\b/);
+  const install = workflow.match(/apt-get install -y --no-install-recommends ([^\n]+)/);
+  assert.ok(install, "container prerequisites must be installed explicitly");
+  for (const dependency of ["git", "jq", "python3", "ripgrep", "xxd"]) {
+    assert.ok(install[1].trim().split(/\s+/).includes(dependency), `${dependency} is required by the guards`);
+  }
+  const checkout = workflow.indexOf("uses: actions/checkout@");
+  assert.ok(checkout > install.index, "git must be installed before checkout to retain full Git history");
+});
+
 test("interpreted CodeQL stays automatic without waiting for Swift", () => {
   const workflow = workflows.codeql;
   assertMatchingCodeQLActionPins("interpreted CodeQL", workflow);
