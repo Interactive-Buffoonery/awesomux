@@ -63,6 +63,13 @@ currently-configured Ghostty keybinding collides with an awesoMux menu
 shortcut, `GhosttyRuntime` logs a warning. The warning is diagnostic only; it
 does not reorder dispatch or route Ghostty app actions into awesoMux.
 
+The app-owned **Reload Ghostty Configuration** command uses **Shift-Command-,**
+in the application menu, palette, and shortcut catalog. It rebuilds the layered
+configuration and updates existing surfaces in place. The collision diagnostic
+exempts this default chord only when Ghostty's configured `reload_config`
+trigger matches it. `GHOSTTY_ACTION_RELOAD_CONFIG` remains claimed and ignored;
+the SwiftUI menu command owns dispatch.
+
 ## Consequences
 
 - A Ghostty `keybind` such as `super+shift+u=new_split` does not create an
