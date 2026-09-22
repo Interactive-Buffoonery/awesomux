@@ -9,6 +9,26 @@ import Testing
 @Suite("Session Manager controller")
 @MainActor
 struct SessionManagerControllerTests {
+    @Test("one failed pane cancels confirmation waits for its siblings")
+    func failedPaneCancelsSiblingConfirmation() async {
+        let center = SessionRecoveryConfirmationCenter()
+        let failed = TerminalSessionID.generate()
+        let pending = TerminalSessionID.generate()
+        center.begin(pending, daemonPID: 42, createdEpoch: 100)
+        var result: Bool?
+        let task = Task {
+            result = await SessionManagerModel.waitForConfirmations(
+                for: [failed, pending], center: center)
+        }
+        let completed = await waitUntilEventually(deadline: .seconds(10)) { result != nil }
+        task.cancel()
+        await task.value
+
+        #expect(completed)
+        #expect(result == false)
+        #expect(center.expectationToken(for: pending) == nil)
+    }
+
     @Test("multi-pane restore requires every daemon to be detached")
     func multiPaneRestoreRequiresEveryDaemon() {
         let first = TerminalSessionID.generate()

@@ -161,6 +161,21 @@ struct DaemonStateResolverTests {
         #expect(result[paneA.terminalSessionID]?.groupName == "Development")
     }
 
+    @Test("live presentation keeps the first duplicate daemon identity without false disambiguation")
+    func livePresentationDeduplicatesDaemonIdentity() {
+        let pane = TerminalPane(terminalSessionID: id(a), title: "api", workingDirectory: "/first", executionPlan: .local)
+        let first = TerminalSession(title: "awesomux", workingDirectory: "/first", layout: .pane(pane), activePaneID: pane.id)
+        let duplicate = TerminalPane(terminalSessionID: id(a), title: "other", workingDirectory: "/second", executionPlan: .local)
+        let second = TerminalSession(title: "awesomux", workingDirectory: "/second", layout: .pane(duplicate), activePaneID: duplicate.id)
+
+        let result = DaemonPresentationProjector.live(groups: [SessionGroup(name: "Development", sessions: [first, second])])
+
+        #expect(result.count == 1)
+        #expect(result[id(a)]?.label == "awesomux")
+        #expect(result[id(a)]?.directory == "/first")
+        #expect(result[id(a)]?.owner == "awesomux · api")
+    }
+
     @Test("daemon metadata disambiguates duplicate workspace labels with pane titles")
     func daemonMetadataDisambiguatesDuplicateLabels() {
         let second = "22222222-2222-4222-8222-222222222222"

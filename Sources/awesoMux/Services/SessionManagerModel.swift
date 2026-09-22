@@ -207,15 +207,7 @@ final class SessionManagerModel {
             kind = .recovered
             confirmationTargets = [daemon]
         }
-        let confirmed = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
-            for target in confirmationTargets {
-                group.addTask {
-                    await SessionRecoveryConfirmationCenter.shared.wait(for: target.id)
-                }
-            }
-            for await result in group where !result { return false }
-            return true
-        }
+        let confirmed = await Self.waitForConfirmations(for: confirmationTargets.map(\.id))
         guard confirmed, !Task.isCancelled else {
             for target in confirmationTargets {
                 SessionRecoveryConfirmationCenter.shared.cancel(target.id)
@@ -239,6 +231,22 @@ final class SessionManagerModel {
     }
 
     private enum ActivationResultKind { case restored, recovered }
+
+    static func waitForConfirmations(
+        for ids: [TerminalSessionID],
+        center: SessionRecoveryConfirmationCenter = .shared
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            for id in ids {
+                group.addTask { await center.wait(for: id) }
+            }
+            for await result in group where !result {
+                group.cancelAll()
+                return false
+            }
+            return true
+        }
+    }
 
     private func restorableDaemons(
         for entry: RecentlyClosedWorkspace,

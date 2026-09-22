@@ -5,11 +5,10 @@ import Testing
 
 @Suite("Daemon recovery metadata")
 struct DaemonRecoveryMetadataTests {
-    private let remote = RemoteTarget(user: "eD", host: "dev.example")!
-    private let groupID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
-
     @Test("all fields round-trip through deterministic URL-safe labels")
-    func roundTrip() {
+    func roundTrip() throws {
+        let remote = try #require(RemoteTarget(user: "eD", host: "dev.example"))
+        let groupID = try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111"))
         let metadata = DaemonRecoveryMetadata(
             workspaceTitle: "Workspace Name",
             paneTitle: "Build 🧪",
@@ -50,7 +49,8 @@ struct DaemonRecoveryMetadataTests {
     }
 
     @Test("one malformed or oversized field does not discard valid neighbors")
-    func malformedFieldsAreIndependent() {
+    func malformedFieldsAreIndependent() throws {
+        let groupID = try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111"))
         let valid = DaemonRecoveryMetadata(
             workspaceTitle: "Valid",
             paneTitle: "Pane",

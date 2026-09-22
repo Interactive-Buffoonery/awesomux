@@ -25,13 +25,14 @@ public struct DaemonPresentation: Equatable, Sendable {
 
 public enum DaemonPresentationProjector {
     public static func live(groups: [SessionGroup]) -> [TerminalSessionID: DaemonPresentation] {
+        var seen = Set<TerminalSessionID>()
         let candidates = groups.flatMap { group in
             group.sessions.flatMap { session in
                 session.panes.map { pane in
                     (pane, session.title, group.name)
                 }
             }
-        }
+        }.filter { seen.insert($0.0.terminalSessionID).inserted }
         let titleCounts = Dictionary(grouping: candidates, by: { $0.1 }).mapValues(\.count)
         return Dictionary(
             uniqueKeysWithValues: candidates.map { pane, title, groupName in

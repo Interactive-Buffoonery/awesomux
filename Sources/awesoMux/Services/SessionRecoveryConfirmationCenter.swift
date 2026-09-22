@@ -51,7 +51,11 @@ final class SessionRecoveryConfirmationCenter {
         return true
     }
 
-    func wait(for id: TerminalSessionID, timeout: Duration = .seconds(3)) async -> Bool {
+    func wait(
+        for id: TerminalSessionID,
+        timeout: Duration = .seconds(3),
+        startupTimeout: Duration = .seconds(30)
+    ) async -> Bool {
         if confirmed.removeValue(forKey: id) != nil { return true }
         guard expectations[id] != nil else { return false }
         if Task.isCancelled {
@@ -83,6 +87,8 @@ final class SessionRecoveryConfirmationCenter {
                 waiters[id] = (token, timeout, continuation)
                 if attachStarted.contains(id) {
                     scheduleTimeout(for: id, token: token, timeout: timeout)
+                } else {
+                    scheduleTimeout(for: id, token: token, timeout: startupTimeout, onlyBeforeAttach: true)
                 }
             }
         } onCancel: { [weak self] in
@@ -114,12 +120,18 @@ final class SessionRecoveryConfirmationCenter {
         }
     }
 
-    private func scheduleTimeout(for id: TerminalSessionID, token: UUID, timeout: Duration) {
+    private func scheduleTimeout(
+        for id: TerminalSessionID,
+        token: UUID,
+        timeout: Duration,
+        onlyBeforeAttach: Bool = false
+    ) {
         let components = timeout.components
         let seconds =
             Double(components.seconds)
             + Double(components.attoseconds) / 1_000_000_000_000_000_000
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, seconds)) { [weak self] in
+            guard !onlyBeforeAttach || self?.attachStarted.contains(id) == false else { return }
             self?.cancel(id, token: token)
         }
     }

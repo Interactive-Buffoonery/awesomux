@@ -475,8 +475,19 @@ struct SessionManagerPanel: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(model.activatingID != nil)
-                    .accessibilityLabel("\(primaryAction.label) \(row.label)")
-                    .accessibilityHint(row.directory ?? "Session directory unavailable")
+                    .accessibilityLabel(
+                        String(
+                            localized: "\(primaryAction.label) \(row.label)",
+                            comment: "Session Manager action followed by the session name"
+                        )
+                    )
+                    .accessibilityHint(
+                        row.directory
+                            ?? String(
+                                localized: "Session directory unavailable",
+                                comment: "Session Manager action hint when the session directory is unknown"
+                            )
+                    )
                     .help(primaryAction.label)
                 }
                 Button {
@@ -522,7 +533,11 @@ struct SessionManagerPanel: View {
             DaemonLifecyclePresentation.label(row.lifecycle),
             row.activity == .busy ? "busy" : "idle",
             row.label,
-            row.directory ?? "directory unavailable",
+            row.directory
+                ?? String(
+                    localized: "directory unavailable",
+                    comment: "Session Manager row description when the session directory is unknown"
+                ),
             "\(RelativeAge.string(sinceEpoch: row.createdEpoch, now: Int(Date().timeIntervalSince1970))) old",
             LocalizedPluralStrings.sessionManagerClients(count: row.clients)
         ]
@@ -712,7 +727,10 @@ struct SessionManagerPanel: View {
             let count = groups.reduce(0) { $0 + $1.rows.count }
             model.announce(
                 count == 0
-                    ? "No matching sessions"
+                    ? String(
+                        localized: "No matching sessions",
+                        comment: "Session Manager search announcement when no sessions match"
+                    )
                     : LocalizedPluralStrings.sessionManagerSessions(count: count)
             )
         }
@@ -724,17 +742,17 @@ struct SessionManagerPanel: View {
 extension SessionManagerPrimaryAction {
     var label: String {
         switch self {
-        case .open: "Open session"
-        case .restore: "Restore session"
-        case .recover: "Recover session"
+        case .open: String(localized: "Open session", comment: "Session Manager action to select an open session")
+        case .restore: String(localized: "Restore session", comment: "Session Manager action to restore a detached session")
+        case .recover: String(localized: "Recover session", comment: "Session Manager action to recover an abandoned session")
         }
     }
 
     func successLabel(for sessionLabel: String) -> String {
         switch self {
-        case .open: "Opened session \(sessionLabel)."
-        case .restore: "Restored session \(sessionLabel)."
-        case .recover: "Recovered session \(sessionLabel)."
+        case .open: String(localized: "Opened session \(sessionLabel).", comment: "Session Manager successful open announcement")
+        case .restore: String(localized: "Restored session \(sessionLabel).", comment: "Session Manager successful restore announcement")
+        case .recover: String(localized: "Recovered session \(sessionLabel).", comment: "Session Manager successful recovery announcement")
         }
     }
 }

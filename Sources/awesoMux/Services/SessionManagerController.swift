@@ -76,7 +76,11 @@ final class SessionManagerController {
         isVisible = true
         model.startPolling()
         postAnnouncement(
-            "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Open, Restore, Recover, Pin, or End Session. Press Escape to dismiss.",
+            String(
+                localized:
+                    "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Open, Restore, Recover, Pin, or End Session. Press Escape to dismiss.",
+                comment: "VoiceOver introduction to the Session Manager and its available actions"
+            ),
             priority: .high
         )
     }
@@ -136,7 +140,16 @@ final class SessionManagerController {
     private func activate(_ row: DaemonRow, model: SessionManagerModel) {
         guard !activationInFlight else { return }
         activationInFlight = true
-        let pending = "\(row.primaryAction?.label ?? "Opening session") \(row.label)…"
+        let action =
+            row.primaryAction?.label
+            ?? String(
+                localized: "Opening session",
+                comment: "Fallback Session Manager action while opening a session"
+            )
+        let pending = String(
+            localized: "\(action) \(row.label)…",
+            comment: "Session Manager activation progress; action followed by the session name"
+        )
         model.setActivationState(id: row.id, status: pending)
         postAnnouncement(pending)
         let token = UUID()
@@ -169,15 +182,24 @@ final class SessionManagerController {
                 onSelect(sessionID, paneID)
                 dismiss()
             case .unavailable:
-                let message = "Session is no longer available."
+                let message = String(
+                    localized: "Session is no longer available.",
+                    comment: "Session Manager activation failed because the daemon disappeared"
+                )
                 model.setActivationState(id: nil, status: message)
                 postAnnouncement(message)
             case .changed:
-                let message = "Session state changed. The list was refreshed."
+                let message = String(
+                    localized: "Session state changed. The list was refreshed.",
+                    comment: "Session Manager activation stopped because the selected daemon changed"
+                )
                 model.setActivationState(id: nil, status: message)
                 postAnnouncement(message)
             case .inventoryUnavailable:
-                let message = "Couldn't verify the session. Try again."
+                let message = String(
+                    localized: "Couldn't verify the session. Try again.",
+                    comment: "Session Manager could not verify the daemon before activation"
+                )
                 model.setActivationState(id: nil, status: message)
                 postAnnouncement(message)
             }

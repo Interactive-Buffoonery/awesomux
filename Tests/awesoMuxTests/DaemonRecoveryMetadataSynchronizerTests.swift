@@ -50,12 +50,31 @@ struct DaemonRecoveryMetadataSynchronizerTests {
         #expect(writes == [localID, localID])
     }
 
+    @Test("unestablished panes write only after their attach establishes the backend")
+    func waitsForEstablishedBackend() async throws {
+        let id = try #require(TerminalSessionID(rawValue: "sync-startup"))
+        var writes = 0
+        let synchronizer = DaemonRecoveryMetadataSynchronizer { _, _ in
+            writes += 1
+            return true
+        }
+        let pending = fixture(id: id, metadata: .empty)
+        await synchronizer.synchronize(groups: [pending])
+        await synchronizer.synchronize(groups: [pending])
+        #expect(writes == 0)
+
+        await synchronizer.synchronize(groups: [fixture(id: id)])
+        #expect(writes == 1)
+    }
+
     private func fixture(
         id: TerminalSessionID,
+        metadata: TerminalBackendMetadata = AmxBackend.establishedSessionMetadata,
         executionPlan: PaneExecutionPlan = .local
     ) -> SessionGroup {
         let pane = TerminalPane(
             terminalSessionID: id,
+            terminalBackendMetadata: metadata,
             title: "Pane",
             workingDirectory: "/tmp",
             executionPlan: executionPlan

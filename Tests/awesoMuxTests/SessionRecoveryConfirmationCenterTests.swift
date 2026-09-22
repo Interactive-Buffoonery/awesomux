@@ -38,6 +38,16 @@ struct SessionRecoveryConfirmationCenterTests {
         #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
     }
 
+    @Test("attach that never starts retires its expectation")
+    func neverStartedAttachTimesOut() async {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+
+        #expect(await center.wait(for: id, startupTimeout: .milliseconds(10)) == false)
+        #expect(center.expectationToken(for: id) == nil)
+    }
+
     @Test("pre-attach failure retires its waiter immediately")
     func preAttachFailureRetiresWaiter() async {
         let center = SessionRecoveryConfirmationCenter()

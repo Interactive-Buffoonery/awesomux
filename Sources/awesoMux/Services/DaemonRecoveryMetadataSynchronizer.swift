@@ -41,6 +41,9 @@ final class DaemonRecoveryMetadataSynchronizer {
         groups.flatMap { group in
             group.sessions.flatMap { session in
                 session.panes.compactMap { pane in
+                    guard pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata else {
+                        return nil
+                    }
                     if case .ssh(let execution) = pane.executionPlan,
                         execution.persistenceOwner == .remoteZmx
                     {

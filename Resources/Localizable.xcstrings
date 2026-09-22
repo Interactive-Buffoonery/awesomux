@@ -138,11 +138,23 @@
 
     },
     "%arg %arg" : {
+      "comment" : "Session Manager action followed by the session name",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$arg %2$arg"
+          }
+        }
+      }
+    },
+    "%arg %arg…" : {
+      "comment" : "Session Manager activation progress; action followed by the session name",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg %2$arg…"
           }
         }
       }
@@ -1479,6 +1491,9 @@
     "Couldn't verify a local terminal for this document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
     },
+    "Couldn't verify the session. Try again." : {
+      "comment" : "Session Manager could not verify the daemon before activation"
+    },
     "Couldn't verify what's running in this transcript's terminal" : {
       "comment" : "Unavailable reason for resuming a session when foreground process evidence is unavailable"
     },
@@ -2774,7 +2789,7 @@
 
     },
     "No matching sessions" : {
-
+      "comment" : "Session Manager search announcement when no sessions match"
     },
     "No matching shortcuts" : {
 
@@ -2929,6 +2944,9 @@
     "Open prefilled email?" : {
       "comment" : "OSC 8 confirmation dialog title segment when a mailto URL has prefill parameters."
     },
+    "Open session" : {
+      "comment" : "Session Manager action to select an open session"
+    },
     "Open source" : {
       "comment" : "About window section heading for bundled third-party licenses"
     },
@@ -2941,8 +2959,14 @@
     "Opened at the top of the document. Section jumps are not supported yet." : {
       "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
     },
+    "Opened session %arg." : {
+      "comment" : "Session Manager successful open announcement"
+    },
     "Opening agent transcript." : {
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
+    },
+    "Opening session" : {
+      "comment" : "Fallback Session Manager action while opening a session"
     },
     "Opens a menu to create a new workspace group or a workspace in a specific group." : {
 
@@ -3419,6 +3443,12 @@
     "Record shortcut for %arg" : {
 
     },
+    "Recover session" : {
+      "comment" : "Session Manager action to recover an abandoned session"
+    },
+    "Recovered session %arg." : {
+      "comment" : "Session Manager successful recovery announcement"
+    },
     "Red" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -3814,8 +3844,14 @@
     "Restore Terminal Companion, session ended, %arg" : {
       "comment" : "Accessibility label for the minimized Terminal Companion corner tab when the shell has exited."
     },
+    "Restore session" : {
+      "comment" : "Session Manager action to restore a detached session"
+    },
     "Restore workspaces" : {
       "comment" : "General settings label."
+    },
+    "Restored session %arg." : {
+      "comment" : "Session Manager successful restore announcement"
     },
     "Resume %arg" : {
       "comment" : "Send-bar button title on a transcript tab, naming the agent to resume"
@@ -4082,11 +4118,20 @@
     "Session Manager" : {
       "comment" : "Session Manager panel title bar."
     },
+    "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Open, Restore, Recover, Pin, or End Session. Press Escape to dismiss." : {
+      "comment" : "VoiceOver introduction to the Session Manager and its available actions"
+    },
     "Session daemons could not be listed. App process data is current." : {
       "comment" : "Diagnostics partial refresh status"
     },
+    "Session directory unavailable" : {
+      "comment" : "Session Manager action hint when the session directory is unknown"
+    },
     "Session ended" : {
       "comment" : "Corner tab label when the companion shell has exited while minimized."
+    },
+    "Session is no longer available." : {
+      "comment" : "Session Manager activation failed because the daemon disappeared"
     },
     "Session name: use up to %arg letters, numbers, dots, dashes, or underscores. It can’t start with a dash or be “.” or “..”." : {
       "comment" : "Validation message when a remote session name is invalid. The argument is the maximum number of characters."
@@ -4104,6 +4149,9 @@
     },
     "Session on %arg unavailable." : {
       "comment" : "Accessibility label for a remote-owned pane whose session could not be reached\nVoiceOver announcement when a remote-owned pane's session could not be reached"
+    },
+    "Session state changed. The list was refreshed." : {
+      "comment" : "Session Manager activation stopped because the selected daemon changed"
     },
     "Sessions can only be resumed in a local terminal" : {
       "comment" : "Unavailable reason for resuming a session into a terminal that runs over SSH"
@@ -5388,6 +5436,9 @@
     },
     "deleted" : {
       "comment" : "Status after a file path heading in a rendered branch diff, for a file the branch deleted"
+    },
+    "directory unavailable" : {
+      "comment" : "Session Manager row description when the session directory is unknown"
     },
     "dismiss" : {
 
