@@ -296,6 +296,9 @@ extension GhosttySurfaceNSView {
     func applyPostSpawnPaneState(for launch: SurfaceLaunchCommand) {
         switch launch {
         case .bridgeAttach:
+            guard pane.terminalBackendMetadata.amxAttachDisposition != .existingOnly else {
+                return
+            }
             // Write-only breadcrumb for now: INT-571 removed the preflight
             // that read this (`hasEstablishedSessionMetadata`), so nothing in
             // the bridge path consumes `established` today. Retained — not

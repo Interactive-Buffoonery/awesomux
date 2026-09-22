@@ -992,6 +992,16 @@ final class CommandBridgeEnactor {
     /// absence) through the pure `BridgeSessionEndPolicy`, then enact the result.
     /// Synchronous — the reason is already known, no async daemon probe needed.
     private func decideExitFromStatus() {
+        if let sessionID,
+            sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID)?
+                .terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        {
+            latestSessionEndReason = nil
+            latestSessionEndCode = nil
+            SessionRecoveryConfirmationCenter.shared.cancel(sessionID)
+            markError()
+            return
+        }
         let reason = latestSessionEndReason
         let exitCode = latestSessionEndCode
         let isRemote = host.pane.executionPlan.remoteTarget != nil

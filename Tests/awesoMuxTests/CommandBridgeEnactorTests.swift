@@ -605,6 +605,51 @@ struct CommandBridgeEnactorTests {
         #expect(fixture.livePane != nil)
     }
 
+    @Test("a failed existing-only attach never enters the daemon creation heal path")
+    func failedExistingOnlyAttachDoesNotRespawn() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "77777777-7777-4777-8777-777777777777"))
+        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: existingOnly,
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        let channel = try #require(AmxBackend.makeStatusChannel(for: sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+        SessionRecoveryConfirmationCenter.shared.begin(
+            sessionID, daemonPID: 42, createdEpoch: 100
+        )
+        let expectationToken = try #require(
+            SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
+        )
+        enactor.sessionID = sessionID
+        enactor.beginStatusWatch(
+            channel: channel, recoveryExpectationToken: expectationToken
+        )
+        SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
+
+        fixture.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach --existing …"))
+        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+
+        #expect(fixture.view.handleChildExited())
+        await Task.yield()
+
+        #expect(enactor.errorLatched)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+        #expect(
+            await SessionRecoveryConfirmationCenter.shared.wait(
+                for: sessionID, timeout: .milliseconds(10)
+            ) == false
+        )
+    }
+
     @Test("a statusless bridge child exit uses the legacy supervision fallback")
     func statuslessBridgeChildExitUsesLegacyFallback() async throws {
         let sessionID = try #require(
