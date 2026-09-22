@@ -214,8 +214,7 @@ final class SessionManagerModel {
             for await result in group where !result { return false }
             return true
         }
-        let attached = confirmed ? true : await attachmentsMatch(confirmationTargets)
-        guard attached else {
+        guard confirmed else {
             for target in confirmationTargets {
                 SessionRecoveryConfirmationCenter.shared.cancel(target.id)
             }
@@ -258,18 +257,6 @@ final class SessionManagerModel {
             return nil
         }
         return daemons
-    }
-
-    private func attachmentsMatch(_ expected: [LiveDaemon]) async -> Bool {
-        guard let current = await AmxBackend.listSessionsResult() else { return false }
-        let byID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
-        return expected.allSatisfy { target in
-            guard let daemon = byID[target.id] else { return false }
-            return daemon.pid == target.pid
-                && daemon.createdEpoch == target.createdEpoch
-                && daemon.daemonPID == target.daemonPID
-                && daemon.clients > 0
-        }
     }
 
     // MARK: - Jump target

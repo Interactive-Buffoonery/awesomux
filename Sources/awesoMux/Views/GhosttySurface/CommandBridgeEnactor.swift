@@ -229,11 +229,19 @@ final class CommandBridgeEnactor {
                 return .bridgeAttach(command)
             }
             // No usable channel: drop any file we just minted (nothing will ever
-            // write it) and attach statusless, with the stale watcher cleared.
+            // write it) and clear the stale watcher. Ordinary attach keeps its
+            // legacy statusless fallback; recovery fails closed below.
             if let channel {
                 try? FileManager.default.removeItem(at: channel.fileURL)
             }
             beginStatusWatch(channel: nil)
+            if mode == .existingOnly {
+                // Recovery must be confirmed by this pane's authenticated status
+                // event. A client count cannot identify who attached, so never
+                // launch an existing-only attach without its ownership signal.
+                latchErrorDeferringChrome()
+                return .localShell
+            }
             return .bridgeAttach(baseAttachCommand)
         case .remoteOwnedAttach:
             // A pane re-pointed from a bridge session to a remote-owned one

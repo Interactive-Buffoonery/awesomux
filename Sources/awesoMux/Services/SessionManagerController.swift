@@ -82,7 +82,6 @@ final class SessionManagerController {
     }
 
     func dismiss() {
-        guard !activationInFlight else { return }
         guard !isDismissing else { return }
         guard let panel else {
             focusState.isKeyWindow = false

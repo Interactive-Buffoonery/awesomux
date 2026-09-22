@@ -182,6 +182,32 @@ struct CommandBridgeEnactorTests {
         #expect(statusFileNames(for: fixture.sessionID).isEmpty)
     }
 
+    @Test("existing-only attach fails closed without a channel-bearing command")
+    func existingOnlyAttachRequiresStatusChannel() throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "dddddddd-dddd-4ddd-8ddd-dddddddddddd"))
+        let pane = TerminalPane(
+            terminalSessionID: sessionID,
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:existing-only"),
+            title: "recover",
+            workingDirectory: "/tmp/recover",
+            executionPlan: .local
+        )
+        let fixture = try makeFixture(sessionID: sessionID, pane: pane)
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.attachCommandProvider = { id, status, _, _ in
+            status == nil ? "amx attach --existing \(id.rawValue)" : nil
+        }
+
+        let launch = enactor.prepareAttach(for: pane, bridgeEnabled: true)
+
+        #expect(launch == .localShell)
+        #expect(enactor.errorLatched)
+        #expect(enactor.statusWatcher == nil)
+        #expect(enactor.statusChannel == nil)
+        #expect(statusFileNames(for: sessionID).isEmpty)
+    }
+
     @Test("foreground executable probe uses only the current daemon")
     func foregroundExecutableProbeUsesCurrentDaemon() throws {
         let fixture = try makeFixture()
