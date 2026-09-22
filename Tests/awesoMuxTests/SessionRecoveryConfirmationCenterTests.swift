@@ -15,6 +15,29 @@ struct SessionRecoveryConfirmationCenterTests {
         #expect(await center.wait(for: id, timeout: .milliseconds(10)))
     }
 
+    @Test("confirmation timeout starts when attach starts")
+    func timeoutStartsWithAttach() async throws {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        let task = Task { await center.wait(for: id, timeout: .milliseconds(10)) }
+
+        try await Task.sleep(for: .milliseconds(25))
+        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+
+        #expect(await task.value)
+    }
+
+    @Test("started attach times out without confirmation")
+    func startedAttachTimesOut() async {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        center.didStartAttach(id)
+
+        #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
+    }
+
     @Test("replacement daemon does not confirm recovery")
     func replacementDoesNotConfirm() async {
         let center = SessionRecoveryConfirmationCenter()

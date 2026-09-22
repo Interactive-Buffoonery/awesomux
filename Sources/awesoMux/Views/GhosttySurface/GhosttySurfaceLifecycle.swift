@@ -235,6 +235,12 @@ extension GhosttySurfaceNSView {
     /// kind it is, which is what `applyPostSpawnPaneState` forks on.
     @discardableResult
     func finishSurfaceCreation(launch: SurfaceLaunchCommand) -> Bool {
+        let isRecoveryAttach =
+            if case .bridgeAttach = launch {
+                pane.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+            } else {
+                false
+            }
         terminalPromptObserved = false
         var environment = runtime.agentRuntimeEnvironment(
             sessionID: sessionID,
@@ -255,6 +261,9 @@ extension GhosttySurfaceNSView {
             command: launch.command
         )
         if let createdSurface {
+            if isRecoveryAttach {
+                SessionRecoveryConfirmationCenter.shared.didStartAttach(pane.terminalSessionID)
+            }
             commandBridgeEnactor.errorLatched = false
             lifecycleState.nativeSurfaceWasDisposed = false
             lifecycleState.nextMouseSurfaceIncarnationID += 1
@@ -271,6 +280,8 @@ extension GhosttySurfaceNSView {
                 runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
             }
             applyPostSpawnPaneState(for: launch)
+        } else if isRecoveryAttach {
+            SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
         }
         logSurfaceGeometryDiagnostics(event: "surface-create-after")
         runtime.refreshShellActivity(in: sessionStore)

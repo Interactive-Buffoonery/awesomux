@@ -5,13 +5,22 @@ import Foundation
 final class SessionRecoveryConfirmationCenter {
     static let shared = SessionRecoveryConfirmationCenter()
     private var confirmed: Set<TerminalSessionID> = []
-    private var waiters: [TerminalSessionID: (UUID, CheckedContinuation<Bool, Never>)] = [:]
+    private var attachStarted: Set<TerminalSessionID> = []
+    private var waiters: [TerminalSessionID: (token: UUID, timeout: Duration, continuation: CheckedContinuation<Bool, Never>)] = [:]
     private var expectations: [TerminalSessionID: (daemonPID: Int32?, createdEpoch: Int)] = [:]
 
     func begin(_ id: TerminalSessionID, daemonPID: Int32?, createdEpoch: Int) {
         cancel(id)
         confirmed.remove(id)
+        attachStarted.remove(id)
         expectations[id] = (daemonPID, createdEpoch)
+    }
+
+    func didStartAttach(_ id: TerminalSessionID) {
+        guard expectations[id] != nil, attachStarted.insert(id).inserted,
+            let waiter = waiters[id]
+        else { return }
+        scheduleTimeout(for: id, token: waiter.token, timeout: waiter.timeout)
     }
 
     func confirm(_ id: TerminalSessionID, daemonPID: Int, createdEpoch: Int) {
@@ -22,8 +31,9 @@ final class SessionRecoveryConfirmationCenter {
             return
         }
         expectations.removeValue(forKey: id)
-        if let (_, continuation) = waiters.removeValue(forKey: id) {
-            continuation.resume(returning: true)
+        attachStarted.remove(id)
+        if let waiter = waiters.removeValue(forKey: id) {
+            waiter.continuation.resume(returning: true)
         } else {
             confirmed.insert(id)
         }
@@ -31,6 +41,7 @@ final class SessionRecoveryConfirmationCenter {
 
     func wait(for id: TerminalSessionID, timeout: Duration = .seconds(3)) async -> Bool {
         if confirmed.remove(id) != nil { return true }
+        guard expectations[id] != nil else { return false }
         if Task.isCancelled {
             expectations.removeValue(forKey: id)
             return false
@@ -50,16 +61,16 @@ final class SessionRecoveryConfirmationCenter {
                     continuation.resume(returning: true)
                     return
                 }
-                if let (_, previous) = waiters.removeValue(forKey: id) {
-                    previous.resume(returning: false)
+                guard expectations[id] != nil else {
+                    continuation.resume(returning: false)
+                    return
                 }
-                waiters[id] = (token, continuation)
-                let components = timeout.components
-                let seconds =
-                    Double(components.seconds)
-                    + Double(components.attoseconds) / 1_000_000_000_000_000_000
-                DispatchQueue.main.asyncAfter(deadline: .now() + max(0, seconds)) { [weak self] in
-                    self?.cancel(id, token: token)
+                if let previous = waiters.removeValue(forKey: id) {
+                    previous.continuation.resume(returning: false)
+                }
+                waiters[id] = (token, timeout, continuation)
+                if attachStarted.contains(id) {
+                    scheduleTimeout(for: id, token: token, timeout: timeout)
                 }
             }
         } onCancel: { [weak self] in
@@ -69,12 +80,26 @@ final class SessionRecoveryConfirmationCenter {
 
     func cancel(_ id: TerminalSessionID, token: UUID? = nil) {
         guard let waiter = waiters[id] else {
-            if token == nil { expectations.removeValue(forKey: id) }
+            if token == nil {
+                expectations.removeValue(forKey: id)
+                attachStarted.remove(id)
+            }
             return
         }
-        guard token == nil || waiter.0 == token else { return }
+        guard token == nil || waiter.token == token else { return }
         waiters.removeValue(forKey: id)
         expectations.removeValue(forKey: id)
-        waiter.1.resume(returning: false)
+        attachStarted.remove(id)
+        waiter.continuation.resume(returning: false)
+    }
+
+    private func scheduleTimeout(for id: TerminalSessionID, token: UUID, timeout: Duration) {
+        let components = timeout.components
+        let seconds =
+            Double(components.seconds)
+            + Double(components.attoseconds) / 1_000_000_000_000_000_000
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, seconds)) { [weak self] in
+            self?.cancel(id, token: token)
+        }
     }
 }

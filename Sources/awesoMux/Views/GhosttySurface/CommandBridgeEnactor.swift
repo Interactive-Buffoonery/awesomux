@@ -239,6 +239,7 @@ final class CommandBridgeEnactor {
                 // Recovery must be confirmed by this pane's authenticated status
                 // event. A client count cannot identify who attached, so never
                 // launch an existing-only attach without its ownership signal.
+                SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
                 latchErrorDeferringChrome()
                 return .localShell
             }
