@@ -195,7 +195,7 @@ struct SessionManagerPanel: View {
     /// Live/restorable row awaiting the full confirm sheet.
     @State private var sheetRow: DaemonRow?
     @State private var query = ""
-    @State private var searchAnnouncementTask: Task<Void, Never>?
+    @State private var searchAnnouncementWorkItem: DispatchWorkItem?
     @FocusState private var focusedRowID: TerminalSessionID?
 
     static func shortIDSuffix(_ id: TerminalSessionID) -> String {
@@ -264,7 +264,7 @@ struct SessionManagerPanel: View {
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
         .onChange(of: query) { _, _ in announceSearchResults() }
-        .onDisappear { searchAnnouncementTask?.cancel() }
+        .onDisappear { searchAnnouncementWorkItem?.cancel() }
         .overlay {
             if let sheetRow {
                 reapSheetOverlay(sheetRow)
@@ -408,7 +408,8 @@ struct SessionManagerPanel: View {
         .focused($focusedRowID, equals: row.id)
         .focusEffectDisabled()
         .onKeyPress(keys: [.space, .return], phases: .down) { press in
-            guard row.primaryAction != nil,
+            guard focusedRowID == row.id,
+                row.primaryAction != nil,
                 model.activatingID == nil,
                 press.modifiers.subtracting(.capsLock).isEmpty
             else { return .ignored }
@@ -711,10 +712,8 @@ struct SessionManagerPanel: View {
     }
 
     private func announceSearchResults() {
-        searchAnnouncementTask?.cancel()
-        searchAnnouncementTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
+        searchAnnouncementWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
             let count = groups.reduce(0) { $0 + $1.rows.count }
             model.announce(
                 count == 0
@@ -722,6 +721,8 @@ struct SessionManagerPanel: View {
                     : LocalizedPluralStrings.sessionManagerSessions(count: count)
             )
         }
+        searchAnnouncementWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
     }
 }
 
