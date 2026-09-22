@@ -347,8 +347,14 @@ extension GhosttySurfaceNSView {
         invalidateBridgePreflight()
         lifecycleState.bridgePreflightGeneration &+= 1
         let generation = lifecycleState.bridgePreflightGeneration
-        if pane.terminalBackendMetadata.amxAttachDisposition == .existingOnly {
-            lifecycleState.recoveryBridgePreflight = (generation, pane.terminalSessionID)
+        if pane.terminalBackendMetadata.amxAttachDisposition == .existingOnly,
+            let expectationToken = SessionRecoveryConfirmationCenter.shared.expectationToken(
+                for: pane.terminalSessionID
+            )
+        {
+            lifecycleState.recoveryBridgePreflight = (
+                generation, pane.terminalSessionID, expectationToken
+            )
         }
         commandBridgeEnactor.bridgePreflightInFlight = true
         let controlPath = AmxBackend.sshControlPath()
@@ -487,7 +493,9 @@ extension GhosttySurfaceNSView {
         lifecycleState.bridgePreflightTask = nil
         commandBridgeEnactor.bridgePreflightInFlight = false
         if let recovery = lifecycleState.recoveryBridgePreflight {
-            SessionRecoveryConfirmationCenter.shared.cancel(recovery.sessionID)
+            SessionRecoveryConfirmationCenter.shared.cancel(
+                recovery.sessionID, expectationToken: recovery.expectationToken
+            )
             lifecycleState.recoveryBridgePreflight = nil
         }
         return true
@@ -686,7 +694,9 @@ extension GhosttySurfaceNSView {
             recovery.generation == generation
         else { return }
         lifecycleState.recoveryBridgePreflight = nil
-        SessionRecoveryConfirmationCenter.shared.cancel(recovery.sessionID)
+        SessionRecoveryConfirmationCenter.shared.cancel(
+            recovery.sessionID, expectationToken: recovery.expectationToken
+        )
     }
 
     func clearCommandBridgeStateForLocalShellFallback() {

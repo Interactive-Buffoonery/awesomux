@@ -7,13 +7,17 @@ final class SessionRecoveryConfirmationCenter {
     private var confirmed: Set<TerminalSessionID> = []
     private var attachStarted: Set<TerminalSessionID> = []
     private var waiters: [TerminalSessionID: (token: UUID, timeout: Duration, continuation: CheckedContinuation<Bool, Never>)] = [:]
-    private var expectations: [TerminalSessionID: (daemonPID: Int32?, createdEpoch: Int)] = [:]
+    private var expectations: [TerminalSessionID: (token: UUID, daemonPID: Int32?, createdEpoch: Int)] = [:]
 
     func begin(_ id: TerminalSessionID, daemonPID: Int32?, createdEpoch: Int) {
         cancel(id)
         confirmed.remove(id)
         attachStarted.remove(id)
-        expectations[id] = (daemonPID, createdEpoch)
+        expectations[id] = (UUID(), daemonPID, createdEpoch)
+    }
+
+    func expectationToken(for id: TerminalSessionID) -> UUID? {
+        expectations[id]?.token
     }
 
     func didStartAttach(_ id: TerminalSessionID) {
@@ -79,6 +83,7 @@ final class SessionRecoveryConfirmationCenter {
     }
 
     func cancel(_ id: TerminalSessionID, token: UUID? = nil) {
+        if token == nil { confirmed.remove(id) }
         guard let waiter = waiters[id] else {
             if token == nil {
                 expectations.removeValue(forKey: id)
@@ -91,6 +96,11 @@ final class SessionRecoveryConfirmationCenter {
         expectations.removeValue(forKey: id)
         attachStarted.remove(id)
         waiter.continuation.resume(returning: false)
+    }
+
+    func cancel(_ id: TerminalSessionID, expectationToken: UUID) {
+        guard expectations[id]?.token == expectationToken else { return }
+        cancel(id)
     }
 
     private func scheduleTimeout(for id: TerminalSessionID, token: UUID, timeout: Duration) {

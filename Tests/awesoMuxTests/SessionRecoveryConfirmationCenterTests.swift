@@ -51,6 +51,32 @@ struct SessionRecoveryConfirmationCenterTests {
         #expect(await task.value == false)
     }
 
+    @Test("explicit cancellation revokes buffered confirmation")
+    func cancellationRevokesBufferedConfirmation() async {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+
+        center.cancel(id)
+
+        #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
+    }
+
+    @Test("stale expectation token cannot cancel its successor")
+    func staleExpectationCannotCancelSuccessor() async throws {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        let staleToken = try #require(center.expectationToken(for: id))
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+
+        center.cancel(id, expectationToken: staleToken)
+        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+
+        #expect(await center.wait(for: id, timeout: .milliseconds(10)))
+    }
+
     @Test("replacement daemon does not confirm recovery")
     func replacementDoesNotConfirm() async {
         let center = SessionRecoveryConfirmationCenter()
