@@ -225,7 +225,20 @@ final class CommandBridgeEnactor {
             if let channel,
                 let command = attachCommandProvider(pane.terminalSessionID, channel, remote, mode)
             {
-                beginStatusWatch(channel: channel)
+                let recoveryExpectationToken =
+                    mode == .existingOnly
+                    ? SessionRecoveryConfirmationCenter.shared.expectationToken(
+                        for: pane.terminalSessionID
+                    ) : nil
+                guard mode != .existingOnly || recoveryExpectationToken != nil else {
+                    try? FileManager.default.removeItem(at: channel.fileURL)
+                    beginStatusWatch(channel: nil)
+                    latchErrorDeferringChrome()
+                    return .localShell
+                }
+                beginStatusWatch(
+                    channel: channel, recoveryExpectationToken: recoveryExpectationToken
+                )
                 return .bridgeAttach(command)
             }
             // No usable channel: drop any file we just minted (nothing will ever
@@ -583,7 +596,7 @@ final class CommandBridgeEnactor {
     /// Mint and arm the status watcher for a freshly-built bridge attach.
     /// Called from the `.bridgeAttach` lifecycle path. Replaces any prior
     /// watcher (a previous attach for the same pane) so only one feed is live.
-    func beginStatusWatch(channel: AmxStatusChannel?) {
+    func beginStatusWatch(channel: AmxStatusChannel?, recoveryExpectationToken: UUID? = nil) {
         // Drop a stale watcher before handling the new channel. This matters
         // even when the new attach is the legacy/no-status path.
         statusWatcher?.stop()
@@ -599,7 +612,9 @@ final class CommandBridgeEnactor {
         // main actor — no hop needed here. The `[weak self]` capture keeps the
         // watcher from extending the enactor's lifetime.
         let watcher = AmxStatusFileWatcher(channel: channel) { [weak self] events in
-            self?.handleStatusEvents(events)
+            self?.handleStatusEvents(
+                events, recoveryExpectationToken: recoveryExpectationToken
+            )
         }
         statusWatcher = watcher
         watcher.start()
@@ -609,7 +624,9 @@ final class CommandBridgeEnactor {
     /// incarnation (fresh-vs-reconnect) and arms an uptime-gated budget refill; a
     /// `session-end` records the reason the process-exit path later decides on
     /// and cancels any pending refill (the incarnation didn't prove healthy).
-    func handleStatusEvents(_ events: [AmxStatusEvent]) {
+    func handleStatusEvents(
+        _ events: [AmxStatusEvent], recoveryExpectationToken: UUID? = nil
+    ) {
         // A latched-error pane must be inert to further status events. A stray
         // or late `attached` line on the status file must not silently un-error
         // the pane (clearing agent chrome + false-announcing "Session restarted")
@@ -624,9 +641,14 @@ final class CommandBridgeEnactor {
             guard let sessionID, event.session == sessionID.rawValue else { continue }
             switch event.kind {
             case let .attached(created, daemonPid, daemonCreatedAt):
-                SessionRecoveryConfirmationCenter.shared.confirm(
-                    sessionID, daemonPID: daemonPid, createdEpoch: daemonCreatedAt
-                )
+                if let recoveryExpectationToken {
+                    SessionRecoveryConfirmationCenter.shared.confirm(
+                        sessionID,
+                        expectationToken: recoveryExpectationToken,
+                        daemonPID: daemonPid,
+                        createdEpoch: daemonCreatedAt
+                    )
+                }
                 sessionStore.updateTerminalBackendMetadata(
                     sessionID: hostSessionID,
                     paneID: paneID,

@@ -4,14 +4,14 @@ import Foundation
 @MainActor
 final class SessionRecoveryConfirmationCenter {
     static let shared = SessionRecoveryConfirmationCenter()
-    private var confirmed: Set<TerminalSessionID> = []
+    private var confirmed: [TerminalSessionID: UUID] = [:]
     private var attachStarted: Set<TerminalSessionID> = []
     private var waiters: [TerminalSessionID: (token: UUID, timeout: Duration, continuation: CheckedContinuation<Bool, Never>)] = [:]
     private var expectations: [TerminalSessionID: (token: UUID, daemonPID: Int32?, createdEpoch: Int)] = [:]
 
     func begin(_ id: TerminalSessionID, daemonPID: Int32?, createdEpoch: Int) {
         cancel(id)
-        confirmed.remove(id)
+        confirmed.removeValue(forKey: id)
         attachStarted.remove(id)
         expectations[id] = (UUID(), daemonPID, createdEpoch)
     }
@@ -27,11 +27,17 @@ final class SessionRecoveryConfirmationCenter {
         scheduleTimeout(for: id, token: waiter.token, timeout: waiter.timeout)
     }
 
-    func confirm(_ id: TerminalSessionID, daemonPID: Int, createdEpoch: Int) {
-        guard let expected = expectations[id], expected.createdEpoch == createdEpoch,
+    func confirm(
+        _ id: TerminalSessionID,
+        expectationToken: UUID,
+        daemonPID: Int,
+        createdEpoch: Int
+    ) {
+        guard let expected = expectations[id], expected.token == expectationToken else { return }
+        guard expected.createdEpoch == createdEpoch,
             expected.daemonPID.map({ Int($0) == daemonPID }) ?? true
         else {
-            cancel(id)
+            cancel(id, expectationToken: expectationToken)
             return
         }
         expectations.removeValue(forKey: id)
@@ -39,12 +45,12 @@ final class SessionRecoveryConfirmationCenter {
         if let waiter = waiters.removeValue(forKey: id) {
             waiter.continuation.resume(returning: true)
         } else {
-            confirmed.insert(id)
+            confirmed[id] = expectationToken
         }
     }
 
     func wait(for id: TerminalSessionID, timeout: Duration = .seconds(3)) async -> Bool {
-        if confirmed.remove(id) != nil { return true }
+        if confirmed.removeValue(forKey: id) != nil { return true }
         guard expectations[id] != nil else { return false }
         if Task.isCancelled {
             expectations.removeValue(forKey: id)
@@ -61,7 +67,7 @@ final class SessionRecoveryConfirmationCenter {
                 // `withTaskCancellationHandler` is async, so confirmation may
                 // arrive after the fast path above but before this continuation
                 // is installed. Consume it instead of waiting for a second event.
-                if confirmed.remove(id) != nil {
+                if confirmed.removeValue(forKey: id) != nil {
                     continuation.resume(returning: true)
                     return
                 }
@@ -83,7 +89,7 @@ final class SessionRecoveryConfirmationCenter {
     }
 
     func cancel(_ id: TerminalSessionID, token: UUID? = nil) {
-        if token == nil { confirmed.remove(id) }
+        if token == nil { confirmed.removeValue(forKey: id) }
         guard let waiter = waiters[id] else {
             if token == nil {
                 expectations.removeValue(forKey: id)
@@ -99,8 +105,11 @@ final class SessionRecoveryConfirmationCenter {
     }
 
     func cancel(_ id: TerminalSessionID, expectationToken: UUID) {
-        guard expectations[id]?.token == expectationToken else { return }
-        cancel(id)
+        if expectations[id]?.token == expectationToken {
+            cancel(id)
+        } else if confirmed[id] == expectationToken {
+            confirmed.removeValue(forKey: id)
+        }
     }
 
     private func scheduleTimeout(for id: TerminalSessionID, token: UUID, timeout: Duration) {

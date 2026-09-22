@@ -6,11 +6,11 @@ import Testing
 @Suite("Session recovery confirmation")
 struct SessionRecoveryConfirmationCenterTests {
     @Test("confirmation arriving before wait is consumed")
-    func confirmationBeforeWait() async {
+    func confirmationBeforeWait() async throws {
         let center = SessionRecoveryConfirmationCenter()
         let id = TerminalSessionID.generate()
         center.begin(id, daemonPID: 42, createdEpoch: 100)
-        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
 
         #expect(await center.wait(for: id, timeout: .milliseconds(10)))
     }
@@ -23,7 +23,7 @@ struct SessionRecoveryConfirmationCenterTests {
         let task = Task { await center.wait(for: id, timeout: .milliseconds(10)) }
 
         try await Task.sleep(for: .milliseconds(25))
-        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
 
         #expect(await task.value)
     }
@@ -52,11 +52,11 @@ struct SessionRecoveryConfirmationCenterTests {
     }
 
     @Test("explicit cancellation revokes buffered confirmation")
-    func cancellationRevokesBufferedConfirmation() async {
+    func cancellationRevokesBufferedConfirmation() async throws {
         let center = SessionRecoveryConfirmationCenter()
         let id = TerminalSessionID.generate()
         center.begin(id, daemonPID: 42, createdEpoch: 100)
-        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
 
         center.cancel(id)
 
@@ -72,20 +72,59 @@ struct SessionRecoveryConfirmationCenterTests {
         center.begin(id, daemonPID: 42, createdEpoch: 100)
 
         center.cancel(id, expectationToken: staleToken)
-        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
 
         #expect(await center.wait(for: id, timeout: .milliseconds(10)))
     }
 
+    @Test("stale confirmation cannot decide its successor")
+    func staleConfirmationCannotDecideSuccessor() async throws {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        let staleToken = try #require(center.expectationToken(for: id))
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        let currentToken = try #require(center.expectationToken(for: id))
+        let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
+        await Task.yield()
+
+        center.confirm(
+            id, expectationToken: staleToken, daemonPID: 42, createdEpoch: 100
+        )
+        center.confirm(
+            id, expectationToken: staleToken, daemonPID: 99, createdEpoch: 101
+        )
+        center.confirm(
+            id, expectationToken: currentToken, daemonPID: 42, createdEpoch: 100
+        )
+
+        #expect(await task.value)
+    }
+
+    @Test("token cancellation revokes its buffered confirmation")
+    func tokenCancellationRevokesBufferedConfirmation() async throws {
+        let center = SessionRecoveryConfirmationCenter()
+        let id = TerminalSessionID.generate()
+        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        let token = try #require(center.expectationToken(for: id))
+        center.confirm(
+            id, expectationToken: token, daemonPID: 42, createdEpoch: 100
+        )
+
+        center.cancel(id, expectationToken: token)
+
+        #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
+    }
+
     @Test("replacement daemon does not confirm recovery")
-    func replacementDoesNotConfirm() async {
+    func replacementDoesNotConfirm() async throws {
         let center = SessionRecoveryConfirmationCenter()
         let id = TerminalSessionID.generate()
         center.begin(id, daemonPID: 42, createdEpoch: 100)
         let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
         await Task.yield()
 
-        center.confirm(id, daemonPID: 99, createdEpoch: 101)
+        try confirm(center, id: id, daemonPID: 99, createdEpoch: 101)
 
         #expect(await task.value == false)
     }
@@ -104,7 +143,7 @@ struct SessionRecoveryConfirmationCenterTests {
     }
 
     @Test("second wait retires the first waiter")
-    func secondWaitRetiresFirst() async {
+    func secondWaitRetiresFirst() async throws {
         let center = SessionRecoveryConfirmationCenter()
         let id = TerminalSessionID.generate()
         center.begin(id, daemonPID: 42, createdEpoch: 100)
@@ -113,7 +152,7 @@ struct SessionRecoveryConfirmationCenterTests {
         let second = Task { await center.wait(for: id, timeout: .seconds(10)) }
         await Task.yield()
 
-        center.confirm(id, daemonPID: 42, createdEpoch: 100)
+        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
 
         #expect(await first.value == false)
         #expect(await second.value)
@@ -130,5 +169,17 @@ struct SessionRecoveryConfirmationCenterTests {
         task.cancel()
 
         #expect(await task.value == false)
+    }
+
+    private func confirm(
+        _ center: SessionRecoveryConfirmationCenter,
+        id: TerminalSessionID,
+        daemonPID: Int,
+        createdEpoch: Int
+    ) throws {
+        let token = try #require(center.expectationToken(for: id))
+        center.confirm(
+            id, expectationToken: token, daemonPID: daemonPID, createdEpoch: createdEpoch
+        )
     }
 }
