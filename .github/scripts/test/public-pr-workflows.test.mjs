@@ -358,6 +358,9 @@ test("cheap guards provision the pinned Linux toolchain before full-history chec
   }
   const checkout = workflow.indexOf("uses: actions/checkout@");
   assert.ok(checkout > install.index, "git must be installed before checkout to retain full Git history");
+  const trust = workflow.indexOf('git config --global --add safe.directory "$GITHUB_WORKSPACE"');
+  assert.ok(trust > checkout, "trust only the mounted checkout after checkout completes");
+  assert.ok(trust < workflow.indexOf("./script/check-toolchain.sh"), "configure Git before running repository guards");
 });
 
 test("interpreted CodeQL stays automatic without waiting for Swift", () => {
