@@ -739,15 +739,20 @@ extension SessionStore {
         guard
             let sessionID = DaemonRecoveryReducer.recover(
                 .init(id: id, metadata: metadata, cwd: cwd), into: &_groups
-            ), let paneID = session(id: sessionID)?.activePaneID
+            ),
+            let groupIndex = _groups.firstIndex(where: { group in
+                group.sessions.contains { $0.id == sessionID }
+            }),
+            let paneID = _groups[groupIndex].sessions.first(where: { $0.id == sessionID })?
+                .activePaneID
         else { return nil }
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
         let token = UUID()
         daemonRecoveryTokens[sessionID] = token
-        let groupID = _groups.first(where: { $0.sessions.contains { $0.id == sessionID } })?.id
+        let groupID = _groups[groupIndex].id
         return DaemonRecoveryHandle(
             sessionID: sessionID, paneID: paneID, previousSelection: previousSelection,
-            createdGroupID: groupID.flatMap { previousGroupIDs.contains($0) ? nil : $0 }, token: token
+            createdGroupID: previousGroupIDs.contains(groupID) ? nil : groupID, token: token
         )
     }
 

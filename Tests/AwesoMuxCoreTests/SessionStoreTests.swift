@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxTestSupport
 import Testing
 import XCTest
@@ -2440,6 +2441,28 @@ struct SessionStoreTerminalBackendMetadataTests {
         #expect(store.provisionallyRestore(entry, daemonID: .generate()) == nil)
         #expect(store.groups.isEmpty)
         #expect(store.recentlyClosed == [entry])
+    }
+
+    @Test("abandoned daemon recovery commits and can roll back")
+    func abandonedDaemonRecovery() throws {
+        let existing = TerminalSession(title: "existing", workingDirectory: "/tmp")
+        let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
+        let store = SessionStore(groups: originalGroups, selectedSessionID: existing.id)
+        let daemonID = TerminalSessionID.generate()
+        let metadata = DaemonRecoveryMetadata(
+            workspaceTitle: "Build", paneTitle: "Codex", groupID: nil,
+            groupName: "Recovered", groupRemote: nil, agentKind: .codex
+        )
+
+        let recovery = try #require(
+            store.recoverDaemon(id: daemonID, metadata: metadata, cwd: NSHomeDirectory())
+        )
+
+        #expect(store.selectedSessionID == recovery.sessionID)
+        #expect(store.session(id: recovery.sessionID)?.activePaneID == recovery.paneID)
+        store.rollbackDaemonRecovery(recovery)
+        #expect(store.groups == originalGroups)
+        #expect(store.selectedSessionID == existing.id)
     }
 
     @Test("amx metadata fails closed for unknown payloads")
