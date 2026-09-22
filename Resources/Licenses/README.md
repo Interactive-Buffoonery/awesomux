@@ -12,7 +12,7 @@ named in the table:
 | --- | --- | --- |
 | Sparkle | 2.10.0 | `Sparkle/LICENSE` |
 | Ghostty | `b32f20f3e8d25bb925ec545c54498e93518e7ced` | `Ghostty/LICENSE` |
-| zmx / amx | `d2fe5e3bd7b60707c6636f5f020d10621f12279c` | `zmx/LICENSE` |
+| zmx / amx | `331ae7e59ee76f506e7d706d4b7aad649dbc2d24` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
 | Selenized | `jan-warchol/selenized` v1.0 | `Selenized/LICENSE` |
