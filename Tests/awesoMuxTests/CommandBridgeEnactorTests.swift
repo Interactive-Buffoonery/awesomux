@@ -650,6 +650,94 @@ struct CommandBridgeEnactorTests {
         )
     }
 
+    @Test("a rejected recovery identity never establishes or heals the pane")
+    func rejectedRecoveryIdentityDoesNotEstablish() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "66666666-6666-4666-8666-666666666666"))
+        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: existingOnly,
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        SessionRecoveryConfirmationCenter.shared.begin(
+            sessionID, daemonPID: 42, createdEpoch: 100
+        )
+        let token = try #require(
+            SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
+        )
+        enactor.sessionID = sessionID
+
+        enactor.handleStatusEvents(
+            [try attachedEvent(pid: 99, createdAt: 101, sessionID: sessionID)],
+            recoveryExpectationToken: token
+        )
+
+        #expect(enactor.errorLatched)
+        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+
+        enactor.sessionExistsProvider = { _ in
+            Issue.record("rejected recovery must not enter the legacy probe")
+            return true
+        }
+        enactor.beginExitSupervision(exitCode: 0)
+        await Task.yield()
+
+        #expect(enactor.errorLatched)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+        #expect(
+            await SessionRecoveryConfirmationCenter.shared.wait(
+                for: sessionID, timeout: .milliseconds(10)
+            ) == false
+        )
+    }
+
+    @Test("an existing-only attach without an armed status feed never probes or heals")
+    func existingOnlyWithoutArmedStatusFailsClosed() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "55555555-5555-4555-8555-555555555555"))
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: TerminalBackendMetadata(
+                    rawValue: "amx:v1:existing-only"
+                ),
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        SessionRecoveryConfirmationCenter.shared.begin(
+            sessionID, daemonPID: 42, createdEpoch: 100
+        )
+        SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
+        enactor.sessionID = sessionID
+        enactor.sessionExistsProvider = { _ in
+            Issue.record("existing-only failure must not enter the legacy probe")
+            return true
+        }
+
+        enactor.beginExitSupervision(exitCode: 0)
+        await Task.yield()
+
+        #expect(enactor.errorLatched)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+        #expect(
+            await SessionRecoveryConfirmationCenter.shared.wait(
+                for: sessionID, timeout: .milliseconds(10)
+            ) == false
+        )
+    }
+
     @Test("a statusless bridge child exit uses the legacy supervision fallback")
     func statuslessBridgeChildExitUsesLegacyFallback() async throws {
         let sessionID = try #require(

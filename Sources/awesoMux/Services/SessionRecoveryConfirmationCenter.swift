@@ -27,18 +27,19 @@ final class SessionRecoveryConfirmationCenter {
         scheduleTimeout(for: id, token: waiter.token, timeout: waiter.timeout)
     }
 
+    @discardableResult
     func confirm(
         _ id: TerminalSessionID,
         expectationToken: UUID,
         daemonPID: Int,
         createdEpoch: Int
-    ) {
-        guard let expected = expectations[id], expected.token == expectationToken else { return }
+    ) -> Bool {
+        guard let expected = expectations[id], expected.token == expectationToken else { return false }
         guard expected.createdEpoch == createdEpoch,
             expected.daemonPID.map({ Int($0) == daemonPID }) ?? true
         else {
             cancel(id, expectationToken: expectationToken)
-            return
+            return false
         }
         expectations.removeValue(forKey: id)
         attachStarted.remove(id)
@@ -47,6 +48,7 @@ final class SessionRecoveryConfirmationCenter {
         } else {
             confirmed[id] = expectationToken
         }
+        return true
     }
 
     func wait(for id: TerminalSessionID, timeout: Duration = .seconds(3)) async -> Bool {

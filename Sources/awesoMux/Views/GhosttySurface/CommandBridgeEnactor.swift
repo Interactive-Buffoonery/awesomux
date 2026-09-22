@@ -642,12 +642,17 @@ final class CommandBridgeEnactor {
             switch event.kind {
             case let .attached(created, daemonPid, daemonCreatedAt):
                 if let recoveryExpectationToken {
-                    SessionRecoveryConfirmationCenter.shared.confirm(
-                        sessionID,
-                        expectationToken: recoveryExpectationToken,
-                        daemonPID: daemonPid,
-                        createdEpoch: daemonCreatedAt
-                    )
+                    guard
+                        SessionRecoveryConfirmationCenter.shared.confirm(
+                            sessionID,
+                            expectationToken: recoveryExpectationToken,
+                            daemonPID: daemonPid,
+                            createdEpoch: daemonCreatedAt
+                        )
+                    else {
+                        markError(clearBackendMetadata: false)
+                        return
+                    }
                 }
                 sessionStore.updateTerminalBackendMetadata(
                     sessionID: hostSessionID,
@@ -891,6 +896,14 @@ final class CommandBridgeEnactor {
         // for an unpatched amx / missing status file / failed arm.
         if statusFeedWasArmed {
             decideExitFromStatus()
+            return
+        }
+
+        if sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID)?
+            .terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        {
+            SessionRecoveryConfirmationCenter.shared.cancel(sessionID)
+            markError()
             return
         }
 
@@ -1168,7 +1181,7 @@ final class CommandBridgeEnactor {
         _ = remoteOwnedExitStatusConsumer(url)
     }
 
-    func markError() {
+    func markError(clearBackendMetadata: Bool = true) {
         exitResolutionPending = false
         exitProbeInFlight = false
         errorLatched = true
@@ -1183,11 +1196,13 @@ final class CommandBridgeEnactor {
         // retry/recycle re-attach re-writes `established`, so the poll correctly
         // waits for re-confirmation. `updateTerminalBackendMetadata` no-ops when
         // already empty.
-        sessionStore.updateTerminalBackendMetadata(
-            sessionID: hostSessionID,
-            paneID: paneID,
-            metadata: .empty
-        )
+        if clearBackendMetadata {
+            sessionStore.updateTerminalBackendMetadata(
+                sessionID: hostSessionID,
+                paneID: paneID,
+                metadata: .empty
+            )
+        }
         sessionStore.recordPaneProcessError(
             in: hostSessionID,
             paneID: paneID,
