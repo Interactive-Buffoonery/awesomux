@@ -903,7 +903,7 @@ final class CommandBridgeEnactor {
             .terminalBackendMetadata.amxAttachDisposition == .existingOnly
         {
             SessionRecoveryConfirmationCenter.shared.cancel(sessionID)
-            markError()
+            markError(clearBackendMetadata: false)
             return
         }
 
@@ -1012,7 +1012,7 @@ final class CommandBridgeEnactor {
             latestSessionEndReason = nil
             latestSessionEndCode = nil
             SessionRecoveryConfirmationCenter.shared.cancel(sessionID)
-            markError()
+            markError(clearBackendMetadata: false)
             return
         }
         let reason = latestSessionEndReason

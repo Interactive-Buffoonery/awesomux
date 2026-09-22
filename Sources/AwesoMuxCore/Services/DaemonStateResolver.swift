@@ -118,6 +118,16 @@ public enum DaemonStateResolver {
     public static func resolve(_ inputs: Inputs) -> [DaemonRow] {
         var seen = Set<TerminalSessionID>()
         var rows: [DaemonRow] = []
+        var counted = Set<TerminalSessionID>()
+        let daemonOnlyTitles: [String] = inputs.live.compactMap { daemon in
+            guard counted.insert(daemon.id).inserted else { return nil }
+            guard inputs.livePresentation[daemon.id] == nil,
+                inputs.snapshotPresentation[daemon.id] == nil
+            else { return nil }
+            return daemon.recoveryMetadata?.workspaceTitle
+        }
+        let daemonOnlyTitleCounts = Dictionary(grouping: daemonOnlyTitles, by: { $0 })
+            .mapValues(\.count)
         for daemon in inputs.live where seen.insert(daemon.id).inserted {
             let pinned = inputs.pinned.contains(daemon.id)
             let idle = inputs.idleByID[daemon.id] ?? false
@@ -126,14 +136,22 @@ public enum DaemonStateResolver {
             let live = inputs.livePresentation[daemon.id]
             let snapshot = inputs.snapshotPresentation[daemon.id]
             let metadata = daemon.recoveryMetadata
+            let metadataLabel =
+                metadata?.workspaceTitle.map { workspaceTitle in
+                    if daemonOnlyTitleCounts[workspaceTitle, default: 0] > 1,
+                        let paneTitle = metadata?.paneTitle
+                    {
+                        return "\(workspaceTitle) · \(paneTitle)"
+                    }
+                    return workspaceTitle
+                } ?? metadata?.paneTitle
             rows.append(DaemonRow(
                     id: daemon.id, pid: daemon.pid, daemonPID: daemon.daemonPID,
                     createdEpoch: daemon.createdEpoch,
                 clients: daemon.clients, lifecycle: lifecycle, activity: activity,
                     pinned: pinned,
                     owner: live?.owner ?? snapshot?.owner ?? inputs.owners[daemon.id],
-                    label: live?.label ?? snapshot?.label ?? metadata?.workspaceTitle
-                        ?? metadata?.paneTitle ?? daemon.id.rawValue,
+                    label: live?.label ?? snapshot?.label ?? metadataLabel ?? daemon.id.rawValue,
                     directory: live?.directory ?? snapshot?.directory ?? daemon.cwd,
                     groupName: live?.groupName ?? snapshot?.groupName ?? metadata?.groupName,
                     agentKind: live?.agentKind ?? snapshot?.agentKind ?? metadata?.agentKind

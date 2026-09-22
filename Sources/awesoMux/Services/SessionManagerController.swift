@@ -153,12 +153,19 @@ final class SessionManagerController {
                 return
             }
             switch result {
-            case let .opened(sessionID, paneID), let .restored(sessionID, paneID),
-                let .recovered(sessionID, paneID):
+            case let .opened(sessionID, paneID):
                 model.setActivationState(id: nil, status: nil)
-                if let action = row.primaryAction {
-                    postAnnouncement(action.successLabel(for: row.label))
-                }
+                postAnnouncement(SessionManagerPrimaryAction.open.successLabel(for: row.label))
+                onSelect(sessionID, paneID)
+                dismiss()
+            case let .restored(sessionID, paneID):
+                model.setActivationState(id: nil, status: nil)
+                postAnnouncement(SessionManagerPrimaryAction.restore.successLabel(for: row.label))
+                onSelect(sessionID, paneID)
+                dismiss()
+            case let .recovered(sessionID, paneID):
+                model.setActivationState(id: nil, status: nil)
+                postAnnouncement(SessionManagerPrimaryAction.recover.successLabel(for: row.label))
                 onSelect(sessionID, paneID)
                 dismiss()
             case .unavailable:

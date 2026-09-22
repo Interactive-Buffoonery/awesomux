@@ -644,6 +644,9 @@ struct CommandBridgeEnactorTests {
         #expect(enactor.errorLatched)
         #expect(enactor.respawnLedger.respawnAttempts == 0)
         #expect(
+            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        )
+        #expect(
             await SessionRecoveryConfirmationCenter.shared.wait(
                 for: sessionID, timeout: .milliseconds(10)
             ) == false
@@ -693,6 +696,9 @@ struct CommandBridgeEnactorTests {
         #expect(enactor.errorLatched)
         #expect(enactor.respawnLedger.respawnAttempts == 0)
         #expect(
+            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        )
+        #expect(
             await SessionRecoveryConfirmationCenter.shared.wait(
                 for: sessionID, timeout: .milliseconds(10)
             ) == false
@@ -731,6 +737,9 @@ struct CommandBridgeEnactorTests {
 
         #expect(enactor.errorLatched)
         #expect(enactor.respawnLedger.respawnAttempts == 0)
+        #expect(
+            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        )
         #expect(
             await SessionRecoveryConfirmationCenter.shared.wait(
                 for: sessionID, timeout: .milliseconds(10)

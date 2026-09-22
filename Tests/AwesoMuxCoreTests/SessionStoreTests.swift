@@ -2443,6 +2443,35 @@ struct SessionStoreTerminalBackendMetadataTests {
         #expect(store.recentlyClosed == [entry])
     }
 
+    @Test("daemon identity collision cannot partially publish a provisional restore")
+    func daemonIdentityCollisionDoesNotMutateStore() {
+        let daemonID = TerminalSessionID.generate()
+        let existing = TerminalSession(
+            title: "existing", workingDirectory: "/tmp",
+            layout: .pane(
+                TerminalPane(
+                    terminalSessionID: daemonID, title: "live", workingDirectory: "/tmp",
+                    executionPlan: .local
+                ))
+        )
+        let entryPane = TerminalPane(
+            terminalSessionID: daemonID, title: "closed", workingDirectory: "/tmp",
+            executionPlan: .local
+        )
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(), title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: .pane(entryPane), activePaneID: entryPane.id,
+            groupID: UUID(), groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
+        let store = SessionStore(groups: originalGroups, recentlyClosed: [entry])
+
+        #expect(store.provisionallyRestore(entry, daemonID: daemonID) == nil)
+        #expect(store.groups == originalGroups)
+        #expect(store.recentlyClosed == [entry])
+    }
+
     @Test("abandoned daemon recovery commits and can roll back")
     func abandonedDaemonRecovery() throws {
         let existing = TerminalSession(title: "existing", workingDirectory: "/tmp")
@@ -2463,6 +2492,30 @@ struct SessionStoreTerminalBackendMetadataTests {
         store.rollbackDaemonRecovery(recovery)
         #expect(store.groups == originalGroups)
         #expect(store.selectedSessionID == existing.id)
+    }
+
+    @Test("recovery rollback preserves a newer valid selection")
+    func recoveryRollbackPreservesNewerSelection() throws {
+        let first = TerminalSession(title: "first", workingDirectory: "/tmp")
+        let second = TerminalSession(title: "second", workingDirectory: "/tmp")
+        let store = SessionStore(
+            groups: [SessionGroup(name: "main", sessions: [first, second])],
+            selectedSessionID: first.id
+        )
+        let recovery = try #require(
+            store.recoverDaemon(
+                id: .generate(),
+                metadata: DaemonRecoveryMetadata(
+                    workspaceTitle: "Build", paneTitle: "Codex", groupID: nil,
+                    groupName: "Recovered", groupRemote: nil, agentKind: .codex
+                ),
+                cwd: "/tmp"
+            ))
+        store.selectedSessionID = second.id
+
+        store.rollbackDaemonRecovery(recovery)
+
+        #expect(store.selectedSessionID == second.id)
     }
 
     @Test("amx metadata fails closed for unknown payloads")

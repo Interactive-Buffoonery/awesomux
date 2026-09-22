@@ -774,25 +774,29 @@ extension SessionStore {
         guard entry.layout.contains(where: { $0.terminalSessionID == daemonID }) else { return nil }
         let previousSelection = selectedSessionID
         let previousGroupIDs = Set(_groups.map(\.id))
+        var candidateGroups = _groups
+        var candidateRecentlyClosed = recentlyClosed
+        var candidateLastClosedTransient = lastClosedTransient
         guard
             let sessionID = RecentlyClosedWorkspaceReducer.provisionallyReopen(
                 entry: entry,
-                in: &_groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &lastClosedTransient,
+                in: &candidateGroups,
+                recentlyClosed: &candidateRecentlyClosed,
+                lastClosedTransient: &candidateLastClosedTransient,
                 now: Date()
             ),
-            let groupIndex = _groups.firstIndex(where: { group in
+            let groupIndex = candidateGroups.firstIndex(where: { group in
                 group.sessions.contains { $0.id == sessionID }
             }),
-            let sessionIndex = _groups[groupIndex].sessions.firstIndex(where: {
+            let sessionIndex = candidateGroups[groupIndex].sessions.firstIndex(where: {
                 $0.id == sessionID
             }),
-            let pane = _groups[groupIndex].sessions[sessionIndex].panes.first(where: {
+            let pane = candidateGroups[groupIndex].sessions[sessionIndex].panes.first(where: {
                 $0.terminalSessionID == daemonID
             })
         else { return nil }
-        _groups[groupIndex].sessions[sessionIndex].layout = _groups[groupIndex].sessions[sessionIndex]
+        candidateGroups[groupIndex].sessions[sessionIndex].layout = candidateGroups[groupIndex]
+            .sessions[sessionIndex]
             .layout.mappingPanes { restoredPane in
                 var restoredPane = restoredPane
                 restoredPane.terminalBackendMetadata = TerminalBackendMetadata(
@@ -800,13 +804,16 @@ extension SessionStore {
                 )
                 return restoredPane
             }
+        _groups = candidateGroups
+        recentlyClosed = candidateRecentlyClosed
+        lastClosedTransient = candidateLastClosedTransient
         commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
         let token = UUID()
         daemonRecoveryTokens[sessionID] = token
         return DaemonRecoveryHandle(
             sessionID: sessionID, paneID: pane.id, previousSelection: previousSelection,
-            createdGroupID: previousGroupIDs.contains(_groups[groupIndex].id)
-                ? nil : _groups[groupIndex].id,
+            createdGroupID: previousGroupIDs.contains(candidateGroups[groupIndex].id)
+                ? nil : candidateGroups[groupIndex].id,
             token: token
         )
     }
@@ -821,15 +828,23 @@ extension SessionStore {
     public func rollbackDaemonRecovery(_ handle: DaemonRecoveryHandle) {
         guard daemonRecoveryTokens[handle.sessionID] == handle.token else { return }
         daemonRecoveryTokens[handle.sessionID] = nil
+        let currentSelection = selectedSessionID
         for groupIndex in _groups.indices {
             _groups[groupIndex].sessions.removeAll { $0.id == handle.sessionID }
         }
         if let createdGroupID = handle.createdGroupID {
             _groups.removeAll { $0.id == createdGroupID && $0.sessions.isEmpty }
         }
+        let remainingSessionIDs = Set(_groups.flatMap { $0.sessions.map(\.id) })
+        let selection =
+            currentSelection.flatMap { current in
+                current != handle.sessionID && remainingSessionIDs.contains(current) ? current : nil
+            } ?? handle.previousSelection.flatMap { previous in
+                remainingSessionIDs.contains(previous) ? previous : nil
+            } ?? _groups.first?.sessions.first?.id
         commit(
             WorkspaceMutationEffect(
-                needsFullRebuild: true, selection: .set(handle.previousSelection)
+                needsFullRebuild: true, selection: .set(selection)
             )
         )
     }

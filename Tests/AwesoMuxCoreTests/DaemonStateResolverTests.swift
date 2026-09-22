@@ -161,6 +161,50 @@ struct DaemonStateResolverTests {
         #expect(result[paneA.terminalSessionID]?.groupName == "Development")
     }
 
+    @Test("daemon metadata disambiguates duplicate workspace labels with pane titles")
+    func daemonMetadataDisambiguatesDuplicateLabels() {
+        let second = "22222222-2222-4222-8222-222222222222"
+        let firstMetadata = DaemonRecoveryMetadata(
+            workspaceTitle: "awesomux", paneTitle: "api", groupID: nil,
+            groupName: "Development", groupRemote: nil, agentKind: .codex
+        )
+        let secondMetadata = DaemonRecoveryMetadata(
+            workspaceTitle: "awesomux", paneTitle: "tests", groupID: nil,
+            groupName: "Development", groupRemote: nil, agentKind: .codex
+        )
+
+        let rows = resolve(live: [
+            LiveDaemon(
+                id: id(a), pid: 1, createdEpoch: 0, clients: 0,
+                recoveryMetadata: firstMetadata
+            ),
+            LiveDaemon(
+                id: id(second), pid: 2, createdEpoch: 0, clients: 0,
+                recoveryMetadata: secondMetadata
+            ),
+        ])
+
+        #expect(rows.first(where: { $0.id == id(a) })?.label == "awesomux · api")
+        #expect(rows.first(where: { $0.id == id(second) })?.label == "awesomux · tests")
+    }
+
+    @Test("duplicate daemon inventory entries do not disambiguate one workspace")
+    func duplicateDaemonInventoryDoesNotDisambiguateLabel() {
+        let metadata = DaemonRecoveryMetadata(
+            workspaceTitle: "awesomux", paneTitle: "api", groupID: nil,
+            groupName: "Development", groupRemote: nil, agentKind: .codex
+        )
+        let liveDaemon = LiveDaemon(
+            id: id(a), pid: 1, createdEpoch: 0, clients: 0,
+            recoveryMetadata: metadata
+        )
+
+        let rows = resolve(live: [liveDaemon, liveDaemon])
+
+        #expect(rows.count == 1)
+        #expect(rows[0].label == "awesomux")
+    }
+
     @Test("snapshot presentation counts a transient and persisted close once")
     func snapshotPresentationDeduplicatesCloseTiers() {
         let pane = TerminalPane(
