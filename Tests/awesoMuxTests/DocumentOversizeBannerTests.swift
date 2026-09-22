@@ -116,6 +116,18 @@ struct DocumentOversizePolicyTests {
 
 @Suite("Document oversize banner copy")
 struct DocumentOversizeBannerCopyTests {
+    @Test("restored snapshot copy directs Refresh without claiming a failed attempt")
+    @MainActor
+    func restoredSnapshotCopyIsHonest() {
+        let kind = DocumentOversizeBanner.Kind.remoteNotRefreshed
+        #expect(DocumentOversizeBanner.kicker(for: kind) == "showing a saved copy")
+        #expect(DocumentOversizeBanner.detail(for: kind).contains("may be out of date"))
+        let label = DocumentOversizeBanner.accessibilityLabel(fileName: "guide.md", kind: kind)
+        #expect(label.contains("guide.md has not been refreshed"))
+        #expect(label.contains("Refresh below"))
+        #expect(!label.contains("couldn't"))
+    }
+
     /// The rendered markdown body is a single text-area element labelled with
     /// the file name, so no heading inside the document is reachable as
     /// structure — this label is the only thing that tells a screen reader

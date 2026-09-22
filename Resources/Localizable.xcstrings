@@ -192,6 +192,9 @@
     "%arg has activity that will be interrupted. The workspace will be closed permanently and can't be reopened." : {
       "comment" : "Opening line of the clear-workspace confirmation dialog when the workspace has running activity. Argument is the bidi-isolated workspace title."
     },
+    "%arg has not been refreshed." : {
+      "comment" : "Accessibility lead for a remote document restored from its saved copy"
+    },
     "%arg integration" : {
 
     },
@@ -1974,6 +1977,9 @@
     "Falling" : {
       "comment" : "Diagnostics resource trend"
     },
+    "Fetch restored remote Markdown over SSH at the next launch. When off, use Refresh in a document to fetch its latest copy." : {
+      "comment" : "General settings hint for optional remote document refresh."
+    },
     "File transfer to %arg requires a small helper. awesoMux will install it for your account at %arg. It receives only files you explicitly approve and does not require administrator access." : {
       "comment" : "Remote helper installation explanation. Arguments are the declared SSH destination and fixed remote path.",
       "localizations" : {
@@ -3445,6 +3451,9 @@
     "Refresh needs a local terminal" : {
       "comment" : "Caption under a disabled Refresh button on a branch changes tab whose terminal is remote"
     },
+    "Refresh remote Markdown on launch" : {
+      "comment" : "General settings label."
+    },
     "Refreshing" : {
       "comment" : "Diagnostics refresh button busy state"
     },
@@ -4829,6 +4838,9 @@
     "This request mixes character scripts and may be disguised." : {
       "comment" : "Tooltip on the remote permission banner warning that the request text mixes writing systems (a homograph-spoof signal)"
     },
+    "This saved copy may be out of date. Use Refresh below to fetch the latest remote file." : {
+      "comment" : "Document banner for a remote snapshot restored without an automatic fetch"
+    },
     "This session is still running and can’t be resumed" : {
       "comment" : "Unavailable reason for resuming a session while an agent still holds the terminal"
     },
@@ -5565,6 +5577,9 @@
           }
         }
       }
+    },
+    "showing a saved copy" : {
+      "comment" : "Document banner kicker for an unverified restored remote snapshot"
     },
     "showing a stale copy" : {
       "comment" : "Document banner kicker when a remote snapshot could not be refreshed"
