@@ -162,6 +162,7 @@ struct PaletteAppActions {
     let togglePinWorkspace: @MainActor () -> Void
     let recenterPalette: @MainActor () -> Void
     let openSettings: @MainActor () -> Void
+    let reloadGhosttyConfiguration: @MainActor () -> Void
     let openInIDE: @MainActor () -> Void
     let showKeyboardCheatsheet: @MainActor () -> Void
     let openMarkdownFile: @MainActor () -> Void
@@ -180,6 +181,7 @@ struct PaletteAppActions {
     }
 
     static func noop(
+        reloadGhosttyConfiguration: @escaping @MainActor () -> Void = {},
         openRecentLink: @escaping @MainActor (String, TerminalSession.ID, TerminalPane.ID) -> Void = {
             _, _, _ in
         }
@@ -240,6 +242,7 @@ struct PaletteAppActions {
             togglePinWorkspace: action,
             recenterPalette: action,
             openSettings: action,
+            reloadGhosttyConfiguration: reloadGhosttyConfiguration,
             openInIDE: action,
             showKeyboardCheatsheet: action,
             openMarkdownFile: action,
@@ -944,6 +947,16 @@ enum PaletteCommandRegistry {
                 isEnabled: true,
                 selectionScope: .none,
                 run: actions.openSettings
+            ),
+            PaletteCommand(
+                id: KeyboardShortcutCatalog.reloadGhosttyConfiguration.id,
+                title: KeyboardShortcutCatalog.reloadGhosttyConfiguration.action,
+                subtitle: nil,
+                keywords: ["reload", "ghostty", "configuration", "settings", "refresh"],
+                shortcut: KeyboardShortcutCatalog.reloadGhosttyConfiguration,
+                isEnabled: true,
+                selectionScope: .none,
+                run: actions.reloadGhosttyConfiguration
             ),
             PaletteCommand(
                 id: "showWelcomeTour",

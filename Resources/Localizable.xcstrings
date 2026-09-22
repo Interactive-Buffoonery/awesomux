@@ -763,6 +763,9 @@
     "Apply" : {
       "comment" : "Button title that applies the selected layout preset."
     },
+    "Apply Ghostty configuration without restarting terminals" : {
+
+    },
     "Apply Layout Preset" : {
       "comment" : "Alert title for picking a layout preset to apply."
     },
@@ -1429,6 +1432,9 @@
     "Could not read this pane's scrollback." : {
       "comment" : "VoiceOver announcement when Show Scrollback cannot read the terminal history"
     },
+    "Could not reload Ghostty configuration." : {
+
+    },
     "Could not turn off Open at Login. Open System Settings > General > Login Items and remove awesoMux, then try again. %arg" : {
       "comment" : "Error shown when unregistering awesoMux as a login item fails."
     },
@@ -2079,6 +2085,12 @@
       "comment" : "Help text for the Files toggle when a generated document has unknown provenance"
     },
     "Ghostty" : {
+
+    },
+    "Ghostty configuration reloaded with warnings. Valid settings were applied." : {
+
+    },
+    "Ghostty configuration reloaded." : {
 
     },
     "Ghostty keybinds" : {
@@ -3451,6 +3463,9 @@
     "Refreshing…" : {
       "comment" : "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
     },
+    "Reload Ghostty Configuration" : {
+
+    },
     "Reload Terminal" : {
 
     },
@@ -4664,6 +4679,9 @@
     "The repository changed while awesoMux was reading it, so the diff wouldn't have matched the branch it names. Try again." : {
       "comment" : "Branch diff failure when HEAD moved between the start and end of the read"
     },
+    "The required awesoMux configuration could not be rebuilt. Your running configuration was kept." : {
+
+    },
     "The selection changed. Copy the draft and select the text again." : {
       "comment" : "Save recovery announcement for a stale text selection"
     },
@@ -4690,6 +4708,9 @@
     },
     "The target path already exists." : {
       "comment" : "Existing worktree target validation."
+    },
+    "The terminal runtime is not available." : {
+
     },
     "The workspace closed before the changes could open." : {
       "comment" : "VoiceOver announcement when a rendered branch diff has no workspace left to open into"
@@ -4955,6 +4976,9 @@
       "comment" : "Diagnostics history metric with no samples yet"
     },
     "Unavailable while notifications are muted." : {
+
+    },
+    "Unknown Ghostty configuration problem." : {
 
     },
     "Unmute" : {

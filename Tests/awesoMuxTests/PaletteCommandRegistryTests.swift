@@ -6,6 +6,23 @@ import Testing
 
 @Suite("Palette command registry")
 struct PaletteCommandRegistryTests {
+    @Test("configuration reload is callable without a workspace and follows the catalog")
+    @MainActor
+    func reloadConfigurationWithoutWorkspace() throws {
+        var calls = 0
+        let commands = PaletteCommandRegistry.commands(
+            sessionStore: SessionStore(groups: []), availability: .init(),
+            actions: .noop(reloadGhosttyConfiguration: { calls += 1 })
+        )
+        let command = try #require(PaletteCommandRegistry.command(id: "reloadGhosttyConfiguration", in: commands))
+        #expect(command.isEnabled)
+        #expect(command.selectionScope == .none)
+        #expect(command.shortcut?.configValue == KeyboardShortcutCatalog.reloadGhosttyConfiguration.configValue)
+        #expect(KeyboardShortcutCatalog.allBindings().contains { $0.id == command.id })
+        command.run()
+        #expect(calls == 1)
+    }
+
     @Test("Sidebar visibility title follows persistent hidden intent")
     @MainActor
     func sidebarVisibilityTitleFollowsHiddenIntent() throws {
@@ -205,6 +222,7 @@ struct PaletteCommandRegistryTests {
                 KeyboardShortcutCatalog.togglePinWorkspace.id,
                 "recenterPalette",
                 "openSettings",
+                "reloadGhosttyConfiguration",
                 "showWelcomeTour",
                 "openInIDE",
                 KeyboardShortcutCatalog.showKeyboardCheatsheet.id,
@@ -1385,9 +1403,9 @@ struct PaletteCommandRegistryTests {
         let session = makeSession(pane)
         let store = makeStore(session)
         var received: (String, TerminalSession.ID, TerminalPane.ID)?
-        let actions = PaletteAppActions.noop { value, sessionID, paneID in
+        let actions = PaletteAppActions.noop(openRecentLink: { value, sessionID, paneID in
             received = (value, sessionID, paneID)
-        }
+        })
         let row = try #require(
             recentLinkRows(in: store, actions: actions).first
         )

@@ -8,6 +8,31 @@ import Testing
 
 @Suite("Menu/binding collision detection")
 struct GhosttyRuntimeKeyCollisionTests {
+    @MainActor
+    @Test("only the expected reload action and chord bypass collision warnings")
+    func expectedReloadBindingOnly() throws {
+        try #require(GhosttyRuntime.initializeProcess())
+        let manager = GhosttyConfigManager(
+            clipboardWritePolicy: .ask, confirmClipboardRead: true,
+            copyOnSelect: .inherit, terminalAppearance: .defaultValue
+        )
+        for (contents, expected) in [
+            ("keybind = super+shift+,=reload_config\n", true),
+            ("keybind = clear\nkeybind = super+shift+Comma=reload_config\n", true),
+            ("keybind = super+shift+comma=new_tab\n", false),
+            ("keybind = super+shift+,=new_tab\n", false),
+        ] {
+            let config = try #require(ghostty_config_new())
+            defer { ghostty_config_free(config) }
+            try #require(manager.loadConfigContents(contents, into: config, filePrefix: "test-reload-binding", failureMode: .failRuntime))
+            ghostty_config_finalize(config)
+            #expect(GhosttyRuntime.isExpectedReloadBinding(KeyboardShortcutCatalog.reloadGhosttyConfiguration, config: config) == expected)
+            #expect(!GhosttyRuntime.isExpectedReloadBinding(KeyboardShortcutCatalog.newWorkspace, config: config))
+            let rebound = KeyboardShortcutCatalog.reloadGhosttyConfiguration.applying(.init(key: "r", modifiers: [.command, .shift]))
+            #expect(!GhosttyRuntime.isExpectedReloadBinding(rebound, config: config))
+        }
+    }
+
     @Test("no collisions reported when nothing configured collides")
     func noCollisionsByDefault() {
         // Default libghostty config has no bindings that collide with
@@ -73,6 +98,7 @@ struct GhosttyRuntimeKeyCollisionTests {
         // literals (not kVK_* constants) so a wrong constant in the
         // production table can't self-verify.
         let expected: [Character: UInt32] = [
+            ",": 0x2B,
             "[": 0x21, "]": 0x1E, "=": 0x18, "-": 0x1B, "'": 0x27, "\\": 0x2A,
             KeyEquivalent.upArrow.character: 0x7E,
             KeyEquivalent.downArrow.character: 0x7D,
