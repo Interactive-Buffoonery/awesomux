@@ -56,6 +56,37 @@ struct DaemonRecoveryMetadataSynchronizerTests {
         #expect(sleeps == 2)
     }
 
+    @Test("an initial failure retries once without another mutation")
+    func retriesInitialFailureOnce() async throws {
+        let id = try #require(TerminalSessionID(rawValue: "sync-initial-retry"))
+        let gate = AsyncGate()
+        var now = ContinuousClock.now
+        let deadline = now.advanced(by: .seconds(30))
+        var attempts = 0
+        let synchronizer = DaemonRecoveryMetadataSynchronizer(
+            now: { now },
+            sleepUntil: { requested in
+                #expect(requested == deadline)
+                await gate.wait()
+            }
+        ) { _, _ in
+            attempts += 1
+            return false
+        }
+        defer {
+            synchronizer.invalidate()
+            gate.open()
+        }
+
+        await synchronizer.synchronize(groups: [fixture(id: id)])
+        #expect(await waitUntil { gate.waiterCount == 1 })
+        now = deadline
+        gate.open()
+        #expect(await waitUntil { attempts == 2 })
+        await drainMainQueue()
+        #expect(gate.waitCallCount == 1)
+    }
+
     @Test("cooldown flushes the latest skipped metadata without another mutation")
     func flushesLatestSkippedUpdate() async throws {
         let id = try #require(TerminalSessionID(rawValue: "sync-deferred"))
@@ -75,7 +106,7 @@ struct DaemonRecoveryMetadataSynchronizerTests {
         }
         var group = fixture(id: id)
         await synchronizer.synchronize(groups: [group])
-        #expect(gate.waitCallCount == 0)
+        #expect(await waitUntil { gate.waiterCount == 1 })
         group.sessions[0].title = "Intermediate"
         await synchronizer.synchronize(groups: [group])
         #expect(await waitUntil { gate.waiterCount == 1 })

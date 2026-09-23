@@ -65,8 +65,13 @@ final class DaemonRecoveryMetadataSynchronizer {
                     written[id] = metadata
                     retryAfter[id] = nil
                 } else {
-                    // Failure alone does not start an autonomous retry loop.
-                    retryAfter[id] = now().advanced(by: .seconds(30))
+                    let deadline = now().advanced(by: .seconds(30))
+                    retryAfter[id] = deadline
+                    // Retry an initial failure once; a failed deferred flush does not chain.
+                    if snapshot.ids == nil {
+                        nextDeadline = min(nextDeadline ?? deadline, deadline)
+                        skippedIDs.insert(id)
+                    }
                 }
             }
             scheduleDeferredWrite(until: nextDeadline, ids: skippedIDs)
