@@ -121,6 +121,27 @@ latched errors, or corrupted persistence.
   daemons that don't exist, and does not crash-loop on launch.
   Notes: ____________
 
+### A8. Session Manager identification and recovery
+
+- [ ] Create two same-folder workspaces and a split, then rename a workspace,
+  move it between groups, and change a group's remote target. In verbose
+  `amx list`, verify each daemon retains its UUID while `cwd` and encoded
+  `awesomux.*` labels follow the stable workspace/pane/group state.
+- [ ] Close one workspace into Detached and use **Restore**. Verify the exact
+  daemon ID, pane selection, layout, and scrollback survive.
+- [ ] Leave an owned daemon behind without a live/reopen owner and use
+  **Recover**. Verify one workspace/pane is created in the recorded group, or
+  the group is recreated/disambiguated when missing.
+- [ ] Repeat with a pre-label local daemon: cwd fallback may recover it. An
+  ambiguous or remote path must stay UUID-attachable but refuse automatic
+  recovery.
+- [ ] Between display and activation, separately make the daemon vanish and
+  attach another client. Verify recovery stays in the panel, refreshes, and
+  creates no replacement shell or stranded provisional workspace.
+- [ ] Exercise Return and VoiceOver on Open/Restore/Recover rows. Verify the
+  label, directory, lifecycle, activity, age, clients, and action are spoken;
+  repeat with duplicate workspace names and long Unicode titles/paths.
+
 ---
 
 ## B. Runtime respawn & end-reason (re-confirm INT-572)

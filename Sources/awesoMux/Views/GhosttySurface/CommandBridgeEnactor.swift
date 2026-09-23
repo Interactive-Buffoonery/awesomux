@@ -117,9 +117,10 @@ final class CommandBridgeEnactor {
         (
             TerminalSessionID,
             AmxStatusChannel?,
-            RemoteTarget?
-        ) -> String? = { sessionID, status, remote in
-            AmxBackend.attachCommand(for: sessionID, status: status, remote: remote)
+            RemoteTarget?,
+            AmxAttachMode
+        ) -> String? = { sessionID, status, remote, mode in
+            AmxBackend.attachCommand(for: sessionID, status: status, remote: remote, mode: mode)
         }
     var remoteOwnedAttachCommandProvider:
         (
@@ -185,6 +186,7 @@ final class CommandBridgeEnactor {
     /// from `createSurfaceIfNeeded`.
     func prepareAttach(for pane: TerminalPane, bridgeEnabled: Bool) -> SurfaceLaunchCommand {
         let remote = pane.executionPlan.remoteTarget
+        let mode = attachMode(for: pane)
         // Availability probe only, deliberately built WITHOUT a status channel:
         // `attachCommand` fails solely on a missing bundled `amx` (or an invalid
         // id), never on the channel, so the policy can be decided before any
@@ -194,7 +196,7 @@ final class CommandBridgeEnactor {
         // would only have to delete it again.
         let baseAttachCommand: String? =
             bridgeEnabled
-            ? attachCommandProvider(pane.terminalSessionID, nil, remote)
+            ? attachCommandProvider(pane.terminalSessionID, nil, remote, mode)
             : nil
         let policyResult = BridgeSurfaceCommandPolicy.command(
             bridgeEnabled: bridgeEnabled,
@@ -221,17 +223,39 @@ final class CommandBridgeEnactor {
             // never names, so `beginExitSupervision` would trust an empty feed
             // instead of falling back to the legacy exitCode probe.
             if let channel,
-                let command = attachCommandProvider(pane.terminalSessionID, channel, remote)
+                let command = attachCommandProvider(pane.terminalSessionID, channel, remote, mode)
             {
-                beginStatusWatch(channel: channel)
+                let recoveryExpectationToken =
+                    mode == .existingOnly
+                    ? SessionRecoveryConfirmationCenter.shared.expectationToken(
+                        for: pane.terminalSessionID
+                    ) : nil
+                guard mode != .existingOnly || recoveryExpectationToken != nil else {
+                    try? FileManager.default.removeItem(at: channel.fileURL)
+                    beginStatusWatch(channel: nil)
+                    latchErrorDeferringChrome(clearBackendMetadata: false)
+                    return .localShell
+                }
+                beginStatusWatch(
+                    channel: channel, recoveryExpectationToken: recoveryExpectationToken
+                )
                 return .bridgeAttach(command)
             }
             // No usable channel: drop any file we just minted (nothing will ever
-            // write it) and attach statusless, with the stale watcher cleared.
+            // write it) and clear the stale watcher. Ordinary attach keeps its
+            // legacy statusless fallback; recovery fails closed below.
             if let channel {
                 try? FileManager.default.removeItem(at: channel.fileURL)
             }
             beginStatusWatch(channel: nil)
+            if mode == .existingOnly {
+                // Recovery must be confirmed by this pane's authenticated status
+                // event. A client count cannot identify who attached, so never
+                // launch an existing-only attach without its ownership signal.
+                SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
+                latchErrorDeferringChrome(clearBackendMetadata: false)
+                return .localShell
+            }
             return .bridgeAttach(baseAttachCommand)
         case .remoteOwnedAttach:
             // A pane re-pointed from a bridge session to a remote-owned one
@@ -296,9 +320,11 @@ final class CommandBridgeEnactor {
     /// views" runaway guard — an uncaught NSException that beachballs then kills
     /// the app. One runloop hop lands the error chrome in a fresh, non-reentrant
     /// layout pass.
-    private func latchErrorDeferringChrome() {
+    private func latchErrorDeferringChrome(clearBackendMetadata: Bool = true) {
         errorLatched = true
-        DispatchQueue.main.async { [weak self] in self?.markError() }
+        DispatchQueue.main.async { [weak self] in
+            self?.markError(clearBackendMetadata: clearBackendMetadata)
+        }
     }
 
     /// Retire a pending manual reconnect's overlay on a remote-owned pane. That
@@ -572,7 +598,7 @@ final class CommandBridgeEnactor {
     /// Mint and arm the status watcher for a freshly-built bridge attach.
     /// Called from the `.bridgeAttach` lifecycle path. Replaces any prior
     /// watcher (a previous attach for the same pane) so only one feed is live.
-    func beginStatusWatch(channel: AmxStatusChannel?) {
+    func beginStatusWatch(channel: AmxStatusChannel?, recoveryExpectationToken: UUID? = nil) {
         // Drop a stale watcher before handling the new channel. This matters
         // even when the new attach is the legacy/no-status path.
         statusWatcher?.stop()
@@ -588,7 +614,9 @@ final class CommandBridgeEnactor {
         // main actor — no hop needed here. The `[weak self]` capture keeps the
         // watcher from extending the enactor's lifetime.
         let watcher = AmxStatusFileWatcher(channel: channel) { [weak self] events in
-            self?.handleStatusEvents(events)
+            self?.handleStatusEvents(
+                events, recoveryExpectationToken: recoveryExpectationToken
+            )
         }
         statusWatcher = watcher
         watcher.start()
@@ -598,7 +626,9 @@ final class CommandBridgeEnactor {
     /// incarnation (fresh-vs-reconnect) and arms an uptime-gated budget refill; a
     /// `session-end` records the reason the process-exit path later decides on
     /// and cancels any pending refill (the incarnation didn't prove healthy).
-    func handleStatusEvents(_ events: [AmxStatusEvent]) {
+    func handleStatusEvents(
+        _ events: [AmxStatusEvent], recoveryExpectationToken: UUID? = nil
+    ) {
         // A latched-error pane must be inert to further status events. A stray
         // or late `attached` line on the status file must not silently un-error
         // the pane (clearing agent chrome + false-announcing "Session restarted")
@@ -613,6 +643,24 @@ final class CommandBridgeEnactor {
             guard let sessionID, event.session == sessionID.rawValue else { continue }
             switch event.kind {
             case let .attached(created, daemonPid, daemonCreatedAt):
+                if let recoveryExpectationToken {
+                    guard
+                        SessionRecoveryConfirmationCenter.shared.confirm(
+                            sessionID,
+                            expectationToken: recoveryExpectationToken,
+                            daemonPID: daemonPid,
+                            createdEpoch: daemonCreatedAt
+                        )
+                    else {
+                        markError(clearBackendMetadata: false)
+                        return
+                    }
+                }
+                sessionStore.updateTerminalBackendMetadata(
+                    sessionID: hostSessionID,
+                    paneID: paneID,
+                    metadata: AmxBackend.establishedSessionMetadata
+                )
                 let incarnation = AmxDaemonIncarnation(pid: daemonPid, createdAt: daemonCreatedAt)
                 let outcome = respawnLedger.recordAttach(incarnation)
                 // `created` on a first attach means amx launched a new daemon
@@ -709,6 +757,35 @@ final class CommandBridgeEnactor {
                 }
             }
         }
+    }
+
+    private func attachMode(for pane: TerminalPane) -> AmxAttachMode {
+        guard pane.terminalBackendMetadata.amxAttachDisposition == .createOrAttach else {
+            return .existingOnly
+        }
+        for group in sessionStore.groups {
+            guard let session = group.sessions.first(where: { $0.id == hostSessionID }) else {
+                continue
+            }
+            return .createOrAttach(
+                metadata: DaemonRecoveryMetadata(
+                    workspaceTitle: session.title,
+                    paneTitle: pane.title,
+                    groupID: group.id,
+                    groupName: group.name,
+                    groupRemote: group.remote,
+                    agentKind: pane.agentKind
+                ))
+        }
+        return .createOrAttach(
+            metadata: DaemonRecoveryMetadata(
+                workspaceTitle: nil,
+                paneTitle: pane.title,
+                groupID: nil,
+                groupName: nil,
+                groupRemote: nil,
+                agentKind: pane.agentKind
+            ))
     }
 
     /// Schedule the grace-gated respawn-budget refill. Replaces any prior pending
@@ -824,6 +901,14 @@ final class CommandBridgeEnactor {
             return
         }
 
+        if sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID)?
+            .terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        {
+            SessionRecoveryConfirmationCenter.shared.cancel(sessionID)
+            markError(clearBackendMetadata: false)
+            return
+        }
+
         // Remote-owned pane: no status feed is ever armed for it, so it would
         // otherwise fall into the legacy path below — and both halves of that
         // path are wrong here. `sessionExists` probes the LOCAL `amx list`,
@@ -922,6 +1007,16 @@ final class CommandBridgeEnactor {
     /// absence) through the pure `BridgeSessionEndPolicy`, then enact the result.
     /// Synchronous — the reason is already known, no async daemon probe needed.
     private func decideExitFromStatus() {
+        if let sessionID,
+            sessionStore.session(id: hostSessionID)?.layout.pane(id: paneID)?
+                .terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        {
+            latestSessionEndReason = nil
+            latestSessionEndCode = nil
+            SessionRecoveryConfirmationCenter.shared.cancel(sessionID)
+            markError(clearBackendMetadata: false)
+            return
+        }
         let reason = latestSessionEndReason
         let exitCode = latestSessionEndCode
         let isRemote = host.pane.executionPlan.remoteTarget != nil
@@ -1088,7 +1183,7 @@ final class CommandBridgeEnactor {
         _ = remoteOwnedExitStatusConsumer(url)
     }
 
-    func markError() {
+    func markError(clearBackendMetadata: Bool = true) {
         exitResolutionPending = false
         exitProbeInFlight = false
         errorLatched = true
@@ -1103,11 +1198,13 @@ final class CommandBridgeEnactor {
         // retry/recycle re-attach re-writes `established`, so the poll correctly
         // waits for re-confirmation. `updateTerminalBackendMetadata` no-ops when
         // already empty.
-        sessionStore.updateTerminalBackendMetadata(
-            sessionID: hostSessionID,
-            paneID: paneID,
-            metadata: .empty
-        )
+        if clearBackendMetadata {
+            sessionStore.updateTerminalBackendMetadata(
+                sessionID: hostSessionID,
+                paneID: paneID,
+                metadata: .empty
+            )
+        }
         sessionStore.recordPaneProcessError(
             in: hostSessionID,
             paneID: paneID,

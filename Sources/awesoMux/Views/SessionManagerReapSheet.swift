@@ -14,6 +14,7 @@ import SwiftUI
 @MainActor
 struct SessionManagerReapSheet: View {
     let row: DaemonRow
+    let reapDisabled: Bool
     let onCancel: () -> Void
     let onReap: () -> Void
 
@@ -91,6 +92,7 @@ struct SessionManagerReapSheet: View {
                     Label("End session", systemImage: "trash")
                 }
                 .buttonStyle(SessionManagerDangerButtonStyle())
+                .disabled(reapDisabled)
                 .keyboardShortcut(.defaultAction)
             }
         }

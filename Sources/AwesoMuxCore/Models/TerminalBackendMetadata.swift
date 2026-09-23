@@ -36,3 +36,17 @@ public struct TerminalBackendMetadata: RawRepresentable, Codable, Hashable, Send
         try container.encode(rawValue)
     }
 }
+
+public enum AmxAttachDisposition: Hashable, Sendable {
+    case createOrAttach
+    case existingOnly
+}
+
+extension TerminalBackendMetadata {
+    public var amxAttachDisposition: AmxAttachDisposition {
+        switch rawValue {
+        case "", "amx:v1:established": .createOrAttach
+        default: .existingOnly
+        }
+    }
+}

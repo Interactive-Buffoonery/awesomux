@@ -56,6 +56,26 @@ enum DaemonLifecyclePresentation {
     }
 }
 
+enum SessionManagerPrimaryAction: Equatable { case open, restore, recover }
+
+extension DaemonRow {
+    var primaryAction: SessionManagerPrimaryAction? {
+        switch lifecycle {
+        case .owned: .open
+        case .detachedRestorable: .restore
+        case .abandoned, .expired: .recover
+        case .inUseElsewhere: nil
+        }
+    }
+
+    func matches(query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        return [label, directory, groupName, agentKind?.displayName, id.rawValue]
+            .compactMap { $0 }
+            .contains { $0.localizedStandardContains(query) }
+    }
+}
+
 // MARK: - Atoms
 
 /// Activity dot + text. Busy = a filled green dot with a soft halo; idle = a
@@ -167,20 +187,23 @@ struct SessionManagerPanel: View {
     let focusState: SessionManagerFocusState
     /// Selects the workspace/pane that owns a daemon, then dismisses. Wired by
     /// the app to the same selection path the command palette uses.
-    let onJump: (TerminalSessionID) -> Void
+    let onActivate: (DaemonRow) -> Void
     let onConfigureAutoCleanup: () -> Void
 
     /// Orphan (abandoned/expired) row awaiting the cheap inline confirm.
     @State private var inlineConfirmID: TerminalSessionID?
     /// Live/restorable row awaiting the full confirm sheet.
     @State private var sheetRow: DaemonRow?
+    @State private var query = ""
+    @State private var searchAnnouncementWorkItem: DispatchWorkItem?
+    @FocusState private var focusedRowID: TerminalSessionID?
 
     static func shortIDSuffix(_ id: TerminalSessionID) -> String {
         String(id.rawValue.prefix(8))
     }
 
     private var groups: [(lifecycle: DaemonLifecycle, rows: [DaemonRow])] {
-        let byLifecycle = Dictionary(grouping: model.rows, by: \.lifecycle)
+        let byLifecycle = Dictionary(grouping: model.rows.filter { $0.matches(query: query) }, by: \.lifecycle)
         return DaemonLifecyclePresentation.groupOrder.compactMap { lifecycle in
             guard let rows = byLifecycle[lifecycle], !rows.isEmpty else { return nil }
             return (lifecycle, rows)
@@ -204,7 +227,28 @@ struct SessionManagerPanel: View {
             if model.rows.isEmpty {
                 emptyState
             } else {
-                list
+                TextField("Search sessions", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, AwSpacing.panelPadding)
+                    .padding(.vertical, 8)
+                if groups.isEmpty {
+                    Text("No matching sessions")
+                        .awFont(AwFont.UI.meta)
+                        .foregroundStyle(Color.aw.text2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityAddTraits(.isStaticText)
+                } else {
+                    list
+                }
+            }
+            if let status = model.activationStatus {
+                Text(status)
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(Color.aw.text2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AwSpacing.panelPadding)
+                    .padding(.vertical, 6)
+                    .accessibilityAddTraits(.updatesFrequently)
             }
             footer
         }
@@ -219,10 +263,19 @@ struct SessionManagerPanel: View {
             RoundedRectangle(cornerRadius: AwRadius.window)
                 .stroke(Color.aw.border2, lineWidth: 0.5)
         }
-        .overlay {
-            if let sheetRow {
-                reapSheetOverlay(sheetRow)
-            }
+        .onChange(of: query) { _, _ in announceSearchResults() }
+        .onDisappear { searchAnnouncementWorkItem?.cancel() }
+        .sheet(item: $sheetRow) { row in
+            SessionManagerReapSheet(
+                row: row,
+                reapDisabled: model.activatingID != nil,
+                onCancel: { sheetRow = nil },
+                onReap: {
+                    guard model.activatingID == nil else { return }
+                    Task { _ = await model.reap(row) }
+                    sheetRow = nil
+                }
+            )
         }
         // No container label: `FloatingPanelTitlebar` carries this panel's
         // identity and hint now, so labelling the container too made VoiceOver
@@ -327,9 +380,15 @@ struct SessionManagerPanel: View {
             HStack(spacing: 14) {
                 ActivityIndicator(activity: row.activity)
                     .frame(width: 64, alignment: .leading)
-                ShortID(id: row.id)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                OwnerCell(owner: row.owner)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.label).lineLimit(1).truncationMode(.middle)
+                        .awFont(AwFont.UI.meta).foregroundStyle(Color.aw.text)
+                    ShortID(id: row.id)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(row.directory ?? "—")
+                    .lineLimit(1).truncationMode(.middle)
+                    .awFont(AwFont.Mono.meta).foregroundStyle(Color.aw.text2)
                     .frame(width: 180, alignment: .leading)
                 Text(RelativeAge.string(
                     sinceEpoch: row.createdEpoch,
@@ -352,6 +411,19 @@ struct SessionManagerPanel: View {
                 inlineConfirm(row)
             }
         }
+        .focusable(row.primaryAction != nil)
+        .focused($focusedRowID, equals: row.id)
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.space, .return], phases: .down) { press in
+            guard focusedRowID == row.id,
+                row.primaryAction != nil,
+                model.activatingID == nil,
+                press.modifiers.subtracting(.capsLock).isEmpty
+            else { return .ignored }
+            onActivate(row)
+            return .handled
+        }
+        .awFocusRing(focusedRowID == row.id, cornerRadius: AwRadius.panel)
         .background {
             RoundedRectangle(cornerRadius: AwRadius.panel)
                 .fill(isConfirming ? Color.aw.peach.opacity(0.08) : Color.aw.surface.hover.opacity(0.0))
@@ -392,6 +464,35 @@ struct SessionManagerPanel: View {
             .accessibilityLabel(rowAccessibilityLabel(row) + ", can't clean up while in use elsewhere")
         } else {
             HStack(spacing: 2) {
+                if let primaryAction = row.primaryAction {
+                    Button {
+                        onActivate(row)
+                    } label: {
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.aw.text3)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.activatingID != nil)
+                    .accessibilityLabel(
+                        String(
+                            format: String(
+                                localized: "%1$@ %2$@",
+                                comment: "Session Manager action followed by the session name"
+                            ),
+                            primaryAction.label, row.label
+                        )
+                    )
+                    .accessibilityHint(
+                        row.directory
+                            ?? String(
+                                localized: "Session directory unavailable",
+                                comment: "Session Manager action hint when the session directory is unknown"
+                            )
+                    )
+                    .help(primaryAction.label)
+                }
                 Button {
                     model.setPinned(!row.pinned, for: row.id)
                 } label: {
@@ -405,21 +506,9 @@ struct SessionManagerPanel: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .disabled(model.activatingID != nil)
                 .accessibilityLabel(row.pinned ? "Unpin session" : "Pin session")
                 .accessibilityHint("Pinned sessions are exempt from auto-cleanup.")
-
-                if row.owner != nil {
-                    Button {
-                        onJump(row.id)
-                    } label: {
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.aw.text3)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Jump to owning pane")
-                }
 
                 Button {
                     confirmOrReap(row)
@@ -430,6 +519,7 @@ struct SessionManagerPanel: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
+                .disabled(model.activatingID != nil)
                 .accessibilityLabel("End session")
                 .accessibilityHint("Stops the session's shell and discards its scrollback.")
             }
@@ -445,11 +535,17 @@ struct SessionManagerPanel: View {
         var parts = [
             DaemonLifecyclePresentation.label(row.lifecycle),
             row.activity == .busy ? "busy" : "idle",
-            row.owner ?? "no owner",
+            row.label,
+            row.directory
+                ?? String(
+                    localized: "directory unavailable",
+                    comment: "Session Manager row description when the session directory is unknown"
+                ),
             "\(RelativeAge.string(sinceEpoch: row.createdEpoch, now: Int(Date().timeIntervalSince1970))) old",
             LocalizedPluralStrings.sessionManagerClients(count: row.clients)
         ]
         if row.pinned { parts.append("pinned") }
+        parts.append(row.shortID)
         return parts.joined(separator: ", ")
     }
 
@@ -468,44 +564,30 @@ struct SessionManagerPanel: View {
 
     private func inlineConfirm(_ row: DaemonRow) -> some View {
         HStack(spacing: 12) {
-            Text("Clean up this ")
+            Text("End this ")
                 .foregroundStyle(Color.aw.text2)
                 + Text(DaemonLifecyclePresentation.label(row.lifecycle).lowercased())
                 .foregroundStyle(Color.aw.peach).bold()
-                + Text(" daemon? It has no owner — nothing restores it.")
+                + Text(" daemon? This discards its scrollback.")
                 .foregroundStyle(Color.aw.text2)
             Spacer(minLength: 0)
             Button("Cancel") { inlineConfirmID = nil }
                 .buttonStyle(SessionManagerGhostButtonStyle())
             Button {
+                guard model.activatingID == nil else { return }
                 Task { _ = await model.reap(row) }
                 inlineConfirmID = nil
             } label: {
                 Label("Clean up", systemImage: "trash")
             }
             .buttonStyle(SessionManagerDangerButtonStyle())
+            .disabled(model.activatingID != nil)
         }
         .awFont(AwFont.UI.meta)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .overlay(alignment: .top) {
             Rectangle().fill(Color.aw.peach.opacity(0.3)).frame(height: 0.5)
-        }
-    }
-
-    private func reapSheetOverlay(_ row: DaemonRow) -> some View {
-        ZStack {
-            Color.aw.surface.chrome2.opacity(0.55)
-                .ignoresSafeArea()
-                .onTapGesture { sheetRow = nil }
-            SessionManagerReapSheet(
-                row: row,
-                onCancel: { sheetRow = nil },
-                onReap: {
-                    Task { _ = await model.reap(row) }
-                    sheetRow = nil
-                }
-            )
         }
     }
 
@@ -608,11 +690,8 @@ struct SessionManagerPanel: View {
 
             Spacer(minLength: 0)
 
-            // Honest hint: pin/reap are click actions, Esc dismisses. Full
-            // keyboard nav (focus a row, Space/↑↓/P/⌫) is a deferred fast-follow
-            // (INT-577) — don't advertise keys that do nothing yet.
             HStack(spacing: 6) {
-                Text("click to pin · end session").foregroundStyle(Color.aw.textFaint)
+                Text("pin · end session").foregroundStyle(Color.aw.textFaint)
                 KBD("Esc")
                 Text("dismiss").foregroundStyle(Color.aw.textFaint)
             }
@@ -643,6 +722,43 @@ struct SessionManagerPanel: View {
                 localized: "Auto-cleanup is off.",
                 comment: "Session Manager footer accessibility summary when auto-cleanup is disabled"
             )
+    }
+
+    private func announceSearchResults() {
+        searchAnnouncementWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            let count = groups.reduce(0) { $0 + $1.rows.count }
+            model.announce(
+                count == 0
+                    ? String(
+                        localized: "No matching sessions",
+                        comment: "Session Manager search announcement when no sessions match"
+                    )
+                    : LocalizedPluralStrings.sessionManagerSessions(count: count)
+            )
+        }
+        searchAnnouncementWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+}
+
+extension SessionManagerPrimaryAction {
+    var label: String {
+        switch self {
+        case .open: String(localized: "Open session", comment: "Session Manager action to select an open session")
+        case .restore: String(localized: "Restore session", comment: "Session Manager action to restore a detached session")
+        case .recover: String(localized: "Recover session", comment: "Session Manager action to recover an abandoned session")
+        }
+    }
+
+    func successLabel(for sessionLabel: String) -> String {
+        let format =
+            switch self {
+            case .open: String(localized: "Opened session %@.", comment: "Session Manager successful open announcement")
+            case .restore: String(localized: "Restored session %@.", comment: "Session Manager successful restore announcement")
+            case .recover: String(localized: "Recovered session %@.", comment: "Session Manager successful recovery announcement")
+            }
+        return String(format: format, sessionLabel)
     }
 }
 

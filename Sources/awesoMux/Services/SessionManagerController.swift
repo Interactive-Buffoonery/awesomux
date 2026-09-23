@@ -20,7 +20,10 @@ final class SessionManagerController {
     @ObservationIgnored private let focusState = SessionManagerFocusState()
     @ObservationIgnored private var isDismissing = false
     @ObservationIgnored private weak var model: SessionManagerModel?
-    @ObservationIgnored private var onJump: (TerminalSessionID) -> Void = { _ in }
+    @ObservationIgnored private var onSelect: (TerminalSession.ID, TerminalPane.ID) -> Void = { _, _ in }
+    @ObservationIgnored private var activationInFlight = false
+    @ObservationIgnored private var activationTask: Task<Void, Never>?
+    @ObservationIgnored private var activationToken: UUID?
     // Set by the app so this floating-panel root can carry the appearance
     // bridge (accent, glow, UI font, text scale). Without it the panel hosts a
     // detached SwiftUI tree that wouldn't scale with the text-size setting.
@@ -42,22 +45,22 @@ final class SessionManagerController {
     func toggle(
         model: SessionManagerModel,
         relativeTo parentWindow: NSWindow?,
-        onJump: @escaping (TerminalSessionID) -> Void
+        onSelect: @escaping (TerminalSession.ID, TerminalPane.ID) -> Void
     ) {
         if isVisible {
             dismiss()
         } else {
-            show(model: model, relativeTo: parentWindow, onJump: onJump)
+            show(model: model, relativeTo: parentWindow, onSelect: onSelect)
         }
     }
 
     func show(
         model: SessionManagerModel,
         relativeTo parentWindow: NSWindow?,
-        onJump: @escaping (TerminalSessionID) -> Void
+        onSelect: @escaping (TerminalSession.ID, TerminalPane.ID) -> Void
     ) {
         self.model = model
-        self.onJump = onJump
+        self.onSelect = onSelect
         // Inject the a11y announce sink so model snapshot diffs are spoken
         // against this panel (a non-key window's announcements are dropped).
         model.announce = { [weak self] message in
@@ -73,7 +76,11 @@ final class SessionManagerController {
         isVisible = true
         model.startPolling()
         postAnnouncement(
-            "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Pin or End Session. Press Escape to dismiss.",
+            String(
+                localized:
+                    "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Open, Restore, Recover, Pin, or End Session. Press Escape to dismiss.",
+                comment: "VoiceOver introduction to the Session Manager and its available actions"
+            ),
             priority: .high
         )
     }
@@ -87,6 +94,12 @@ final class SessionManagerController {
             return
         }
         isDismissing = true
+        activationToken = nil
+        activationTask?.cancel()
+        if activationTask == nil {
+            activationInFlight = false
+            model?.setActivationState(id: nil, status: nil)
+        }
         isVisible = false
         focusState.isKeyWindow = false
         model?.stopPolling()
@@ -110,9 +123,8 @@ final class SessionManagerController {
         let root = SessionManagerPanel(
             model: model,
             focusState: focusState,
-            onJump: { [weak self] id in
-                self?.onJump(id)
-                self?.dismiss()
+            onActivate: { [weak self] row in
+                self?.activate(row, model: model)
             },
             onConfigureAutoCleanup: { [weak self] in
                 self?.configureAutoCleanup()
@@ -122,6 +134,78 @@ final class SessionManagerController {
             root.appearanceBridge(appSettingsStore)
         } else {
             root
+        }
+    }
+
+    private func activate(_ row: DaemonRow, model: SessionManagerModel) {
+        guard !activationInFlight else { return }
+        activationInFlight = true
+        let action =
+            row.primaryAction?.label
+            ?? String(
+                localized: "Opening session",
+                comment: "Fallback Session Manager action while opening a session"
+            )
+        let pending = String(
+            format: String(
+                localized: "%1$@ %2$@…",
+                comment: "Session Manager activation progress; action followed by the session name"
+            ),
+            action, row.label
+        )
+        model.setActivationState(id: row.id, status: pending)
+        postAnnouncement(pending)
+        let token = UUID()
+        activationToken = token
+        activationTask = Task { [weak self] in
+            let result = await model.activate(row)
+            guard let self else { return }
+            let shouldPresentResult = activationToken == token
+            activationTask = nil
+            activationToken = nil
+            activationInFlight = false
+            guard shouldPresentResult else {
+                model.setActivationState(id: nil, status: nil)
+                return
+            }
+            switch result {
+            case let .opened(sessionID, paneID):
+                model.setActivationState(id: nil, status: nil)
+                postAnnouncement(SessionManagerPrimaryAction.open.successLabel(for: row.label))
+                onSelect(sessionID, paneID)
+                dismiss()
+            case let .restored(sessionID, paneID):
+                model.setActivationState(id: nil, status: nil)
+                postAnnouncement(SessionManagerPrimaryAction.restore.successLabel(for: row.label))
+                onSelect(sessionID, paneID)
+                dismiss()
+            case let .recovered(sessionID, paneID):
+                model.setActivationState(id: nil, status: nil)
+                postAnnouncement(SessionManagerPrimaryAction.recover.successLabel(for: row.label))
+                onSelect(sessionID, paneID)
+                dismiss()
+            case .unavailable:
+                let message = String(
+                    localized: "Session is no longer available.",
+                    comment: "Session Manager activation failed because the daemon disappeared"
+                )
+                model.setActivationState(id: nil, status: message)
+                postAnnouncement(message)
+            case .changed:
+                let message = String(
+                    localized: "Session state changed. The list was refreshed.",
+                    comment: "Session Manager activation stopped because the selected daemon changed"
+                )
+                model.setActivationState(id: nil, status: message)
+                postAnnouncement(message)
+            case .inventoryUnavailable:
+                let message = String(
+                    localized: "Couldn't verify the session. Try again.",
+                    comment: "Session Manager could not verify the daemon before activation"
+                )
+                model.setActivationState(id: nil, status: message)
+                postAnnouncement(message)
+            }
         }
     }
 

@@ -170,7 +170,7 @@ struct CommandBridgeEnactorTests {
         // channel-bearing rebuild fails. Arming off the mint alone would leave a
         // watcher on a file the spawned command never names, and the exit path
         // would then trust that permanently empty feed.
-        enactor.attachCommandProvider = { sessionID, status, _ in
+        enactor.attachCommandProvider = { sessionID, status, _, _ in
             status == nil ? "amx attach \(sessionID.rawValue)" : nil
         }
 
@@ -180,6 +180,32 @@ struct CommandBridgeEnactorTests {
         #expect(enactor.statusWatcher == nil)
         #expect(enactor.statusChannel == nil)
         #expect(statusFileNames(for: fixture.sessionID).isEmpty)
+    }
+
+    @Test("existing-only attach fails closed without a channel-bearing command")
+    func existingOnlyAttachRequiresStatusChannel() throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "dddddddd-dddd-4ddd-8ddd-dddddddddddd"))
+        let pane = TerminalPane(
+            terminalSessionID: sessionID,
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:existing-only"),
+            title: "recover",
+            workingDirectory: "/tmp/recover",
+            executionPlan: .local
+        )
+        let fixture = try makeFixture(sessionID: sessionID, pane: pane)
+        let enactor = fixture.view.commandBridgeEnactor
+        enactor.attachCommandProvider = { id, status, _, _ in
+            status == nil ? "amx attach --existing \(id.rawValue)" : nil
+        }
+
+        let launch = enactor.prepareAttach(for: pane, bridgeEnabled: true)
+
+        #expect(launch == .localShell)
+        #expect(enactor.errorLatched)
+        #expect(enactor.statusWatcher == nil)
+        #expect(enactor.statusChannel == nil)
+        #expect(statusFileNames(for: sessionID).isEmpty)
     }
 
     @Test("foreground executable probe uses only the current daemon")
@@ -577,6 +603,195 @@ struct CommandBridgeEnactorTests {
         #expect(!enactor.errorLatched)
         #expect(enactor.respawnLedger.respawnAttempts == 1)
         #expect(fixture.livePane != nil)
+    }
+
+    @Test(
+        "pre-attach recovery failures preserve existing-only metadata after deferred error chrome",
+        arguments: [false, true]
+    )
+    func preAttachRecoveryFailurePreservesMetadata(channelCommandUnavailable: Bool) async throws {
+        let sessionID = TerminalSessionID.generate()
+        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: existingOnly,
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        if channelCommandUnavailable {
+            SessionRecoveryConfirmationCenter.shared.begin(
+                sessionID, daemonPID: 42, createdEpoch: 100
+            )
+        }
+        defer { SessionRecoveryConfirmationCenter.shared.cancel(sessionID) }
+        var sawChannelCommand = false
+        enactor.attachCommandProvider = { _, channel, _, mode in
+            #expect(mode == .existingOnly)
+            if channel != nil {
+                sawChannelCommand = true
+                if channelCommandUnavailable { return nil }
+            }
+            return "amx attach --existing"
+        }
+
+        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+        #expect(sawChannelCommand)
+        #expect(launch == .localShell)
+        #expect(enactor.errorLatched)
+        await pumpMainQueue()
+
+        #expect(fixture.livePane?.agentExecutionState == .error)
+        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+        #expect(enactor.statusWatcher == nil)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+    }
+
+    @Test("a failed existing-only attach never enters the daemon creation heal path")
+    func failedExistingOnlyAttachDoesNotRespawn() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "77777777-7777-4777-8777-777777777777"))
+        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: existingOnly,
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        let channel = try #require(AmxBackend.makeStatusChannel(for: sessionID))
+        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+        SessionRecoveryConfirmationCenter.shared.begin(
+            sessionID, daemonPID: 42, createdEpoch: 100
+        )
+        let expectationToken = try #require(
+            SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
+        )
+        enactor.sessionID = sessionID
+        enactor.beginStatusWatch(
+            channel: channel, recoveryExpectationToken: expectationToken
+        )
+        SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
+
+        fixture.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach --existing …"))
+        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+
+        #expect(fixture.view.handleChildExited())
+        await Task.yield()
+
+        #expect(enactor.errorLatched)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+        #expect(
+            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        )
+        #expect(
+            await SessionRecoveryConfirmationCenter.shared.wait(
+                for: sessionID, timeout: .milliseconds(10)
+            ) == false
+        )
+    }
+
+    @Test("a rejected recovery identity never establishes or heals the pane")
+    func rejectedRecoveryIdentityDoesNotEstablish() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "66666666-6666-4666-8666-666666666666"))
+        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: existingOnly,
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        SessionRecoveryConfirmationCenter.shared.begin(
+            sessionID, daemonPID: 42, createdEpoch: 100
+        )
+        let token = try #require(
+            SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
+        )
+        enactor.sessionID = sessionID
+
+        enactor.handleStatusEvents(
+            [try attachedEvent(pid: 99, createdAt: 101, sessionID: sessionID)],
+            recoveryExpectationToken: token
+        )
+
+        #expect(enactor.errorLatched)
+        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+
+        enactor.sessionExistsProvider = { _ in
+            Issue.record("rejected recovery must not enter the legacy probe")
+            return true
+        }
+        enactor.beginExitSupervision(exitCode: 0)
+        await Task.yield()
+
+        #expect(enactor.errorLatched)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+        #expect(
+            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        )
+        #expect(
+            await SessionRecoveryConfirmationCenter.shared.wait(
+                for: sessionID, timeout: .milliseconds(10)
+            ) == false
+        )
+    }
+
+    @Test("an existing-only attach without an armed status feed never probes or heals")
+    func existingOnlyWithoutArmedStatusFailsClosed() async throws {
+        let sessionID = try #require(
+            TerminalSessionID(rawValue: "55555555-5555-4555-8555-555555555555"))
+        let fixture = try makeFixture(
+            sessionID: sessionID,
+            pane: TerminalPane(
+                terminalSessionID: sessionID,
+                terminalBackendMetadata: TerminalBackendMetadata(
+                    rawValue: "amx:v1:existing-only"
+                ),
+                title: "recover",
+                workingDirectory: "/tmp/recover",
+                executionPlan: .local
+            )
+        )
+        let enactor = fixture.view.commandBridgeEnactor
+        SessionRecoveryConfirmationCenter.shared.begin(
+            sessionID, daemonPID: 42, createdEpoch: 100
+        )
+        SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
+        enactor.sessionID = sessionID
+        enactor.sessionExistsProvider = { _ in
+            Issue.record("existing-only failure must not enter the legacy probe")
+            return true
+        }
+
+        enactor.beginExitSupervision(exitCode: 0)
+        await Task.yield()
+
+        #expect(enactor.errorLatched)
+        #expect(enactor.respawnLedger.respawnAttempts == 0)
+        #expect(
+            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+        )
+        #expect(
+            await SessionRecoveryConfirmationCenter.shared.wait(
+                for: sessionID, timeout: .milliseconds(10)
+            ) == false
+        )
     }
 
     @Test("a statusless bridge child exit uses the legacy supervision fallback")

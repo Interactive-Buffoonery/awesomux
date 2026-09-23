@@ -81,8 +81,23 @@ If `$ZMX_SESSION` is unset, you are not in a daemon-backed pane (see
 | `amx send <name>` | **required** | Send text to the pane's PTY (include your own trailing `\r`) — payloads failing the daemon's user-input gate are silently dropped, see below |
 | `amx history <name> [--vt\|--html]` | optional — defaults to `$ZMX_SESSION` | Dump the pane's scrollback |
 | `amx list [--short]` | n/a | List sessions in `$ZMX_DIR` |
+| `amx attach --existing <name>` | **required** | Attach only if the named daemon is already responsive; never create or replace it |
 | `amx cwd <name>` | **required** | Print the active terminal job's cwd, falling back to the session root shell |
 | `amx wait <name>` | **required** | Block until an `amx run -d` **task** completes — see below |
+
+Verbose `amx list` is also the Session Manager's recovery inventory. It emits
+tab-separated fields including `name`, `cwd`, and app-owned `awesomux.*`
+labels; `--short` remains ID-only. Label values are bounded, URL-safe encoded
+metadata for workspace, pane, group, remote target, and agent presentation.
+Use `amx get <name>` to inspect labels rather than decoding them in scripts.
+The UUID remains the immutable attach identity and is always accepted on the
+command line even when a label is unavailable.
+
+The native Session Manager maps that inventory to three safe actions: **Open**
+selects an owned pane, **Restore** reattaches an exact recently-closed layout,
+and **Recover** creates a one-pane workspace around an abandoned daemon. Both
+Restore and Recover use `attach --existing`; a daemon that vanishes or changes
+ownership is refused and the provisional workspace is rolled back.
 
 For `cwd`, the active terminal job is the foreground process group — the
 shell while it owns the prompt, or an interactive program such as Pi, Claude

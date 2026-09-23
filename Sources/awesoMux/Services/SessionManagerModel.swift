@@ -11,7 +11,17 @@ import Observation
 @MainActor
 @Observable
 final class SessionManagerModel {
+    enum ActivationResult: Equatable {
+        case opened(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        case restored(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        case recovered(sessionID: TerminalSession.ID, paneID: TerminalPane.ID)
+        case unavailable
+        case changed
+        case inventoryUnavailable
+    }
     private(set) var rows: [DaemonRow] = []
+    private(set) var activatingID: TerminalSessionID?
+    private(set) var activationStatus: String?
 
     @ObservationIgnored private let store: SessionStore
     @ObservationIgnored private let settings: AppSettingsStore
@@ -46,9 +56,9 @@ final class SessionManagerModel {
     }
 
     func refresh() async {
-        let live = await AmxBackend.listSessions()
-        // nil snapshot means ps failed — keep last good rows rather than treating
-        // every daemon as idle (which would produce false expired rows).
+        // An unavailable inventory or process snapshot keeps the last good rows;
+        // neither failure proves that every daemon vanished or became idle.
+        guard let live = await AmxBackend.listSessionsResult() else { return }
         guard let snapshot = await AmxBackend.currentProcessSnapshot() else { return }
         let reach = DaemonGCPlan.reachability(
             groups: store.groups,
@@ -73,6 +83,8 @@ final class SessionManagerModel {
             restorable: reach.restorable,
             owners: ownerLabels(),
             pinned: policy.pinnedIDs,
+                livePresentation: livePresentations(),
+                snapshotPresentation: snapshotPresentations(),
             capThresholdSeconds: cap,
             now: Int(Date().timeIntervalSince1970)
         ))
@@ -100,6 +112,11 @@ final class SessionManagerModel {
         Task { await refresh() }
     }
 
+    func setActivationState(id: TerminalSessionID?, status: String?) {
+        activatingID = id
+        activationStatus = status
+    }
+
     /// Reaps a daemon after a fresh pre-kill revalidation. The panel poll is up to
     /// one interval stale and the confirm dialog adds more delay, so an orphan the
     /// user confirmed against may have been reattached (e.g. a restore-attach or a
@@ -123,16 +140,147 @@ final class SessionManagerModel {
         return ok
     }
 
+    func activate(_ row: DaemonRow) async -> ActivationResult {
+        guard let live = await AmxBackend.listSessionsResult() else {
+            return .inventoryUnavailable
+        }
+        guard let daemon = live.first(where: { $0.id == row.id }) else {
+            await refresh()
+            return .unavailable
+        }
+        guard daemon.pid == row.pid, daemon.createdEpoch == row.createdEpoch else {
+            await refresh()
+            return .changed
+        }
+        if row.daemonPID != daemon.daemonPID {
+            await refresh()
+            return .changed
+        }
+        if let target = jumpTarget(for: row.id) {
+            return .opened(sessionID: target.sessionID, paneID: target.paneID)
+        }
+        guard daemon.clients == 0 else {
+            await refresh()
+            return .changed
+        }
+
+        let provisional: DaemonRecoveryHandle
+        let kind: ActivationResultKind
+        let confirmationTargets: [LiveDaemon]
+        if let entry = store.recentlyClosedWorkspace(containing: row.id) {
+            guard let restorableDaemons = restorableDaemons(for: entry, in: live) else {
+                await refresh()
+                return .changed
+            }
+            for target in restorableDaemons {
+                SessionRecoveryConfirmationCenter.shared.begin(
+                    target.id, daemonPID: target.daemonPID, createdEpoch: target.createdEpoch
+                )
+            }
+            guard let restored = store.provisionallyRestore(entry, daemonID: row.id) else {
+                for target in restorableDaemons {
+                    SessionRecoveryConfirmationCenter.shared.cancel(target.id)
+                }
+                return .unavailable
+            }
+            provisional = restored
+            kind = .restored
+            confirmationTargets = restorableDaemons
+        } else {
+            SessionRecoveryConfirmationCenter.shared.begin(
+                daemon.id, daemonPID: daemon.daemonPID, createdEpoch: daemon.createdEpoch
+            )
+            guard
+                let recovered = store.recoverDaemon(
+                    id: row.id,
+                    metadata: daemon.recoveryMetadata
+                        ?? DaemonRecoveryMetadata(
+                            workspaceTitle: nil, paneTitle: nil, groupID: nil, groupName: nil,
+                            groupRemote: nil, agentKind: nil),
+                    cwd: daemon.cwd
+                )
+            else {
+                SessionRecoveryConfirmationCenter.shared.cancel(daemon.id)
+                return .unavailable
+            }
+            provisional = recovered
+            kind = .recovered
+            confirmationTargets = [daemon]
+        }
+        let confirmed = await Self.waitForConfirmations(for: confirmationTargets.map(\.id))
+        guard confirmed, !Task.isCancelled else {
+            for target in confirmationTargets {
+                SessionRecoveryConfirmationCenter.shared.cancel(target.id)
+            }
+            store.rollbackDaemonRecovery(provisional)
+            await refresh()
+            return Task.isCancelled ? .unavailable : .inventoryUnavailable
+        }
+        guard store.completeDaemonRecovery(provisional) else {
+            await refresh()
+            return .unavailable
+        }
+        store.drainRecentlyClosed(containing: row.id)
+        await refresh()
+        switch kind {
+        case .restored:
+            return .restored(sessionID: provisional.sessionID, paneID: provisional.paneID)
+        case .recovered:
+            return .recovered(sessionID: provisional.sessionID, paneID: provisional.paneID)
+        }
+    }
+
+    private enum ActivationResultKind { case restored, recovered }
+
+    static func waitForConfirmations(
+        for ids: [TerminalSessionID],
+        center: SessionRecoveryConfirmationCenter = .shared
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            for id in ids {
+                group.addTask { await center.wait(for: id) }
+            }
+            for await result in group where !result {
+                group.cancelAll()
+                return false
+            }
+            return true
+        }
+    }
+
+    private func restorableDaemons(
+        for entry: RecentlyClosedWorkspace,
+        in live: [LiveDaemon]
+    ) -> [LiveDaemon]? {
+        var ids: Set<TerminalSessionID> = []
+        entry.layout.forEachPane { ids.insert($0.terminalSessionID) }
+        return Self.restorableDaemons(for: ids, in: live)
+    }
+
+    static func restorableDaemons(
+        for ids: Set<TerminalSessionID>,
+        in live: [LiveDaemon]
+    ) -> [LiveDaemon]? {
+        let byID = Dictionary(uniqueKeysWithValues: live.map { ($0.id, $0) })
+        let daemons = ids.compactMap { byID[$0] }
+        guard daemons.count == ids.count, daemons.allSatisfy({ $0.clients == 0 }) else {
+            return nil
+        }
+        return daemons
+    }
+
     // MARK: - Jump target
 
     /// Returns the (groupID, sessionID) needed to select a live workspace pane that
     /// owns this daemon. Returns nil when the daemon has no live pane owner.
-    func jumpTarget(for id: TerminalSessionID) -> (groupID: UUID, sessionID: TerminalSession.ID)? {
+    func jumpTarget(for id: TerminalSessionID) -> (
+        groupID: UUID, sessionID: TerminalSession.ID, paneID: TerminalPane.ID
+    )? {
         for group in store.groups {
             for session in group.sessions {
-                var found = false
-                session.layout.forEachPane { if $0.terminalSessionID == id { found = true } }
-                if found { return (group.id, session.id) }
+                if let pane = session.panes.first(where: { $0.terminalSessionID == id }) {
+                    return (group.id, session.id, pane.id)
+                }
             }
         }
         return nil
@@ -153,6 +301,17 @@ final class SessionManagerModel {
             }
         }
         return labels
+    }
+
+    private func livePresentations() -> [TerminalSessionID: DaemonPresentation] {
+        DaemonPresentationProjector.live(groups: store.groups)
+    }
+
+    private func snapshotPresentations() -> [TerminalSessionID: DaemonPresentation] {
+        DaemonPresentationProjector.snapshots(
+            recentlyClosed: store.recentlyClosed,
+            lastClosedTransient: store.lastClosedTransient
+        )
     }
 
     // MARK: - Ordering
