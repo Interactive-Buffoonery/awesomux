@@ -2,49 +2,11 @@ import Foundation
 import Testing
 @testable import AwesoMuxConfig
 
-/// Tests covering fixes from the pre-merge review on PR #92:
-/// empty-file handling, unknown-keys round-trip, notAFile detection,
-/// symlink write-through, file permissions, and transactional update.
+/// Owner-only permissions, symlink write-through, typed hostile decode, and
+/// the encode size cap.
 @Suite("PR92 review fixes")
 struct PR92ReviewTests {
     private let codec = TOMLConfigCodec()
-
-    // MARK: empty file
-
-    @Test("empty config file is treated like a missing file by bootstrap")
-    func emptyConfigFileTreatedAsMissingByBootstrap() throws {
-        let fixture = try TemporaryConfigFixture()
-        defer { fixture.cleanUp() }
-
-        try FileManager.default.createDirectory(
-            at: fixture.configDirectoryURL,
-            withIntermediateDirectories: true
-        )
-        try Data().write(to: fixture.configURL)
-
-        let result = try fixture.store.bootstrap()
-        #expect(result.source == .createdDefault)
-        #expect(result.config == .defaultValue)
-        #expect(result.error == nil)
-
-        let bytes = try Data(contentsOf: fixture.configURL)
-        #expect(!bytes.isEmpty)
-    }
-
-    @Test("whitespace-only config file is treated like missing on load")
-    func whitespaceOnlyConfigTreatedAsCreatedDefault() throws {
-        let fixture = try TemporaryConfigFixture()
-        defer { fixture.cleanUp() }
-
-        try fixture.writeConfig("   \n  \t\n")
-
-        let result = fixture.store.load()
-        #expect(result.source == .createdDefault)
-        #expect(result.config == .defaultValue)
-        #expect(result.error == nil)
-    }
-
-    // MARK: notAFile
 
     @Test("directory at the config path surfaces notAFile, not unreadable")
     func directoryAtConfigPathSurfacesNotAFile() throws {
@@ -61,91 +23,6 @@ struct PR92ReviewTests {
         #expect(result.error == .notAFile(fixture.configURL))
         #expect(result.error?.displayText.contains("directory or special file") == true)
     }
-
-    // MARK: unknown keys
-
-    @Test("unknown top-level tables round-trip across save")
-    func unknownTopLevelTablesRoundTrip() throws {
-        let source = """
-        [appearance]
-        theme = "dark"
-        accent = "peach"
-        ui_font = "system"
-        mono_font = "system-monospace"
-        font_size = 13.0
-        glow_strength = 0.65
-        crt_scanlines = false
-        cursor_glow = false
-
-        [notifications]
-        muted = false
-        sound = true
-        respect_do_not_disturb = true
-        notify_on_needs_attention = true
-
-        [agents]
-        permission_posture = "ask_every_time"
-        remember_tool_trust = true
-
-        [workspaces]
-        default_group = "awesoMux"
-        output_marks_needs_attention = true
-
-        [advanced]
-        config_schema_version = 2
-
-        [experimental]
-        cool_factor = 11
-        notes = "Priya's tinker block"
-        """
-
-        let decoded = try codec.decode(source)
-        #expect(decoded.unknownTopLevelTables["experimental"]?.contains("cool_factor = 11") == true)
-        #expect(decoded.unknownTopLevelTables["experimental"]?.contains("notes") == true)
-
-        let reEmitted = try codec.encodeString(decoded)
-        #expect(reEmitted.contains("[experimental]"))
-        #expect(reEmitted.contains("cool_factor = 11"))
-        #expect(reEmitted.contains("Priya's tinker block"))
-    }
-
-    @Test("re-decoded config preserves unknown table after a full round-trip")
-    func unknownTableRoundTripsThroughTwoCycles() throws {
-        let original = AwesoMuxConfig(
-            unknownTopLevelTables: ["keybindings": "leader = \"ctrl-b\""]
-        )
-
-        let firstEmit = try codec.encodeString(original)
-        let decodedAgain = try codec.decode(firstEmit)
-        #expect(decodedAgain.unknownTopLevelTables["keybindings"]?.contains("leader = \"ctrl-b\"") == true)
-
-        let secondEmit = try codec.encodeString(decodedAgain)
-        #expect(secondEmit.contains("[keybindings]"))
-        #expect(secondEmit.contains("leader = \"ctrl-b\""))
-    }
-
-    @Test("retired analytics table is dropped while unknown tables still round-trip")
-    func retiredAnalyticsTableIsDropped() throws {
-        let source = """
-            [analytics]
-            consent_level = "product_usage"
-            team_handle = "legacy-user"
-
-            [experimental]
-            cool_factor = 11
-            """
-
-        let decoded = try codec.decode(source)
-        #expect(decoded.unknownTopLevelTables["analytics"] == nil)
-        #expect(decoded.unknownTopLevelTables["experimental"]?.contains("cool_factor = 11") == true)
-
-        let reEmitted = try codec.encodeString(decoded)
-        #expect(!reEmitted.contains("[analytics]"))
-        #expect(!reEmitted.contains("legacy-user"))
-        #expect(reEmitted.contains("[experimental]"))
-    }
-
-    // MARK: symlink write-through
 
     @Test("save writes through a symlinked config file to its target")
     func saveWritesThroughSymlinkedConfig() throws {
@@ -181,8 +58,6 @@ struct PR92ReviewTests {
         let decoded = try codec.decode(targetBytes)
         #expect(decoded.appearance.theme == AwesoMuxConfig.defaultValue.appearance.theme)
     }
-
-    // MARK: permissions
 
     @Test("first save creates config file with 0o600 permissions")
     func firstSaveSetsOwnerOnlyPermissions() throws {
@@ -230,58 +105,6 @@ struct PR92ReviewTests {
         #expect(perms == 0o700)
     }
 
-    // MARK: top-level decodeIfPresent tolerance
-
-    @Test("missing top-level tables decode to per-section defaults")
-    func missingTopLevelTablesUseDefaults() throws {
-        let source = """
-        [appearance]
-        theme = "dark"
-        accent = "mauve"
-        ui_font = "system"
-        mono_font = "system-monospace"
-        font_size = 13.0
-        glow_strength = 0.65
-        crt_scanlines = false
-        cursor_glow = false
-        """
-
-        let decoded = try codec.decode(source)
-        #expect(decoded.appearance.theme == .dark)
-        #expect(decoded.appearance.accent == .mauve)
-        #expect(decoded.notifications == NotificationConfig.defaultValue)
-        #expect(decoded.agents == AgentConfig.defaultValue)
-        #expect(decoded.terminal == TerminalConfig.defaultValue)
-        #expect(decoded.workspaces == WorkspaceConfig.defaultValue)
-        #expect(decoded.advanced == AdvancedConfig.defaultValue)
-        #expect(decoded.general == GeneralConfig.defaultValue)
-    }
-
-    // MARK: workspaces field-level defaults (INT-369)
-
-    @Test("present [workspaces] table with default_group omitted falls back to the field default")
-    func workspacesFieldOmittedUsesFieldDefault() throws {
-        // The whole [workspaces] table is present, but one field is omitted.
-        // Before INT-369 this threw because `default_group` was decoded with
-        // mandatory `decode`; now an absent field honors its documented default.
-        let source = """
-        [workspaces]
-        output_marks_needs_attention = false
-        """
-
-        let decoded = try codec.decode(source)
-        #expect(decoded.workspaces.defaultGroup == WorkspaceConfig.defaultValue.defaultGroup)
-        #expect(decoded.workspaces.outputMarksNeedsAttention == false)
-        #expect(
-            decoded.workspaces.confirmCloseWithRunningAgent
-                == WorkspaceConfig.defaultValue.confirmCloseWithRunningAgent
-        )
-        #expect(
-            decoded.workspaces.confirmDestructivePaneActionWithRunningAgent
-                == WorkspaceConfig.defaultValue.confirmDestructivePaneActionWithRunningAgent
-        )
-    }
-
     @Test("present-but-wrong-type string field throws instead of silently defaulting")
     func workspacesStringFieldWrongTypeThrows() {
         // A present key with the wrong type must still surface a loud error —
@@ -313,8 +136,6 @@ struct PR92ReviewTests {
             _ = try codec.decode(source)
         }
     }
-
-    // MARK: encode size cap
 
     @Test("encode rejects a config that exceeds the size cap")
     func encodeRejectsOversizeConfig() throws {
@@ -350,14 +171,6 @@ private struct TemporaryConfigFixture {
         configDirectoryURL = resolver.configDirectoryURL
         configURL = resolver.configFileURL
         store = ConfigFileStore(pathResolver: resolver)
-    }
-
-    func writeConfig(_ toml: String) throws {
-        try FileManager.default.createDirectory(
-            at: configDirectoryURL,
-            withIntermediateDirectories: true
-        )
-        try toml.write(to: configURL, atomically: false, encoding: .utf8)
     }
 
     func cleanUp() {

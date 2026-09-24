@@ -14,7 +14,7 @@ struct AgentHookEventMapperTests {
         ("SubagentStart", .thinking, .toolStart),
         ("SubagentStop", .thinking, .toolEnd),
         ("SessionEnd", .idle, .sessionEnd),
-        ("StopFailure", .error, .stop)
+        ("StopFailure", .error, .stop),
     ])
     func mappedClaudeCodeExecutionEvents(
         hookEventName: String,
@@ -22,12 +22,13 @@ struct AgentHookEventMapperTests {
         phase: AgentRuntimePhase
     ) throws {
         let timestamp = Date(timeIntervalSince1970: 1_790_429_673.123)
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .claudeCode,
-            hookEventName: hookEventName,
-            eventID: "event-id",
-            timestamp: timestamp
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .claudeCode,
+                hookEventName: hookEventName,
+                eventID: "event-id",
+                timestamp: timestamp
+            ))
 
         #expect(event.source == .claudeCode)
         #expect(event.kind == .claudeCode)
@@ -40,10 +41,11 @@ struct AgentHookEventMapperTests {
 
     @Test("Stop is turn-end waiting without attention overlay")
     func claudeCodeStopMapsDirectlyToWaiting() throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .claudeCode,
-            hookEventName: "Stop"
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .claudeCode,
+                hookEventName: "Stop"
+            ))
 
         #expect(event.executionState == .waiting)
         #expect(event.attentionReason == nil)
@@ -63,18 +65,19 @@ struct AgentHookEventMapperTests {
         ("PermissionRequest", Optional<String>.none, AttentionReason.permissionPrompt),
         ("Notification", Optional("permission_prompt"), AttentionReason.permissionPrompt),
         ("Notification", Optional<String>.none, AttentionReason.userInputRequired),
-        ("Notification", Optional("unknown_type"), AttentionReason.userInputRequired)
+        ("Notification", Optional("unknown_type"), AttentionReason.userInputRequired),
     ])
     func claudeCodeAttentionEventsOmitExecution(
         hookEventName: String,
         notificationType: String?,
         attentionReason: AttentionReason
     ) throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .claudeCode,
-            hookEventName: hookEventName,
-            notificationType: notificationType
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .claudeCode,
+                hookEventName: hookEventName,
+                notificationType: notificationType
+            ))
 
         #expect(event.source == .claudeCode)
         #expect(event.kind == .claudeCode)
@@ -85,11 +88,12 @@ struct AgentHookEventMapperTests {
 
     @Test
     func claudeCodeIdlePromptNotificationMapsToWaiting() throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .claudeCode,
-            hookEventName: "Notification",
-            notificationType: "idle_prompt"
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .claudeCode,
+                hookEventName: "Notification",
+                notificationType: "idle_prompt"
+            ))
 
         #expect(event.executionState == .waiting)
         #expect(event.attentionReason == nil)
@@ -98,10 +102,11 @@ struct AgentHookEventMapperTests {
 
     @Test(arguments: ["UnknownEvent"])
     func claudeCodeIgnoredEventsAreSilent(hookEventName: String) {
-        #expect(AgentHookEventMapper.event(
-            provider: .claudeCode,
-            hookEventName: hookEventName
-        ) == nil)
+        #expect(
+            AgentHookEventMapper.event(
+                provider: .claudeCode,
+                hookEventName: hookEventName
+            ) == nil)
     }
 
     @Test(arguments: [
@@ -115,7 +120,7 @@ struct AgentHookEventMapperTests {
         ("Stop", .waiting, nil, .stop),
         ("Notification", nil, AttentionReason.userInputRequired, .notification),
         ("SessionEnd", .idle, nil, .sessionEnd),
-        ("StopFailure", .error, nil, .stop)
+        ("StopFailure", .error, nil, .stop),
     ])
     func mappedCodexEvents(
         hookEventName: String,
@@ -124,12 +129,13 @@ struct AgentHookEventMapperTests {
         phase: AgentRuntimePhase
     ) throws {
         let timestamp = Date(timeIntervalSince1970: 1_790_429_673.456)
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .codex,
-            hookEventName: hookEventName,
-            eventID: "event-id",
-            timestamp: timestamp
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .codex,
+                hookEventName: hookEventName,
+                eventID: "event-id",
+                timestamp: timestamp
+            ))
 
         #expect(event.source == .codex)
         #expect(event.kind == .codex)
@@ -142,10 +148,11 @@ struct AgentHookEventMapperTests {
 
     @Test
     func codexPermissionRequestMapsToPermissionPromptWithoutExecution() throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .codex,
-            hookEventName: "PermissionRequest"
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .codex,
+                hookEventName: "PermissionRequest"
+            ))
 
         #expect(event.executionState == nil)
         #expect(event.attentionReason == .permissionPrompt)
@@ -179,13 +186,14 @@ struct AgentHookEventMapperTests {
     @Test(arguments: [
         "PreCompact",
         "PostCompact",
-        "UnknownEvent"
+        "UnknownEvent",
     ])
     func codexIgnoredEventsAreSilent(hookEventName: String) {
-        #expect(AgentHookEventMapper.event(
-            provider: .codex,
-            hookEventName: hookEventName
-        ) == nil)
+        #expect(
+            AgentHookEventMapper.event(
+                provider: .codex,
+                hookEventName: hookEventName
+            ) == nil)
     }
 
     @Test(arguments: [
@@ -199,7 +207,7 @@ struct AgentHookEventMapperTests {
         ("Notification", nil, AttentionReason.userInputRequired, .notification),
         ("Stop", .waiting, nil, .stop),
         ("SessionEnd", .idle, nil, .sessionEnd),
-        ("StopFailure", .error, nil, .stop)
+        ("StopFailure", .error, nil, .stop),
     ])
     func mappedCurrentGrokEvents(
         hookEventName: String,
@@ -208,13 +216,14 @@ struct AgentHookEventMapperTests {
         phase: AgentRuntimePhase
     ) throws {
         let timestamp = Date(timeIntervalSince1970: 1_790_429_674.123)
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .grok,
-            hookEventName: hookEventName,
-            providerSessionID: "grok-parent",
-            eventID: "event-id",
-            timestamp: timestamp
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .grok,
+                hookEventName: hookEventName,
+                providerSessionID: "grok-parent",
+                eventID: "event-id",
+                timestamp: timestamp
+            ))
 
         #expect(event.source == .grok)
         #expect(event.kind == .grok)
@@ -236,7 +245,7 @@ struct AgentHookEventMapperTests {
         ("permission_denied", .error, nil, .notification),
         ("notification", nil, .userInputRequired, .notification),
         ("session_end", .idle, nil, .sessionEnd),
-        ("stop_failure", .error, nil, .stop)
+        ("stop_failure", .error, nil, .stop),
     ])
     func legacyGrokSnakeCaseEventsRemainAccepted(
         hookEventName: String,
@@ -244,11 +253,12 @@ struct AgentHookEventMapperTests {
         attentionReason: AttentionReason?,
         phase: AgentRuntimePhase
     ) throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .grok,
-            hookEventName: hookEventName,
-            providerSessionID: "grok-parent"
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .grok,
+                hookEventName: hookEventName,
+                providerSessionID: "grok-parent"
+            ))
 
         #expect(event.executionState == executionState)
         #expect(event.attentionReason == attentionReason)
@@ -262,17 +272,18 @@ struct AgentHookEventMapperTests {
         (" cancel ", .error),
         ("error", .error),
         ("failed", .error),
-        ("future_reason", .error)
+        ("future_reason", .error),
     ])
     func grokStopReasonSplitsTurnEndFromErrors(
         reason: String,
         executionState: AgentExecutionState
     ) throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .grok,
-            hookEventName: "stop",
-            reason: reason
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .grok,
+                hookEventName: "stop",
+                reason: reason
+            ))
 
         #expect(event.executionState == executionState)
         #expect(event.attentionReason == nil)
@@ -281,10 +292,11 @@ struct AgentHookEventMapperTests {
 
     @Test("current Grok Stop without reason maps to waiting")
     func currentGrokStopWithoutReasonMapsToWaiting() throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .grok,
-            hookEventName: "Stop"
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .grok,
+                hookEventName: "Stop"
+            ))
 
         #expect(event.executionState == .waiting)
         #expect(event.attentionReason == nil)
@@ -293,10 +305,11 @@ struct AgentHookEventMapperTests {
 
     @Test("legacy Grok stop without reason keeps error behavior")
     func legacyGrokStopWithoutReasonKeepsErrorBehavior() throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: .grok,
-            hookEventName: "stop"
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: .grok,
+                hookEventName: "stop"
+            ))
 
         #expect(event.executionState == .error)
         #expect(event.attentionReason == nil)
@@ -305,20 +318,22 @@ struct AgentHookEventMapperTests {
 
     @Test("unknown Grok events are silent")
     func unknownGrokEventsAreSilent() {
-        #expect(AgentHookEventMapper.event(
-            provider: .grok,
-            hookEventName: "PreCompact"
-        ) == nil)
-        #expect(AgentHookEventMapper.event(
-            provider: .grok,
-            hookEventName: "unknown_event"
-        ) == nil)
+        #expect(
+            AgentHookEventMapper.event(
+                provider: .grok,
+                hookEventName: "PreCompact"
+            ) == nil)
+        #expect(
+            AgentHookEventMapper.event(
+                provider: .grok,
+                hookEventName: "unknown_event"
+            ) == nil)
     }
 
     @Test(
         arguments: [
             LocalAgentProviderCase(provider: .openCode, source: .openCode, kind: .openCode),
-            LocalAgentProviderCase(provider: .pi, source: .pi, kind: .pi)
+            LocalAgentProviderCase(provider: .pi, source: .pi, kind: .pi),
         ],
         [
             LocalAgentMappingCase(
@@ -386,7 +401,7 @@ struct AgentHookEventMapperTests {
                 executionState: .error,
                 attentionReason: nil,
                 phase: .stop
-            )
+            ),
         ]
     )
     func mappedLocalAgentSyntheticEvents(
@@ -394,12 +409,13 @@ struct AgentHookEventMapperTests {
         mappingCase: LocalAgentMappingCase
     ) throws {
         let timestamp = Date(timeIntervalSince1970: 1_790_429_673.789)
-        let event = try #require(AgentHookEventMapper.event(
-            provider: providerCase.provider,
-            hookEventName: mappingCase.hookEventName,
-            eventID: "event-id",
-            timestamp: timestamp
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: providerCase.provider,
+                hookEventName: mappingCase.hookEventName,
+                eventID: "event-id",
+                timestamp: timestamp
+            ))
 
         #expect(event.source == providerCase.source)
         #expect(event.kind == providerCase.kind)
@@ -412,14 +428,15 @@ struct AgentHookEventMapperTests {
 
     @Test(arguments: [
         AgentHookProvider.openCode,
-        .pi
+        .pi,
     ])
     func localAgentNotificationsIgnoreNotificationType(provider: AgentHookProvider) throws {
-        let event = try #require(AgentHookEventMapper.event(
-            provider: provider,
-            hookEventName: "Notification",
-            notificationType: "permission_prompt"
-        ))
+        let event = try #require(
+            AgentHookEventMapper.event(
+                provider: provider,
+                hookEventName: "Notification",
+                notificationType: "permission_prompt"
+            ))
 
         #expect(event.executionState == nil)
         #expect(event.attentionReason == .userInputRequired)
@@ -429,22 +446,23 @@ struct AgentHookEventMapperTests {
     @Test(
         arguments: [
             AgentHookProvider.openCode,
-            .pi
+            .pi,
         ],
         [
             "PreCompact",
             "PostCompact",
-            "UnknownEvent"
+            "UnknownEvent",
         ]
     )
     func localAgentIgnoredEventsAreSilent(
         provider: AgentHookProvider,
         hookEventName: String
     ) {
-        #expect(AgentHookEventMapper.event(
-            provider: provider,
-            hookEventName: hookEventName
-        ) == nil)
+        #expect(
+            AgentHookEventMapper.event(
+                provider: provider,
+                hookEventName: hookEventName
+            ) == nil)
     }
 
     struct LocalAgentProviderCase: Sendable {
