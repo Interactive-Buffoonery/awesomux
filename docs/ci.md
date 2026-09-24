@@ -18,8 +18,7 @@ The `Require fast CI` repository ruleset requires these stable check names:
   human-authored description check because GitHub owns their generated bodies.
 
 The ruleset does not require a branch to be up to date before merging. Other
-checks, including tint contrast, pull-request sizing, and native CI, remain
-useful but advisory.
+checks, including pull-request sizing and native CI, remain useful but advisory.
 
 The strongest pre-PR gate remains local:
 

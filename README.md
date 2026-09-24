@@ -226,17 +226,6 @@ reports formatter findings on the same changed lines. Both modes use
 Swift and `swift-format` versions are pinned and their update procedure is
 documented in [`docs/toolchain.md`](docs/toolchain.md).
 
-You can also run the contrast gate alone when iterating on design-system
-tokens or sidebar chrome:
-
-```sh
-./script/swift-test.sh --filter SidebarTintContrastTests
-```
-
-Maintainers can manually run this focused test on macOS via
-[`.github/workflows/tint-contrast.yml`](.github/workflows/tint-contrast.yml).
-Pull requests do not allocate a native runner for this workflow.
-
 ## Contributing
 
 awesoMux welcomes contributions. We are pro-AI for coding, when it includes a human in the loop. See
