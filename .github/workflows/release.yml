@@ -182,10 +182,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Same shard split as native CI's `all` scope (script/test.sh owns the
-        # shard patterns): blocking-OS-call suites and AppKit-heavy sidebar
-        # suites get their own processes instead of starving one shared Swift
-        # Concurrency pool on a hosted runner.
+        # Same hosted `all` split as native CI (script/test.sh owns the shard
+        # patterns): blocking-OS-call suites and AppKit-heavy sidebar suites
+        # get their own processes. `announcement` is local-all only.
         group: [zmx, timing, sidebar, nontiming]
     runs-on: ${{ vars.NATIVE_CI_RUNNER || 'xcode-27' }}
     timeout-minutes: 120

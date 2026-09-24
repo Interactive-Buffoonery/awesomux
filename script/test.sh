@@ -32,6 +32,16 @@ sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
 # or unrelated suites, or one test can observe another suite's stub mid-flight.
 announcement_pattern='awesoMuxTests\.(TerminalAccessibilityAnnouncerTests|RemoteMarkdownTypedPathOpenTests|RemoteMarkdownTabRefreshTests)'
 
+# unit/adapter/system select SwiftPM test-target prefixes. Live membership:
+#   unit     AwesoMuxCoreTests AwesoMuxConfigTests AwesoMuxTestSupportTests
+#            DesignSystemTests UnicodeHygieneTests SecureFileIOTests
+#   adapter  AwesoMuxAgentHookSupportTests AwesoMuxBridgeHelperSupportTests
+#   system   awesoMuxTests
+# AwesoMuxBridgeProtocolTests is not in those three prefixes; it still runs
+# under nontiming/all and Linux `swift test`. Keep docs/testing.md in sync.
+# timing/sidebar/announcement are named-suite shards; emptying a named pattern
+# without updating this file fails check_swift_test_report.py (zero tests).
+
 group="${1:-}"
 if [[ -z "$group" ]]; then
     usage >&2
