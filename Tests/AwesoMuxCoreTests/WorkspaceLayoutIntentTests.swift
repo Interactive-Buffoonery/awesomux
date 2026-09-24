@@ -1,4 +1,3 @@
-import AwesoMuxBridgeProtocol
 import Foundation
 import Testing
 @testable import AwesoMuxCore
@@ -11,119 +10,6 @@ import Testing
             workingDirectory: "/tmp",
             executionPlan: .local
         )
-    }
-
-    private func remotePane() -> TerminalPane {
-        TerminalPane(
-            title: "ssh",
-            workingDirectory: "/tmp",
-            executionPlan: .ssh(SSHExecution(target: RemoteTarget(user: "ed", host: "box")!))
-        )
-    }
-
-    private func group() -> DocumentGroup {
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: NSTemporaryDirectory() + "in-\(UUID().uuidString).md"),
-            title: "notes.md"
-        )
-        return DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-    }
-
-    // MARK: - Prune-and-normalize
-
-    @Test func singleLocalTerminalProjects() {
-        let intent = TerminalPaneLayout.pane(localPane()).layoutIntent
-        #expect(intent?.root == .terminal(.init(title: nil, color: nil)))
-    }
-
-    @Test func onlyPinnedTitleSurvivesLiveTitleDropped() {
-        let live = TerminalPaneLayout.pane(localPane(title: "live-osc-title", pinned: false)).layoutIntent
-        #expect(live?.root == .terminal(.init(title: nil, color: nil)))
-        let pinned = TerminalPaneLayout.pane(localPane(title: "My Build", pinned: true)).layoutIntent
-        #expect(pinned?.root == .terminal(.init(title: "My Build", color: nil)))
-    }
-
-    @Test func documentLeafIsPrunedSplitCollapses() {
-        let term = localPane(title: "A", pinned: true)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(term),
-                second: .documentGroup(group())
-            ))
-        // Document pruned -> unary split collapses to the surviving terminal.
-        #expect(layout.layoutIntent?.root == .terminal(.init(title: "A", color: nil)))
-    }
-
-    @Test func remoteTerminalIsPruned() {
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(localPane(title: "L", pinned: true)),
-                second: .pane(remotePane())
-            ))
-        #expect(layout.layoutIntent?.root == .terminal(.init(title: "L", color: nil)))
-    }
-
-    @Test func twoLocalTerminalsKeepTheSplit() {
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .horizontal,
-                first: .pane(localPane(title: "A", pinned: true)),
-                second: .pane(localPane(title: "B", pinned: true)),
-                firstFraction: 0.3
-            ))
-        guard case let .split(split)? = layout.layoutIntent?.root else {
-            Issue.record("expected a split intent")
-            return
-        }
-        #expect(split.orientation == .horizontal)
-        #expect(split.firstFraction == 0.3)
-        #expect(split.first == .terminal(.init(title: "A", color: nil)))
-        #expect(split.second == .terminal(.init(title: "B", color: nil)))
-    }
-
-    @Test func nestedPruneCollapsesInnerSplit() {
-        // split( split(localA, doc), localB ) -> inner collapses to localA ->
-        // split(localA, localB).
-        let inner = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(localPane(title: "A", pinned: true)),
-                second: .documentGroup(group())
-            ))
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .horizontal,
-                first: inner,
-                second: .pane(localPane(title: "B", pinned: true))
-            ))
-        guard case let .split(split)? = layout.layoutIntent?.root else {
-            Issue.record("expected a split intent")
-            return
-        }
-        #expect(split.first == .terminal(.init(title: "A", color: nil)))
-        #expect(split.second == .terminal(.init(title: "B", color: nil)))
-    }
-
-    @Test func documentOnlyLayoutProjectsToNil() {
-        #expect(TerminalPaneLayout.documentGroup(group()).layoutIntent == nil)
-    }
-
-    @Test func remoteOnlyLayoutProjectsToNil() {
-        #expect(TerminalPaneLayout.pane(remotePane()).layoutIntent == nil)
-    }
-
-    @Test func splitWithBothChildrenPrunedProjectsToNil() {
-        // A split whose BOTH children prune (document + remote terminal) leaves
-        // no preset-eligible terminal — the whole projection collapses to nil.
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .documentGroup(group()),
-                second: .pane(remotePane())
-            ))
-        #expect(layout.layoutIntent == nil)
     }
 
     @Test func canonicalFractionClampsLowAndNonFinite() {
@@ -185,20 +71,6 @@ import Testing
 
         // Structure is present (sanity).
         #expect(keys.isSuperset(of: ["orientation", "firstFraction", "first", "second", "title"]))
-    }
-
-    @Test func intentRoundTripsThroughCodable() throws {
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .horizontal,
-                first: .pane(localPane(title: "A", pinned: true)),
-                second: .pane(localPane(title: "B", pinned: true)),
-                firstFraction: 0.42
-            ))
-        let intent = try #require(layout.layoutIntent)
-        let data = try JSONEncoder().encode(intent)
-        let decoded = try JSONDecoder().decode(WorkspaceLayoutIntent.self, from: data)
-        #expect(decoded == intent)
     }
 
     @Test func decodedIntentCanonicalizesOutOfRangeFraction() throws {

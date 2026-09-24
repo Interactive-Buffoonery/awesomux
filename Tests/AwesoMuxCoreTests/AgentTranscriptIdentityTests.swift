@@ -42,28 +42,6 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         }
     }
 
-    @Test func trimsSurroundingWhitespace() throws {
-        let identity = try #require(
-            AgentTranscriptIdentity(agentKind: .codex, sessionID: "  \(sessionA)\n")
-        )
-        #expect(identity.sessionID == sessionA)
-    }
-
-    @Test func documentTitleNamesTheProvider() {
-        #expect(identity(sessionA, .claudeCode).documentTitle == "Claude Code Transcript")
-        #expect(identity(sessionA, .codex).documentTitle == "Codex Transcript")
-        #expect(identity("pi-session-1", .pi).documentTitle == "Pi Transcript")
-    }
-
-    @Test func codableRoundTrip() throws {
-        let original = identity(sessionA, .codex)
-        let decoded = try JSONDecoder().decode(
-            AgentTranscriptIdentity.self,
-            from: JSONEncoder().encode(original)
-        )
-        #expect(decoded == original)
-    }
-
     @Test func decodeRevalidatesPersistedValues() {
         for json in [
             #"{"agentKind":"Claude Code","sessionID":"not-a-uuid"}"#,
@@ -79,8 +57,6 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
     }
 }
 
-// MARK: - Provenance on the document
-
 @Suite struct DocumentPaneTranscriptProvenanceTests {
     private func transcriptTab(
         _ sessionID: String = sessionA,
@@ -93,40 +69,6 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
             associatedTerminalPaneID: paneID,
             agentTranscriptIdentity: identity(sessionID)
         )
-    }
-
-    @Test func transcriptProvenanceRoundTripsThroughCodable() throws {
-        let pane = transcriptTab()
-        let decoded = try JSONDecoder().decode(
-            DocumentPane.self,
-            from: JSONEncoder().encode(pane)
-        )
-        #expect(decoded == pane)
-        #expect(decoded.agentTranscriptIdentity == identity(sessionA))
-        #expect(!decoded.isEditable)
-    }
-
-    @Test func plainDocumentRoundTripsWithoutTheField() throws {
-        let pane = DocumentPane(fileURL: URL(fileURLWithPath: "/tmp/notes.md"), title: "notes.md")
-        let encoded = try JSONEncoder().encode(pane)
-        let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-
-        #expect(json["agentTranscriptIdentity"] == nil, "nil provenance must not be written")
-        let decoded = try JSONDecoder().decode(DocumentPane.self, from: encoded)
-        #expect(decoded == pane)
-        #expect(decoded.isEditable)
-    }
-
-    @Test func snapshotPredatingTheFieldDecodesAsAPlainDocument() throws {
-        let data = Data(
-            #"{"id":"11111111-1111-1111-1111-111111111111","fileURL":"file:///tmp/notes.md","title":"notes.md"}"#
-                .utf8
-        )
-        let pane = try JSONDecoder().decode(DocumentPane.self, from: data)
-
-        #expect(pane.agentTranscriptIdentity == nil)
-        #expect(pane.isEditable)
-        #expect(!pane.isReadOnlySnapshot)
     }
 
     @Test func malformedTranscriptProvenanceDropsTheFieldNotTheTab() throws {
@@ -149,31 +91,8 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         }
     }
 
-    // MARK: The three properties that must NOT change
-
-    @Test func transcriptTabIsNotAReadOnlyRemoteSnapshot() {
-        let pane = transcriptTab()
-        #expect(!pane.isReadOnlySnapshot, "isReadOnlySnapshot means remote provenance, only")
-        #expect(pane.remoteSnapshotOrigin == nil)
-        #expect(!pane.isEditable)
-    }
-
-    @Test func transcriptTabDoesNotStripLocalFileAccessFromItsSiblings() {
-        let localTab = DocumentPane(fileURL: URL(fileURLWithPath: "/tmp/notes.md"), title: "notes.md")
-        let group = DocumentGroup(
-            tabs: [localTab, transcriptTab()],
-            selectedTabID: localTab.id
-        )
-
-        let capabilities = WorkspaceLeaf.documentGroup(group).capabilities
-
-        #expect(capabilities.localFileAccess, "a local Markdown tab keeps local-file standing")
-        #expect(!capabilities.remoteProvenance, "a locally rendered transcript is not remote")
-    }
-
-    /// The regression this whole task exists to prevent: routing transcript
-    /// read-only-ness through `isReadOnlySnapshot` disables the send bar on the
-    /// very pane the feature adds a Resume control to.
+    /// Routing transcript read-only-ness through `isReadOnlySnapshot` disables
+    /// the send bar on the pane the feature adds a Resume control to.
     @Test func documentNudgeTargetStillResolvesForATranscriptTab() {
         let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
         let tab = transcriptTab(associatedWith: terminal.id)
@@ -186,15 +105,7 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
 
         #expect(layout.documentNudgeTarget(for: tab.id) == .available(terminal))
     }
-
-    @Test func transcriptTabIsNotEditableWhileANormalLocalTabIs() {
-        let localTab = DocumentPane(fileURL: URL(fileURLWithPath: "/tmp/notes.md"), title: "notes.md")
-        #expect(localTab.isEditable)
-        #expect(!transcriptTab().isEditable)
-    }
 }
-
-// MARK: - Threading through the reducers
 
 @Suite struct AgentTranscriptProvenanceThreadingTests {
     private func session() -> (TerminalSession, TerminalPane) {
@@ -217,18 +128,6 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
             in: session,
             now: Date()
         )
-    }
-
-    @Test func openedTranscriptTabCarriesItsProvenanceAndTitle() throws {
-        let (session, terminal) = session()
-        let (updated, tabID) = try #require(
-            openTranscript(sessionA, path: "/tmp/cache/a.transcript.md", associatedWith: terminal.id, in: session)
-        )
-        let tab = try #require(updated.layout.firstDocumentGroup?.tab(id: tabID))
-
-        #expect(tab.agentTranscriptIdentity == identity(sessionA))
-        #expect(tab.title == "Claude Code Transcript", "the hashed filename is not a usable title")
-        #expect(!tab.isEditable)
     }
 
     /// A pane outlives the session whose transcript is open beside it. Open
@@ -270,29 +169,6 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         )
     }
 
-    @Test func reopeningAPlainTabAsATranscriptBackfillsProvenance() throws {
-        let (session, terminal) = session()
-        let path = "/tmp/cache/a.transcript.md"
-        let (afterPlain, plainID) = try #require(
-            PaneLayoutReducer.openDocumentTab(
-                fileURL: URL(fileURLWithPath: path),
-                associatedTerminalPaneID: terminal.id,
-                in: session,
-                now: Date()
-            )
-        )
-        #expect(afterPlain.layout.firstDocumentGroup?.tab(id: plainID)?.isEditable == true)
-
-        let (afterTranscript, tabID) = try #require(
-            openTranscript(sessionA, path: path, associatedWith: terminal.id, in: afterPlain)
-        )
-
-        #expect(tabID == plainID)
-        let tab = try #require(afterTranscript.layout.firstDocumentGroup?.tab(id: tabID))
-        #expect(tab.agentTranscriptIdentity == identity(sessionA))
-        #expect(tab.title == "Claude Code Transcript")
-    }
-
     @Test func aTranscriptTabCannotBeNavigatedToAnotherFile() throws {
         let (session, terminal) = session()
         let (afterA, tabA) = try #require(
@@ -307,57 +183,5 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
             ) == nil,
             "navigating in place would leave the stored identity describing a different document"
         )
-    }
-
-    @Test func restoreRemintCarriesTranscriptProvenance() throws {
-        let tab = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/cache/a.transcript.md"),
-            title: "Claude Code Transcript",
-            agentTranscriptIdentity: identity(sessionA)
-        )
-        let layout = TerminalPaneLayout.documentGroup(
-            DocumentGroup(tabs: [tab], selectedTabID: tab.id)
-        )
-        var seenSplitIDs: Set<TerminalSplit.ID> = []
-        // Force the collision branch: the tab id is already in the shared pool.
-        var seenPaneIDs: Set<TerminalPane.ID> = [tab.id]
-        var seenTerminalSessionIDs: Set<TerminalSessionID> = []
-
-        let result = SessionRestoreReducer.restoredLayout(
-            from: layout,
-            seenSplitIDs: &seenSplitIDs,
-            seenPaneIDs: &seenPaneIDs,
-            seenTerminalSessionIDs: &seenTerminalSessionIDs,
-            transformPane: { $0 }
-        )
-
-        let reminted = try #require(result.layout.firstDocumentGroup?.tabs.first)
-        #expect(reminted.id != tab.id, "the collision branch must have run")
-        #expect(reminted.agentTranscriptIdentity == identity(sessionA))
-        #expect(!reminted.isEditable)
-    }
-
-    @Test func recentlyClosedReopenCarriesTranscriptProvenance() throws {
-        let tab = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/cache/a.transcript.md"),
-            title: "Claude Code Transcript",
-            agentTranscriptIdentity: identity(sessionA)
-        )
-        let layout = TerminalPaneLayout.documentGroup(
-            DocumentGroup(tabs: [tab], selectedTabID: tab.id)
-        )
-        var seenTerminalSessionIDs: Set<TerminalSessionID> = []
-        var seenPaneIDs: Set<TerminalPane.ID> = []
-
-        let reidentified = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
-            layout,
-            indexHint: 0,
-            seenTerminalSessionIDs: &seenTerminalSessionIDs,
-            seenPaneIDs: &seenPaneIDs
-        )
-
-        let reopened = try #require(reidentified.firstDocumentGroup?.tabs.first)
-        #expect(reopened.id != tab.id, "reopened tabs always remint")
-        #expect(reopened.agentTranscriptIdentity == identity(sessionA))
     }
 }

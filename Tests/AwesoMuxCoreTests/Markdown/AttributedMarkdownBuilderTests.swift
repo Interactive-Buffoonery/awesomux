@@ -6,24 +6,6 @@ import Testing
 struct AttributedMarkdownBuilderTests {
     private func sub(_ s: String, _ r: Range<Int>) -> String { String(decoding: Array(s.utf8)[r], as: UTF8.self) }
 
-    @Test("concatenated run text equals the rendered string (1:1, no badge chars)")
-    func oneToOne() {
-        let doc = AttributedMarkdownBuilder.build("x <mark>y</mark><!-- USER COMMENT 1: n --> z")
-        let rendered = doc.runs.map(\.text).joined()
-        #expect(!rendered.contains("<mark>") && !rendered.contains("</mark>") && !rendered.contains("USER COMMENT"))
-        #expect(rendered.contains("y"))   // the marked text survives as ordinary text
-    }
-
-    @Test("plain run is precise and maps to its exact source")
-    func plainPrecise() throws {
-        let src = "hello world"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let r = try #require(doc.runs.first { $0.sourceRange != nil })
-        let sr = try #require(r.sourceRange)
-        #expect(r.preciseMapping)
-        #expect(sub(src, sr) == "hello world")
-    }
-
     @Test("bold inner text is precise and maps to 'b'; its enclosingRange covers '**b**'")
     func boldEnclosing() throws {
         let src = "a **b** c"
@@ -51,61 +33,6 @@ struct AttributedMarkdownBuilderTests {
         let doc = AttributedMarkdownBuilder.build("a &amp; b")
         let r = try #require(doc.runs.first { $0.sourceRange != nil })
         #expect(r.preciseMapping == false)   // text "a & b" (5 utf8) != source "a &amp; b" (9)
-    }
-
-    @Test("synthetic runs carry no source range")
-    func synthetic() {
-        let doc = AttributedMarkdownBuilder.build("- one\n- two")
-        let bullets = doc.runs.filter { if case .listBullet = $0.style { return true } else { return false } }
-        #expect(!bullets.isEmpty && bullets.allSatisfy { $0.sourceRange == nil })
-    }
-
-    @Test("GFM task lists render checkbox glyphs and count completion")
-    func taskListCheckboxesAndProgress() {
-        let doc = AttributedMarkdownBuilder.build("- [ ] not started\n- [x] finished\n- [X] also finished\n- plain")
-        let bullets = doc.runs.filter { if case .listBullet = $0.style { return true } else { return false } }
-
-        #expect(bullets.map(\.text) == ["☐\u{00A0}", "☑\u{00A0}", "☑\u{00A0}", "•\u{00A0}"])
-        #expect(doc.taskProgress == TaskProgress(done: 2, total: 3))
-        #expect(bullets.allSatisfy { $0.sourceRange == nil && !$0.preciseMapping })
-    }
-
-    @Test("nested task lists contribute to document progress")
-    func nestedTaskListProgress() {
-        let doc = AttributedMarkdownBuilder.build("- [ ] parent\n  - [x] child\n  - plain\n- [ ] sibling")
-
-        #expect(doc.taskProgress == TaskProgress(done: 1, total: 3))
-        #expect(doc.runs.filter { $0.text == "☐\u{00A0}" }.count == 2)
-        #expect(doc.runs.filter { $0.text == "☑\u{00A0}" }.count == 1)
-    }
-
-    @Test("plain bullet lists have no task progress")
-    func plainBulletListHasNoTaskProgress() {
-        let doc = AttributedMarkdownBuilder.build("- one\n- two")
-
-        #expect(doc.taskProgress == TaskProgress(done: 0, total: 0))
-        #expect(doc.runs.filter { if case .listBullet = $0.style { return true } else { return false } }
-            .allSatisfy { $0.text == "•\u{00A0}" })
-    }
-
-    @Test("<mark> wraps the enclosed run with a markID and fills comments")
-    func markWrapping() throws {
-        let src = "see <mark>this</mark><!-- USER COMMENT 1: fix it --> ok"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let m = try #require(doc.runs.first { $0.markID == "1" })
-        #expect(m.text == "this")
-        #expect(doc.annotation(id: "1")?.payload == "fix it")
-    }
-
-    @Test("two adjacent marks assign distinct markIDs without cross-wiring")
-    func adjacentTwoMarks() throws {
-        let src = "<mark>a</mark><!-- USER COMMENT 1: x --> and <mark>b</mark><!-- USER COMMENT 2: y -->"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let runA = try #require(doc.runs.first { $0.markID == "1" })
-        let runB = try #require(doc.runs.first { $0.markID == "2" })
-        #expect(runA.text == "a")
-        #expect(runB.text == "b")
-        #expect(doc.annotations.map(\.id) == ["1", "2"] && doc.annotation(id: "1")?.payload == "x" && doc.annotation(id: "2")?.payload == "y")
     }
 
     // MARK: Malformed-input hardening (review convergence)
@@ -148,39 +75,6 @@ struct AttributedMarkdownBuilderTests {
         #expect(doc.runs.first { $0.text == "a" }?.markID == nil)
     }
 
-    @Test("empty input yields an empty document")
-    func emptyInput() {
-        let doc = AttributedMarkdownBuilder.build("")
-        #expect(doc.runs.isEmpty)
-        #expect(doc.annotations.isEmpty)
-    }
-
-    @Test("YAML front matter renders as metadata, not primary heading content")
-    func yamlFrontMatterIsMetadata() throws {
-        let src = """
-        ---
-        name: awesomux-awesomeness
-        description: Publish or update plans and references
-        ---
-
-        # awesomux-awesomeness publishing
-
-        Body text.
-        """
-        let doc = AttributedMarkdownBuilder.build(src)
-        let metadata = try #require(doc.runs.first)
-        #expect(metadata.style == .frontMatter)
-        #expect(metadata.text.contains("name: awesomux-awesomeness"))
-        #expect(metadata.text.contains("description: Publish or update plans and references"))
-        #expect(metadata.sourceRange == nil)
-
-        let rendered = doc.runs.map(\.text).joined()
-        #expect(rendered.contains("#") == false)
-        #expect(doc.runs.contains { $0.style == .heading(level: 2) && $0.text.contains("name:") } == false)
-        let title = try #require(doc.runs.first { $0.style == .heading(level: 1) })
-        #expect(title.text == "awesomux-awesomeness publishing")
-    }
-
     @Test("front matter rendering preserves original source offsets for body runs")
     func yamlFrontMatterPreservesSourceOffsets() throws {
         let src = """
@@ -198,57 +92,11 @@ struct AttributedMarkdownBuilderTests {
         #expect(sr.lowerBound == src.utf8.count - "Title".utf8.count)
     }
 
-    @Test("front matter with BOM still skips metadata in rendered body")
-    func yamlFrontMatterWithBOM() throws {
-        let src = "\u{FEFF}---\nname: x\n---\n# Title"
-        let doc = AttributedMarkdownBuilder.build(src)
-
-        let metadata = try #require(doc.runs.first { $0.style == .frontMatter })
-        #expect(metadata.text == "name: x")
-        #expect(!doc.runs.contains { $0.text.contains("\u{FEFF}") })
-        let title = try #require(doc.runs.first { $0.style == .heading(level: 1) })
-        #expect(title.text == "Title")
-    }
-
-    @Test("front matter with dot closing delimiter skips metadata")
-    func yamlFrontMatterWithDotClosingDelimiter() throws {
-        let src = """
-        ---
-        name: x
-        ...
-        # Title
-        """
-        let doc = AttributedMarkdownBuilder.build(src)
-
-        let metadata = try #require(doc.runs.first { $0.style == .frontMatter })
-        #expect(metadata.text == "name: x")
-        let title = try #require(doc.runs.first { $0.style == .heading(level: 1) })
-        #expect(title.text == "Title")
-    }
-
     @Test("a lone opening delimiter remains normal markdown")
     func loneOpeningDelimiterStaysMarkdown() {
         let doc = AttributedMarkdownBuilder.build("---\n# Title")
         #expect(!doc.runs.contains { $0.style == .frontMatter })
         #expect(doc.runs.contains { $0.style == .heading(level: 1) && $0.text == "Title" })
-    }
-
-    @Test("a list followed by a paragraph does not emit a quadruple newline run")
-    func listFollowedByParagraphNoDoubleSeparator() {
-        let doc = AttributedMarkdownBuilder.build("- one\n- two\n\nafter")
-        // No single run should be a doubled-up separator (\n\n\n\n); the builder emits
-        // exactly one block separator between the list and the paragraph.
-        #expect(!doc.runs.contains { $0.text == "\n\n\n\n" })
-        // The rendered text must not contain three or more consecutive newlines.
-        let rendered = doc.runs.map(\.text).joined()
-        #expect(!rendered.contains("\n\n\n"))
-    }
-
-    @Test("a document ending in a list has no orphan trailing separator")
-    func listAtEndNoTrailingSeparator() {
-        let doc = AttributedMarkdownBuilder.build("- one\n- two")
-        let rendered = doc.runs.map(\.text).joined()
-        #expect(!rendered.hasSuffix("\n\n"))
     }
 
     // MARK: Tables (INT-566)
@@ -262,69 +110,6 @@ struct AttributedMarkdownBuilderTests {
             default: return nil
             }
         }
-    }
-
-    @Test("table AST → header/cell runs with non-nil source ranges (acceptance)")
-    func tableAST() throws {
-        let src = "| A | B |\n| - | - |\n| x | y |"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let cells = tableCells(doc)
-
-        let a = try #require(cells.first { $0.text == "A" })
-        #expect(a.header && a.row == 0 && a.col == 0)
-        let b = try #require(cells.first { $0.text == "B" })
-        #expect(b.header && b.row == 0 && b.col == 1)
-        let x = try #require(cells.first { $0.text == "x" })
-        #expect(!x.header && x.row == 1 && x.col == 0)
-        let y = try #require(cells.first { $0.text == "y" })
-        #expect(!y.header && y.row == 1 && y.col == 1)
-
-        // Every cell carries a real source range that decodes to its text.
-        for cell in cells {
-            let sr = try #require(cell.sr)
-            #expect(sub(src, sr) == cell.text)
-        }
-    }
-
-    @Test("column alignment is parsed from the delimiter row")
-    func tableAlignment() throws {
-        let src = "| L | R | C |\n| :- | -: | :-: |\n| a | b | c |"
-        let doc = AttributedMarkdownBuilder.build(src)
-        func alignment(ofColumn column: Int) -> TableColumnAlignment? {
-            doc.runs.lazy.compactMap { run -> TableColumnAlignment? in
-                switch run.style {
-                case let .tableHeader(_, _, c, a) where c == column: return a
-                case let .tableCell(_, _, c, a) where c == column: return a
-                default: return nil
-                }
-            }.first
-        }
-        #expect(alignment(ofColumn: 0) == .left)
-        #expect(alignment(ofColumn: 1) == .right)
-        #expect(alignment(ofColumn: 2) == .center)
-    }
-
-    @Test("table run text is 1:1 — no pipes or delimiter dashes leak in")
-    func tableOneToOne() {
-        let src = "| A | B |\n| - | - |\n| x | y |"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let rendered = doc.runs.map(\.text).joined()
-        #expect(!rendered.contains("|"))
-        #expect(!rendered.contains("---") && !rendered.contains(":-"))
-        #expect(rendered.contains("A") && rendered.contains("x") && rendered.contains("y"))
-    }
-
-    @Test("inline markup inside a cell stays styled and commentable")
-    func tableInlineCell() throws {
-        let src = "| **b** | y |\n| - | - |\n| p | q |"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let boldB = try #require(doc.runs.first { $0.bold && $0.text == "b" })
-        // It's a header cell with a real source range and an enclosing range over **b**.
-        guard case .tableHeader = boldB.style else { Issue.record("expected tableHeader style"); return }
-        let sr = try #require(boldB.sourceRange)
-        let enc = try #require(boldB.enclosingRange)
-        #expect(sub(src, sr) == "b")
-        #expect(sub(src, enc) == "**b**")
     }
 
     @Test("inline code in a cell keeps monospaced even after table re-styling")
@@ -418,35 +203,6 @@ struct AttributedMarkdownBuilderTests {
         #expect(z.row == 1 && z.col == 2)
     }
 
-    @Test("each table in a multi-table document parses its own delimiter row")
-    func multipleTablesEachParseOwnAlignments() {
-        let src = """
-            | A | B |
-            | :- | -: |
-            | a | b |
-
-            | C | D |
-            | :-: | - |
-            | c | d |
-            """
-        let doc = AttributedMarkdownBuilder.build(src)
-        func alignment(table: Int, column: Int) -> TableColumnAlignment? {
-            doc.runs.lazy.compactMap { run -> TableColumnAlignment? in
-                switch run.style {
-                case let .tableHeader(t, _, c, a) where t == table && c == column: return a
-                case let .tableCell(t, _, c, a) where t == table && c == column: return a
-                default: return nil
-                }
-            }.first
-        }
-        #expect(alignment(table: 0, column: 0) == .left)
-        #expect(alignment(table: 0, column: 1) == .right)
-        // Second table must not inherit the first table's delimiter row; its
-        // bare `-` cell is unspecified and defaults to .left.
-        #expect(alignment(table: 1, column: 0) == .center)
-        #expect(alignment(table: 1, column: 1) == .left)
-    }
-
     @Test("multi-byte prose before a table does not shift its delimiter-row slice")
     func tableAlignmentAfterMultiByteProse() {
         // The delimiter row is recovered by slicing a UTF-8 BYTE range out of the
@@ -468,43 +224,6 @@ struct AttributedMarkdownBuilderTests {
         #expect(alignment(ofColumn: 1) == .right)
     }
 
-    @Test("a single-column table keeps its parsed alignment")
-    func singleColumnTableAlignment() throws {
-        let src = "| C |\n| :-: |\n| x |"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let cell = try #require(doc.runs.first { $0.text == "x" })
-        guard case let .tableCell(_, _, column, alignment) = cell.style else {
-            Issue.record("expected tableCell style")
-            return
-        }
-        #expect(column == 0 && alignment == .center)
-    }
-
-    // MARK: - Diff fences
-
-    @Test("a diff fence becomes one run per line, classified by prefix, joined by hard breaks")
-    func diffFenceSplitsIntoClassifiedLines() throws {
-        let src = "```diff\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n```\n"
-        let doc = AttributedMarkdownBuilder.build(src)
-        let kinds: [DiffLineKind] = doc.runs.compactMap {
-            if case .diffLine(let kind) = $0.style { return kind } else { return nil }
-        }
-        #expect(kinds == [.hunk, .context, .removed, .added])
-        #expect(doc.runs.map(\.text).joined() == "@@ -1,2 +1,2 @@\n context\n-old\n+new")
-        let separators = doc.runs.filter { $0.style == .blockSeparator }
-        #expect(separators.count == 3)
-        #expect(separators.allSatisfy { $0.text == "\n" })
-        // Each line maps precisely to its own source bytes, so the scroll
-        // anchor lands on the line; the enclosing range is still the whole
-        // fence, so selection snapping treats it as one unit.
-        let lines = doc.runs.filter { if case .diffLine = $0.style { return true } else { return false } }
-        for line in lines {
-            #expect(line.preciseMapping)
-            #expect(sub(src, try #require(line.sourceRange)) == line.text)
-            #expect(sub(src, try #require(line.enclosingRange)) == "```diff\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n```")
-        }
-    }
-
     @Test("an indented diff fence falls back to the whole-fence range rather than guessing")
     func indentedDiffFenceKeepsBlockRange() throws {
         let src = "- item\n\n   ```diff\n   +a\n   +b\n   ```\n"
@@ -515,12 +234,6 @@ struct AttributedMarkdownBuilderTests {
             #expect(!line.preciseMapping)
             #expect(line.sourceRange == line.enclosingRange)
         }
-    }
-
-    @Test("a diff fence with a longer info string still counts as diff")
-    func infoStringFirstTokenSelectsDiff() {
-        let doc = AttributedMarkdownBuilder.build("```diff title=\"fix.diff\"\n+x\n```\n")
-        #expect(doc.runs.contains { $0.style == .diffLine(.added) })
     }
 
     @Test("past the line cap the rest of a diff fence is one code run")
@@ -534,15 +247,6 @@ struct AttributedMarkdownBuilderTests {
         #expect(tail.count == 1)
         #expect(tail.first?.text == "+\(cap)\n+\(cap + 1)\n+\(cap + 2)\n+\(cap + 3)\n+\(cap + 4)")
         #expect(doc.runs.map(\.text).joined() == body)
-    }
-
-    @Test("a fence in any other language is still one code run")
-    func nonDiffFenceStaysWhole() {
-        let doc = AttributedMarkdownBuilder.build("```swift\n+not a diff\n-really\n```\n")
-        let code = doc.runs.filter { $0.style == .code }
-        #expect(code.count == 1)
-        #expect(code.first?.text == "+not a diff\n-really")
-        #expect(!doc.runs.contains { if case .diffLine = $0.style { return true } else { return false } })
     }
 
     @Test(

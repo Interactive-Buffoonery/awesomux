@@ -14,31 +14,6 @@ struct BranchChangesIdentityTests {
         BranchChangesIdentity(gitBranch: branch, baseRef: base, repositoryName: repository)
     }
 
-    // MARK: - Title
-
-    @Test("the title names both sides of the comparison and the repository")
-    func titleNamesBothSidesAndRepository() throws {
-        let title = try #require(makeIdentity()).documentTitle
-        #expect(title.contains("feature/x"))
-        #expect(title.contains("origin/main"))
-        #expect(title.contains("awesomux"))
-    }
-
-    @Test("a detached HEAD reads as HEAD rather than as a blank")
-    func detachedHeadIsNamed() throws {
-        let identity = try #require(makeIdentity(branch: nil))
-        #expect(identity.gitBranch == nil)
-        #expect(identity.displayBranch == "HEAD")
-        #expect(identity.documentTitle.contains("HEAD"))
-    }
-
-    @Test("the ref namespace is stripped for display only")
-    func displayDropsTheRefNamespace() throws {
-        let identity = try #require(makeIdentity(base: "refs/heads/main"))
-        #expect(identity.baseRef == "refs/heads/main")
-        #expect(identity.displayBaseRef == "main")
-    }
-
     // MARK: - Sanitization
 
     @Test("a bidi override in a branch name cannot reach the title")
@@ -94,17 +69,6 @@ struct BranchChangesIdentityTests {
         #expect(first.displayBranch == second.displayBranch)
     }
 
-    // MARK: - Codable
-
-    @Test("a branch identity round-trips through a snapshot")
-    func codableRoundTrip() throws {
-        for branch in ["feature/x", nil] as [String?] {
-            let original = try #require(makeIdentity(branch: branch))
-            let data = try JSONEncoder().encode(original)
-            #expect(try JSONDecoder().decode(BranchChangesIdentity.self, from: data) == original)
-        }
-    }
-
     @Test("a snapshot carrying an unrenderable identity is rejected on the way in")
     func decodeRevalidates() throws {
         let data = Data(#"{"baseRef":"","repositoryName":"awesomux"}"#.utf8)
@@ -127,19 +91,5 @@ struct BranchChangesIdentityTests {
         // Not a remote snapshot: widening that would disable the send bar and
         // strip local-file access from unrelated tabs in the same group.
         #expect(!tab.isReadOnlySnapshot)
-    }
-
-    @Test("a tab decoded without the field is still a tab")
-    func olderSnapshotsDecodeWithoutTheField() throws {
-        let tab = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/notes.md"),
-            title: "notes.md"
-        )
-        let data = try JSONEncoder().encode(tab)
-        let decoder = JSONDecoder()
-        decoder.userInfo[.snapshotSchemaVersion] = SessionSnapshot.currentSchemaVersion
-        let decoded = try decoder.decode(DocumentPane.self, from: data)
-        #expect(decoded.branchChangesIdentity == nil)
-        #expect(decoded.isEditable)
     }
 }

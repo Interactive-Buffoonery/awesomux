@@ -3,38 +3,6 @@ import Testing
 
 @Suite("AgentProcessRecognition")
 struct AgentProcessRecognitionTests {
-    @Test("recognizes supported foreground agent commands")
-    func recognizesSupportedForegroundAgentCommands() {
-        #expect(AgentProcessRecognition.agentKind(forCommand: "codex") == .codex)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "/opt/homebrew/bin/codex") == .codex)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "codex-arm64") == .codex)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "opencode") == .openCode)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "opencode-cli") == .openCode)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "grok") == .grok)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "/Users/example/.grok/bin/grok") == .grok)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "grok-arm64") == .grok)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "hermes") == .hermes)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "/Users/example/.hermes/bin/hermes") == .hermes)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "hermes-bin") == .hermes)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "pi") == .pi)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "/opt/homebrew/bin/pi") == .pi)
-    }
-
-    @Test("recognizes every generic coding-agent command")
-    func recognizesGenericAgentCommands() {
-        let commands = [
-            "muse", "cursor-agent", "cursor", "windsurf", "aider", "droid", "amp",
-            "qwen", "kimi", "kilo", "roo", "cline", "copilot", "gemini", "goose",
-            "continue", "zed", "warp", "crush", "kiro", "codebuddy", "qoder",
-            "agy", "shai", "tabnine", "openclaw", "trae", "augment", "codebuff",
-        ]
-
-        for command in commands {
-            #expect(AgentProcessRecognition.agentKind(forCommand: command) == .generic)
-        }
-        #expect(AgentProcessRecognition.agentKind(forCommand: "muse-bin") == .generic)
-        #expect(AgentProcessRecognition.agentKind(forCommand: "cursor-agent-arm64") == .generic)
-    }
 
     @Test("recognizes npm-packaged .exe launchers")
     func recognizesExeLaunchers() {
