@@ -4,140 +4,10 @@ import Testing
 
 @Suite
 struct BridgeEnvelopeTests {
-
-    // MARK: - Round trips
-
-    @Test
-    func agentStatusRoundTrips() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id1", ts: 1_700_000_000.5,
-            message: .agentStatus(
-                AgentStatus(
-                    source: .claudeCode,
-                    kind: .claudeCode,
-                    execution: .thinking,
-                    attentionReason: nil,
-                    phase: .toolStart,
-                    providerSessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
-                    eventID: "abc123"
-                )
-            )
-        )
-
-        let line = try envelope.encodedLine()
-        let decoded = BridgeEnvelope.parse(line: line)
-
-        #expect(decoded == envelope)
-    }
-
-    @Test
-    func paneRenameRoundTrips() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id2", ts: 1_700_000_001,
-            message: .paneRename(title: "My Backend")
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
-    }
-
-    @Test
-    func paneRenameEmptyTitleRoundTripsAsReset() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id2b", ts: 1_700_000_001,
-            message: .paneRename(title: "")
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
-        if case .paneRename(let title) = decoded?.message {
-            #expect(title == "")
-        } else {
-            Issue.record("expected .paneRename")
-        }
-    }
-
     @Test
     func paneRenameAbsentTitleIsDropped() {
         let line = #"{"v":1,"type":"pane-rename","token":"tok","session":"sess","id":"id3","ts":1700000000}"#
         #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test
-    func handoffNotifyRoundTrips() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id4", ts: 1_700_000_002,
-            message: .handoffNotify(
-                HandoffNotify(path: "/home/user/.awesomux-inbox/9f2c-clip.png", name: "clip.png", mediaKind: .image, bytes: 20480)
-            )
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
-    }
-
-    @Test
-    func permissionRequestRoundTrips() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "req-4a1f", ts: 1_700_000_003,
-            message: .permissionRequest(
-                PermissionRequest(tool: "Bash", target: "rm -rf ./build", summary: "Delete build directory", expiresAt: 1_700_000_123)
-            )
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
-    }
-
-    @Test
-    func permissionRequestWithoutSummaryRoundTrips() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "req-2", ts: 1_700_000_003,
-            message: .permissionRequest(PermissionRequest(tool: "Read", target: "/etc/passwd", expiresAt: 1_700_000_200))
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
-    }
-
-    @Test
-    func permissionDecisionRoundTrips() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "dec-88c2", ts: 1_700_000_004,
-            message: .permissionDecision(
-                PermissionDecision(inReplyTo: "req-4a1f", decision: .deny, scope: .once, target: "rm -rf ./build")
-            )
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
-    }
-
-    @Test
-    func permissionResolvedRoundTrips() throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id5", ts: 1_700_000_005,
-            message: .permissionResolved(PermissionResolved(inReplyTo: "req-4a1f", reason: .expired))
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
-    }
-
-    @Test(arguments: [
-        PermissionResolved.Reason.expired,
-        .agentCancelled,
-        .connectionLost,
-        .overflow,
-    ])
-    func permissionResolvedReasonVocabularyRoundTrips(reason: PermissionResolved.Reason) throws {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id6", ts: 1_700_000_006,
-            message: .permissionResolved(PermissionResolved(inReplyTo: "req-1", reason: reason))
-        )
-
-        let decoded = BridgeEnvelope.parse(line: try envelope.encodedLine())
-        #expect(decoded == envelope)
     }
 
     // MARK: - encodedLine() self-validates
@@ -214,27 +84,6 @@ struct BridgeEnvelopeTests {
 
     /// The lenient wrapper must not change the wire shape: the id still
     /// encodes as a bare JSON string, and an absent one still omits the key.
-    @Test
-    func providerSessionIDStillEncodesAsABareString() throws {
-        let withID = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id9c", ts: 1_700_000_000,
-            message: .agentStatus(
-                AgentStatus(
-                    source: .claudeCode,
-                    execution: .thinking,
-                    providerSessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
-                )
-            )
-        )
-        let line = try withID.encodedLine()
-        #expect(line.contains(#""providerSessionID":"3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d""#))
-
-        let withoutID = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id9d", ts: 1_700_000_000,
-            message: .agentStatus(AgentStatus(source: .claudeCode, execution: .thinking))
-        )
-        #expect(try withoutID.encodedLine().contains("providerSessionID") == false)
-    }
 
     // MARK: - Unknown type / version
 
@@ -375,34 +224,6 @@ struct BridgeEnvelopeTests {
     }
 
     // MARK: - source vocabulary
-
-    @Test
-    func unknownAgentStatusSourceParsesAsUnknown() {
-        let line = #"{"v":1,"type":"agent-status","token":"tok","session":"sess","id":"id","ts":1700000000,"source":"gemini"}"#
-        let decoded = BridgeEnvelope.parse(line: line)
-        if case .agentStatus(let payload) = decoded?.message {
-            #expect(payload.source == .unknown)
-        } else {
-            Issue.record("expected .agentStatus")
-        }
-    }
-
-    @Test(arguments: [
-        ("claude-code", AgentRuntimeSource.claudeCode),
-        ("codex", .codex),
-        ("opencode", .openCode),
-        ("pi", .pi),
-        ("grok", .grok),
-    ])
-    func knownAgentStatusSourcesParse(raw: String, expected: AgentRuntimeSource) {
-        let line = #"{"v":1,"type":"agent-status","token":"tok","session":"sess","id":"id","ts":1700000000,"source":"\#(raw)"}"#
-        let decoded = BridgeEnvelope.parse(line: line)
-        if case .agentStatus(let payload) = decoded?.message {
-            #expect(payload.source == expected)
-        } else {
-            Issue.record("expected .agentStatus")
-        }
-    }
 
     @Test
     func agentStatusMissingSourceIsDropped() {

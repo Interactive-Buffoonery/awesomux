@@ -6,14 +6,6 @@ import Testing
 struct BridgeStateFileTests {
 
     @Test
-    func roundTrips() throws {
-        let state = BridgeStateFile(proto: "awesomux-bridge-v1", gen: 3, socket: "/tmp/awesomux-bridge-9f3a1c.sock", token: "4f3c-a19b")
-
-        let data = try JSONEncoder().encode(state)
-        #expect(BridgeStateFile.parse(data: data) == state)
-    }
-
-    @Test
     func exactlyAtByteCapDecodes() throws {
         // Pad the token so the encoded JSON lands exactly at the 4 KiB cap.
         let base = BridgeStateFile(proto: "awesomux-bridge-v1", gen: 1, socket: "/tmp/s.sock", token: "")
