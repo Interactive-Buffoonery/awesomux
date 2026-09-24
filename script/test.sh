@@ -22,15 +22,13 @@ EOF
 # each other in bulk. AppKit-heavy Sidebar suites also get their own process:
 # concurrent NSAnimation waits can independently exhaust the dispatch thread
 # soft limit even after the real-blocking suites are removed.
-# Markdown diff styling includes a real-clock layout performance ceiling; keep
-# that workload out of the thousands of concurrent nontiming tests too.
-timing_pattern='AwesoMuxConfigTests\.AppSettingsSymlinkWatchTests|awesoMuxTests\.(ProcessCommandRunnerTests|BoundedCommandRunnerTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentPluginRunnerTests|AgentTranscriptLiveRefreshWatchTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests|RemoteHandoffTests|MarkdownDiffLineStylingTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.ProcessBoundedWaitTests'
+timing_pattern='AwesoMuxConfigTests\.AppSettingsSymlinkWatchTests|awesoMuxTests\.(ProcessCommandRunnerTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentTranscriptLiveRefreshWatchTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests|RemoteHandoffTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.ProcessBoundedWaitTests'
 timing_test_pattern='AwesoMuxAgentHookSupportTests\.AgentIntegrationTemplateTests/piTemplateBoundsHungHelpersAndPreservesNormalEvents(\(|$)'
 sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
 # Suites that replace the global TerminalAccessibilityAnnouncer poster stub.
 # They must not run in the same parallel `swift test` process as each other
 # or unrelated suites, or one test can observe another suite's stub mid-flight.
-announcement_pattern='awesoMuxTests\.(TerminalAccessibilityAnnouncerTests|RemoteMarkdownTypedPathOpenTests|RemoteMarkdownTabRefreshTests)'
+announcement_pattern='awesoMuxTests\.(RemoteMarkdownTypedPathOpenTests)'
 
 # unit/adapter/system select SwiftPM test-target prefixes. Live membership:
 #   unit     AwesoMuxCoreTests AwesoMuxConfigTests AwesoMuxTestSupportTests
