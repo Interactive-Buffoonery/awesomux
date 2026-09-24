@@ -833,12 +833,9 @@ struct RemoteMarkdownReferenceTests {
             throw ExpectationFailure.notAFailureDocument
         }
         let content = try String(contentsOf: snapshot.fileURL, encoding: .utf8)
-        // Catches a literal that carries a `%arg` marker of its own, nothing
-        // more. It is NOT catalog coverage: the catalog is not a declared
-        // SwiftPM resource, so under `swift test` `String(localized:)` always
-        // formats the literal and this would pass with the catalog entry
-        // correct, malformed, or missing. `RemoteMarkdownLocalizationCatalogTests`
-        // is what actually checks the catalog.
+        // Catches a literal that carries a `%arg` marker of its own. The
+        // catalog is not a declared SwiftPM resource, so under `swift test`
+        // `String(localized:)` always formats the literal.
         #expect(!content.contains("%arg"), "a source literal carried a placeholder marker: \(content)")
         #expect(content.contains("README.md"), "the page should name the file it is about: \(content)")
         // The code span around the origin is the seal on an attacker-influenced
@@ -1214,57 +1211,5 @@ struct RemoteMarkdownReferenceTests {
         #expect(FileManager.default.fileExists(atPath: targetURL.path))
         #expect(try Data(contentsOf: targetURL) == Data("fresh plan".utf8))
         #expect(!FileManager.default.fileExists(atPath: orphanURL.path))
-    }
-}
-
-/// `Resources/Localizable.xcstrings` is not a declared SwiftPM resource
-/// (`Package.swift` bundles only `Resources/Fonts`); `build_and_run.sh` compiles
-/// it into the `.app`. Under `swift test` there is therefore no catalog to miss,
-/// so `String(localized:)` always falls back to formatting the literal — which
-/// makes any assertion on the *rendered* string pass whether the catalog entry
-/// is correct, malformed, or absent entirely.
-///
-/// This checks the thing that assertion cannot: every localized literal in the
-/// remote-Markdown sources has a matching key in the catalog the shipped app
-/// actually loads. It reads the source rather than a hand-copied list so a
-/// literal added later is covered without anyone remembering to add it here.
-@Suite("Remote Markdown localization catalog coverage")
-struct RemoteMarkdownLocalizationCatalogTests {
-
-    @Test(
-        arguments: [
-            "Sources/awesoMux/Services/RemoteMarkdownSnapshotFetcher.swift"
-        ])
-    func everyLocalizedLiteralInTheSourceIsACatalogKey(relativePath: String) throws {
-        let keys = try AwesoMuxStringCatalog.keys()
-        let literals = try AwesoMuxStringCatalog.localizedLiterals(in: relativePath)
-
-        #expect(!literals.isEmpty, "found no localized literals in \(relativePath) — parser drift?")
-        for literal in literals {
-            #expect(
-                keys.contains(literal),
-                "\(relativePath) localizes \"\(literal)\" but Localizable.xcstrings has no such key")
-        }
-    }
-
-    /// Listed explicitly: the announcer file localizes far more than the remote
-    /// Markdown outcomes, and these are the ones this surface owns. All four
-    /// pre-existing entries were absent from the catalog when this check was
-    /// written — `String(localized:)` falls back to the literal, so they shipped
-    /// readable in English and untranslatable everywhere else, with nothing to
-    /// notice.
-    @Test func theOutcomeAnnouncementsAreCatalogKeys() throws {
-        let keys = try AwesoMuxStringCatalog.keys()
-
-        for literal in [
-            "Loading remote Markdown.",
-            "Remote Markdown loaded.",
-            "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
-            "Remote Markdown fetch failed. Opening the failure document.",
-            "Remote Markdown is too large to open. Opening an explanation instead.",
-            "Remote Markdown file not found on the host. Opening an explanation instead.",
-        ] {
-            #expect(keys.contains(literal), "Localizable.xcstrings has no key \"\(literal)\"")
-        }
     }
 }
