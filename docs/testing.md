@@ -5,6 +5,13 @@ Swift validation and the current test-group interface. The baseline was
 captured from an untouched `origin/main` before any test organization or
 behavior changed.
 
+New work follows the testing policy in [`AGENTS.md`](../AGENTS.md): do not
+write unit tests after production code; prefer end-to-end tests with a
+verifiable, repeatable artifact; if a system must be tested in isolation,
+write down every way it could fail before writing the code. The tables below
+describe existing suites and CI group filters. They are not a request to add
+unit coverage.
+
 ## Baseline run
 
 | Field | Value |
@@ -84,9 +91,9 @@ Arguments after a Swift group are passed to `swift test`. For example,
 `./script/test.sh unit --xunit-output result.xml` records the unit result. The
 `zmx` group rejects additional arguments and does not forward them. The `all`
 group also accepts no additional arguments because it runs the zmx suite and
-must preserve Swift process isolation. Run `timing`, `sidebar`, and `nontiming`
-explicitly with distinct output paths when collecting full-suite Swift xUnit
-results.
+must preserve Swift process isolation. Run `timing`, `sidebar`, `announcement`,
+and `nontiming` explicitly with distinct output paths when collecting full-suite
+Swift xUnit results.
 `./script/preflight.sh` remains the complete local check, including non-Swift
 guards and app launch verification.
 
@@ -98,6 +105,38 @@ See [`ci.md`](ci.md) for the hosted trust boundary, artifacts, and cache policy.
 
 `AwesoMuxTestSupportTests` belongs to the unit group. The shared support target
 is test-only; production targets must not depend on it.
+
+### Current CI group map
+
+Keep this table in sync with `script/test.sh`. Target membership is the live
+contract; the W0 counts above are historical.
+
+| Group | Who runs it | Selected targets / filters |
+| --- | --- | --- |
+| `unit` | `./script/test.sh unit`, `/ci unit` | `AwesoMuxCoreTests`, `AwesoMuxConfigTests`, `AwesoMuxTestSupportTests`, `DesignSystemTests`, `UnicodeHygieneTests`, `SecureFileIOTests` |
+| `adapter` | `./script/test.sh adapter`, `/ci adapter` | `AwesoMuxAgentHookSupportTests`, `AwesoMuxBridgeHelperSupportTests` |
+| `system` | `./script/test.sh system`, `/ci system` | `awesoMuxTests` |
+| `timing` | local `all`, hosted `all`, `release.yml` | named suites in `timing_pattern` / `timing_test_pattern` |
+| `sidebar` | local `all`, hosted `all`, `release.yml` | `awesoMuxTests.Sidebar*` |
+| `announcement` | **local `all` only** | `TerminalAccessibilityAnnouncerTests`, `RemoteMarkdownTypedPathOpenTests`, `RemoteMarkdownTabRefreshTests` |
+| `nontiming` | local `all`, hosted `all`, `release.yml` | everything else, skipping timing/sidebar/announcement |
+| `zmx` | local `all`, hosted `all`, `release.yml` | `script/build_amx.sh test` |
+
+`AwesoMuxBridgeProtocolTests` is not in `unit`, `adapter`, or `system`. It still
+runs under `nontiming` / `all` and under Linux `swift test` in
+`.github/workflows/linux-helper.yml`.
+
+Hosted `/ci all` and `release.yml` `release-tests` use
+`zmx` + `timing` + `sidebar` + `nontiming`. They do not dispatch the
+`announcement` shard. Because `nontiming` skips those suites, announcement
+tests are currently uncovered on those hosted `all` lanes.
+
+`timing`, `sidebar`, `announcement`, and `nontiming` go through
+`script/check_swift_test_report.py`, which fails if the xUnit report has zero
+executed tests. A cull that deletes every suite named in those patterns must
+update `script/test.sh` (and the native/release matrices if a shard becomes
+empty) in the same change. `/ci unit|adapter|system` do not use that report
+gate; an empty filter can still exit 0.
 
 ### Initial group check
 
@@ -153,9 +192,10 @@ The raw preflight log remains uncommitted under
 
 ## Test organization rules
 
-These rules apply to new tests and tests changed as part of feature work.
-Existing exceptions remain part of the baseline until a focused follow-up
-changes them.
+These rules apply when changing existing tests, or when an isolation test is
+required under [`AGENTS.md`](../AGENTS.md). They are not a request to add unit
+coverage after a production change. Existing exceptions remain part of the
+baseline until a focused follow-up changes them.
 
 ### Naming
 

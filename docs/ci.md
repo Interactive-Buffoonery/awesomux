@@ -76,16 +76,22 @@ Maintainers may also dispatch the workflow manually and select `all`, `unit`,
 SHA. They are restore-only and do not populate caches.
 
 The `all` scope runs the existing interfaces rather than introducing another
-build system. It uses four parallel test jobs plus a release-build job:
+build system. Hosted native CI and `release.yml` use four parallel test jobs
+plus a release-build job:
 
 ```sh
 ./script/test.sh zmx         # vendored Zig backend suite
 ./script/test.sh timing      # one runner, one swift test process
 ./script/test.sh sidebar     # a second runner, AppKit-heavy sidebar suites
-./script/test.sh nontiming   # a third runner, all remaining tests
+./script/test.sh nontiming   # a third runner, remaining tests minus announcement
 ./script/build_and_run.sh --stage-release   # after all test jobs succeed
 codesign --verify --deep --strict --verbose=2 dist/awesoMux.app
 ```
+
+Local `./script/test.sh all` also runs `./script/test.sh announcement` between
+`sidebar` and `nontiming`. Hosted `all` does not; `nontiming` skips those
+suites, so announcement tests are uncovered on `/ci all` and the release gate.
+See [`testing.md`](testing.md) for the live group-to-target map.
 
 The zmx job installs the Zig version declared by `vendor/zmx` and runs from the
 package directory. This avoids Zig 0.16's relative `--build-file` build-root
@@ -106,10 +112,10 @@ time against a performance ceiling; running it alongside thousands of tests
 measures contention as well as layout cost. The `sidebar` shard separately bounds
 concurrent AppKit animation waits; those suites can reach the dispatch thread
 soft limit when scheduled with the rest of the target even without the timing
-suites. `nontiming` contains the remaining tests (`all` minus `timing` and
-`sidebar`). Local `./script/test.sh all` and `./script/preflight.sh` run zmx and
-the same three Swift shards sequentially, reusing the first Swift shard's build
-for the other two.
+suites. `nontiming` contains the remaining tests (`all` minus `timing`,
+`sidebar`, and `announcement`). Local `./script/test.sh all` and
+`./script/preflight.sh` run zmx and the four Swift shards sequentially, reusing
+the first Swift shard's build for the others. Hosted `all` omits `announcement`.
 
 The sidebar shard enables the test-only AppKit host with
 `AWESOMUX_APPKIT_TEST_HOST=1`. It starts `NSApplication` before tests run so
@@ -118,18 +124,21 @@ report is written. Use the same environment variable for focused hosted sidebar
 tests through `./script/swift-test.sh`. The host does not run in the app or in
 the separate XCTest process.
 
-The `timing`, `sidebar`, and `nontiming` entry points validate reports for both
-local and CI runs. Without `--xunit-output`, reports go in a temporary directory
-printed at startup; `all` puts all three reports in one directory.
-Each Swift shard must produce a complete report with at least one executed
-Swift Testing case. An exit status of zero without a complete report fails
-the gate; the reports remain available for diagnosis.
+The `timing`, `sidebar`, `announcement`, and `nontiming` entry points validate
+reports for both local and CI runs. Without `--xunit-output`, reports go in a
+temporary directory printed at startup; local `all` puts all shard reports in
+one directory.
+Each of those Swift shards must produce a complete report with at least one
+executed Swift Testing case. An exit status of zero without a complete report
+fails the gate; the reports remain available for diagnosis. A cull that empties
+a named shard must update `script/test.sh` in the same change or that shard
+fails closed.
 
 `./script/test.sh all` intentionally rejects additional `swift test` arguments:
 the old fallback ran every test in one process and could exhaust AppKit's
-dispatch-thread limit. Use `zmx`, `timing`, `sidebar`, and `nontiming` explicitly when
-you need custom arguments. Give each shard a distinct path when collecting
-`--xunit-output`.
+dispatch-thread limit. Use `zmx`, `timing`, `sidebar`, `announcement`, and
+`nontiming` explicitly when you need custom arguments. Give each shard a
+distinct path when collecting `--xunit-output`.
 
 Manual `unit`/`adapter`/`system` dispatches stay single jobs, unaffected by the
 split.
@@ -224,8 +233,11 @@ requests, pushes to `main`, or a recurring schedule.
 The `Tint contrast` job also requires manual dispatch. Its path-filtered pull
 request trigger records a skipped job without starting a macOS runner. A
 maintainer can run the focused `SidebarTintContrastTests` suite on the
-GitHub-hosted `xcode-27` runner when needed. It has read-only permissions, does
-not use the configurable native-runner label, and remains advisory.
+GitHub-hosted `xcode-27` runner when needed. The job fails closed if that
+filter matches no tests, so deleting `Tests/DesignSystemTests/SidebarTintContrastTests.swift`
+without updating `.github/workflows/tint-contrast.yml` (and its CI automation
+fixture) will break a later dispatch. It has read-only permissions, does not
+use the configurable native-runner label, and remains advisory.
 
 Making broader native CI automatic, or making any native check required for
 merge, requires a separate reliability and cost review.
@@ -233,8 +245,9 @@ merge, requires a separate reliability and cost review.
 ## Release test gate
 
 The release pipeline is the one exception to the on-demand policy, and it is
-not advisory: `release.yml` runs the complete suite (zmx plus the `timing`,
-`sidebar`, and `nontiming` shards) in its `release-tests` job on every lane —
+not advisory: `release.yml` runs the hosted `all` split (zmx plus the `timing`,
+`sidebar`, and `nontiming` shards — not `announcement`) in its `release-tests`
+job on every lane —
 `v*` tag push, manual dispatch, and nightly cron — and blocks the signing job
 until all four legs are green. This is safe to run automatically because those
 lanes execute only trusted, maintainer-owned refs: a tag points at a commit
