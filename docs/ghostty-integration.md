@@ -4,14 +4,23 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `b32f20f3e8d25bb925ec545c54498e93518e7ced` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `6301810a48aaa3426887a4316668f18833a40138` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
-> The current pin also includes upstream fixes for safe empty-output pointers
-> in the libghostty C API, a renderer draw-mutex/display-link deadlock, cloning
-> repeatable commands, Windows terminal memory reclamation and path safety, and
-> reusable VT uucode tables. Ghostty's package pins and the audited ReleaseFast
-> archive-member inventory are unchanged.
+> The current pin includes upstream terminal fixes for word selection across
+> wide characters and hard line breaks, reverse-wrap cursor jumps, and a tmux
+> `list-windows` use-after-free. It adds overscan support to `RenderState` with
+> the matching libghostty C API, window resizing through `CSI 8 t` (including
+> macOS), glyph cache keys packed into a `u64`, and batched special-graphics
+> writes. The renderer also gained a synchronized-output render hold effect
+> (mode 2026). The GTK/OpenGL changes in this range are Linux-only.
+>
+> The `uucode` package pin moved from Ghostty's `deps.files.ghostty.org` mirror
+> to the upstream GitHub archive at revision
+> `9d55524551411b493cca41ca06363625d90aff1e`. uucode produces generated tables
+> only, so the audited ReleaseFast archive-member inventory is unchanged at 277
+> members with digest
+> `dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82`.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
@@ -20,15 +29,14 @@ awesoMux vendors Ghostty as a pinned git submodule:
 > a single dev session (150MB `cat`: 77–235s before, ~1.8s after; UTF-8-heavy
 > content gains far less — see PR #551 for methodology and caveats).
 >
-> This pin **includes** upstream's scrollback compression series, which the
-> previous pin deliberately excluded while it was still days old. Idle
-> offscreen pages are LZ4-compressed (`scrollback-compression`, upstream
-> default on), cutting physical memory for cold history without changing how
-> much history is retained. Note the tradeoff: reads that touch a compressed
-> page decompress it synchronously and leave it resident — see the ceiling
-> notes in `Sources/AwesoMuxConfig/GhosttyRuntimeDefaults.swift`.
+> The pin includes upstream's scrollback compression series. Idle offscreen
+> pages are LZ4-compressed (`scrollback-compression`, upstream default on),
+> cutting physical memory for cold history without changing how much history is
+> retained. Note the tradeoff: reads that touch a compressed page decompress it
+> synchronously and leave it resident — see the ceiling notes in
+> `Sources/AwesoMuxConfig/GhosttyRuntimeDefaults.swift`.
 >
-> The pin now includes Ghostty's Zig 0.16 static-link workarounds. Its current
+> The pin includes Ghostty's Zig 0.16 static-link workarounds. Its current
 > archive post-processor leaves compiler-rt's `_memset` private-external, which
 > ld64 still rejects beside Ghostty's own override; our build script finishes
 > that one-symbol localization before publishing the archive. The zmx and
