@@ -221,7 +221,7 @@ struct AwesoMuxApp: App {
     @State private var isSidebarPersistentlyHidden = SidebarPresentationPreferenceStore().isHidden()
     @State private var sidebarCommandTargetAvailability = SidebarCommandTargetAvailability()
     @State private var quickRunToast: QuickRunToast?
-    @State private var isConfigurationReloadAlertPresented = false
+    @State private var isConfigurationReloadInProgress = false
     /// Carries the workspace order across a run of consecutive Previous/Next
     /// presses so a sticky release mid-walk can't reorder the list underfoot
     /// (INT-819). Any selection change from another path invalidates it.
@@ -5569,7 +5569,9 @@ struct AwesoMuxApp: App {
     }
 
     private func reloadGhosttyConfiguration() {
-        guard !isConfigurationReloadAlertPresented else { return }
+        guard !isConfigurationReloadInProgress else { return }
+        isConfigurationReloadInProgress = true
+        defer { isConfigurationReloadInProgress = false }
         let title = String(localized: "Reload Ghostty Configuration")
         let message: String
         let details: String
@@ -5597,9 +5599,6 @@ struct AwesoMuxApp: App {
             message = String(localized: "Could not reload Ghostty configuration.")
             details = String(localized: "The required awesoMux configuration could not be rebuilt. Your running configuration was kept.")
         }
-        isConfigurationReloadAlertPresented = true
-        defer { isConfigurationReloadAlertPresented = false }
-        TerminalAccessibilityAnnouncer.announce(message)
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = message
