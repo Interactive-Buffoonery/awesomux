@@ -148,6 +148,28 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         )
     }
 
+    static func provisionallyReopen(
+        entry: RecentlyClosedWorkspace,
+        in groups: inout [SessionGroup],
+        recentlyClosed: inout [RecentlyClosedWorkspace],
+        lastClosedTransient: inout RecentlyClosedWorkspace?,
+        now: Date
+    ) -> TerminalSession.ID? {
+        prune(
+            recentlyClosed: &recentlyClosed,
+            lastClosedTransient: &lastClosedTransient,
+            now: now
+        )
+        guard
+            contains(
+                entry: entry,
+                recentlyClosed: recentlyClosed,
+                lastClosedTransient: lastClosedTransient
+            )
+        else { return nil }
+        return insertReopened(entry: entry, into: &groups)
+    }
+
     /// Reconstruct into a candidate tree first; only drain the recovery row
     /// after a successful insert. A rejected deep/document-only entry must stay
     /// available rather than vanishing from both reopen tiers.

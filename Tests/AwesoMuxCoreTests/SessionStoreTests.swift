@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxTestSupport
 import Testing
 import XCTest
@@ -2357,6 +2358,180 @@ struct SessionStoreSiblingPaneExitErrorTests {
 @MainActor
 @Suite("SessionStore terminal backend metadata")
 struct SessionStoreTerminalBackendMetadataTests {
+    @Test("provisional restore keeps recovery entry and marks every pane existing-only")
+    func provisionalRestoreIsNonDestructiveAndExistingOnly() throws {
+        let first = TerminalPane(
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:established"),
+            title: "first", workingDirectory: "/tmp", executionPlan: .local
+        )
+        let second = TerminalPane(
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:established"),
+            title: "second", workingDirectory: "/tmp", executionPlan: .local
+        )
+        let sessionID = UUID()
+        let groupID = UUID()
+        let layout = TerminalPaneLayout.split(
+            TerminalSplit(
+                orientation: .vertical, first: .pane(first), second: .pane(second)
+            ))
+        let entry = RecentlyClosedWorkspace(
+            sessionID: sessionID, title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: layout, activePaneID: first.id,
+            groupID: groupID, groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let existing = TerminalSession(title: "existing", workingDirectory: "/tmp")
+        let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
+        let store = SessionStore(
+            groups: originalGroups,
+            selectedSessionID: existing.id,
+            recentlyClosed: [entry]
+        )
+
+        let restored = try #require(
+            store.provisionallyRestore(
+                entry, daemonID: first.terminalSessionID
+            ))
+        let panes = try #require(store.session(id: restored.sessionID)?.panes)
+
+        #expect(store.recentlyClosed == [entry])
+        #expect(panes.count == 2)
+        #expect(panes.allSatisfy { $0.terminalBackendMetadata.amxAttachDisposition == .existingOnly })
+
+        store.rollbackDaemonRecovery(restored)
+        #expect(store.session(id: restored.sessionID) == nil)
+        #expect(store.recentlyClosed == [entry])
+        #expect(store.groups == originalGroups)
+        #expect(store.selectedSessionID == existing.id)
+    }
+
+    @Test("stale rollback cannot remove a later reopen with the same session ID")
+    func staleRollbackPreservesLaterReopen() throws {
+        let pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(), title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: .pane(pane), activePaneID: pane.id,
+            groupID: UUID(), groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let store = SessionStore(recentlyClosed: [entry])
+        let recovery = try #require(
+            store.provisionallyRestore(entry, daemonID: pane.terminalSessionID)
+        )
+
+        store.closeSession(id: recovery.sessionID)
+        let reopened = try #require(store.reopen(entry))
+        #expect(!store.completeDaemonRecovery(recovery))
+        store.rollbackDaemonRecovery(recovery)
+
+        #expect(store.session(id: reopened) != nil)
+    }
+
+    @Test("mismatched daemon cannot partially restore a workspace")
+    func mismatchedDaemonDoesNotMutateStore() {
+        let pane = TerminalPane(title: "pane", workingDirectory: "/tmp", executionPlan: .local)
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(), title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: .pane(pane), activePaneID: pane.id,
+            groupID: UUID(), groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let store = SessionStore(recentlyClosed: [entry])
+
+        #expect(store.provisionallyRestore(entry, daemonID: .generate()) == nil)
+        #expect(store.groups.isEmpty)
+        #expect(store.recentlyClosed == [entry])
+    }
+
+    @Test("daemon identity collision cannot partially publish a provisional restore")
+    func daemonIdentityCollisionDoesNotMutateStore() {
+        let daemonID = TerminalSessionID.generate()
+        let existing = TerminalSession(
+            title: "existing", workingDirectory: "/tmp",
+            layout: .pane(
+                TerminalPane(
+                    terminalSessionID: daemonID, title: "live", workingDirectory: "/tmp",
+                    executionPlan: .local
+                ))
+        )
+        let entryPane = TerminalPane(
+            terminalSessionID: daemonID, title: "closed", workingDirectory: "/tmp",
+            executionPlan: .local
+        )
+        let entry = RecentlyClosedWorkspace(
+            sessionID: UUID(), title: "restored", isTitleUserEdited: true,
+            agentKind: .shell, layout: .pane(entryPane), activePaneID: entryPane.id,
+            groupID: UUID(), groupName: "work", groupRemote: nil,
+            indexInGroup: 0, closedAt: Date()
+        )
+        let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
+        let store = SessionStore(groups: originalGroups, recentlyClosed: [entry])
+
+        #expect(store.provisionallyRestore(entry, daemonID: daemonID) == nil)
+        #expect(store.groups == originalGroups)
+        #expect(store.recentlyClosed == [entry])
+    }
+
+    @Test("abandoned daemon recovery commits and can roll back")
+    func abandonedDaemonRecovery() throws {
+        let existing = TerminalSession(title: "existing", workingDirectory: "/tmp")
+        let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
+        let store = SessionStore(groups: originalGroups, selectedSessionID: existing.id)
+        let daemonID = TerminalSessionID.generate()
+        let metadata = DaemonRecoveryMetadata(
+            workspaceTitle: "Build", paneTitle: "Codex", groupID: nil,
+            groupName: "Recovered", groupRemote: nil, agentKind: .codex
+        )
+
+        let recovery = try #require(
+            store.recoverDaemon(id: daemonID, metadata: metadata, cwd: NSHomeDirectory())
+        )
+
+        #expect(store.selectedSessionID == recovery.sessionID)
+        #expect(store.session(id: recovery.sessionID)?.activePaneID == recovery.paneID)
+        store.rollbackDaemonRecovery(recovery)
+        #expect(store.groups == originalGroups)
+        #expect(store.selectedSessionID == existing.id)
+    }
+
+    @Test("recovery rollback preserves a newer valid selection")
+    func recoveryRollbackPreservesNewerSelection() throws {
+        let first = TerminalSession(title: "first", workingDirectory: "/tmp")
+        let second = TerminalSession(title: "second", workingDirectory: "/tmp")
+        let store = SessionStore(
+            groups: [SessionGroup(name: "main", sessions: [first, second])],
+            selectedSessionID: first.id
+        )
+        let recovery = try #require(
+            store.recoverDaemon(
+                id: .generate(),
+                metadata: DaemonRecoveryMetadata(
+                    workspaceTitle: "Build", paneTitle: "Codex", groupID: nil,
+                    groupName: "Recovered", groupRemote: nil, agentKind: .codex
+                ),
+                cwd: "/tmp"
+            ))
+        store.selectedSessionID = second.id
+
+        store.rollbackDaemonRecovery(recovery)
+
+        #expect(store.selectedSessionID == second.id)
+    }
+
+    @Test("amx metadata fails closed for unknown payloads")
+    func amxAttachDisposition() {
+        #expect(TerminalBackendMetadata.empty.amxAttachDisposition == .createOrAttach)
+        #expect(
+            TerminalBackendMetadata(rawValue: "amx:v1:established").amxAttachDisposition
+                == .createOrAttach)
+        #expect(
+            TerminalBackendMetadata(rawValue: "amx:v1:existing-only").amxAttachDisposition
+                == .existingOnly)
+        #expect(
+            TerminalBackendMetadata(rawValue: "amx:v99:surprise").amxAttachDisposition
+                == .existingOnly)
+    }
+
     @Test("writes and persists metadata to the pane")
     func writesMetadata() {
         let session = makeSession()
