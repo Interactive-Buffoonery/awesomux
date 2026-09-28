@@ -28,7 +28,7 @@ sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
 # Suites that replace the global TerminalAccessibilityAnnouncer poster stub.
 # They must not run in the same parallel `swift test` process as each other
 # or unrelated suites, or one test can observe another suite's stub mid-flight.
-announcement_pattern='awesoMuxTests\.(RemoteMarkdownTypedPathOpenTests)'
+announcement_pattern='awesoMuxTests\.(RemoteMarkdownTypedPathOpenTests|RemoteMarkdownTabRefreshTests)'
 
 # unit/adapter/system select SwiftPM test-target prefixes. Live membership:
 #   unit     AwesoMuxCoreTests AwesoMuxConfigTests AwesoMuxTestSupportTests
