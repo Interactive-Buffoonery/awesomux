@@ -99,6 +99,48 @@ struct RemoteMarkdownTabRefreshTests {
         return (store, sessionID, tabID)
     }
 
+    @Test("restore without opt-in keeps saved tabs and never fetches")
+    func restoreWithoutOptInKeepsSavedCopy() async throws {
+        let path = "/tmp/restore-opt-out-\(UUID()).md"
+        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: remoteIdentity(), cacheURL: URL(fileURLWithPath: path))
+        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
+        let localPath = "/tmp/local-\(UUID()).md"
+        _ = store.openDocumentPane(fileURL: URL(fileURLWithPath: localPath), in: sessionID)
+        let before = store.groups
+        var fetches = 0
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: false) { _ in
+            fetches += 1
+            return nil
+        }
+        // Banner seeding must happen synchronously, before the restored view mounts.
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteNotRefreshed)
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: localPath) == nil)
+        for _ in 0..<10 { await Task.yield() }
+        #expect(fetches == 0)
+        #expect(store.groups == before)
+
+        // Manual Refresh still fetches when automatic launch fetch is off.
+        let outcome = await RemoteMarkdownTabRefresh.refresh(
+            identity: remoteIdentity(), documentID: tabID, in: sessionID,
+            associatedWith: nil, sessionStore: store, selectingTab: false,
+            fetch: { reference in
+                fetches += 1
+                return .fresh(RemoteMarkdownSnapshot(fileURL: URL(fileURLWithPath: path), identity: reference.identity))
+            }
+        )
+        #expect(outcome != nil)
+        #expect(fetches == 1)
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
+    }
+
+    @Test("restore without opt-in leaves failure pages without a saved-copy banner")
+    func restoreWithoutOptInPreservesFailurePage() throws {
+        let path = "/tmp/restore-opt-out-\(UUID()).failure.md"
+        let (store, _, _) = try storeWithRemoteTab(identity: remoteIdentity(), cacheURL: URL(fileURLWithPath: path))
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: false)
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
+    }
+
     private let refreshFailedMessage =
         "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale."
 
@@ -502,7 +544,7 @@ struct RemoteMarkdownTabRefreshTests {
         }
         let box = Box()
 
-        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store) { reference in
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: true) { reference in
             box.add(reference.identity)
             let path = reference.identity.path.rawValue == "/repo/a.md" ? pathA : pathB
             return .cached(
@@ -610,7 +652,7 @@ struct RemoteMarkdownTabRefreshTests {
         }
         let box = ConcurrencyBox()
 
-        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store) { reference in
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: true) { reference in
             box.enter(total: tabCount)
             try? await Task.sleep(for: .milliseconds(20))
             box.leave()
@@ -791,7 +833,7 @@ struct RemoteMarkdownTabRefreshTests {
         }
         defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
 
-        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store) { _ in nil }
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: true) { _ in nil }
 
         await probe.waitFor(refreshFailedMessage)
         #expect(probe.count(of: refreshFailedMessage) == 1)

@@ -112,16 +112,9 @@ enum DocumentOversizePolicy {
 /// the reload path clears `oversizePaths` for that path on every successful
 /// read. An entry parked there would be wiped by the next reload.
 ///
-/// Deliberately NOT persisted, and not carried on `DocumentPane`. The banner
-/// kind records why the last refresh attempt failed — knowledge that only
-/// exists because an attempt was made. Persisting a value across relaunch
-/// without re-fetching would let the app keep asserting a refresh failure it
-/// never re-verified. Claiming an unverified fact is the exact shape of bug
-/// the oversize work exists to remove.
-///
-/// Restore therefore re-fetches each remote Markdown tab asynchronously
-/// (`RemoteMarkdownTabRefresh.scheduleRestoreRefresh`) so the banner is raised
-/// again only when this launch has genuinely tried and failed.
+/// Runtime-only banner state. Restore marks saved copies as unverified unless
+/// automatic refresh is enabled. Actual fetch outcomes replace that neutral
+/// state; a previous-launch failure is never asserted without a fresh attempt.
 enum RemoteSnapshotStalePolicy {
     struct Change: Sendable {
         let path: String
@@ -183,8 +176,8 @@ enum RemoteSnapshotStalePolicy {
 /// Styling is quieter than the permission prompt (no buttons, no focus ring):
 /// there is nothing to act on, so it states a fact and gets out of the way.
 struct DocumentOversizeBanner: View {
-    /// Three situations, one row. Each keeps the last known-good render visible
-    /// while explaining why it no longer matches its source.
+    /// Local size limits and remote snapshot freshness share one row while
+    /// keeping the last known-good render visible.
     enum Kind: Equatable {
         /// A local file grew past the cap while open. Comments are paused.
         case localFileGrew
@@ -196,6 +189,8 @@ struct DocumentOversizeBanner: View {
         /// A remote snapshot could not be refreshed because the file was not
         /// found or the connection failed. The shared copy cannot claim which.
         case remoteRefreshFailed
+        /// Restored from disk without an automatic fetch this launch.
+        case remoteNotRefreshed
     }
 
     let fileName: String
@@ -300,6 +295,8 @@ struct DocumentOversizeBanner: View {
             String(
                 localized: "file outgrew the limit",
                 comment: "Document banner kicker when a local file grows past the size cap")
+        case .remoteNotRefreshed:
+            String(localized: "showing a saved copy", comment: "Document banner kicker for an unverified restored remote snapshot")
         case .remoteStoppedRefreshing, .remoteRefreshFailed:
             String(
                 localized: "showing a stale copy",
@@ -314,6 +311,10 @@ struct DocumentOversizeBanner: View {
         case .localFileGrew: detail
         case .remoteStoppedRefreshing: remoteStaleDetail
         case .remoteRefreshFailed: remoteRefreshFailedDetail
+        case .remoteNotRefreshed:
+            String(
+                localized: "This saved copy may be out of date. Use Refresh below to fetch the latest remote file.",
+                comment: "Document banner for a remote snapshot restored without an automatic fetch")
         }
     }
 
@@ -346,6 +347,10 @@ struct DocumentOversizeBanner: View {
                 comment:
                     "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
             )
+        case .remoteNotRefreshed:
+            lead = String(
+                localized: "\(fileName) has not been refreshed.",
+                comment: "Accessibility lead for a remote document restored from its saved copy")
         case .remoteRefreshFailed:
             lead = String(
                 localized: "\(fileName) couldn't be refreshed.",
