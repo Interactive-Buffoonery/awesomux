@@ -37,6 +37,20 @@ struct GeneralSettingsPane: View {
                 }
 
                 SettingsField(
+                    label: String(localized: "Refresh remote Markdown on launch", comment: "General settings label."),
+                    hint: String(
+                        localized:
+                            "Fetch restored remote Markdown over SSH at the next launch. When off, use Refresh in a document to fetch its latest copy.",
+                        comment: "General settings hint for optional remote document refresh."),
+                    forwardsAccessibilityToControl: true
+                ) {
+                    Toggle("Refresh remote Markdown on launch", isOn: appSettingsStore.general.binding(\.refreshRemoteMarkdownOnLaunch))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(!appSettingsStore.general.value.restoreWorkspaces)
+                }
+
+                SettingsField(
                     label: Self.openAtLoginLabel,
                     hint: loginItemModel.statusHint,
                     forwardsAccessibilityToControl: true,
@@ -110,9 +124,30 @@ struct GeneralSettingsPane: View {
 
     private var menuBarVisibilityOptions: [SettingsSegmented<GeneralConfig.MenuBarVisibility>.Option] {
         [
-            .init(value: .never, label: String(localized: "Never", comment: "Menu bar visibility choice")),
-            .init(value: .needsInput, label: String(localized: "Needs input", comment: "Menu bar visibility choice")),
-            .init(value: .always, label: String(localized: "Always", comment: "Menu bar visibility choice")),
+            .init(
+                value: .never,
+                label: String(localized: "Never", comment: "Menu bar visibility choice"),
+                accessibilityLabel: String(
+                    localized: "Never show awesoMux in the menu bar",
+                    comment: "Accessibility label for the never-visible menu bar choice"
+                )
+            ),
+            .init(
+                value: .needsInput,
+                label: String(localized: "Needs input", comment: "Menu bar visibility choice"),
+                accessibilityLabel: String(
+                    localized: "Show awesoMux in the menu bar when a workspace needs input",
+                    comment: "Accessibility label for the needs-input menu bar choice"
+                )
+            ),
+            .init(
+                value: .always,
+                label: String(localized: "Always", comment: "Menu bar visibility choice"),
+                accessibilityLabel: String(
+                    localized: "Always show awesoMux in the menu bar",
+                    comment: "Accessibility label for the always-visible menu bar choice"
+                )
+            ),
         ]
     }
 }
