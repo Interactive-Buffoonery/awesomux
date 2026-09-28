@@ -577,7 +577,7 @@ struct BridgePreflightLifecycleTests {
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false
         )
-        view.commandBridgeEnactor.attachCommandProvider = { session, _, _ in
+        view.commandBridgeEnactor.attachCommandProvider = { session, _, _, _ in
             "base-\(session.rawValue)"
         }
         view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
