@@ -596,9 +596,13 @@ struct RemoteMarkdownTabRefreshTests {
             let ordinal = started.count
             started.append(reference.identity)
             await gates[ordinal].wait()
+            guard let fileURL = paths[reference.identity] else {
+                Issue.record("Restore requested an unregistered resource identity")
+                return nil
+            }
             return .fresh(
                 RemoteMarkdownSnapshot(
-                    fileURL: paths[reference.identity]!, identity: reference.identity
+                    fileURL: fileURL, identity: reference.identity
                 ))
         }
         await gates[3].waitUntilStarted()
