@@ -265,9 +265,8 @@ enum RemoteMarkdownTabRefresh {
         return outcome
     }
 
-    /// Walks the restored store and kicks a non-blocking fetch per remote
-    /// Markdown tab. Tabs already mounted from cache; this updates them in
-    /// place and re-establishes any stale banner from a real attempt.
+    /// Marks restored snapshots as saved copies unless launch fetching is enabled.
+    /// Opted-in fetches update tabs in place without changing selection.
     ///
     /// At most `maxConcurrentRestoreRefreshes` round trips are in flight at
     /// once, and fetches for one SSH target still serialize inside
@@ -282,11 +281,22 @@ enum RemoteMarkdownTabRefresh {
     @MainActor
     static func scheduleRestoreRefresh(
         for store: SessionStore,
+        automaticallyRefresh: Bool,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
         fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) {
-        let targets = restoreTargets(in: store)
+        let targets = interleavedRestoreTargets(restoreTargets(in: store))
         guard !targets.isEmpty else { return }
+        guard automaticallyRefresh else {
+            for target in targets {
+                guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID),
+                    !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL)
+                else { continue }
+                // The banner is rendered only after a successful document load.
+                RemoteSnapshotStalePolicy.note(.remoteNotRefreshed, path: tab.fileURL.standardizedFileURL.path)
+            }
+            return
+        }
         Task { @MainActor in
             // Bounded drain: awaiting the oldest running refresh before
             // starting past the limit keeps at most `maxConcurrentRestoreRefreshes`
@@ -324,6 +334,35 @@ enum RemoteMarkdownTabRefresh {
                 _ = await task.value
             }
         }
+    }
+
+    /// Spread admission across SSH destinations, keeping first-seen host order
+    /// and the original tab order within each host. Match the fetch coordinator's
+    /// serialization key so one host's queued tabs do not occupy every slot.
+    static func interleavedRestoreTargets(_ targets: [RestoreTarget]) -> [RestoreTarget] {
+        var hostIndices: [String: Int] = [:]
+        var buckets: [[RestoreTarget]] = []
+        for target in targets {
+            let host = target.identity.remoteTarget?.sshDestination ?? "local"
+            if let index = hostIndices[host] {
+                buckets[index].append(target)
+            } else {
+                hostIndices[host] = buckets.count
+                buckets.append([target])
+            }
+        }
+        var result: [RestoreTarget] = []
+        result.reserveCapacity(targets.count)
+        var active = Array(buckets.indices)
+        var offset = 0
+        while !active.isEmpty {
+            for index in active {
+                result.append(buckets[index][offset])
+            }
+            offset += 1
+            active.removeAll { buckets[$0].count == offset }
+        }
+        return result
     }
 
     /// Pure enumeration of restore work — tests assert the walk without

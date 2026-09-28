@@ -91,6 +91,18 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         }
     }
 
+    @Test func snapshotPredatingTranscriptProvenanceDecodesAsPlainDocument() throws {
+        let data = Data(
+            #"{"id":"11111111-1111-1111-1111-111111111111","fileURL":"file:///tmp/notes.md","title":"notes.md"}"#
+                .utf8
+        )
+        let pane = try JSONDecoder().decode(DocumentPane.self, from: data)
+
+        #expect(pane.agentTranscriptIdentity == nil)
+        #expect(pane.isEditable)
+        #expect(!pane.isReadOnlySnapshot)
+    }
+
     /// Routing transcript read-only-ness through `isReadOnlySnapshot` disables
     /// the send bar on the pane the feature adds a Resume control to.
     @Test func documentNudgeTargetStillResolvesForATranscriptTab() {
