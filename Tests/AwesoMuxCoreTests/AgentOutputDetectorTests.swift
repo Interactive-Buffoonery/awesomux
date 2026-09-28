@@ -450,12 +450,53 @@ struct AgentOutputDetectorClaudeIdentityTests {
 struct AgentOutputDetectorHermesIdentityTests {
     private let detector = AgentOutputDetector()
 
-    @Test("infers Hermes from its heading, config path, and prompt")
+    @Test("infers Hermes from its heading and prompt")
     func infersHermesFromSplashCues() {
         #expect(detector.detectedOutput(in: "Hermes\ngpt-5.6-sol")?.agentKind == .hermes)
-        #expect(detector.detectedOutput(in: "config: ~/.hermes")?.agentKind == .hermes)
         #expect(detector.detectedOutput(in: "❯ hermes")?.agentKind == .hermes)
         #expect(detector.detectedOutput(in: "$ hermes --resume")?.agentKind == .hermes)
+    }
+
+    @Test("paths into Hermes configuration do not identify an agent")
+    func hermesPathsDoNotIdentifyAgent() {
+        for text in [
+            "user@remote:~/.hermes ❯ ssh",
+            "~/.hermes ❯ micro .env",
+            "❯ cd ~/.hermes",
+            "config: ~/.hermes",
+            "cat /.hermes/config",
+        ] {
+            #expect(detector.detectedOutput(in: text) == nil)
+            #expect(!detector.observesAgentContext(in: text))
+        }
+    }
+
+    @Test("a live Hermes process supplies context after its banner scrolls away")
+    func liveHermesSuppliesContext() {
+        #expect(
+            detector.detectedOutput(
+                in: "config: ~/.hermes\nRuminating…",
+                liveAgentKind: .hermes
+            ) == AgentOutputDetection(state: .thinking, agentKind: .hermes)
+        )
+        #expect(
+            detector.detectedOutput(
+                in: "config: ~/.hermes",
+                assumingAgentContext: true,
+                liveAgentKind: .hermes
+            ) == AgentOutputDetection(state: .waiting, agentKind: .hermes)
+        )
+    }
+
+    @Test("a live Hermes process detects approval prompts after its banner scrolls away")
+    func liveHermesDetectsApprovalPrompt() {
+        #expect(
+            detector.detectedState(
+                in: "approve pending request",
+                liveAgentKind: .hermes
+            ) == .needsAttention
+        )
+        #expect(detector.detectedState(in: "approve pending request") == nil)
     }
 
     @Test("infers Hermes from the real splash version line")
@@ -565,8 +606,8 @@ struct AgentOutputDetectorHermesIdentityTests {
         )
     }
 
-    @Test("path-only Hermes ignores leftover Claude thinking and done cues")
-    func pathOnlyHermesIgnoresLeftoverClaudeStateCues() {
+    @Test("a Hermes path does not suppress Claude thinking and done cues")
+    func hermesPathDoesNotSuppressClaudeStateCues() {
         let thinking = """
             cat /.hermes/config
             claude code v1.7.2
@@ -574,9 +615,8 @@ struct AgentOutputDetectorHermesIdentityTests {
             claude · thinking
             """
         let thinkingDetection = detector.detectedOutput(in: thinking)
-        #expect(thinkingDetection?.agentKind == .hermes)
-        #expect(thinkingDetection?.state != .thinking)
-        #expect(thinkingDetection?.state == .waiting)
+        #expect(thinkingDetection?.agentKind == .claudeCode)
+        #expect(thinkingDetection?.state == .thinking)
 
         let done = """
             config: ~/.hermes
@@ -585,9 +625,8 @@ struct AgentOutputDetectorHermesIdentityTests {
             task complete
             """
         let doneDetection = detector.detectedOutput(in: done)
-        #expect(doneDetection?.agentKind == .hermes)
-        #expect(doneDetection?.state != .done)
-        #expect(doneDetection?.state == .waiting)
+        #expect(doneDetection?.agentKind == .claudeCode)
+        #expect(doneDetection?.state == .done)
     }
 
     @Test("leftover Claude done chrome does not mark a Hermes pane done")
