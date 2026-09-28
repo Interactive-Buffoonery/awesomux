@@ -50,7 +50,10 @@ public struct AgentOutputDetector: Sendable {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
 
-        guard assumingAgentContext || containsAgentContext(normalized, lines: lines) else {
+        guard
+            assumingAgentContext || liveAgentKind == .hermes
+                || containsAgentContext(normalized, lines: lines)
+        else {
             return nil
         }
 
@@ -60,29 +63,22 @@ public struct AgentOutputDetector: Sendable {
             lines,
             allowsPromptLaunch: true
         )
-        let hasHermesIdentity =
-            hasStrongHermesIdentity || containsHermesConfigPath(normalized)
-        // Path-only `/.hermes/` dumps must not suppress cues in a pane already
-        // known to be Claude; splash heading, prompt launch, and a live Hermes
-        // process still do.
         let treatAsHermes = hasStrongHermesIdentity || liveAgentKind == .hermes
         let canEvaluateStateCues = hasStatefulAgentContext
             || (assumingAgentContext
                 && !hasGrokIdentity
-                && (!hasHermesIdentity
-                    || (liveAgentKind == .claudeCode && !hasStrongHermesIdentity)))
+                && !hasStrongHermesIdentity)
         let canEvaluateAttentionCues = hasStatefulAgentContext
             || assumingAgentContext
             || hasGrokIdentity
-            || hasHermesIdentity
+            || hasStrongHermesIdentity
+            || liveAgentKind == .hermes
         let stateCueAgentKind = inferredAgentKind(
             lines: lines,
             allowsPromptLaunch: false,
             allowsGrokIdentity: false,
             hasGrokIdentity: hasGrokIdentity,
-            hasStrongHermesIdentity: hasStrongHermesIdentity,
-            hasHermesIdentity: hasHermesIdentity,
-            liveAgentKind: liveAgentKind
+            hasStrongHermesIdentity: hasStrongHermesIdentity
         )
         let attentionCueAgentKind =
             hasGrokIdentity
@@ -110,14 +106,11 @@ public struct AgentOutputDetector: Sendable {
 
         // Claude thinking/done needles must not drive Hermes (or Grok): leftover
         // Claude chrome is common after SSH, and Hermes has no Stop hooks to
-        // clear a false `.thinking` or `.done`. Path-only `/.hermes/` is Hermes
-        // for this skip unless the live pane is already Claude — a live Claude
-        // pane that merely prints that path must still show Claude thinking.
+        // clear a false `.thinking` or `.done`.
         let skipClaudeStateCues =
             treatAsHermes
             || hasGrokIdentity
             || liveAgentKind == .grok
-            || (hasHermesIdentity && liveAgentKind != .claudeCode)
         if canEvaluateStateCues && !skipClaudeStateCues && containsThinkingCue(normalized) {
             return AgentOutputDetection(state: .thinking, agentKind: stateCueAgentKind)
         }
@@ -130,15 +123,14 @@ public struct AgentOutputDetector: Sendable {
         // report `.waiting`. For most kinds the reducer treats text-waiting as
         // kind-only (no state change). For Grok and Hermes, the reducer allows
         // waiting to clear sticky thinking while plugin Stop hooks stay dead.
-        let agentKind = inferredAgentKind(
+        let inferredKind = inferredAgentKind(
             lines: lines,
             allowsPromptLaunch: true,
             allowsGrokIdentity: true,
             hasGrokIdentity: hasGrokIdentity,
-            hasStrongHermesIdentity: hasStrongHermesIdentity,
-            hasHermesIdentity: hasHermesIdentity,
-            liveAgentKind: liveAgentKind
+            hasStrongHermesIdentity: hasStrongHermesIdentity
         )
+        let agentKind = inferredKind ?? (liveAgentKind == .hermes ? .hermes : nil)
         if let agentKind {
             return AgentOutputDetection(state: .waiting, agentKind: agentKind)
         }
@@ -181,7 +173,7 @@ public struct AgentOutputDetector: Sendable {
     private func containsAgentContext(_ text: String, lines: [Substring]) -> Bool {
         containsStatefulAgentContext(lines)
             || containsConfidentGrokIdentity(text)
-            || containsConfidentHermesIdentity(text, lines: lines, allowsPromptLaunch: true)
+            || containsStrongHermesIdentity(lines, allowsPromptLaunch: true)
     }
 
     private func containsStatefulAgentContext(_ lines: [Substring]) -> Bool {
@@ -199,9 +191,7 @@ public struct AgentOutputDetector: Sendable {
         allowsPromptLaunch: Bool,
         allowsGrokIdentity: Bool,
         hasGrokIdentity: Bool,
-        hasStrongHermesIdentity: Bool,
-        hasHermesIdentity: Bool,
-        liveAgentKind: AgentKind
+        hasStrongHermesIdentity: Bool
     ) -> AgentKind? {
         // Generic checked before Claude so a Muse/Cursor pane that mentions
         // "claude code" in prose does not get hijacked. Generic is prompt-anchored
@@ -219,9 +209,7 @@ public struct AgentOutputDetector: Sendable {
             allowsPromptLaunch: allowsPromptLaunch
         )
         // Preserve Claude's established precedence over stale provider text.
-        // Only a path-only Hermes marker makes Claude defer so stronger
-        // non-Claude signatures can win before the Hermes fallback.
-        if hasClaudeIdentity && (!hasHermesIdentity || liveAgentKind == .claudeCode) {
+        if hasClaudeIdentity {
             return .claudeCode
         }
         if allowsGrokIdentity, hasGrokIdentity {
@@ -232,11 +220,6 @@ public struct AgentOutputDetector: Sendable {
         }
         if containsConfidentOpenCodeIdentity(lines, allowsPromptLaunch: allowsPromptLaunch) {
             return .openCode
-        }
-        // A config path is weaker than every provider's strong signature, but
-        // it still beats leftover Claude chrome unless the live pane is Claude.
-        if hasHermesIdentity, liveAgentKind != .claudeCode {
-            return .hermes
         }
         return nil
     }
@@ -280,20 +263,10 @@ public struct AgentOutputDetector: Sendable {
         return lineHasPromptLaunch(lines, command: "claude")
     }
 
-    // Hermes heading / config-path / prompt-anchored launch. Bare "hermes" in
+    // Hermes heading or prompt-anchored launch. Bare "hermes" in
     // prose (NASA, mythology, a package name) is not identity, and neither is
     // a live `Ruminating…` status line on its own.
-    private func containsConfidentHermesIdentity(
-        _ text: String,
-        lines: [Substring],
-        allowsPromptLaunch: Bool
-    ) -> Bool {
-        containsStrongHermesIdentity(lines, allowsPromptLaunch: allowsPromptLaunch)
-            || containsHermesConfigPath(text)
-    }
-
-    /// Splash heading or a prompt-anchored `hermes` launch. Strong enough to
-    /// suppress leftover Claude chrome. A config-path dump is not.
+    /// Splash heading or a prompt-anchored `hermes` launch.
     private func containsStrongHermesIdentity(
         _ lines: [Substring],
         allowsPromptLaunch: Bool
@@ -305,10 +278,6 @@ public struct AgentOutputDetector: Sendable {
             return false
         }
         return lineHasPromptLaunch(lines, command: "hermes")
-    }
-
-    private func containsHermesConfigPath(_ text: String) -> Bool {
-        text.contains("~/.hermes") || text.contains("/.hermes/")
     }
 
     /// Anchored live status only. Mid-line historical "ruminating" in a recap
