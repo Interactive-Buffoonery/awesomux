@@ -221,6 +221,7 @@ struct AwesoMuxApp: App {
     @State private var isSidebarPersistentlyHidden = SidebarPresentationPreferenceStore().isHidden()
     @State private var sidebarCommandTargetAvailability = SidebarCommandTargetAvailability()
     @State private var quickRunToast: QuickRunToast?
+    @State private var isConfigurationReloadInProgress = false
     /// Carries the workspace order across a run of consecutive Previous/Next
     /// presses so a sticky release mid-walk can't reorder the list underfoot
     /// (INT-819). Any selection change from another path invalidates it.
@@ -1031,7 +1032,10 @@ struct AwesoMuxApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             AboutCommands(aboutPanelController: aboutPanelController)
-            SettingsCommands()
+            SettingsCommands(
+                reloadConfiguration: reloadGhosttyConfiguration,
+                reloadShortcut: shortcut(KeyboardShortcutCatalog.reloadGhosttyConfiguration)
+            )
             NewWorkspaceCommands(
                 sessionStore: sessionStore,
                 appSettingsStore: appSettingsStore,
@@ -4985,6 +4989,7 @@ struct AwesoMuxApp: App {
                 commandPaletteController.recenter()
             },
             openSettings: { openSettingsWindow() },
+            reloadGhosttyConfiguration: reloadGhosttyConfiguration,
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFile,
@@ -5576,6 +5581,44 @@ struct AwesoMuxApp: App {
         return validated.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
+    private func reloadGhosttyConfiguration() {
+        guard !isConfigurationReloadInProgress else { return }
+        isConfigurationReloadInProgress = true
+        defer { isConfigurationReloadInProgress = false }
+        let title = String(localized: "Reload Ghostty Configuration")
+        let message: String
+        let details: String
+        switch ghosttyRuntime.reloadGhosttyConfiguration() {
+        case .applied(let diagnostics) where diagnostics.isEmpty:
+            message = String(localized: "Ghostty configuration reloaded.")
+            let toastID = UUID()
+            quickRunToast = QuickRunToast(
+                id: toastID, command: title, output: message,
+                state: .notice(kicker: String(localized: "Done"))
+            )
+            scheduleQuickRunToastDismissal(id: toastID)
+            appDelegate.surfacePrimaryWindow()
+            TerminalAccessibilityAnnouncer.announce(message)
+            return
+        case .applied(let diagnostics):
+            message = String(localized: "Ghostty configuration reloaded with warnings. Valid settings were applied.")
+            details = diagnostics.map { diagnostic in
+                String(diagnostic.unicodeScalars.filter { !GhosttyRuntime.isUnsafeAlertBodyScalar($0) })
+            }.joined(separator: "\n")
+        case .unavailable:
+            message = String(localized: "Could not reload Ghostty configuration.")
+            details = String(localized: "The terminal runtime is not available.")
+        case .unableToBuild:
+            message = String(localized: "Could not reload Ghostty configuration.")
+            details = String(localized: "The required awesoMux configuration could not be rebuilt. Your running configuration was kept.")
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = message
+        alert.informativeText = details
+        alert.runModal()
+    }
+
     private func openSettingsWindow(section: SettingsSectionID? = nil) {
         guard let openWindowAction else {
             assertionFailure("Open Settings requested before openWindow action was captured.")
@@ -5627,6 +5670,8 @@ struct AwesoMuxApp: App {
 
     private struct SettingsCommands: Commands {
         @Environment(\.openWindow) private var openWindow
+        let reloadConfiguration: () -> Void
+        let reloadShortcut: KeyBinding
 
         var body: some Commands {
             CommandGroup(replacing: .appSettings) {
@@ -5634,6 +5679,8 @@ struct AwesoMuxApp: App {
                     openWindow(id: AwesoMuxSceneID.settings)
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                Button("Reload Ghostty Configuration", action: reloadConfiguration)
+                    .keyboardShortcut(reloadShortcut)
             }
         }
     }
