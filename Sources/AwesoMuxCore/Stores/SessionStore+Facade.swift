@@ -1,6 +1,14 @@
 import AwesoMuxBridgeProtocol
 import Foundation
 
+public struct DaemonRecoveryHandle: Sendable {
+    public let sessionID: TerminalSession.ID
+    public let paneID: TerminalPane.ID
+    fileprivate let previousSelection: TerminalSession.ID?
+    fileprivate let createdGroupID: SessionGroup.ID?
+    fileprivate let token: UUID
+}
+
 extension SessionStore {
     public struct CommandBridgePaneHealResult: Equatable, Sendable {
         public let sessionID: TerminalSession.ID
@@ -705,6 +713,140 @@ extension SessionStore {
 
         _groups[position.groupIndex].sessions[position.sessionIndex].layout = layout
         return true
+    }
+
+    public func recentlyClosedWorkspace(
+        containing terminalSessionID: TerminalSessionID
+    ) -> RecentlyClosedWorkspace? {
+        if let transient = lastClosedTransient,
+            transient.layout.contains(where: { $0.terminalSessionID == terminalSessionID })
+        {
+            return transient
+        }
+        return recentlyClosed.first {
+            $0.layout.contains { $0.terminalSessionID == terminalSessionID }
+        }
+    }
+
+    @discardableResult
+    public func recoverDaemon(
+        id: TerminalSessionID,
+        metadata: DaemonRecoveryMetadata,
+        cwd: String?
+    ) -> DaemonRecoveryHandle? {
+        let previousSelection = selectedSessionID
+        let previousGroupIDs = Set(_groups.map(\.id))
+        guard
+            let sessionID = DaemonRecoveryReducer.recover(
+                .init(id: id, metadata: metadata, cwd: cwd), into: &_groups
+            ),
+            let groupIndex = _groups.firstIndex(where: { group in
+                group.sessions.contains { $0.id == sessionID }
+            }),
+            let paneID = _groups[groupIndex].sessions.first(where: { $0.id == sessionID })?
+                .activePaneID
+        else { return nil }
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        let token = UUID()
+        daemonRecoveryTokens[sessionID] = token
+        let groupID = _groups[groupIndex].id
+        return DaemonRecoveryHandle(
+            sessionID: sessionID, paneID: paneID, previousSelection: previousSelection,
+            createdGroupID: previousGroupIDs.contains(groupID) ? nil : groupID, token: token
+        )
+    }
+
+    public func drainRecentlyClosed(containing terminalSessionID: TerminalSessionID) {
+        if lastClosedTransient?.layout.contains(where: {
+            $0.terminalSessionID == terminalSessionID
+        }) == true {
+            lastClosedTransient = nil
+        }
+        recentlyClosed.removeAll {
+            $0.layout.contains { $0.terminalSessionID == terminalSessionID }
+        }
+    }
+
+    public func provisionallyRestore(
+        _ entry: RecentlyClosedWorkspace,
+        daemonID: TerminalSessionID
+    ) -> DaemonRecoveryHandle? {
+        guard entry.layout.contains(where: { $0.terminalSessionID == daemonID }) else { return nil }
+        let previousSelection = selectedSessionID
+        let previousGroupIDs = Set(_groups.map(\.id))
+        var candidateGroups = _groups
+        var candidateRecentlyClosed = recentlyClosed
+        var candidateLastClosedTransient = lastClosedTransient
+        guard
+            let sessionID = RecentlyClosedWorkspaceReducer.provisionallyReopen(
+                entry: entry,
+                in: &candidateGroups,
+                recentlyClosed: &candidateRecentlyClosed,
+                lastClosedTransient: &candidateLastClosedTransient,
+                now: Date()
+            ),
+            let groupIndex = candidateGroups.firstIndex(where: { group in
+                group.sessions.contains { $0.id == sessionID }
+            }),
+            let sessionIndex = candidateGroups[groupIndex].sessions.firstIndex(where: {
+                $0.id == sessionID
+            }),
+            let pane = candidateGroups[groupIndex].sessions[sessionIndex].panes.first(where: {
+                $0.terminalSessionID == daemonID
+            })
+        else { return nil }
+        candidateGroups[groupIndex].sessions[sessionIndex].layout = candidateGroups[groupIndex]
+            .sessions[sessionIndex]
+            .layout.mappingPanes { restoredPane in
+                var restoredPane = restoredPane
+                restoredPane.terminalBackendMetadata = TerminalBackendMetadata(
+                    rawValue: "amx:v1:existing-only"
+                )
+                return restoredPane
+            }
+        _groups = candidateGroups
+        recentlyClosed = candidateRecentlyClosed
+        lastClosedTransient = candidateLastClosedTransient
+        commit(WorkspaceMutationEffect(needsFullRebuild: true, selection: .set(sessionID)))
+        let token = UUID()
+        daemonRecoveryTokens[sessionID] = token
+        return DaemonRecoveryHandle(
+            sessionID: sessionID, paneID: pane.id, previousSelection: previousSelection,
+            createdGroupID: previousGroupIDs.contains(candidateGroups[groupIndex].id)
+                ? nil : candidateGroups[groupIndex].id,
+            token: token
+        )
+    }
+
+    @discardableResult
+    public func completeDaemonRecovery(_ handle: DaemonRecoveryHandle) -> Bool {
+        guard daemonRecoveryTokens[handle.sessionID] == handle.token else { return false }
+        daemonRecoveryTokens[handle.sessionID] = nil
+        return true
+    }
+
+    public func rollbackDaemonRecovery(_ handle: DaemonRecoveryHandle) {
+        guard daemonRecoveryTokens[handle.sessionID] == handle.token else { return }
+        daemonRecoveryTokens[handle.sessionID] = nil
+        let currentSelection = selectedSessionID
+        for groupIndex in _groups.indices {
+            _groups[groupIndex].sessions.removeAll { $0.id == handle.sessionID }
+        }
+        if let createdGroupID = handle.createdGroupID {
+            _groups.removeAll { $0.id == createdGroupID && $0.sessions.isEmpty }
+        }
+        let remainingSessionIDs = Set(_groups.flatMap { $0.sessions.map(\.id) })
+        let selection =
+            currentSelection.flatMap { current in
+                current != handle.sessionID && remainingSessionIDs.contains(current) ? current : nil
+            } ?? handle.previousSelection.flatMap { previous in
+                remainingSessionIDs.contains(previous) ? previous : nil
+            } ?? _groups.first?.sessions.first?.id
+        commit(
+            WorkspaceMutationEffect(
+                needsFullRebuild: true, selection: .set(selection)
+            )
+        )
     }
 
     @discardableResult

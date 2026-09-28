@@ -470,6 +470,15 @@ enum KeyboardShortcutCatalog {
         keyDisplay: "K"
     )
 
+    static let reloadGhosttyConfiguration = KeyBinding(
+        id: "reloadGhosttyConfiguration",
+        action: String(localized: "Reload Ghostty Configuration"),
+        key: ",",
+        modifiers: [.command, .shift],
+        keyDisplay: ",",
+        keySpokenName: "Comma"
+    )
+
     static let showKeyboardCheatsheet = KeyBinding(
         id: "showKeyboardCheatsheet",
         action: "Keyboard Shortcuts",
@@ -577,6 +586,7 @@ enum KeyboardShortcutCatalog {
     }
 
     static func settingsSections(keyboard: KeyboardConfig) -> [KeyboardShortcutSection] {
+        let reloadGhosttyConfiguration = resolved(Self.reloadGhosttyConfiguration, keyboard: keyboard)
         let newWorkspace = resolved(Self.newWorkspace, keyboard: keyboard)
         let newWorkspaceInCurrentDirectory = resolved(Self.newWorkspaceInCurrentDirectory, keyboard: keyboard)
         let newWorkspaceGroup = resolved(Self.newWorkspaceGroup, keyboard: keyboard)
@@ -631,6 +641,8 @@ enum KeyboardShortcutCatalog {
             KeyboardShortcutSection(
                 title: "General",
                 entries: [
+                    KeyboardShortcutEntry(
+                        reloadGhosttyConfiguration, detail: String(localized: "Apply Ghostty configuration without restarting terminals")),
                     KeyboardShortcutEntry(newWorkspace, detail: "Create a new workspace"),
                     KeyboardShortcutEntry(
                         newWorkspaceInCurrentDirectory,

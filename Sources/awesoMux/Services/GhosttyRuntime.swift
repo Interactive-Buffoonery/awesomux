@@ -1099,27 +1099,36 @@ final class GhosttyRuntime {
         applyTerminalColorScheme(preferences.terminalColorScheme)
     }
 
+    enum ConfigurationReloadResult: Equatable {
+        case applied(diagnostics: [String])
+        case unavailable
+        case unableToBuild
+    }
+
     func applyTerminalSettings() {
-        guard let app else {
-            #if DEBUG
-                Self.logger.debug("applyTerminalSettings skipped: app not initialized")
-            #endif
-            return
-        }
+        _ = reloadGhosttyConfiguration()
+    }
+
+    /// Updates existing surfaces without replacing the runtime or its clients.
+    /// Presentation belongs to the app command; settings observers stay silent.
+    func reloadGhosttyConfiguration() -> ConfigurationReloadResult {
+        guard let app else { return .unavailable }
         guard
             let config = makeGhosttyConfig(
                 terminalAppearance: terminalAppearanceProvider(),
                 reportFailures: false
             )
         else {
-            #if DEBUG
-                Self.logger.debug("applyTerminalSettings skipped: config build returned nil")
-            #endif
-            return
+            return .unableToBuild
         }
 
         defer { ghostty_config_free(config) }
+        let diagnostics = GhosttyConfigManager.diagnostics(from: config)
         ghostty_app_update_config(app, config)
+        for surfaceView in surfaceViews.values {
+            surfaceView.applyTerminalBackstopBackgroundColor()
+        }
+        return .applied(diagnostics: diagnostics)
     }
 
     func configureOutputMarksAttentionProvider(
@@ -1790,8 +1799,8 @@ final class GhosttyRuntime {
     }
 
     /// Compares awesoMux's ~25 CommandGroup menu shortcuts against
-    /// currently-configured libghostty bindings. They're deliberately
-    /// disjoint today (INT-589) — this only warns on future collisions,
+    /// currently-configured libghostty bindings, except the intentional
+    /// Reload Ghostty Configuration overlap. This only warns on collisions,
     /// it does not change dispatch order (reordering would break every
     /// existing menu shortcut, since they're outside libghostty's binding
     /// config by design).
@@ -1813,6 +1822,7 @@ final class GhosttyRuntime {
     // Extend it when the catalog grows.
     // `internal` (not private) so the table's entries are unit-testable.
     nonisolated static let catalogPhysicalKeyCodes: [Character: UInt32] = [
+        ",": UInt32(kVK_ANSI_Comma),
         "[": UInt32(kVK_ANSI_LeftBracket),
         "]": UInt32(kVK_ANSI_RightBracket),
         "=": UInt32(kVK_ANSI_Equal),
@@ -1840,6 +1850,7 @@ final class GhosttyRuntime {
         let collisions = Self.detectMenuBindingCollisions(
             catalogBindings: KeyboardShortcutCatalog.allBindings()
         ) { binding in
+            if Self.isExpectedReloadBinding(binding, config: config) { return false }
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = GHOSTTY_ACTION_PRESS
             keyEvent.mods = GhosttyInputMapper.modifiers(binding.modifiers.toNSEventModifierFlags())
@@ -1858,6 +1869,38 @@ final class GhosttyRuntime {
         Self.configEnvironmentLogger.warning(
             "possible menu-binding collision (assumes US ANSI layout) for: \(collisions.joined(separator: ", "), privacy: .public)"
         )
+    }
+
+    nonisolated static func isExpectedReloadBinding(_ binding: KeyBinding, config: ghostty_config_t) -> Bool {
+        let expected = KeyboardShortcutCatalog.reloadGhosttyConfiguration
+        guard binding.id == expected.id,
+            binding.key == expected.key,
+            binding.modifiers == expected.modifiers
+        else { return false }
+        let action = "reload_config"
+        let trigger = action.withCString { ghostty_config_trigger(config, $0, UInt(action.utf8.count)) }
+        guard trigger.mods == GhosttyInputMapper.modifiers([.command, .shift]) else { return false }
+        // Physical and Unicode bindings can coexist for the same chord. The
+        // inverse action lookup proves only one; keep warning if another exists.
+        var otherRepresentation = ghostty_input_key_s()
+        otherRepresentation.action = GHOSTTY_ACTION_PRESS
+        otherRepresentation.mods = trigger.mods
+        switch trigger.tag {
+        case GHOSTTY_TRIGGER_UNICODE:
+            guard trigger.key.unicode == 44 else { return false }
+            otherRepresentation.keycode = UInt32(kVK_ANSI_Comma)
+            return !ghostty_config_key_is_binding(config, otherRepresentation)
+        case GHOSTTY_TRIGGER_PHYSICAL:
+            guard trigger.key.physical == GHOSTTY_KEY_COMMA else { return false }
+            otherRepresentation.keycode = UInt32.max
+            otherRepresentation.unshifted_codepoint = 44
+            return ",".withCString { text in
+                otherRepresentation.text = text
+                return !ghostty_config_key_is_binding(config, otherRepresentation)
+            }
+        default:
+            return false
+        }
     }
 
     /// Pure de-dupe decision, split out from `logMenuBindingCollisionsIfAny`

@@ -7,8 +7,14 @@
     "  %arg" : {
 
     },
-    " daemon? It has no owner — nothing restores it." : {
+    " daemon? This discards its scrollback." : {
 
+    },
+    "%1$@ %2$@" : {
+      "comment" : "Session Manager action followed by the session name"
+    },
+    "%1$@ %2$@…" : {
+      "comment" : "Session Manager activation progress; action followed by the session name"
     },
     "%1$@ %2$lld" : {
       "comment" : "Generated title for an unnamed workspace. Arguments are the agent or shell name and a positive index.",
@@ -138,6 +144,7 @@
 
     },
     "%arg %arg" : {
+      "comment" : "Session Manager action followed by the session name",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -769,6 +776,9 @@
     "Apply" : {
       "comment" : "Button title that applies the selected layout preset."
     },
+    "Apply Ghostty configuration without restarting terminals" : {
+
+    },
     "Apply Layout Preset" : {
       "comment" : "Alert title for picking a layout preset to apply."
     },
@@ -1099,9 +1109,6 @@
       "comment" : "Open a folder picker for the worktree target path."
     },
     "Clean up" : {
-
-    },
-    "Clean up this " : {
 
     },
     "Clear %arg?" : {
@@ -1435,6 +1442,9 @@
     "Could not read this pane's scrollback." : {
       "comment" : "VoiceOver announcement when Show Scrollback cannot read the terminal history"
     },
+    "Could not reload Ghostty configuration." : {
+
+    },
     "Could not turn off Open at Login. Open System Settings > General > Login Items and remove awesoMux, then try again. %arg" : {
       "comment" : "Error shown when unregistering awesoMux as a login item fails."
     },
@@ -1487,6 +1497,9 @@
     },
     "Couldn't verify a local terminal for this document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
+    },
+    "Couldn't verify the session. Try again." : {
+      "comment" : "Session Manager could not verify the daemon before activation"
     },
     "Couldn't verify what's running in this transcript's terminal" : {
       "comment" : "Unavailable reason for resuming a session when foreground process evidence is unavailable"
@@ -1870,6 +1883,9 @@
     "End session" : {
 
     },
+    "End this " : {
+
+    },
     "End this session?" : {
 
     },
@@ -2090,6 +2106,12 @@
     "Ghostty" : {
 
     },
+    "Ghostty configuration reloaded with warnings. Valid settings were applied." : {
+
+    },
+    "Ghostty configuration reloaded." : {
+
+    },
     "Ghostty keybinds" : {
       "comment" : "Keys settings title."
     },
@@ -2299,9 +2321,6 @@
     },
     "It's your turn — %arg is waiting for your next message." : {
       "comment" : "Notification body for turn-done banners. Argument is the agent product name."
-    },
-    "Jump to owning pane" : {
-
     },
     "Jumps to the next matching agent" : {
       "comment" : "Accessibility hint for a collapsed-rail footer chip that jumps to the next agent pane in that state"
@@ -2788,6 +2807,9 @@
     "No matching diagnostics" : {
 
     },
+    "No matching sessions" : {
+      "comment" : "Session Manager search announcement when no sessions match"
+    },
     "No matching shortcuts" : {
 
     },
@@ -2941,6 +2963,9 @@
     "Open prefilled email?" : {
       "comment" : "OSC 8 confirmation dialog title segment when a mailto URL has prefill parameters."
     },
+    "Open session" : {
+      "comment" : "Session Manager action to select an open session"
+    },
     "Open source" : {
       "comment" : "About window section heading for bundled third-party licenses"
     },
@@ -2953,8 +2978,14 @@
     "Opened at the top of the document. Section jumps are not supported yet." : {
       "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
     },
+    "Opened session %@." : {
+      "comment" : "Session Manager successful open announcement"
+    },
     "Opening agent transcript." : {
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
+    },
+    "Opening session" : {
+      "comment" : "Fallback Session Manager action while opening a session"
     },
     "Opens a menu to create a new workspace group or a workspace in a specific group." : {
 
@@ -3431,6 +3462,12 @@
     "Record shortcut for %arg" : {
 
     },
+    "Recover session" : {
+      "comment" : "Session Manager action to recover an abandoned session"
+    },
+    "Recovered session %@." : {
+      "comment" : "Session Manager successful recovery announcement"
+    },
     "Red" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -3465,6 +3502,9 @@
     },
     "Refreshing…" : {
       "comment" : "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
+    },
+    "Reload Ghostty Configuration" : {
+
     },
     "Reload Terminal" : {
 
@@ -3829,8 +3869,14 @@
     "Restore Terminal Companion, session ended, %arg" : {
       "comment" : "Accessibility label for the minimized Terminal Companion corner tab when the shell has exited."
     },
+    "Restore session" : {
+      "comment" : "Session Manager action to restore a detached session"
+    },
     "Restore workspaces" : {
       "comment" : "General settings label."
+    },
+    "Restored session %@." : {
+      "comment" : "Session Manager successful restore announcement"
     },
     "Resume %arg" : {
       "comment" : "Send-bar button title on a transcript tab, naming the agent to resume"
@@ -4097,11 +4143,20 @@
     "Session Manager" : {
       "comment" : "Session Manager panel title bar."
     },
+    "Session Manager. Background sessions grouped by lifecycle. Navigate to a session and activate Open, Restore, Recover, Pin, or End Session. Press Escape to dismiss." : {
+      "comment" : "VoiceOver introduction to the Session Manager and its available actions"
+    },
     "Session daemons could not be listed. App process data is current." : {
       "comment" : "Diagnostics partial refresh status"
     },
+    "Session directory unavailable" : {
+      "comment" : "Session Manager action hint when the session directory is unknown"
+    },
     "Session ended" : {
       "comment" : "Corner tab label when the companion shell has exited while minimized."
+    },
+    "Session is no longer available." : {
+      "comment" : "Session Manager activation failed because the daemon disappeared"
     },
     "Session name: use up to %arg letters, numbers, dots, dashes, or underscores. It can’t start with a dash or be “.” or “..”." : {
       "comment" : "Validation message when a remote session name is invalid. The argument is the maximum number of characters."
@@ -4119,6 +4174,9 @@
     },
     "Session on %arg unavailable." : {
       "comment" : "Accessibility label for a remote-owned pane whose session could not be reached\nVoiceOver announcement when a remote-owned pane's session could not be reached"
+    },
+    "Session state changed. The list was refreshed." : {
+      "comment" : "Session Manager activation stopped because the selected daemon changed"
     },
     "Sessions can only be resumed in a local terminal" : {
       "comment" : "Unavailable reason for resuming a session into a terminal that runs over SSH"
@@ -4682,6 +4740,9 @@
     "The repository changed while awesoMux was reading it, so the diff wouldn't have matched the branch it names. Try again." : {
       "comment" : "Branch diff failure when HEAD moved between the start and end of the read"
     },
+    "The required awesoMux configuration could not be rebuilt. Your running configuration was kept." : {
+
+    },
     "The selection changed. Copy the draft and select the text again." : {
       "comment" : "Save recovery announcement for a stale text selection"
     },
@@ -4708,6 +4769,9 @@
     },
     "The target path already exists." : {
       "comment" : "Existing worktree target validation."
+    },
+    "The terminal runtime is not available." : {
+
     },
     "The workspace closed before the changes could open." : {
       "comment" : "VoiceOver announcement when a rendered branch diff has no workspace left to open into"
@@ -4976,6 +5040,9 @@
       "comment" : "Diagnostics history metric with no samples yet"
     },
     "Unavailable while notifications are muted." : {
+
+    },
+    "Unknown Ghostty configuration problem." : {
 
     },
     "Unmute" : {
@@ -5398,9 +5465,6 @@
     "checking this session's log" : {
       "comment" : "Accessibility phrase while a Resume attempt probes the provider's session log"
     },
-    "click to pin · end session" : {
-
-    },
     "collapsed" : {
       "comment" : "VoiceOver value for a collapsed branch-changes file section"
     },
@@ -5412,6 +5476,9 @@
     },
     "deleted" : {
       "comment" : "Status after a file path heading in a rendered branch diff, for a file the branch deleted"
+    },
+    "directory unavailable" : {
+      "comment" : "Session Manager row description when the session directory is unknown"
     },
     "dismiss" : {
 
@@ -5518,6 +5585,9 @@
       "comment" : "Accessibility/tooltip phrase describing what the transcript resume button does"
     },
     "permission needed" : {
+
+    },
+    "pin · end session" : {
 
     },
     "pinned" : {

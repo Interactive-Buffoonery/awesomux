@@ -235,6 +235,12 @@ extension GhosttySurfaceNSView {
     /// kind it is, which is what `applyPostSpawnPaneState` forks on.
     @discardableResult
     func finishSurfaceCreation(launch: SurfaceLaunchCommand) -> Bool {
+        let isRecoveryAttach =
+            if case .bridgeAttach = launch {
+                pane.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+            } else {
+                false
+            }
         terminalPromptObserved = false
         var environment = runtime.agentRuntimeEnvironment(
             sessionID: sessionID,
@@ -255,6 +261,9 @@ extension GhosttySurfaceNSView {
             command: launch.command
         )
         if let createdSurface {
+            if isRecoveryAttach {
+                SessionRecoveryConfirmationCenter.shared.didStartAttach(pane.terminalSessionID)
+            }
             commandBridgeEnactor.errorLatched = false
             lifecycleState.nativeSurfaceWasDisposed = false
             lifecycleState.nextMouseSurfaceIncarnationID += 1
@@ -271,6 +280,8 @@ extension GhosttySurfaceNSView {
                 runtime.noteSurfaceVisibility(paneID: paneID, isVisible: true)
             }
             applyPostSpawnPaneState(for: launch)
+        } else if isRecoveryAttach {
+            SessionRecoveryConfirmationCenter.shared.cancel(pane.terminalSessionID)
         }
         logSurfaceGeometryDiagnostics(event: "surface-create-after")
         runtime.refreshShellActivity(in: sessionStore)
@@ -285,6 +296,9 @@ extension GhosttySurfaceNSView {
     func applyPostSpawnPaneState(for launch: SurfaceLaunchCommand) {
         switch launch {
         case .bridgeAttach:
+            guard pane.terminalBackendMetadata.amxAttachDisposition != .existingOnly else {
+                return
+            }
             // Write-only breadcrumb for now: INT-571 removed the preflight
             // that read this (`hasEstablishedSessionMetadata`), so nothing in
             // the bridge path consumes `established` today. Retained — not
@@ -336,6 +350,15 @@ extension GhosttySurfaceNSView {
         invalidateBridgePreflight()
         lifecycleState.bridgePreflightGeneration &+= 1
         let generation = lifecycleState.bridgePreflightGeneration
+        if pane.terminalBackendMetadata.amxAttachDisposition == .existingOnly,
+            let expectationToken = SessionRecoveryConfirmationCenter.shared.expectationToken(
+                for: pane.terminalSessionID
+            )
+        {
+            lifecycleState.recoveryBridgePreflight = (
+                generation, pane.terminalSessionID, expectationToken
+            )
+        }
         commandBridgeEnactor.bridgePreflightInFlight = true
         let controlPath = AmxBackend.sshControlPath()
         let terminalSessionID = pane.terminalSessionID
@@ -472,6 +495,12 @@ extension GhosttySurfaceNSView {
         lifecycleState.bridgePreflightTask?.cancel()
         lifecycleState.bridgePreflightTask = nil
         commandBridgeEnactor.bridgePreflightInFlight = false
+        if let recovery = lifecycleState.recoveryBridgePreflight {
+            SessionRecoveryConfirmationCenter.shared.cancel(
+                recovery.sessionID, expectationToken: recovery.expectationToken
+            )
+            lifecycleState.recoveryBridgePreflight = nil
+        }
         return true
     }
 
@@ -571,6 +600,7 @@ extension GhosttySurfaceNSView {
             if lifecycleState.bridgePreflightGeneration == generation {
                 lifecycleState.bridgePreflightTask = nil
                 commandBridgeEnactor.bridgePreflightInFlight = false
+                lifecycleState.recoveryBridgePreflight = nil
             }
         }
 
@@ -598,6 +628,7 @@ extension GhosttySurfaceNSView {
             && !commandBridgeEnactor.errorLatched
 
         guard !stale, canCreate else {
+            cancelRecoveryBridgePreflight(generation: generation)
             if case .ready(let channel, _)? = outcome {
                 // A COMMITTED generation (forward up, state file published, trio
                 // staged) whose pane is gone must be torn down through the
@@ -623,6 +654,7 @@ extension GhosttySurfaceNSView {
         }
         guard let command = BridgeAttachDecision.finalCommand(for: outcome, baseCommand: baseCommand) else {
             // .cancelled — a superseding attach owns the pane; spawn nothing.
+            cancelRecoveryBridgePreflight(generation: generation)
             logSurfaceGeometryDiagnostics(event: "surface-create-bridge-preflight-cancelled")
             return
         }
@@ -658,6 +690,16 @@ extension GhosttySurfaceNSView {
             )
         }
         finishSurfaceCreation(launch: .bridgeAttach(command))
+    }
+
+    private func cancelRecoveryBridgePreflight(generation: UInt64) {
+        guard let recovery = lifecycleState.recoveryBridgePreflight,
+            recovery.generation == generation
+        else { return }
+        lifecycleState.recoveryBridgePreflight = nil
+        SessionRecoveryConfirmationCenter.shared.cancel(
+            recovery.sessionID, expectationToken: recovery.expectationToken
+        )
     }
 
     func clearCommandBridgeStateForLocalShellFallback() {
