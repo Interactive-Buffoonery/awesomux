@@ -19,6 +19,8 @@ struct GhosttyRuntimeKeyCollisionTests {
         for (contents, expected) in [
             ("keybind = super+shift+,=reload_config\n", true),
             ("keybind = clear\nkeybind = super+shift+Comma=reload_config\n", true),
+            ("keybind = clear\nkeybind = super+shift+,=reload_config\nkeybind = super+shift+Comma=new_tab\n", false),
+            ("keybind = clear\nkeybind = super+shift+Comma=reload_config\nkeybind = super+shift+,=new_tab\n", false),
             ("keybind = super+shift+comma=new_tab\n", false),
             ("keybind = super+shift+,=new_tab\n", false),
         ] {
