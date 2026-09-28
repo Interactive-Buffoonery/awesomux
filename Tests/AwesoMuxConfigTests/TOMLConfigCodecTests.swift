@@ -10,7 +10,8 @@ struct TOMLConfigCodecTests {
     @Test("remote Markdown launch refresh requires explicit opt-in")
     func remoteMarkdownLaunchRefreshIsOptIn() throws {
         #expect(!GeneralConfig.defaultValue.refreshRemoteMarkdownOnLaunch)
-        #expect(try !codec.decode(Self.v1DefaultTOML).general.refreshRemoteMarkdownOnLaunch)
+        let v1TOML = Self.defaultTOML.replacing("config_schema_version = 2", with: "config_schema_version = 1")
+        #expect(try !codec.decode(v1TOML).general.refreshRemoteMarkdownOnLaunch)
         #expect(try !codec.decode(Self.defaultTOML).general.refreshRemoteMarkdownOnLaunch)
         var config = AwesoMuxConfig.defaultValue
         config.general.refreshRemoteMarkdownOnLaunch = true
