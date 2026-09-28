@@ -221,6 +221,7 @@ struct AwesoMuxApp: App {
     @State private var isSidebarPersistentlyHidden = SidebarPresentationPreferenceStore().isHidden()
     @State private var sidebarCommandTargetAvailability = SidebarCommandTargetAvailability()
     @State private var quickRunToast: QuickRunToast?
+    @State private var isConfigurationReloadInProgress = false
     /// Carries the workspace order across a run of consecutive Previous/Next
     /// presses so a sticky release mid-walk can't reorder the list underfoot
     /// (INT-819). Any selection change from another path invalidates it.
@@ -228,6 +229,7 @@ struct AwesoMuxApp: App {
     @State private var documentTabActions = DocumentComposeTabActionHandler()
     @State private var branchChangesCoordinator = BranchChangesCoordinator()
     @State private var remoteMarkdownRefreshCoordinator: RemoteMarkdownRefreshCoordinator
+    @State private var daemonRecoveryMetadataSynchronizer = DaemonRecoveryMetadataSynchronizer()
 
     private static let logger = Logger(
         subsystem: "com.interactivebuffoonery.awesomux",
@@ -724,6 +726,10 @@ struct AwesoMuxApp: App {
                 installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
                 appDelegate.syncMenuBarMiniStatusItem()
+                    Task {
+                        await daemonRecoveryMetadataSynchronizer.synchronize(
+                            groups: sessionStore.groups)
+                    }
                     // Inert by policy, and deliberately still here: every prime
                     // call routes through `NotificationPrimePolicy` so that one
                     // place decides, and `shouldPrime` refuses every launch
@@ -773,6 +779,7 @@ struct AwesoMuxApp: App {
                 rootContentAfterSaveStatus
             .onChange(of: sessionStore.groups) { _, _ in
                 saveSessionIfRestoreEnabled()
+                    Task { await daemonRecoveryMetadataSynchronizer.synchronize(groups: sessionStore.groups) }
                 floatingPanelController.evictFloatingSlotsForClosedWorkspaces(in: sessionStore)
                 dismissWorkspaceEditorIfTargetClosed()
                 dismissWorkspaceGroupEditorIfTargetClosed()
@@ -1025,7 +1032,10 @@ struct AwesoMuxApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             AboutCommands(aboutPanelController: aboutPanelController)
-            SettingsCommands()
+            SettingsCommands(
+                reloadConfiguration: reloadGhosttyConfiguration,
+                reloadShortcut: shortcut(KeyboardShortcutCatalog.reloadGhosttyConfiguration)
+            )
             NewWorkspaceCommands(
                 sessionStore: sessionStore,
                 appSettingsStore: appSettingsStore,
@@ -3834,7 +3844,7 @@ struct AwesoMuxApp: App {
         sessionManagerController.toggle(
             model: sessionManagerModel,
             relativeTo: NSApp.mainWindow ?? NSApp.keyWindow,
-            onJump: jumpToDaemonOwner
+            onSelect: selectRecoveredDaemon
         )
     }
 
@@ -4290,17 +4300,24 @@ struct AwesoMuxApp: App {
 
     /// Selects the workspace that owns a daemon (reusing the same selection +
     /// terminal-focus path the command palette uses) so "Jump" lands the user on
-    /// the live pane. Session-level by design — the model resolves a daemon to its
-    /// owning session, and we focus that session's active pane.
+    /// the exact live pane. The model resolves both the owning workspace and pane,
+    /// so split workspaces do not fall back to whichever pane happened to be active.
     private func jumpToDaemonOwner(_ id: TerminalSessionID) {
-        guard let target = sessionManagerModel.jumpTarget(for: id),
-            let session = sessionStore.session(id: target.sessionID)
-        else {
+        guard let target = sessionManagerModel.jumpTarget(for: id) else {
             return
         }
         sessionStore.selectedSessionID = target.sessionID
         appDelegate.surfacePrimaryWindow()
-        requestTerminalFocus(sessionID: target.sessionID, paneID: session.activePaneID)
+        sessionStore.setActivePane(id: target.paneID, in: target.sessionID)
+        requestTerminalFocus(sessionID: target.sessionID, paneID: target.paneID)
+    }
+
+    private func selectRecoveredDaemon(_ sessionID: TerminalSession.ID, _ paneID: TerminalPane.ID) {
+        guard sessionStore.session(id: sessionID)?.layout.pane(id: paneID) != nil else { return }
+        sessionStore.selectedSessionID = sessionID
+        sessionStore.setActivePane(id: paneID, in: sessionID)
+        appDelegate.surfacePrimaryWindow()
+        requestTerminalFocus(sessionID: sessionID, paneID: paneID)
     }
 
     private func makeCommandPalettePresenter() -> PalettePresenter {
@@ -4972,6 +4989,7 @@ struct AwesoMuxApp: App {
                 commandPaletteController.recenter()
             },
             openSettings: { openSettingsWindow() },
+            reloadGhosttyConfiguration: reloadGhosttyConfiguration,
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
             openMarkdownFile: openMarkdownFile,
@@ -5563,6 +5581,44 @@ struct AwesoMuxApp: App {
         return validated.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
+    private func reloadGhosttyConfiguration() {
+        guard !isConfigurationReloadInProgress else { return }
+        isConfigurationReloadInProgress = true
+        defer { isConfigurationReloadInProgress = false }
+        let title = String(localized: "Reload Ghostty Configuration")
+        let message: String
+        let details: String
+        switch ghosttyRuntime.reloadGhosttyConfiguration() {
+        case .applied(let diagnostics) where diagnostics.isEmpty:
+            message = String(localized: "Ghostty configuration reloaded.")
+            let toastID = UUID()
+            quickRunToast = QuickRunToast(
+                id: toastID, command: title, output: message,
+                state: .notice(kicker: String(localized: "Done"))
+            )
+            scheduleQuickRunToastDismissal(id: toastID)
+            appDelegate.surfacePrimaryWindow()
+            TerminalAccessibilityAnnouncer.announce(message)
+            return
+        case .applied(let diagnostics):
+            message = String(localized: "Ghostty configuration reloaded with warnings. Valid settings were applied.")
+            details = diagnostics.map { diagnostic in
+                String(diagnostic.unicodeScalars.filter { !GhosttyRuntime.isUnsafeAlertBodyScalar($0) })
+            }.joined(separator: "\n")
+        case .unavailable:
+            message = String(localized: "Could not reload Ghostty configuration.")
+            details = String(localized: "The terminal runtime is not available.")
+        case .unableToBuild:
+            message = String(localized: "Could not reload Ghostty configuration.")
+            details = String(localized: "The required awesoMux configuration could not be rebuilt. Your running configuration was kept.")
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = message
+        alert.informativeText = details
+        alert.runModal()
+    }
+
     private func openSettingsWindow(section: SettingsSectionID? = nil) {
         guard let openWindowAction else {
             assertionFailure("Open Settings requested before openWindow action was captured.")
@@ -5614,6 +5670,8 @@ struct AwesoMuxApp: App {
 
     private struct SettingsCommands: Commands {
         @Environment(\.openWindow) private var openWindow
+        let reloadConfiguration: () -> Void
+        let reloadShortcut: KeyBinding
 
         var body: some Commands {
             CommandGroup(replacing: .appSettings) {
@@ -5621,6 +5679,8 @@ struct AwesoMuxApp: App {
                     openWindow(id: AwesoMuxSceneID.settings)
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                Button("Reload Ghostty Configuration", action: reloadConfiguration)
+                    .keyboardShortcut(reloadShortcut)
             }
         }
     }

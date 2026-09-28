@@ -97,6 +97,16 @@ Ghostty’s own **`macos/Sources/Ghostty/`** tree remains the best upstream refe
 1. **`AwesoMuxApp`** — Registers default settings (`SettingsDefault`) *before* loading state so `UserDefaults` observers see real defaults. Loads `SessionStore` via `SessionPersistence.load()`, owns `GhosttyRuntime` and the local `DiagnosticsModel`, and wires `AppDelegate` to the store and runtime after launch.
 
 **Local diagnostics (INT-671):** after the user performs a manual refresh and while its Settings pane remains visible, `DiagnosticsModel` samples the awesoMux process tree every 30 seconds and retains at most one hour of aggregate CPU and memory history. Manual refresh also discovers awesoMux-owned `amx` daemon trees; timed samples reuse that cached ownership instead of launching `amx list`. The sampler keeps fixed deadlines, skips missed intervals, and gives macOS timing tolerance to reduce wakeups. `LocalDiagnosticEventRecorder` receives bounded, privacy-safe config, restore, terminal, and runtime-failure outcomes; normal agent activity is not duplicated into diagnostics. This state is never persisted or uploaded, as required by ADR-0008.
+
+**Daemon recovery:** `TerminalSessionID` remains the immutable backend key.
+awesoMux writes bounded presentation metadata into zmx labels and resolves
+Session Manager rows from live workspaces, reopen snapshots, then daemon
+metadata. Restore and abandoned recovery publish a provisional exact-ID pane
+marked existing-only, select it so the normal surface lifecycle attaches, and
+commit only after the status channel confirms `attached`. Failure removes the
+provisional workspace without consuming its reopen snapshot. Abandoned recovery
+intentionally reconstructs one pane; missing split/document layout is not
+invented.
 2. **`SessionStore`** (`@MainActor`, `@Observable`) — Authoritative facade for selection, pane operations, and agent fields. `groups` is a read-only snapshot; callers mutate the workspace tree through explicit commands and replace a restored snapshot with `replaceState(restoring:)`. It keeps observable UI state in one main-actor store, while focused internal reducers own pure workspace-tree, pane-layout, restore, recently-closed, shell-activity, runtime-event, and attention decisions. Persists on meaningful changes (coalesced save — see `SessionPersistence`).
 3. **`GhosttyRuntime`** — Process-wide libghostty lifecycle: init, config, `ghostty_app_t`, tick/wakeups; creates surfaces for AppKit views embedded in SwiftUI.
 4. **Notification path** — `WorkspaceNotificationPolicy` + `WorkspaceNotificationTracker` + `WorkspaceNotificationBridge` / `UNUserNotificationCenter` (details below).

@@ -4,6 +4,20 @@ Menu shortcuts below match **[`KeyboardShortcutCatalog`](../Sources/awesoMux/Ser
 
 **Mental model:** one app window; a **workspace** is a sidebar session (tab idiom); a **pane** is a split inside that session. **⌘W** closes the **pane**; on a workspace's last pane it closes the **workspace** instead (soft close, ⇧⌘T reopens)—see [ADR 0002 — Window-close keybinding model](adr/0002-window-close-keybinding-model.md) and its 2026-07-14 amendment. In the empty welcome state (nothing selected), the same shortcut is titled **Close Window** and dismisses the window. By default, awesoMux asks before ⌘W interrupts active agent or terminal activity, whether that closes a pane or the last-pane workspace. To restart a pane's shell in place without closing anything, use the **Restart Shell** command (command palette).
 
+## awesoMux application menu
+
+| Shortcut | Action |
+| --- | --- |
+| ⌘, | Settings… |
+| ⇧⌘, | **Reload Ghostty Configuration** |
+
+Reload re-reads Ghostty configuration and reapplies awesoMux's terminal and
+appearance overrides to existing panes without restarting their processes or
+clearing scrollback. It also works with no workspace selected and is available
+in the command palette. Valid settings apply even when other entries have
+parsing problems; a warning shows those diagnostics. If a required awesoMux
+override cannot be rebuilt, the running configuration stays in place.
+
 ## File
 
 | Shortcut | Action |

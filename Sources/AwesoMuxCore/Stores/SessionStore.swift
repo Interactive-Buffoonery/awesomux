@@ -493,6 +493,7 @@ public final class SessionStore {
     @ObservationIgnored var index: SessionStoreIndex = .empty
     @ObservationIgnored var shellActivityReducer = ShellActivityReducer()
     @ObservationIgnored var runtimeEventReducer = AgentRuntimeEventReducer()
+    @ObservationIgnored var daemonRecoveryTokens: [TerminalSession.ID: UUID] = [:]
     @ObservationIgnored let acknowledgementCoordinator: SelectionAcknowledgementCoordinator
     @ObservationIgnored private var isReplacingState = false
     @ObservationIgnored private var storedSelectedSessionID: TerminalSession.ID?
@@ -772,6 +773,7 @@ public final class SessionStore {
         // clock for both the coarse mirror and the generation — is a new
         // lifetime.
         lastLiveTitleBumpBySessionID.removeAll()
+        daemonRecoveryTokens.removeAll()
         _groups = components.groups
         recentlyClosed = components.recentlyClosed
         // Both clears precede the `pinnedSessionIDs` write below, whose observer
@@ -1430,6 +1432,7 @@ public final class SessionStore {
         origin: CloseOrigin = .user
     ) {
         guard let position = position(for: id) else { return }
+        daemonRecoveryTokens[id] = nil
 
         let session = _groups[position.groupIndex].sessions[position.sessionIndex]
         let group = _groups[position.groupIndex]
