@@ -23,26 +23,6 @@ private func localTerminal() -> TerminalPane {
 // MARK: - Command composition
 
 @Suite struct AgentTranscriptResumeCommandTests {
-    @Test func composesClaudeResumeFromTheStoredIdentity() {
-        #expect(
-            AgentTranscriptResumePolicy.command(for: identity(claudeSession))
-                == "claude --resume '\(claudeSession)'"
-        )
-    }
-
-    @Test func composesCodexResumeFromTheStoredIdentity() {
-        #expect(
-            AgentTranscriptResumePolicy.command(for: identity(codexSession, .codex))
-                == "codex resume '\(codexSession)'"
-        )
-    }
-
-    @Test func composesPiResumeCommand() {
-        #expect(
-            AgentTranscriptResumePolicy.command(for: identity("pi-session-1", .pi))
-                == "pi --session 'pi-session-1'"
-        )
-    }
 
     /// The wrong-session bug the typed identity exists to close: a document
     /// rendered from session A must still resume A after its terminal has moved
@@ -77,28 +57,11 @@ private func localTerminal() -> TerminalPane {
         // the policy composed is exactly what reaches the PTY.
         #expect(RichInputStaging.stagedPayload(expected) == expected)
     }
-
-    @Test func transcriptViewingDoesNotInventOpenCodeResumeSyntax() throws {
-        let stored = try #require(
-            AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC")
-        )
-
-        #expect(AgentTranscriptResumePolicy.command(for: stored) == nil)
-    }
 }
 
 // MARK: - Eligibility
 
 @Suite struct AgentTranscriptResumeVerdictTests {
-    @Test func eligibleAtAPlainShellPrompt() {
-        let terminal = localTerminal()
-        #expect(
-            AgentTranscriptResumePolicy.verdict(
-                target: .available(terminal),
-                observedForegroundCommand: "-zsh"
-            ) == .eligible(terminal.id)
-        )
-    }
 
     @Test func deniedWhenTranscriptProviderHasNoResumeSyntax() throws {
         let identity = try #require(

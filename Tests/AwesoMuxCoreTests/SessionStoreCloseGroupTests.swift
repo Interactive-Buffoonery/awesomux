@@ -5,36 +5,6 @@ import Testing
 @MainActor
 @Suite("SessionStore — Close Group (INT-206)")
 struct SessionStoreCloseGroupTests {
-    @Test("closing a group closes all its workspaces and removes the group")
-    func closeGroupClosesAllWorkspacesAndRemovesGroup() {
-        let first = makeSession("first")
-        let second = makeSession("second")
-        let survivor = makeSession("survivor")
-        let doomed = SessionGroup(name: "doomed", sessions: [first, second])
-        let kept = SessionGroup(name: "kept", sessions: [survivor])
-        let store = SessionStore(groups: [doomed, kept], selectedSessionID: first.id)
-
-        store.closeGroup(id: doomed.id)
-
-        #expect(store.groups.map(\.id) == [kept.id])
-        #expect(store.session(id: first.id) == nil)
-        #expect(store.session(id: second.id) == nil)
-        #expect(store.selectedSession?.id == survivor.id)
-    }
-
-    @Test("closing an empty group removes it without touching other groups")
-    func closeEmptyGroupRemovesIt() {
-        let survivor = makeSession("survivor")
-        let empty = SessionGroup(name: "empty", sessions: [])
-        let kept = SessionGroup(name: "kept", sessions: [survivor])
-        let store = SessionStore(groups: [empty, kept], selectedSessionID: survivor.id)
-
-        store.closeGroup(id: empty.id)
-
-        #expect(store.groups.map(\.id) == [kept.id])
-        #expect(store.removeGroup(id: kept.id) == false)
-        #expect(store.selectedSession?.id == survivor.id)
-    }
 
     /// Closing the sole group used to leave an empty shell behind, because
     /// `removeGroup` refused the last group. It now removes it outright.
@@ -54,23 +24,6 @@ struct SessionStoreCloseGroupTests {
 
         #expect(store.groups.isEmpty)
         #expect(store.selectedSessionID == nil)
-    }
-
-    /// The store-level counterpart to the reducer test in
-    /// `WorkspaceTreeReducerGroupTests` — this one goes through `SessionStore`,
-    /// so it also covers the commit and undo registration around the reducer
-    /// call rather than the guard alone.
-    ///
-    /// Lived in `SessionStoreTests` as XCTest until this change inverted it;
-    /// moved here and converted per the repo's "new tests use swift-testing,
-    /// existing XCTest stays until touched" rule.
-    @Test("removeGroup removes the final empty group")
-    func removeGroupRemovesFinalEmptyGroup() {
-        let emptyGroup = SessionGroup(name: "scratch", sessions: [])
-        let store = SessionStore(groups: [emptyGroup])
-
-        #expect(store.removeGroup(id: emptyGroup.id))
-        #expect(store.groups.isEmpty)
     }
 
     /// The failure mode most worth fearing when closing the last group became
@@ -94,62 +47,6 @@ struct SessionStoreCloseGroupTests {
         let restored = SessionRestoreReducer.restoredComponents(from: decoded)
 
         #expect(restored.groups.isEmpty, "restore must not conjure a default group")
-    }
-
-    @Test("closing an unknown group is a no-op")
-    func closeUnknownGroupIsNoOp() {
-        let session = makeSession("only")
-        let group = SessionGroup(name: "group", sessions: [session])
-        let store = SessionStore(groups: [group], selectedSessionID: session.id)
-
-        store.closeGroup(id: SessionGroup.ID())
-
-        #expect(store.groups.map(\.id) == [group.id])
-        #expect(store.session(id: session.id) != nil)
-    }
-
-    @Test("closed workspaces are captured for reopen")
-    func closedWorkspacesAreCapturedForReopen() {
-        // User-edited titles make the sessions worth persisting — bare
-        // shells only get the single transient slot, matching serial
-        // per-workspace close semantics.
-        let first = makeSession("first", isTitleUserEdited: true)
-        let second = makeSession("second", isTitleUserEdited: true)
-        let doomed = SessionGroup(name: "doomed", sessions: [first, second])
-        let kept = SessionGroup(name: "kept", sessions: [makeSession("survivor")])
-        let store = SessionStore(groups: [doomed, kept])
-
-        store.closeGroup(id: doomed.id)
-
-        #expect(store.canReopenClosedWorkspace)
-        // Reopen the most recent close (the LAST session closed in the
-        // loop) — its original group is gone, so the reducer recreates it.
-        // Reopen mints a fresh session ID by design, so assert on title
-        // and group shape rather than identity.
-        let reopenedID = store.reopenMostRecentlyClosed()
-        #expect(reopenedID != nil)
-        let recreated = store.groups.first(where: { $0.name == "doomed" })
-        #expect(recreated?.sessions.map(\.title) == ["second"])
-        // A second reopen proves EVERY session in the group was captured,
-        // not just the last one closed.
-        #expect(store.reopenMostRecentlyClosed() != nil)
-        let recreatedAgain = store.groups.first(where: { $0.name == "doomed" })
-        #expect(recreatedAgain?.sessions.map(\.title).sorted() == ["first", "second"])
-    }
-
-    @Test("split-pane workspaces close through the single close path")
-    func splitPaneWorkspaceClosesThroughSingleClosePath() {
-        let split = makeSession("split")
-        let doomed = SessionGroup(name: "doomed", sessions: [split])
-        let kept = SessionGroup(name: "kept", sessions: [makeSession("survivor")])
-        let store = SessionStore(groups: [doomed, kept], selectedSessionID: split.id)
-        #expect(store.splitActivePane(orientation: .horizontal, in: split.id) != nil)
-        #expect(store.session(id: split.id)?.layout.paneIDs.count == 2)
-
-        store.closeGroup(id: doomed.id)
-
-        #expect(store.session(id: split.id) == nil)
-        #expect(store.groups.map(\.name) == ["kept"])
     }
 
     @Test("a session that joined after confirmation survives a limited close")

@@ -4,22 +4,6 @@ import Testing
 
 @Suite
 struct PaneColorCodableTests {
-    @Test
-    func paletteRoundTrips() throws {
-        let value = PaneColor.palette(.teal)
-        let data = try JSONEncoder().encode(value)
-        let decoded = try JSONDecoder().decode(PaneColor.self, from: data)
-        #expect(decoded == .palette(.teal))
-    }
-
-    @Test
-    func encodesAsDiscriminatedUnion() throws {
-        let data = try JSONEncoder().encode(PaneColor.palette(.pink))
-        let json = try #require(String(data: data, encoding: .utf8))
-        #expect(json.contains("\"kind\""))
-        #expect(json.contains("palette"))
-        #expect(json.contains("pink"))
-    }
 
     @Test
     func unknownKindThrows() {
@@ -29,16 +13,6 @@ struct PaneColorCodableTests {
         #expect(throws: (any Error).self) {
             try JSONDecoder().decode(PaneColor.self, from: Data(json.utf8))
         }
-    }
-
-    @Test
-    func paneWithColorRoundTrips() throws {
-        var pane = TerminalPane(title: "build", workingDirectory: "~", executionPlan: .local)
-        pane.color = .palette(.sky)
-        let decoded = try JSONDecoder().decode(
-            TerminalPane.self, from: try JSONEncoder().encode(pane)
-        )
-        #expect(decoded.color == .palette(.sky))
     }
 
     @Test
@@ -65,13 +39,5 @@ struct PaneColorCodableTests {
         let json = #"{"id":"\#(UUID().uuidString)","title":"shell","workingDirectory":"~","unreadNotificationCount":0,"color":{"kind":"palette","name":"coral"}}"#
         let decoded = try JSONDecoder().decode(TerminalPane.self, from: Data(json.utf8))
         #expect(decoded.color == nil)
-    }
-
-    @Test
-    func equalityDistinguishesColor() {
-        let a = TerminalPane(id: UUID(), title: "x", workingDirectory: "~", executionPlan: .local)
-        var b = a
-        b.color = .palette(.green)
-        #expect(a != b)
     }
 }

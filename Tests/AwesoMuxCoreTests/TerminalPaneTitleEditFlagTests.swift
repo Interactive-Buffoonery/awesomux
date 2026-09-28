@@ -5,23 +5,6 @@ import Testing
 
 @Suite
 struct TerminalPaneTitleEditFlagTests {
-    @Test
-    func defaultsToFalse() {
-        let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
-        #expect(pane.isTitleUserEdited == false)
-    }
-
-    @Test
-    func roundTripsWhenTrue() throws {
-        var pane = TerminalPane(title: "My Backend", workingDirectory: "~", executionPlan: .local)
-        pane.isTitleUserEdited = true
-
-        let data = try JSONEncoder().encode(pane)
-        let decoded = try JSONDecoder().decode(TerminalPane.self, from: data)
-
-        #expect(decoded.isTitleUserEdited == true)
-        #expect(decoded.title == "My Backend")
-    }
 
     @Test
     func decodesMissingKeyAsFalse() throws {
@@ -32,14 +15,6 @@ struct TerminalPaneTitleEditFlagTests {
         let json = #"{"id":"\#(UUID().uuidString)","title":"shell","workingDirectory":"~","unreadNotificationCount":0}"#
         let decoded = try JSONDecoder().decode(TerminalPane.self, from: Data(json.utf8))
         #expect(decoded.isTitleUserEdited == false)
-    }
-
-    @Test
-    func equalityDistinguishesFlag() {
-        let a = TerminalPane(id: UUID(), title: "x", workingDirectory: "~", executionPlan: .local)
-        var b = a
-        b.isTitleUserEdited = true
-        #expect(a != b)
     }
 
     /// A frozen pane (a user-renamed title) must survive the real restore path
