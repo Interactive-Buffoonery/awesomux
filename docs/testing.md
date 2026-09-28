@@ -118,7 +118,7 @@ contract; the W0 counts above are historical.
 | `system` | `./script/test.sh system`, `/ci system` | `awesoMuxTests` |
 | `timing` | local `all`, hosted `all`, `release.yml` | named suites in `timing_pattern` / `timing_test_pattern` |
 | `sidebar` | local `all`, hosted `all`, `release.yml` | `awesoMuxTests.Sidebar*` |
-| `announcement` | **local `all` only** | `TerminalAccessibilityAnnouncerTests`, `RemoteMarkdownTypedPathOpenTests`, `RemoteMarkdownTabRefreshTests` |
+| `announcement` | **local `all` only** | `RemoteMarkdownTypedPathOpenTests`, `RemoteMarkdownTabRefreshTests` |
 | `nontiming` | local `all`, hosted `all`, `release.yml` | everything else, skipping timing/sidebar/announcement |
 | `zmx` | local `all`, hosted `all`, `release.yml` | `script/build_amx.sh test` |
 

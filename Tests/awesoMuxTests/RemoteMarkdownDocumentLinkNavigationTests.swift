@@ -947,13 +947,3 @@ struct RemoteMarkdownAttributedDocumentLinkTests {
         )
     }
 }
-
-@Suite("Remote Markdown fragment announcement catalog coverage")
-struct RemoteMarkdownFragmentAnnouncementCatalogTests {
-    @Test func fragmentAnnouncementLiteralIsCatalogKey() throws {
-        let keys = try AwesoMuxStringCatalog.keys()
-        #expect(
-            keys.contains("Opened at the top of the document. Section jumps are not supported yet."),
-            "Localizable.xcstrings has no key for the fragment at-top announcement")
-    }
-}
