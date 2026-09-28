@@ -131,9 +131,11 @@ temporary directory printed at startup; local `all` puts all shard reports in
 one directory.
 Each of those Swift shards must produce a complete report with at least one
 executed Swift Testing case. An exit status of zero without a complete report
-fails the gate; the reports remain available for diagnosis. A cull that empties
-a named shard must update `script/test.sh` in the same change or that shard
-fails closed.
+fails the gate; the reports remain available for diagnosis. If a cull empties
+a named shard, update its filter and the local `all` sequence in
+`script/test.sh`, plus the fixed group lists in
+`.github/workflows/native-ci-executor.yml` and `.github/workflows/release.yml`,
+in the same change. Otherwise, a dispatched empty shard fails report validation.
 
 `./script/test.sh all` intentionally rejects additional `swift test` arguments:
 the old fallback ran every test in one process and could exhaust AppKit's

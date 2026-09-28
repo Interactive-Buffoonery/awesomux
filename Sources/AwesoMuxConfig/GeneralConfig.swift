@@ -1,6 +1,7 @@
 /// App-wide general behaviour settings introduced in schema v2.
 public struct GeneralConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultRestoreWorkspaces> public var restoreWorkspaces: Bool
+    @TOMLDefault<DefaultRefreshRemoteMarkdownOnLaunch> public var refreshRemoteMarkdownOnLaunch: Bool
     @TOMLDefault<DefaultSidebarCompactMode> public var sidebarCompactMode: Bool
     @TOMLDefault<DefaultMenuBarVisibility> public var menuBarVisibility: MenuBarVisibility
 
@@ -8,16 +9,19 @@ public struct GeneralConfig: Codable, Equatable, Sendable {
 
     public init(
         restoreWorkspaces: Bool = DefaultRestoreWorkspaces.defaultValue,
+        refreshRemoteMarkdownOnLaunch: Bool = DefaultRefreshRemoteMarkdownOnLaunch.defaultValue,
         sidebarCompactMode: Bool = DefaultSidebarCompactMode.defaultValue,
         menuBarVisibility: MenuBarVisibility = DefaultMenuBarVisibility.defaultValue
     ) {
         self.restoreWorkspaces = restoreWorkspaces
+        self.refreshRemoteMarkdownOnLaunch = refreshRemoteMarkdownOnLaunch
         self.sidebarCompactMode = sidebarCompactMode
         self.menuBarVisibility = menuBarVisibility
     }
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case restoreWorkspaces = "restore_workspaces"
+        case refreshRemoteMarkdownOnLaunch = "refresh_remote_markdown_on_launch"
         case sidebarCompactMode = "sidebar_compact_mode"
         case menuBarVisibility = "menu_bar_visibility"
         case showMenuBarMiniStatus = "show_menu_bar_mini_status"
@@ -28,6 +32,10 @@ public struct GeneralConfig: Codable, Equatable, Sendable {
         _restoreWorkspaces = try container.decode(
             TOMLDefault<DefaultRestoreWorkspaces>.self,
             forKey: .restoreWorkspaces
+        )
+        _refreshRemoteMarkdownOnLaunch = try container.decode(
+            TOMLDefault<DefaultRefreshRemoteMarkdownOnLaunch>.self,
+            forKey: .refreshRemoteMarkdownOnLaunch
         )
         _sidebarCompactMode = try container.decode(
             TOMLDefault<DefaultSidebarCompactMode>.self,
@@ -54,6 +62,7 @@ public struct GeneralConfig: Codable, Equatable, Sendable {
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(restoreWorkspaces, forKey: .restoreWorkspaces)
+        try container.encode(refreshRemoteMarkdownOnLaunch, forKey: .refreshRemoteMarkdownOnLaunch)
         try container.encode(sidebarCompactMode, forKey: .sidebarCompactMode)
         try container.encode(menuBarVisibility, forKey: .menuBarVisibility)
     }
@@ -61,6 +70,10 @@ public struct GeneralConfig: Codable, Equatable, Sendable {
 
 public struct DefaultRestoreWorkspaces: DefaultProvider {
     public static let defaultValue = true
+}
+
+public struct DefaultRefreshRemoteMarkdownOnLaunch: DefaultProvider {
+    public static let defaultValue = false
 }
 
 public struct DefaultSidebarCompactMode: DefaultProvider {
