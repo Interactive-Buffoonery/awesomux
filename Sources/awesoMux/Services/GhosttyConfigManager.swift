@@ -284,7 +284,15 @@ struct GhosttyConfigManager {
         )
     }
 
-#if DEBUG
+    nonisolated static func diagnostics(from config: ghostty_config_t) -> [String] {
+        (0..<ghostty_config_diagnostics_count(config)).map { index in
+            let diagnostic = ghostty_config_get_diagnostic(config, index)
+            return diagnostic.message.map { String(cString: $0) }
+                ?? String(localized: "Unknown Ghostty configuration problem.")
+        }
+    }
+
+    #if DEBUG
     private func logConfigDiagnostics(_ config: ghostty_config_t) {
         let count = ghostty_config_diagnostics_count(config)
         guard count > 0 else { return }
