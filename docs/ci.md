@@ -10,7 +10,8 @@ write-capable token.
 The `Require fast CI` repository ruleset requires these stable check names:
 
 - `Fast deterministic guards` runs the Linux source-policy, CI automation,
-  localization, test-wait, toolchain, and changed-line formatting checks.
+  localization, test-wait, toolchain, and changed-line formatting checks inside
+  the pinned `swift:6.3.3-noble` container, independent of the runner's Swift.
 - `CodeQL interpreted complete` aggregates the automatic Actions CodeQL
   analysis.
 - `Validate PR metadata` validates the pull-request template and metadata from

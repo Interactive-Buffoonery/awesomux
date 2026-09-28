@@ -16,9 +16,10 @@ toolchain:
 - `Package.swift` retains tools version 6.3 so the released Linux compiler can
   build the helper targets. A compiler upgrade does not require new manifest APIs.
 
-`script/check-toolchain.sh` verifies the installed versions. CI runs that check
-on `ubuntu-24.04` before any formatter checks, so a hosted-runner image update
-fails clearly instead of silently producing a different format.
+`script/check-toolchain.sh` verifies the installed versions. Cheap guards runs
+inside `swift:6.3.3-noble` on `ubuntu-24.04`, matching the Linux helper and release
+jobs. The container supplies Swift independently of runner image updates; the
+version check still runs before formatting checks.
 
 Local commands validate the selected toolchain and reject mismatches; they do
 not change the system selection. For Xcode 27 installed as `Xcode.app`, use:
@@ -107,8 +108,10 @@ Treat a toolchain update as a deliberate maintenance change:
    a repository-wide reformat.
 7. When changing the Linux pin, update the Static Linux SDK (URL + checksum) in
    `script/build_linux_helper.sh` to the matching release, and the
-   `swift:X.Y.Z-*` container tags in `.github/workflows/linux-helper.yml` and
-   `.github/workflows/release.yml`.
+   `swift:X.Y.Z-*` container tags in `.github/workflows/cheap-guards.yml`,
+   `.github/workflows/linux-helper.yml`, and `.github/workflows/release.yml`.
+   Their `-noble` suffix is an explicit Ubuntu baseline, not derived from the
+   Swift version; update it deliberately across the workflows and parity test.
 8. Run `./script/preflight.sh` before opening the pull request.
 9. Read existing hosted results; a human launches any requested native CI.
 
