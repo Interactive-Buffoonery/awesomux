@@ -80,9 +80,6 @@ architecture without checking.
 - Format only Swift files you intentionally changed:
   `./script/format.sh path/to/File.swift`, then inspect the diff. Use
   `./script/format.sh --lint` for a non-mutating check.
-- New tests use Swift Testing (`@Suite`, `@Test`, `#expect`). Keep existing
-  XCTest tests unless you are already changing them. Give non-trivial logic unit
-  coverage; do not substitute UI smoke for pure-logic tests.
 - Localized strings use literal-as-key `String(localized:)`, never keyed
   `defaultValue:` calls. Count-dependent user-facing text uses
   `Localizable.stringsdict`, not hand-written singular/plural branches. See
@@ -91,25 +88,46 @@ architecture without checking.
 - Commit subjects follow Conventional Commits, use an imperative lowercase
   description, have no trailing period, and stay at or below 72 characters.
 
+## Testing
+
+Prefer end-to-end verification. Do not grow the unit-test suite.
+
+- Never write unit tests after you write code.
+- Highly prefer end-to-end tests as the sole testing mechanism. Use them to
+  verify complex features work. At the end of an E2E run, produce a verifiable
+  and repeatable artifact (a log, screenshot, recording, or report a reviewer
+  can re-run or inspect).
+- If you must test a system in isolation, first write down all the ways it
+  could fail, then write the code. Isolation tests belong before the production
+  change, never after it.
+
+Do not add low-signal unit tests, extra coverage for logic an E2E run already
+exercises, or characterization suites as a substitute for end-to-end proof.
+Existing Swift Testing and XCTest suites stay until a focused cull removes
+them. Keep existing XCTest tests unless you are already changing them. If an
+isolation test is required, use Swift Testing (`@Suite`, `@Test`, `#expect`).
+
 ## Verification
 
-Choose checks proportional to the change and report exactly what ran:
+Choose checks proportional to the change and report exactly what ran. Lead with
+the E2E evidence and the artifact it produced, not with new unit coverage.
 
 ```sh
 ./script/build_and_run.sh                     # build and run the app
-./script/swift-test.sh --filter SomeTests     # focused Swift tests
-./script/test.sh all                          # zmx and full Swift suite
 ./script/preflight.sh                         # full non-docs PR gate
+./script/test.sh all                          # zmx and the existing Swift suite
 ```
 
-- A Swift test filter matches identifiers, not display names. Confirm the output
-  reports a non-zero test count; a filter that matches nothing can exit 0.
+- Existing Swift filters match identifiers, not display names. Confirm the
+  output reports a non-zero test count; a filter that matches nothing can
+  exit 0. Do not add a new `--filter` suite to satisfy this check.
 - Run `./script/preflight.sh` directly and use its own exit status. Do not pipe
   it or append a command that masks failure.
 - Let repository scripts prepare Ghostty and the compatible Zig toolchain.
 - Do not bypass commit or PR hooks. Address findings or document why they do not
-  apply. Keep automated tests, full preflight, and manual macOS/UI/accessibility
-  checks as separate evidence; one does not imply another passed.
+  apply. Keep E2E artifacts, existing automated suites, full preflight, and
+  manual macOS/UI/accessibility checks as separate evidence; one does not imply
+  another passed.
 
 ## Pull requests
 
