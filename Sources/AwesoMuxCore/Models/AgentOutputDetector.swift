@@ -72,6 +72,7 @@ public struct AgentOutputDetector: Sendable {
             || assumingAgentContext
             || hasGrokIdentity
             || hasStrongHermesIdentity
+            || liveAgentKind == .hermes
         let stateCueAgentKind = inferredAgentKind(
             lines: lines,
             allowsPromptLaunch: false,

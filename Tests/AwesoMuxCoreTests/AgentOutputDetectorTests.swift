@@ -488,6 +488,17 @@ struct AgentOutputDetectorHermesIdentityTests {
         )
     }
 
+    @Test("a live Hermes process detects approval prompts after its banner scrolls away")
+    func liveHermesDetectsApprovalPrompt() {
+        #expect(
+            detector.detectedState(
+                in: "approve pending request",
+                liveAgentKind: .hermes
+            ) == .needsAttention
+        )
+        #expect(detector.detectedState(in: "approve pending request") == nil)
+    }
+
     @Test("infers Hermes from the real splash version line")
     func infersHermesFromSplashVersionLine() {
         #expect(detector.detectedOutput(in: "Hermes Agent v0.21.3")?.agentKind == .hermes)
