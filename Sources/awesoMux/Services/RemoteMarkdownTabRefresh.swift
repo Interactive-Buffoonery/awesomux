@@ -285,7 +285,7 @@ enum RemoteMarkdownTabRefresh {
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
         fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) {
-        let targets = restoreTargets(in: store)
+        let targets = interleavedRestoreTargets(restoreTargets(in: store))
         guard !targets.isEmpty else { return }
         guard automaticallyRefresh else {
             for target in targets {
@@ -334,6 +334,35 @@ enum RemoteMarkdownTabRefresh {
                 _ = await task.value
             }
         }
+    }
+
+    /// Spread admission across SSH destinations, keeping first-seen host order
+    /// and the original tab order within each host. Match the fetch coordinator's
+    /// serialization key so one host's queued tabs do not occupy every slot.
+    static func interleavedRestoreTargets(_ targets: [RestoreTarget]) -> [RestoreTarget] {
+        var hostIndices: [String: Int] = [:]
+        var buckets: [[RestoreTarget]] = []
+        for target in targets {
+            let host = target.identity.remoteTarget?.sshDestination ?? "local"
+            if let index = hostIndices[host] {
+                buckets[index].append(target)
+            } else {
+                hostIndices[host] = buckets.count
+                buckets.append([target])
+            }
+        }
+        var result: [RestoreTarget] = []
+        result.reserveCapacity(targets.count)
+        var active = Array(buckets.indices)
+        var offset = 0
+        while !active.isEmpty {
+            for index in active {
+                result.append(buckets[index][offset])
+            }
+            offset += 1
+            active.removeAll { buckets[$0].count == offset }
+        }
+        return result
     }
 
     /// Pure enumeration of restore work — tests assert the walk without
