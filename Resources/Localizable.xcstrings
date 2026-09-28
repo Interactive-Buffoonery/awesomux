@@ -715,6 +715,9 @@
     "Always manage these destinations" : {
       "comment" : "Workspace settings label."
     },
+    "Always show awesoMux in the menu bar" : {
+      "comment" : "Accessibility label for the always-visible menu bar choice"
+    },
     "Always show jump numbers" : {
       "comment" : "Settings field label for the sidebar jump numbers toggle"
     },
@@ -2649,6 +2652,9 @@
     "Never ask to make SSH managed" : {
       "comment" : "Workspace settings label."
     },
+    "Never show awesoMux in the menu bar" : {
+      "comment" : "Accessibility label for the never-visible menu bar choice"
+    },
     "New Custom Command" : {
       "comment" : "Title of the sheet that creates a custom command"
     },
@@ -4193,6 +4199,9 @@
     },
     "Show Welcome Tour" : {
 
+    },
+    "Show awesoMux in the menu bar when a workspace needs input" : {
+      "comment" : "Accessibility label for the needs-input menu bar choice"
     },
     "Show cheatsheet" : {
       "comment" : "Keys settings label."

@@ -121,6 +121,29 @@ struct SettingsAccessibilityGuardTests {
         #expect(Self.segmentedFieldProvidesOrientation(in: lines, before: 1) == expected)
     }
 
+    @Test(
+        "Menu bar choices have self-contained VoiceOver labels",
+        arguments: [
+            ("never", "Never", "Never show awesoMux in the menu bar"),
+            ("needsInput", "Needs input", "Show awesoMux in the menu bar when a workspace needs input"),
+            ("always", "Always", "Always show awesoMux in the menu bar"),
+        ])
+    func menuBarChoicesHaveSelfContainedLabels(value: String, label: String, accessibilityLabel: String) throws {
+        let files = try Self.settingsSourceFiles()
+        let lines = try #require(files.first { $0.name == "GeneralSettingsPane.swift" }).lines
+        let source = lines.filter { !Self.isComment($0) }.joined(separator: "\n")
+        let option = try #require(
+            source.components(separatedBy: ".init(").first { $0.contains("value: .\(value),") }
+        )
+        #expect(option.contains("label: String(localized: \"\(label)\""))
+        #expect(
+            option.range(
+                of: "accessibilityLabel: String\\(\\s*localized: \"\(accessibilityLabel)\"",
+                options: .regularExpression
+            ) != nil
+        )
+    }
+
     @Test("Bare settings controls have a VoiceOver name")
     func bareSettingsControlsHaveVoiceOverNames() throws {
         let triggers = [".labelsHidden()", "TextField("]
