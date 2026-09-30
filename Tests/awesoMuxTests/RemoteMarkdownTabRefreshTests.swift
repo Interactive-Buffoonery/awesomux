@@ -1,4 +1,7 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
+import Observation
+import Synchronization
 import Foundation
 import Testing
 
@@ -471,6 +474,86 @@ struct RemoteMarkdownTabRefreshTests {
 
         #expect(outcome == nil)
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
+    }
+
+    // Failure modes: stale, future-dated, missing, failure-page, or symlinked
+    // caches must fetch; recent successful caches must skip only launch fetching.
+    @Test("restore skips recent real snapshots and preserves explicit refresh")
+    func restoreFreshCacheFlow() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "restore-cache-\(UUID())")
+        var fetcher = RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: directory)
+        fetcher.fetchOverride = { _ in .success(Data("# Saved copy".utf8)) }
+        let identity = remoteIdentity()
+        let reference = try #require(RemoteMarkdownReference.make(identity: identity))
+        let saved = try #require(await fetcher.fetch(reference))
+        let url = saved.snapshot.fileURL
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            RemoteSnapshotStalePolicy.note(nil, path: url.path)
+        }
+        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: url)
+        #expect(fetcher.isFreshSnapshot(at: url, for: identity))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for (offset, fresh) in [(0.0, true), (-59.999, true), (-60.0, false), (1.0, false)] {
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(offset)], ofItemAtPath: url.path)
+            #expect(fetcher.isFreshSnapshot(at: url, for: identity, now: now) == fresh)
+        }
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        let before = store.groups
+        let groupWrites = Mutex(0)
+        withObservationTracking {
+            _ = store.groups
+        } onChange: {
+            groupWrites.withLock { $0 += 1 }
+        }
+        var fetches = 0
+        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(
+            for: store, automaticallyRefresh: true, snapshotFetcher: fetcher
+        ) { reference in
+            fetches += 1
+            return .fresh(RemoteMarkdownSnapshot(fileURL: url, identity: reference.identity))
+        }
+        await drainMainQueue()
+        #expect(fetches == 0)
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: url.path) == .remoteNotRefreshed)
+        #expect(store.groups == before)
+        #expect(groupWrites.withLock { $0 } == 0)
+
+        _ = await RemoteMarkdownTabRefresh.refresh(
+            identity: identity, documentID: tabID, in: sessionID,
+            associatedWith: nil, sessionStore: store, selectingTab: false,
+            fetch: { _ in
+                fetches += 1; return saved
+            }
+        )
+        #expect(fetches == 1)
+        #expect(groupWrites.withLock { $0 } == 0)
+
+        for date in [Date().addingTimeInterval(-120), Date().addingTimeInterval(120)] {
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
+            let count = fetches
+            RemoteMarkdownTabRefresh.scheduleRestoreRefresh(
+                for: store, automaticallyRefresh: true, snapshotFetcher: fetcher
+            ) { _ in
+                fetches += 1; return saved
+            }
+            #expect(await waitUntil { fetches == count + 1 })
+        }
+        try FileManager.default.removeItem(at: url)
+        #expect(!fetcher.isFreshSnapshot(at: url, for: identity))
+        try Data("# Real document".utf8).write(to: directory.appending(path: "target.md"))
+        try FileManager.default.createSymbolicLink(at: url, withDestinationURL: directory.appending(path: "target.md"))
+        #expect(!fetcher.isFreshSnapshot(at: url, for: identity))
+        try FileManager.default.removeItem(at: url)
+        try Data("# Failure".utf8).write(to: url)
+        #expect(!fetcher.isFreshSnapshot(at: url, for: remoteIdentity(path: "/repo/other.md")))
+        let legacyFailure = Data("# Couldn't fetch remote Markdown\n\nawesoMux could not read origin".utf8)
+        try legacyFailure.write(to: url)
+        #expect(!fetcher.isFreshSnapshot(at: url, for: identity))
+        #expect(try Data(contentsOf: url) == legacyFailure)
+        let failureURL = directory.appending(path: "test.failure.md")
+        try Data("# Failure".utf8).write(to: failureURL)
+        #expect(!fetcher.isFreshSnapshot(at: failureURL, for: identity))
     }
 
     @Test("scheduleRestoreRefresh kicks one fetch per remote tab")

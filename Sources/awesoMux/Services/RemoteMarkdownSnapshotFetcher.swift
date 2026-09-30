@@ -807,7 +807,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         // copy with no word of why it stopped refreshing. Still deliberately
         // not fixed by reordering these two branches.
         let reason = Self.failureReason(for: result)
-        if let cached = cachedSnapshot(for: reference) {
+        if let cached = cachedSnapshot(for: reference, removingLegacyFailurePage: true) {
             return .cached(cached, staleReason: reason)
         }
         let markdown = failureMarkdown(for: reference, reason: reason)
@@ -968,7 +968,8 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     }
 
     private func cachedSnapshot(
-        for reference: RemoteMarkdownReference
+        for reference: RemoteMarkdownReference,
+        removingLegacyFailurePage: Bool
     ) -> RemoteMarkdownSnapshot? {
         guard validatedCacheDirectory(createIfMissing: false) != nil else { return nil }
         let fileURL = cacheFileURL(for: reference)
@@ -976,10 +977,32 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
             return nil
         }
         guard !Self.isLegacyFailurePage(at: fileURL) else {
-            try? fileManager.removeItem(at: fileURL)
+            if removingLegacyFailurePage {
+                try? fileManager.removeItem(at: fileURL)
+            }
             return nil
         }
         return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
+    }
+
+    /// Avoid another SSH round trip for an immediate restart after a successful
+    /// cache write. Future timestamps are not evidence of freshness.
+    func isFreshSnapshot(
+        at fileURL: URL,
+        for identity: ResourceIdentity,
+        now: Date = Date()
+    ) -> Bool {
+        guard let reference = RemoteMarkdownReference.make(identity: identity),
+            fileURL.standardizedFileURL == cacheFileURL(for: reference).standardizedFileURL,
+            (try? fileManager.destinationOfSymbolicLink(atPath: fileURL.path)) == nil,
+            fileManager.isReadableFile(atPath: fileURL.path),
+            cachedSnapshot(for: reference, removingLegacyFailurePage: false) != nil,
+            let modified = (try? fileManager.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
+        else {
+            return false
+        }
+        let age = now.timeIntervalSince(modified)
+        return age >= 0 && age < 60
     }
 
     /// Builds shipped before the failure page moved to its own name wrote that

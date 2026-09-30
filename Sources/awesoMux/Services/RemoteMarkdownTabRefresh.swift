@@ -283,9 +283,10 @@ enum RemoteMarkdownTabRefresh {
         for store: SessionStore,
         automaticallyRefresh: Bool,
         coordinator: RemoteMarkdownRefreshCoordinator? = nil,
+        snapshotFetcher: RemoteMarkdownSnapshotFetcher = .init(),
         fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) {
-        let targets = interleavedRestoreTargets(restoreTargets(in: store))
+        var targets = interleavedRestoreTargets(restoreTargets(in: store))
         guard !targets.isEmpty else { return }
         guard automaticallyRefresh else {
             for target in targets {
@@ -297,6 +298,17 @@ enum RemoteMarkdownTabRefresh {
             }
             return
         }
+        targets = targets.filter { target in
+            guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID) else {
+                return false
+            }
+            guard snapshotFetcher.isFreshSnapshot(at: tab.fileURL, for: target.identity) else {
+                return true
+            }
+            RemoteSnapshotStalePolicy.note(.remoteNotRefreshed, path: tab.fileURL.standardizedFileURL.path)
+            return false
+        }
+        guard !targets.isEmpty else { return }
         Task { @MainActor in
             // Bounded drain: awaiting the oldest running refresh before
             // starting past the limit keeps at most `maxConcurrentRestoreRefreshes`
