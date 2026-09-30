@@ -14,6 +14,22 @@ import os
 @MainActor
 @Observable
 final class GhosttyRuntime {
+    /// Dismissible runtime chrome; never restore a notice from a prior app launch.
+    var restartedSessionNotices: [TerminalPane.ID: UUID] = [:]
+
+    func clearSessionRestartNotice(for paneID: TerminalPane.ID, afterLayout: Bool = false) {
+        guard let noticeID = restartedSessionNotices[paneID] else { return }
+        if afterLayout {
+            // A delayed cleanup must not erase a newer attach outcome.
+            DispatchQueue.main.async { [weak self] in
+                guard self?.restartedSessionNotices[paneID] == noticeID else { return }
+                self?.clearSessionRestartNotice(for: paneID)
+            }
+        } else {
+            restartedSessionNotices.removeValue(forKey: paneID)
+        }
+    }
+
     enum Readiness: String {
         case uninitialized
         case ready
@@ -736,7 +752,10 @@ final class GhosttyRuntime {
         surface.window?.makeFirstResponder(surface)
     }
 
-    func discardSurface(for paneID: TerminalPane.ID) {
+    func discardSurface(for paneID: TerminalPane.ID, preservingRestartNotice: Bool = false) {
+        if !preservingRestartNotice {
+            clearSessionRestartNotice(for: paneID, afterLayout: true)
+        }
         cancelCommandRetry(toPane: paneID)
         // Stop a closed pane's submit/finish ladder from waking up to re-sample
         // a surface set it no longer belongs to. Done before the surface-view
@@ -854,6 +873,9 @@ final class GhosttyRuntime {
         }
 
         surfaceViews.removeAll()
+        if !restartedSessionNotices.isEmpty {
+            restartedSessionNotices.removeAll()
+        }
         commandBridgeRecoveryRecords.removeAll()
         #if DEBUG
             logSurfaceCacheEvent("discard-all-finish")
@@ -871,7 +893,8 @@ final class GhosttyRuntime {
     }
 
     func discardSurfacesNotIn(_ retainedPaneIDs: Set<TerminalPane.ID>) {
-        let stalePaneIDs = Set(surfaceViews.keys).union(commandRetryTasks.keys).subtracting(retainedPaneIDs)
+        let stalePaneIDs = Set(surfaceViews.keys).union(commandRetryTasks.keys).union(restartedSessionNotices.keys).subtracting(
+            retainedPaneIDs)
         guard !stalePaneIDs.isEmpty else {
             return
         }

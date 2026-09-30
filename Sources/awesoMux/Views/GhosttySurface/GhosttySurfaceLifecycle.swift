@@ -299,13 +299,9 @@ extension GhosttySurfaceNSView {
             guard pane.terminalBackendMetadata.amxAttachDisposition != .existingOnly else {
                 return
             }
-            // Write-only breadcrumb for now: INT-571 removed the preflight
-            // that read this (`hasEstablishedSessionMetadata`), so nothing in
-            // the bridge path consumes `established` today. Retained — not
-            // removed — because the deferred create-vs-reattach signal (the
-            // zmx session-end-reason follow-up) will read it to tell a fresh
-            // respawn from a live reconnect. Don't build on its value until
-            // that lands; don't delete it before then.
+            // Records a successful surface spawn, not a confirmed daemon attach.
+            // The next launch uses the pre-spawn value to distinguish a saved
+            // pane from its first creation when the status reports a fresh shell.
             sessionStore.updateTerminalBackendMetadata(
                 sessionID: sessionID,
                 paneID: paneID,

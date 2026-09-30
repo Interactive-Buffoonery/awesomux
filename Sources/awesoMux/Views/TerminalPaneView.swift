@@ -209,6 +209,33 @@ struct TerminalPaneLayoutView: View {
                         }
                     }
 
+                    if runtime.restartedSessionNotices[pane.id] != nil {
+                        HStack(spacing: 8) {
+                            Text(
+                                String(
+                                    localized: "This saved pane started a fresh shell instead of reconnecting to its previous session.",
+                                    comment: "Nonblocking notice when an established pane starts a newly created persistent shell"
+                                )
+                            )
+                            .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            Button(String(localized: "Dismiss", comment: "Dismiss a persistent-session restart notice")) {
+                                runtime.clearSessionRestartNotice(for: pane.id)
+                                runtime.focusSurface(toPane: pane.id)
+                            }
+                            .accessibilityLabel(
+                                String(
+                                    localized:
+                                        "Dismiss restart notice for \(TerminalAccessibilityAnnouncer.paneDescriptor(for: pane.id, in: session) ?? pane.title)",
+                                    comment: "Dismiss a restart notice, naming its pane"
+                                ))
+                        }
+                        .awFont(AwFont.Mono.meta)
+                        .foregroundStyle(Color.aw.text)
+                        .padding(8)
+                        .background(Color.aw.surface.chrome)
+                    }
+
                     // Nested GeometryReader so the surface gets its TRUE remaining
                     // size for the AppKit PTY — the accent thickness is dynamic,
                     // so manual height math would be fragile.

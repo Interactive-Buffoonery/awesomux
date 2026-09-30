@@ -1737,6 +1737,12 @@
     "Disconnected from %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane is blocked because background terminal sessions are disabled"
     },
+    "Dismiss" : {
+      "comment" : "Dismiss a persistent-session restart notice"
+    },
+    "Dismiss restart notice for %arg" : {
+      "comment" : "Dismiss a restart notice, naming its pane"
+    },
     "Dismiss revision indicator" : {
       "comment" : "Tooltip and accessibility label for the button that hides the document revision indicator"
     },
@@ -2237,6 +2243,20 @@
     },
     "Immediately resets all appearance settings on this page to their shipped defaults. This cannot be undone." : {
 
+    },
+    "In %arg, %arg: This saved pane started a fresh shell instead of reconnecting to its previous session." : {
+      "comment" : "Restart notice announcement naming the workspace and split pane",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "In %1$arg, %2$arg: This saved pane started a fresh shell instead of reconnecting to its previous session."
+          }
+        }
+      }
+    },
+    "In %arg: This saved pane started a fresh shell instead of reconnecting to its previous session." : {
+      "comment" : "Restart notice announcement naming the workspace"
     },
     "In System Settings → Notifications, select awesoMux and turn Allow Notifications back on." : {
       "comment" : "Notification settings hint."
@@ -4913,6 +4933,9 @@
     },
     "This saved copy may be out of date. Use Refresh below to fetch the latest remote file." : {
       "comment" : "Document banner for a remote snapshot restored without an automatic fetch"
+    },
+    "This saved pane started a fresh shell instead of reconnecting to its previous session." : {
+      "comment" : "Nonblocking notice when an established pane starts a newly created persistent shell"
     },
     "This session is still running and can’t be resumed" : {
       "comment" : "Unavailable reason for resuming a session while an agent still holds the terminal"

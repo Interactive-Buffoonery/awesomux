@@ -145,8 +145,8 @@ final class CommandBridgeEnactor {
     /// previous incarnation's result; consumed (and deleted) by the exit
     /// decision, and dropped on teardown/repoint.
     var remoteOwnedExitStatusFile: URL?
-    var announceSessionRespawnedFresh: () -> Void = {
-        TerminalAccessibilityAnnouncer.announceSessionRespawnedFresh()
+    var announceSessionRespawnedFresh: (String, String?) -> Void = {
+        TerminalAccessibilityAnnouncer.announceSessionRespawnedFresh(workspace: $0, paneDescriptor: $1)
     }
     var announceErrorEntered: () -> Void = {
         TerminalAccessibilityAnnouncer.announceErrorEntered()
@@ -212,6 +212,11 @@ final class CommandBridgeEnactor {
             // respawns a fresh shell silently instead of latching to blank
             // (INT-571). A live daemon reconnects with full scrollback.
             sessionID = pane.terminalSessionID
+            // Capture before surface creation stamps the current spawn metadata.
+            if recoveryRecord?.hadEstablishedSessionAtFirstAttach == nil {
+                recoveryRecord?.hadEstablishedSessionAtFirstAttach =
+                    pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
+            }
             // A fresh channel per surface creation guarantees a respawn never
             // reads a stale feed. `makeStatusChannel` is optional: a failed
             // secure pre-create (file squat, EACCES) returns nil, in which case
@@ -441,6 +446,7 @@ final class CommandBridgeEnactor {
     }
 
     func clearStateForLocalShellFallback() {
+        runtime.clearSessionRestartNotice(for: paneID, afterLayout: true)
         let recoverySessionID = recoveryRecord?.terminalSessionID
             ?? sessionID
         tearDownBridgeGeneration(for: recoverySessionID)
@@ -667,8 +673,17 @@ final class CommandBridgeEnactor {
                 // (prior one gone), so any restored `.waiting` is dead. Safe
                 // versus a live reattach: `created` == brand-new session, no
                 // running agent (INT-672).
-                if outcome == .fresh {
-                    onFreshDaemonIncarnation()
+                let didPresentRestart =
+                    created
+                    && (outcome == .fresh
+                        || (outcome == .firstAttach && recoveryRecord?.hadEstablishedSessionAtFirstAttach == true))
+                if didPresentRestart {
+                    GhosttySurfaceNSView.terminalDiagnosticsLogger.notice(
+                        "persistent-session recreated pane=\(self.paneID.uuidString, privacy: .public) outcome=\(String(describing: outcome), privacy: .public) created=\(created, privacy: .public) saved=\(self.recoveryRecord?.hadEstablishedSessionAtFirstAttach == true, privacy: .public)"
+                    )
+                }
+                if outcome == .fresh || didPresentRestart {
+                    onFreshDaemonIncarnation(presentRestartNotice: didPresentRestart)
                 } else if outcome == .firstAttach && created {
                     sessionStore.resetPaneAgentChromeToShell(
                         sessionID: hostSessionID,
@@ -714,7 +729,7 @@ final class CommandBridgeEnactor {
                 if sessionStore.confirmPaneRemoteReconnected(
                     sessionID: hostSessionID,
                     paneID: paneID
-                ), outcome != .fresh {
+                ), !didPresentRestart {
                     let reconnectedHost = reconnectState.flatMap {
                         $0.context.dialedLocalRestart ? nil : $0.context.target.host
                     }
@@ -815,12 +830,18 @@ final class CommandBridgeEnactor {
     /// the dead incarnation's agent identity (kind, execution state, attention).
     /// Called only on fresh incarnation; reconnects to a live daemon skip this so
     /// chrome for an ongoing agent run is correctly preserved.
-    func onFreshDaemonIncarnation() {
+    func onFreshDaemonIncarnation(presentRestartNotice: Bool = true) {
         guard runtime.isCommandBridgeEnabled else {
             return
         }
         sessionStore.resetPaneAgentChromeToShell(sessionID: hostSessionID, paneID: paneID)
-        announceSessionRespawnedFresh()
+        guard presentRestartNotice else { return }
+        runtime.restartedSessionNotices[paneID] = UUID()
+        let session = sessionStore.session(id: hostSessionID)
+        announceSessionRespawnedFresh(
+            session?.title ?? host.pane.title,
+            TerminalAccessibilityAnnouncer.paneDescriptor(for: paneID, in: session)
+        )
     }
 
     // MARK: - Manual reconnect
@@ -1151,6 +1172,7 @@ final class CommandBridgeEnactor {
     /// drop the channel, reason, and recovery record so a stale session-end can't
     /// drive the new session's exit decision.
     func handleSessionRepoint() {
+        runtime.clearSessionRestartNotice(for: paneID, afterLayout: true)
         let oldRecoverySessionID = recoveryRecord?.terminalSessionID
             ?? sessionID
         legacyExitProbeGeneration &+= 1
@@ -1184,6 +1206,7 @@ final class CommandBridgeEnactor {
     }
 
     func markError(clearBackendMetadata: Bool = true) {
+        runtime.clearSessionRestartNotice(for: paneID)
         exitResolutionPending = false
         exitProbeInFlight = false
         errorLatched = true
