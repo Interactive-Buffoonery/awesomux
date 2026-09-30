@@ -86,7 +86,7 @@ extension ProcessAgentPluginRunner {
         case .spawnFailed(_, let reason):
             return .unsupported("claude could not be started at \(executable): \(reason)")
         case .outputTruncated:
-            return .unsupported(error.localizedDescription)
+            return .needsRepair(error.localizedDescription)
         case .timedOut:
             return .needsRepair("The claude command timed out; use Repair to retry")
         }
@@ -536,7 +536,10 @@ extension ProcessAgentPluginRunner {
         let liveHome = claudeConfigHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
         return
-            "Actions target the recorded config home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home."
+            String(
+                localized:
+                    "Actions target the recorded config home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home.",
+                comment: "Explains recorded and current provider configuration homes")
     }
 
     func claudeConfigHome(setup: AgentIntegrationSetup) -> URL {

@@ -60,11 +60,13 @@ enum CommandRunnerError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .executableNotFound(let path): "No executable was found at \(path)"
-        case .spawnFailed(let path, let reason): "Could not start \(path): \(reason)"
-        case .timedOut(let path, _): "\(path) timed out"
+        case .executableNotFound(let path): String(localized: "No executable was found at \(path)", comment: "Missing command executable")
+        case .spawnFailed(let path, let reason): String(localized: "Could not start \(path): \(reason)", comment: "Command launch failure")
+        case .timedOut(let path, _): String(localized: "\(path) timed out", comment: "Command timeout")
         case .outputTruncated(let path, let limit):
-            "\(path) output exceeded the \(limit)-byte safety limit; reduce the CLI output before retrying"
+            String(
+                localized: "\(path) output exceeded the \(limit)-byte safety limit; reduce the CLI output before retrying",
+                comment: "Command output safety limit exceeded")
         }
     }
 }

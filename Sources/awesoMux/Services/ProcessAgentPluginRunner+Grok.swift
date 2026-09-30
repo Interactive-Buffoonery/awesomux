@@ -93,7 +93,7 @@ extension ProcessAgentPluginRunner {
         case .spawnFailed(_, let reason):
             return .unsupported("grok could not be started at \(executable): \(reason)")
         case .outputTruncated:
-            return .unsupported(error.localizedDescription)
+            return .needsRepair(error.localizedDescription)
         case .timedOut:
             return .unsupported("grok timed out")
         }
@@ -290,7 +290,10 @@ extension ProcessAgentPluginRunner {
         let liveHome = grokHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
         return
-            "Actions target the recorded Grok home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home."
+            String(
+                localized:
+                    "Actions target the recorded Grok home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home.",
+                comment: "Explains recorded and current provider configuration homes")
     }
 
     private func grokMissingHomeGuidance(home: URL) -> String {
