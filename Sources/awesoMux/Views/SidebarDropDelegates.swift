@@ -512,8 +512,8 @@ struct NewWorkspaceInGroupRow: View {
     let groupName: String
     /// False for a populated group: the enclosing `SidebarWorkspaceListDropDelegate`
     /// already resolves anything below the last tile to append, exactly where this
-    /// row sits, so a second delegate here would fight it for the same drop — see
-    /// `NewWorkspaceInGroupRowPolicy.ownsDropDelegate`. When false, `isDropTargeted`
+    /// row sits, so a second delegate here would fight it for the same drop.
+    /// When false, `isDropTargeted`
     /// can never flip true; the list's insertion line is the only feedback.
     let ownsDropDelegate: Bool
     let activeDragKind: SidebarDragKind?
@@ -528,7 +528,7 @@ struct NewWorkspaceInGroupRow: View {
 
     /// WCAG 2.5.8 minimum pointer target. The row IS the target — it is the
     /// whole tap area for creating a workspace, and for an empty group it is
-    /// also the sole drop target (`NewWorkspaceInGroupRowPolicy.ownsDropDelegate`).
+    /// also the sole drop target.
     /// Every child of its `HStack` is shorter than this (a 10pt glyph, a 10pt
     /// mono face), so without an explicit floor compact density lands under the
     /// minimum.

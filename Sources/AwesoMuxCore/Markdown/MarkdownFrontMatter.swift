@@ -32,10 +32,6 @@ public struct MarkdownFrontMatter: Equatable, Sendable {
         return nil
     }
 
-    public static func bodySource(from source: String) -> String {
-        parse(source)?.body ?? source
-    }
-
     private static func line(
         in source: String,
         startingAt startIndex: String.Index,

@@ -1742,7 +1742,7 @@ private struct SidebarActivitySection: View, Equatable {
         let sessions = invalidationKey.groups.flatMap(\.sessions)
         // Pane-grain agent roster replaces the old session-grain state walk: it
         // folds every agent pane once, only when the session-tree key changes.
-        let roster = AgentActivityRoster.build(sessions: sessions, at: Date())
+        let roster = AgentActivityRoster.build(sessions: sessions)
         // Chip counts stay in the design-system state space the footer renders.
         var counts: [AwState: Int] = [:]
         for (state, count) in roster.counts {

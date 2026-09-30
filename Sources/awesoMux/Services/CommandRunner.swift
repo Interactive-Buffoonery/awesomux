@@ -46,7 +46,7 @@ protocol CommandRunner: Sendable {
 /// (which is a `CommandResult`, never an error): a missing binary is the
 /// CLI-absent signal that maps to `Unsupported`, and must not be confused with a
 /// present binary that spawned but exited non-zero.
-enum CommandRunnerError: Error, Equatable, Sendable {
+enum CommandRunnerError: LocalizedError, Equatable, Sendable {
     /// Nothing executable exists at the given path (ENOENT). This is the
     /// CLI-absent signal → `Unsupported`.
     case executableNotFound(String)
@@ -55,4 +55,16 @@ enum CommandRunnerError: Error, Equatable, Sendable {
     case spawnFailed(String, reason: String)
     /// Child execution or output collection exceeded the timeout.
     case timedOut(String, Duration)
+    /// A stream exceeded the retained-byte cap; partial output must not be parsed.
+    case outputTruncated(String, Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .executableNotFound(let path): "No executable was found at \(path)"
+        case .spawnFailed(let path, let reason): "Could not start \(path): \(reason)"
+        case .timedOut(let path, _): "\(path) timed out"
+        case .outputTruncated(let path, let limit):
+            "\(path) output exceeded the \(limit)-byte safety limit; reduce the CLI output before retrying"
+        }
+    }
 }

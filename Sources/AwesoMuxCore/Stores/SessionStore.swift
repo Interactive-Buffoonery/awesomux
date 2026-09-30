@@ -1737,23 +1737,6 @@ public final class SessionStore {
         pinnedSessionIDs.insert(id, at: min(clampedTarget, pinnedSessionIDs.count))
     }
 
-    public func selectNextSession() {
-        selectSession(offset: 1)
-    }
-
-    public func selectPreviousSession() {
-        selectSession(offset: -1)
-    }
-
-    internal func selectSession(offset: Int) {
-        selectedSessionID = WorkspaceTreeReducer.selectedSessionID(
-            in: _groups,
-            index: index,
-            currentSelection: selectedSessionID,
-            offset: offset
-        )
-    }
-
     @discardableResult
     public func splitActivePane(
         orientation: TerminalSplitOrientation,

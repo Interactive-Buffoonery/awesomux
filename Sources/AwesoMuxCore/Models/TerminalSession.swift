@@ -226,9 +226,9 @@ public extension TerminalSession {
     /// per-pane agent snapshots into one rollup that carries pane ownership, so
     /// the sidebar glyph follows the pane that earned the loudest state instead of
     /// the active pane (INT-504 R1).
-    func agentRollup(at now: Date = Date()) -> SessionAgentRollup {
+    func agentRollup() -> SessionAgentRollup {
         var snapshots: [PaneAgentSnapshot] = []
-        forEachPane { snapshots.append($0.agentSnapshot(at: now)) }
+        forEachPane { snapshots.append($0.agentSnapshot()) }
         return SessionAgentRollup.from(snapshots)
             ?? SessionAgentRollup(
                 state: .idle,

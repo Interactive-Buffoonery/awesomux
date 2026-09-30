@@ -57,8 +57,8 @@ struct SidebarGroupView: View {
     let currentGroupIndex: Int?
     let totalGroupCount: Int
 
-    /// Fallback index for structural reads (neighbor refs, ownerGroupIndex
-    /// passed to tiles) where landing on `0` for an unresolved group is
+    /// Fallback index for neighbor references passed to tiles, where
+    /// landing on `0` for an unresolved group is
     /// preferable to threading Optional everywhere downstream. Move Group
     /// mutation paths read `currentGroupIndex` directly and gate on non-nil.
     private var resolvedGroupIndex: Int { currentGroupIndex ?? 0 }
@@ -242,13 +242,13 @@ struct SidebarGroupView: View {
                     // create affordance that produces invisible results is
                     // worse than no affordance.
                     if displayMode != .collapsed, !isFiltering {
+                        // Empty groups need their own target; populated groups
+                        // already resolve bottom-row drops through the list.
                         let isGroupEmpty = entries.isEmpty
                         NewWorkspaceInGroupRow(
                             isFiltering: isFiltering,
                             groupName: group.name,
-                            ownsDropDelegate: NewWorkspaceInGroupRowPolicy.ownsDropDelegate(
-                                isGroupEmpty: isGroupEmpty
-                            ),
+                            ownsDropDelegate: isGroupEmpty,
                             activeDragKind: activeDragKind,
                             activeDragID: activeDragID,
                             activeDragSourceIsPinned: activeDragSourceIsPinned,
@@ -261,9 +261,7 @@ struct SidebarGroupView: View {
                                 onMoveSession(
                                     sessionID,
                                     group.id,
-                                    NewWorkspaceInGroupRowPolicy.dropInsertionIndex(
-                                        isGroupEmpty: isGroupEmpty
-                                    )
+                                    isGroupEmpty ? 0 : SessionStore.appendIndex
                                 )
                             }
                         )
@@ -464,7 +462,6 @@ struct SidebarGroupView: View {
                 duplicateDisambiguationBySessionID[session.id],
             indexInGroup: offset,
             sessionCountInGroup: entries.count,
-            ownerGroupIndex: resolvedGroupIndex,
             previousNeighborGroup: previousNeighborGroup,
             nextNeighborGroup: nextNeighborGroup,
             otherGroups: rowOtherGroups,

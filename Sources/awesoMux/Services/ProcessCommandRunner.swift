@@ -16,6 +16,9 @@ import Foundation
 /// Claude Node CLI resolve its own sub-tools. Nothing else from the host
 /// environment leaks in.
 struct ProcessCommandRunner: CommandRunner {
+    /// Retained bytes per stream; overflow is drained but never returned as a result.
+    static let maxOutputBytes = 512 * 1024
+
     typealias ReadOutput = @Sendable (ProcessCommandOutputReader) async -> Data
     typealias Delay = @Sendable (Duration) async throws -> Void
     typealias Schedule = @Sendable (@escaping @Sendable () -> Void) -> Void
@@ -254,6 +257,12 @@ struct ProcessCommandRunner: CommandRunner {
                 throw CommandRunnerError.timedOut(executable, timeout)
             }
 
+            guard !execution.stdoutReader.isTruncated, !execution.stderrReader.isTruncated,
+                stdout.count <= Self.maxOutputBytes, stderr.count <= Self.maxOutputBytes
+            else {
+                throw CommandRunnerError.outputTruncated(executable, Self.maxOutputBytes)
+            }
+
             return CommandResult(
                 exitCode: execution.process.terminationStatus,
                 stdout: String(decoding: stdout, as: UTF8.self),
@@ -455,6 +464,9 @@ final class ProcessCommandOutputReader: @unchecked Sendable {
     private var stopRequested = false
     private let completionLock = NSLock()
     private var finished = false
+    private var truncated = false
+
+    var isTruncated: Bool { completionLock.withLock { truncated } }
 
     var isFinished: Bool { completionLock.withLock { finished } }
 
@@ -473,7 +485,11 @@ final class ProcessCommandOutputReader: @unchecked Sendable {
                     var buffer = [UInt8](repeating: 0, count: 16_384)
                     let count = Darwin.read(descriptor, &buffer, buffer.count)
                     if count > 0 {
-                        self.data.append(contentsOf: buffer.prefix(count))
+                        let retained = min(count, ProcessCommandRunner.maxOutputBytes - self.data.count)
+                        self.data.append(contentsOf: buffer.prefix(retained))
+                        if retained < count {
+                            self.completionLock.withLock { self.truncated = true }
+                        }
                     } else if count == 0 || (errno != EINTR && errno != EAGAIN) {
                         self.source.cancel()
                     }

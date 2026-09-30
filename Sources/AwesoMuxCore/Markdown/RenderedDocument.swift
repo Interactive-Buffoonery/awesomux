@@ -241,12 +241,6 @@ public struct RenderedDocument: Sendable {
         Set(annotations.filter { $0.anchor == .span && $0.status == .resolved }.map(\.id))
     }
 
-    /// Count of resolved span annotations, for the resolved-filter affordance.
-    /// Cheaper than `resolvedAnnotationIDs.count` on per-render paths.
-    public var resolvedAnnotationCount: Int {
-        annotations.count { $0.anchor == .span && $0.status == .resolved }
-    }
-
     /// The document's single whole-document note, when present.
     public var documentNote: PlanAnnotation? {
         annotations.first { $0.anchor == .document }

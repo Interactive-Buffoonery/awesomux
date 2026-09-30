@@ -96,7 +96,7 @@ extension ProcessAgentPluginRunner {
         let liveHome = codexHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
         return
-            "Actions target the recorded home \(recordedHome); the CODEX_HOME field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
+            "Actions target the recorded home \(recordedHome); the CODEX_HOME field now points at \(liveHome). Restore the field to keep using the recorded home."
     }
 
     /// Best-effort read of the documented `allow_managed_hooks_only` flag in the
@@ -199,12 +199,16 @@ extension ProcessAgentPluginRunner {
         // hook fully healthy even when its baked helper path points at a build
         // folder that no longer exists (INT-882). That dead-helper state is a
         // repair, not an update.
-        if let deadHelperGuidance = await codexRegisteredDeadHelperGuidance(
-            executable: executable,
-            home: home,
-            ref: ref
-        ) {
-            return AgentPluginStatusReport(status: .needsRepair(deadHelperGuidance))
+        do {
+            if let deadHelperGuidance = try await codexRegisteredDeadHelperGuidance(
+                executable: executable,
+                home: home,
+                ref: ref
+            ) {
+                return AgentPluginStatusReport(status: .needsRepair(deadHelperGuidance))
+            }
+        } catch {
+            return AgentPluginStatusReport(status: .unsupported(error.localizedDescription))
         }
 
         if let guidance = outdatedSourceContentGuidance(provider: .codex) {
@@ -224,15 +228,17 @@ extension ProcessAgentPluginRunner {
         executable: String,
         home: URL,
         ref: AgentPluginMarketplaceRef
-    ) async -> String? {
+    ) async throws -> String? {
         let args = ["plugin", "list", "--json"]
+        let result: CommandResult
+        do {
+            result = try await commandRunner.run(executable: executable, args: args, env: codexEnvironment(home: home), cwd: nil)
+        } catch CommandRunnerError.outputTruncated(let path, let limit) {
+            throw CommandRunnerError.outputTruncated(path, limit)
+        } catch {
+            return nil
+        }
         guard
-            let result = try? await commandRunner.run(
-                executable: executable,
-                args: args,
-                env: codexEnvironment(home: home),
-                cwd: nil
-            ),
             result.isSuccess,
             let plugins = try? CodexPluginList.parse(result.stdout),
             let entry = plugins.first(where: { $0.matches(ref) }),
@@ -248,7 +254,7 @@ extension ProcessAgentPluginRunner {
         // whose ladder provably cannot resolve (or whose baked path is gone
         // with no resolvable fallback) can strand on a dead helper.
         guard
-            let finding = AgentPluginDeployedCopyInspector.helperReachability(
+            let finding = await AgentPluginDeployedCopyInspector.helperReachability(
                 deployedHooksURL: deployedHooksURL,
                 fileManager: renderer.fileManager,
                 ladderProbe: ladderProbe
@@ -275,18 +281,20 @@ extension ProcessAgentPluginRunner {
         executable: String,
         env: [String: String],
         renderedHooksURL: URL?
-    ) async -> Bool {
+    ) async throws -> Bool {
         guard let renderedHooksURL else {
             return false
         }
         let args = ["plugin", "list", "--json"]
+        let result: CommandResult
+        do {
+            result = try await commandRunner.run(executable: executable, args: args, env: env, cwd: nil)
+        } catch CommandRunnerError.outputTruncated(let path, let limit) {
+            throw CommandRunnerError.outputTruncated(path, limit)
+        } catch {
+            return false
+        }
         guard
-            let result = try? await commandRunner.run(
-                executable: executable,
-                args: args,
-                env: env,
-                cwd: nil
-            ),
             result.isSuccess,
             let plugins = try? CodexPluginList.parse(result.stdout),
             let entry = plugins.first(where: { $0.matches(ref) }),
@@ -296,7 +304,7 @@ extension ProcessAgentPluginRunner {
             return false
         }
         guard
-            let finding = AgentPluginDeployedCopyInspector.deployedCopyFinding(
+            let finding = await AgentPluginDeployedCopyInspector.deployedCopyFinding(
                 installPath: sourcePath,
                 renderedHooksURL: renderedHooksURL,
                 fileManager: renderer.fileManager,
@@ -363,7 +371,18 @@ extension ProcessAgentPluginRunner {
         // plugin first so Repair actually picks up the freshly rendered hooks.
         // Target the recorded install's home; the following add steps target the
         // current settings, which is how Repair deliberately moves an install.
-        if let staleRecord = staleCachedInstallRecord(provider: .codex, tree: tree) {
+        let staleRecord = staleCachedInstallRecord(provider: .codex, tree: tree)
+        let copyNeedsReplacement: Bool
+        do {
+            copyNeedsReplacement =
+                staleRecord == nil
+                ? try await codexRegisteredCopyNeedsReplacement(
+                    ref: ref, executable: executable, env: env, renderedHooksURL: tree.hookConfigURLs.first
+                ) : false
+        } catch {
+            return AgentPluginActionOutcome(status: .unsupported(error.localizedDescription))
+        }
+        if let staleRecord {
             let recordedSetup = effectiveSetupForRecordedInstall(provider: .codex, current: setup)
             var recordedExecutable = resolvedExecutable(provider: .codex, setup: recordedSetup)
             let recordedHome = codexHome(setup: recordedSetup)
@@ -375,17 +394,21 @@ extension ProcessAgentPluginRunner {
                     executable: recordedExecutable,
                     env: recordedEnv
                 )
+            } catch CommandRunnerError.outputTruncated(let path, let limit) {
+                return AgentPluginActionOutcome(status: .unsupported(CommandRunnerError.outputTruncated(path, limit).localizedDescription))
             } catch {
                 // The recorded binary can disappear after a user updates a
                 // custom Codex path. Retry with the live executable, still
                 // targeting the recorded home where the stale cache resides.
                 recordedExecutable = executable
-                installed =
-                    (try? await codexPluginInstalled(
-                        ref: staleRecord.pluginRef,
-                        executable: executable,
-                        env: recordedEnv
-                    )) ?? true
+                do {
+                    installed = try await codexPluginInstalled(ref: staleRecord.pluginRef, executable: executable, env: recordedEnv)
+                } catch CommandRunnerError.outputTruncated(let path, let limit) {
+                    return AgentPluginActionOutcome(
+                        status: .unsupported(CommandRunnerError.outputTruncated(path, limit).localizedDescription))
+                } catch {
+                    installed = true
+                }
             }
             if installed {
                 steps.append(
@@ -395,12 +418,7 @@ extension ProcessAgentPluginRunner {
                         env: recordedEnv
                     ))
             }
-        } else if await codexRegisteredCopyNeedsReplacement(
-            ref: ref,
-            executable: executable,
-            env: env,
-            renderedHooksURL: tree.hookConfigURLs.first
-        ) {
+        } else if copyNeedsReplacement {
             // Deployed drift with no install record (out-of-band or
             // lost-manifest install). Without a removal the version-keyed add
             // would keep the stale copy in place forever — Repair must never be
@@ -566,6 +584,8 @@ extension ProcessAgentPluginRunner {
             return .unsupported("The codex CLI was not found at \(executable)")
         case .spawnFailed(_, let reason):
             return .unsupported("codex could not be started at \(executable): \(reason)")
+        case .outputTruncated:
+            return .unsupported(error.localizedDescription)
         case .timedOut:
             return .unsupported("codex timed out")
         }
@@ -590,6 +610,8 @@ extension ProcessAgentPluginRunner {
             )
         } catch CommandRunnerError.executableNotFound(let path) {
             throw CommandRunnerError.executableNotFound(path)
+        } catch CommandRunnerError.outputTruncated(let path, let limit) {
+            throw CommandRunnerError.outputTruncated(path, limit)
         } catch {
             return true
         }
