@@ -1430,6 +1430,9 @@
     "Could not copy the scrollback." : {
       "comment" : "VoiceOver announcement when the scrollback sheet's Copy button failed to write to the clipboard"
     },
+    "Could not copy the terminal output." : {
+      "comment" : "VoiceOver announcement when copying captured remote failure output to the clipboard fails"
+    },
     "Could not create a new tab for %arg." : {
       "comment" : "Accessibility announcement when opening a new tab for a palette command fails"
     },

@@ -250,7 +250,15 @@ struct RemotePaneDisconnectedView: View {
                             symbolName: "doc.on.doc", prominent: false, allowsKeyboardFocus: true
                         ) {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(diagnostic, forType: .string)
+                            guard NSPasteboard.general.setString(diagnostic, forType: .string) else {
+                                TerminalAccessibilityAnnouncer.announce(
+                                    String(
+                                        localized: "Could not copy the terminal output.",
+                                        comment: "VoiceOver announcement when copying captured remote failure output to the clipboard fails"
+                                    )
+                                )
+                                return
+                            }
                         }
                         .frame(height: 30)
                         .fixedSize()
