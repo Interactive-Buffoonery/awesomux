@@ -28,19 +28,25 @@ public enum DaemonRecoveryReducer {
 
         let directory: String
         if let remote = request.metadata.groupRemote {
-            directory =
-                request.cwd.flatMap {
-                    RemoteWorkingDirectoryValidator.validatedReportedDirectory($0)
-                } ?? "~"
-            return insert(request, directory: directory, plan: .ssh(SSHExecution(target: remote)), into: &groups)
+            let reportedDirectory = request.cwd.flatMap {
+                RemoteWorkingDirectoryValidator.validatedReportedDirectory($0)
+            }
+            let trustedDirectory = request.cwd.flatMap {
+                RemoteWorkingDirectoryValidator.validatedDaemonReportedDirectory(
+                    $0, expectedHost: remote.host, localHostnames: LocalHostnames.resolve())
+            }
+            return insert(
+                request, directory: reportedDirectory ?? "~", remoteWorkingDirectory: trustedDirectory,
+                plan: .ssh(SSHExecution(target: remote)), into: &groups)
         }
         directory = request.cwd.flatMap { WorkingDirectoryValidator.validatedReportedDirectory($0) } ?? "~"
-        return insert(request, directory: directory, plan: .local, into: &groups)
+        return insert(request, directory: directory, remoteWorkingDirectory: nil, plan: .local, into: &groups)
     }
 
     private static func insert(
         _ request: DaemonRecoveryRequest,
         directory: String,
+        remoteWorkingDirectory: String?,
         plan: PaneExecutionPlan,
         into groups: inout [SessionGroup]
     ) -> TerminalSession.ID {
@@ -49,6 +55,7 @@ public enum DaemonRecoveryReducer {
             terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:existing-only"),
             title: request.metadata.paneTitle ?? request.metadata.workspaceTitle ?? request.id.rawValue,
             workingDirectory: directory,
+            remoteWorkingDirectory: remoteWorkingDirectory,
             agentKind: request.metadata.agentKind ?? .shell,
             executionPlan: plan
         )

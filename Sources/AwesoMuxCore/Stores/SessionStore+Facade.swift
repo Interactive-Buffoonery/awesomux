@@ -1066,15 +1066,8 @@ extension SessionStore {
             let pane = session.layout.pane(id: paneID),
             pane.executionPlan == .local, pane.terminalSessionID == terminalSessionID,
             pane.remoteHost?.caseInsensitiveCompare(expectedHost) == .orderedSame,
-            // zmx ipc.MAX_CWD_LEN silently caps its raw URI at 256 bytes.
-            reportedDirectory.utf8.count < 256,
-            let uri = URLComponents(string: reportedDirectory), uri.scheme == "file",
-            let host = uri.host, !host.isEmpty, host.lowercased() != "localhost",
-            !localHostnames.contains(host.lowercased()),
-            host.caseInsensitiveCompare(expectedHost) == .orderedSame,
-            uri.user == nil, uri.password == nil, uri.port == nil,
-            uri.query == nil, uri.fragment == nil,
-            let directory = RemoteWorkingDirectoryValidator.validatedReportedDirectory(reportedDirectory)
+            let directory = RemoteWorkingDirectoryValidator.validatedDaemonReportedDirectory(
+                reportedDirectory, expectedHost: expectedHost, localHostnames: localHostnames)
         else { return false }
         guard pane.remoteWorkingDirectory != directory else { return true }
         return mutatePane(sessionID: sessionID, paneID: paneID) {

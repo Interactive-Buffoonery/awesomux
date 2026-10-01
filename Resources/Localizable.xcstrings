@@ -1424,6 +1424,9 @@
     "Could not connect to %arg, or the connection ended." : {
       "comment" : "Description under the SSH connection failed overlay title, naming the remote host"
     },
+    "Could not copy the remote path." : {
+      "comment" : "Accessibility announcement when Copy Path cannot write the remote directory to the clipboard"
+    },
     "Could not copy the scrollback." : {
       "comment" : "VoiceOver announcement when the scrollback sheet's Copy button failed to write to the clipboard"
     },

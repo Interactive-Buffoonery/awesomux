@@ -600,7 +600,11 @@ struct TerminalPathBarView: View {
     private func copyRemotePath() {
         guard model.remoteHost != nil, !model.copyPath.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(model.copyPath, forType: .string)
+        if !NSPasteboard.general.setString(model.copyPath, forType: .string) {
+            TerminalAccessibilityAnnouncer.announce(
+                String(localized: "Could not copy the remote path.")
+            )
+        }
     }
 
     private func remotePathHelp(connectionHelp: String) -> String {
