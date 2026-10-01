@@ -286,30 +286,39 @@ enum RemoteMarkdownTabRefresh {
         snapshotFetcher: RemoteMarkdownSnapshotFetcher = .init(),
         fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil
     ) {
-        var targets = interleavedRestoreTargets(restoreTargets(in: store))
+        let targets = restoreTargets(in: store)
         guard !targets.isEmpty else { return }
-        guard automaticallyRefresh else {
-            for target in targets {
-                guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID),
-                    !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL)
-                else { continue }
-                // The banner is rendered only after a successful document load.
-                RemoteSnapshotStalePolicy.note(.remoteNotRefreshed, path: tab.fileURL.standardizedFileURL.path)
-            }
-            return
-        }
-        targets = targets.filter { target in
-            guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID) else {
-                return false
-            }
-            guard snapshotFetcher.isFreshSnapshot(at: tab.fileURL, for: target.identity) else {
-                return true
-            }
+        for target in targets {
+            guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID),
+                !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(tab.fileURL)
+            else { continue }
+            // Seed before yielding so a later actual fetch outcome always wins.
             RemoteSnapshotStalePolicy.note(.remoteNotRefreshed, path: tab.fileURL.standardizedFileURL.path)
-            return false
         }
-        guard !targets.isEmpty else { return }
+        guard automaticallyRefresh else { return }
+        let candidates: [(RestoreTarget, URL)] = targets.compactMap { target in
+            guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID) else {
+                return nil
+            }
+            return (target, tab.fileURL)
+        }
         Task { @MainActor in
+            let freshness = await Task.detached(priority: .utility) {
+                candidates.map { target, url in
+                    snapshotFetcher.isFreshSnapshot(at: url, for: target.identity)
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            var targets: [RestoreTarget] = []
+            for ((target, url), isFresh) in zip(candidates, freshness) {
+                guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID),
+                    tab.remoteResourceIdentity == target.identity
+                else { continue }
+                if !isFresh || tab.fileURL != url {
+                    targets.append(target)
+                }
+            }
+            targets = interleavedRestoreTargets(targets)
             // Bounded drain: awaiting the oldest running refresh before
             // starting past the limit keeps at most `maxConcurrentRestoreRefreshes`
             // in flight without a task group (whose Sendable closure could not
