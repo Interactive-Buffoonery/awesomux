@@ -207,6 +207,7 @@ struct RemotePaneDisconnectedView: View {
             Rectangle()
                 .fill(Color.aw.surface.terminal)
 
+            ScrollView(.vertical) {
             VStack(spacing: 18) {
                 ContentUnavailableView {
                     Label(content.title, systemImage: "wifi.slash")
@@ -239,6 +240,33 @@ struct RemotePaneDisconnectedView: View {
                 }
                 .frame(height: 30)
                 .fixedSize()
+                    .layoutPriority(1)
+
+                    if isDisconnected, let diagnostic = state.context.diagnosticText {
+                        RemoteReconnectButton(
+                            title: String(
+                                localized: "Copy Output", comment: "Copies the bounded visible terminal output from a failed remote attach"),
+                            isEnabled: true, accent: accentResolver.accent,
+                            symbolName: "doc.on.doc", prominent: false, allowsKeyboardFocus: true
+                        ) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(diagnostic, forType: .string)
+                        }
+                        .frame(height: 30)
+                        .fixedSize()
+                        .layoutPriority(1)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(
+                                String(
+                                    localized: "Last Visible Terminal Output",
+                                    comment: "Caption for best-effort screen output captured before a failed remote pane was disposed")
+                            )
+                            .font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: diagnostic)
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
 
                 if let settingsErrorMessage {
                     Text(settingsErrorMessage)
@@ -248,6 +276,8 @@ struct RemotePaneDisconnectedView: View {
                 }
             }
             .padding(32)
+                .frame(maxWidth: .infinity)
+            }
         }
         // `.contain` (not `.combine`) so the button stays independently
         // keyboard/VoiceOver reachable — only the container itself gets the
@@ -335,8 +365,8 @@ struct RemotePaneDisconnectedView: View {
 }
 
 /// First-responder-safe reconnect button for `RemotePaneDisconnectedView`:
-/// a titled, accent-filled `NSButton` with `refusesFirstResponder = true`, so
-/// clicking it never steals focus from a sibling ghostty surface (INT-562/748).
+/// a titled native button. Reconnect preserves sibling terminal focus; the
+/// diagnostic Copy action opts into ordinary keyboard traversal.
 /// Mirrors the document `SendToAgentButton` shape.
 private struct RemoteReconnectButton: NSViewRepresentable {
     let title: String
@@ -344,6 +374,9 @@ private struct RemoteReconnectButton: NSViewRepresentable {
     /// Environment-resolved by the parent — an input (unlike the bare
     /// `Color.aw.accent` global) so an accent change re-runs `updateNSView`.
     let accent: AwAccent
+    var symbolName: String = "arrow.clockwise"
+    var prominent: Bool = true
+    var allowsKeyboardFocus: Bool = false
     let action: () -> Void
 
     /// A non-bordered NSButton hugs its title with no breathing room, so the
@@ -375,30 +408,32 @@ private struct RemoteReconnectButton: NSViewRepresentable {
     func updateNSView(_ nsView: NSButton, context: Context) {
         context.coordinator.action = action
         nsView.isEnabled = isEnabled
+        nsView.refusesFirstResponder = !allowsKeyboardFocus
         // Prominent (filled) when actionable, muted while disabled/reconnecting.
         let accentColor = Color.aw.accent(accent)
         let accentFill = NSColor(accentColor)
         nsView.layer?.backgroundColor =
-            isEnabled
-            ? accentFill.cgColor
-            : accentFill.withAlphaComponent(0.25).cgColor
-        nsView.attributedTitle = Self.makeTitle(title, enabled: isEnabled, accentFill: accentColor)
+            prominent ? (isEnabled ? accentFill.cgColor : accentFill.withAlphaComponent(0.25).cgColor) : NSColor.clear.cgColor
+        nsView.attributedTitle = Self.makeTitle(
+            title, enabled: isEnabled, accentFill: accentColor, symbolName: symbolName, prominent: prominent)
         nsView.setAccessibilityLabel(title)
         nsView.toolTip = title
     }
 
-    private static func makeTitle(_ text: String, enabled: Bool, accentFill: Color) -> NSAttributedString {
+    private static func makeTitle(_ text: String, enabled: Bool, accentFill: Color, symbolName: String, prominent: Bool)
+        -> NSAttributedString
+    {
         let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         // Text on the accent fill picks black/white by the design system's
         // WCAG crossover — the default peach accent is LIGHT, so hardcoded
         // white text fails contrast on it (live smoke finding, PR #506).
         let onAccent: NSColor = Color.aw.backgroundIsDark(accentFill) ? .white : .black
-        let color: NSColor = enabled ? onAccent : .secondaryLabelColor
+        let color: NSColor = enabled ? (prominent ? onAccent : .labelColor) : .secondaryLabelColor
         let result = NSMutableAttributedString()
 
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
             .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-        if let glyph = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)?
+        if let glyph = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig)
         {
             let attachment = NSTextAttachment()

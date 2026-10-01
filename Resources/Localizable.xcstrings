@@ -1379,6 +1379,9 @@
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
     },
+    "Copy Output" : {
+      "comment" : "Copies the bounded visible terminal output from a failed remote attach"
+    },
     "Copy Path" : {
       "comment" : "Action that copies a session snapshot recovery archive path"
     },
@@ -2345,6 +2348,9 @@
     },
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
+    },
+    "Last Visible Terminal Output" : {
+      "comment" : "Caption for best-effort screen output captured before a failed remote pane was disposed"
     },
     "Latest error" : {
       "comment" : "Advanced settings label."

@@ -404,7 +404,8 @@ extension SessionStore {
     public func recordPaneProcessError(
         in sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
-        terminalIsFocused: Bool
+        terminalIsFocused: Bool,
+        diagnosticText: String? = nil
     ) -> Bool {
         guard let position = position(for: sessionID),
             let pane = session(id: sessionID)?.layout.pane(id: paneID)
@@ -452,8 +453,18 @@ extension SessionStore {
 
         if let target = pane.executionPlan.remoteTarget {
             mutatePane(sessionID: sessionID, paneID: paneID) { errorPane in
+                var captured = diagnosticText
+                var displaced = displacedNonErrorState
+                // A duplicate exit has no surface left to read. Keep its original
+                // tail, but never carry another host's output into a fresh attempt.
+                if let previous = errorPane.remoteReconnect?.context, previous.target == target {
+                    displaced = previous.displacedNonErrorState
+                    if case .disconnected = errorPane.remoteReconnect {
+                        captured = captured ?? previous.diagnosticText
+                    }
+                }
                 errorPane.remoteReconnect = .disconnected(
-                    .init(target: target, displacedNonErrorState: displacedNonErrorState)
+                    .init(target: target, displacedNonErrorState: displaced, diagnosticText: captured)
                 )
             }
         }

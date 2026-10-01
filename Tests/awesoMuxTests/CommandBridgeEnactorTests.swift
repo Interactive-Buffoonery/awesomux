@@ -453,10 +453,15 @@ struct CommandBridgeEnactorTests {
     /// or no file minted at attach. It must read as a failure, not a clean exit:
     /// a pane that vanishes on a dropped connection is unrecoverable.
     @Test("a remote-owned abnormal exit latches the disconnected reconnect state")
-    func remoteOwnedAbnormalExitLatchesDisconnected() throws {
+    func remoteOwnedAbnormalExitLatchesDisconnected() async throws {
         for status in [Int16(255), Int16(127), nil] {
             let fixture = try makeRemoteOwnedFixture()
-            let enactor = fixture.view.commandBridgeEnactor
+            // Failures: read-after-dispose, oversized/control text, nil recapture
+            // erasing diagnostics, duplicate exits wedging retry, and persistence.
+            let host = TestHost(fixture: fixture)
+            host.hasNativeSurface = true
+            host.terminalText = String(repeating: "α", count: 5000) + "\rError marker Ｆ\u{202E}\u{001B}\n\n"
+            let enactor = CommandBridgeEnactor(host: host)
             enactor.sessionExistsProvider = { _ in
                 Issue.record("a remote-owned pane must never probe the local amx daemon")
                 return true
@@ -470,9 +475,33 @@ struct CommandBridgeEnactorTests {
             #expect(!enactor.exitProbeInFlight)
             let pane = try #require(fixture.livePane)
             #expect(pane.agentExecutionState == .error)
-            #expect(
-                pane.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget()))
-            )
+            let diagnostic = try #require(pane.remoteReconnect?.context.diagnosticText)
+            #expect(diagnostic.utf8.count <= 4096)
+            #expect(diagnostic.contains("Error marker Ｆ"))
+            #expect(!diagnostic.contains("\r") && !diagnostic.contains("\u{202E}") && !diagnostic.contains("\u{001B}"))
+            #expect(host.exitEvents == ["read", "dispose"])
+            #expect(!host.hasNativeSurface && host.disposeCount == 1)
+            #expect(!String(decoding: try JSONEncoder().encode(pane), as: UTF8.self).contains("Error marker"))
+            #expect(enactor.handleChildExited())
+            await Task.yield()
+            #expect(!enactor.exitResolutionPending)
+            #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == diagnostic)
+            #expect(host.disposeCount == 1)
+            #expect(fixture.livePane?.remoteReconnect?.context.displacedNonErrorState == true)
+            enactor.beginManualReconnect()
+            #expect(!enactor.errorLatched && host.scheduleSurfaceCreationCount == 1)
+            enactor.markError()
+            #expect(fixture.livePane?.remoteReconnect?.context.displacedNonErrorState == true)
+            #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == nil)
+            enactor.beginManualReconnect()
+            #expect(!enactor.errorLatched && host.scheduleSurfaceCreationCount == 2)
+            #expect(fixture.store.confirmPaneRemoteReconnected(sessionID: fixture.hostSessionID, paneID: fixture.paneID))
+            #expect(fixture.livePane?.agentExecutionState == .idle)
+            #expect(fixture.livePane?.remoteReconnect == nil)
+            host.hasNativeSurface = true
+            enactor.beginExitSupervision(exitCode: nil)
+            #expect(enactor.errorLatched && host.disposeCount == 2)
+            #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == nil)
         }
     }
 
@@ -768,7 +797,10 @@ struct CommandBridgeEnactorTests {
                 executionPlan: .local
             )
         )
-        let enactor = fixture.view.commandBridgeEnactor
+        let host = TestHost(fixture: fixture)
+        host.hasNativeSurface = true
+        let enactor = CommandBridgeEnactor(host: host)
+        enactor.errorLatched = true
         SessionRecoveryConfirmationCenter.shared.begin(
             sessionID, daemonPID: 42, createdEpoch: 100
         )
@@ -783,6 +815,7 @@ struct CommandBridgeEnactorTests {
         await Task.yield()
 
         #expect(enactor.errorLatched)
+        #expect(host.disposeCount == 1 && !host.hasNativeSurface)
         #expect(enactor.respawnLedger.respawnAttempts == 0)
         #expect(
             fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
@@ -1551,6 +1584,9 @@ struct CommandBridgeEnactorTests {
         var pane: TerminalPane
         var terminalIsFocused = false
         var hasNativeSurface = false
+        var terminalText: String?
+        private(set) var exitEvents: [String] = []
+        private(set) var disposeCount = 0
         var commandExitCache = CommandExitCache()
         var shellCommandFinishedIdleLatched = false
 
@@ -1565,7 +1601,16 @@ struct CommandBridgeEnactorTests {
         private(set) var closeAfterProcessExitCount = 0
         private(set) var scheduleSurfaceCreationCount = 0
 
-        func disposeNativeSurface(resetHostedLayer: Bool) {}
+        func visibleTerminalText() -> String? {
+            exitEvents.append("read")
+            return terminalText
+        }
+        func disposeNativeSurface(resetHostedLayer: Bool) {
+            exitEvents.append("dispose")
+            disposeCount += 1
+            hasNativeSurface = false
+            terminalText = nil
+        }
         func remountFreshSurfaceAfterCommandBridgeHeal(
             _ recovery: SessionStore.CommandBridgePaneHealResult
         ) {}
