@@ -7,15 +7,8 @@ import UniformTypeIdentifiers
 
 // MARK: - Drag coordinator (INT-223)
 
-/// Shared, per-workspace drag state for pane rearrangement. A pane drag started
-/// on one leaf must be visible to the drop overlays on every *other* leaf, so the
-/// "is a drag in flight, and which pane" signal can't live in any single pane's
-/// `@State` — it's hoisted to one coordinator threaded through the pane tree by
-/// reference.
-///
-/// `@MainActor @Observable`: drop delegates and overlays read `draggedPaneID` on
-/// the main actor, and mutating it must restyle the zones, so it participates in
-/// SwiftUI observation.
+/// Pane drag state shared by terminal hosts and the sidebar through the runtime.
+/// Source-session checks keep drop overlays within the originating workspace.
 @MainActor
 @Observable
 final class PaneDragCoordinator {
@@ -26,8 +19,12 @@ final class PaneDragCoordinator {
     /// Discriminates the live drag so a stale `.onDrop` callback from a previous
     /// gesture can't act on the current one — mirrors the sidebar `dragID` guard.
     private(set) var dragID: UUID?
+    private(set) var draggedSessionID: TerminalSession.ID?
+    private(set) var generation: UInt64 = 0
 
-    func begin(paneID: TerminalPane.ID) -> UUID {
+    func begin(sessionID: TerminalSession.ID, paneID: TerminalPane.ID) -> UUID {
+        generation += 1
+        draggedSessionID = sessionID
         let id = UUID()
         draggedPaneID = paneID
         dragID = id
@@ -35,6 +32,7 @@ final class PaneDragCoordinator {
     }
 
     func end() {
+        draggedSessionID = nil
         draggedPaneID = nil
         dragID = nil
     }
@@ -232,7 +230,7 @@ struct PaneDragSource: NSViewRepresentable {
         private func beginDrag(with event: NSEvent) {
             guard let sessionID, let paneID, let coordinator else { return }
 
-            let dragID = coordinator.begin(paneID: paneID)
+            let dragID = coordinator.begin(sessionID: sessionID, paneID: paneID)
             let pasteboardItem = NSPasteboardItem()
             if let data = try? JSONEncoder().encode(
                 PaneDragItem(sessionID: sessionID, paneID: paneID, dragID: dragID)
@@ -459,6 +457,7 @@ struct PaneDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         coordinator.isDragging
+            && coordinator.draggedSessionID == sessionID
             && coordinator.draggedPaneID != targetPaneID
             && info.hasItemsConforming(to: [UTType.utf8PlainText])
     }

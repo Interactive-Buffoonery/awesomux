@@ -14,6 +14,8 @@ import os
 @MainActor
 @Observable
 final class GhosttyRuntime {
+    let paneDragCoordinator = PaneDragCoordinator()
+
     enum Readiness: String {
         case uninitialized
         case ready

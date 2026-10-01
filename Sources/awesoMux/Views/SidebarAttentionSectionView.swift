@@ -204,5 +204,6 @@ struct SidebarAttentionSectionView: View {
             isKeyboardNavigating: $isKeyboardNavigating
         )
         .equatable()
+        .modifier(SidebarPaneDropTarget(sessionID: session.id, displayMode: displayMode))
     }
 }
