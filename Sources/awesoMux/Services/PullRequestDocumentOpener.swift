@@ -12,6 +12,7 @@ struct OpenedPullRequestDocument: Equatable, Sendable {
 enum PullRequestDocumentFailure: Error, Equatable, Sendable {
     case remotePane, invalidRepository, detachedHead, noGitHubRepository, noPullRequest
     case commandFailed, tooLarge, cacheWriteFailed, ambiguousPullRequest, sourceChanged, unsupportedResponse
+    case lookupLimitReached
 
     var description: String {
         switch self {
@@ -39,6 +40,10 @@ enum PullRequestDocumentFailure: Error, Equatable, Sendable {
         case .ambiguousPullRequest:
             String(
                 localized: "More than one open pull request matches this branch. Open the intended pull request on GitHub.",
+                comment: "Reason a connected pull request document could not open")
+        case .lookupLimitReached:
+            String(
+                localized: "The pull request lookup reached its result limit. Open the intended pull request on GitHub.",
                 comment: "Reason a connected pull request document could not open")
         case .sourceChanged:
             String(
@@ -159,7 +164,7 @@ struct PullRequestDocumentOpener: Sendable {
                     "--head", branch, "--state", "open", "--limit", "100",
                     "--json", "number,url,title,state,isDraft,body,headRefName,headRepository,headRepositoryOwner,statusCheckRollup",
                 ], root: root)
-            guard candidates.count < 100 else { return .failure(.tooLarge) }
+            guard candidates.count < 100 else { return .failure(.lookupLimitReached) }
             let matching = candidates.filter {
                 $0.headRefName == branch
                     && "\($0.headRepositoryOwner?.login ?? "")/\($0.headRepository?.name ?? "")".lowercased() == headRepository

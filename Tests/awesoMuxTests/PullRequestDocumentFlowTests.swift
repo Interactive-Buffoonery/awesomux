@@ -244,6 +244,21 @@ struct PullRequestDocumentFlowTests {
         #expect(liveStore.closePane(id: pane.id, in: session.id) != nil)
         #expect(await liveTask.value == .failure(.sourceChanged))
         #expect(try String(contentsOf: liveSlot, encoding: .utf8) == unchanged)
+        // A saturated candidate page must fail closed with lookup guidance,
+        // stop before comment queries, and leave any existing snapshot intact.
+        let candidateSlot = try #require(cache.write(unchanged, cacheIdentityKey: identity))
+        cache.completeWrite(at: candidateSlot)
+        let beforeLimit = try String(contentsOf: directory.appending(path: "argv.log"), encoding: .utf8)
+        try JSONSerialization.data(withJSONObject: Array(repeating: payload[0], count: 100)).write(to: listURL)
+        let limited = await opener.open(session: session, pane: pane)
+        if case .failure(let failure) = limited {
+            #expect(failure.description == "The pull request lookup reached its result limit. Open the intended pull request on GitHub.")
+        } else {
+            Issue.record("Saturated pull request lookup succeeded")
+        }
+        let afterLimit = try String(contentsOf: directory.appending(path: "argv.log"), encoding: .utf8)
+        #expect(afterLimit.components(separatedBy: "api ").count == beforeLimit.components(separatedBy: "api ").count)
+        #expect(try String(contentsOf: candidateSlot, encoding: .utf8) == unchanged)
         var wrongFork = payload
         wrongFork[0]["headRepositoryOwner"] = ["login": "other"]
         try JSONSerialization.data(withJSONObject: wrongFork).write(to: listURL)

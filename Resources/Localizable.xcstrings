@@ -4782,6 +4782,9 @@
     "The pull request document exceeds the supported size limit." : {
       "comment" : "Reason a connected pull request document could not open"
     },
+    "The pull request lookup reached its result limit. Open the intended pull request on GitHub." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
     "The remote bridge socket is group- or world-accessible." : {
       "comment" : "Bridge doctor failure reason"
     },
