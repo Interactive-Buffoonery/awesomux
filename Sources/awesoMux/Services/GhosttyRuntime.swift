@@ -749,7 +749,9 @@ final class GhosttyRuntime {
     /// stranded. No-ops when the surface is gone.
     func focusSurface(toPane paneID: TerminalPane.ID) {
         guard let surface = surfaceViews[paneID] else { return }
-        surface.window?.makeFirstResponder(surface)
+        if surface.window?.makeFirstResponder(surface) == true {
+            surface.setAccessibilityFocused(true)
+        }
     }
 
     func discardSurface(for paneID: TerminalPane.ID, preservingRestartNotice: Bool = false) {

@@ -220,8 +220,16 @@ struct TerminalPaneLayoutView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                             Button(String(localized: "Dismiss", comment: "Dismiss a persistent-session restart notice")) {
+                                sessionStore.setActivePane(id: pane.id, in: session.id)
                                 runtime.clearSessionRestartNotice(for: pane.id)
-                                runtime.focusSurface(toPane: pane.id)
+                                // Select before row removal; restore responder after chrome remounts.
+                                DispatchQueue.main.async {
+                                    guard sessionStore.selectedSessionID == session.id,
+                                        sessionStore.session(id: session.id)?.activePaneID == pane.id,
+                                        sessionStore.session(id: session.id)?.layout.pane(id: pane.id) != nil
+                                    else { return }
+                                    runtime.focusSurface(toPane: pane.id)
+                                }
                             }
                             .accessibilityLabel(
                                 String(

@@ -92,7 +92,7 @@ struct CommandBridgeEnactorTests {
         #expect(pane.agentKind == AgentKind.shell)
         #expect(pane.attentionReason == nil)
         #expect(announcements == [.freshRespawn])
-        #expect((fixture.runtime.restartedSessionNotices[fixture.paneID] != nil))
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] != nil)
         fixture.runtime.clearSessionRestartNotice(for: fixture.paneID)
         let changes = Mutex(0)
         withObservationTracking {
@@ -107,8 +107,8 @@ struct CommandBridgeEnactorTests {
                 pid: 250, createdAt: 1_700_000_150, sessionID: fixture.sessionID, created: false
             )
         ])
-        #expect(announcements == [.freshRespawn])
-        #expect(!(fixture.runtime.restartedSessionNotices[fixture.paneID] != nil))
+        #expect(announcements == [.freshRespawn, .freshRespawn])
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] != nil)
 
         // The pre-spawn breadcrumb, not the post-spawn established write,
         // distinguishes a saved pane from its very first creation. Established
