@@ -91,63 +91,55 @@ struct TerminalPathBarView: View {
             // TerminalPathBarResolvePolicy / INT-523), not run on every title tick.
             // Re-resolving on window-active also catches a checkout made while we
             // were in the background. Live HEAD watching remains a tracked follow-up.
-            // Bridge-pane cwd poll — independent of `resolveKey`. Runs ONLY when
-            // the command-bridge feature is on AND the active pane carries an
-            // established bridge session — which it does not on first render, so
-            // the key has to carry the establishment flag or this task is never
-            // re-created and the poll never starts (see `bridgePollKey`). The key
-            // intentionally omits `workingDirectory`: for a bridge pane that's
-            // the stale value (the daemon shell never emits OSC 7), so keying on
-            // it would restart the poll on every write-back. `.task(id:)` cancels
-            // the old loop on any key change, stopping the poll when the view
-            // disappears or the pane loses focus. The polled value tracks the FOREGROUND JOB's cwd
-            // (not just the shell's), so the bar can legitimately move without
-            // a user `cd` — e.g. while an agent or build works elsewhere.
+            // Remote OSC 7 survives in the daemon inventory even when the local
+            // Ghostty surface refuses its host. Never query the local ssh cwd
+            // while remote presentation is active: writing it clears the badge.
             .task(id: bridgePollKey) {
                 guard let pane = session.activePane,
-                    BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(
-                        bridgeEnabled: isCommandBridgeEnabled,
-                        isBridgePane: pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
-                    )
+                    pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata,
+                    (pane.executionPlan == .local && pane.remoteHost != nil)
+                        || BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(
+                            bridgeEnabled: isCommandBridgeEnabled, isBridgePane: true
+                        )
                 else { return }
-
-                let sessionID = pane.terminalSessionID
+                let terminalID = pane.terminalSessionID
                 let paneID = pane.id
                 let workspaceID = session.id
-
-                // Immediate query on focus/activation, then poll every ~4 s while
-                // selected. `try? Task.sleep` absorbs cancellation silently; the
-                // `while !Task.isCancelled` guard ensures we stop cleanly when
-                // `.task(id:)` tears this task down on a key change.
                 while !Task.isCancelled {
-                    // Read the LIVE pane from the store each iteration, NOT a
-                    // value-type `session` snapshot frozen at `.task` start: that
-                    // snapshot never advances after the first write-back, so
-                    // `cwdUpdate` would re-issue the same `updatePane` every 4s
-                    // (store churn + redundant SwiftUI invalidation). The store's
-                    // current value reflects prior write-backs.
-                    //
-                    // Also RE-CHECK bridge-pane status here. A cleared
-                    // `terminalBackendMetadata` now moves `bridgePollKey`, so that
-                    // case tears the loop down immediately; what this covers is
-                    // the case where the daemon dies and the STORE is never told,
-                    // so no key field moves at all. Without it the poll keeps
-                    // spawning `amx cwd <dead-id>` every ~4 s on a latched/exited
-                    // pane for the view's whole lifetime.
-                    guard
-                        let livePane = sessionStore?.session(id: workspaceID)?
-                            .layout.pane(id: paneID),
+                    guard let liveSession = sessionStore?.session(id: workspaceID),
+                        sessionStore?.selectedSessionID == workspaceID,
+                        liveSession.activePaneID == paneID,
+                        let livePane = liveSession.layout.pane(id: paneID),
+                        livePane.terminalSessionID == terminalID,
                         livePane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
                     else { break }
-                    let current = livePane.workingDirectory
-                    if let queried = await AmxBackend.queryCwd(sessionID),
-                        let newCwd = BridgeCwdRefreshPolicy.cwdUpdate(current: current, queried: queried)
+                    if livePane.executionPlan == .local, let host = livePane.remoteHost {
+                        guard isWindowActive else { break }
+                        // ponytail: full inventory every 4s for one selected pane;
+                        // use a per-session query only if inventory cost is measured.
+                        if let rows = await AmxBackend.listSessionsResult(), !Task.isCancelled,
+                            let raw = rows.first(where: { $0.id == terminalID })?.cwd
+                        {
+                            // The daemon retains the last OSC 7 report; it has no
+                            // timestamp or generation proving this SSH connection.
+                            sessionStore?.updateObservedRemoteWorkingDirectory(
+                                sessionID: workspaceID, paneID: paneID,
+                                terminalSessionID: terminalID, expectedHost: host,
+                                reportedDirectory: raw
+                            )
+                        }
+                    } else if livePane.remotePresentationHost == nil,
+                        BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(
+                            bridgeEnabled: isCommandBridgeEnabled, isBridgePane: true
+                        ),
+                        let queried = await AmxBackend.queryCwd(terminalID), !Task.isCancelled,
+                        sessionStore?.selectedSessionID == workspaceID,
+                        sessionStore?.session(id: workspaceID)?.activePaneID == paneID,
+                        let current = sessionStore?.session(id: workspaceID)?.layout.pane(id: paneID),
+                        current.terminalSessionID == terminalID, current.remotePresentationHost == nil,
+                        let newCwd = BridgeCwdRefreshPolicy.cwdUpdate(current: current.workingDirectory, queried: queried)
                     {
-                        sessionStore?.updatePane(
-                            sessionID: workspaceID,
-                            paneID: paneID,
-                            workingDirectory: newCwd
-                        )
+                        sessionStore?.updatePane(sessionID: workspaceID, paneID: paneID, workingDirectory: newCwd)
                     }
                     try? await Task.sleep(for: .seconds(4))
                 }
@@ -435,7 +427,9 @@ struct TerminalPathBarView: View {
             isBridgeEstablished: pane?.terminalBackendMetadata
                 == AmxBackend.establishedSessionMetadata,
             isCommandBridgeEnabled: isCommandBridgeEnabled,
-            isActive: isWindowActive
+            isActive: isWindowActive,
+            executionPlan: pane?.executionPlan ?? .local,
+            remoteHost: pane?.remoteHost
         )
     }
 
@@ -477,7 +471,7 @@ struct TerminalPathBarView: View {
         HStack(spacing: 8) {
             if let remoteHost = model.remoteHost {
                 // Remote (SSH) session: the local cwd/git affordances would point
-                // at the wrong machine, so show only a remote indicator.
+                // at the wrong machine, so show the remote host and reported path.
                 remoteIndicator(host: remoteHost)
                 Spacer(minLength: 8)
             } else {
@@ -550,6 +544,14 @@ struct TerminalPathBarView: View {
                     .foregroundStyle(Color.aw.text2)
                     .lineLimit(1)
                     .truncationMode(.middle)
+
+                if !model.copyPath.isEmpty {
+                    Text(model.path)
+                        .awFont(AwFont.Mono.meta)
+                        .foregroundStyle(Color.aw.titlebarText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -557,16 +559,33 @@ struct TerminalPathBarView: View {
             .contentShape(RoundedRectangle(cornerRadius: AwRadius.pill))
         }
         .buttonStyle(.plain)
-        .help(copy.help)
+        .help(remotePathHelp(connectionHelp: copy.help))
+        .contextMenu {
+            Button(String(localized: "Copy Path")) {
+                copyRemotePath()
+            }
+            .disabled(model.copyPath.isEmpty)
+        }
+        .accessibilityActions {
+            if !model.copyPath.isEmpty {
+                Button(String(localized: "Copy Path")) {
+                    copyRemotePath()
+                }
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(copy.accessibilityLabel)
-        .accessibilityValue(copy.accessibilityValue)
+        .accessibilityValue(
+            model.copyPath.isEmpty
+                ? copy.accessibilityValue
+                : "\(copy.accessibilityValue), \(TerminalAccessibilityPathFormatter.sanitizedForSpeech(model.copyPath))"
+        )
         .accessibilityHint(copy.accessibilityHint)
         .overlay(alignment: .bottomLeading) {
             if presentedMenu == .remoteStatus {
                 VStack(alignment: .leading, spacing: 0) {
                     RemoteStatusMenu(
-                        message: copy.help,
+                        message: remotePathHelp(connectionHelp: copy.help),
                         accent: Color.aw.accent(accent)
                     )
 
@@ -576,6 +595,23 @@ struct TerminalPathBarView: View {
             }
         }
         .zIndex(presentedMenu == .remoteStatus ? 1 : 0)
+    }
+
+    private func copyRemotePath() {
+        guard model.remoteHost != nil, !model.copyPath.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(model.copyPath, forType: .string)
+    }
+
+    private func remotePathHelp(connectionHelp: String) -> String {
+        guard !model.copyPath.isEmpty else {
+            return "\(connectionHelp)\n\(String(localized: "Remote working directory unavailable."))"
+        }
+        let pathHelp = String(
+            localized: "Last reported remote directory: \(model.copyPath). The report may be from an earlier SSH connection.",
+            comment: "Help for the cached remote working directory shown in the path bar"
+        )
+        return "\(connectionHelp)\n\(pathHelp)"
     }
 
     private func toggleRemoteStatusMenu() {
@@ -614,7 +650,7 @@ struct TerminalPathBarView: View {
                 health: health,
                 icon: "network",
                 help: String(
-                    localized: "Remote session on \(host). Local Path Bar features (git, reveal, copy) are unavailable over SSH.",
+                    localized: "Remote session on \(host). Local Path Bar features (git and reveal) are unavailable over SSH.",
                     comment: "Help for a remote path-bar button; the argument is the SSH host"
                 ),
                 accessibilityLabel: String(
@@ -1182,6 +1218,7 @@ extension TerminalPathBarView: Equatable {
             activePaneWorkingDirectory: pane?.workingDirectory,
             executionPlan: pane?.executionPlan ?? .local,
             remoteHost: pane?.remotePresentationHost,
+            observedRemoteHost: pane?.remoteHost,
             remoteWorkingDirectory: pane?.remoteWorkingDirectory,
             remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active,
             activeAgentKind: session.activeAgentKind,
@@ -1213,6 +1250,7 @@ extension TerminalPathBarView: Equatable {
         let activePaneWorkingDirectory: String?
         let executionPlan: PaneExecutionPlan
         let remoteHost: String?
+        let observedRemoteHost: String?
         /// Runtime-observed remote cwd drives the displayed and copied path even
         /// when the remote host remains unchanged.
         let remoteWorkingDirectory: String?

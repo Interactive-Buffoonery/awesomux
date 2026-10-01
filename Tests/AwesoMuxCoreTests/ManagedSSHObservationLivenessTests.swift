@@ -366,6 +366,25 @@ struct ManagedSSHObservationLivenessTests {
         let pane = try #require(store.session(id: sessionID)?.layout.pane(id: paneID))
         #expect(pane.remotePresentationHost == "next.example")
         #expect(store.index.remotePaneIDs.contains(paneID))
+        for (liveness, command) in [
+            (ForegroundProcessLiveness.bridged, "ssh"),
+            (.bridged, "unknown"),
+            (.bridgedBusy, "bash"),
+            (.bridgedIndeterminate, "bash"),
+        ] {
+            store.clearManagedSSHObservationIfExitedToLocalShell(
+                sessionID: sessionID, paneID: paneID,
+                liveness: liveness, foregroundCommand: command
+            )
+            #expect(store.session(id: sessionID)?.layout.pane(id: paneID)?.remotePresentationHost == "next.example")
+        }
+        store.clearManagedSSHObservationIfExitedToLocalShell(
+            sessionID: sessionID, paneID: paneID,
+            liveness: .bridged, foregroundCommand: "bash"
+        )
+        #expect(store.session(id: sessionID)?.layout.pane(id: paneID)?.remotePresentationHost == nil)
+        #expect(!store.index.remotePaneIDs.contains(paneID))
+
     }
 
     @Test("an observed SSH command clears after returning to the local shell")

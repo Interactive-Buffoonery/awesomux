@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import Foundation
 import Testing
 @testable import AwesoMuxCore
@@ -600,6 +601,16 @@ struct SessionStoreRemoteSessionTests {
 
         #expect(remoteWorkingDirectory(store, pane.id) == "/srv/repo")
         #expect(store.selectedSession?.layout.pane(id: pane.id)?.workingDirectory == "/Users/me/project")
+        for (reported, expected) in [
+            ("file://devbox/private/tmp", "/private/tmp"),
+            ("/srv/link/../project", "/srv/link/../project"),
+            ("~", "~"),
+            ("~/child/..", "~"),
+        ] {
+            store.updatePane(sessionID: session.id, paneID: pane.id, workingDirectory: reported)
+            #expect(remoteWorkingDirectory(store, pane.id) == expected)
+            #expect(store.selectedSession?.layout.pane(id: pane.id)?.workingDirectory == "/Users/me/project")
+        }
     }
 
     // A real, existing directory so the pwd survives WorkingDirectoryValidator and
@@ -612,6 +623,52 @@ struct SessionStoreRemoteSessionTests {
         store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
         #expect(remoteHost(store, pid) == "webserver")
         #expect(store.index.remotePaneIDs == Set([pid]))
+
+        // Failure modes: remote paths must not need local existence, overwrite the
+        // local cwd, accept another host, or land on a repointed terminal.
+        let terminalID = store.session(id: sid)!.layout.pane(id: pid)!.terminalSessionID
+        let localDirectory = store.session(id: sid)!.layout.pane(id: pid)!.workingDirectory
+        store.updateObservedRemoteWorkingDirectory(
+            sessionID: sid, paneID: pid, terminalSessionID: terminalID,
+            expectedHost: "webserver", reportedDirectory: "file://webserver/srv/remote-only"
+        )
+        #expect(remoteWorkingDirectory(store, pid) == "/srv/remote-only")
+        #expect(store.session(id: sid)?.layout.pane(id: pid)?.workingDirectory == localDirectory)
+        for invalid in [
+            "file://another/srv/wrong", "file://webserver/srv/a%0Ab", "/srv/unqualified",
+            "file://webserver/srv/wrong?query=1", "file://user@webserver/srv/wrong",
+            "file://webserver:22/srv/wrong", "file:///srv/local", "file://localhost/srv/local",
+            "file://webserver/srv/wrong#fragment", "file://webserver/" + String(repeating: "x", count: 256),
+        ] {
+            store.updateObservedRemoteWorkingDirectory(
+                sessionID: sid, paneID: pid, terminalSessionID: terminalID,
+                expectedHost: "webserver", reportedDirectory: invalid
+            )
+            #expect(remoteWorkingDirectory(store, pid) == "/srv/remote-only")
+        }
+        store.updateObservedRemoteWorkingDirectory(
+            sessionID: sid, paneID: pid, terminalSessionID: .generate(),
+            expectedHost: "webserver", reportedDirectory: "file://webserver/srv/wrong"
+        )
+        #expect(remoteWorkingDirectory(store, pid) == "/srv/remote-only")
+        store.updateObservedRemoteWorkingDirectory(
+            sessionID: sid, paneID: pid, terminalSessionID: terminalID,
+            expectedHost: "webserver", reportedDirectory: "file://WEBSERVER/srv/second%20directory"
+        )
+        #expect(remoteWorkingDirectory(store, pid) == "/srv/second directory")
+
+        store.updatePane(sessionID: sid, paneID: pid, title: "ed@otherhost: ~")
+        #expect(remoteWorkingDirectory(store, pid) == nil)
+        store.updateObservedRemoteWorkingDirectory(
+            sessionID: sid, paneID: pid, terminalSessionID: terminalID,
+            expectedHost: "webserver", reportedDirectory: "file://webserver/srv/late"
+        )
+        #expect(remoteWorkingDirectory(store, pid) == nil)
+        store.updateObservedRemoteWorkingDirectory(
+            sessionID: sid, paneID: pid, terminalSessionID: terminalID,
+            expectedHost: "otherhost", reportedDirectory: "file://otherhost/srv/current"
+        )
+        #expect(remoteWorkingDirectory(store, pid) == "/srv/current")
 
         store.updatePane(sessionID: sid, paneID: pid, workingDirectory: Self.validLocalDir)
         #expect(remoteHost(store, pid) == nil)

@@ -1051,6 +1051,37 @@ extension SessionStore {
         return PaneLayoutReducer.paneChangeKind(from: old, to: new)
     }
 
+    /// Applies display-only OSC 7 metadata from a hand-opened SSH terminal.
+    /// Returns whether the report was accepted, including an unchanged path.
+    @discardableResult
+    public func updateObservedRemoteWorkingDirectory(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        terminalSessionID: TerminalSessionID,
+        expectedHost: String,
+        reportedDirectory: String
+    ) -> Bool {
+        guard selectedSessionID == sessionID,
+            let session = session(id: sessionID), session.activePaneID == paneID,
+            let pane = session.layout.pane(id: paneID),
+            pane.executionPlan == .local, pane.terminalSessionID == terminalSessionID,
+            pane.remoteHost?.caseInsensitiveCompare(expectedHost) == .orderedSame,
+            // zmx ipc.MAX_CWD_LEN silently caps its raw URI at 256 bytes.
+            reportedDirectory.utf8.count < 256,
+            let uri = URLComponents(string: reportedDirectory), uri.scheme == "file",
+            let host = uri.host, !host.isEmpty, host.lowercased() != "localhost",
+            !localHostnames.contains(host.lowercased()),
+            host.caseInsensitiveCompare(expectedHost) == .orderedSame,
+            uri.user == nil, uri.password == nil, uri.port == nil,
+            uri.query == nil, uri.fragment == nil,
+            let directory = RemoteWorkingDirectoryValidator.validatedReportedDirectory(reportedDirectory)
+        else { return false }
+        guard pane.remoteWorkingDirectory != directory else { return true }
+        return mutatePane(sessionID: sessionID, paneID: paneID) {
+            $0.remoteWorkingDirectory = directory
+        }
+    }
+
     public func noteSubmittedCommand(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
@@ -1187,8 +1218,12 @@ extension SessionStore {
         let pendingProcessReturned =
             pane.hasObservedPendingRemoteSSHProcess
             && (liveness == .idleShell || liveness == .bridged)
+        // A bridged idle sample alone can describe wrapped SSH. Require the
+        // independently sampled terminal foreground to be a recognized shell.
         let confirmedProcessReturned =
-            liveness == .idleShell
+            (liveness == .idleShell
+                || (liveness == .bridged
+                    && ShellRecognition.isRecognizedShell(foregroundCommand ?? "")))
             && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
                 || pane.hasConsumedManagedSSHWorkspaceOffer)
         guard pendingProcessReturned || confirmedProcessReturned else {

@@ -39,7 +39,7 @@ public enum RemoteWorkingDirectoryValidator {
         if path.hasPrefix("~/") {
             return normalizedTildePath(path)
         }
-        return (path as NSString).standardizingPath
+        return path
     }
 
     private static func normalizedTildePath(_ path: String) -> String? {
