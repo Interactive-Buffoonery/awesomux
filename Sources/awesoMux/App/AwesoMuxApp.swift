@@ -370,21 +370,21 @@ struct AwesoMuxApp: App {
             eventRecorder: diagnosticEvents
         )
         _diagnosticsModel = State(initialValue: diagnosticsModel)
-        _ghosttyRuntime = State(
-            initialValue: GhosttyRuntime(
-                terminalAppearanceProvider: {
-                    let appearance = appSettingsStore.appearance.value
-                    return terminalAppearancePreferencesCache.preferences(
-                        for: appearance,
-                        fallbackEffectiveTheme: terminalEffectiveTheme(for: appearance)
-                    )
-                },
-                initialClipboardWritePolicy: appSettingsStore.terminal.value.clipboardWritePolicy,
-                initialConfirmClipboardRead: appSettingsStore.terminal.value.confirmClipboardRead,
-                initialCopyOnSelect: appSettingsStore.terminal.value.copyOnSelect,
-                initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
-                diagnosticEventHandler: { diagnosticEvents.record($0) }
-            ))
+        let ghosttyRuntime = GhosttyRuntime(
+            terminalAppearanceProvider: {
+                let appearance = appSettingsStore.appearance.value
+                return terminalAppearancePreferencesCache.preferences(
+                    for: appearance,
+                    fallbackEffectiveTheme: terminalEffectiveTheme(for: appearance)
+                )
+            },
+            initialClipboardWritePolicy: appSettingsStore.terminal.value.clipboardWritePolicy,
+            initialConfirmClipboardRead: appSettingsStore.terminal.value.confirmClipboardRead,
+            initialCopyOnSelect: appSettingsStore.terminal.value.copyOnSelect,
+            initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
+            diagnosticEventHandler: { diagnosticEvents.record($0) }
+        )
+        _ghosttyRuntime = State(initialValue: ghosttyRuntime)
         _updateController = State(initialValue: UpdateController())
         _terminalAppearancePreferencesCache = State(initialValue: terminalAppearancePreferencesCache)
         _recoveryWarning = State(initialValue: loadResult.recoveryWarning)
@@ -393,6 +393,7 @@ struct AwesoMuxApp: App {
                 store: loadResult.store,
                 settings: appSettingsStore
             ))
+        appDelegate.startLocalAPI(store: loadResult.store, runtime: ghosttyRuntime)
     }
 
     var body: some Scene {

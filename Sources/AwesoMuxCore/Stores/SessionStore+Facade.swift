@@ -353,6 +353,9 @@ extension SessionStore {
         // separate public `applyAgentRuntimeEvent` below, not here.
         guard outcome.didMutate else { return true }
         _groups[position.groupIndex].sessions[position.sessionIndex] = session
+        if let pane = session.layout.pane(id: targetPaneID) {
+            reconcileLocalAPIAssignment(pane, workspaceID: sessionID)
+        }
         commit(
             WorkspaceMutationEffect(
                 unreadChange: outcome.unreadChange,
@@ -894,6 +897,9 @@ extension SessionStore {
             )
             if outcome.didMutate {
                 _groups[position.groupIndex].sessions[position.sessionIndex] = session
+                if let pane = session.layout.pane(id: paneID) {
+                    reconcileLocalAPIAssignment(pane, workspaceID: sessionID)
+                }
                 commit(WorkspaceMutationEffect(unreadChange: outcome.unreadChange), now: now)
             }
         }
@@ -1253,6 +1259,7 @@ extension SessionStore {
         #endif
 
         if effect.needsFullRebuild {
+            reconcileLocalAPIAssignments()
             rebuildDerivedState(now: now)
         } else {
             applyUnreadChange(effect.unreadChange)

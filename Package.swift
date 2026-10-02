@@ -72,6 +72,7 @@ import PackageDescription
             .executable(name: "awesoMux", targets: ["awesoMux"]),
             .executable(name: "awesoMuxAgentHook", targets: ["awesoMuxAgentHook"]),
             .executable(name: "awesoMuxBridgeHelper", targets: ["awesoMuxBridgeHelper"]),
+            .executable(name: "awesomux-agent", targets: ["awesomux-agent"]),
             .library(name: "AwesoMuxCore", targets: ["AwesoMuxCore"]),
             .library(name: "AwesoMuxConfig", targets: ["AwesoMuxConfig"]),
             .library(name: "DesignSystem", targets: ["DesignSystem"]),
@@ -86,6 +87,7 @@ import PackageDescription
                 name: "awesoMux",
                 dependencies: [
                     "AwesoMuxBridgeProtocol",
+                    "AwesoMuxLocalAPI",
                     "AwesoMuxCore",
                     "AwesoMuxConfig",
                     "DesignSystem",
@@ -95,6 +97,16 @@ import PackageDescription
                     "GhosttyKitLinker",
                     .product(name: "Sparkle", package: "Sparkle"),
                 ]
+            ),
+            .target(name: "AwesoMuxLocalAPI"),
+            .executableTarget(
+                name: "local-api-e2e",
+                dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxLocalAPI", "AwesoMuxTestSupport"],
+                path: "Tests/awesoMuxTests/LocalAPIE2E"
+            ),
+            .executableTarget(
+                name: "awesomux-agent",
+                dependencies: ["AwesoMuxLocalAPI"]
             ),
             .target(
                 name: "AwesoMuxConfig",
@@ -108,6 +120,7 @@ import PackageDescription
                 name: "AwesoMuxCore",
                 dependencies: [
                     "AwesoMuxBridgeProtocol",
+                    "AwesoMuxLocalAPI",
                     "SecureFileIO",
                     "UnicodeHygiene",
                     .product(name: "Markdown", package: "swift-markdown"),
@@ -224,7 +237,8 @@ import PackageDescription
                 name: "awesoMuxTests",
                 dependencies: [
                     "awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport", "AwesoMuxAppKitTestHost", "DesignSystem",
-                ]
+                ],
+                exclude: ["LocalAPIE2E"]
             ),
             .testTarget(
                 name: "AwesoMuxTestSupportTests",

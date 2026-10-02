@@ -146,6 +146,18 @@ extension GhosttySurfaceNSView {
         )
     }
 
+    @MainActor
+    func localAPIProcessSource() -> LocalAPIProcessSource? {
+        if commandBridgeSessionID != nil {
+            guard let daemon = commandBridgeEnactor.respawnLedger.lastIncarnation else { return nil }
+            return .daemon(daemon)
+        }
+        guard let surface, !ghostty_surface_process_exited(surface),
+            let pid = pid_t(exactly: ghostty_surface_foreground_pid(surface)), pid > 0
+        else { return nil }
+        return .foreground(pid)
+    }
+
     /// Foreground-process incarnation for the document-nudge prompt gate's
     /// generation check (INT-569 follow-up). Mirrors
     /// `documentNudgeForegroundComm()`'s bridged/non-bridged branching so the
