@@ -1,14 +1,16 @@
 # Shared local agent status API
 
-INT-1198 supplies the app-owned status transport and bundled `awesomux-agent`.
-It does not enable assistant access: normal development and distributed builds
-return `access_disabled` for every operation. Connection registration, credentials,
-and grants belong to INT-1199. A same-user socket connection is not authorization.
+The app-owned status transport is opt-in. Installation grants nothing. A user
+registers each local client in **Settings → Agents → Assistant access**, reviews
+the default current-target scope or explicitly chooses a persistent pane or
+workspace scope, and separately enables global access. Each
+connection has an independent credential and can be edited or revoked without
+changing another connection.
 
 ## Components and ownership
 
 ```text
-awesomux-agent --profile <exact profile> <named operation>
+awesomux-agent --profile <exact profile> --credential-handle <connection UUID> <named operation>
     | bounded length-prefixed JSON; same-user peer check
     v
 profile endpoint + exclusive instance lock
@@ -17,7 +19,7 @@ profile endpoint + exclusive instance lock
 MainActor capture -> off-actor process evidence -> identity recheck
     | native pane snapshots and roster semantics
     v
-immutable JSON response -> authorization recheck -> bounded socket write
+immutable JSON response -> lease recheck per nonblocking write -> bounded socket
 ```
 
 `AwesoMuxLocalAPI` owns the contract, endpoint custody, framing, listener, and
@@ -29,9 +31,13 @@ JSON response encoding, and process probing happen off the UI actor.
 
 ```sh
 "/path/to/awesoMux.app/Contents/MacOS/awesomux-agent" \
-  --profile production get_connection_status
+  --profile production \
+  --credential-handle 01234567-89ab-cdef-0123-456789abcdef \
+  get_connection_status
 "/path/to/awesoMux.app/Contents/MacOS/awesomux-agent" \
-  --profile development:012345abcdef list_agents
+  --profile development:012345abcdef \
+  --credential-handle 01234567-89ab-cdef-0123-456789abcdef \
+  list_agents
 ```
 
 Profiles are required: `production`, `development`, or
@@ -39,8 +45,17 @@ Profiles are required: `production`, `development`, or
 profile fallback, arbitrary command execution, amx passthrough, or content read.
 Operations are `get_connection_status`, `get_capabilities`, and `list_agents`.
 Stdout contains one JSON object plus a newline; success exits 0, all failures
-exit 1. Installation alone grants nothing. The credential field is reserved for
-INT-1199; this helper does not yet load or accept credentials.
+exit 1. The handle is nonsecret. The helper loads the corresponding credential
+from the standard macOS Keychain and never accepts credential bytes in arguments
+or environment variables. A missing or inaccessible item returns
+`credential_unavailable` without contacting the app.
+
+Registration generates 32 random bytes in the app, sends them only to the exact
+bundled helper over its stdin, and stores only a domain-bound SHA-256 verifier in
+profile metadata. The standard macOS Keychain item is non-synchronizing. Ad-hoc
+development builds can cause macOS Keychain trust prompts when the helper
+identity changes; review the displayed binary path before allowing access.
+Re-register if a rebuilt helper can no longer read an old development item.
 
 ## Wire contract v1
 
@@ -55,16 +70,16 @@ a timeout error has at most 100 ms additional time to be written. Clients enforc
 bounds independently. Oversized roster responses fail explicitly without truncation.
 
 ```json
-{"schemaVersion":1,"requestID":"01234567-89AB-CDEF-0123-456789ABCDEF","profile":"production","operation":"list_agents"}
+{"schemaVersion":1,"requestID":"01234567-89AB-CDEF-0123-456789ABCDEF","profile":"production","operation":"list_agents","connectionID":"01234567-89AB-CDEF-0123-456789ABCDEF","credential":"<redacted>"}
 ```
 
 Success returns `schemaVersion`, the same `requestID`, `profile`, a random
 `appInstanceID`, and `capturedAt`. `list_agents` adds `agents` (an empty array is
 success); `get_connection_status` adds `connectionStatus: "connected"`, meaning
-the exact app instance is reachable and the operation is authorized. Registration
-and grant states remain deferred to INT-1199. `get_capabilities` adds the limits, supported named operations, and
+the exact app instance is reachable and the operation is authorized.
+`get_capabilities` adds the limits, supported named operations, and
 false context/instructions/monitoring flags. A denial discloses no roster, app
-instance, or profile metadata:
+instance, or profile metadata. The helper never prints the credential:
 
 ```json
 {"error":"access_disabled","requestID":"01234567-89AB-CDEF-0123-456789ABCDEF","schemaVersion":1}
@@ -73,9 +88,45 @@ instance, or profile metadata:
 Typed errors include `invalid_request`, `unsupported_version`,
 `unsupported_operation`, `profile_mismatch`, `access_disabled`,
 `permission_denied`, `app_unavailable`, `insecure_endpoint`, `endpoint_busy`,
-`path_too_long`, `request_too_large`, `response_too_large`, `timeout`, `cancelled`,
+`credential_unavailable`, `path_too_long`, `request_too_large`,
+`response_too_large`, `timeout`, `cancelled`,
 `stale_target`, and `transport_failure`. A malformed request may have no request
 ID. An empty roster must never hide endpoint or authorization failure.
+
+## Grant persistence and revocation
+
+Grant metadata is an owner-only, profile-scoped `LocalAPI/access.json` file. It
+contains labels, connection IDs, credential verifiers, revisions, and status
+scopes; it never contains credential bytes. A lifetime profile authority lock
+prevents two app instances from writing the same grant state. Unknown, malformed,
+oversized, symlinked, incorrectly permissioned, or cross-profile state is
+preserved for review and fails closed.
+
+Status grants can cover selected persistent panes, selected persistent
+workspaces, or one exact pane target incarnation. A persistent workspace grant
+includes panes added to that workspace later. An exact-target grant expires when
+the target version changes and is the registration default; persistent scopes
+require an explicit choice. The app derives the candidate pane set from the
+grant before it probes process identity, then filters again before responding.
+
+Restrictive changes update the in-memory authority and close matching requests
+before persistence. If the metadata write fails, the connection stays denied
+for that app run and Settings reports that the change is not durable. Expansion
+and registration persist before becoming active. Metadata and Keychain items
+survive an app restart; revocation removes the metadata grant and then asks the
+bundled helper to delete its Keychain item.
+
+Admission, capture, and response writes all revalidate the same revisioned
+lease. The server waits for socket writability without holding the authority
+lock, then revalidates and writes at most 16 KiB with `MSG_DONTWAIT`. Revocation
+therefore cannot wait behind a slow reader. If policy changes after part of a
+success frame was written, the server closes the connection instead of appending
+a misleading denial frame; the helper reports `transport_failure` and emits no
+partial JSON.
+
+Context, reviewed instructions, direct delivery, and monitoring remain
+unavailable. Their Settings rows make that boundary explicit. Caller-supplied
+arguments cannot enable them or broaden a status scope.
 
 ## Endpoint custody
 
@@ -96,8 +147,12 @@ cannot split across a delete/recreate cycle. Paths are checked against macOS's
 actual `sun_path` byte capacity and fail explicitly if too long.
 
 These checks prevent accidental cross-profile access and unsafe stale cleanup.
-They do not isolate malicious processes of the same macOS user, which already
-share awesoMux's terminal and amx security domain. See ADR-0019 and
+Connection credentials distinguish cooperative clients and prevent labels or
+unregistered callers from receiving status. They are not a security boundary
+against a malicious process running as the same macOS user: that process can
+invoke a shared helper with a known handle and already shares awesoMux's terminal
+and amx security domain. Treat a grant as connected-computer access, not account
+identity. See ADR-0019 and
 [amx automation](amx-automation.md#security-boundary).
 
 ## Status and target identity
@@ -141,21 +196,32 @@ BIN="$(swift build --show-bin-path)"
 "$BIN/local-api-e2e" "$BIN/awesomux-agent" .build/local-api-evidence
 ```
 
-This driver traverses the helper, socket listener, authorization, and live store.
+This driver traverses the helper, standard Keychain, socket listener,
+authorization, profile grant store, and live session store.
 Its provider lifecycle inputs are fixtures, explicitly labeled in `report.json`.
-`initial-roster.json` and `transport.json` preserve the comparison and malformed,
+`initial-roster.json`, `transport.json`, and `grant-report.json` preserve the
+comparison and malformed,
 oversized, version/profile, timeout, disconnect, and saturation checks. It is an
-E2E executable, not a new unit-test suite, and is not bundled with the app.
+E2E executable, not a new unit-test suite, and is not bundled with the app. Its
+grant scenarios cover default-off registration, missing/wrong/cross-profile
+credentials, two independent scopes, exact-target expiry, in-flight scope edits,
+independent revocation, a non-reading client, global disable, restart persistence,
+and artifact credential scans.
 The [recorded fixture run](local-agent-api-e2e-report.json) preserves the passing
 scenario names. It does not claim native real-agent acceptance.
 
-For native real-agent comparison, use a linked worktree and
-`./script/build_and_run.sh --stage-local-api-e2e`. This builds a debug-only,
-compile-time-authorized host in the isolated worktree profile. The define is
-rejected in release configuration; no runtime preference, helper argument, or
-production environment variable enables it. Open the staged app, launch two
-real dedicated agents, compare native status/attention with helper JSON, and
-save screenshots and results. Stop that app before rebuilding the ordinary
-`--verify` host, which must return `access_disabled`. Never distribute the
-E2E-authorized bundle. Real-agent proof, full preflight, packaging/signing,
-and manual native responsiveness are separate evidence.
+For native validation, use a linked worktree and
+`./script/build_and_run.sh --stage-local-api-e2e`. This stages an ordinary debug
+build with its isolated `development:<worktree>` profile; it has no authorization
+bypass. Open the staged app and Agents settings, leave global access off, register
+two connections with different scopes, then copy each nonsecret helper command.
+Confirm both return `access_disabled`; enable access and compare their rosters.
+Revoke the first and confirm its helper returns `credential_unavailable` or a
+denial while the second still works. Disable global access and confirm the second
+returns `access_disabled`. Relaunch the same staged bundle and confirm the saved
+global state and remaining connection are unchanged. Record any Keychain trust
+prompt and verify its helper path belongs to that staged bundle.
+
+Use two real dedicated agents to compare native status and attention with the
+scoped helper JSON. Manual UI, accessibility, real-agent behavior, full preflight,
+and packaging/signing remain separate evidence; fixture E2E does not prove them.
