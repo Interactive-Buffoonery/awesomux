@@ -471,6 +471,9 @@ private struct DocumentTabPill: View {
                     comment:
                         "Spoken qualifier on a document tab that holds a generated branch diff"
                 ))
+        case .pullRequest:
+            parts.append(
+                String(localized: "pull request snapshot, read-only", comment: "Spoken qualifier on a generated pull request document tab"))
         case .unknown:
             parts.append(
                 String(
