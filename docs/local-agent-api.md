@@ -126,7 +126,9 @@ ancestor walk remains within the controlling terminal so foreground tool childre
 can retain their provider's incarnation. Remote, detached, unrecognized wrappers,
 and otherwise unprovable processes report `process_identity_unknown`. Unknown
 identity grants no context or input eligibility. A target change during sampling
-returns `stale_target`. Later context/input operations must revalidate at use time;
+returns `stale_target`. Duplicate pane IDs also return `stale_target` without a
+roster because provider/process evidence cannot be assigned unambiguously.
+Later context/input operations must revalidate at use time;
 a status version alone is not prompt or authorization proof.
 
 ## Repeatable verification

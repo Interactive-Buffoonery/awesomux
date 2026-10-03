@@ -71,10 +71,14 @@ final class LocalAPIService {
             let operation = LocalAPIOperation(rawValue: request.operation)
             var agents: [LocalAPIAgent]?
             if operation == .listAgents {
+                let providers: [UUID: AgentKind]
+                do {
+                    providers = try store.localAPIProviders()
+                } catch {
+                    return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
+                }
                 let keys = store.localAPIRoutingKeys()
                 let sources = runtime.localAPIProcessSources()
-                let providers = Dictionary(
-                    uniqueKeysWithValues: store.groups.flatMap(\.sessions).flatMap(\.panes).map { ($0.id, $0.agentKind) })
                 let probeTask = Task.detached(priority: .utility) {
                     return sources.reduce(into: [UUID: String]()) { result, item in
                         guard !Task.isCancelled, let provider = providers[item.key], provider != .shell,
@@ -89,7 +93,8 @@ final class LocalAPIService {
                     probeTask.cancel()
                 }
                 guard !Task.isCancelled else { return LocalAPIResponse(requestID: request.requestID, error: .cancelled) }
-                guard keys == store.localAPIRoutingKeys(), sources == runtime.localAPIProcessSources()
+                guard let currentProviders = try? store.localAPIProviders(), providers == currentProviders,
+                    keys == store.localAPIRoutingKeys(), sources == runtime.localAPIProcessSources()
                 else { return LocalAPIResponse(requestID: request.requestID, error: .staleTarget) }
                 agents = store.localAPIAgents(processIncarnations: incarnations)
             }

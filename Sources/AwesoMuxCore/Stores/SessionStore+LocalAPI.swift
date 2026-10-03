@@ -29,6 +29,16 @@ public extension SessionStore {
         reconcileLocalAPIAssignments()
     }
 
+    func localAPIProviders() throws -> [UUID: AgentKind] {
+        var providers: [UUID: AgentKind] = [:]
+        for pane in groups.flatMap(\.sessions).flatMap(\.panes) {
+            guard providers.updateValue(pane.agentKind, forKey: pane.id) == nil else {
+                throw LocalAPIError.staleTarget
+            }
+        }
+        return providers
+    }
+
     func localAPIRoutingKeys() -> [UUID: LocalAPIRoutingKey] {
         localAPITracking = true
         reconcileLocalAPIAssignments()

@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-02",
+  "date": "2026-10-03",
   "kind": "socket/store/helper E2E with injected lifecycle fixtures",
   "checks": [
     "helper returns two pane-grain agents",
@@ -21,6 +21,8 @@
     "stopped app is unavailable without profile fallback",
     "endpoint restart has a fresh app-instance identity",
     "closed and restored pane cannot resurrect a target",
+    "duplicate pane IDs fail without a crash or ambiguous roster",
+    "valid roster recovers after duplicate pane rejection",
     "symlink socket is refused",
     "symlink refusal preserves the target file",
     "malformed JSON is explicit",
@@ -40,7 +42,7 @@
     "helper rejects peer schemaVersion mismatch",
     "crash successor safely replaces its exact stale socket"
   ],
-  "passed": 37,
+  "passed": 39,
   "nativeAcceptance": "Two real agents, native UI parity, responsiveness and accessibility remain unverified.",
   "nativeTransportChecks": [
     "ordinary staged app starts a default-denied profile endpoint",

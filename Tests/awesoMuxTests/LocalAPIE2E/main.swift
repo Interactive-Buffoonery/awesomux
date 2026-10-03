@@ -40,7 +40,7 @@ struct LocalAPIE2E {
                 TerminalSplit(
                     orientation: .horizontal, first: .pane(first), second: .pane(second)
                 )))
-        let store = SessionStore(groups: [SessionGroup(name: "E2E", sessions: [workspace])])
+        var store = SessionStore(groups: [SessionGroup(name: "E2E", sessions: [workspace])])
         var checks: [String] = []
         func check(_ condition: Bool, _ name: String) throws {
             guard condition else { throw E2EFailure(message: name) }
@@ -60,6 +60,11 @@ struct LocalAPIE2E {
         event(.codex, pane: first.id, phase: .sessionStart, session: "codex-e2e", state: .waiting)
         event(.claudeCode, pane: second.id, phase: .sessionStart, session: "claude-e2e", state: .thinking, attention: .permissionPrompt)
         let server = try LocalAPIServer(profile: profile, authorization: { _ in nil }) { request, instance in
+            if request.operation == "list_agents" {
+                do { _ = try store.localAPIProviders() } catch {
+                    return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
+                }
+            }
             store.bindLocalAPIInstance(instance)
             return LocalAPIResponse(
                 requestID: request.requestID, profile: profile, appInstanceID: instance,
@@ -194,6 +199,9 @@ struct LocalAPIE2E {
         let unavailable = try await call()
         try check(unavailable.error == .appUnavailable, "stopped app is unavailable without profile fallback")
         let restarted = try LocalAPIServer(profile: profile, authorization: { _ in nil }) { request, instance in
+            do { _ = try store.localAPIProviders() } catch {
+                return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
+            }
             store.bindLocalAPIInstance(instance)
             return LocalAPIResponse(
                 requestID: request.requestID, profile: profile, appInstanceID: instance,
@@ -209,6 +217,14 @@ struct LocalAPIE2E {
         try check(
             reopened.agents?.first(where: { $0.paneID == first.id })?.targetVersion != original,
             "closed and restored pane cannot resurrect a target")
+        let duplicateWorkspace = TerminalSession(title: "Duplicate", workingDirectory: "/tmp", layout: .pane(first))
+        let duplicateStore = SessionStore(groups: [SessionGroup(name: "Duplicates", sessions: [workspace, duplicateWorkspace])])
+        store = duplicateStore
+        let duplicate = try await call()
+        try check(duplicate.error == .staleTarget && duplicate.agents == nil, "duplicate pane IDs fail without a crash or ambiguous roster")
+        store = restored
+        let afterDuplicate = try await call()
+        try check(afterDuplicate.error == nil && afterDuplicate.agents?.count == 2, "valid roster recovers after duplicate pane rejection")
         let unsafeProfile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
         let unsafe = try LocalAPIEndpoint(profile: unsafeProfile, create: true)
         let sentinel = artifact.appendingPathComponent("symlink-sentinel.txt")
