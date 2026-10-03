@@ -2,6 +2,7 @@ import AppKit
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import OSLog
+import UnicodeHygiene
 
 /// Owns command-bridge lifecycle state and maps bridge observations to app
 /// effects: attach, local-shell fallback, remount, error latch, reconnect, and
@@ -884,12 +885,12 @@ final class CommandBridgeEnactor {
     // MARK: - Exit supervision
 
     func beginExitSupervision(exitCode: Int16?) {
+        exitResolutionPending = false
         guard let sessionID,
               !exitProbeInFlight else {
             return
         }
 
-        exitResolutionPending = false
         exitProbeInFlight = true
         host.commandExitCache.clear()
 
@@ -904,6 +905,10 @@ final class CommandBridgeEnactor {
             statusWatcher?.drainPendingEvents()
         }
 
+        // This is deliberately a superset of the remote-owned failure branch:
+        // existing-only rejection and clean exit discard the temporary capture.
+        let capturesRemoteOutput = host.pane.executionPlan.remoteOwnedExecution != nil && !statusFeedWasArmed
+        let diagnosticText = capturesRemoteOutput ? Self.remoteFailureTail(host.visibleTerminalText()) : nil
         if host.hasNativeSurface {
             host.disposeNativeSurface(resetHostedLayer: true)
         }
@@ -959,7 +964,7 @@ final class CommandBridgeEnactor {
                 // Clears the in-flight flag itself, and (remoteTarget being
                 // non-nil) latches `remoteReconnect = .disconnected` for the
                 // reconnect overlay.
-                markError()
+                markError(diagnosticText: diagnosticText)
             }
             return
         }
@@ -1204,7 +1209,25 @@ final class CommandBridgeEnactor {
         _ = remoteOwnedExitStatusConsumer(url)
     }
 
-    func markError(clearBackendMetadata: Bool = true) {
+    private static func remoteFailureTail(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let scalars = normalized.unicodeScalars.compactMap { scalar -> Unicode.Scalar? in
+            if scalar == "\n" || scalar == "\t" { return scalar }
+            if scalar.properties.generalCategory == .spaceSeparator { return " " }
+            return UnicodeHygiene.isDisallowedScalar(scalar) ? nil : scalar
+        }
+        var lines = String(String.UnicodeScalarView(scalars)).components(separatedBy: "\n").map {
+            String($0.reversed().drop(while: { $0 == " " || $0 == "\t" }).reversed())
+        }
+        while lines.last == "" { lines.removeLast() }
+        let bytes = lines.joined(separator: "\n").utf8.suffix(4096).drop(while: { $0 & 0xC0 == 0x80 })
+        var tail = String(decoding: bytes, as: UTF8.self)
+        while tail.hasPrefix("\n") { tail.removeFirst() }
+        return UnicodeHygiene.containsVisibleScalar(tail) ? tail : nil
+    }
+
+    func markError(clearBackendMetadata: Bool = true, diagnosticText: String? = nil) {
         runtime.clearSessionRestartNotice(for: paneID)
         exitResolutionPending = false
         exitProbeInFlight = false
@@ -1230,7 +1253,8 @@ final class CommandBridgeEnactor {
         sessionStore.recordPaneProcessError(
             in: hostSessionID,
             paneID: paneID,
-            terminalIsFocused: host.terminalIsFocused
+            terminalIsFocused: host.terminalIsFocused,
+            diagnosticText: diagnosticText
         )
         // A remote latch sets `remoteReconnect`, and the disconnected overlay
         // fires its own "Disconnected from <host>. Reconnect available."
