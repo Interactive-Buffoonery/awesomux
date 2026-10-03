@@ -184,8 +184,23 @@ enum TerminalAccessibilityAnnouncer {
         post("New shell started.", priority: .high)
     }
 
-    static func announceSessionRespawnedFresh() {
-        post("Session restarted with a fresh shell.", priority: .medium)
+    static func announceSessionRespawnedFresh(workspace: String, paneDescriptor: String?) {
+        let workspace = compactTitle(workspace)
+        let paneDescriptor = paneDescriptor.map(compactTitle)
+        let message =
+            if let paneDescriptor {
+                String(
+                    localized:
+                        "In \(workspace), \(paneDescriptor): This saved pane started a fresh shell instead of reconnecting to its previous session.",
+                    comment: "Restart notice announcement naming the workspace and split pane"
+                )
+            } else {
+                String(
+                    localized: "In \(workspace): This saved pane started a fresh shell instead of reconnecting to its previous session.",
+                    comment: "Restart notice announcement naming the workspace"
+                )
+            }
+        post(message, priority: .medium)
     }
 
     /// Spoken when a remote pane's bridge dies and the reconnect overlay
