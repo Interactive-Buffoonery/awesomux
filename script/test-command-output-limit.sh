@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-output-limit.XXXXXX")"
-trap 'if command -v trash >/dev/null 2>&1; then trash "$CHECK_DIR"; else printf "Check artifacts retained at %s\n" "$CHECK_DIR" >&2; fi' EXIT
+trap 'rm -rf -- "$CHECK_DIR"' EXIT
 # Failure modes: overflow on the first mutation must allow recovery; read-only
 # overflow must still reject partial data. Exercise the actual provider mappers.
 python3 - "$ROOT_DIR" "$CHECK_DIR" <<'PY'
