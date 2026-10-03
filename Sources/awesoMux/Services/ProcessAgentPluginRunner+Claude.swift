@@ -24,10 +24,10 @@ extension ProcessAgentPluginRunner {
     private func claudeStatusReport(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: liveSetup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        guard let currentRef = try? marketplaceRef(provider: .claudeCode) else {
+        let recordedRef = effectiveRefForRecordedInstall(provider: .claudeCode)
+        guard let currentRef = (try? marketplaceRef(provider: .claudeCode)) ?? recordedRef else {
             return AgentPluginStatusReport(status: .unsupported("Bundled marketplace catalog is missing"))
         }
-        let recordedRef = effectiveRefForRecordedInstall(provider: .claudeCode)
         let refs = Self.uniqueRefs([recordedRef, currentRef, legacyClaudePluginRef].compactMap { $0 })
 
         let args = ["plugin", "list", "--json"]
@@ -115,11 +115,10 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .unsupported("This claude version does not support plugin list --json"))
         }
 
-        guard
-            let match = refs.lazy.compactMap({ ref in
-                entries.first(where: { $0.matches(ref) }).map { (ref, $0) }
-            }).first
-        else {
+        let matches = refs.compactMap { ref in
+            entries.first(where: { $0.matches(ref) }).map { (ref, $0) }
+        }
+        guard !matches.isEmpty else {
             if claudeSettingsEnablePlugin(refs: refs, setup: setup) {
                 return AgentPluginStatusReport(
                     status: .needsRepair(
@@ -129,21 +128,27 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .notInstalled)
         }
 
-        let (installedRef, entry) = match
+        let (installedRef, entry) =
+            matches.first(where: { $0.0 == currentRef })
+            ?? matches[0]
         if !entry.errors.isEmpty {
             return AgentPluginStatusReport(
                 status: .needsRepair("The plugin reported errors: \(entry.errors.joined(separator: "; "))")
             )
         }
 
-        if !entry.enabled {
+        if !matches.contains(where: { $0.1.enabled }) {
             return AgentPluginStatusReport(status: .disabled)
         }
 
-        if installedRef != currentRef || recordedRef.map({ $0 != currentRef }) == true {
+        let hasLegacyInstall = entries.contains { $0.matches(legacyClaudePluginRef) }
+        if installedRef != currentRef || recordedRef.map({ $0 != currentRef }) == true || hasLegacyInstall {
             return AgentPluginStatusReport(
                 status: .updateAvailable(
-                    "Update the status plugin to its current identity while keeping the existing marketplace"
+                    String(
+                        localized: "Update the status plugin to its current identity while keeping the existing marketplace",
+                        comment: "Claude legacy plugin identity update guidance"
+                    )
                 )
             )
         }
@@ -308,21 +313,33 @@ extension ProcessAgentPluginRunner {
                 ?? .installed(installPath: nil)
         }
 
-        if case .absent = presence, installRecord(provider: .claudeCode) == nil, probeRef != legacyClaudePluginRef {
-            let legacyPresence = try? await claudePresence(
-                ref: legacyClaudePluginRef,
-                executable: executable,
-                env: env
-            )
-            if let legacyPresence, case .installed = legacyPresence {
-                probeRef = legacyClaudePluginRef
-                presence = legacyPresence
+        let legacyPresence: ClaudeInstalledPresence? =
+            if probeRef != legacyClaudePluginRef {
+                try? await claudePresence(
+                    ref: legacyClaudePluginRef,
+                    executable: probeExecutable,
+                    env: probeEnv
+                )
+            } else {
+                nil
             }
+        if case .absent = presence, let legacyPresence, case .installed = legacyPresence {
+            probeRef = legacyClaudePluginRef
+            presence = legacyPresence
         }
 
         var steps: [MutationStep] = [
             MutationStep(["plugin", "validate", root], mutates: false)
         ]
+        if probeRef != legacyClaudePluginRef, let legacyPresence, case .installed = legacyPresence {
+            steps.append(
+                MutationStep(
+                    ["plugin", "uninstall", legacyClaudePluginRef.pluginRef, "--scope", "user"],
+                    executable: probeExecutable,
+                    env: probeEnv
+                )
+            )
+        }
         // `claude plugin install` keys its cache on the plugin manifest version,
         // which awesoMux never changes — reinstalling over an existing install
         // no-ops and keeps the previously baked hook config, including a dead
@@ -352,7 +369,15 @@ extension ProcessAgentPluginRunner {
         }
         let identityDrift = probeRef != ref
         if recordStale != nil || deployedDrift || identityDrift, case .installed = presence {
-            if let record = recordStale ?? installRecord(provider: .claudeCode) {
+            if identityDrift {
+                steps.append(
+                    MutationStep(
+                        ["plugin", "uninstall", probeRef.pluginRef, "--scope", "user"],
+                        executable: probeExecutable,
+                        env: probeEnv
+                    )
+                )
+            } else if let record = recordStale ?? installRecord(provider: .claudeCode) {
                 let recordedSetup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
                 let recordedEnv = claudeEnvironment(setup: recordedSetup)
                 steps.append(
@@ -362,7 +387,7 @@ extension ProcessAgentPluginRunner {
                         env: recordedEnv
                     )
                 )
-            } else if deployedDrift || identityDrift {
+            } else if deployedDrift {
                 // Deployed drift with no install record (out-of-band or lost-
                 // manifest install). Without an uninstall the version-keyed
                 // install would no-op and leave the stale copy in place forever
