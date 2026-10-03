@@ -35,6 +35,7 @@ struct GhosttySurfaceRepresentable: NSViewRepresentable {
         guard Self.paneIsLive(paneID: pane.id, sessionID: session.id, in: sessionStore) else {
             return
         }
+        guard let liveSession = sessionStore.session(id: session.id) else { return }
         let surfaceView = runtime.surfaceView(
             sessionStore: sessionStore,
             session: session,
@@ -44,7 +45,9 @@ struct GhosttySurfaceRepresentable: NSViewRepresentable {
         )
         nsView.mount(
             surfaceView,
-            isActive: session.activePaneID == pane.id,
+            // A queued chrome update can carry the previous active-pane snapshot.
+            // Reclaiming from that snapshot would write stale focus back to the store.
+            isActive: liveSession.activePaneID == pane.id,
             contentSize: contentSize
         )
     }
