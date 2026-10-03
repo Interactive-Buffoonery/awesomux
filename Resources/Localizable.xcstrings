@@ -129,6 +129,9 @@
         }
       }
     },
+    "%@ will lose access immediately. Other connections keep their own grants." : {
+      "comment" : "Revoke assistant connection confirmation message."
+    },
     "%@, setup %@" : {
       "comment" : "Setup name and list position",
       "localizations" : {
@@ -491,6 +494,12 @@
     "%lld enabled setups share this status hook." : {
 
     },
+    "%lld panes" : {
+
+    },
+    "%lld workspaces" : {
+
+    },
     "(empty after sanitizing control characters)" : {
       "comment" : "Clipboard preview fallback when terminal-origin clipboard text contains only unsafe/control characters."
     },
@@ -565,6 +574,18 @@
     },
     "Accent color" : {
       "comment" : "Settings field label for the accent color swatches"
+    },
+    "Access change failed" : {
+      "comment" : "Assistant access error label."
+    },
+    "Access changes are active and saved, but awesoMux could not confirm directory durability. Retry Save before restarting." : {
+
+    },
+    "Access is denied, but awesoMux could not finish removing this connection." : {
+
+    },
+    "Access is disabled for this run, but the change could not be saved. Retry before restarting awesoMux." : {
+
     },
     "Accurate remote close warnings" : {
       "comment" : "Benefit listed in the additional SSH features prompt"
@@ -683,6 +704,9 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
+    "Allow assistant access" : {
+      "comment" : "Assistant access setting label.\nAssistant access toggle accessibility label."
+    },
     "Allow permission request. Command-Return when focused." : {
       "comment" : "Accessibility label for the allow button on the remote permission banner, including keyboard shortcut"
     },
@@ -752,6 +776,9 @@
     "Another awesoMux instance is changing agent integrations; try again." : {
       "comment" : "CLI agent plugin install state lock contention warning"
     },
+    "Any process running as your macOS user can invoke the bundled helper with a known handle. Review grants as access to this Mac and revoke connections you no longer use." : {
+      "comment" : "Assistant access same-user boundary disclosure."
+    },
     "Apache License" : {
       "comment" : "Button opening an Apache license text"
     },
@@ -811,6 +838,9 @@
     },
     "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting." : {
       "comment" : "Terminal settings hint."
+    },
+    "Assistant access" : {
+      "comment" : "Agents settings title."
     },
     "Auto-clean up at launch" : {
       "comment" : "Terminal settings label."
@@ -1355,11 +1385,26 @@
     "Connect via SSH…" : {
 
     },
+    "Connected-computer access" : {
+      "comment" : "Assistant access boundary label."
+    },
+    "Connection change failed: %@" : {
+      "comment" : "Accessibility label for a failed assistant connection registration or scope edit."
+    },
+    "Connection name" : {
+
+    },
     "Connection to %arg is active." : {
       "comment" : "VoiceOver announcement when a remote pane connection recovers"
     },
     "Connection to %arg may be stale." : {
       "comment" : "VoiceOver announcement when a remote pane connection may be stale"
+    },
+    "Connections" : {
+      "comment" : "Assistant access connections label."
+    },
+    "Context" : {
+
     },
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
@@ -1375,6 +1420,12 @@
     },
     "Copy Draft" : {
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
+    },
+    "Copy failed" : {
+      "comment" : "Assistant helper-command copy error label."
+    },
+    "Copy Helper Command" : {
+
     },
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
@@ -1604,8 +1655,14 @@
     "Creating…" : {
       "comment" : "Worktree creation in progress accessibility label.\nWorktree creation in progress button label."
     },
+    "Credentials identify separate connections, not ChatGPT or other service accounts." : {
+      "comment" : "Assistant access identity boundary hint."
+    },
     "Current" : {
       "comment" : "Main worktree indicator."
+    },
+    "Current target" : {
+
     },
     "Cursor" : {
       "comment" : "Terminal settings title."
@@ -1723,6 +1780,9 @@
     "Diagnostics summary: %arg" : {
 
     },
+    "Direct delivery" : {
+
+    },
     "Disconnected from %arg in %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane in a split is blocked because background terminal sessions are disabled",
       "localizations" : {
@@ -1738,7 +1798,7 @@
       "comment" : "VoiceOver announcement when a managed SSH pane is blocked because background terminal sessions are disabled"
     },
     "Dismiss" : {
-      "comment" : "Dismiss a persistent-session restart notice"
+      "comment" : "Dismiss an assistant access error or a persistent-session restart notice."
     },
     "Dismiss restart notice for %arg" : {
       "comment" : "Dismiss a restart notice, naming its pane"
@@ -1823,6 +1883,9 @@
     "END SESSION" : {
 
     },
+    "Each connection has its own Keychain credential and independently revocable status scope." : {
+      "comment" : "Assistant access connections hint."
+    },
     "Each field is one literal argument, including spaces. Leave an argument field empty to pass an empty argument." : {
 
     },
@@ -1840,6 +1903,12 @@
     },
     "Edit Custom Command" : {
       "comment" : "Title of the sheet that edits an existing custom command"
+    },
+    "Edit Scope…" : {
+
+    },
+    "Edit Status Scope" : {
+
     },
     "Edit annotation" : {
 
@@ -2145,6 +2214,9 @@
     "Glow strength" : {
       "comment" : "Settings field label for the glow strength slider"
     },
+    "Granted" : {
+
+    },
     "Gray" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -2183,6 +2255,9 @@
 
     },
     "Help and feedback" : {
+
+    },
+    "Helper command" : {
 
     },
     "Hide Agent Activity" : {
@@ -2545,6 +2620,9 @@
     "Mocha, Latte, or follow the system appearance." : {
       "comment" : "Theme section subtitle"
     },
+    "Monitoring" : {
+
+    },
     "Mono font" : {
       "comment" : "Accessibility label for the terminal font picker\nSettings field label for the terminal font picker"
     },
@@ -2815,6 +2893,9 @@
     "No background sessions. Nothing to clean up." : {
 
     },
+    "No connections registered." : {
+      "comment" : "Empty assistant connections state."
+    },
     "No conversation turns could be rendered from the most recent history." : {
       "comment" : "Notice in a rendered agent transcript when the recent history held nothing renderable"
     },
@@ -2904,6 +2985,9 @@
     },
     "Off" : {
       "comment" : "Settings label when Open at Login is disabled."
+    },
+    "Off blocks every connection immediately. Installing a client or registering it does not turn access on." : {
+      "comment" : "Assistant access global toggle hint."
     },
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
@@ -3204,6 +3288,12 @@
     },
     "Permissions" : {
       "comment" : "Agents settings title."
+    },
+    "Persistent pane grants follow selected panes across ordinary status changes." : {
+
+    },
+    "Persistent workspace grants include panes added to selected workspaces later." : {
+
     },
     "Pin" : {
       "comment" : "Sidebar workspace context-menu action that pins the workspace to the top of the sidebar."
@@ -3522,6 +3612,21 @@
     },
     "Refreshing…" : {
       "comment" : "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
+    },
+    "Register" : {
+
+    },
+    "Register Connection" : {
+
+    },
+    "Register Connection…" : {
+      "comment" : "Register assistant connection button."
+    },
+    "Register local client connections and choose exactly which status they may read." : {
+      "comment" : "Assistant access settings subtitle."
+    },
+    "Registration creates a credential in your Keychain through the bundled helper. The credential is never shown or copied." : {
+      "comment" : "Assistant registration credential disclosure."
     },
     "Reload Ghostty Configuration" : {
 
@@ -3910,6 +4015,9 @@
     "Retry" : {
       "comment" : "Retry Worktree Manager refresh action."
     },
+    "Retry Save" : {
+      "comment" : "Retry assistant access metadata save."
+    },
     "Retry saving the current workspaces" : {
 
     },
@@ -3954,6 +4062,18 @@
     },
     "Review the group's current local and remote panes, then close it again." : {
       "comment" : "Body of the notice shown when a group changes while its close confirmation is open."
+    },
+    "Reviewed instructions" : {
+
+    },
+    "Revoke" : {
+
+    },
+    "Revoke %@" : {
+      "comment" : "Revoke named assistant connection."
+    },
+    "Revoke connection?" : {
+      "comment" : "Revoke assistant connection confirmation title."
     },
     "Right" : {
 
@@ -4138,6 +4258,12 @@
     },
     "Select and copy without creating comments" : {
       "comment" : "Help text for the Copy Mode toggle while it is inactive."
+    },
+    "Selected panes" : {
+
+    },
+    "Selected workspaces" : {
+
     },
     "Selenized" : {
 
@@ -4379,6 +4505,12 @@
     "State file custody" : {
       "comment" : "Bridge doctor check title"
     },
+    "Status" : {
+
+    },
+    "Status access" : {
+
+    },
     "Steady" : {
       "comment" : "Diagnostics resource trend"
     },
@@ -4434,6 +4566,9 @@
     },
     "TOML at %@." : {
       "comment" : "Advanced settings subtitle. Placeholder is the configuration file path."
+    },
+    "Target pane" : {
+
     },
     "Target path" : {
       "comment" : "New worktree target path field label."
@@ -4590,6 +4725,9 @@
     },
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
+    },
+    "The connection was not registered, and awesoMux could not remove its unused Keychain credential." : {
+      "comment" : "Assistant registration failure after compensating credential cleanup also failed."
     },
     "The current directory cannot be used to launch an agent setup. Choose an accessible directory owned by your user." : {
       "comment" : "Agent setup launch rejected by the shared startup directory safety check"
@@ -4849,6 +4987,12 @@
     "This can't be undone." : {
       "comment" : "Message of the confirmation dialog before deleting a custom command"
     },
+    "This connection is denied for this run, but revocation could not be saved. Retry before restarting awesoMux." : {
+
+    },
+    "This connection is denied for this run, but the scope change could not be saved. Retry before restarting awesoMux." : {
+
+    },
     "This destination is already on the list." : {
       "comment" : "Error shown when a managed SSH destination is added twice"
     },
@@ -4878,6 +5022,15 @@
     },
     "This generated document cannot be edited." : {
       "comment" : "Alert body when a generated document has unknown provenance"
+    },
+    "This grant expired. Select an available target to renew access." : {
+      "comment" : "Assistant exact-target grant warning when its pane is unavailable."
+    },
+    "This grant expired because the target incarnation changed. Saving refreshes it to the selected pane's current target." : {
+      "comment" : "Assistant exact-target grant expiry warning."
+    },
+    "This grant expires when the selected pane's target incarnation changes." : {
+
     },
     "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app." : {
       "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
@@ -5118,6 +5271,9 @@
     },
     "Update clipboard from terminal escape sequence?" : {
       "comment" : "Title of the confirmation dialog for OSC 52 clipboard writes."
+    },
+    "Update the status plugin to its current identity while keeping the existing marketplace" : {
+      "comment" : "Claude legacy plugin identity update guidance"
     },
     "Updates open terminal panes without restarting their shell." : {
       "comment" : "Settings field hint for the terminal font size slider"
@@ -5368,6 +5524,9 @@
     "awesoMux could not create an owner-only local listener." : {
       "comment" : "Bridge doctor failure reason"
     },
+    "awesoMux could not copy the helper command." : {
+
+    },
     "awesoMux could not establish a trusted remote path for this link." : {
       "comment" : "Explanation for rejecting an unsafe or unresolved remote Markdown path"
     },
@@ -5376,6 +5535,15 @@
     },
     "awesoMux could not read %arg using SSH." : {
       "comment" : "Body of the failed remote Markdown fetch page; the placeholder is the remote origin"
+    },
+    "awesoMux could not save the access setting." : {
+
+    },
+    "awesoMux could not save this connection." : {
+
+    },
+    "awesoMux could not verify current targets for this connection." : {
+
     },
     "awesoMux couldn't find a branch to compare against. It looks for origin's default branch, then main or master — a repository with no remote, no commits, or differently named branches has none of them." : {
       "comment" : "Branch diff failure when no default base branch could be resolved, including the no-remote and empty-repository cases"

@@ -51,6 +51,8 @@ struct AgentRuntimeEventReducer: Sendable {
         // in for this: a timestamp-less stream would otherwise read as
         // "nothing applied" forever.
         var hasAppliedEvent = false
+        var identityEpoch = UUID()
+        var statusObservedAt: Date?
         // Arrival-order lifecycle state complements timestamps: it suppresses
         // both post-exit Stop events and an old SessionEnd delivered after a
         // stopped lifecycle has been superseded in the same pane.
@@ -334,6 +336,8 @@ struct AgentRuntimeEventReducer: Sendable {
             if isProvablyAnotherSession || isUnprovenEndOverALiveSession {
                 return nil
             }
+            state.identityEpoch = UUID()
+            state.statusObservedAt = now
             state.lifecycle = .ended
             state.suppressesHeuristicState =
                 state.suppressesHeuristicState
@@ -450,6 +454,12 @@ struct AgentRuntimeEventReducer: Sendable {
             state.lifecycle.start()
             state.suppressesHeuristicState = false
             if !state.hasAppliedEvent || wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns {
+                if !state.hasAppliedEvent || wasSessionEnded
+                    || normalizedProviderSessionID(event.providerSessionID) != state.providerSessionID
+                    || event.providerSessionID == nil
+                {
+                    state.identityEpoch = UUID()
+                }
                 state.activeToolEventIDs.removeAll()
                 state.pendingPermissionToolEventID = nil
             }
@@ -737,6 +747,7 @@ struct AgentRuntimeEventReducer: Sendable {
             now: now,
             into: &state
         )
+        if !contributedNothing { state.statusObservedAt = now }
         stateByPaneID[paneID] = state
 
         // A Claude Code tool just wrote/edited a Markdown file (issue #175).

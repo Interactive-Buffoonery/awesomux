@@ -165,7 +165,7 @@ if [[ ! -f "$APP_BUNDLE/Contents/Resources/AppIcon.icns" ]]; then
   echo "error: AppIcon.icns missing from staged bundle — release builds need full Xcode (actool)" >&2
   exit 1
 fi
-for exe in awesoMux awesoMuxAgentHook awesoMuxBridgeHelper amx; do
+for exe in awesoMux awesoMuxAgentHook awesoMuxBridgeHelper awesomux-agent amx; do
   if [[ ! -x "$APP_MACOS/$exe" ]]; then
     echo "error: $exe missing from staged bundle" >&2
     if [[ "$exe" == "amx" ]]; then
@@ -290,7 +290,7 @@ if [[ "$UNSIGNED" -eq 1 ]]; then
 else
   SIGN_ARGS+=(--timestamp --sign "$IDENTITY")
 fi
-for exe in amx awesoMuxAgentHook awesoMuxBridgeHelper; do
+for exe in amx awesoMuxAgentHook awesoMuxBridgeHelper awesomux-agent; do
   codesign "${SIGN_ARGS[@]}" "$APP_MACOS/$exe"
 done
 codesign "${SIGN_ARGS[@]}" "$SPARKLE_AUTOUPDATE"
@@ -305,6 +305,7 @@ SIGNATURE_TARGETS=(
   "$APP_MACOS/awesoMux"
   "$APP_MACOS/awesoMuxAgentHook"
   "$APP_MACOS/awesoMuxBridgeHelper"
+  "$APP_MACOS/awesomux-agent"
   "$APP_MACOS/amx"
   "$SPARKLE_AUTOUPDATE"
   "$SPARKLE_UPDATER"
