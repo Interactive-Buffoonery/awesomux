@@ -5096,6 +5096,9 @@
     "Update clipboard from terminal escape sequence?" : {
       "comment" : "Title of the confirmation dialog for OSC 52 clipboard writes."
     },
+    "Update the status plugin to its current identity while keeping the existing marketplace" : {
+      "comment" : "Claude legacy plugin identity update guidance"
+    },
     "Updates open terminal panes without restarting their shell." : {
       "comment" : "Settings field hint for the terminal font size slider"
     },
