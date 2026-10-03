@@ -25,6 +25,7 @@
     "valid roster recovers after duplicate pane rejection",
     "symlink socket is refused",
     "symlink refusal preserves the target file",
+    "failed startup releases ownership for same-process retry",
     "malformed JSON is explicit",
     "zero-length frame is explicit",
     "oversized request rejected before body read",
@@ -42,7 +43,7 @@
     "helper rejects peer schemaVersion mismatch",
     "crash successor safely replaces its exact stale socket"
   ],
-  "passed": 39,
+  "passed": 40,
   "nativeAcceptance": "Two real agents, native UI parity, responsiveness and accessibility remain unverified.",
   "nativeTransportChecks": [
     "ordinary staged app starts a default-denied profile endpoint",

@@ -18,9 +18,17 @@ public final class LocalAPIServer: @unchecked Sendable {
     private let workers = DispatchGroup()
 
     public init(profile: String, authorization: @escaping Authorization = { _ in .accessDisabled }, capture: @escaping Capture) throws {
-        endpoint = try LocalAPIEndpoint(profile: profile, create: true)
+        let endpoint = try LocalAPIEndpoint(profile: profile, create: true)
+        self.endpoint = endpoint
         self.authorization = authorization
         self.capture = capture
+        var initialized = false
+        defer {
+            if !initialized {
+                endpoint.cleanup()
+                endpoint.releaseOwnership()
+            }
+        }
         try endpoint.takeOwnership()
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw LocalAPIError.transportFailure }
@@ -38,7 +46,6 @@ public final class LocalAPIServer: @unchecked Sendable {
             guard listen(fd, Int32(LocalAPIContract.maximumClients)) == 0 else { throw LocalAPIError.transportFailure }
         } catch {
             close(fd)
-            endpoint.cleanup()
             throw error
         }
         listener = fd
@@ -53,6 +60,7 @@ public final class LocalAPIServer: @unchecked Sendable {
             ownedEndpoint.releaseOwnership()
             close(fd)
         }
+        initialized = true
     }
 
     deinit { stop() }

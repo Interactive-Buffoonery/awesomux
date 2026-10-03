@@ -2,6 +2,7 @@ import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import AwesoMuxLocalAPI
 import AwesoMuxTestSupport
+import Darwin
 import Foundation
 
 struct E2EFailure: Error { let message: String }
@@ -237,6 +238,18 @@ struct LocalAPIE2E {
             try check(error == .insecureEndpoint, "symlink socket is refused")
         }
         try check(try String(contentsOf: sentinel, encoding: .utf8) == "unchanged", "symlink refusal preserves the target file")
+        guard unlink(unsafe.socketPath) == 0 else { throw E2EFailure(message: "Could not remove E2E socket symlink") }
+        let recovered = try LocalAPIServer(profile: unsafeProfile, authorization: { _ in nil }) { request, instance in
+            LocalAPIResponse(
+                requestID: request.requestID, profile: unsafeProfile, appInstanceID: instance,
+                capturedAt: Date(), connectionStatus: .connected)
+        }
+        recovered.start()
+        defer { recovered.stop() }
+        let recoveredResponse = try await Task.detached {
+            try LocalAPIClient.call(LocalAPIRequest(profile: unsafeProfile, operation: .connectionStatus))
+        }.value
+        try check(recoveredResponse.connectionStatus == .connected, "failed startup releases ownership for same-process retry")
         let report: [String: Any] = [
             "kind": "socket/store/helper E2E with injected lifecycle fixtures", "profile": profile, "checks": checks,
             "realAgentNativeProof": "separate artifact required",
