@@ -17,7 +17,9 @@ enum AgentPluginDeployedCopyInspector {
     /// resolution the baked hook performs at invocation time. Returning `nil`
     /// means the lookup itself could not be performed; callers must treat an
     /// unknown ladder as still viable rather than invent a failure.
-    typealias LadderProbe = @Sendable (_ bundleIdentifier: String) -> Bool?
+    typealias LadderProbe = @Sendable (_ bundleIdentifier: String) async -> Bool?
+
+    typealias ResolvedProbe = @Sendable (_ bundleIdentifier: String) -> Bool?
 
     struct Finding: Equatable, Sendable {
         /// The deployed hook config differs from the freshly rendered one.
@@ -41,11 +43,11 @@ enum AgentPluginDeployedCopyInspector {
         renderedHooksData: Data,
         fileManager: FileManager = .default,
         ladderProbe: LadderProbe? = nil
-    ) -> Finding? {
+    ) async -> Finding? {
         guard let deployedData = try? Data(contentsOf: deployedHooksURL) else {
             return nil
         }
-        return assess(
+        return await assess(
             deployedHooksData: deployedData,
             renderedHooksData: renderedHooksData,
             fileManager: fileManager,
@@ -58,11 +60,16 @@ enum AgentPluginDeployedCopyInspector {
         renderedHooksData: Data,
         fileManager: FileManager = .default,
         ladderProbe: LadderProbe? = nil
-    ) -> Finding? {
+    ) async -> Finding? {
         let commands = hookCommands(in: deployedHooksData)
         guard !commands.isEmpty else {
             return nil
         }
+        let ladderProbe = await resolveLadders(
+            deployed: deployedHooksData, rendered: renderedHooksData,
+            fileManager: fileManager, ladderProbe: ladderProbe
+        )
+        guard !Task.isCancelled else { return nil }
         let reachability = helperReachability(
             ofCommands: commands,
             fileManager: fileManager,
@@ -72,7 +79,6 @@ enum AgentPluginDeployedCopyInspector {
             differsFromCurrentRender: contentDrift(
                 deployed: deployedHooksData,
                 rendered: renderedHooksData,
-                fileManager: fileManager,
                 ladderProbe: ladderProbe
             ),
             helperReachable: reachability.reachable,
@@ -97,14 +103,13 @@ enum AgentPluginDeployedCopyInspector {
     static func contentDrift(
         deployed: Data,
         rendered: Data,
-        fileManager: FileManager = .default,
-        ladderProbe: LadderProbe? = nil
+        ladderProbe: ResolvedProbe? = nil
     ) -> Bool {
         guard let deployedJSON = canonicalHookObject(deployed),
             let renderedJSON = canonicalHookObject(rendered)
         else { return true }
-        let deployedBase = maskHelperPaths(deployedJSON)
-        let renderedBase = maskHelperPaths(renderedJSON)
+        let deployedBase = String(decoding: deployedJSON, as: UTF8.self)
+        let renderedBase = String(decoding: renderedJSON, as: UTF8.self)
         // Identical after path-masking — including identical bundle ids — is
         // drift-free without probing anything (the common healthy case).
         if deployedBase == renderedBase {
@@ -116,24 +121,33 @@ enum AgentPluginDeployedCopyInspector {
 
     // JSON object order and formatting are not hook behavior. Normalize before
     // masking environment-specific strings; preserve array order and command text.
-    private static func canonicalHookObject(_ data: Data) -> Data? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+    private static func canonicalHookObject(_ data: Data, maskBundleIDs: Bool = false) -> Data? {
+        guard var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            var events = root["hooks"] as? [String: Any]
+        else { return nil }
+        for (event, value) in events {
+            guard var matchers = value as? [[String: Any]] else { continue }
+            for index in matchers.indices {
+                guard var entries = matchers[index]["hooks"] as? [[String: Any]] else { continue }
+                for entry in entries.indices {
+                    guard var command = entries[entry]["command"] as? String else { continue }
+                    for literal in helperLiterals(in: command).reversed() {
+                        command.replaceSubrange(literal.range, with: "'<HELPER PATH>'")
+                    }
+                    if maskBundleIDs {
+                        command = replacingMatches(
+                            of: "kMDItemCFBundleIdentifier == '[^']*'", in: command,
+                            with: "kMDItemCFBundleIdentifier == '<BUNDLE ID>'"
+                        )
+                    }
+                    entries[entry]["command"] = command
+                }
+                matchers[index]["hooks"] = entries
+            }
+            events[event] = matchers
         }
-        return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-    }
-
-    /// Masks baked absolute helper paths, whichever build wrote them: absolute
-    /// runs ending in the hook executable name become `<HELPER PATH>`.
-    private static func maskHelperPaths(_ data: Data) -> String {
-        // JSONSerialization escapes solidus (`\/`), which would otherwise chop
-        // every baked absolute path into non-matching fragments.
-        let text = String(decoding: data, as: UTF8.self)
-            .replacingOccurrences(of: "\\/", with: "/")
-        let pathPattern =
-            "/[^\"'\\s\\\\]+"
-            + NSRegularExpression.escapedPattern(for: AgentRuntimeEnvironment.hookExecutableName)
-        return replacingMatches(of: pathPattern, in: text, with: "<HELPER PATH>")
+        root["hooks"] = events
+        return try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
     }
 
     /// Masks Spotlight bundle ids in already-path-masked hook text, but only
@@ -143,16 +157,13 @@ enum AgentPluginDeployedCopyInspector {
     private static func maskBundleIDsIfResolvable(
         _ maskedText: String,
         data: Data,
-        ladderProbe: LadderProbe?
+        ladderProbe: ResolvedProbe?
     ) -> String {
         guard ladderResolves(hookCommands(in: data), ladderProbe: ladderProbe) else {
             return maskedText
         }
-        return replacingMatches(
-            of: "kMDItemCFBundleIdentifier == '[^']*'",
-            in: maskedText,
-            with: "kMDItemCFBundleIdentifier == '<BUNDLE ID>'"
-        )
+        guard let canonical = canonicalHookObject(data, maskBundleIDs: true) else { return maskedText }
+        return String(decoding: canonical, as: UTF8.self)
     }
 
     /// Whether every route a set of hook commands has through the
@@ -160,7 +171,7 @@ enum AgentPluginDeployedCopyInspector {
     /// unperformable probe, or at least one baked bundle id resolving to an
     /// executable helper right now. Only a performed lookup that resolves
     /// nothing reads as false — uncertainty never breaks reachability.
-    private static func ladderResolves(_ commands: [String], ladderProbe: LadderProbe?) -> Bool {
+    private static func ladderResolves(_ commands: [String], ladderProbe: ResolvedProbe?) -> Bool {
         let bundleIdentifiers = ladderBundleIdentifiers(in: commands)
         if bundleIdentifiers.isEmpty {
             return true
@@ -169,6 +180,25 @@ enum AgentPluginDeployedCopyInspector {
             return true
         }
         return bundleIdentifiers.contains { ladderProbe($0) ?? true }
+    }
+
+    private static func resolveLadders(
+        deployed: Data, rendered: Data?, fileManager: FileManager, ladderProbe: LadderProbe?
+    ) async -> ResolvedProbe? {
+        guard let ladderProbe else { return nil }
+        let commands = hookCommands(in: deployed)
+        let livePath = commands.flatMap { bakedHelperPaths(in: $0) }
+            .contains { fileManager.isExecutableFile(atPath: $0) }
+        let needsComparison = rendered.map { canonicalHookObject(deployed) != canonicalHookObject($0) } ?? false
+        guard !livePath || needsComparison else { return nil }
+        let renderedCommands = needsComparison ? rendered.map { hookCommands(in: $0) } ?? [] : []
+        var results: [String: Bool] = [:]
+        for identifier in ladderBundleIdentifiers(in: commands + renderedCommands) {
+            guard !Task.isCancelled else { return nil }
+            if let result = await ladderProbe(identifier) { results[identifier] = result }
+        }
+        let resolved = results
+        return { resolved[$0] }
     }
 
     /// Bundle identifiers referenced by the runtime-resolution ladders in hook
@@ -192,52 +222,20 @@ enum AgentPluginDeployedCopyInspector {
         return identifiers
     }
 
-    /// The production ladder probe: queries Spotlight exactly as the baked
-    /// hook branch does and reports whether any hit exposes an executable
-    /// helper. `nil` when the lookup could not be performed (mdfind absent,
-    /// spawn failure, non-zero exit — e.g. Spotlight disabled, probe timeout),
-    /// so callers fail open. Runs synchronously by design: it fires only on
-    /// degraded installs (dead baked path, differing content) during
-    /// user-triggered status/repair reads, never on per-hook invocations.
-    /// The wait is bounded (awesomux#207): a hung mdfind is terminated and
-    /// reads as unknown rather than stalling the caller forever.
-    static func systemLadderProbe(_ bundleIdentifier: String) -> Bool? {
-        guard !bundleIdentifier.isEmpty else {
-            return nil
+    /// Unknown subprocess outcomes never establish that a ladder is dead.
+    static func systemLadderProbe(_ bundleIdentifier: String) async -> Bool? {
+        guard !bundleIdentifier.isEmpty,
+            let result = try? await ProcessCommandRunner(timeout: .seconds(5)).run(
+                executable: "/usr/bin/mdfind",
+                args: ["kMDItemCFBundleIdentifier == '\(bundleIdentifier)'"], env: [:], cwd: nil
+            ), result.isSuccess
+        else { return nil }
+        return result.stdout.split(separator: "\n").contains { appPath in
+            FileManager.default.isExecutableFile(
+                atPath: "\(appPath)/Contents/MacOS/\(AgentRuntimeEnvironment.hookExecutableName)"
+            )
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-        process.arguments = ["kMDItemCFBundleIdentifier == '\(bundleIdentifier)'"]
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        // mdfind output is a handful of app paths — far under the pipe buffer —
-        // so draining after exit never blocks.
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
-        if exited.wait(timeout: .now() + .seconds(Self.ladderProbeTimeoutSeconds)) == .timedOut {
-            process.terminate()
-            _ = exited.wait(timeout: .now() + 1)
-            return nil
-        }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
-            return nil
-        }
-        let helperName = AgentRuntimeEnvironment.hookExecutableName
-        return String(decoding: data, as: UTF8.self)
-            .split(separator: "\n")
-            .contains { appPath in
-                FileManager.default.isExecutableFile(atPath: "\(appPath)/Contents/MacOS/\(helperName)")
-            }
     }
-
-    private static let ladderProbeTimeoutSeconds: Int = 5
 
     /// Reads the deployed hook config at the standard `hooks/hooks.json` layout
     /// under `installPath` alongside a freshly rendered one and returns the full
@@ -248,7 +246,7 @@ enum AgentPluginDeployedCopyInspector {
         renderedHooksURL: URL?,
         fileManager: FileManager = .default,
         ladderProbe: LadderProbe? = nil
-    ) -> Finding? {
+    ) async -> Finding? {
         guard let renderedHooksURL else {
             return nil
         }
@@ -261,7 +259,7 @@ enum AgentPluginDeployedCopyInspector {
         else {
             return nil
         }
-        return assess(
+        return await assess(
             deployedHooksData: deployedData,
             renderedHooksData: renderedData,
             fileManager: fileManager,
@@ -285,7 +283,7 @@ enum AgentPluginDeployedCopyInspector {
         deployedHooksURL: URL,
         fileManager: FileManager = .default,
         ladderProbe: LadderProbe? = nil
-    ) -> Finding? {
+    ) async -> Finding? {
         guard let data = try? Data(contentsOf: deployedHooksURL) else {
             return nil
         }
@@ -293,6 +291,10 @@ enum AgentPluginDeployedCopyInspector {
         guard !commands.isEmpty else {
             return nil
         }
+        let ladderProbe = await resolveLadders(
+            deployed: data, rendered: nil, fileManager: fileManager, ladderProbe: ladderProbe
+        )
+        guard !Task.isCancelled else { return nil }
         let reachability = helperReachability(
             ofCommands: commands,
             fileManager: fileManager,
@@ -308,7 +310,7 @@ enum AgentPluginDeployedCopyInspector {
     private static func helperReachability(
         ofCommands commands: [String],
         fileManager: FileManager,
-        ladderProbe: LadderProbe?
+        ladderProbe: ResolvedProbe?
     ) -> (reachable: Bool, firstBakedHelperPath: String?) {
         let bakedPaths = commands.flatMap { bakedHelperPaths(in: $0) }
         if bakedPaths.contains(where: { fileManager.isExecutableFile(atPath: $0) }) {
@@ -358,40 +360,27 @@ enum AgentPluginDeployedCopyInspector {
         return commands
     }
 
-    /// Absolute paths baked into a hook command that target the awesoMuxAgentHook
-    /// executable. Commands are plain POSIX-sh text, so candidates are `/…` runs
-    /// terminated by whitespace or a quote.
-    static func bakedHelperPaths(in command: String) -> [String] {
-        let name = AgentRuntimeEnvironment.hookExecutableName
-        var paths: [String] = []
-        var searchStart = command.startIndex
-        while let nameRange = command.range(of: name, range: searchStart..<command.endIndex) {
-            // Walk back to the start of the `/…` run containing the name:
-            // advance while the previous character is not a terminator.
-            var start = nameRange.lowerBound
-            while start > command.startIndex {
-                let previous = command.index(before: start)
-                if isPathTerminator(command[previous]) {
-                    break
-                }
-                start = previous
+    /// Reads the renderer's single-quoted literals and escaped apostrophes.
+    private static func helperLiterals(in command: String) -> [(range: Range<String.Index>, path: String)] {
+        let pattern = "'(?:[^']|'\\\\'')*'"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        return regex.matches(in: command, range: NSRange(command.startIndex..., in: command)).compactMap { match in
+            guard let range = Range(match.range, in: command) else { return nil }
+            if range.lowerBound > command.startIndex {
+                let previous = command[command.index(before: range.lowerBound)]
+                guard previous.isWhitespace || "=([;".contains(previous) else { return nil }
             }
-            guard command[start] == "/" else {
-                searchStart = nameRange.upperBound
-                continue
+            if range.upperBound < command.endIndex {
+                let next = command[range.upperBound]
+                guard next.isWhitespace || ";)]|&".contains(next) else { return nil }
             }
-            var end = nameRange.upperBound
-            while end < command.endIndex, !isPathTerminator(command[end]) {
-                end = command.index(after: end)
-            }
-            // Rooted by the guard above, and containing `name` by construction.
-            paths.append(String(command[start..<end]))
-            searchStart = end
+            let path = command[range].dropFirst().dropLast().replacingOccurrences(of: "'\\''", with: "'")
+            guard path.hasPrefix("/"), path.hasSuffix("/" + AgentRuntimeEnvironment.hookExecutableName) else { return nil }
+            return (range, path)
         }
-        return paths
     }
 
-    private static func isPathTerminator(_ character: Character) -> Bool {
-        character == " " || character == "\t" || character == "'" || character == "\"" || character == "\n"
+    static func bakedHelperPaths(in command: String) -> [String] {
+        helperLiterals(in: command).map(\.path)
     }
 }

@@ -16,10 +16,6 @@ public struct StableDataDigestWriteGate: Sendable {
         self.lastWrittenDigest = lastWrittenDigest
     }
 
-    public func shouldWrite(_ digest: StableDataDigest) -> Bool {
-        lastWrittenDigest != digest
-    }
-
     /// Force a write whenever the on-disk snapshot is missing, even if the
     /// in-memory digest still matches. Without this, an externally-deleted
     /// `session-state.json` would never be recreated until the user made a

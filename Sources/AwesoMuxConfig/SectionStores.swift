@@ -15,18 +15,11 @@ import Observation
 /// it, and only commits the new value when the save succeeds. A failed
 /// save leaves the in-memory section value unchanged so memory and
 /// disk stay consistent.
-@MainActor
-public protocol SectionStore: AnyObject {
-    associatedtype Value: Equatable
-    var value: Value { get }
-    func update(_ transform: (inout Value) -> Void)
-}
-
 /// The one concrete section store: a generic `@Observable` slice spliced
 /// into `AwesoMuxConfig` via a writable key path.
 @MainActor
 @Observable
-public final class SectionSlice<Value: Equatable>: SectionStore {
+public final class SectionSlice<Value: Equatable> {
     public internal(set) var value: Value
     @ObservationIgnored weak var coordinator: AppSettingsStore?
     @ObservationIgnored private let keyPath: WritableKeyPath<AwesoMuxConfig, Value>

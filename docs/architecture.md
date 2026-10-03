@@ -430,7 +430,7 @@ prompt from unrelated tool completion. Long automatic reviews and unresolved
 uncorrelated permission state can still notify; this is a bounded noise
 reduction, not a reliable human-approval classifier.
 
-`WorkspaceNotificationPolicy` decides whether a `needsAttention` / unread transition produces a macOS notification. `WorkspaceNotificationTracker` consumes `.macOSNotification` when unread grows.
+`WorkspaceNotificationPolicy` supplies attention eligibility and focus context. `WorkspaceNotificationTracker` combines them with unread growth and delivery settings to produce macOS notifications. Eligible attention in the selected active workspace retains its unread baseline for a later focus-loss evaluation; ineligible state advances the baseline. In-app indicators derive from store state independently.
 
 | Focus context | In-pane banner | Sidebar dot | Tab strip dot | Dock badge | macOS notification | Sound |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -438,7 +438,7 @@ reduction, not a reliable human-approval classifier.
 | App focused, different workspace selected | Yes | Yes | Yes | Yes | List only | No |
 | App backgrounded | Latent | Latent | Latent | Yes | Yes (banner) | Yes |
 
-**Foreground presentation contract (INT-598):** while awesoMux is the active app, a needs-attention notification — including one for a workspace other than the selected one — is delivered to Notification Center's *list* only: no banner, no sound. The in-app chrome (sidebar dot, tab indicator, dock badge, VoiceOver announcement) already carries the signal, and a banner on top would double-announce for VoiceOver users. The policy still grants `.macOSNotification`/`.sound` for the focused/different-workspace context so the notification lands in Notification Center and a focus loss can upgrade a deferred banner; the quiet presentation is enforced by `WorkspaceNotificationBridge.foregroundPresentationOptions`, which is pinned by `WorkspaceNotificationForegroundPolicyTests`. The selected-workspace-active case stays non-interruptive by design.
+**Foreground presentation contract (INT-598):** while awesoMux is the active app, a needs-attention notification — including one for a workspace other than the selected one — is delivered to Notification Center's *list* only: no banner, no sound. The in-app chrome (sidebar dot, tab indicator, dock badge, VoiceOver announcement) already carries the signal, and a banner on top would double-announce for VoiceOver users. The tracker allows notification delivery for a different workspace while the app is active; the quiet presentation is enforced by `WorkspaceNotificationBridge.foregroundPresentationOptions`, which is pinned by `WorkspaceNotificationForegroundPolicyTests`. The selected-workspace-active case stays non-interruptive and holds its unread baseline so focus loss can deliver the deferred notification.
 
 **Per-workspace mute (INT-598):** each workspace's sidebar context menu offers Mute/Unmute Notifications. Mute gates only the interruptive channels — macOS banner, sound, and Dock bounce — while sidebar indicators, unread badges, and the dock-badge count keep firing: the user asked not to be interrupted, not to have state hidden. The flag lives on `TerminalSession.notificationsMuted`, persists in the local session snapshot (additive key, no schema bump), survives restore, and dies with the workspace (a reopened recently-closed workspace starts unmuted). Muted-era attention is swallowed, not deferred: unmuting does not retro-fire banners or Dock bounces for unread that accrued while muted. Muted workspaces are listed (and unmutable) in Settings → Notifications.
 
@@ -448,7 +448,7 @@ reduction, not a reliable human-approval classifier.
 
 **Dock bounce (INT-634):** Dock bounce is a one-shot AppKit user-attention request, separate from the persistent Dock badge count. `WorkspaceDockBounceTracker` keys off the workspace rollup entering `.needsAttention`, not unread totals, so it does not repeat for an already-needy workspace and does not defer a foreground transition until later focus loss. The app requests an informational Dock bounce only while inactive, with output-attention, per-workspace mute, needs-attention delivery, and the Dock-bounce setting all allowing it. Because AppKit user-attention requests cannot be delegated to `UNUserNotificationCenter` Focus filtering, awesoMux suppresses Dock bounce while the user has chosen **Keep awesoMux quiet** during Focus rather than letting the Dock bypass that preference.
 
-**Implemented vs scaffolding:** macOS notifications, dock badge, and attention-gated Dock bounce have live consumers. Sidebar indicators follow store state directly today; full routing through the policy for every channel is still future work. **Do Not Disturb** is delegated to `UNUserNotificationCenter` / system Focus for notification banners — the app does not re-implement DnD detection.
+**Delivery ownership:** macOS notifications, dock badge, and attention-gated Dock bounce have separate live consumers. Sidebar indicators follow store state directly; sound and foreground presentation are configured by the notification bridge. **Do Not Disturb** is delegated to `UNUserNotificationCenter` / system Focus for notification banners — the app does not re-implement DnD detection.
 
 ## Related decisions (index)
 

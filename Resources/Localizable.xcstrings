@@ -289,6 +289,17 @@
         }
       }
     },
+    "%arg output exceeded the %arg-byte safety limit; reduce the CLI output before retrying" : {
+      "comment" : "Command output safety limit exceeded",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg output exceeded the %2$arg-byte safety limit; reduce the CLI output before retrying"
+          }
+        }
+      }
+    },
     "%arg percent" : {
 
     },
@@ -314,6 +325,9 @@
     },
     "%arg stopped refreshing." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot can no longer be refreshed; the placeholder is the file name"
+    },
+    "%arg timed out" : {
+      "comment" : "Command timeout"
     },
     "%arg transcript" : {
       "comment" : "Heading of a rendered agent transcript document, naming the provider"
@@ -601,6 +615,39 @@
     },
     "Actions only mode" : {
 
+    },
+    "Actions target the recorded Grok home %arg; the Config home field now points at %arg. Restore the field to keep using the recorded home." : {
+      "comment" : "Explains recorded and current provider configuration homes",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Actions target the recorded Grok home %1$arg; the Config home field now points at %2$arg. Restore the field to keep using the recorded home."
+          }
+        }
+      }
+    },
+    "Actions target the recorded config home %arg; the Config home field now points at %arg. Restore the field to keep using the recorded home." : {
+      "comment" : "Explains recorded and current provider configuration homes",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Actions target the recorded config home %1$arg; the Config home field now points at %2$arg. Restore the field to keep using the recorded home."
+          }
+        }
+      }
+    },
+    "Actions target the recorded home %arg; the CODEX_HOME field now points at %arg. Restore the field to keep using the recorded home." : {
+      "comment" : "Explains recorded and current provider configuration homes",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Actions target the recorded home %1$arg; the CODEX_HOME field now points at %2$arg. Restore the field to keep using the recorded home."
+          }
+        }
+      }
     },
     "Actual host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated real host that NSWorkspace would open."
@@ -1519,6 +1566,17 @@
     },
     "Could not save the pull request document." : {
       "comment" : "Reason a connected pull request document could not open"
+    },
+    "Could not start %arg: %arg" : {
+      "comment" : "Command launch failure",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Could not start %1$arg: %2$arg"
+          }
+        }
+      }
     },
     "Could not turn off Open at Login. Open System Settings > General > Login Items and remove awesoMux, then try again. %arg" : {
       "comment" : "Error shown when unregistering awesoMux as a login item fails."
@@ -2946,6 +3004,9 @@
     },
     "No editors added yet" : {
 
+    },
+    "No executable was found at %arg" : {
+      "comment" : "Missing command executable"
     },
     "No matches" : {
       "comment" : "Spoken find-bar summary when a search finds nothing."

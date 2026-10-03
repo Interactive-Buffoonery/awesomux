@@ -34,7 +34,7 @@ struct PaneLayoutReducerTests {
         // reset the workspace row stays "Done" after focus moves to the fresh
         // shell. Reset the split-off pane and the rollup follows the new shell.
         #expect(result.session.layout.pane(id: active.id)?.agentExecutionState == .idle)
-        #expect(result.session.agentRollup(at: now).state == .idle)
+        #expect(result.session.agentRollup().state == .idle)
         // Determinism (review auto-fix): the minted pane carries the reducer's
         // `now`, not an implicit `Date()`.
         #expect(

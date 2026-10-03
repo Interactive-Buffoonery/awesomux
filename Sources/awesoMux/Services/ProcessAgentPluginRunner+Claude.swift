@@ -58,7 +58,7 @@ extension ProcessAgentPluginRunner {
             )
         }
 
-        return claudeMapList(
+        return await claudeMapList(
             result.stdout,
             setup: setup,
             refs: refs,
@@ -79,6 +79,8 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .unsupported("The claude CLI was not found at \(executable)"))
         case .spawnFailed(_, let reason):
             return AgentPluginStatusReport(status: .unsupported("claude could not be started at \(executable): \(reason)"))
+        case .outputTruncated:
+            return AgentPluginStatusReport(status: .unsupported(error.localizedDescription))
         case .timedOut:
             return AgentPluginStatusReport(status: .unsupported("claude plugin list timed out"))
         }
@@ -93,6 +95,8 @@ extension ProcessAgentPluginRunner {
             return .unsupported("The claude CLI was not found at \(executable)")
         case .spawnFailed(_, let reason):
             return .unsupported("claude could not be started at \(executable): \(reason)")
+        case .outputTruncated:
+            return .needsRepair(error.localizedDescription)
         case .timedOut:
             return .needsRepair("The claude command timed out; use Repair to retry")
         }
@@ -106,7 +110,7 @@ extension ProcessAgentPluginRunner {
         recordedRef: AgentPluginMarketplaceRef?,
         executable: String,
         args: [String]
-    ) -> AgentPluginStatusReport {
+    ) async -> AgentPluginStatusReport {
         let entries: [ClaudePluginListEntry]
         do {
             entries = try ClaudePluginList.parse(stdout)
@@ -159,7 +163,7 @@ extension ProcessAgentPluginRunner {
         // signal. Record bookkeeping (digest vs bundled source) only speaks when
         // the deployed copy cannot be read — e.g. an older CLI that omits
         // `installPath`.
-        switch claudeDeployedFreshness(entry: entry, setup: setup) {
+        switch await claudeDeployedFreshness(entry: entry, setup: setup) {
         case .concluded(let status):
             return AgentPluginStatusReport(status: status)
         case .inconclusive:
@@ -209,7 +213,7 @@ extension ProcessAgentPluginRunner {
     private func claudeDeployedFreshness(
         entry: ClaudePluginListEntry,
         setup: AgentIntegrationSetup
-    ) -> ClaudeDeployedCheck {
+    ) async -> ClaudeDeployedCheck {
         guard let installPath = entry.installPath else {
             return .inconclusive
         }
@@ -224,7 +228,7 @@ extension ProcessAgentPluginRunner {
             .appending(path: "hooks", directoryHint: .isDirectory)
             .appending(path: "hooks.json")
         guard
-            let finding = AgentPluginDeployedCopyInspector.assess(
+            let finding = await AgentPluginDeployedCopyInspector.assess(
                 deployedHooksURL: deployedURL,
                 renderedHooksData: renderedData,
                 fileManager: renderer.fileManager,
@@ -295,6 +299,8 @@ extension ProcessAgentPluginRunner {
         var presence: ClaudeInstalledPresence
         do {
             presence = try await claudePresence(ref: probeRef, executable: probeExecutable, env: probeEnv)
+        } catch CommandRunnerError.outputTruncated(let path, let limit) {
+            return AgentPluginActionOutcome(status: .unsupported(CommandRunnerError.outputTruncated(path, limit).localizedDescription))
         } catch {
             // A recorded binary that cannot answer — gone entirely
             // (`executableNotFound`) or unspawnable (`spawnFailed`, e.g. an
@@ -308,9 +314,13 @@ extension ProcessAgentPluginRunner {
             // installed: skipping cleanup on doubt could preserve the stale
             // same-version cache.
             probeExecutable = executable
-            presence =
-                (try? await claudePresence(ref: probeRef, executable: executable, env: probeEnv))
-                ?? .installed(installPath: nil)
+            do {
+                presence = try await claudePresence(ref: probeRef, executable: executable, env: probeEnv)
+            } catch CommandRunnerError.outputTruncated(let path, let limit) {
+                return AgentPluginActionOutcome(status: .unsupported(CommandRunnerError.outputTruncated(path, limit).localizedDescription))
+            } catch {
+                presence = .installed(installPath: nil)
+            }
         }
 
         let legacyPresence: ClaudeInstalledPresence? =
@@ -360,7 +370,7 @@ extension ProcessAgentPluginRunner {
         let recordStale = staleCachedInstallRecord(provider: .claudeCode, tree: tree)
         var deployedDrift = false
         if case .installed(.some(let installPath)) = presence {
-            deployedDrift = Self.deployedCopyDiffersFromRender(
+            deployedDrift = await Self.deployedCopyDiffersFromRender(
                 installPath: installPath,
                 renderedHooksURL: tree.hookConfigURLs.first,
                 fileManager: renderer.fileManager,
@@ -564,6 +574,8 @@ extension ProcessAgentPluginRunner {
             throw CommandRunnerError.executableNotFound(path)
         } catch CommandRunnerError.spawnFailed(let path, let reason) {
             throw CommandRunnerError.spawnFailed(path, reason: reason)
+        } catch CommandRunnerError.outputTruncated(let path, let limit) {
+            throw CommandRunnerError.outputTruncated(path, limit)
         } catch {
             return .installed(installPath: nil)
         }
@@ -622,8 +634,8 @@ extension ProcessAgentPluginRunner {
         renderedHooksURL: URL?,
         fileManager: FileManager,
         ladderProbe: AgentPluginDeployedCopyInspector.LadderProbe?
-    ) -> Bool {
-        AgentPluginDeployedCopyInspector.deployedCopyFinding(
+    ) async -> Bool {
+        await AgentPluginDeployedCopyInspector.deployedCopyFinding(
             installPath: installPath,
             renderedHooksURL: renderedHooksURL,
             fileManager: fileManager,
@@ -643,7 +655,10 @@ extension ProcessAgentPluginRunner {
         let liveHome = claudeConfigHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
         return
-            "Actions target the recorded config home \(recordedHome); the Config home field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
+            String(
+                localized:
+                    "Actions target the recorded config home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home.",
+                comment: "Explains recorded and current provider configuration homes")
     }
 
     func claudeConfigHome(setup: AgentIntegrationSetup) -> URL {
