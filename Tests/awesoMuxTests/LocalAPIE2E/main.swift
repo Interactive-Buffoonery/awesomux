@@ -1,6 +1,8 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import AwesoMuxLocalAPI
+import AwesoMuxLocalAPIAccess
+import AwesoMuxLocalAPICredentials
 import AwesoMuxTestSupport
 import Darwin
 import Foundation
@@ -12,7 +14,7 @@ struct LocalAPIE2E {
     @MainActor static func main() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
         if args.count == 2, args[0] == "--crash-host" {
-            let host = try LocalAPIServer(profile: args[1]) { _, _ in LocalAPIResponse() }
+            let host = try LocalAPIServer(profile: args[1]) { _, _, _ in LocalAPIResponse() }
             host.start()
             defer { host.stop() }
             FileHandle.standardOutput.write(Data("READY\n".utf8))
@@ -42,6 +44,16 @@ struct LocalAPIE2E {
                     orientation: .horizontal, first: .pane(first), second: .pane(second)
                 )))
         var store = SessionStore(groups: [SessionGroup(name: "E2E", sessions: [workspace])])
+        let fixtureConnectionID = UUID()
+        try await storeCredential(
+            helper: helper,
+            profile: profile,
+            connectionID: fixtureConnectionID,
+            credential: try LocalAPICredentialKeychain.generate()
+        )
+        defer {
+            try? deleteCredential(helper: helper, profile: profile, connectionID: fixtureConnectionID)
+        }
         var checks: [String] = []
         func check(_ condition: Bool, _ name: String) throws {
             guard condition else { throw E2EFailure(message: name) }
@@ -60,7 +72,10 @@ struct LocalAPIE2E {
         }
         event(.codex, pane: first.id, phase: .sessionStart, session: "codex-e2e", state: .waiting)
         event(.claudeCode, pane: second.id, phase: .sessionStart, session: "claude-e2e", state: .thinking, attention: .permissionPrompt)
-        let server = try LocalAPIServer(profile: profile, authorization: { _ in nil }) { request, instance in
+        let server = try LocalAPIServer(
+            profile: profile,
+            authorization: .unrestricted(scope: .persistentWorkspaces([workspace.id]))
+        ) { request, instance, _ in
             if request.operation == "list_agents" {
                 do { _ = try store.localAPIProviders() } catch {
                     return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
@@ -81,7 +96,11 @@ struct LocalAPIE2E {
                 let process = Process()
                 let output = Pipe()
                 process.executableURL = URL(fileURLWithPath: helper)
-                process.arguments = ["--profile", profile, operation.rawValue]
+                process.arguments = [
+                    "--profile", profile,
+                    "--credential-handle", fixtureConnectionID.uuidString.lowercased(),
+                    operation.rawValue,
+                ]
                 process.standardOutput = output
                 try process.run()
                 let data = output.fileHandleForReading.readDataToEndOfFile()
@@ -148,13 +167,13 @@ struct LocalAPIE2E {
             capability.capabilities?.context == false && capability.capabilities?.instructions == false,
             "future context and input capabilities are disabled")
         do {
-            _ = try LocalAPIServer(profile: profile) { _, _ in LocalAPIResponse() }
+            _ = try LocalAPIServer(profile: profile) { _, _, _ in LocalAPIResponse() }
             throw E2EFailure(message: "same-profile contender took ownership")
         } catch let error as LocalAPIError {
             try check(error == .endpointBusy, "same-profile contender cannot replace endpoint")
         }
         let deniedProfile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
-        let denied = try LocalAPIServer(profile: deniedProfile) { _, _ in
+        let denied = try LocalAPIServer(profile: deniedProfile) { _, _, _ in
             throwawayResponse()
         }
         denied.start()
@@ -166,7 +185,7 @@ struct LocalAPIE2E {
             "default authorization denies without metadata")
         let gate = E2EAuthorization()
         let revokeProfile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
-        let revocable = try LocalAPIServer(profile: revokeProfile, authorization: { _ in gate.denial }) { request, instance in
+        let revocable = try LocalAPIServer(profile: revokeProfile, authorization: gate.provider) { request, instance, _ in
             try? await Task.sleep(for: .milliseconds(150))
             return LocalAPIResponse(
                 requestID: request.requestID, profile: revokeProfile, appInstanceID: instance, capturedAt: Date(),
@@ -181,7 +200,10 @@ struct LocalAPIE2E {
         try check(revoked.error == .permissionDenied && revoked.agents == nil, "revocation during capture prevents status return")
         let largeProfile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
         let row = initial.agents![0]
-        let large = try LocalAPIServer(profile: largeProfile, authorization: { _ in nil }) { request, instance in
+        let large = try LocalAPIServer(
+            profile: largeProfile,
+            authorization: .unrestricted(scope: .persistentWorkspaces([workspace.id]))
+        ) { request, instance, _ in
             LocalAPIResponse(
                 requestID: request.requestID, profile: largeProfile, appInstanceID: instance,
                 capturedAt: Date(), agents: Array(repeating: row, count: 1024))
@@ -199,7 +221,10 @@ struct LocalAPIE2E {
         try await Task.sleep(for: .milliseconds(100))
         let unavailable = try await call()
         try check(unavailable.error == .appUnavailable, "stopped app is unavailable without profile fallback")
-        let restarted = try LocalAPIServer(profile: profile, authorization: { _ in nil }) { request, instance in
+        let restarted = try LocalAPIServer(
+            profile: profile,
+            authorization: .unrestricted(scope: .persistentWorkspaces([workspace.id]))
+        ) { request, instance, _ in
             do { _ = try store.localAPIProviders() } catch {
                 return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
             }
@@ -232,14 +257,17 @@ struct LocalAPIE2E {
         try Data("unchanged".utf8).write(to: sentinel)
         try FileManager.default.createSymbolicLink(atPath: unsafe.socketPath, withDestinationPath: sentinel.path)
         do {
-            _ = try LocalAPIServer(profile: unsafeProfile) { _, _ in LocalAPIResponse() }
+            _ = try LocalAPIServer(profile: unsafeProfile) { _, _, _ in LocalAPIResponse() }
             throw E2EFailure(message: "symlink socket was accepted")
         } catch let error as LocalAPIError {
             try check(error == .insecureEndpoint, "symlink socket is refused")
         }
         try check(try String(contentsOf: sentinel, encoding: .utf8) == "unchanged", "symlink refusal preserves the target file")
         guard unlink(unsafe.socketPath) == 0 else { throw E2EFailure(message: "Could not remove E2E socket symlink") }
-        let recovered = try LocalAPIServer(profile: unsafeProfile, authorization: { _ in nil }) { request, instance in
+        let recovered = try LocalAPIServer(
+            profile: unsafeProfile,
+            authorization: .unrestricted(scope: .persistentWorkspaces([workspace.id]))
+        ) { request, instance, _ in
             LocalAPIResponse(
                 requestID: request.requestID, profile: unsafeProfile, appInstanceID: instance,
                 capturedAt: Date(), connectionStatus: .connected)
@@ -250,8 +278,18 @@ struct LocalAPIE2E {
             try LocalAPIClient.call(LocalAPIRequest(profile: unsafeProfile, operation: .connectionStatus))
         }.value
         try check(recoveredResponse.connectionStatus == .connected, "failed startup releases ownership for same-process retry")
+        checks.append(
+            contentsOf: try await runScopedProjectionGrantScenarios(
+                helper: helper,
+                artifact: artifact,
+                workspace: workspace,
+                firstPaneID: first.id,
+                secondPaneID: second.id
+            )
+        )
+        checks.append(contentsOf: try await runGrantScenarios(helper: helper, artifact: artifact, agents: store.localAPIAgents()))
         let report: [String: Any] = [
-            "kind": "socket/store/helper E2E with injected lifecycle fixtures", "profile": profile, "checks": checks,
+            "kind": "socket/store/helper and profile-scoped connection grant E2E", "profile": profile, "checks": checks,
             "realAgentNativeProof": "separate artifact required",
         ]
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(
@@ -259,11 +297,780 @@ struct LocalAPIE2E {
     }
 
     static func throwawayResponse() -> LocalAPIResponse { LocalAPIResponse(error: .transportFailure) }
+
+    static func storeCredential(
+        helper: String,
+        profile: String,
+        connectionID: UUID,
+        credential: Data
+    ) async throws {
+        try await Task.detached {
+            let process = Process()
+            let input = Pipe()
+            process.executableURL = URL(fileURLWithPath: helper)
+            process.arguments = [
+                "credential", "store",
+                "--profile", profile,
+                "--credential-handle", connectionID.uuidString.lowercased(),
+            ]
+            process.standardInput = input
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            try input.fileHandleForWriting.write(contentsOf: credential)
+            try input.fileHandleForWriting.close()
+            try process.waitUntilExitEventually()
+            guard process.terminationStatus == 0 else {
+                throw E2EFailure(message: "helper could not store a Keychain credential")
+            }
+        }.value
+    }
+
+    static func deleteCredential(helper: String, profile: String, connectionID: UUID) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: helper)
+        process.arguments = [
+            "credential", "delete",
+            "--profile", profile,
+            "--credential-handle", connectionID.uuidString.lowercased(),
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        try process.waitUntilExitEventually()
+        guard process.terminationStatus == 0 else {
+            throw E2EFailure(message: "helper could not delete a Keychain credential")
+        }
+    }
+
+    @MainActor
+    static func runScopedProjectionGrantScenarios(
+        helper: String,
+        artifact: URL,
+        workspace: TerminalSession,
+        firstPaneID: UUID,
+        secondPaneID: UUID
+    ) async throws -> [String] {
+        let profile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let supportDirectory = artifact.appending(path: "projection-grant-profile", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+        let store = SessionStore(groups: [SessionGroup(name: "Projection grants", sessions: [workspace])])
+        let incarnations = [
+            firstPaneID: "local:303:3003",
+            secondPaneID: "local:404:4004",
+        ]
+        let reviewed = store.localAPIAgents(processIncarnations: incarnations)
+        guard
+            let firstAgent = reviewed.first(where: { $0.paneID == firstPaneID }),
+            let secondAgent = reviewed.first(where: { $0.paneID == secondPaneID })
+        else { throw E2EFailure(message: "projection grant scenarios need both agents") }
+
+        let accessStore = LocalAPIAccessStore(profile: profile, supportDirectoryURL: supportDirectory)
+        defer { accessStore.relinquishAuthority() }
+        let firstPending = try accessStore.prepareRegistration(
+            label: "Exact client A",
+            statusScope: .exactTarget(paneID: firstPaneID, targetVersion: firstAgent.targetVersion)
+        )
+        let secondPending = try accessStore.prepareRegistration(
+            label: "Exact client B",
+            statusScope: .exactTarget(paneID: secondPaneID, targetVersion: secondAgent.targetVersion)
+        )
+        let registrations = [firstPending, secondPending]
+        var storedCredentialIDs: [UUID] = []
+        defer {
+            for connectionID in storedCredentialIDs {
+                try? deleteCredential(helper: helper, profile: profile, connectionID: connectionID)
+            }
+        }
+        for pending in registrations {
+            try await storeCredential(
+                helper: helper,
+                profile: profile,
+                connectionID: pending.connection.id,
+                credential: pending.credential
+            )
+            storedCredentialIDs.append(pending.connection.id)
+            try accessStore.activateRegistration(pending)
+        }
+        try accessStore.setGloballyEnabled(true)
+
+        let server = try LocalAPIServer(
+            profile: profile,
+            authorization: accessStore.runtimeAuthority.provider
+        ) { request, instance, lease in
+            guard case .exactTarget(let paneID, _) = lease.statusScope,
+                let incarnation = incarnations[paneID]
+            else {
+                return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
+            }
+            let agents = store.localAPIAgents(
+                processIncarnations: [paneID: incarnation],
+                limitedTo: [paneID]
+            ).filter {
+                lease.statusScope.allows(
+                    paneID: $0.paneID,
+                    workspaceID: $0.workspaceID,
+                    targetVersion: $0.targetVersion
+                )
+            }
+            return LocalAPIResponse(
+                requestID: request.requestID,
+                profile: profile,
+                appInstanceID: instance,
+                capturedAt: Date(),
+                agents: agents
+            )
+        }
+        accessStore.setInvalidationHandler { [weak server] connectionID in
+            server?.invalidate(connectionID: connectionID)
+        }
+        server.start()
+        defer { server.stop() }
+
+        let first = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        let second = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        let firstAgain = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        let secondAgain = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        let passed =
+            first.agents?.map(\.targetVersion) == [firstAgent.targetVersion]
+            && second.agents?.map(\.targetVersion) == [secondAgent.targetVersion]
+            && firstAgain.agents?.map(\.targetVersion) == [firstAgent.targetVersion]
+            && secondAgain.agents?.map(\.targetVersion) == [secondAgent.targetVersion]
+        guard passed else {
+            throw E2EFailure(message: "credentialed disjoint exact grants preserve both target versions")
+        }
+        let projectionCheck = "credentialed disjoint exact grants preserve both target versions"
+        print("PASS: \(projectionCheck)")
+
+        let credentialNeedles = registrations.flatMap { pending -> [Data] in
+            let encoded = LocalAPICredential.encode(pending.credential) ?? ""
+            return [pending.credential, Data(encoded.utf8)]
+        }
+        let artifactFiles =
+            (FileManager.default.enumerator(at: supportDirectory, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? []
+        let artifactData = try artifactFiles.filter(\.isFileURL).reduce(into: Data()) { aggregate, url in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                return
+            }
+            aggregate.append(try Data(contentsOf: url))
+        }
+        guard credentialNeedles.allSatisfy({ !artifactData.contains($0) }) else {
+            throw E2EFailure(message: "scoped projection artifacts contain no credentials")
+        }
+        let artifactCheck = "scoped projection artifacts contain no credentials"
+        print("PASS: \(artifactCheck)")
+        return [projectionCheck, artifactCheck]
+    }
+
+    @MainActor
+    static func runGrantScenarios(
+        helper: String,
+        artifact: URL,
+        agents: [LocalAPIAgent]
+    ) async throws -> [String] {
+        guard agents.count >= 2 else { throw E2EFailure(message: "grant scenarios need two agents") }
+        let profile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let supportDirectory = artifact.appending(path: "grant-profile", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+        var checks: [String] = []
+        func check(_ condition: Bool, _ name: String) throws {
+            guard condition else { throw E2EFailure(message: name) }
+            checks.append(name)
+            print("PASS: \(name)")
+        }
+
+        let roster = E2EAgentRoster(agents)
+        let captureGate = E2ECaptureGate()
+        var accessStore: LocalAPIAccessStore? = LocalAPIAccessStore(
+            profile: profile,
+            supportDirectoryURL: supportDirectory
+        )
+        guard let initialStore = accessStore else { throw E2EFailure(message: "access store unavailable") }
+        try check(initialStore.ownsAuthority && initialStore.loadFailure == nil, "isolated grant store owns its profile authority")
+        try check(
+            LocalAPITargetScope.currentTarget(
+                activePaneID: UUID(),
+                targetVersions: [agents[0].paneID: agents[0].targetVersion]
+            ) == nil,
+            "ineligible current target does not select another pane"
+        )
+
+        let firstPending = try initialStore.prepareRegistration(
+            label: "Client A",
+            statusScope: .persistentPanes([agents[0].paneID])
+        )
+        let secondPending = try initialStore.prepareRegistration(
+            label: "Client B",
+            statusScope: .persistentWorkspaces([agents[0].workspaceID])
+        )
+        let exactPending = try initialStore.prepareRegistration(
+            label: "Current target",
+            statusScope: .exactTarget(paneID: agents[0].paneID, targetVersion: agents[0].targetVersion)
+        )
+        let slowPending = try initialStore.prepareRegistration(
+            label: "Slow reader",
+            statusScope: .persistentWorkspaces([agents[0].workspaceID])
+        )
+        let registrations = [firstPending, secondPending, exactPending, slowPending]
+        for pending in registrations {
+            try await storeCredential(
+                helper: helper,
+                profile: profile,
+                connectionID: pending.connection.id,
+                credential: pending.credential
+            )
+            try initialStore.activateRegistration(pending)
+        }
+        defer {
+            for pending in registrations {
+                try? deleteCredential(helper: helper, profile: profile, connectionID: pending.connection.id)
+            }
+        }
+
+        var server: LocalAPIServer? = try makeGrantServer(
+            profile: profile,
+            accessStore: initialStore,
+            roster: roster,
+            captureGate: captureGate
+        )
+        guard let initialServer = server else { throw E2EFailure(message: "grant server unavailable") }
+        initialStore.setInvalidationHandler { [weak initialServer] connectionID in
+            initialServer?.invalidate(connectionID: connectionID)
+        }
+        initialServer.start()
+
+        let disabled = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        try check(disabled.error == .accessDisabled && disabled.agents == nil, "registration grants nothing while global access is off")
+
+        let missing = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: UUID()
+        )
+        try check(missing.error == .credentialUnavailable && missing.agents == nil, "unregistered handle fails before requesting content")
+
+        try initialStore.setGloballyEnabled(true)
+        let labelOnly = try await Task.detached {
+            try LocalAPIClient.call(
+                LocalAPIRequest(
+                    profile: profile,
+                    operation: .listAgents,
+                    connectionID: firstPending.connection.id
+                )
+            )
+        }.value
+        try check(labelOnly.error == .permissionDenied && labelOnly.agents == nil, "connection identity without its credential is denied")
+
+        let wrongCredential = try LocalAPICredentialKeychain.generate()
+        let wrong = try await Task.detached {
+            try LocalAPIClient.call(
+                LocalAPIRequest(
+                    profile: profile,
+                    operation: .listAgents,
+                    connectionID: firstPending.connection.id,
+                    credential: LocalAPICredential.encode(wrongCredential)
+                )
+            )
+        }.value
+        try check(wrong.error == .permissionDenied && wrong.agents == nil, "wrong credential fails closed without metadata")
+
+        let crossProfile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let crossProfileResponse = try await callHelper(
+            helper: helper,
+            profile: crossProfile,
+            connectionID: firstPending.connection.id
+        )
+        try check(
+            crossProfileResponse.error == .credentialUnavailable && crossProfileResponse.agents == nil,
+            "credential handles are isolated by profile"
+        )
+
+        let first = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        let second = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        try check(
+            first.error == nil && first.agents?.map(\.paneID) == [agents[0].paneID],
+            "Client A receives only its selected pane"
+        )
+        try check(
+            second.error == nil && Set(second.agents?.map(\.paneID) ?? []) == Set(agents.map(\.paneID)),
+            "Client B receives its independently selected workspace"
+        )
+
+        let capabilities = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id,
+            operation: .capabilities
+        )
+        try check(
+            capabilities.capabilities?.context == false
+                && capabilities.capabilities?.instructions == false
+                && capabilities.capabilities?.monitoring == false,
+            "context instructions and monitoring remain unavailable"
+        )
+
+        let exactInitial = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: exactPending.connection.id
+        )
+        try check(exactInitial.agents?.map(\.paneID) == [agents[0].paneID], "exact grant starts at the reviewed target incarnation")
+        roster.replaceTargetVersion(for: agents[0].paneID)
+        let exactExpired = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: exactPending.connection.id
+        )
+        try check(
+            exactExpired.error == nil && exactExpired.agents?.isEmpty == true, "exact grant expires when the target incarnation changes")
+
+        captureGate.arm()
+        let editing = Task.detached {
+            try await callHelper(
+                helper: helper,
+                profile: profile,
+                connectionID: firstPending.connection.id
+            )
+        }
+        await captureGate.waitUntilEntered()
+        try initialStore.updateStatusScope(
+            connectionID: firstPending.connection.id,
+            statusScope: .persistentPanes([agents[1].paneID])
+        )
+        let editedInFlight = try await editing.value
+        try check(
+            editedInFlight.error != nil && editedInFlight.agents == nil,
+            "scope edit during capture prevents the old response"
+        )
+        let edited = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        try check(edited.agents?.map(\.paneID) == [agents[1].paneID], "scope edit applies to the next read")
+
+        let accessDirectory = supportDirectory.appending(path: "LocalAPI", directoryHint: .isDirectory)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: accessDirectory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: accessDirectory.path) }
+        var scopeSaveFailed = false
+        do {
+            try initialStore.updateStatusScope(
+                connectionID: firstPending.connection.id,
+                statusScope: .persistentPanes([agents[0].paneID])
+            )
+        } catch LocalAPIAccessFailure.persistenceFailed {
+            scopeSaveFailed = true
+        }
+        try check(
+            scopeSaveFailed && initialStore.persistenceFailureMessage != nil,
+            "failed scope save keeps a visible retry state"
+        )
+        let deniedAfterFailedSave = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        try check(
+            deniedAfterFailedSave.error == .permissionDenied && deniedAfterFailedSave.agents == nil,
+            "failed scope save denies the connection immediately"
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: accessDirectory.path)
+        try initialStore.retryPersistence()
+        let retried = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        let persistedData = try Data(contentsOf: accessDirectory.appending(path: "access.json"))
+        let persistedDecoder = JSONDecoder()
+        persistedDecoder.dateDecodingStrategy = .iso8601
+        let persistedState = try persistedDecoder.decode(LocalAPIAccessState.self, from: persistedData)
+        try check(
+            initialStore.persistenceFailureMessage == nil
+                && retried.agents?.map(\.paneID) == [agents[0].paneID]
+                && persistedState.connections.first(where: { $0.id == firstPending.connection.id })?.statusScope
+                    == .persistentPanes([agents[0].paneID]),
+            "retry persists and restores the requested scope"
+        )
+
+        let retainedFirstCredential = LocalAPICredential.encode(firstPending.credential)
+        try initialStore.revoke(connectionID: firstPending.connection.id)
+        let revoked = try await Task.detached {
+            try LocalAPIClient.call(
+                LocalAPIRequest(
+                    profile: profile,
+                    operation: .listAgents,
+                    connectionID: firstPending.connection.id,
+                    credential: retainedFirstCredential
+                )
+            )
+        }.value
+        try check(revoked.error == .permissionDenied && revoked.agents == nil, "revoked credential is denied even before Keychain deletion")
+        try deleteCredential(helper: helper, profile: profile, connectionID: firstPending.connection.id)
+        let secondAfterRevoke = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        try check(secondAfterRevoke.error == nil && secondAfterRevoke.agents != nil, "revoking Client A leaves Client B working")
+
+        roster.repeatCurrentAgents(count: 350)
+        let slowClient = try E2ESlowClient(
+            profile: profile,
+            connectionID: slowPending.connection.id,
+            credential: slowPending.credential
+        )
+        try await Task.sleep(for: .milliseconds(150))
+        let revokeStart = ContinuousClock.now
+        try initialStore.revoke(connectionID: slowPending.connection.id)
+        let revokeDuration = revokeStart.duration(to: .now)
+        try check(revokeDuration < .milliseconds(250), "slow reader cannot stall connection revocation")
+        try check(!slowClient.receivedCompleteFrame(), "slow reader cannot complete a response after revocation")
+        try deleteCredential(helper: helper, profile: profile, connectionID: slowPending.connection.id)
+        roster.setAgents(agents)
+
+        captureGate.arm()
+        let disabling = Task.detached {
+            try await callHelper(
+                helper: helper,
+                profile: profile,
+                connectionID: secondPending.connection.id
+            )
+        }
+        await captureGate.waitUntilEntered()
+        try initialStore.setGloballyEnabled(false)
+        let disabledInFlight = try await disabling.value
+        try check(
+            disabledInFlight.error != nil && disabledInFlight.agents == nil,
+            "global disable prevents an in-flight response"
+        )
+        let disabledNewRead = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        try check(disabledNewRead.error == .accessDisabled && disabledNewRead.agents == nil, "global disable blocks new reads")
+        try initialStore.setGloballyEnabled(true)
+
+        initialServer.stop()
+        try await Task.sleep(for: .milliseconds(150))
+        initialStore.relinquishAuthority()
+        server = nil
+        accessStore = nil
+        let restartedStore = LocalAPIAccessStore(profile: profile, supportDirectoryURL: supportDirectory)
+        try check(
+            restartedStore.ownsAuthority && restartedStore.loadFailure == nil
+                && restartedStore.state.globallyEnabled && restartedStore.state.connections.count == 2,
+            "global state and remaining grants persist across restart"
+        )
+        let restartedServer = try makeGrantServer(
+            profile: profile,
+            accessStore: restartedStore,
+            roster: roster,
+            captureGate: captureGate
+        )
+        restartedStore.setInvalidationHandler { [weak restartedServer] connectionID in
+            restartedServer?.invalidate(connectionID: connectionID)
+        }
+        restartedServer.start()
+        defer {
+            restartedServer.stop()
+            restartedStore.relinquishAuthority()
+        }
+        let afterRestart = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        try check(afterRestart.error == nil && afterRestart.agents != nil, "remaining helper credential works after app restart")
+
+        let credentialNeedles = registrations.flatMap { pending -> [Data] in
+            let encoded = LocalAPICredential.encode(pending.credential) ?? ""
+            return [pending.credential, Data(encoded.utf8)]
+        }
+        let artifactFiles = (FileManager.default.enumerator(at: artifact, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? []
+        let artifactData = try artifactFiles.filter(\.isFileURL).reduce(into: Data()) { aggregate, url in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else { return }
+            aggregate.append(try Data(contentsOf: url))
+        }
+        try check(
+            credentialNeedles.allSatisfy { !artifactData.contains($0) },
+            "E2E artifacts contain no raw or encoded credentials"
+        )
+
+        let grantReport: [String: Any] = [
+            "kind": "profile-scoped grant authorization through helper Keychain handles",
+            "profile": profile,
+            "checks": checks,
+            "credentials": "omitted",
+        ]
+        try JSONSerialization.data(withJSONObject: grantReport, options: [.prettyPrinted, .sortedKeys]).write(
+            to: artifact.appending(path: "grant-report.json")
+        )
+        return checks
+    }
+
+    @MainActor
+    private static func makeGrantServer(
+        profile: String,
+        accessStore: LocalAPIAccessStore,
+        roster: E2EAgentRoster,
+        captureGate: E2ECaptureGate
+    ) throws -> LocalAPIServer {
+        try LocalAPIServer(profile: profile, authorization: accessStore.runtimeAuthority.provider) { request, instance, lease in
+            await captureGate.enterIfArmed()
+            let scopedAgents = roster.current.filter {
+                lease.statusScope.allows(
+                    paneID: $0.paneID,
+                    workspaceID: $0.workspaceID,
+                    targetVersion: $0.targetVersion
+                )
+            }
+            return LocalAPIResponse(
+                requestID: request.requestID,
+                profile: profile,
+                appInstanceID: instance,
+                capturedAt: Date(),
+                connectionStatus: request.operation == LocalAPIOperation.connectionStatus.rawValue ? .connected : nil,
+                capabilities: request.operation == LocalAPIOperation.capabilities.rawValue ? LocalAPICapabilities() : nil,
+                agents: request.operation == LocalAPIOperation.listAgents.rawValue ? scopedAgents : nil
+            )
+        }
+    }
+
+    static func callHelper(
+        helper: String,
+        profile: String,
+        connectionID: UUID,
+        operation: LocalAPIOperation = .listAgents
+    ) async throws -> LocalAPIResponse {
+        try await Task.detached {
+            let process = Process()
+            let output = Pipe()
+            process.executableURL = URL(fileURLWithPath: helper)
+            process.arguments = [
+                "--profile", profile,
+                "--credential-handle", connectionID.uuidString.lowercased(),
+                operation.rawValue,
+            ]
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            try process.waitUntilExitEventually()
+            return try LocalAPIContract.decoder().decode(LocalAPIResponse.self, from: data)
+        }.value
+    }
+}
+
+private final class E2EAgentRoster: @unchecked Sendable {
+    private let lock = NSLock()
+    private var agents: [LocalAPIAgent]
+
+    init(_ agents: [LocalAPIAgent]) { self.agents = agents }
+
+    var current: [LocalAPIAgent] { lock.withLock { agents } }
+
+    func replaceTargetVersion(for paneID: UUID) {
+        lock.withLock {
+            agents = agents.map { agent in
+                guard agent.paneID == paneID else { return agent }
+                return LocalAPIAgent(
+                    paneID: agent.paneID,
+                    workspaceID: agent.workspaceID,
+                    workspaceName: agent.workspaceName,
+                    provider: agent.provider,
+                    executionLocation: agent.executionLocation,
+                    availability: agent.availability,
+                    state: agent.state,
+                    attentionReason: agent.attentionReason,
+                    unreadCount: agent.unreadCount,
+                    stateProvenance: agent.stateProvenance,
+                    observedAt: agent.observedAt,
+                    capturedAt: Date(),
+                    targetVersion: UUID(),
+                    identityEvidence: agent.identityEvidence,
+                    providerSessionID: agent.providerSessionID,
+                    capabilities: agent.capabilities
+                )
+            }
+        }
+    }
+
+    func repeatCurrentAgents(count: Int) {
+        lock.withLock {
+            let current = agents
+            agents = (0..<count).map { current[$0 % current.count] }
+        }
+    }
+
+    func setAgents(_ agents: [LocalAPIAgent]) {
+        lock.withLock { self.agents = agents }
+    }
+}
+
+private final class E2ESlowClient {
+    private let fd: Int32
+
+    init(profile: String, connectionID: UUID, credential: Data) throws {
+        let endpoint = try LocalAPIEndpoint(profile: profile)
+        fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw E2EFailure(message: "could not create slow client socket") }
+        var receiveBuffer: Int32 = 1024
+        guard setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &receiveBuffer, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            close(fd)
+            throw E2EFailure(message: "could not constrain slow client receive buffer")
+        }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        let path = Array(endpoint.socketPath.utf8CString)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: path.map { UInt8(bitPattern: $0) })
+        }
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connected == 0 else {
+            close(fd)
+            throw E2EFailure(message: "could not connect slow client")
+        }
+        let request = LocalAPIRequest(
+            profile: profile,
+            operation: .listAgents,
+            connectionID: connectionID,
+            credential: LocalAPICredential.encode(credential)
+        )
+        let body = try LocalAPIContract.encoder().encode(request)
+        let length = UInt32(body.count)
+        var frame = Data([
+            UInt8((length >> 24) & 255),
+            UInt8((length >> 16) & 255),
+            UInt8((length >> 8) & 255),
+            UInt8(length & 255),
+        ])
+        frame.append(body)
+        let sent = frame.withUnsafeBytes { bytes in
+            Darwin.write(fd, bytes.baseAddress!, frame.count)
+        }
+        guard sent == frame.count else {
+            close(fd)
+            throw E2EFailure(message: "could not send slow client request")
+        }
+    }
+
+    deinit { close(fd) }
+
+    func receivedCompleteFrame() -> Bool {
+        _ = fcntl(fd, F_SETFL, O_NONBLOCK)
+        var received = Data()
+        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                received.append(contentsOf: buffer.prefix(count))
+                continue
+            }
+            break
+        }
+        guard received.count >= 4 else { return false }
+        let length = received.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        return received.count >= Int(length) + 4
+    }
+}
+
+private final class E2ECaptureGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var armed = false
+    private var entered: CheckedContinuation<Void, Never>?
+
+    func arm() { lock.withLock { armed = true } }
+
+    func waitUntilEntered() async {
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock {
+                if !armed { return true }
+                entered = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    func enterIfArmed() async {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            guard armed else { return nil }
+            armed = false
+            let continuation = entered
+            entered = nil
+            return continuation
+        }
+        continuation?.resume()
+        try? await Task.sleep(for: .milliseconds(250))
+    }
 }
 
 private final class E2EAuthorization: @unchecked Sendable {
     private let lock = NSLock()
     private var enabled = true
-    var denial: LocalAPIError? { lock.withLock { enabled ? nil : .permissionDenied } }
+    private let lease = LocalAPIAuthorizationLease(
+        connectionID: UUID(),
+        globalRevision: UUID(),
+        connectionRevision: UUID(),
+        statusScope: .persistentPanes([UUID()])
+    )
+    var provider: LocalAPIAuthorizationProvider {
+        LocalAPIAuthorizationProvider(
+            authorize: { [weak self] _, expected in
+                guard let self else { return .failure(.permissionDenied) }
+                return self.lock.withLock {
+                    guard self.enabled, expected == nil || expected == self.lease else {
+                        return .failure(.permissionDenied)
+                    }
+                    return .success(self.lease)
+                }
+            },
+            commit: { [weak self] _, expected, body in
+                guard let self else { throw LocalAPIError.permissionDenied }
+                return try self.lock.withLock {
+                    guard self.enabled, expected == self.lease else { throw LocalAPIError.permissionDenied }
+                    return try body()
+                }
+            }
+        )
+    }
     func revoke() { lock.withLock { enabled = false } }
 }

@@ -102,8 +102,8 @@ enum AgentPluginSourceFingerprint {
         switch provider {
         case .claudeCode:
             [
-                "plugins/awesomux-claude-status/hooks/hooks.json",
-                "plugins/awesomux-claude-status/.claude-plugin/plugin.json",
+                "plugins/awesomux-runtime-status/hooks/hooks.json",
+                "plugins/awesomux-runtime-status/.claude-plugin/plugin.json",
             ]
         case .codex:
             [

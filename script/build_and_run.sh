@@ -104,7 +104,7 @@ Modes:
                                        Exits 1 if the app never starts, 3 if it starts
                                        but cannot be terminated afterwards.
   --install, install                  Install into ~/Applications and launch that bundle.
-  --stage-local-api-e2e               Stage an isolated debug-only status API E2E host.
+  --stage-local-api-e2e               Stage an isolated debug assistant-access host.
   --stage-release, stage-release      Build, stage, and ad-hoc sign dist/awesoMux.app
                                        with the production profile, then exit without
                                        launching. Consumed by script/build_release.sh.
@@ -562,10 +562,8 @@ if [[ "$MODE" == "--stage-local-api-e2e" ]]; then
     echo "error: the local API E2E host requires an isolated linked worktree profile" >&2
     exit 1
   fi
-  swift build -c "$CONFIG" -Xswiftc -DAWESOMUX_LOCAL_API_E2E
-else
-  swift build -c "$CONFIG"
 fi
+swift build -c "$CONFIG"
 BUILD_BIN_PATH="$(swift build -c "$CONFIG" --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_PATH/$APP_NAME"
 BUILD_STATUS_HELPER_BINARY="$BUILD_BIN_PATH/$STATUS_HELPER_NAME"
@@ -1160,7 +1158,7 @@ case "$MODE" in
     open_app "$INSTALLED_APP_BUNDLE"
     ;;
   --stage-local-api-e2e)
-    echo "Staged debug-only local API E2E host at $APP_BUNDLE ($RUNTIME_PROFILE)."
+    echo "Staged isolated assistant-access host at $APP_BUNDLE ($RUNTIME_PROFILE)."
     ;;
   --stage-release|stage-release)
     echo "Staged $APP_BUNDLE (production profile; not launched)."

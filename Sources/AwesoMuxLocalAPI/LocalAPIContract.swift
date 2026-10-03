@@ -32,13 +32,20 @@ public struct LocalAPIRequest: Codable, Sendable {
     public let requestID: UUID
     public let profile: String
     public let operation: String
+    public let connectionID: UUID?
     public let credential: String?
 
-    public init(profile: String, operation: LocalAPIOperation, credential: String? = nil) {
+    public init(
+        profile: String,
+        operation: LocalAPIOperation,
+        connectionID: UUID? = nil,
+        credential: String? = nil
+    ) {
         schemaVersion = LocalAPIContract.version
         requestID = UUID()
         self.profile = profile
         self.operation = operation.rawValue
+        self.connectionID = connectionID
         self.credential = credential
     }
 }
@@ -50,6 +57,7 @@ public enum LocalAPIError: String, Error, Codable, Sendable {
     case profileMismatch = "profile_mismatch"
     case accessDisabled = "access_disabled"
     case permissionDenied = "permission_denied"
+    case credentialUnavailable = "credential_unavailable"
     case appUnavailable = "app_unavailable"
     case insecureEndpoint = "insecure_endpoint"
     case endpointBusy = "endpoint_busy"
