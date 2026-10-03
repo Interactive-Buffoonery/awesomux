@@ -67,13 +67,15 @@
     "global disable blocks new reads",
     "global state and remaining grants persist across restart",
     "remaining helper credential works after app restart",
-    "E2E artifacts contain no raw or encoded credentials"
+    "E2E artifacts contain no raw or encoded credentials",
+    "credentialed disjoint exact grants preserve both target versions",
+    "scoped projection artifacts contain no credentials"
   ],
-  "passed": 66,
-  "nativeAcceptance": "Two real agents, native UI parity, responsiveness and accessibility remain unverified.",
+  "passed": 68,
+  "nativeAcceptance": "Native registration, disjoint real Claude/Codex idle status, independent revocation, global disable, restart persistence, and cleanup passed on 935037d5. Full VoiceOver and Full Keyboard Access audits, rebuilt-helper Keychain prompt behavior, and new error/expiry UI states remain unverified.",
   "nativeTransportChecks": [
     "ordinary staged app starts a default-denied profile endpoint",
     "ordinary app endpoint recovers after process exit/restart"
   ],
-  "nativeTermination": "SIGTERM and restart verified; graceful AppKit quit remains unverified."
+  "nativeTermination": "Native AppKit Command-Q and profile socket removal verified on 935037d5; production app untouched."
 }
