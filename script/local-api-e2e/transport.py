@@ -91,30 +91,54 @@ for change, expected in [
     (dict(schemaVersion=99), "invalid_request"),
 ]:
     fixture_profile = "development:" + uuid.uuid4().hex[:12]
+    credential_handle = str(uuid.uuid4())
+    subprocess.run(
+        [helper, "credential", "store", "--profile", fixture_profile,
+         "--credential-handle", credential_handle],
+        input=os.urandom(32), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        check=True, timeout=7,
+    )
     directory = pathlib.Path(f"/private/tmp/awesomux-api-{os.geteuid()}-{hashlib.sha256(fixture_profile.encode()).hexdigest()[:24]}")
     directory.mkdir(mode=0o700)
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as fixture:
-        fixture.bind(str(directory / "api.sock"))
-        (directory / "api.sock").chmod(0o600)
-        fixture.listen(1)
-        process = subprocess.Popen([helper, "--profile", fixture_profile, "list_agents"], stdout=subprocess.PIPE)
-        with fixture.accept()[0] as peer:
-            def exact(count):
-                result = b""
-                while len(result) < count:
-                    result += peer.recv(count - len(result))
-                return result
-            size = struct.unpack(">I", exact(4))[0]
-            incoming = json.loads(exact(size))
-            response = dict(schemaVersion=1, requestID=incoming["requestID"], profile=fixture_profile,
-                            appInstanceID=str(uuid.uuid4()), capturedAt="2026-10-02T00:00:00Z", agents=[])
-            response.update(change)
-            data = json.dumps(response).encode()
-            peer.sendall(struct.pack(">I", len(data)) + data)
-        output, _ = process.communicate(timeout=7)
-        check(f"helper rejects peer {list(change)[0]} mismatch", json.loads(output)["error"] == expected)
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as fixture:
+            fixture.bind(str(directory / "api.sock"))
+            (directory / "api.sock").chmod(0o600)
+            fixture.listen(1)
+            process = subprocess.Popen(
+                [helper, "--profile", fixture_profile, "--credential-handle", credential_handle, "list_agents"],
+                stdout=subprocess.PIPE,
+            )
+            with fixture.accept()[0] as peer:
+                def exact(count):
+                    result = b""
+                    while len(result) < count:
+                        result += peer.recv(count - len(result))
+                    return result
+                size = struct.unpack(">I", exact(4))[0]
+                incoming = json.loads(exact(size))
+                response = dict(schemaVersion=1, requestID=incoming["requestID"], profile=fixture_profile,
+                                appInstanceID=str(uuid.uuid4()), capturedAt="2026-10-02T00:00:00Z", agents=[])
+                response.update(change)
+                data = json.dumps(response).encode()
+                peer.sendall(struct.pack(">I", len(data)) + data)
+            output, _ = process.communicate(timeout=7)
+            check(f"helper rejects peer {list(change)[0]} mismatch", json.loads(output)["error"] == expected)
+    finally:
+        subprocess.run(
+            [helper, "credential", "delete", "--profile", fixture_profile,
+             "--credential-handle", credential_handle],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=7,
+        )
 
 crash_profile = "development:" + uuid.uuid4().hex[:12]
+crash_credential_handle = str(uuid.uuid4())
+subprocess.run(
+    [helper, "credential", "store", "--profile", crash_profile,
+     "--credential-handle", crash_credential_handle],
+    input=os.urandom(32), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    check=True, timeout=7,
+)
 
 def start_host():
     child = subprocess.Popen([host, "--crash-host", crash_profile], stdout=subprocess.PIPE)
@@ -134,10 +158,18 @@ child.kill()
 child.wait(timeout=5)
 successor = start_host()
 try:
-    result = subprocess.run([helper, "--profile", crash_profile, "list_agents"], capture_output=True, timeout=7)
+    result = subprocess.run(
+        [helper, "--profile", crash_profile, "--credential-handle", crash_credential_handle, "list_agents"],
+        capture_output=True, timeout=7,
+    )
     check("crash successor safely replaces its exact stale socket", json.loads(result.stdout)["error"] == "access_disabled")
 finally:
     successor.terminate()
     successor.wait(timeout=5)
+    subprocess.run(
+        [helper, "credential", "delete", "--profile", crash_profile,
+         "--credential-handle", crash_credential_handle],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=7,
+    )
 with open(sys.argv[2], "w") as output:
     json.dump(dict(checks=checks, profile=profile), output, indent=2)
