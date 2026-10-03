@@ -230,6 +230,8 @@ struct AwesoMuxApp: App {
     @State private var workspaceTraversalRun: WorkspaceNavigationOrder.TraversalRun?
     @State private var documentTabActions = DocumentComposeTabActionHandler()
     @State private var branchChangesCoordinator = BranchChangesCoordinator()
+    @State private var pullRequestDocumentGeneration: UUID?
+    @State private var pullRequestDocumentTask: Task<Void, Never>?
     @State private var remoteMarkdownRefreshCoordinator: RemoteMarkdownRefreshCoordinator
     @State private var daemonRecoveryMetadataSynchronizer = DaemonRecoveryMetadataSynchronizer()
 
@@ -1455,6 +1457,15 @@ struct AwesoMuxApp: App {
                 }
                 .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
                 Divider()
+
+                Button(
+                    String(
+                        localized: "Open Pull Request",
+                        comment: "Menu command to open a read-only snapshot of the local branch's connected GitHub pull request")
+                ) {
+                    openPullRequestForActivePane()
+                }
+                .disabled(sessionStore.selectedSessionID == nil || isAnySheetPresented)
 
                 Button("Grow Active Pane") {
                     sessionStore.resizeActiveSplit(by: 0.05)
@@ -4202,6 +4213,80 @@ struct AwesoMuxApp: App {
         scheduleQuickRunToastDismissal(id: toastID)
     }
 
+    private func openPullRequestForActivePane() {
+        healSheetWedgeBeforeGatedCommand()
+        guard !isAnySheetPresented, let session = sessionStore.selectedSession,
+            let pane = session.layout.pane(id: session.activePaneID)
+        else { return }
+        let ticket = UUID()
+        pullRequestDocumentTask?.cancel()
+        pullRequestDocumentGeneration = ticket
+        TerminalAccessibilityAnnouncer.announce(
+            String(localized: "Opening pull request.", comment: "VoiceOver pending state while GitHub is queried for the current branch"))
+        var focusIntent = documentTabActions.beginFocusIntent()
+        pullRequestDocumentTask = Task { @MainActor in
+            defer {
+                focusIntent?.cancel()
+                if pullRequestDocumentGeneration == ticket {
+                    pullRequestDocumentGeneration = nil
+                    pullRequestDocumentTask = nil
+                }
+            }
+            let opener = PullRequestDocumentOpener()
+            let sourceUnchanged: @MainActor @Sendable () -> Bool = {
+                guard !Task.isCancelled, self.pullRequestDocumentGeneration == ticket,
+                    let liveSession = self.sessionStore.session(id: session.id),
+                    let livePane = liveSession.layout.pane(id: pane.id),
+                    livePane.executionPlan == pane.executionPlan,
+                    livePane.remotePresentationHost == pane.remotePresentationHost,
+                    livePane.workingDirectory == pane.workingDirectory,
+                    liveSession.workingDirectory == session.workingDirectory,
+                    livePane.terminalSessionID == pane.terminalSessionID
+                else { return false }
+                return true
+            }
+            let stillCurrent: @MainActor @Sendable () -> Bool = {
+                sourceUnchanged() && pane.executionPlan == .local && pane.remotePresentationHost == nil
+            }
+            let result = await opener.open(session: session, pane: pane, ifStillCurrent: stillCurrent)
+            defer {
+                if case .success(let opened) = result {
+                    opener.cache.completeWrite(at: opened.fileURL, leaseID: opened.leaseID)
+                    SessionPersistence.scheduleGeneratedDocumentPrune(keeping: sessionStore)
+                }
+            }
+            guard !Task.isCancelled, pullRequestDocumentGeneration == ticket else { return }
+            let outcome: Result<OpenedPullRequestDocument, PullRequestDocumentFailure> =
+                sourceUnchanged() ? result : .failure(.sourceChanged)
+            if case .failure(.sourceChanged) = outcome {
+                TerminalAccessibilityAnnouncer.announce(PullRequestDocumentFailure.sourceChanged.description)
+            }
+            if case .success(let opened) = outcome {
+                guard stillCurrent(),
+                    let tabID = sessionStore.openDocumentPane(
+                        fileURL: opened.fileURL, in: session.id, associatedWith: pane.id,
+                        generatedDocumentKind: .pullRequest, generatedDocumentTitle: opened.title
+                    )
+                else { return }
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Pull request opened.", comment: "VoiceOver confirmation after opening a read-only pull request snapshot"
+                    ))
+                if let intent = focusIntent, documentTabActions.requestFocus(for: tabID, in: session.id, intent: intent) {
+                    focusIntent = nil
+                }
+            } else if case .failure(let failure) = outcome {
+                let alert = NSAlert()
+                alert.messageText = String(
+                    localized: "Can't Open Pull Request", comment: "Alert title when the connected pull request snapshot could not open")
+                alert.informativeText = failure.description
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: String(localized: "OK"))
+                alert.runModal()
+            }
+        }
+    }
+
     private func showBranchChangesFailureAlert(_ failure: BranchChangesFailure) {
         let alert = NSAlert()
         alert.messageText = String(
@@ -4926,6 +5011,7 @@ struct AwesoMuxApp: App {
             scrollbackDump: presentScrollbackDumpForActivePane,
             openAgentTranscript: openAgentTranscriptForActivePane,
             showBranchChanges: showBranchChangesForActivePane,
+            openPullRequest: openPullRequestForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,
             growActivePane: {
                 sessionStore.resizeActiveSplit(by: 0.05)

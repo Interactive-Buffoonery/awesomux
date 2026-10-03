@@ -1811,6 +1811,8 @@ public final class SessionStore {
         remoteResourceIdentity: ResourceIdentity? = nil,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
         branchChangesIdentity: BranchChangesIdentity? = nil,
+        generatedDocumentKind: GeneratedDocumentKind? = nil,
+        generatedDocumentTitle: String? = nil,
         associationPolicy: DocumentPaneAssociationPolicy = .captureActivePaneWhenNil,
         selectingNewTab: Bool? = nil
     ) -> DocumentPane.ID? {
@@ -1836,6 +1838,8 @@ public final class SessionStore {
                 remoteResourceIdentity: remoteResourceIdentity,
                 agentTranscriptIdentity: agentTranscriptIdentity,
                 branchChangesIdentity: branchChangesIdentity,
+                generatedDocumentKind: generatedDocumentKind,
+                generatedDocumentTitle: generatedDocumentTitle,
                 in: session,
                 now: Date(),
                 selectingNewTab: shouldSelectNewTab

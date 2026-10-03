@@ -1008,6 +1008,9 @@
     "Cache trust decisions per workspace once you have approved them." : {
       "comment" : "Agents settings hint."
     },
+    "Can't Open Pull Request" : {
+      "comment" : "Alert title when the connected pull request snapshot could not open"
+    },
     "Can't Resume This Session" : {
       "comment" : "Alert title shown when a transcript's resume command cannot be staged."
     },
@@ -1086,6 +1089,9 @@
     "Check for Updates…" : {
       "comment" : "App menu command that explicitly checks for awesoMux updates"
     },
+    "Check out a branch to open its pull request." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
     "Check status" : {
 
     },
@@ -1148,6 +1154,12 @@
     },
     "Checking…" : {
       "comment" : "Agent integration card status before the first check lands\nAgent integration status badge while a check is in flight\nSettings label while the Open at Login status is being fetched.\nSettings label while the macOS notification permission state is being fetched."
+    },
+    "Checks" : {
+      "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Checks reflect GitHub's reported rollup at the time this snapshot was opened." : {
+      "comment" : "Explains freshness of GitHub checks in a manually opened snapshot"
     },
     "Choose" : {
       "comment" : "Confirm button for the worktree target path picker."
@@ -1537,11 +1549,17 @@
     "Could not reach %arg, or the session ended." : {
       "comment" : "Description under the remote-owned session overlay title, naming the remote host"
     },
+    "Could not read the pull request. Check GitHub CLI installation and version, authentication, and network access." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
     "Could not read this pane's scrollback." : {
       "comment" : "VoiceOver announcement when Show Scrollback cannot read the terminal history"
     },
     "Could not reload Ghostty configuration." : {
 
+    },
+    "Could not save the pull request document." : {
+      "comment" : "Reason a connected pull request document could not open"
     },
     "Could not start %arg: %arg" : {
       "comment" : "Command launch failure",
@@ -1782,6 +1800,9 @@
     "Deny permission request. Escape when focused." : {
       "comment" : "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
     },
+    "Description" : {
+      "comment" : "Section heading in a read-only pull request snapshot"
+    },
     "Destination" : {
       "comment" : "Remote helper detail label"
     },
@@ -1855,6 +1876,9 @@
     "Disconnected from %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane is blocked because background terminal sessions are disabled"
     },
+    "Discussion" : {
+      "comment" : "Section heading in a read-only pull request snapshot"
+    },
     "Dismiss" : {
       "comment" : "Dismiss a persistent-session restart notice\nDismiss assistant access error."
     },
@@ -1919,6 +1943,9 @@
     },
     "Downloading, verifying, and installing the version matched to this copy of awesoMux." : {
       "comment" : "Remote helper installation progress explanation"
+    },
+    "Draft" : {
+      "comment" : "GitHub pull request draft state in a read-only snapshot"
     },
     "Draft copied" : {
       "comment" : "Draft copy success announcement"
@@ -2263,6 +2290,9 @@
     "GitHub" : {
       "comment" : "About window link to the project repository"
     },
+    "GitHub CLI returned an unsupported response. Update GitHub CLI and try again." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
     "Give it a name and a single-line shell command." : {
       "comment" : "Settings field hint for the add-custom-command button"
     },
@@ -2402,6 +2432,9 @@
     },
     "Info" : {
       "comment" : "Diagnostics event severity"
+    },
+    "Inline Review Comments" : {
+      "comment" : "Section heading in a read-only pull request snapshot"
     },
     "Insert Checkout Command" : {
 
@@ -2686,6 +2719,9 @@
     },
     "More settings…" : {
 
+    },
+    "More than one open pull request matches this branch. Open the intended pull request on GitHub." : {
+      "comment" : "Reason a connected pull request document could not open"
     },
     "Move %@ down" : {
       "comment" : "Move named setup down"
@@ -2993,6 +3029,9 @@
     "No supported editors found" : {
 
     },
+    "No validated local repository is available in this pane." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
     "No workspace overrides" : {
 
     },
@@ -3071,6 +3110,9 @@
     "Open Markdown File…" : {
 
     },
+    "Open Pull Request" : {
+      "comment" : "Command to open the connected pull request for the current branch\nMenu command to open a read-only snapshot of the local branch's connected GitHub pull request"
+    },
     "Open Recent Link" : {
       "comment" : "Command palette action for opening a link detected in a terminal pane"
     },
@@ -3148,6 +3190,9 @@
     },
     "Opening agent transcript." : {
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
+    },
+    "Opening pull request." : {
+      "comment" : "VoiceOver pending state while GitHub is queried for the current branch"
     },
     "Opening session" : {
       "comment" : "Fallback Session Manager action while opening a session"
@@ -3508,6 +3553,12 @@
     "Provider-owned files that report identity and coarse runtime state." : {
       "comment" : "Agents settings subtitle."
     },
+    "Pull Request" : {
+      "comment" : "Fallback tab title for a read-only pull request snapshot"
+    },
+    "Pull Request #%arg" : {
+      "comment" : "Document tab and heading title; argument is the unformatted GitHub pull request number"
+    },
     "Pull request %arg, %arg" : {
       "localizations" : {
         "en" : {
@@ -3517,6 +3568,15 @@
           }
         }
       }
+    },
+    "Pull request documents require a GitHub.com origin remote. Check the origin remote and GitHub CLI authentication." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
+    "Pull request documents require a local pane." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
+    "Pull request opened." : {
+      "comment" : "VoiceOver confirmation after opening a read-only pull request snapshot"
     },
     "Question mark opens shortcuts when text is not focused. Command slash opens shortcuts anywhere. Up and down arrows select a shortcut. Return runs the selected shortcut. Command C copies the selected shortcut. Escape closes." : {
 
@@ -4126,6 +4186,9 @@
     },
     "Reviewed instructions" : {
 
+    },
+    "Reviews" : {
+      "comment" : "Section heading in a read-only pull request snapshot"
     },
     "Revoke" : {
 
@@ -4935,6 +4998,12 @@
     "The preset's layout has more terminals than awesoMux supports." : {
       "comment" : "Failure reason when a layout preset exceeds the terminal count cap."
     },
+    "The pull request document exceeds the supported size limit." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
+    "The pull request lookup reached its result limit. Open the intended pull request on GitHub." : {
+      "comment" : "Reason a connected pull request document could not open"
+    },
     "The remote bridge socket is group- or world-accessible." : {
       "comment" : "Bridge doctor failure reason"
     },
@@ -4955,6 +5024,9 @@
     },
     "The remote helper supports Apple Silicon Macs running macOS 15 or later, and Linux on aarch64 or x86_64." : {
       "comment" : "Unsupported remote helper platform explanation"
+    },
+    "The repository changed before the pull request could open." : {
+      "comment" : "Reason a connected pull request document could not open"
     },
     "The repository changed while awesoMux was reading it, so the diff wouldn't have matched the branch it names. Try again." : {
       "comment" : "Branch diff failure when HEAD moved between the start and end of the read"
@@ -5038,6 +5110,9 @@
     },
     "This agent doesn't support review annotations" : {
       "comment" : "Disabled annotation handoff reason when the document's agent has no annotation protocol mapping"
+    },
+    "This branch has no open pull request in the connected GitHub repository." : {
+      "comment" : "Reason a connected pull request document could not open"
     },
     "This branch matches %arg. There is nothing to show." : {
       "comment" : "Notice in a rendered branch diff when the branch and its base are identical"
@@ -5278,6 +5353,9 @@
     },
     "Unavailable while notifications are muted." : {
 
+    },
+    "Unknown" : {
+      "comment" : "Fallback status when GitHub reports no check status"
     },
     "Unknown Ghostty configuration problem." : {
 
@@ -5850,6 +5928,9 @@
     },
     "promote" : {
       "comment" : "Footer pill label for promoting the Terminal Companion to a workspace."
+    },
+    "pull request snapshot, read-only" : {
+      "comment" : "Spoken qualifier on a generated pull request document tab"
     },
     "re-fetches this remote Markdown file over SSH" : {
       "comment" : "Accessibility/tooltip phrase describing what the remote Markdown Refresh button does"

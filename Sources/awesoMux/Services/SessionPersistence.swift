@@ -517,11 +517,13 @@ enum SessionPersistence {
         var remoteMarkdownSnapshots: Set<URL> = []
         var agentTranscripts: Set<URL> = []
         var branchChanges: Set<URL> = []
+        var pullRequests: Set<URL> = []
     }
 
     static func scheduleGeneratedDocumentPrune(keeping store: SessionStore) {
         let transcriptStore = AgentTranscriptStore()
         let branchChanges = BranchChangesOpener()
+        let pullRequests = PullRequestDocumentOpener()
         let cacheDirectoryURL =
             supportDirectoryURL
             .appending(path: "remote-markdown", directoryHint: .isDirectory)
@@ -529,34 +531,40 @@ enum SessionPersistence {
             keeping: store,
             remoteMarkdown: RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL),
             transcripts: transcriptStore,
-            branchChanges: branchChanges
+            branchChanges: branchChanges,
+            pullRequests: pullRequests
         )
         RemoteMarkdownSnapshotFetcher(cacheDirectoryURL: cacheDirectoryURL)
             .schedulePruneUnreferencedSnapshots(keeping: references.remoteMarkdownSnapshots)
         transcriptStore.schedulePruneUnreferenced(keeping: references.agentTranscripts)
         branchChanges.schedulePruneUnreferenced(keeping: references.branchChanges)
+        pullRequests.cache.schedulePruneUnreferenced(keeping: references.pullRequests)
     }
 
     static func pruneGeneratedDocumentsForTesting(keeping store: SessionStore) {
         let transcriptStore = AgentTranscriptStore()
         let branchChanges = BranchChangesOpener()
+        let pullRequests = PullRequestDocumentOpener()
         let references = generatedDocumentReferences(
             keeping: store,
             remoteMarkdown: RemoteMarkdownSnapshotFetcher(),
             transcripts: transcriptStore,
-            branchChanges: branchChanges
+            branchChanges: branchChanges,
+            pullRequests: pullRequests
         )
         RemoteMarkdownSnapshotFetcher()
             .pruneUnreferencedSnapshotsImmediately(keeping: references.remoteMarkdownSnapshots)
         transcriptStore.pruneUnreferencedImmediately(keeping: references.agentTranscripts)
         branchChanges.pruneUnreferencedImmediately(keeping: references.branchChanges)
+        pullRequests.cache.pruneUnreferencedImmediately(keeping: references.pullRequests)
     }
 
     static func generatedDocumentReferences(
         keeping store: SessionStore,
         remoteMarkdown: RemoteMarkdownSnapshotFetcher = RemoteMarkdownSnapshotFetcher(),
         transcripts: AgentTranscriptStore = AgentTranscriptStore(),
-        branchChanges: BranchChangesOpener = BranchChangesOpener()
+        branchChanges: BranchChangesOpener = BranchChangesOpener(),
+        pullRequests: PullRequestDocumentOpener = PullRequestDocumentOpener()
     ) -> GeneratedDocumentReferences {
         var references = GeneratedDocumentReferences()
         for group in store.groups {
@@ -566,6 +574,7 @@ enum SessionPersistence {
                     remoteMarkdown: remoteMarkdown,
                     transcripts: transcripts,
                     branchChanges: branchChanges,
+                    pullRequests: pullRequests,
                     into: &references
                 )
             }
@@ -579,6 +588,7 @@ enum SessionPersistence {
                 remoteMarkdown: remoteMarkdown,
                 transcripts: transcripts,
                 branchChanges: branchChanges,
+                pullRequests: pullRequests,
                 into: &references
             )
         }
@@ -590,6 +600,7 @@ enum SessionPersistence {
         remoteMarkdown: RemoteMarkdownSnapshotFetcher,
         transcripts: AgentTranscriptStore,
         branchChanges: BranchChangesOpener,
+        pullRequests: PullRequestDocumentOpener,
         into references: inout GeneratedDocumentReferences
     ) {
         switch layout {
@@ -602,6 +613,9 @@ enum SessionPersistence {
                 {
                     references.remoteMarkdownSnapshots.formUnion(siblingURLs)
                     references.remoteMarkdownSnapshots.insert(tab.fileURL)
+                }
+                if tab.generatedDocumentKind == .pullRequest || pullRequests.cache.contains(tab.fileURL) {
+                    references.pullRequests.insert(tab.fileURL)
                 }
                 // Same union of the two signals as the transcript arm below,
                 // for the same reasons.
@@ -627,6 +641,7 @@ enum SessionPersistence {
                 remoteMarkdown: remoteMarkdown,
                 transcripts: transcripts,
                 branchChanges: branchChanges,
+                pullRequests: pullRequests,
                 into: &references
             )
             collectGeneratedDocumentURLs(
@@ -634,6 +649,7 @@ enum SessionPersistence {
                 remoteMarkdown: remoteMarkdown,
                 transcripts: transcripts,
                 branchChanges: branchChanges,
+                pullRequests: pullRequests,
                 into: &references
             )
         }
