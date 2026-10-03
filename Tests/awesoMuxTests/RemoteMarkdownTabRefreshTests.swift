@@ -558,9 +558,10 @@ struct RemoteMarkdownTabRefreshTests {
 
         await box.waitUntilTwo()
 
+        // Restore seeds nonnil banners before fetching; wait for both applied outcomes.
         for _ in 0..<100
-        where RemoteSnapshotStalePolicy.bannerKind(path: pathA) == nil
-            || RemoteSnapshotStalePolicy.bannerKind(path: pathB) == nil
+        where RemoteSnapshotStalePolicy.bannerKind(path: pathA) != .remoteStoppedRefreshing
+            || RemoteSnapshotStalePolicy.bannerKind(path: pathB) != .remoteStoppedRefreshing
         {
             await Task.yield()
         }

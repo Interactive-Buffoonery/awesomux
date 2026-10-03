@@ -70,9 +70,9 @@ struct ClaudeCodexPluginTemplateTests {
 
     static let claude = Provider(
         directory: "claude_code",
-        pluginDirectory: "awesomux-claude-status",
+        pluginDirectory: "awesomux-runtime-status",
         pluginManifestRelativePath: ".claude-plugin/plugin.json",
-        pluginName: "awesomux-claude-status",
+        pluginName: "awesomux-runtime-status",
         helperProviderFlag: "--provider claude-code",
         hookProvider: .claudeCode,
         expectedManifestHooks: nil,

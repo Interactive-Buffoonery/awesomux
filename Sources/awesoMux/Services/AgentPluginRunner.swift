@@ -76,7 +76,7 @@ struct AgentPluginConfirmation: Equatable, Sendable {
     /// or the resolved Codex `CODEX_HOME`.
     var configTargets: [String]
     /// Human command-intent lines rendered verbatim, e.g.
-    /// "claude plugin install awesomux-claude-status@awesomux-claude --scope user".
+    /// "claude plugin install awesomux-runtime-status@awesomux-claude --scope user".
     var commandLines: [String]
 }
 
@@ -494,23 +494,26 @@ struct ProcessAgentPluginRunner: AgentPluginRunner {
         return try renderer.render(provider: provider, setup: setup, helperPath: helper)
     }
 
-    /// The marketplace ref from the rendered tree if it exists, else the bundled
-    /// tree — both carry the same static `marketplace.json`. Pure read.
+    /// The marketplace ref from the bundled tree, with the rendered tree as a
+    /// fallback when bundled resources are unavailable. The bundle is the source
+    /// of truth across app upgrades: a rendered cache can still carry a retired
+    /// plugin identity until the next install action replaces it.
     func marketplaceRef(provider: AgentPluginProvider) throws -> AgentPluginMarketplaceRef {
-        let rendered = renderer.renderedTreeURL(provider: provider)
-        if renderer.fileManager.fileExists(atPath: rendered.path) {
+        let bundled = renderer.bundledTreeURL(provider: provider)
+        if renderer.fileManager.fileExists(atPath: bundled.path) {
             do {
                 return try AgentPluginMarketplaceRef.read(
-                    fromRenderedTreeAt: rendered,
+                    fromRenderedTreeAt: bundled,
                     fileManager: renderer.fileManager
                 )
             } catch {
-                // Treat an unreadable rendered cache like a miss and fall back to
-                // the bundled tree, which carries the same static marketplace.json.
+                // Treat unreadable bundled resources like a miss and fall back
+                // to the last rendered cache so existing installs remain manageable.
             }
         }
+        let rendered = renderer.renderedTreeURL(provider: provider)
         return try AgentPluginMarketplaceRef.read(
-            fromRenderedTreeAt: renderer.bundledTreeURL(provider: provider),
+            fromRenderedTreeAt: rendered,
             fileManager: renderer.fileManager
         )
     }

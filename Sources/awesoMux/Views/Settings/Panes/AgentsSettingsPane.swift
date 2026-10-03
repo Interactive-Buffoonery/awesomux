@@ -61,8 +61,10 @@ struct AgentsSettingsPane: View {
 
             AgentSetupsSettingsSection()
 
+            AssistantAccessSettingsSection()
+
             SettingsSection(
-                index: 3,
+                index: 4,
                 title: String(localized: "Local status hooks", comment: "Agents settings title."),
                 subtitle: String(
                     localized: "Provider-owned files that report identity and coarse runtime state.", comment: "Agents settings subtitle.")
