@@ -85,7 +85,16 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
             commit: { [weak self] request, lease, body in
                 guard let self else { throw LocalAPIError.accessDisabled }
                 return try self.lock.withLock {
-                    _ = try self.authorize(request, matching: lease).get()
+                    guard self.state.globallyEnabled else { throw LocalAPIError.accessDisabled }
+                    guard request.profile == self.state.profile,
+                        request.connectionID == lease.connectionID,
+                        self.state.globalRevision == lease.globalRevision,
+                        let connection = self.state.connections.first(where: { $0.id == lease.connectionID }),
+                        connection.revision == lease.connectionRevision,
+                        connection.statusScope == lease.statusScope
+                    else { throw LocalAPIError.permissionDenied }
+                    // The server retains this lease from credential authorization.
+                    // Every policy change invalidates its revisions before another write.
                     return try body()
                 }
             }

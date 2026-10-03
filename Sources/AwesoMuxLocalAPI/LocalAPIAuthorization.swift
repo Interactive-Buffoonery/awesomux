@@ -87,6 +87,8 @@ public struct LocalAPIAuthorizationProvider: Sendable {
         authorizeRequest(request, expectedLease)
     }
 
+    /// Use the lease returned by authorization for this unchanged request.
+    /// The write path rechecks policy without repeating credential authentication.
     public func commit(
         _ request: LocalAPIRequest,
         lease: LocalAPIAuthorizationLease,
