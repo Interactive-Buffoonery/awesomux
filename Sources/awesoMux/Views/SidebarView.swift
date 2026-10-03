@@ -774,6 +774,8 @@ struct SidebarView: View {
             }
             sessionStore.selectedSessionID = sessionID
         }
+        .environment(ghosttyRuntime)
+        .environment(sessionStore)
         .environment(\.isCommandKeyHeld, isCommandKeyHeld)
         .modifier(CollapsedCommandKeyTracking(isCollapsed: displayMode == .collapsed, isHeld: $isCommandKeyHeld))
     }

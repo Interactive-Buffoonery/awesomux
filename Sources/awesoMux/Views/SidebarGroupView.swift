@@ -517,5 +517,6 @@ struct SidebarGroupView: View {
         // this tile with identical rendered inputs — see
         // `SidebarSessionTile.RenderKey`.
         .equatable()
+        .modifier(SidebarPaneDropTarget(sessionID: session.id, displayMode: displayMode))
     }
 }

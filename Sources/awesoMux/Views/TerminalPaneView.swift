@@ -30,10 +30,12 @@ struct TerminalPaneView: View {
     /// secondary hosts with their own header chrome (floating/companion
     /// panels) pass false or they'd double the header's hairline.
     var abutsWindowTop: Bool = true
-    // One drag coordinator per workspace pane tree. Owned here (the tree's entry
-    // point) so a drag started on one leaf is visible to the drop overlays on
-    // every other leaf; passed down by reference.
-    @State private var dragCoordinator = PaneDragCoordinator()
+    private var dragCoordinator: PaneDragCoordinator { ghosttyRuntime.paneDragCoordinator }
+
+    private struct PaneTreeIdentity: Equatable {
+        let sessionID: TerminalSession.ID
+        let paneIDs: [TerminalPane.ID]
+    }
 
     init(
         session: TerminalSession,
@@ -80,8 +82,10 @@ struct TerminalPaneView: View {
             // continuously, so keying on the whole layout would let a title tick
             // mid-drag cancel the user's drag. `paneIDs` changes on every
             // move/swap (the order changes) but is immune to title churn.
-            .onChange(of: session.layout.paneIDs) { _, _ in
-                dragCoordinator.end()
+            .onChange(of: PaneTreeIdentity(sessionID: session.id, paneIDs: session.layout.paneIDs)) { old, _ in
+                if dragCoordinator.draggedSessionID == old.sessionID {
+                    dragCoordinator.end()
+                }
             }
             .task(id: managedSSHOfferIdentity) {
                 guard let identity = managedSSHOfferIdentity else { return }
@@ -359,6 +363,7 @@ struct TerminalPaneLayoutView: View {
                 // is needed over the origin pane.
                 .overlay {
                     if dragCoordinator.isDragging,
+                        dragCoordinator.draggedSessionID == session.id,
                         dragCoordinator.draggedPaneID != pane.id
                     {
                         PaneDropZonesOverlay(

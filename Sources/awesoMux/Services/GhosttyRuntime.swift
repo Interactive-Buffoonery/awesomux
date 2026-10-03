@@ -14,6 +14,8 @@ import os
 @MainActor
 @Observable
 final class GhosttyRuntime {
+    let paneDragCoordinator = PaneDragCoordinator()
+
     /// Dismissible runtime chrome; never restore a notice from a prior app launch.
     var restartedSessionNotices: [TerminalPane.ID: UUID] = [:]
 

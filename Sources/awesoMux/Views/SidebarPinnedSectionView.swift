@@ -306,5 +306,6 @@ struct SidebarPinnedSectionView: View {
         // unrelated row's store publish reconstructs this tile with
         // identical rendered inputs — see `SidebarSessionTile.RenderKey`.
         .equatable()
+        .modifier(SidebarPaneDropTarget(sessionID: session.id, displayMode: displayMode))
     }
 }
