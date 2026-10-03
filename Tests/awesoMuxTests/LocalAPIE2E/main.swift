@@ -278,6 +278,15 @@ struct LocalAPIE2E {
             try LocalAPIClient.call(LocalAPIRequest(profile: unsafeProfile, operation: .connectionStatus))
         }.value
         try check(recoveredResponse.connectionStatus == .connected, "failed startup releases ownership for same-process retry")
+        checks.append(
+            contentsOf: try await runScopedProjectionGrantScenarios(
+                helper: helper,
+                artifact: artifact,
+                workspace: workspace,
+                firstPaneID: first.id,
+                secondPaneID: second.id
+            )
+        )
         checks.append(contentsOf: try await runGrantScenarios(helper: helper, artifact: artifact, agents: store.localAPIAgents()))
         let report: [String: Any] = [
             "kind": "socket/store/helper and profile-scoped connection grant E2E", "profile": profile, "checks": checks,
@@ -333,6 +342,142 @@ struct LocalAPIE2E {
         guard process.terminationStatus == 0 else {
             throw E2EFailure(message: "helper could not delete a Keychain credential")
         }
+    }
+
+    @MainActor
+    static func runScopedProjectionGrantScenarios(
+        helper: String,
+        artifact: URL,
+        workspace: TerminalSession,
+        firstPaneID: UUID,
+        secondPaneID: UUID
+    ) async throws -> [String] {
+        let profile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let supportDirectory = artifact.appending(path: "projection-grant-profile", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+        let store = SessionStore(groups: [SessionGroup(name: "Projection grants", sessions: [workspace])])
+        let incarnations = [
+            firstPaneID: "local:303:3003",
+            secondPaneID: "local:404:4004",
+        ]
+        let reviewed = store.localAPIAgents(processIncarnations: incarnations)
+        guard
+            let firstAgent = reviewed.first(where: { $0.paneID == firstPaneID }),
+            let secondAgent = reviewed.first(where: { $0.paneID == secondPaneID })
+        else { throw E2EFailure(message: "projection grant scenarios need both agents") }
+
+        let accessStore = LocalAPIAccessStore(profile: profile, supportDirectoryURL: supportDirectory)
+        defer { accessStore.relinquishAuthority() }
+        let firstPending = try accessStore.prepareRegistration(
+            label: "Exact client A",
+            statusScope: .exactTarget(paneID: firstPaneID, targetVersion: firstAgent.targetVersion)
+        )
+        let secondPending = try accessStore.prepareRegistration(
+            label: "Exact client B",
+            statusScope: .exactTarget(paneID: secondPaneID, targetVersion: secondAgent.targetVersion)
+        )
+        let registrations = [firstPending, secondPending]
+        var storedCredentialIDs: [UUID] = []
+        defer {
+            for connectionID in storedCredentialIDs {
+                try? deleteCredential(helper: helper, profile: profile, connectionID: connectionID)
+            }
+        }
+        for pending in registrations {
+            try await storeCredential(
+                helper: helper,
+                profile: profile,
+                connectionID: pending.connection.id,
+                credential: pending.credential
+            )
+            storedCredentialIDs.append(pending.connection.id)
+            try accessStore.activateRegistration(pending)
+        }
+        try accessStore.setGloballyEnabled(true)
+
+        let server = try LocalAPIServer(
+            profile: profile,
+            authorization: accessStore.runtimeAuthority.provider
+        ) { request, instance, lease in
+            guard case .exactTarget(let paneID, _) = lease.statusScope,
+                let incarnation = incarnations[paneID]
+            else {
+                return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
+            }
+            let agents = store.localAPIAgents(
+                processIncarnations: [paneID: incarnation],
+                limitedTo: [paneID]
+            ).filter {
+                lease.statusScope.allows(
+                    paneID: $0.paneID,
+                    workspaceID: $0.workspaceID,
+                    targetVersion: $0.targetVersion
+                )
+            }
+            return LocalAPIResponse(
+                requestID: request.requestID,
+                profile: profile,
+                appInstanceID: instance,
+                capturedAt: Date(),
+                agents: agents
+            )
+        }
+        accessStore.setInvalidationHandler { [weak server] connectionID in
+            server?.invalidate(connectionID: connectionID)
+        }
+        server.start()
+        defer { server.stop() }
+
+        let first = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        let second = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        let firstAgain = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: firstPending.connection.id
+        )
+        let secondAgain = try await callHelper(
+            helper: helper,
+            profile: profile,
+            connectionID: secondPending.connection.id
+        )
+        let passed =
+            first.agents?.map(\.targetVersion) == [firstAgent.targetVersion]
+            && second.agents?.map(\.targetVersion) == [secondAgent.targetVersion]
+            && firstAgain.agents?.map(\.targetVersion) == [firstAgent.targetVersion]
+            && secondAgain.agents?.map(\.targetVersion) == [secondAgent.targetVersion]
+        guard passed else {
+            throw E2EFailure(message: "credentialed disjoint exact grants preserve both target versions")
+        }
+        let projectionCheck = "credentialed disjoint exact grants preserve both target versions"
+        print("PASS: \(projectionCheck)")
+
+        let credentialNeedles = registrations.flatMap { pending -> [Data] in
+            let encoded = LocalAPICredential.encode(pending.credential) ?? ""
+            return [pending.credential, Data(encoded.utf8)]
+        }
+        let artifactFiles =
+            (FileManager.default.enumerator(at: supportDirectory, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? []
+        let artifactData = try artifactFiles.filter(\.isFileURL).reduce(into: Data()) { aggregate, url in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                return
+            }
+            aggregate.append(try Data(contentsOf: url))
+        }
+        guard credentialNeedles.allSatisfy({ !artifactData.contains($0) }) else {
+            throw E2EFailure(message: "scoped projection artifacts contain no credentials")
+        }
+        let artifactCheck = "scoped projection artifacts contain no credentials"
+        print("PASS: \(artifactCheck)")
+        return [projectionCheck, artifactCheck]
     }
 
     @MainActor

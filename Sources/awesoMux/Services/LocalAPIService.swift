@@ -101,7 +101,10 @@ final class LocalAPIService {
                     keys == store.localAPIRoutingKeys().filter({ candidatePaneIDs.contains($0.key) }),
                     sources == runtime.localAPIProcessSources().filter({ candidatePaneIDs.contains($0.key) })
                 else { return LocalAPIResponse(requestID: request.requestID, error: .staleTarget) }
-                agents = store.localAPIAgents(processIncarnations: incarnations).filter {
+                agents = store.localAPIAgents(
+                    processIncarnations: incarnations,
+                    limitedTo: candidatePaneIDs
+                ).filter {
                     lease.statusScope.allows(
                         paneID: $0.paneID,
                         workspaceID: $0.workspaceID,

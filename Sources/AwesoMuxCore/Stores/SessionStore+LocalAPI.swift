@@ -64,13 +64,18 @@ public extension SessionStore {
 
     /// Snapshot capture shares native projection rules and has no selection or
     /// acknowledgment effects. Process observations are supplied by the app.
-    func localAPIAgents(processIncarnations: [UUID: String] = [:], at now: Date = Date()) -> [LocalAPIAgent] {
+    func localAPIAgents(
+        processIncarnations: [UUID: String] = [:],
+        limitedTo paneIDs: Set<UUID>? = nil,
+        at now: Date = Date()
+    ) -> [LocalAPIAgent] {
         localAPITracking = true
         reconcileLocalAPIAssignments()
         let titles = sidebarResolvedTitles()
         return groups.flatMap { group in
             group.sessions.flatMap { session in
                 session.panes.compactMap { pane -> LocalAPIAgent? in
+                    guard paneIDs?.contains(pane.id) ?? true else { return nil }
                     let snapshot = pane.agentSnapshot(at: now)
                     guard snapshot.agentKind != .shell else { return nil }
                     let runtime = runtimeEventReducer.stateByPaneID[pane.id]
@@ -108,7 +113,7 @@ public extension SessionStore {
     }
 
     func validateLocalAPITarget(paneID: UUID, targetVersion: UUID, processIncarnations: [UUID: String]) -> Bool {
-        localAPIAgents(processIncarnations: processIncarnations).contains {
+        localAPIAgents(processIncarnations: processIncarnations, limitedTo: [paneID]).contains {
             $0.paneID == paneID && $0.targetVersion == targetVersion
         }
     }
