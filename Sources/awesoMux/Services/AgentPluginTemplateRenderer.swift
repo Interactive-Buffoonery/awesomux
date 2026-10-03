@@ -36,7 +36,7 @@ enum AgentPluginProvider: String, CaseIterable, Hashable, Sendable {
     var helperPathFileRelativePaths: [String] {
         switch self {
         case .claudeCode:
-            ["plugins/awesomux-claude-status/hooks/hooks.json"]
+            ["plugins/awesomux-runtime-status/hooks/hooks.json"]
         case .codex:
             ["plugins/awesomux-codex-status/hooks/hooks.json"]
         case .grok:

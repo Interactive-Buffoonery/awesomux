@@ -6,7 +6,7 @@ import Foundation
 /// rendered `marketplace.json` rather than hardcoded. The marketplace name is the
 /// manifest's top-level `name`; the plugin name is `plugins[0].name`. The install
 /// ref the provider CLIs consume is `<plugin>@<marketplace>` (decision 6,
-/// Context7-confirmed: e.g. `awesomux-claude-status@awesomux-claude`).
+/// Context7-confirmed: e.g. `awesomux-runtime-status@awesomux-claude`).
 struct AgentPluginMarketplaceRef: Equatable, Sendable {
     var marketplaceName: String
     var pluginName: String

@@ -1,5 +1,5 @@
 {
-  "name": "awesomux-claude-status",
+  "name": "awesomux-runtime-status",
   "version": "0.1.0",
   "description": "Emits coarse runtime status to awesoMux so the sidebar can reflect agent activity.",
   "author": {

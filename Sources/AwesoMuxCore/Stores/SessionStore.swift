@@ -429,6 +429,10 @@ public final class SessionStore {
     /// user-curated: `reconcileLiftedSessionIDs()` owns every write.
     /// Runtime-only; arrival order is not persisted (a relaunch rebuilds it in
     /// group order from the two attention reasons `SessionRestoreReducer` keeps).
+    @ObservationIgnored var localAPITargets: [UUID: LocalAPITargetRecord] = [:]
+    @ObservationIgnored var localAPITracking = false
+    @ObservationIgnored var localAPIInstanceID: UUID?
+
     public internal(set) var liftedSessionIDs: [TerminalSession.ID] = []
 
     /// Panes whose finished turn has gone unanswered long enough that the agent
