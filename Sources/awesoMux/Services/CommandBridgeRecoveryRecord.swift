@@ -11,6 +11,8 @@ import AwesoMuxCore
 final class CommandBridgeRecoveryRecord {
     let terminalSessionID: TerminalSessionID
     var respawnLedger: CommandBridgeRespawnLedger
+    /// Captured once before the first spawn, retained across failed attach heals.
+    var hadEstablishedSessionAtFirstAttach: Bool?
 
     init(
         terminalSessionID: TerminalSessionID,
