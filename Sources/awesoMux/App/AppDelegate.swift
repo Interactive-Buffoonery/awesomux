@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         subsystem: "com.interactivebuffoonery.awesomux",
         category: "lifecycle"
     )
+    private var localAPIService: LocalAPIService?
     var sessionStore: SessionStore?
     private var appSettingsStore: AppSettingsStore?
     private var ghosttyRuntime: GhosttyRuntime?
@@ -818,6 +819,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        localAPIService?.stop()
         windowOrderDiagnostics.stop()
         let riskySessionCount = (sessionStore?.sessionsAtRiskOnQuitCount ?? 0)
             + (floatingPanelController?.sessionsAtRiskOnQuit.count ?? 0)
@@ -932,6 +934,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// practice. If a future refactor makes them non-stable, the focus
     /// tracker baselines (seeded once via `didBindOnce`) will diverge from
     /// the new instance.
+    func startLocalAPI(store: SessionStore, runtime: GhosttyRuntime) {
+        guard localAPIService == nil else { return }
+        localAPIService = LocalAPIService.start(store: store, runtime: runtime)
+    }
+
     func bind(
         sessionStore: SessionStore,
         ghosttyRuntime: GhosttyRuntime,
