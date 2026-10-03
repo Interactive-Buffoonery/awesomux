@@ -130,7 +130,8 @@ Install/Repair validates the new tree before uninstalling the legacy identity,
 then installs `awesomux-runtime-status` in the same user-scoped config home. This
 also detects and removes a legacy install when both identities are present, keeping
 one active status hook and leaving other plugin settings untouched. Disable and
-Remove also resolve the legacy identity so users can manage it before migrating.
+Remove act on every installed identity, so a partial migration cannot leave an
+active duplicate hook or an orphaned install behind.
 
 ### 1.3 Parsing success vs failure
 

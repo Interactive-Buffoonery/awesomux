@@ -427,24 +427,30 @@ extension ProcessAgentPluginRunner {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
         let env = claudeEnvironment(setup: setup)
-        let ref =
-            await claudeExistingRef(
-                preferred: preferredRef,
-                executable: executable,
-                env: env
-            ) ?? preferredRef
-        // `disable` takes no scope (contract §1.2).
-        switch await runMutation(
+        let matches = await claudeExistingRefs(
+            preferred: preferredRef,
             executable: executable,
-            args: ["plugin", "disable", ref.pluginRef],
-            env: env,
-            mapCommandError: { claudeMutationFailure($0, executable: $1) }
-        ) {
-        case .success:
-            return AgentPluginActionOutcome(status: .disabled)
-        case .failure(let outcome):
-            return outcome
+            env: env
+        )
+        let refs =
+            matches.isEmpty
+            ? [preferredRef]
+            : matches.filter { $0.entry.enabled }.map { $0.ref }
+        // `disable` takes no scope (contract §1.2).
+        for ref in refs {
+            switch await runMutation(
+                executable: executable,
+                args: ["plugin", "disable", ref.pluginRef],
+                env: env,
+                mapCommandError: { claudeMutationFailure($0, executable: $1) }
+            ) {
+            case .success:
+                continue
+            case .failure(let outcome):
+                return outcome
+            }
         }
+        return AgentPluginActionOutcome(status: .disabled)
     }
 
     // MARK: Uninstall
@@ -457,19 +463,21 @@ extension ProcessAgentPluginRunner {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
         let env = claudeEnvironment(setup: setup)
-        let ref =
-            await claudeExistingRef(
-                preferred: preferredRef,
-                executable: executable,
-                env: env
-            ) ?? preferredRef
+        let matches = await claudeExistingRefs(
+            preferred: preferredRef,
+            executable: executable,
+            env: env
+        )
+        let refs = matches.isEmpty ? [preferredRef] : matches.map { $0.ref }
 
         // Full uninstall = uninstall plugin, then de-register marketplace
         // (contract §1.2). `marketplace remove` takes `--scope user`; `uninstall`
         // takes `--scope user`.
-        let steps: [MutationStep] = [
-            MutationStep(["plugin", "uninstall", ref.pluginRef, "--scope", "user"]),
-            MutationStep(["plugin", "marketplace", "remove", ref.marketplaceName, "--scope", "user"]),
+        let steps =
+            refs.map { ref in
+                MutationStep(["plugin", "uninstall", ref.pluginRef, "--scope", "user"])
+            } + [
+                MutationStep(["plugin", "marketplace", "remove", preferredRef.marketplaceName, "--scope", "user"])
         ]
         if let failure = await runMutationSteps(
             executable: executable,
@@ -497,19 +505,27 @@ extension ProcessAgentPluginRunner {
     }
 
     func claudeCommandLines(_ action: AgentPluginAction, ref: AgentPluginMarketplaceRef) -> [String] {
+        let targetRefs = Self.uniqueRefs([ref, legacyClaudePluginRef])
         switch action {
         case .enableOrInstall, .repair:
-            [
+            return [
                 "claude plugin validate [generated awesoMux marketplace path]",
                 "claude plugin uninstall \(ref.pluginRef) --scope user (only when replacing a stale install)",
+            ]
+                + targetRefs.filter { $0 != ref }.map {
+                    "claude plugin uninstall \($0.pluginRef) --scope user (only when the legacy install is present)"
+                } + [
                 "claude plugin marketplace add [generated awesoMux marketplace path]",
                 "claude plugin install \(ref.pluginRef) --scope user",
             ]
         case .disable:
-            ["claude plugin disable \(ref.pluginRef)"]
+            return targetRefs.map {
+                "claude plugin disable \($0.pluginRef) (only when installed and enabled)"
+            }
         case .uninstall:
-            [
-                "claude plugin uninstall \(ref.pluginRef) --scope user",
+            return targetRefs.map {
+                "claude plugin uninstall \($0.pluginRef) --scope user (only when installed)"
+            } + [
                 "claude plugin marketplace remove \(ref.marketplaceName) --scope user",
             ]
         }
@@ -560,11 +576,11 @@ extension ProcessAgentPluginRunner {
         return .installed(installPath: entry.installPath)
     }
 
-    private func claudeExistingRef(
+    private func claudeExistingRefs(
         preferred: AgentPluginMarketplaceRef,
         executable: String,
         env: [String: String]
-    ) async -> AgentPluginMarketplaceRef? {
+    ) async -> [(ref: AgentPluginMarketplaceRef, entry: ClaudePluginListEntry)] {
         guard
             let result = try? await commandRunner.run(
                 executable: executable,
@@ -575,11 +591,13 @@ extension ProcessAgentPluginRunner {
             result.isSuccess,
             let entries = try? ClaudePluginList.parse(result.stdout)
         else {
-            return nil
+            return []
         }
         let currentRef = try? marketplaceRef(provider: .claudeCode)
-        return Self.uniqueRefs([preferred, currentRef, legacyClaudePluginRef].compactMap { $0 }).first { ref in
-            entries.contains { $0.matches(ref) }
+        return Self.uniqueRefs([preferred, currentRef, legacyClaudePluginRef].compactMap { $0 }).compactMap { ref in
+            entries.first(where: { $0.matches(ref) }).map { entry in
+                (ref: ref, entry: entry)
+            }
         }
     }
 
