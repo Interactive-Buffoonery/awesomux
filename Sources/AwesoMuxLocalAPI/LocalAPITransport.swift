@@ -57,9 +57,7 @@ struct LocalAPIIO {
     }
 
     func writeFrame(_ fd: Int32, data: Data) throws {
-        let length = UInt32(data.count)
-        var frame = Data([UInt8((length >> 24) & 255), UInt8((length >> 16) & 255), UInt8((length >> 8) & 255), UInt8(length & 255)])
-        frame.append(data)
+        let frame = Self.frame(data)
         var offset = 0
         while offset < frame.count {
             try wait(fd, events: Int16(POLLOUT))
@@ -70,6 +68,29 @@ struct LocalAPIIO {
             guard n > 0 else { throw LocalAPIError.transportFailure }
             offset += n
         }
+    }
+
+    static func frame(_ data: Data) -> Data {
+        let length = UInt32(data.count)
+        var frame = Data([
+            UInt8((length >> 24) & 255),
+            UInt8((length >> 16) & 255),
+            UInt8((length >> 8) & 255),
+            UInt8(length & 255),
+        ])
+        frame.append(data)
+        return frame
+    }
+
+    static func writeNonblockingChunk(_ fd: Int32, frame: Data, offset: Int) throws -> Int {
+        guard offset < frame.count else { return 0 }
+        let count = min(16 * 1024, frame.count - offset)
+        let written = frame.withUnsafeBytes { bytes in
+            send(fd, bytes.baseAddress!.advanced(by: offset), count, MSG_DONTWAIT)
+        }
+        if written < 0, errno == EAGAIN || errno == EINTR { return 0 }
+        guard written > 0 else { throw LocalAPIError.transportFailure }
+        return written
     }
 
     static func configure(_ fd: Int32) throws {

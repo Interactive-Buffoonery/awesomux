@@ -1,6 +1,6 @@
 {
   "date": "2026-10-03",
-  "kind": "socket/store/helper E2E with injected lifecycle fixtures",
+  "kind": "socket/store/helper and profile-scoped connection grant E2E",
   "checks": [
     "helper returns two pane-grain agents",
     "raw native attention reason is retained",
@@ -41,13 +41,41 @@
     "helper rejects peer profile mismatch",
     "helper rejects peer requestID mismatch",
     "helper rejects peer schemaVersion mismatch",
-    "crash successor safely replaces its exact stale socket"
+    "crash successor safely replaces its exact stale socket",
+    "isolated grant store owns its profile authority",
+    "ineligible current target does not select another pane",
+    "registration grants nothing while global access is off",
+    "unregistered handle fails before requesting content",
+    "connection identity without its credential is denied",
+    "wrong credential fails closed without metadata",
+    "credential handles are isolated by profile",
+    "Client A receives only its selected pane",
+    "Client B receives its independently selected workspace",
+    "context instructions and monitoring remain unavailable",
+    "exact grant starts at the reviewed target incarnation",
+    "exact grant expires when the target incarnation changes",
+    "scope edit during capture prevents the old response",
+    "scope edit applies to the next read",
+    "failed scope save keeps a visible retry state",
+    "failed scope save denies the connection immediately",
+    "retry persists and restores the requested scope",
+    "revoked credential is denied even before Keychain deletion",
+    "revoking Client A leaves Client B working",
+    "slow reader cannot stall connection revocation",
+    "slow reader cannot complete a response after revocation",
+    "global disable prevents an in-flight response",
+    "global disable blocks new reads",
+    "global state and remaining grants persist across restart",
+    "remaining helper credential works after app restart",
+    "E2E artifacts contain no raw or encoded credentials",
+    "credentialed disjoint exact grants preserve both target versions",
+    "scoped projection artifacts contain no credentials"
   ],
-  "passed": 40,
-  "nativeAcceptance": "Two real agents, native UI parity, responsiveness and accessibility remain unverified.",
+  "passed": 68,
+  "nativeAcceptance": "Native registration, disjoint real Claude/Codex idle status, independent revocation, global disable, restart persistence, and cleanup passed on 935037d5. Full VoiceOver and Full Keyboard Access audits, rebuilt-helper Keychain prompt behavior, and new error/expiry UI states remain unverified.",
   "nativeTransportChecks": [
     "ordinary staged app starts a default-denied profile endpoint",
     "ordinary app endpoint recovers after process exit/restart"
   ],
-  "nativeTermination": "SIGTERM and restart verified; graceful AppKit quit remains unverified."
+  "nativeTermination": "Native AppKit Command-Q and profile socket removal verified on 935037d5; production app untouched."
 }

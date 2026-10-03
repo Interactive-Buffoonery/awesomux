@@ -1,6 +1,7 @@
 import AppKit
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxLocalAPIAccess
 import DesignSystem
 import os
 import SwiftUI
@@ -934,9 +935,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// practice. If a future refactor makes them non-stable, the focus
     /// tracker baselines (seeded once via `didBindOnce`) will diverge from
     /// the new instance.
-    func startLocalAPI(store: SessionStore, runtime: GhosttyRuntime) {
+    func startLocalAPI(
+        store: SessionStore,
+        runtime: GhosttyRuntime,
+        accessStore: LocalAPIAccessStore
+    ) {
         guard localAPIService == nil else { return }
-        localAPIService = LocalAPIService.start(store: store, runtime: runtime)
+        localAPIService = LocalAPIService.start(store: store, runtime: runtime, accessStore: accessStore)
     }
 
     func bind(
