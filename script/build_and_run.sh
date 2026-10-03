@@ -562,10 +562,8 @@ if [[ "$MODE" == "--stage-local-api-e2e" ]]; then
     echo "error: the local API E2E host requires an isolated linked worktree profile" >&2
     exit 1
   fi
-  swift build -c "$CONFIG"
-else
-  swift build -c "$CONFIG"
 fi
+swift build -c "$CONFIG"
 BUILD_BIN_PATH="$(swift build -c "$CONFIG" --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_PATH/$APP_NAME"
 BUILD_STATUS_HELPER_BINARY="$BUILD_BIN_PATH/$STATUS_HELPER_NAME"
