@@ -125,7 +125,7 @@ extension GhosttySurfaceNSView {
         let mountedContentSize = contentSize
         let enabledFileDropSources = enabledAgentRuntimeFileDropSources
 
-        runtime.discardSurface(for: recovery.paneID)
+        runtime.discardSurface(for: recovery.paneID, preservingRestartNotice: true)
 
         guard let container,
             let liveSession = sessionStore.session(id: recovery.sessionID)

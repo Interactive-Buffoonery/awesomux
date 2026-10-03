@@ -1,6 +1,8 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import Foundation
+import Observation
+import Synchronization
 import Testing
 
 @testable import awesoMux
@@ -54,7 +56,7 @@ struct CommandBridgeEnactorTests {
         let fixture = try makeAgentFixture()
         let enactor = fixture.view.commandBridgeEnactor
         var announcements: [Announcement] = []
-        enactor.announceSessionRespawnedFresh = { announcements.append(.freshRespawn) }
+        enactor.announceSessionRespawnedFresh = { _, _ in announcements.append(.freshRespawn) }
         enactor.announceErrorEntered = { announcements.append(.errorEntered) }
 
         // Live-daemon reconnect: `.detached` maps to `.reconnect`, which
@@ -73,11 +75,11 @@ struct CommandBridgeEnactorTests {
     }
 
     @Test("a fresh daemon incarnation clears transient per-pane agent chrome")
-    func freshIncarnationClearsTransientState() throws {
+    func freshIncarnationClearsTransientState() async throws {
         let fixture = try makeAgentFixture()
         let enactor = fixture.view.commandBridgeEnactor
         var announcements: [Announcement] = []
-        enactor.announceSessionRespawnedFresh = { announcements.append(.freshRespawn) }
+        enactor.announceSessionRespawnedFresh = { _, _ in announcements.append(.freshRespawn) }
         enactor.sessionID = fixture.sessionID
         fixture.view.shellCommandFinishedIdleLatched = true
 
@@ -90,6 +92,64 @@ struct CommandBridgeEnactorTests {
         #expect(pane.agentKind == AgentKind.shell)
         #expect(pane.attentionReason == nil)
         #expect(announcements == [.freshRespawn])
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] != nil)
+        fixture.runtime.clearSessionRestartNotice(for: fixture.paneID)
+        let changes = Mutex(0)
+        withObservationTracking {
+            _ = fixture.runtime.restartedSessionNotices
+        } onChange: {
+            changes.withLock { $0 += 1 }
+        }
+        fixture.runtime.clearSessionRestartNotice(for: fixture.paneID)
+        #expect(changes.withLock { $0 } == 0)
+        enactor.handleStatusEvents([
+            try attachedEvent(
+                pid: 250, createdAt: 1_700_000_150, sessionID: fixture.sessionID, created: false
+            )
+        ])
+        #expect(announcements == [.freshRespawn, .freshRespawn])
+        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] != nil)
+
+        // The pre-spawn breadcrumb, not the post-spawn established write,
+        // distinguishes a saved pane from its very first creation. Established
+        // also includes a previous surface spawn whose attach never completed;
+        // the notice describes the fresh shell without claiming lost processes.
+        for established in [false, true] {
+            for created in [false, true] {
+                let pane = TerminalPane(
+                    terminalBackendMetadata: established ? establishedMetadata : .empty,
+                    title: "restart notice",
+                    workingDirectory: "/tmp", executionPlan: .local
+                )
+                let candidate = try makeFixture(sessionID: pane.terminalSessionID, pane: pane)
+                let bridge = candidate.view.commandBridgeEnactor
+                bridge.attachCommandProvider = { _, _, _, _ in "amx attach" }
+                var notices = 0
+                bridge.announceSessionRespawnedFresh = { _, _ in notices += 1 }
+                let launch = bridge.prepareAttach(for: pane, bridgeEnabled: true)
+                candidate.view.applyPostSpawnPaneState(for: launch)
+                // A failed first attach may prepare again after the spawn stamp.
+                // It must keep the original saved-pane classification.
+                _ = bridge.prepareAttach(for: try #require(candidate.livePane), bridgeEnabled: true)
+                let event = try attachedEvent(
+                    pid: 300, createdAt: 1_700_000_200,
+                    sessionID: pane.terminalSessionID, created: created
+                )
+                bridge.handleStatusEvents([event, event])
+                #expect(notices == (established && created ? 1 : 0))
+                #expect((candidate.runtime.restartedSessionNotices[pane.id] != nil) == (established && created))
+                candidate.runtime.discardSurface(for: pane.id, preservingRestartNotice: true)
+                #expect((candidate.runtime.restartedSessionNotices[pane.id] != nil) == (established && created))
+                candidate.runtime.discardSurface(for: pane.id)
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.main.async { continuation.resume() }
+                }
+                #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
+                candidate.runtime.restartedSessionNotices[pane.id] = UUID()
+                bridge.markError()
+                #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
+            }
+        }
     }
 
     @Test("a clean shell exit clears bridge state and closes without recursing")
@@ -1284,13 +1344,15 @@ struct CommandBridgeEnactorTests {
     private func attachedEvent(
         pid: Int,
         createdAt: Int,
-        sessionID: TerminalSessionID
+        sessionID: TerminalSessionID,
+        created: Bool = true
     ) throws -> AmxStatusEvent {
         try #require(
             Self.attachedStatusEvent(
                 pid: pid,
                 createdAt: createdAt,
-                session: sessionID.rawValue
+                session: sessionID.rawValue,
+                created: created
             )
         )
     }
@@ -1312,11 +1374,12 @@ struct CommandBridgeEnactorTests {
     private static func attachedStatusEvent(
         pid: Int,
         createdAt: Int,
-        session: String = "00000000-0000-4000-8000-000000000001"
+        session: String = "00000000-0000-4000-8000-000000000001",
+        created: Bool = true
     ) -> AmxStatusEvent? {
         let token = "tok"
         let line = """
-            {"event":"attached","token":"\(token)","created":true,"daemon_pid":\(pid),"daemon_created_at":\(createdAt),"session":"\(session)","ts":1700000001}
+            {"event":"attached","token":"\(token)","created":\(created),"daemon_pid":\(pid),"daemon_created_at":\(createdAt),"session":"\(session)","ts":1700000001}
             """
         return AmxStatusEvent.parseLines(line + "\n", expectedToken: token).first
     }
