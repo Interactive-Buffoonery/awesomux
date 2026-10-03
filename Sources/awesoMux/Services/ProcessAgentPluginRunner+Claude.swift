@@ -2,6 +2,11 @@ import AwesoMuxConfig
 import Foundation
 import SecureFileIO
 
+private let legacyClaudePluginRef = AgentPluginMarketplaceRef(
+    marketplaceName: "awesomux-claude",
+    pluginName: "awesomux-claude-status"
+)
+
 // MARK: - Claude Code path
 
 extension ProcessAgentPluginRunner {
@@ -19,14 +24,11 @@ extension ProcessAgentPluginRunner {
     private func claudeStatusReport(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: liveSetup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        let ref: AgentPluginMarketplaceRef
-        if let recordedRef = effectiveRefForRecordedInstall(provider: .claudeCode) {
-            ref = recordedRef
-        } else if let renderedRef = try? marketplaceRef(provider: .claudeCode) {
-            ref = renderedRef
-        } else {
+        guard let currentRef = try? marketplaceRef(provider: .claudeCode) else {
             return AgentPluginStatusReport(status: .unsupported("Bundled marketplace catalog is missing"))
         }
+        let recordedRef = effectiveRefForRecordedInstall(provider: .claudeCode)
+        let refs = Self.uniqueRefs([recordedRef, currentRef, legacyClaudePluginRef].compactMap { $0 })
 
         let args = ["plugin", "list", "--json"]
         let result: CommandResult
@@ -56,7 +58,15 @@ extension ProcessAgentPluginRunner {
             )
         }
 
-        return claudeMapList(result.stdout, setup: setup, ref: ref, executable: executable, args: args)
+        return claudeMapList(
+            result.stdout,
+            setup: setup,
+            refs: refs,
+            currentRef: currentRef,
+            recordedRef: recordedRef,
+            executable: executable,
+            args: args
+        )
     }
 
     private func claudeProbeFailure(
@@ -91,7 +101,9 @@ extension ProcessAgentPluginRunner {
     private func claudeMapList(
         _ stdout: String,
         setup: AgentIntegrationSetup,
-        ref: AgentPluginMarketplaceRef,
+        refs: [AgentPluginMarketplaceRef],
+        currentRef: AgentPluginMarketplaceRef,
+        recordedRef: AgentPluginMarketplaceRef?,
         executable: String,
         args: [String]
     ) -> AgentPluginStatusReport {
@@ -103,8 +115,12 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .unsupported("This claude version does not support plugin list --json"))
         }
 
-        guard let entry = entries.first(where: { $0.matches(ref) }) else {
-            if claudeSettingsEnablePlugin(ref: ref, setup: setup) {
+        guard
+            let match = refs.lazy.compactMap({ ref in
+                entries.first(where: { $0.matches(ref) }).map { (ref, $0) }
+            }).first
+        else {
+            if claudeSettingsEnablePlugin(refs: refs, setup: setup) {
                 return AgentPluginStatusReport(
                     status: .needsRepair(
                         "Claude settings enable the awesoMux status plugin, but Claude does not list it; Repair to reinstall it"
@@ -113,6 +129,7 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .notInstalled)
         }
 
+        let (installedRef, entry) = match
         if !entry.errors.isEmpty {
             return AgentPluginStatusReport(
                 status: .needsRepair("The plugin reported errors: \(entry.errors.joined(separator: "; "))")
@@ -121,6 +138,14 @@ extension ProcessAgentPluginRunner {
 
         if !entry.enabled {
             return AgentPluginStatusReport(status: .disabled)
+        }
+
+        if installedRef != currentRef || recordedRef.map({ $0 != currentRef }) == true {
+            return AgentPluginStatusReport(
+                status: .updateAvailable(
+                    "Update the status plugin to its current identity while keeping the existing marketplace"
+                )
+            )
         }
 
         // Freshness is judged against what Claude actually executes first
@@ -148,7 +173,7 @@ extension ProcessAgentPluginRunner {
     /// check is bounded and fail-closed so arbitrary user config cannot block a
     /// routine status probe or turn unreadable state into a repair claim.
     private func claudeSettingsEnablePlugin(
-        ref: AgentPluginMarketplaceRef,
+        refs: [AgentPluginMarketplaceRef],
         setup: AgentIntegrationSetup
     ) -> Bool {
         let settingsURL = claudeConfigHome(setup: setup).appending(path: "settings.json")
@@ -162,7 +187,7 @@ extension ProcessAgentPluginRunner {
         else {
             return false
         }
-        return settings.enabledPlugins?[ref.pluginRef] == true
+        return refs.contains { settings.enabledPlugins?[$0.pluginRef] == true }
     }
 
     /// Outcome of comparing the entry's deployed cache copy against a fresh
@@ -261,7 +286,7 @@ extension ProcessAgentPluginRunner {
         // "successful" reinstall with the record rewritten — exactly the silent
         // failure the clean-reinstall gate exists to prevent. Without a record
         // there is nothing recorded to target, so the fresh ref stands in.
-        let probeRef = installRecord(provider: .claudeCode)?.pluginRef ?? ref
+        var probeRef = installRecord(provider: .claudeCode)?.pluginRef ?? ref
         var presence: ClaudeInstalledPresence
         do {
             presence = try await claudePresence(ref: probeRef, executable: probeExecutable, env: probeEnv)
@@ -281,6 +306,18 @@ extension ProcessAgentPluginRunner {
             presence =
                 (try? await claudePresence(ref: probeRef, executable: executable, env: probeEnv))
                 ?? .installed(installPath: nil)
+        }
+
+        if case .absent = presence, installRecord(provider: .claudeCode) == nil, probeRef != legacyClaudePluginRef {
+            let legacyPresence = try? await claudePresence(
+                ref: legacyClaudePluginRef,
+                executable: executable,
+                env: env
+            )
+            if let legacyPresence, case .installed = legacyPresence {
+                probeRef = legacyClaudePluginRef
+                presence = legacyPresence
+            }
         }
 
         var steps: [MutationStep] = [
@@ -313,7 +350,8 @@ extension ProcessAgentPluginRunner {
                 ladderProbe: ladderProbe
             )
         }
-        if recordStale != nil || deployedDrift, case .installed = presence {
+        let identityDrift = probeRef != ref
+        if recordStale != nil || deployedDrift || identityDrift, case .installed = presence {
             if let record = recordStale ?? installRecord(provider: .claudeCode) {
                 let recordedSetup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
                 let recordedEnv = claudeEnvironment(setup: recordedSetup)
@@ -324,15 +362,13 @@ extension ProcessAgentPluginRunner {
                         env: recordedEnv
                     )
                 )
-            } else if deployedDrift {
+            } else if deployedDrift || identityDrift {
                 // Deployed drift with no install record (out-of-band or lost-
                 // manifest install). Without an uninstall the version-keyed
                 // install would no-op and leave the stale copy in place forever
                 // — Repair must never be a dead button, so remove by our ref
                 // against the live settings.
-                steps.append(
-                    MutationStep(["plugin", "uninstall", ref.pluginRef, "--scope", "user"])
-                )
+                steps.append(MutationStep(["plugin", "uninstall", probeRef.pluginRef, "--scope", "user"]))
             }
         }
         steps.append(MutationStep(["plugin", "marketplace", "add", root]))
@@ -361,17 +397,22 @@ extension ProcessAgentPluginRunner {
     func claudeDisable(setup: AgentIntegrationSetup) async -> AgentPluginActionOutcome {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        guard
-            let ref = effectiveRefForRecordedInstall(provider: .claudeCode)
-                ?? (try? marketplaceRef(provider: .claudeCode))
+        guard let preferredRef = effectiveRefForRecordedInstall(provider: .claudeCode) ?? (try? marketplaceRef(provider: .claudeCode))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
+        let env = claudeEnvironment(setup: setup)
+        let ref =
+            await claudeExistingRef(
+                preferred: preferredRef,
+                executable: executable,
+                env: env
+            ) ?? preferredRef
         // `disable` takes no scope (contract §1.2).
         switch await runMutation(
             executable: executable,
             args: ["plugin", "disable", ref.pluginRef],
-            env: claudeEnvironment(setup: setup),
+            env: env,
             mapCommandError: { claudeMutationFailure($0, executable: $1) }
         ) {
         case .success:
@@ -386,13 +427,17 @@ extension ProcessAgentPluginRunner {
     func claudeUninstall(setup: AgentIntegrationSetup) async -> AgentPluginActionOutcome {
         let setup = effectiveSetupForRecordedInstall(provider: .claudeCode, current: setup)
         let executable = resolvedExecutable(provider: .claudeCode, setup: setup)
-        guard
-            let ref = effectiveRefForRecordedInstall(provider: .claudeCode)
-                ?? (try? marketplaceRef(provider: .claudeCode))
+        guard let preferredRef = effectiveRefForRecordedInstall(provider: .claudeCode) ?? (try? marketplaceRef(provider: .claudeCode))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
         }
         let env = claudeEnvironment(setup: setup)
+        let ref =
+            await claudeExistingRef(
+                preferred: preferredRef,
+                executable: executable,
+                env: env
+            ) ?? preferredRef
 
         // Full uninstall = uninstall plugin, then de-register marketplace
         // (contract §1.2). `marketplace remove` takes `--scope user`; `uninstall`
@@ -488,6 +533,37 @@ extension ProcessAgentPluginRunner {
             return .absent
         }
         return .installed(installPath: entry.installPath)
+    }
+
+    private func claudeExistingRef(
+        preferred: AgentPluginMarketplaceRef,
+        executable: String,
+        env: [String: String]
+    ) async -> AgentPluginMarketplaceRef? {
+        guard
+            let result = try? await commandRunner.run(
+                executable: executable,
+                args: ["plugin", "list", "--json"],
+                env: env,
+                cwd: nil
+            ),
+            result.isSuccess,
+            let entries = try? ClaudePluginList.parse(result.stdout)
+        else {
+            return nil
+        }
+        let currentRef = try? marketplaceRef(provider: .claudeCode)
+        return Self.uniqueRefs([preferred, currentRef, legacyClaudePluginRef].compactMap { $0 }).first { ref in
+            entries.contains { $0.matches(ref) }
+        }
+    }
+
+    private static func uniqueRefs(_ refs: [AgentPluginMarketplaceRef]) -> [AgentPluginMarketplaceRef] {
+        refs.reduce(into: []) { result, ref in
+            if !result.contains(ref) {
+                result.append(ref)
+            }
+        }
     }
 
     /// Whether the cache copy Claude actually executes differs from what this

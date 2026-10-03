@@ -49,13 +49,10 @@ Status vocabulary the runner reports per provider:
 > an unperformable Spotlight lookup likewise fails open rather than flipping a
 > healthy install to repair.
 
-> **Repo gap to close before the runner ships (Claude side).** The bundled
-> `Resources/AgentIntegrations/claude_code/plugins/awesomux-claude-status/` ships only
-> `hooks/hooks.json`. The Claude plugin CLI requires a marketplace catalog
-> (`marketplace.json`) and a plugin manifest (`.claude-plugin/plugin.json`) to install
-> by name. The runner either (a) renders a local single-plugin marketplace + manifest
-> at install time, or (b) we add them to the bundle. The contract below assumes a
-> local marketplace named `awesomux` containing plugin `awesomux-claude-status`.
+> The bundled `Resources/AgentIntegrations/claude_code/plugins/awesomux-runtime-status/`
+> tree includes `hooks/hooks.json`, the marketplace catalog, and the plugin
+> manifest that the Claude plugin CLI requires for named installation. The
+> runner renders this single-plugin marketplace before installing it.
 
 ---
 
@@ -69,9 +66,9 @@ Docs: code.claude.com/docs/en — `plugins-reference`, `plugin-marketplaces`,
 ```text
 awesomux/                         ← marketplace root (we render/own this)
 ├── .claude-plugin/
-│   └── marketplace.json          ← catalog: lists awesomux-claude-status
+│   └── marketplace.json          ← catalog: lists awesomux-runtime-status
 └── plugins/
-    └── awesomux-claude-status/
+    └── awesomux-runtime-status/
         ├── .claude-plugin/
         │   └── plugin.json        ← manifest; "hooks": "./hooks/hooks.json"
         ├── hooks/
@@ -82,24 +79,24 @@ awesomux/                         ← marketplace root (we render/own this)
 ```
 
 `marketplace.json` minimum: `{ "name": "awesomux-claude", "owner": {...}, "plugins": [ { "name":
-"awesomux-claude-status", "source": "./plugins/awesomux-claude-status", "description": "…" } ] }`.
-`plugin.json` minimum: `{ "name": "awesomux-claude-status", "version": "x.y.z", "hooks":
+"awesomux-runtime-status", "source": "./plugins/awesomux-runtime-status", "description": "…" } ] }`.
+`plugin.json` minimum: `{ "name": "awesomux-runtime-status", "version": "x.y.z", "hooks":
 "./hooks/hooks.json" }`. Components (the `hooks/` dir) live at plugin **root**, only the
 manifest sits in `.claude-plugin/`. (Source: `plugins-reference`, `plugin-marketplaces`.)
 
 ### 1.2 Command contract
 
-Plugin ref is always `awesomux-claude-status@awesomux-claude`. Default scope is `user`; the
+Plugin ref is always `awesomux-runtime-status@awesomux-claude`. Default scope is `user`; the
 runner pins `--scope user` explicitly (global-only install per ADR 0010).
 
 | Op | Command | Required env | Notes |
 | --- | --- | --- | --- |
 | Register catalog | `claude plugin marketplace add <marketplace-root-or-marketplace.json>` | `PATH` to `claude` | Idempotent-ish; adding an already-known marketplace is not a hard failure but re-validates. Local path or path to the `marketplace.json` both accepted. |
 | Validate catalog | `claude plugin validate <marketplace-root>` | — | Pre-flight: checks schema, duplicate names, source path traversal, version mismatch. Run before `add` to convert a malformed render into a clean failure. |
-| Install | `claude plugin install awesomux-claude-status@awesomux-claude --scope user` | `PATH` | Writes `enabledPlugins["awesomux-claude-status@awesomux-claude"] = true` into the scope's `settings.json`. |
-| Uninstall | `claude plugin uninstall awesomux-claude-status@awesomux-claude --scope user` | `PATH` | Removes from `enabledPlugins`. |
-| Disable (keep installed) | `claude plugin disable awesomux-claude-status@awesomux-claude` | `PATH` | Fails if an enabled plugin depends on it (we have none). |
-| Enable | `claude plugin enable awesomux-claude-status@awesomux-claude` | `PATH` | |
+| Install | `claude plugin install awesomux-runtime-status@awesomux-claude --scope user` | `PATH` | Writes `enabledPlugins["awesomux-runtime-status@awesomux-claude"] = true` into the scope's `settings.json`. |
+| Uninstall | `claude plugin uninstall awesomux-runtime-status@awesomux-claude --scope user` | `PATH` | Removes from `enabledPlugins`. |
+| Disable (keep installed) | `claude plugin disable awesomux-runtime-status@awesomux-claude` | `PATH` | Fails if an enabled plugin depends on it (we have none). |
+| Enable | `claude plugin enable awesomux-runtime-status@awesomux-claude` | `PATH` | |
 | De-register catalog | `claude plugin marketplace remove awesomux-claude --scope user` | `PATH` | Full uninstall = uninstall plugin, then remove marketplace. |
 | **Status (authoritative)** | `claude plugin list --json` | `PATH` | Machine-readable. Parse per §1.3. |
 
@@ -125,6 +122,15 @@ repair, record untouched) rather than letting a no-op install masquerade as succ
 Grok deliberately does not get the full step: its registration references a live
 directory whose staleness surfaces through on-disk inspection instead.
 
+**Legacy identity migration.** Releases before the Claude Code reserved-name
+validation used `awesomux-claude-status@awesomux-claude`. Status recognizes that
+identity, including installs that predate the awesoMux install record. Enabled
+legacy installs surface Update available; disabled legacy installs stay Off.
+Install/Repair validates the new tree before uninstalling the legacy identity,
+then installs `awesomux-runtime-status` in the same user-scoped config home. This
+keeps one active status hook and leaves other plugin settings untouched. Disable
+and Remove also resolve the legacy identity so users can manage it before migrating.
+
 ### 1.3 Parsing success vs failure
 
 **Process level.** `claude` is a Node CLI: exit `0` = success, non-zero = failure;
@@ -135,7 +141,7 @@ present binary as a hard failure of that op (surface stderr verbatim).
 **Status level — drive off `claude plugin list --json`.** Each plugin entry carries at
 least `name`, `version`, a marketplace/source, an enabled flag, and an `errors` array
 (documented for dependency/load errors; treat as the general per-plugin error channel).
-Decision table for our entry (`awesomux-claude-status@awesomux-claude`):
+Decision table for our entry (`awesomux-runtime-status@awesomux-claude`):
 
 | Observed | Status |
 | --- | --- |
