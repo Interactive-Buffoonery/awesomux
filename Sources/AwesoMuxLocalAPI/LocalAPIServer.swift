@@ -2,22 +2,30 @@ import Darwin
 import Foundation
 
 public final class LocalAPIServer: @unchecked Sendable {
-    public typealias Authorization = @Sendable (LocalAPIRequest) -> LocalAPIError?
-    public typealias Capture = @MainActor @Sendable (LocalAPIRequest, UUID) async -> LocalAPIResponse
+    public typealias Capture =
+        @MainActor @Sendable (
+            LocalAPIRequest,
+            UUID,
+            LocalAPIAuthorizationLease
+        ) async -> LocalAPIResponse
     private let endpoint: LocalAPIEndpoint
     public let instanceID = UUID()
-    private let authorization: Authorization
+    private let authorization: LocalAPIAuthorizationProvider
     private let capture: Capture
     private let listener: Int32
     private let lock = NSLock()
     private var stopped = false
     private var started = false
-    private var clients = Set<Int32>()
+    private var clients: [Int32: ClientState] = [:]
     private var pendingCaptures = 0
     private let acceptSource: DispatchSourceRead
     private let workers = DispatchGroup()
 
-    public init(profile: String, authorization: @escaping Authorization = { _ in .accessDisabled }, capture: @escaping Capture) throws {
+    public init(
+        profile: String,
+        authorization: LocalAPIAuthorizationProvider = .disabled,
+        capture: @escaping Capture
+    ) throws {
         let endpoint = try LocalAPIEndpoint(profile: profile, create: true)
         self.endpoint = endpoint
         self.authorization = authorization
@@ -78,7 +86,7 @@ public final class LocalAPIServer: @unchecked Sendable {
     public func stop() {
         let shouldResume = lock.withLock {
             stopped = true
-            for fd in clients { shutdown(fd, SHUT_RDWR) }
+            for fd in clients.keys { shutdown(fd, SHUT_RDWR) }
             if !started {
                 started = true
                 return true
@@ -87,6 +95,14 @@ public final class LocalAPIServer: @unchecked Sendable {
         }
         acceptSource.cancel()
         if shouldResume { acceptSource.resume() }
+    }
+
+    public func invalidate(connectionID: UUID? = nil) {
+        lock.withLock {
+            for (fd, state) in clients where connectionID == nil || state.connectionID == connectionID {
+                shutdown(fd, SHUT_RDWR)
+            }
+        }
     }
 
     private var isStopped: Bool { lock.withLock { stopped } }
@@ -107,7 +123,7 @@ public final class LocalAPIServer: @unchecked Sendable {
             }
             let admitted = lock.withLock {
                 guard !stopped, clients.count < LocalAPIContract.maximumClients else { return false }
-                clients.insert(fd)
+                clients[fd] = ClientState()
                 return true
             }
             guard admitted else {
@@ -118,7 +134,7 @@ public final class LocalAPIServer: @unchecked Sendable {
             DispatchQueue.global(qos: .utility).async { [self] in
                 defer {
                     lock.withLock {
-                        clients.remove(fd)
+                        clients.removeValue(forKey: fd)
                         close(fd)
                     }
                     workers.leave()
@@ -132,17 +148,19 @@ public final class LocalAPIServer: @unchecked Sendable {
         let deadline = ContinuousClock.now.advanced(by: .seconds(LocalAPIContract.timeout))
         let io = LocalAPIIO(deadline: deadline, cancelled: { [self] in isStopped })
         var requestID: UUID?
+        var responseBytesWritten = 0
         do {
             let data = try io.readFrame(fd, maximum: LocalAPIContract.maximumRequestBytes, oversized: .requestTooLarge)
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                Set(object.keys).isSubset(of: ["schemaVersion", "requestID", "profile", "operation", "credential"]),
+                Set(object.keys).isSubset(of: ["schemaVersion", "requestID", "profile", "operation", "connectionID", "credential"]),
                 let request = try? LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: data)
             else { throw LocalAPIError.invalidRequest }
             requestID = request.requestID
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == endpoint.profile else { throw LocalAPIError.profileMismatch }
             guard LocalAPIOperation(rawValue: request.operation) != nil else { throw LocalAPIError.unsupportedOperation }
-            if let denied = authorization(request) { throw denied }
+            let lease = try authorization.authorize(request).get()
+            lock.withLock { clients[fd]?.connectionID = lease.connectionID }
             let peerFD = dup(fd)
             guard peerFD >= 0 else { throw LocalAPIError.transportFailure }
             guard fcntl(peerFD, F_SETFD, FD_CLOEXEC) == 0 else {
@@ -163,10 +181,11 @@ public final class LocalAPIServer: @unchecked Sendable {
                 defer { lock.withLock { pendingCaptures -= 1 } }
                 guard box.isActive, !isStopped else { return }
                 let response: LocalAPIResponse
-                if let denied = authorization(request) {
+                switch authorization.authorize(request, matching: lease) {
+                case .failure(let denied):
                     response = LocalAPIResponse(requestID: request.requestID, error: denied)
-                } else {
-                    response = await capture(request, instanceID)
+                case .success:
+                    response = await capture(request, instanceID, lease)
                 }
                 box.complete(response)
             }
@@ -194,14 +213,23 @@ public final class LocalAPIServer: @unchecked Sendable {
             if let error = box.error { throw error }
             if isStopped { throw LocalAPIError.cancelled }
             guard let response = box.response else { throw LocalAPIError.cancelled }
-            if let denied = authorization(request) { throw denied }
             var encoded = try LocalAPIContract.encoder().encode(response)
             if encoded.count > LocalAPIContract.maximumResponseBytes {
                 encoded = try LocalAPIContract.encoder().encode(LocalAPIResponse(requestID: requestID, error: .responseTooLarge))
             }
-            try io.writeFrame(fd, data: encoded)
+            let frame = LocalAPIIO.frame(encoded)
+            var offset = 0
+            while offset < frame.count {
+                try io.wait(fd, events: Int16(POLLOUT))
+                let currentOffset = offset
+                let written = try authorization.commit(request, lease: lease) {
+                    try LocalAPIIO.writeNonblockingChunk(fd, frame: frame, offset: currentOffset)
+                }
+                offset += written
+                responseBytesWritten += written
+            }
         } catch {
-            guard !isStopped,
+            guard !isStopped, responseBytesWritten == 0,
                 let data = try? LocalAPIContract.encoder().encode(
                     LocalAPIResponse(requestID: requestID, error: (error as? LocalAPIError) ?? .transportFailure)
                 )
@@ -212,6 +240,10 @@ public final class LocalAPIServer: @unchecked Sendable {
             try? replyIO.writeFrame(fd, data: data)
         }
     }
+}
+
+private struct ClientState {
+    var connectionID: UUID?
 }
 
 private final class CaptureBox: @unchecked Sendable {

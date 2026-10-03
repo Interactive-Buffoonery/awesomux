@@ -88,6 +88,8 @@ import PackageDescription
                 dependencies: [
                     "AwesoMuxBridgeProtocol",
                     "AwesoMuxLocalAPI",
+                    "AwesoMuxLocalAPIAccess",
+                    "AwesoMuxLocalAPICredentials",
                     "AwesoMuxCore",
                     "AwesoMuxConfig",
                     "DesignSystem",
@@ -99,14 +101,33 @@ import PackageDescription
                 ]
             ),
             .target(name: "AwesoMuxLocalAPI"),
+            .target(
+                name: "AwesoMuxLocalAPICredentials",
+                dependencies: ["AwesoMuxLocalAPI"],
+                linkerSettings: [.linkedFramework("Security")]
+            ),
+            .target(
+                name: "AwesoMuxLocalAPIAccess",
+                dependencies: [
+                    "AwesoMuxConfig",
+                    "AwesoMuxLocalAPI",
+                    "AwesoMuxLocalAPICredentials",
+                    "SecureFileIO",
+                    "UnicodeHygiene",
+                ]
+            ),
             .executableTarget(
                 name: "local-api-e2e",
-                dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxLocalAPI", "AwesoMuxTestSupport"],
+                dependencies: [
+                    "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess",
+                    "AwesoMuxLocalAPICredentials",
+                    "AwesoMuxTestSupport",
+                ],
                 path: "Tests/awesoMuxTests/LocalAPIE2E"
             ),
             .executableTarget(
                 name: "awesomux-agent",
-                dependencies: ["AwesoMuxLocalAPI"]
+                dependencies: ["AwesoMuxLocalAPI", "AwesoMuxLocalAPICredentials"]
             ),
             .target(
                 name: "AwesoMuxConfig",

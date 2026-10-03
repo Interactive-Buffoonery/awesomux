@@ -1,10 +1,7 @@
-#if AWESOMUX_LOCAL_API_E2E && !DEBUG
-    #error("The local API E2E host must never be built in release configuration")
-#endif
-
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import AwesoMuxLocalAPI
+import AwesoMuxLocalAPIAccess
 import Darwin
 import Foundation
 import os
@@ -55,17 +52,18 @@ final class LocalAPIService {
     private let server: LocalAPIServer
     private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPI")
 
-    init(store: SessionStore, runtime: GhosttyRuntime, profile: AppRuntimeProfile = .current) throws {
+    init(
+        store: SessionStore,
+        runtime: GhosttyRuntime,
+        accessStore: LocalAPIAccessStore,
+        profile: AppRuntimeProfile = .current
+    ) throws {
         let profileValue = profile.environmentValue
-        // No production toggle or environment variable enables access. This
-        // compile-only host is built by the E2E driver, never release staging.
-        #if AWESOMUX_LOCAL_API_E2E && DEBUG
-            guard case .development = profile else { throw LocalAPIError.accessDisabled }
-            let authorization: LocalAPIServer.Authorization = { _ in nil }
-        #else
-            let authorization: LocalAPIServer.Authorization = { _ in .accessDisabled }
-        #endif
-        server = try LocalAPIServer(profile: profileValue, authorization: authorization) { [weak store, weak runtime] request, instance in
+        guard accessStore.ownsAuthority, accessStore.loadFailure == nil else { throw LocalAPIError.accessDisabled }
+        server = try LocalAPIServer(
+            profile: profileValue,
+            authorization: accessStore.runtimeAuthority.provider
+        ) { [weak store, weak runtime] request, instance, lease in
             guard let store, let runtime else { return LocalAPIResponse(requestID: request.requestID, error: .appUnavailable) }
             store.bindLocalAPIInstance(instance)
             let operation = LocalAPIOperation(rawValue: request.operation)
@@ -77,8 +75,14 @@ final class LocalAPIService {
                 } catch {
                     return LocalAPIResponse(requestID: request.requestID, error: .staleTarget)
                 }
-                let keys = store.localAPIRoutingKeys()
-                let sources = runtime.localAPIProcessSources()
+                let workspaceIDs = store.localAPIWorkspaceIDs()
+                let candidatePaneIDs = Self.candidatePaneIDs(
+                    for: lease.statusScope,
+                    providers: providers,
+                    workspaceIDs: workspaceIDs
+                )
+                let keys = store.localAPIRoutingKeys().filter { candidatePaneIDs.contains($0.key) }
+                let sources = runtime.localAPIProcessSources().filter { candidatePaneIDs.contains($0.key) }
                 let probeTask = Task.detached(priority: .utility) {
                     return sources.reduce(into: [UUID: String]()) { result, item in
                         guard !Task.isCancelled, let provider = providers[item.key], provider != .shell,
@@ -94,9 +98,16 @@ final class LocalAPIService {
                 }
                 guard !Task.isCancelled else { return LocalAPIResponse(requestID: request.requestID, error: .cancelled) }
                 guard let currentProviders = try? store.localAPIProviders(), providers == currentProviders,
-                    keys == store.localAPIRoutingKeys(), sources == runtime.localAPIProcessSources()
+                    keys == store.localAPIRoutingKeys().filter({ candidatePaneIDs.contains($0.key) }),
+                    sources == runtime.localAPIProcessSources().filter({ candidatePaneIDs.contains($0.key) })
                 else { return LocalAPIResponse(requestID: request.requestID, error: .staleTarget) }
-                agents = store.localAPIAgents(processIncarnations: incarnations)
+                agents = store.localAPIAgents(processIncarnations: incarnations).filter {
+                    lease.statusScope.allows(
+                        paneID: $0.paneID,
+                        workspaceID: $0.workspaceID,
+                        targetVersion: $0.targetVersion
+                    )
+                }
             }
             return LocalAPIResponse(
                 requestID: request.requestID, profile: profileValue, appInstanceID: instance,
@@ -105,19 +116,44 @@ final class LocalAPIService {
                 agents: agents
             )
         }
+        accessStore.setInvalidationHandler { [weak server] connectionID in
+            server?.invalidate(connectionID: connectionID)
+        }
+        store.bindLocalAPIInstance(server.instanceID)
         server.start()
     }
 
     func stop() { server.stop() }
 
-    static func start(store: SessionStore, runtime: GhosttyRuntime) -> LocalAPIService? {
+    static func start(
+        store: SessionStore,
+        runtime: GhosttyRuntime,
+        accessStore: LocalAPIAccessStore
+    ) -> LocalAPIService? {
         // Bare SwiftPM test processes have no supported public runtime profile.
         guard case .test = AppRuntimeProfile.current else {
-            do { return try LocalAPIService(store: store, runtime: runtime) } catch {
+            do { return try LocalAPIService(store: store, runtime: runtime, accessStore: accessStore) } catch {
+                accessStore.relinquishAuthority()
                 logger.error("Local API unavailable: \(String(describing: error), privacy: .public)")
                 return nil
             }
         }
         return nil
+    }
+
+    private static func candidatePaneIDs(
+        for scope: LocalAPITargetScope,
+        providers: [UUID: AgentKind],
+        workspaceIDs: [UUID: UUID]
+    ) -> Set<UUID> {
+        switch scope {
+        case .exactTarget(let paneID, _):
+            return providers[paneID] == nil ? [] : [paneID]
+        case .persistentPanes(let paneIDs):
+            return Set(paneIDs.filter { providers[$0] != nil })
+        case .persistentWorkspaces(let allowedWorkspaceIDs):
+            let allowed = Set(allowedWorkspaceIDs)
+            return Set(workspaceIDs.compactMap { allowed.contains($0.value) ? $0.key : nil })
+        }
     }
 }

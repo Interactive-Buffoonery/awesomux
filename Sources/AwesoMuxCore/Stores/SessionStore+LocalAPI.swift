@@ -39,6 +39,12 @@ public extension SessionStore {
         return providers
     }
 
+    func localAPIWorkspaceIDs() -> [UUID: UUID] {
+        groups.flatMap(\.sessions).reduce(into: [:]) { result, session in
+            for pane in session.panes { result[pane.id] = session.id }
+        }
+    }
+
     func localAPIRoutingKeys() -> [UUID: LocalAPIRoutingKey] {
         localAPITracking = true
         reconcileLocalAPIAssignments()
