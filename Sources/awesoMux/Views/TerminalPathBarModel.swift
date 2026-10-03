@@ -180,14 +180,11 @@ struct TerminalPathBarModel: Equatable, Sendable {
 
     private static func remoteModel(for pane: TerminalPane) -> TerminalPathBarModel? {
         guard let remoteHost = pane.remotePresentationHost else { return nil }
-        // `remoteWorkingDirectory` is only populated for managed SSH plans; a
-        // runtime-observed remote has no delivered cwd, so it falls through to
+        // An observed remote without a delivered directory falls through to
         // `~` instead of the local checkout still tracked in `workingDirectory`.
-        let pathSource =
-            pane.remoteWorkingDirectory
-            ?? (pane.executionPlan.remoteTarget != nil
-                ? pane.workingDirectory
-                : nil)
+        // A declared SSH plan can retain the local directory from conversion;
+        // only delivered remote metadata proves this display's provenance.
+        let pathSource = pane.remoteWorkingDirectory
         let rawPath = pathSource?.trimmingCharacters(in: .newlines)
         let displayPath =
             if let rawPath, !rawPath.isEmpty {
@@ -201,7 +198,7 @@ struct TerminalPathBarModel: Equatable, Sendable {
             activePaneTitle: TerminalAccessibilityPathFormatter.sanitizedForSpeech(pane.title),
             branch: nil,
             revealURL: nil,
-            copyPath: displayPath,
+            copyPath: rawPath?.isEmpty == false ? displayPath : "",
             repoRootPath: nil,
             validatedRepoRootPath: nil,
             gitBranch: nil,

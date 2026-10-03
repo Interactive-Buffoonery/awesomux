@@ -1068,6 +1068,30 @@ extension SessionStore {
         return PaneLayoutReducer.paneChangeKind(from: old, to: new)
     }
 
+    /// Applies display-only OSC 7 metadata from a hand-opened SSH terminal.
+    /// Returns whether the report was accepted, including an unchanged path.
+    @discardableResult
+    public func updateObservedRemoteWorkingDirectory(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        terminalSessionID: TerminalSessionID,
+        expectedHost: String,
+        reportedDirectory: String
+    ) -> Bool {
+        guard selectedSessionID == sessionID,
+            let session = session(id: sessionID), session.activePaneID == paneID,
+            let pane = session.layout.pane(id: paneID),
+            pane.executionPlan == .local, pane.terminalSessionID == terminalSessionID,
+            pane.remoteHost?.caseInsensitiveCompare(expectedHost) == .orderedSame,
+            let directory = RemoteWorkingDirectoryValidator.validatedDaemonReportedDirectory(
+                reportedDirectory, expectedHost: expectedHost, localHostnames: localHostnames)
+        else { return false }
+        guard pane.remoteWorkingDirectory != directory else { return true }
+        return mutatePane(sessionID: sessionID, paneID: paneID) {
+            $0.remoteWorkingDirectory = directory
+        }
+    }
+
     public func noteSubmittedCommand(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
@@ -1204,8 +1228,12 @@ extension SessionStore {
         let pendingProcessReturned =
             pane.hasObservedPendingRemoteSSHProcess
             && (liveness == .idleShell || liveness == .bridged)
+        // A bridged idle sample alone can describe wrapped SSH. Require the
+        // independently sampled terminal foreground to be a recognized shell.
         let confirmedProcessReturned =
-            liveness == .idleShell
+            (liveness == .idleShell
+                || (liveness == .bridged
+                    && ShellRecognition.isRecognizedShell(foregroundCommand ?? "")))
             && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
                 || pane.hasConsumedManagedSSHWorkspaceOffer)
         guard pendingProcessReturned || confirmedProcessReturned else {

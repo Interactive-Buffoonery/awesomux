@@ -54,6 +54,8 @@ struct BridgePollKey: Equatable {
     let isBridgeEstablished: Bool
     let isCommandBridgeEnabled: Bool
     let isActive: Bool
+    let executionPlan: PaneExecutionPlan
+    let remoteHost: String?
 }
 
 struct RemoteIndicatorCopy: Equatable {

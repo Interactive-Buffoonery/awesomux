@@ -930,6 +930,9 @@ struct PaneLayoutReducer: Sendable {
                     // not new remote evidence. A canonicalized symlink's basename
                     // can differ from its original-path title.
                     if !isLocalDirectoryTitle {
+                        if pane.executionPlan == .local, originalPane.remoteHost?.caseInsensitiveCompare(host) != .orderedSame {
+                            pane.remoteWorkingDirectory = nil
+                        }
                         pane.remoteHost = host
                         if let pendingTarget = pane.pendingRemoteSSHTarget {
                             pane.remoteSSHTarget = pendingTarget

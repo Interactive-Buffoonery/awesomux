@@ -1537,6 +1537,9 @@
     "Could not connect to %arg, or the connection ended." : {
       "comment" : "Description under the SSH connection failed overlay title, naming the remote host"
     },
+    "Could not copy the remote path." : {
+      "comment" : "Accessibility announcement when Copy Path cannot write the remote directory to the clipboard"
+    },
     "Could not copy the scrollback." : {
       "comment" : "VoiceOver announcement when the scrollback sheet's Copy button failed to write to the clipboard"
     },
@@ -2537,6 +2540,9 @@
     },
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
+    },
+    "Last reported remote directory: %arg. The report may be from an earlier SSH connection." : {
+      "comment" : "Help for the cached remote working directory shown in the path bar"
     },
     "Last Visible Terminal Output" : {
       "comment" : "Caption for best-effort screen output captured before a failed remote pane was disposed"
@@ -3877,7 +3883,7 @@
     "Remote session on %arg" : {
       "comment" : "Tooltip for the remote host badge in a pane title bar.\nVoiceOver label for a remote path-bar button; the argument is the SSH host"
     },
-    "Remote session on %arg. Local Path Bar features (git, reveal, copy) are unavailable over SSH." : {
+    "Remote session on %arg. Local Path Bar features (git and reveal) are unavailable over SSH." : {
       "comment" : "Help for a remote path-bar button; the argument is the SSH host"
     },
     "Remote session unavailable" : {
@@ -3891,6 +3897,9 @@
     },
     "Remote terminal works; rich agent features are off." : {
       "comment" : "Bridge doctor degradation banner when the bridge is down"
+    },
+    "Remote working directory unavailable." : {
+
     },
     "Remove" : {
       "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"

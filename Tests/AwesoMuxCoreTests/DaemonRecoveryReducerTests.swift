@@ -46,21 +46,32 @@ struct DaemonRecoveryReducerTests {
 
         #expect(recovered != nil)
         #expect(groups[0].sessions[0].workingDirectory == "/tmp")
+        #expect(groups[0].sessions[0].activePane?.remoteWorkingDirectory == nil)
     }
 
     @Test(
         "remote recovery validates directory form without checking the local filesystem",
         arguments: [
-            ("/remote/unsafe\npath", "~"),
-            ("relative/project", "~"),
-            ("file://[invalid/path", "~"),
-            ("file://remote/project?query", "~"),
-            ("file://remote/project%0Aunsafe", "~"),
-            ("/remote-only-daemon-recovery/project", "/remote-only-daemon-recovery/project"),
-            ("file://remote/remote-only-daemon-recovery/project", "/remote-only-daemon-recovery/project"),
+            (nil as String?, "~", nil as String?),
+            ("~", "~", nil),
+            ("/remote/unsafe\npath", "~", nil),
+            ("relative/project", "~", nil),
+            ("file://[invalid/path", "~", nil),
+            ("file://remote.example/project?query", "~", nil),
+            ("file://remote.example/project%0Aunsafe", "~", nil),
+            ("/remote-only-daemon-recovery/project", "/remote-only-daemon-recovery/project", nil),
+            ("file://remote/remote-only-daemon-recovery/project", "/remote-only-daemon-recovery/project", nil),
+            ("file://REMOTE.EXAMPLE/private/tmp", "/private/tmp", "/private/tmp"),
+            ("file://localhost/private/tmp", "/private/tmp", nil),
+            ("file://demo@remote.example/private/tmp", "/private/tmp", nil),
+            ("file://remote.example:22/private/tmp", "/private/tmp", nil),
+            (
+                "file://remote.example/" + String(repeating: "a", count: 256 - "file://remote.example/".utf8.count),
+                "/" + String(repeating: "a", count: 256 - "file://remote.example/".utf8.count), nil
+            ),
         ]
     )
-    func validatesRemoteDirectory(reported: String, expected: String) throws {
+    func validatesRemoteDirectory(reported: String?, expected: String, trusted: String?) throws {
         let remote = try #require(RemoteTarget(user: "demo", host: "remote.example"))
         let recoveryMetadata = DaemonRecoveryMetadata(
             workspaceTitle: "Build", paneTitle: "Codex", groupID: nil,
@@ -75,6 +86,7 @@ struct DaemonRecoveryReducerTests {
         let session = try #require(groups.first?.sessions.first)
         #expect(session.workingDirectory == expected)
         #expect(session.activePane?.workingDirectory == expected)
+        #expect(session.activePane?.remoteWorkingDirectory == trusted)
         #expect(session.activePane?.executionPlan == .ssh(SSHExecution(target: remote)))
     }
 
