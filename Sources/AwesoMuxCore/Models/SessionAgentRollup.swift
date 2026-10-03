@@ -9,7 +9,6 @@ public struct PaneAgentSnapshot: Equatable, Sendable {
     public let agentKind: AgentKind
     public let state: AgentDisplayState
     public let unread: Int
-    public let isQuitRisk: Bool
     /// Raw `attentionReason != nil` for the pane — the acknowledgement signal.
     /// Carried separately from `state` so the rollup's `attentionPaneIDs` derives
     /// from the SAME condition as `TerminalSession.needsAcknowledgement` instead
@@ -29,7 +28,6 @@ public struct PaneAgentSnapshot: Equatable, Sendable {
         agentKind: AgentKind,
         state: AgentDisplayState,
         unread: Int,
-        isQuitRisk: Bool,
         needsAcknowledgement: Bool,
         attentionReason: AttentionReason? = nil
     ) {
@@ -37,7 +35,6 @@ public struct PaneAgentSnapshot: Equatable, Sendable {
         self.agentKind = agentKind
         self.state = state
         self.unread = unread
-        self.isQuitRisk = isQuitRisk
         self.needsAcknowledgement = needsAcknowledgement
         self.attentionReason = attentionReason
     }
@@ -60,7 +57,7 @@ public struct SessionAgentRollup: Equatable, Sendable {
 
     /// The panes this rollup was folded from. Retained so the pane-ID
     /// projections below stay LAZY: the hot render path reads only
-    /// `state`/`winningPaneID`/`winningAgentKind`/`unreadTotal`, so the two
+    /// `state`/`winningPaneID`/`winningAgentKind`/`unreadTotal`, so the
     /// filters are deferred to the rare caller that actually needs them.
     private let snapshots: [PaneAgentSnapshot]
 
@@ -69,10 +66,6 @@ public struct SessionAgentRollup: Equatable, Sendable {
     /// `TerminalSession.needsAcknowledgement` (C1).
     public var attentionPaneIDs: [UUID] {
         snapshots.filter(\.needsAcknowledgement).map(\.paneID)
-    }
-
-    public var quitRiskPaneIDs: [UUID] {
-        snapshots.filter(\.isQuitRisk).map(\.paneID)
     }
 
     /// Attention reasons of every acknowledgement-needing pane (INT-642 dedup

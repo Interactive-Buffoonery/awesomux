@@ -45,7 +45,4 @@ public struct ExecutionContext: Hashable, Sendable {
         }
     }
 
-    public func resourceIdentity(for path: ResourcePath) -> ResourceIdentity {
-        ResourceIdentity(location: plan.location, path: path)
-    }
 }

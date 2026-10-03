@@ -47,16 +47,40 @@ public enum SidebarPinnedProjection {
         isFiltering: Bool,
         searchTopMatch: TerminalSession.ID?
     ) -> Output {
-        guard !pinnedSessionIDs.isEmpty else {
+        let partition = SidebarLiftedPartition.apply(
+            entries: entries,
+            orderedSessionIDs: pinnedSessionIDs,
+            isFiltering: isFiltering,
+            searchTopMatch: searchTopMatch
+        )
+        return Output(pinned: partition.lifted, entries: partition.entries, topMatch: partition.topMatch)
+    }
+}
+
+/// Shared ordered partition; each projection owns membership and precedence.
+enum SidebarLiftedPartition {
+    struct Output {
+        let lifted: [LiftedSessionEntry]
+        let entries: [SidebarGroupEntry]
+        let topMatch: TerminalSession.ID?
+    }
+
+    static func apply(
+        entries: [SidebarGroupEntry],
+        orderedSessionIDs: [TerminalSession.ID],
+        isFiltering: Bool,
+        searchTopMatch: TerminalSession.ID?
+    ) -> Output {
+        guard !orderedSessionIDs.isEmpty else {
             return Output(
-                pinned: [],
+                lifted: [],
                 entries: entries,
                 topMatch: isFiltering ? searchTopMatch : nil
             )
         }
 
-        let pinnedIDSet = Set(pinnedSessionIDs)
-        var pinnedByID: [TerminalSession.ID: LiftedSessionEntry] = [:]
+        let liftedIDSet = Set(orderedSessionIDs)
+        var liftedByID: [TerminalSession.ID: LiftedSessionEntry] = [:]
         var remaining: [SidebarGroupEntry] = []
         remaining.reserveCapacity(entries.count)
 
@@ -64,8 +88,8 @@ public enum SidebarPinnedProjection {
             var kept: [SidebarSessionEntry] = []
             kept.reserveCapacity(groupEntry.sessions.count)
             for sessionEntry in groupEntry.sessions {
-                if pinnedIDSet.contains(sessionEntry.session.id) {
-                    pinnedByID[sessionEntry.session.id] = LiftedSessionEntry(
+                if liftedIDSet.contains(sessionEntry.session.id) {
+                    liftedByID[sessionEntry.session.id] = LiftedSessionEntry(
                         entry: sessionEntry,
                         originGroup: groupEntry.group,
                         originGroupUnfilteredIndex: groupEntry.unfilteredIndex
@@ -74,7 +98,7 @@ public enum SidebarPinnedProjection {
                     kept.append(sessionEntry)
                 }
             }
-            // While filtering, a group whose only matches were pinned has
+            // While filtering, a group whose only matches were lifted has
             // nothing left to show; unfiltered empty groups stay so the
             // empty-group drop target keeps working.
             if kept.isEmpty && isFiltering { continue }
@@ -87,13 +111,11 @@ public enum SidebarPinnedProjection {
             )
         }
 
-        let pinned = pinnedSessionIDs.compactMap { pinnedByID[$0] }
-        // The Pinned section renders above every group, so while filtering the
-        // "first visible match" Return commits to is a pinned match when one
-        // exists.
+        let lifted = orderedSessionIDs.compactMap { liftedByID[$0] }
+        // Lifted rows render above the remaining groups.
         let topMatch = isFiltering
-            ? (pinned.first?.entry.session.id ?? searchTopMatch)
+            ? (lifted.first?.entry.session.id ?? searchTopMatch)
             : nil
-        return Output(pinned: pinned, entries: remaining, topMatch: topMatch)
+        return Output(lifted: lifted, entries: remaining, topMatch: topMatch)
     }
 }

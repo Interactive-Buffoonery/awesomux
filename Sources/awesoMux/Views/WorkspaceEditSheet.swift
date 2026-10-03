@@ -6,7 +6,6 @@ struct WorkspaceEditSheet: View {
     let onCancel: () -> Void
     let onSave: (String) -> Void
     @State private var draftTitle: String
-    @State private var isSaving = false
     @FocusState private var isTitleFocused: Bool
 
     init(
@@ -73,7 +72,7 @@ struct WorkspaceEditSheet: View {
     }
 
     private func save() {
-        guard !isSaving, !trimmedTitle.isEmpty else {
+        guard !trimmedTitle.isEmpty else {
             return
         }
 
@@ -82,7 +81,6 @@ struct WorkspaceEditSheet: View {
             return
         }
 
-        isSaving = true
         onSave(trimmedTitle)
     }
 }

@@ -65,12 +65,9 @@ public struct WorkspaceNotificationTracker: Sendable {
                         continue
                     }
 
-                    let channels = policy.channels(
-                        executionState: pane.agentExecutionState,
+                    let attentionEligible = policy.isAttentionEligible(
                         attentionReason: pane.attentionReason,
-                        focusContext: focusContext,
-                        outputMarksNeedsAttention: outputMarksNeedsAttention,
-                        isWorkspaceMuted: session.notificationsMuted
+                        outputMarksNeedsAttention: outputMarksNeedsAttention
                     )
 
                     // Turn-end (.waiting, no blocking prompt) is opt-in and,
@@ -85,7 +82,7 @@ public struct WorkspaceNotificationTracker: Sendable {
                         && outputMarksNeedsAttention
                         && turnDoneFocusOK
 
-                    if channels.isEmpty && !waitingTurnCompletionCanNotify {
+                    if !attentionEligible && !waitingTurnCompletionCanNotify {
                         // Pane is no longer notification-eligible (e.g. acked into
                         // .running). Reset its baseline so a later attention
                         // episode starts from zero.
@@ -99,9 +96,11 @@ public struct WorkspaceNotificationTracker: Sendable {
                     // toggled off must not (a) claim the workspace banner as
                     // `.needsAttention` only for `shouldDeliver` to drop it, nor
                     // (b) advance its baseline and starve a deliverable turn-done
-                    // sibling. `channels.contains(.macOSNotification)` alone knows
+                    // sibling. Attention eligibility alone knows
                     // `attentionReason != nil`, not the toggle.
-                    let needsAttentionCanNotify = channels.contains(.macOSNotification)
+                    let needsAttentionCanNotify =
+                        attentionEligible
+                        && focusContext != .selectedWorkspaceActive
                         && notifyOnNeedsAttention
                     if (needsAttentionCanNotify || waitingTurnCompletionCanNotify),
                        currentCount > previousCount {
