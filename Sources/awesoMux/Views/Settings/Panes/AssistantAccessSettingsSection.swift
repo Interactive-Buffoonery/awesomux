@@ -13,6 +13,7 @@ struct AssistantAccessSettingsSection: View {
     @State private var editorErrorMessage: String?
     @State private var revoking: LocalAPIConnectionGrant?
     @State private var errorMessage: String?
+    @State private var copyErrorMessage: String?
     @State private var isWorking = false
 
     var body: some View {
@@ -91,7 +92,7 @@ struct AssistantAccessSettingsSection: View {
 
             if let visibleErrorMessage {
                 SettingsField(
-                    label: String(localized: "Access change failed", comment: "Assistant access error label."),
+                    label: visibleErrorLabel,
                     hint: visibleErrorMessage,
                     hintColor: Color.aw.peach
                 ) {
@@ -103,6 +104,7 @@ struct AssistantAccessSettingsSection: View {
                         } else {
                             Button(String(localized: "Dismiss", comment: "Dismiss assistant access error.")) {
                                 errorMessage = nil
+                                copyErrorMessage = nil
                             }
                         }
                     }
@@ -148,7 +150,14 @@ struct AssistantAccessSettingsSection: View {
     }
 
     private var visibleErrorMessage: String? {
-        accessStore.persistenceFailureMessage ?? errorMessage
+        accessStore.persistenceFailureMessage ?? errorMessage ?? copyErrorMessage
+    }
+
+    private var visibleErrorLabel: String {
+        if accessStore.persistenceFailureMessage == nil, errorMessage == nil, copyErrorMessage != nil {
+            return String(localized: "Copy failed", comment: "Assistant helper-command copy error label.")
+        }
+        return String(localized: "Access change failed", comment: "Assistant access error label.")
     }
 
     private var workspaces: [AssistantAccessWorkspace] {
@@ -171,7 +180,7 @@ struct AssistantAccessSettingsSection: View {
         Task { @MainActor in
             defer { isWorking = false }
             do {
-                var targetVersions = try await captureTargetVersions()
+                let targetVersions = try await captureTargetVersions()
                 let currentTarget = LocalAPITargetScope.currentTarget(
                     activePaneID: sessionStore.selectedSession?.activePaneID,
                     targetVersions: targetVersions
@@ -186,14 +195,17 @@ struct AssistantAccessSettingsSection: View {
                 let request: ConnectionEditorRequest
                 switch connection?.statusScope {
                 case .exactTarget(let paneID, let targetVersion):
-                    targetVersions[paneID] = targetVersion
                     request = ConnectionEditorRequest(
                         connectionID: connection?.id,
                         label: connection?.label ?? "",
                         scopeKind: .currentTarget,
                         selectedPaneIDs: [paneID],
                         selectedWorkspaceIDs: [],
-                        targetVersions: targetVersions
+                        targetVersions: targetVersions,
+                        reviewedExactTarget: AssistantAccessReviewedTarget(
+                            paneID: paneID,
+                            targetVersion: targetVersion
+                        )
                     )
                 case .persistentPanes(let paneIDs):
                     request = ConnectionEditorRequest(
@@ -225,7 +237,7 @@ struct AssistantAccessSettingsSection: View {
                 }
                 editor = request
             } catch {
-                errorMessage = String(localized: "awesoMux could not verify current targets for registration.")
+                errorMessage = String(localized: "awesoMux could not verify current targets for this connection.")
             }
         }
     }
@@ -281,8 +293,7 @@ struct AssistantAccessSettingsSection: View {
 
             HStack(spacing: 8) {
                 Button(String(localized: "Copy Helper Command")) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(helperCommand(connection), forType: .string)
+                    copyHelperCommand(connection)
                 }
                 Button(String(localized: "Edit Scope…")) { presentEditor(connection) }
                     .disabled(!canMutate)
@@ -325,6 +336,17 @@ struct AssistantAccessSettingsSection: View {
             "\(helper.shellQuoted) --profile \(accessStore.state.profile.shellQuoted) --credential-handle \(connection.id.uuidString.lowercased()) list_agents"
     }
 
+    private func copyHelperCommand(_ connection: LocalAPIConnectionGrant) {
+        copyErrorMessage = nil
+        NSPasteboard.general.clearContents()
+        guard NSPasteboard.general.setString(helperCommand(connection), forType: .string) else {
+            let message = String(localized: "awesoMux could not copy the helper command.")
+            copyErrorMessage = message
+            TerminalAccessibilityAnnouncer.announce(message)
+            return
+        }
+    }
+
     private func setGloballyEnabled(_ enabled: Bool) {
         do {
             try accessStore.setGloballyEnabled(enabled)
@@ -353,6 +375,11 @@ struct AssistantAccessSettingsSection: View {
                 }
                 editor = nil
                 errorMessage = nil
+            } catch LocalAPICredentialBrokerError.cleanupFailed {
+                editorErrorMessage = String(
+                    localized:
+                        "The connection was not registered, and awesoMux could not remove its unused Keychain credential."
+                )
             } catch {
                 editorErrorMessage =
                     accessStore.persistenceFailureMessage
@@ -424,6 +451,12 @@ private struct ConnectionEditorRequest: Identifiable {
     var selectedPaneIDs: Set<UUID>
     var selectedWorkspaceIDs: Set<UUID>
     var targetVersions: [UUID: UUID]
+    var reviewedExactTarget: AssistantAccessReviewedTarget? = nil
+}
+
+private struct AssistantAccessReviewedTarget {
+    let paneID: UUID
+    let targetVersion: UUID
 }
 
 private struct AssistantConnectionEditor: View {
@@ -518,12 +551,22 @@ private struct AssistantConnectionEditor: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
+            if let exactTargetExpiryMessage {
+                Label(
+                    exactTargetExpiryMessage,
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(Color.aw.peach)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(Color.aw.peach)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(String(format: String(localized: "Registration failed: %@"), errorMessage))
+                    .accessibilityLabel(String(format: String(localized: "Connection change failed: %@"), errorMessage))
             }
 
             HStack {
@@ -545,7 +588,8 @@ private struct AssistantConnectionEditor: View {
         switch draft.scopeKind {
         case .currentTarget:
             let paneID = draft.selectedPaneIDs.first!
-            return .exactTarget(paneID: paneID, targetVersion: draft.targetVersions[paneID]!)
+            let currentTargetVersion = draft.targetVersions[paneID]!
+            return .exactTarget(paneID: paneID, targetVersion: currentTargetVersion)
         case .panes:
             return .persistentPanes(draft.selectedPaneIDs.sorted { $0.uuidString < $1.uuidString })
         case .workspaces:
@@ -566,6 +610,21 @@ private struct AssistantConnectionEditor: View {
             hasSelection = !draft.selectedWorkspaceIDs.isEmpty
         }
         return hasSelection && (draft.connectionID != nil || !draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private var exactTargetExpiryMessage: String? {
+        guard draft.scopeKind == .currentTarget,
+            let reviewed = draft.reviewedExactTarget,
+            draft.selectedPaneIDs == [reviewed.paneID]
+        else { return nil }
+        guard let currentTargetVersion = draft.targetVersions[reviewed.paneID] else {
+            return String(localized: "This grant expired. Select an available target to renew access.")
+        }
+        guard currentTargetVersion != reviewed.targetVersion else { return nil }
+        return String(
+            localized:
+                "This grant expired because the target incarnation changed. Saving refreshes it to the selected pane's current target."
+        )
     }
 
     private var selectedExactPaneID: Binding<UUID?> {

@@ -1388,6 +1388,9 @@
     "Connected-computer access" : {
       "comment" : "Assistant access boundary label."
     },
+    "Connection change failed: %@" : {
+      "comment" : "Accessibility label for a failed assistant connection registration or scope edit."
+    },
     "Connection name" : {
 
     },
@@ -1417,6 +1420,9 @@
     },
     "Copy Draft" : {
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
+    },
+    "Copy failed" : {
+      "comment" : "Assistant helper-command copy error label."
     },
     "Copy Helper Command" : {
 
@@ -3605,9 +3611,6 @@
     "Registration creates a credential in your Keychain through the bundled helper. The credential is never shown or copied." : {
       "comment" : "Assistant registration credential disclosure."
     },
-    "Registration failed: %@" : {
-
-    },
     "Reload Ghostty Configuration" : {
 
     },
@@ -4706,6 +4709,9 @@
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
     },
+    "The connection was not registered, and awesoMux could not remove its unused Keychain credential." : {
+      "comment" : "Assistant registration failure after compensating credential cleanup also failed."
+    },
     "The current directory cannot be used to launch an agent setup. Choose an accessible directory owned by your user." : {
       "comment" : "Agent setup launch rejected by the shared startup directory safety check"
     },
@@ -4999,6 +5005,12 @@
     },
     "This generated document cannot be edited." : {
       "comment" : "Alert body when a generated document has unknown provenance"
+    },
+    "This grant expired. Select an available target to renew access." : {
+      "comment" : "Assistant exact-target grant warning when its pane is unavailable."
+    },
+    "This grant expired because the target incarnation changed. Saving refreshes it to the selected pane's current target." : {
+      "comment" : "Assistant exact-target grant expiry warning."
     },
     "This grant expires when the selected pane's target incarnation changes." : {
 
@@ -5492,6 +5504,9 @@
     "awesoMux could not create an owner-only local listener." : {
       "comment" : "Bridge doctor failure reason"
     },
+    "awesoMux could not copy the helper command." : {
+
+    },
     "awesoMux could not establish a trusted remote path for this link." : {
       "comment" : "Explanation for rejecting an unsafe or unresolved remote Markdown path"
     },
@@ -5507,7 +5522,7 @@
     "awesoMux could not save this connection." : {
 
     },
-    "awesoMux could not verify current targets for registration." : {
+    "awesoMux could not verify current targets for this connection." : {
 
     },
     "awesoMux couldn't find a branch to compare against. It looks for origin's default branch, then main or master — a repository with no remote, no commits, or differently named branches has none of them." : {

@@ -2,13 +2,16 @@ import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import Darwin
 import Foundation
+import os
 
 enum LocalAPICredentialBrokerError: Error {
     case helperUnavailable
     case helperFailed
+    case cleanupFailed
 }
 
 struct LocalAPICredentialBroker: Sendable {
+    private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPICredentialBroker")
     let helperURL: URL
 
     init(bundle: Bundle = .main) {
@@ -21,10 +24,11 @@ struct LocalAPICredentialBroker: Sendable {
         label: String,
         statusScope: LocalAPITargetScope
     ) async throws -> LocalAPIConnectionGrant {
+        let profile = store.state.profile
         let pending = try store.prepareRegistration(label: label, statusScope: statusScope)
         try await runCredentialCommand(
             "store",
-            profile: store.state.profile,
+            profile: profile,
             connectionID: pending.connection.id,
             credential: pending.credential
         )
@@ -32,12 +36,18 @@ struct LocalAPICredentialBroker: Sendable {
             try store.activateRegistration(pending)
             return pending.connection
         } catch {
-            try? await runCredentialCommand(
-                "delete",
-                profile: store.state.profile,
-                connectionID: pending.connection.id
-            )
-            throw error
+            let activationError = error
+            do {
+                try await runCredentialCommand(
+                    "delete",
+                    profile: profile,
+                    connectionID: pending.connection.id
+                )
+            } catch {
+                Self.logger.error("Could not remove an unused credential after connection registration failed.")
+                throw LocalAPICredentialBrokerError.cleanupFailed
+            }
+            throw activationError
         }
     }
 
