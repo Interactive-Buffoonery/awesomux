@@ -242,7 +242,7 @@ extension AgentPluginProvider {
 
     var fallbackPluginName: String {
         switch self {
-        case .claudeCode: "awesomux-claude-status"
+        case .claudeCode: "awesomux-runtime-status"
         case .codex: "awesomux-codex-status"
         case .grok: "awesomux-grok-status"
         }

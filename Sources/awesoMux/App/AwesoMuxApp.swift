@@ -2,6 +2,7 @@ import AppKit
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxLocalAPIAccess
 import DesignSystem
 import SwiftUI
 import UniformTypeIdentifiers
@@ -212,6 +213,7 @@ struct AwesoMuxApp: App {
     @State private var openWindowAction: OpenWindowAction?
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
+    @State private var localAPIAccessStore: LocalAPIAccessStore
     @State private var customCommandStore = CustomCommandStore()
     @State private var agentSetupStore = AgentSetupStore()
     @State private var settingsSectionRequest = SettingsSectionRequest()
@@ -274,6 +276,10 @@ struct AwesoMuxApp: App {
         SettingsDefault.registerInitialValues()
         let runtimeProfile = AppRuntimeProfile.current
         let supportDirectoryURL = runtimeProfile.supportDirectoryURL
+        let localAPIAccessStore = LocalAPIAccessStore(
+            profile: runtimeProfile.environmentValue,
+            supportDirectoryURL: supportDirectoryURL
+        )
         // Detached so synchronous file removal does not inherit MainActor;
         // capture the actor-isolated static logger first because Logger is Sendable.
         let logger = Self.logger
@@ -355,6 +361,7 @@ struct AwesoMuxApp: App {
             loadResult = SessionPersistence.LoadResult(store: store, recoveryWarning: nil)
         }
         _appSettingsStore = State(initialValue: appSettingsStore)
+        _localAPIAccessStore = State(initialValue: localAPIAccessStore)
         _sessionStore = State(initialValue: loadResult.store)
         _remoteMarkdownRefreshCoordinator = State(initialValue: remoteMarkdownRefreshCoordinator)
         if let warning = loadResult.recoveryWarning {
@@ -370,21 +377,21 @@ struct AwesoMuxApp: App {
             eventRecorder: diagnosticEvents
         )
         _diagnosticsModel = State(initialValue: diagnosticsModel)
-        _ghosttyRuntime = State(
-            initialValue: GhosttyRuntime(
-                terminalAppearanceProvider: {
-                    let appearance = appSettingsStore.appearance.value
-                    return terminalAppearancePreferencesCache.preferences(
-                        for: appearance,
-                        fallbackEffectiveTheme: terminalEffectiveTheme(for: appearance)
-                    )
-                },
-                initialClipboardWritePolicy: appSettingsStore.terminal.value.clipboardWritePolicy,
-                initialConfirmClipboardRead: appSettingsStore.terminal.value.confirmClipboardRead,
-                initialCopyOnSelect: appSettingsStore.terminal.value.copyOnSelect,
-                initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
-                diagnosticEventHandler: { diagnosticEvents.record($0) }
-            ))
+        let ghosttyRuntime = GhosttyRuntime(
+            terminalAppearanceProvider: {
+                let appearance = appSettingsStore.appearance.value
+                return terminalAppearancePreferencesCache.preferences(
+                    for: appearance,
+                    fallbackEffectiveTheme: terminalEffectiveTheme(for: appearance)
+                )
+            },
+            initialClipboardWritePolicy: appSettingsStore.terminal.value.clipboardWritePolicy,
+            initialConfirmClipboardRead: appSettingsStore.terminal.value.confirmClipboardRead,
+            initialCopyOnSelect: appSettingsStore.terminal.value.copyOnSelect,
+            initialCommandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled,
+            diagnosticEventHandler: { diagnosticEvents.record($0) }
+        )
+        _ghosttyRuntime = State(initialValue: ghosttyRuntime)
         _updateController = State(initialValue: UpdateController())
         _terminalAppearancePreferencesCache = State(initialValue: terminalAppearancePreferencesCache)
         _recoveryWarning = State(initialValue: loadResult.recoveryWarning)
@@ -393,6 +400,11 @@ struct AwesoMuxApp: App {
                 store: loadResult.store,
                 settings: appSettingsStore
             ))
+        appDelegate.startLocalAPI(
+            store: loadResult.store,
+            runtime: ghosttyRuntime,
+            accessStore: localAPIAccessStore
+        )
     }
 
     var body: some Scene {
@@ -1614,6 +1626,8 @@ struct AwesoMuxApp: App {
                 onClose: { firstRunTourController.resumeAfterAgentSettingsClose() }
             )
                 .environment(appSettingsStore)
+            .environment(localAPIAccessStore)
+            .environment(ghosttyRuntime)
                 .environment(settingsSectionRequest)
                 // Keys pane manages custom command shortcuts (INT-755).
                 .environment(customCommandStore)

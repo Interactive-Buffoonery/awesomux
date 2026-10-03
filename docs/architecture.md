@@ -471,3 +471,11 @@ reduction, not a reliable human-approval classifier.
 ## What’s intentionally out of date in older notes
 
 If another doc contradicts this file on **persistence** (JSON vs UserDefaults) or **whether libghostty is linked** (it is, via `GhosttyKit` + `GhosttyKitLinker`), treat **this document + `ghostty-integration.md`** as current.
+
+## Shared local status API
+
+The bundled `awesomux-agent` helper calls the profile-specific app-owned local
+API. Normal builds deny all operations until explicit connection grants are
+implemented. `SessionStore` supplies native pane snapshots and opaque target
+versions; `LocalAPIService` joins off-actor process evidence without selecting
+panes or acknowledging attention. See [the contract and E2E workflow](local-agent-api.md).
