@@ -122,7 +122,7 @@ struct LocalAPIE2E {
         try check(
             restoredProvider.agents?.first(where: { $0.paneID == first.id })?.targetVersion != beforeProviderChange,
             "provider flipback between reads invalidates target")
-        let beforeRestart = moved.agents!.first { $0.paneID == first.id }!.targetVersion
+        let beforeRestart = restoredProvider.agents!.first { $0.paneID == first.id }!.targetVersion
         event(.codex, pane: first.id, phase: .sessionStart, session: "codex-replacement", state: .waiting)
         let replacement = try await call()
         try check(
