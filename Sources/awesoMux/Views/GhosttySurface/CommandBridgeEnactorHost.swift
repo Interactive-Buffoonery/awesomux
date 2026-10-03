@@ -5,8 +5,8 @@ import AwesoMuxCore
 /// The enactor owns all command-bridge lifecycle *state* and *sequencing*; the
 /// host owns the unsafe native effects (surface dispose, layer reset, remount)
 /// and the pane/store identity the enactor reads and mutates. `GhosttySurfaceNSView`
-/// is the sole conformer; the protocol exists to keep the enactor from reaching
-/// into unrelated view members, not to admit a second implementation.
+/// is the production conformer; a test host records effects. The protocol exists to keep the enactor from reaching
+/// into unrelated view members, not to define another production adapter.
 @MainActor
 protocol CommandBridgeEnactorHost: AnyObject {
     var runtime: GhosttyRuntime { get }
@@ -23,6 +23,7 @@ protocol CommandBridgeEnactorHost: AnyObject {
     /// Set by the non-bridge `handleCommandFinished`; bridge heals only clear it.
     var shellCommandFinishedIdleLatched: Bool { get set }
 
+    func visibleTerminalText() -> String?
     func disposeNativeSurface(resetHostedLayer: Bool)
     func remountFreshSurfaceAfterCommandBridgeHeal(_ recovery: SessionStore.CommandBridgePaneHealResult)
     /// Recursion-floor re-entry: the `.markExited` arm clears bridge state, then

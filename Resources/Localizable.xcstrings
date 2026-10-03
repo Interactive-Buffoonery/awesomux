@@ -1439,6 +1439,9 @@
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
     },
+    "Copy Output" : {
+      "comment" : "Copies the bounded visible terminal output from a failed remote attach"
+    },
     "Copy Path" : {
       "comment" : "Action that copies a session snapshot recovery archive path"
     },
@@ -1489,6 +1492,9 @@
     },
     "Could not copy the scrollback." : {
       "comment" : "VoiceOver announcement when the scrollback sheet's Copy button failed to write to the clipboard"
+    },
+    "Could not copy the terminal output." : {
+      "comment" : "VoiceOver announcement when copying captured remote failure output to the clipboard fails"
     },
     "Could not create a new tab for %arg." : {
       "comment" : "Accessibility announcement when opening a new tab for a palette command fails"
@@ -2473,6 +2479,9 @@
     },
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
+    },
+    "Last Visible Terminal Output" : {
+      "comment" : "Caption for best-effort screen output captured before a failed remote pane was disposed"
     },
     "Latest error" : {
       "comment" : "Advanced settings label."
