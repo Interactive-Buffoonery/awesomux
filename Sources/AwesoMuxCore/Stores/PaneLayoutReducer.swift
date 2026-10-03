@@ -146,14 +146,16 @@ struct PaneLayoutReducer: Sendable {
     }
 
     /// Opens or selects a document tab without moving terminal focus.
-    /// Existing live associations are preserved; dead ones may heal to the
-    /// incoming pane so send/stage does not stay permanently disabled.
+    /// Explicit PR reopening adopts its incoming live source pane. Other live
+    /// associations are preserved; dead ones may heal for send/stage.
     static func openDocumentTab(
         fileURL: URL,
         associatedTerminalPaneID: TerminalPane.ID?,
         remoteResourceIdentity: ResourceIdentity? = nil,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
         branchChangesIdentity: BranchChangesIdentity? = nil,
+        generatedDocumentKind: GeneratedDocumentKind? = nil,
+        generatedDocumentTitle: String? = nil,
         in session: TerminalSession,
         now: Date,
         selectingNewTab: Bool = true
@@ -166,7 +168,8 @@ struct PaneLayoutReducer: Sendable {
             fileURL: normalizedURL,
             remoteResourceIdentity: remoteResourceIdentity,
             agentTranscriptIdentity: agentTranscriptIdentity,
-            branchChangesIdentity: branchChangesIdentity
+            branchChangesIdentity: branchChangesIdentity,
+            generatedDocumentKind: generatedDocumentKind, generatedDocumentTitle: generatedDocumentTitle
         )
         var session = session
 
@@ -188,7 +191,7 @@ struct PaneLayoutReducer: Sendable {
                 let storedAssociationIsDead =
                     existing.associatedTerminalPaneID
                     .map { session.layout.pane(id: $0) == nil } ?? true
-                if storedAssociationIsDead,
+                if storedAssociationIsDead || generatedDocumentKind == .pullRequest,
                     let incoming = liveIncomingAssociation,
                     incoming != existing.associatedTerminalPaneID
                 {
@@ -221,7 +224,9 @@ struct PaneLayoutReducer: Sendable {
                     fileURL: normalizedURL,
                     remoteResourceIdentity: effectiveIdentity,
                     agentTranscriptIdentity: effectiveTranscriptIdentity,
-                    branchChangesIdentity: effectiveBranchChangesIdentity
+                    branchChangesIdentity: effectiveBranchChangesIdentity,
+                    generatedDocumentKind: existing.generatedDocumentKind ?? generatedDocumentKind,
+                    generatedDocumentTitle: generatedDocumentTitle ?? existing.title
                 )
                 if existing.remoteResourceIdentity != effectiveIdentity {
                     existing.remoteResourceIdentity = effectiveIdentity
@@ -245,6 +250,13 @@ struct PaneLayoutReducer: Sendable {
                     if effectiveBranchChangesIdentity != nil {
                         existing.generatedDocumentKind = .branchChanges
                     }
+                    if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
+                        group.tabs[index] = existing
+                    }
+                    changed = true
+                }
+                if existing.generatedDocumentKind == nil, let generatedDocumentKind {
+                    existing.generatedDocumentKind = generatedDocumentKind
                     if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
                         group.tabs[index] = existing
                     }
@@ -286,7 +298,8 @@ struct PaneLayoutReducer: Sendable {
                 associatedTerminalPaneID: liveIncomingAssociation,
                 remoteResourceIdentity: remoteResourceIdentity,
                 agentTranscriptIdentity: agentTranscriptIdentity,
-                branchChangesIdentity: branchChangesIdentity
+                branchChangesIdentity: branchChangesIdentity,
+                generatedDocumentKind: generatedDocumentKind
             )
             group.tabs.append(tab)
             if group.selectedTabID == nil || selectingNewTab {
@@ -306,7 +319,8 @@ struct PaneLayoutReducer: Sendable {
             associatedTerminalPaneID: liveIncomingAssociation,
             remoteResourceIdentity: remoteResourceIdentity,
             agentTranscriptIdentity: agentTranscriptIdentity,
-            branchChangesIdentity: branchChangesIdentity
+            branchChangesIdentity: branchChangesIdentity,
+            generatedDocumentKind: generatedDocumentKind
         )
         session.layout = .split(
             TerminalSplit(
@@ -322,8 +336,13 @@ struct PaneLayoutReducer: Sendable {
         fileURL: URL,
         remoteResourceIdentity: ResourceIdentity?,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
-        branchChangesIdentity: BranchChangesIdentity? = nil
+        branchChangesIdentity: BranchChangesIdentity? = nil,
+        generatedDocumentKind: GeneratedDocumentKind? = nil, generatedDocumentTitle: String? = nil
     ) -> String {
+        if generatedDocumentKind == .pullRequest {
+            return generatedDocumentTitle
+                ?? String(localized: "Pull Request", comment: "Fallback tab title for a read-only pull request snapshot")
+        }
         // A transcript's file is named after a hash, so the filename fallback
         // below would put `8f3c…c0e1.transcript.md` on the tab pill.
         if let agentTranscriptIdentity {

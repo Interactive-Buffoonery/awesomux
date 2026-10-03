@@ -23,6 +23,7 @@ public struct MarkdownSelfWriteRegistry: Sendable {
     public mutating func record(
         fileURL: URL,
         source: String,
+        matchingOnly: Bool = false,
         at now: ContinuousClock.Instant = .now
     ) {
         // Sweep before inserting: `context(fileURL:onDiskSource:at:)` only
@@ -39,7 +40,7 @@ public struct MarkdownSelfWriteRegistry: Sendable {
         // elsewhere. Upgrade path is a prune keyed on the union of open
         // document paths from `SessionStore`.
         entries = entries.filter { isLive($0.value, at: now) }
-        entries[Self.key(for: fileURL)] = Entry(source: source, recordedAt: now)
+        entries[Self.key(for: fileURL)] = Entry(source: source, recordedAt: now, matchingOnly: matchingOnly)
     }
 
     public mutating func context(
@@ -53,6 +54,9 @@ public struct MarkdownSelfWriteRegistry: Sendable {
             entries[key] = nil
             return nil
         }
+        // Proposed writes suppress matching bytes without supplying a baseline
+        // for a write that cancellation or filesystem validation may refuse.
+        guard !entry.matchingOnly || entry.source == onDiskSource else { return nil }
         return MarkdownSelfWriteContext(
             source: entry.source,
             isSelfWrite: entry.source == onDiskSource
@@ -95,5 +99,6 @@ public struct MarkdownSelfWriteRegistry: Sendable {
     private struct Entry: Sendable {
         let source: String
         let recordedAt: ContinuousClock.Instant
+        let matchingOnly: Bool
     }
 }

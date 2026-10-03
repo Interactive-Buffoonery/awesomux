@@ -130,6 +130,7 @@ struct PaletteAppActions {
     let scrollbackDump: @MainActor () -> Void
     let openAgentTranscript: @MainActor () -> Void
     let showBranchChanges: @MainActor () -> Void
+    let openPullRequest: @MainActor () -> Void
     let reconnectRemotePane: @MainActor () -> Void
     let growActivePane: @MainActor () -> Void
     let shrinkActivePane: @MainActor () -> Void
@@ -210,6 +211,7 @@ struct PaletteAppActions {
             scrollbackDump: action,
             openAgentTranscript: action,
             showBranchChanges: action,
+            openPullRequest: action,
             reconnectRemotePane: action,
             growActivePane: action,
             shrinkActivePane: action,
@@ -552,6 +554,16 @@ enum PaletteCommandRegistry {
                 isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
                 selectionScope: .pane,
                 run: actions.showBranchChanges
+            ),
+            PaletteCommand(
+                id: "openPullRequest",
+                title: String(localized: "Open Pull Request", comment: "Command to open the connected pull request for the current branch"),
+                subtitle: selected?.activePane?.title,
+                keywords: ["github", "pr", "review", "checks", "discussion"],
+                shortcut: nil,
+                isEnabled: hasSelectedSession && !availability.isAnySheetPresented,
+                selectionScope: .pane,
+                run: actions.openPullRequest
             ),
             PaletteCommand(
                 id: "reconnectRemotePane",

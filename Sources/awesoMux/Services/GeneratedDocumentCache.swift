@@ -84,6 +84,7 @@ struct GeneratedDocumentCache: @unchecked Sendable {
         /// Cleared only after the caller has either opened the tab or abandoned
         /// the reaction. Pending writes are never candidates for retirement.
         var isPending: Bool
+        var leaseID: UUID?
     }
 
     /// Same-process write leases, keyed by standardized absolute path.
@@ -121,6 +122,7 @@ struct GeneratedDocumentCache: @unchecked Sendable {
         cacheIdentityKey: String,
         skippingUnchanged: Bool = false,
         maximumExistingBytes: Int? = nil,
+        leaseID: UUID? = nil,
         ifStillCurrent: () -> Bool = { true }
     ) -> URL? {
         let fileURL = fileURL(cacheIdentityKey: cacheIdentityKey)
@@ -155,7 +157,8 @@ struct GeneratedDocumentCache: @unchecked Sendable {
             // never hold a keep-set this write already falsified.
             Self.authoredPaths[fileURL.standardizedFileURL.path] = AuthoredPathState(
                 createdAfterPruneID: Self.nextPruneID,
-                isPending: true
+                isPending: true,
+                leaseID: leaseID
             )
             return fileURL
         }
@@ -164,10 +167,10 @@ struct GeneratedDocumentCache: @unchecked Sendable {
     /// Releases the write lease after the caller has completed its main-actor
     /// tab reaction. The next generation-crossing prune may retire the registry
     /// entry; a live or recently-closed tab still keeps the file itself.
-    func completeWrite(at fileURL: URL) {
+    func completeWrite(at fileURL: URL, leaseID: UUID? = nil) {
         let path = fileURL.standardizedFileURL.path
         Self.cacheLock.withLock {
-            guard var state = Self.authoredPaths[path] else { return }
+            guard var state = Self.authoredPaths[path], leaseID == nil || state.leaseID == leaseID else { return }
             state.isPending = false
             Self.authoredPaths[path] = state
         }

@@ -145,8 +145,8 @@ final class CommandBridgeEnactor {
     /// previous incarnation's result; consumed (and deleted) by the exit
     /// decision, and dropped on teardown/repoint.
     var remoteOwnedExitStatusFile: URL?
-    var announceSessionRespawnedFresh: () -> Void = {
-        TerminalAccessibilityAnnouncer.announceSessionRespawnedFresh()
+    var announceSessionRespawnedFresh: (String, String?) -> Void = {
+        TerminalAccessibilityAnnouncer.announceSessionRespawnedFresh(workspace: $0, paneDescriptor: $1)
     }
     var announceErrorEntered: () -> Void = {
         TerminalAccessibilityAnnouncer.announceErrorEntered()
@@ -212,6 +212,11 @@ final class CommandBridgeEnactor {
             // respawns a fresh shell silently instead of latching to blank
             // (INT-571). A live daemon reconnects with full scrollback.
             sessionID = pane.terminalSessionID
+            // Capture before surface creation stamps the current spawn metadata.
+            if recoveryRecord?.hadEstablishedSessionAtFirstAttach == nil {
+                recoveryRecord?.hadEstablishedSessionAtFirstAttach =
+                    pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
+            }
             // A fresh channel per surface creation guarantees a respawn never
             // reads a stale feed. `makeStatusChannel` is optional: a failed
             // secure pre-create (file squat, EACCES) returns nil, in which case
@@ -441,6 +446,7 @@ final class CommandBridgeEnactor {
     }
 
     func clearStateForLocalShellFallback() {
+        runtime.clearSessionRestartNotice(for: paneID, afterLayout: true)
         let recoverySessionID = recoveryRecord?.terminalSessionID
             ?? sessionID
         tearDownBridgeGeneration(for: recoverySessionID)
@@ -631,7 +637,7 @@ final class CommandBridgeEnactor {
     ) {
         // A latched-error pane must be inert to further status events. A stray
         // or late `attached` line on the status file must not silently un-error
-        // the pane (clearing agent chrome + false-announcing "Session restarted")
+        // the pane (clearing agent chrome + falsely announcing a fresh shell)
         // while the user is looking at an error state. The latch is only cleared
         // on the legitimate recovery path (decideExitFromStatus on
         // .respawnFresh/.reconnect, or the async legacy probe) — which runs before
@@ -667,8 +673,16 @@ final class CommandBridgeEnactor {
                 // (prior one gone), so any restored `.waiting` is dead. Safe
                 // versus a live reattach: `created` == brand-new session, no
                 // running agent (INT-672).
-                if outcome == .fresh {
-                    onFreshDaemonIncarnation()
+                let didPresentRestart =
+                    outcome == .fresh
+                    || (created && outcome == .firstAttach && recoveryRecord?.hadEstablishedSessionAtFirstAttach == true)
+                if didPresentRestart {
+                    GhosttySurfaceNSView.terminalDiagnosticsLogger.notice(
+                        "persistent-session recreated pane=\(self.paneID.uuidString, privacy: .public) outcome=\(String(describing: outcome), privacy: .public) created=\(created, privacy: .public) saved=\(self.recoveryRecord?.hadEstablishedSessionAtFirstAttach == true, privacy: .public)"
+                    )
+                }
+                if outcome == .fresh || didPresentRestart {
+                    onFreshDaemonIncarnation(presentRestartNotice: didPresentRestart)
                 } else if outcome == .firstAttach && created {
                     sessionStore.resetPaneAgentChromeToShell(
                         sessionID: hostSessionID,
@@ -706,15 +720,15 @@ final class CommandBridgeEnactor {
                 // recovery announcement names the host that was actually dialed
                 // rather than whatever the live group target resolves to now —
                 // the group can move mid-handshake (fix #9). Skip the
-                // announcement when a FRESH incarnation already announced
-                // "Session restarted" this same event: one announcement per
+                // announcement when a fresh-shell notice already announced
+                // this same event: one announcement per
                 // event (fix #10b).
                 let reconnectState = sessionStore.session(id: hostSessionID)?
                     .layout.pane(id: paneID)?.remoteReconnect
                 if sessionStore.confirmPaneRemoteReconnected(
                     sessionID: hostSessionID,
                     paneID: paneID
-                ), outcome != .fresh {
+                ), !didPresentRestart {
                     let reconnectedHost = reconnectState.flatMap {
                         $0.context.dialedLocalRestart ? nil : $0.context.target.host
                     }
@@ -813,14 +827,20 @@ final class CommandBridgeEnactor {
     ///
     /// Clears stale agent chrome on the pane so a respawned shell does not inherit
     /// the dead incarnation's agent identity (kind, execution state, attention).
-    /// Called only on fresh incarnation; reconnects to a live daemon skip this so
-    /// chrome for an ongoing agent run is correctly preserved.
-    func onFreshDaemonIncarnation() {
+    /// Also handles first attach when a saved pane's session was recreated.
+    /// Reconnects to a live daemon preserve chrome for an ongoing agent run.
+    func onFreshDaemonIncarnation(presentRestartNotice: Bool = true) {
         guard runtime.isCommandBridgeEnabled else {
             return
         }
         sessionStore.resetPaneAgentChromeToShell(sessionID: hostSessionID, paneID: paneID)
-        announceSessionRespawnedFresh()
+        guard presentRestartNotice else { return }
+        runtime.restartedSessionNotices[paneID] = UUID()
+        let session = sessionStore.session(id: hostSessionID)
+        announceSessionRespawnedFresh(
+            session?.title ?? host.pane.title,
+            TerminalAccessibilityAnnouncer.paneDescriptor(for: paneID, in: session)
+        )
     }
 
     // MARK: - Manual reconnect
@@ -1151,6 +1171,7 @@ final class CommandBridgeEnactor {
     /// drop the channel, reason, and recovery record so a stale session-end can't
     /// drive the new session's exit decision.
     func handleSessionRepoint() {
+        runtime.clearSessionRestartNotice(for: paneID, afterLayout: true)
         let oldRecoverySessionID = recoveryRecord?.terminalSessionID
             ?? sessionID
         legacyExitProbeGeneration &+= 1
@@ -1184,6 +1205,7 @@ final class CommandBridgeEnactor {
     }
 
     func markError(clearBackendMetadata: Bool = true) {
+        runtime.clearSessionRestartNotice(for: paneID)
         exitResolutionPending = false
         exitProbeInFlight = false
         errorLatched = true
