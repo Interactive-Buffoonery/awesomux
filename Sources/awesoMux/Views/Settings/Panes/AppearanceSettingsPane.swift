@@ -35,7 +35,7 @@ struct AppearanceSettingsPane: View {
             ) {
                 SettingsField(label: String(localized: "Theme", comment: "Settings field label for the theme picker"), isFirst: true) {
                     SettingsThemePreview(
-                        selection: appSettingsStore.binding(\.appearance.theme),
+                        selection: appSettingsStore.appearance.binding(\.theme),
                         variant: .grid
                     )
                 }
@@ -50,9 +50,9 @@ struct AppearanceSettingsPane: View {
                 ) {
                     TerminalBackgroundSettings(
                         theme: appearance.theme,
-                        terminalThemeID: appSettingsStore.binding(\.appearance.terminalThemeID),
-                        mode: appSettingsStore.binding(\.appearance.terminalBackgroundMode),
-                        colorHex: appSettingsStore.binding(\.appearance.terminalBackgroundColor),
+                        terminalThemeID: appSettingsStore.appearance.binding(\.terminalThemeID),
+                        mode: appSettingsStore.appearance.binding(\.terminalBackgroundMode),
+                        colorHex: appSettingsStore.appearance.binding(\.terminalBackgroundColor),
                         draftColorHex: $draftColorHex,
                         pendingCommit: $pendingColorCommit
                     )
@@ -87,7 +87,7 @@ struct AppearanceSettingsPane: View {
                     isFirst: true
                 ) {
                     SettingsFontPickerMenu(
-                        selection: appSettingsStore.binding(\.appearance.uiFont),
+                        selection: appSettingsStore.appearance.binding(\.uiFont),
                         fieldLabel: String(localized: "Interface font", comment: "Accessibility label for the app UI font picker"),
                         systemValue: "system",
                         systemLabel: String(
@@ -102,7 +102,7 @@ struct AppearanceSettingsPane: View {
                         localized: "Used by the libghostty terminal surface.", comment: "Settings field hint for the terminal font picker")
                 ) {
                     SettingsFontPickerMenu(
-                        selection: appSettingsStore.binding(\.appearance.monoFont),
+                        selection: appSettingsStore.appearance.binding(\.monoFont),
                         fieldLabel: String(localized: "Mono font", comment: "Accessibility label for the terminal font picker"),
                         systemValue: "system-monospace",
                         systemLabel: String(localized: "System default", comment: "Font picker entry for the built-in system font"),

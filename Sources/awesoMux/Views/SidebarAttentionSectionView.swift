@@ -168,7 +168,6 @@ struct SidebarAttentionSectionView: View {
             duplicateDisambiguation: duplicateDisambiguationBySessionID[session.id],
             indexInGroup: index,
             sessionCountInGroup: attention.count,
-            ownerGroupIndex: item.originGroupUnfilteredIndex,
             // No prev/next-group move actions: a lifted tile isn't positioned
             // relative to group neighbors here.
             previousNeighborGroup: nil,

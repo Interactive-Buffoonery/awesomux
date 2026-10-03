@@ -125,26 +125,8 @@ struct DocumentPaneSendBar: View {
         return Self.resolveNudgeTarget(
             in: session.layout,
             for: pane.id,
-            isIntegrationEnabled: { kind in
-                switch kind {
-                case .claudeCode: integrations.claudeCode.enabled
-                case .codex: integrations.codex.enabled
-                case .openCode: integrations.openCode.enabled
-                case .pi: integrations.pi.enabled
-                case .grok: integrations.grok.enabled
-                case .shell, .hermes, .generic: false
-                }
-            },
-            agentBinaryPath: { kind in
-                switch kind {
-                case .claudeCode: integrations.claudeCode.binaryPath
-                case .codex: integrations.codex.binaryPath
-                case .openCode: integrations.openCode.binaryPath
-                case .pi: integrations.pi.binaryPath
-                case .grok: integrations.grok.binaryPath
-                case .shell, .hermes, .generic: nil
-                }
-            },
+            isIntegrationEnabled: { AgentConfigHome.setup(for: $0, in: integrations).enabled },
+            agentBinaryPath: { AgentConfigHome.setup(for: $0, in: integrations).binaryPath },
             foregroundComm: { runtime.foregroundComm(in: $0) },
             foregroundGeneration: { runtime.foregroundGeneration(in: $0) },
             verifiedWaitingForegroundGeneration: { runtime.verifiedWaitingForegroundGeneration(in: $0) }

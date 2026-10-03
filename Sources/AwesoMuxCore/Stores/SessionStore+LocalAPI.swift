@@ -76,7 +76,7 @@ public extension SessionStore {
             group.sessions.flatMap { session in
                 session.panes.compactMap { pane -> LocalAPIAgent? in
                     guard paneIDs?.contains(pane.id) ?? true else { return nil }
-                    let snapshot = pane.agentSnapshot(at: now)
+                    let snapshot = pane.agentSnapshot()
                     guard snapshot.agentKind != .shell else { return nil }
                     let runtime = runtimeEventReducer.stateByPaneID[pane.id]
                     let sessionID = runtime?.providerSessionID

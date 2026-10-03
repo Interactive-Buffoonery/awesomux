@@ -268,7 +268,6 @@ struct SidebarPinnedSectionView: View {
             duplicateDisambiguation: duplicateDisambiguationBySessionID[session.id],
             indexInGroup: index,
             sessionCountInGroup: pinned.count,
-            ownerGroupIndex: item.originGroupUnfilteredIndex,
             // No prev/next-group move actions from the pinned section: the tile
             // isn't positioned relative to group neighbors here.
             previousNeighborGroup: nil,

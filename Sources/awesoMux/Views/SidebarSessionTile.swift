@@ -21,9 +21,6 @@ struct SidebarSessionTile: View {
     let duplicateDisambiguation: SidebarDuplicateDisambiguation?
     let indexInGroup: Int
     let sessionCountInGroup: Int
-    /// Index of this workspace's owning group within `SessionStore.groups`.
-    /// Kept for diagnostics / future expansion.
-    let ownerGroupIndex: Int
     /// Adjacent groups in the sidebar — drive bounded VoiceOver actions.
     let previousNeighborGroup: SessionGroup?
     let nextNeighborGroup: SessionGroup?
@@ -1049,7 +1046,7 @@ extension SidebarSessionTile: Equatable {
     ///   showsSearchFocusCue,
     ///   jumpIndex, hasBackgroundedFloatingWork, isPromotedInsertion,
     ///   isPromotionPulseActive, isFiltering, duplicateDisambiguation,
-    ///   indexInGroup, sessionCountInGroup, ownerGroupIndex,
+    ///   indexInGroup, sessionCountInGroup,
     ///   previousNeighborGroup, nextNeighborGroup, otherGroups,
     ///   verticalPadding, tintedHighContrast, alwaysShowJumpNumbers,
     ///   canReorderWithinGroup,
@@ -1161,7 +1158,6 @@ extension SidebarSessionTile: Equatable {
         let duplicateDisambiguation: SidebarDuplicateDisambiguation?
         let indexInGroup: Int
         let sessionCountInGroup: Int
-        let ownerGroupIndex: Int
         let previousNeighborGroup: NeighborKey?
         let nextNeighborGroup: NeighborKey?
         let otherGroups: [NeighborKey]
@@ -1256,7 +1252,6 @@ extension SidebarSessionTile: Equatable {
             duplicateDisambiguation: duplicateDisambiguation,
             indexInGroup: indexInGroup,
             sessionCountInGroup: sessionCountInGroup,
-            ownerGroupIndex: ownerGroupIndex,
             previousNeighborGroup: previousNeighborGroup.map { NeighborKey(id: $0.id, name: $0.name) },
             nextNeighborGroup: nextNeighborGroup.map { NeighborKey(id: $0.id, name: $0.name) },
             otherGroups: otherGroups.map { NeighborKey(id: $0.id, name: $0.name) },

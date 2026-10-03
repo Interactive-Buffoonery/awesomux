@@ -70,12 +70,13 @@ public extension AgentActivityRoster {
     /// App-layer entry: folds live sessions into the roster. Kept in Core so
     /// `TerminalPane.agentSnapshot` stays internal; tests use the pure
     /// `build(_:)` above with hand-built snapshots.
-    static func build(sessions: [TerminalSession], at now: Date) -> AgentActivityRoster {
-        build(sessions.map { session in
-            SessionPanes(
-                sessionID: session.id,
-                panes: session.panes.map { $0.agentSnapshot(at: now) }
-            )
-        })
+    static func build(sessions: [TerminalSession]) -> AgentActivityRoster {
+        build(
+            sessions.map { session in
+                SessionPanes(
+                    sessionID: session.id,
+                    panes: session.panes.map { $0.agentSnapshot() }
+                )
+            })
     }
 }

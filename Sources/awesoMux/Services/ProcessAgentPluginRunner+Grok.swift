@@ -76,6 +76,8 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(status: .unsupported("The grok CLI was not found at \(executable)"))
         case .spawnFailed(_, let reason):
             return AgentPluginStatusReport(status: .unsupported("grok could not be started at \(executable): \(reason)"))
+        case .outputTruncated:
+            return AgentPluginStatusReport(status: .unsupported(error.localizedDescription))
         case .timedOut:
             return AgentPluginStatusReport(status: .unsupported("grok plugin list timed out"))
         }
@@ -90,6 +92,8 @@ extension ProcessAgentPluginRunner {
             return .unsupported("The grok CLI was not found at \(executable)")
         case .spawnFailed(_, let reason):
             return .unsupported("grok could not be started at \(executable): \(reason)")
+        case .outputTruncated:
+            return .needsRepair(error.localizedDescription)
         case .timedOut:
             return .unsupported("grok timed out")
         }
@@ -286,7 +290,10 @@ extension ProcessAgentPluginRunner {
         let liveHome = grokHome(setup: liveSetup).path
         guard recordedHome != liveHome else { return nil }
         return
-            "Actions target the recorded Grok home \(recordedHome); the Config home field now points at \(liveHome). Repair to move the install, or restore the field to keep using the recorded home."
+            String(
+                localized:
+                    "Actions target the recorded Grok home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home.",
+                comment: "Explains recorded and current provider configuration homes")
     }
 
     private func grokMissingHomeGuidance(home: URL) -> String {

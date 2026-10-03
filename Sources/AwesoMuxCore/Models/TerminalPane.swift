@@ -405,13 +405,12 @@ public extension TerminalPane {
     }
 
     /// The pane's contribution to a `SessionAgentRollup`.
-    func agentSnapshot(at now: Date = Date()) -> PaneAgentSnapshot {
+    func agentSnapshot() -> PaneAgentSnapshot {
         PaneAgentSnapshot(
             paneID: id,
             agentKind: agentKind,
             state: effectiveChromeState,
             unread: unreadNotificationCount,
-            isQuitRisk: isQuitRisk(at: now),
             needsAcknowledgement: attentionReason != nil,
             attentionReason: attentionReason
         )

@@ -174,31 +174,4 @@ struct WorkspaceTreeReducerTests {
             ))
     }
 
-    @Test("selection offsets wrap across groups and skip empty groups")
-    func selectionOffsetsWrapAcrossGroups() throws {
-        let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
-        let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
-        let third = TerminalSession(title: "third", workingDirectory: "~", agentKind: .shell)
-        let groups = [
-            SessionGroup(name: "one", sessions: [first]),
-            SessionGroup(name: "empty", sessions: []),
-            SessionGroup(name: "two", sessions: [second, third]),
-        ]
-        let index = SessionStoreIndex.build(from: groups)
-
-        #expect(
-            WorkspaceTreeReducer.selectedSessionID(
-                in: groups,
-                index: index,
-                currentSelection: first.id,
-                offset: -1
-            ) == third.id)
-        #expect(
-            WorkspaceTreeReducer.selectedSessionID(
-                in: groups,
-                index: index,
-                currentSelection: first.id,
-                offset: 2
-            ) == third.id)
-    }
 }

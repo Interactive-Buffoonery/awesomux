@@ -4521,8 +4521,11 @@ struct AwesoMuxApp: App {
     }
 
     private func runPaletteCommand(id commandID: PaletteCommand.ID) -> Bool {
-        let commands = currentPaletteCommands()
-        guard let command = PaletteCommandRegistry.command(id: commandID, in: commands),
+        let registryCommand = PaletteCommandRegistry.command(id: commandID, in: currentRegistryPaletteCommands())
+        let command =
+            registryCommand
+            ?? PaletteCommandRegistry.command(id: commandID, in: currentPaletteCommands())
+        guard let command,
             command.isEnabled
         else {
             // A custom command deleted between palette-open and Enter is
@@ -4553,7 +4556,7 @@ struct AwesoMuxApp: App {
     }
 
     private func canRunKeyboardCheatsheetShortcut(id commandID: KeyboardShortcutEntry.ID) -> Bool {
-        let commands = currentPaletteCommands()
+        let commands = currentRegistryPaletteCommands()
         guard let command = PaletteCommandRegistry.command(id: commandID, in: commands) else {
             return false
         }
@@ -4875,14 +4878,14 @@ struct AwesoMuxApp: App {
         DispatchQueue.main.async { target.1.requestFocus() }
     }
 
-    private func currentPaletteCommands(selectedWorkspaceTitle: String? = nil) -> [PaletteCommand] {
+    private func currentRegistryPaletteCommands(selectedWorkspaceTitle: String? = nil) -> [PaletteCommand] {
         sidebarCommandTargetAvailability.refresh()
         let presentedWorkspaceTitle =
             selectedWorkspaceTitle
             ?? sessionStore.selectedSession.flatMap {
                 sessionStore.sidebarResolvedTitle(for: $0.id)
             }
-        var commands = PaletteCommandRegistry.commands(
+        return PaletteCommandRegistry.commands(
             sessionStore: sessionStore,
             availability: PaletteCommandAvailability(
                 isAnySheetPresented: isAnySheetPresented,
@@ -4895,6 +4898,10 @@ struct AwesoMuxApp: App {
             selectedWorkspaceTitle: presentedWorkspaceTitle,
             keyboard: keyboardConfig
         )
+    }
+
+    private func currentPaletteCommands(selectedWorkspaceTitle: String? = nil) -> [PaletteCommand] {
+        var commands = currentRegistryPaletteCommands(selectedWorkspaceTitle: selectedWorkspaceTitle)
         // One jump command per owned or detachedRestorable daemon — the only two
         // lifecycles that have a reachable workspace pane to land on. The daemon
         // rows are snapshotted from the model at palette-open time (matching the

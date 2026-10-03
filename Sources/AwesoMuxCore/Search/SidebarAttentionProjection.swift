@@ -61,55 +61,12 @@ public enum SidebarAttentionProjection {
         isFiltering: Bool,
         searchTopMatch: TerminalSession.ID?
     ) -> Output {
-        guard !liftedSessionIDs.isEmpty else {
-            return Output(
-                attention: [],
-                entries: entries,
-                topMatch: isFiltering ? searchTopMatch : nil
-            )
-        }
-
-        let liftedIDSet = Set(liftedSessionIDs)
-        var liftedByID: [TerminalSession.ID: LiftedSessionEntry] = [:]
-        var remaining: [SidebarGroupEntry] = []
-        remaining.reserveCapacity(entries.count)
-
-        for groupEntry in entries {
-            var kept: [SidebarSessionEntry] = []
-            kept.reserveCapacity(groupEntry.sessions.count)
-            for sessionEntry in groupEntry.sessions {
-                if liftedIDSet.contains(sessionEntry.session.id) {
-                    liftedByID[sessionEntry.session.id] = LiftedSessionEntry(
-                        entry: sessionEntry,
-                        originGroup: groupEntry.group,
-                        originGroupUnfilteredIndex: groupEntry.unfilteredIndex
-                    )
-                } else {
-                    kept.append(sessionEntry)
-                }
-            }
-            // Mirrors SidebarPinnedProjection: while filtering, a group whose
-            // only matches were lifted has nothing left to show; unfiltered
-            // empty groups stay so the empty-group drop target keeps working.
-            if kept.isEmpty && isFiltering { continue }
-            remaining.append(
-                SidebarGroupEntry(
-                    group: groupEntry.group,
-                    unfilteredIndex: groupEntry.unfilteredIndex,
-                    sessions: kept
-                )
-            )
-        }
-
-        // Arrival order comes from the store's list, not from this walk.
-        let attention = liftedSessionIDs.compactMap { liftedByID[$0] }
-        // Needs Input renders above every other section, so while filtering the
-        // "first visible match" Return commits to is a lifted match when one
-        // exists.
-        let topMatch =
-            isFiltering
-            ? (attention.first?.entry.session.id ?? searchTopMatch)
-            : nil
-        return Output(attention: attention, entries: remaining, topMatch: topMatch)
+        let partition = SidebarLiftedPartition.apply(
+            entries: entries,
+            orderedSessionIDs: liftedSessionIDs,
+            isFiltering: isFiltering,
+            searchTopMatch: searchTopMatch
+        )
+        return Output(attention: partition.lifted, entries: partition.entries, topMatch: partition.topMatch)
     }
 }
