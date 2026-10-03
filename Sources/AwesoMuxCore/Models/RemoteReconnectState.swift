@@ -21,6 +21,8 @@ public enum RemoteReconnectState: Equatable, Hashable, Sendable {
         /// group target at dial time so the recovery announcement names the
         /// host actually dialed (INT-697 fix #9).
         public var target: RemoteTarget
+        /// Best-effort bounded viewport tail, retained only in runtime state.
+        public var diagnosticText: String?
         /// True when the error latch pushed a NON-error pane into `.error`.
         /// Only then does `confirmPaneRemoteReconnected`/heal reset `.error` on
         /// recovery — an `.error` set from agent OUTPUT before the bridge died
@@ -34,9 +36,11 @@ public enum RemoteReconnectState: Equatable, Hashable, Sendable {
         public init(
             target: RemoteTarget,
             displacedNonErrorState: Bool = false,
-            dialedLocalRestart: Bool = false
+            dialedLocalRestart: Bool = false,
+            diagnosticText: String? = nil
         ) {
             self.target = target
+            self.diagnosticText = diagnosticText
             self.displacedNonErrorState = displacedNonErrorState
             self.dialedLocalRestart = dialedLocalRestart
         }
@@ -58,10 +62,11 @@ public enum RemoteReconnectState: Equatable, Hashable, Sendable {
 // equality.
 extension RemoteReconnectState.Context: Equatable, Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.target == rhs.target
+        lhs.target == rhs.target && lhs.diagnosticText == rhs.diagnosticText
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(target)
+        hasher.combine(diagnosticText)
     }
 }
