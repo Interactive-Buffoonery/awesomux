@@ -52,6 +52,8 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
+STATUS_HELPER_NAME="awesomux-agent"
+STATUS_HELPER_BINARY="$APP_MACOS/$STATUS_HELPER_NAME"
 AGENT_HOOK_NAME="awesoMuxAgentHook"
 AGENT_HOOK_BINARY="$APP_MACOS/$AGENT_HOOK_NAME"
 # awesoMuxBridgeHelper: the remote per-invocation bridge helper (INT-698). Built
@@ -102,6 +104,7 @@ Modes:
                                        Exits 1 if the app never starts, 3 if it starts
                                        but cannot be terminated afterwards.
   --install, install                  Install into ~/Applications and launch that bundle.
+  --stage-local-api-e2e               Stage an isolated debug assistant-access host.
   --stage-release, stage-release      Build, stage, and ad-hoc sign dist/awesoMux.app
                                        with the production profile, then exit without
                                        launching. Consumed by script/build_release.sh.
@@ -550,13 +553,20 @@ fi
 # --debug/debug mode below needs unoptimized symbols for lldb, so flip back
 # to the debug configuration in that case only.
 CONFIG="release"
-if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
+if [[ "$MODE" == "--debug" || "$MODE" == "debug" || "$MODE" == "--stage-local-api-e2e" ]]; then
   CONFIG="debug"
 fi
 
+if [[ "$MODE" == "--stage-local-api-e2e" ]]; then
+  if [[ "$RUNTIME_PROFILE" != development:* ]]; then
+    echo "error: the local API E2E host requires an isolated linked worktree profile" >&2
+    exit 1
+  fi
+fi
 swift build -c "$CONFIG"
 BUILD_BIN_PATH="$(swift build -c "$CONFIG" --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_PATH/$APP_NAME"
+BUILD_STATUS_HELPER_BINARY="$BUILD_BIN_PATH/$STATUS_HELPER_NAME"
 BUILD_AGENT_HOOK_BINARY="$BUILD_BIN_PATH/$AGENT_HOOK_NAME"
 DESIGN_SYSTEM_RESOURCE_BUNDLE="$BUILD_BIN_PATH/awesoMux_DesignSystem.bundle"
 BUILD_BRIDGE_HELPER_BINARY="$BUILD_BIN_PATH/$BRIDGE_HELPER_NAME"
@@ -582,6 +592,7 @@ fi
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
 cp "$BUILD_BINARY" "$APP_BINARY"
 cp "$BUILD_AGENT_HOOK_BINARY" "$AGENT_HOOK_BINARY"
+cp "$BUILD_STATUS_HELPER_BINARY" "$STATUS_HELPER_BINARY"
 if [[ ! -d "$DESIGN_SYSTEM_RESOURCE_BUNDLE" ]]; then
   echo "error: DesignSystem resource bundle is missing: $DESIGN_SYSTEM_RESOURCE_BUNDLE" >&2
   exit 1
@@ -601,6 +612,7 @@ done
 cp "$BUILD_BRIDGE_HELPER_BINARY" "$BRIDGE_HELPER_BINARY"
 chmod +x "$APP_BINARY"
 chmod +x "$AGENT_HOOK_BINARY"
+chmod +x "$STATUS_HELPER_BINARY"
 chmod +x "$BRIDGE_HELPER_BINARY"
 if [[ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]]; then
   echo "error: Sparkle framework is missing: $SPARKLE_FRAMEWORK_SOURCE" >&2
@@ -1144,6 +1156,9 @@ case "$MODE" in
   --install|install)
     install_app
     open_app "$INSTALLED_APP_BUNDLE"
+    ;;
+  --stage-local-api-e2e)
+    echo "Staged isolated assistant-access host at $APP_BUNDLE ($RUNTIME_PROFILE)."
     ;;
   --stage-release|stage-release)
     echo "Staged $APP_BUNDLE (production profile; not launched)."

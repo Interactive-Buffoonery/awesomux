@@ -134,7 +134,7 @@ struct AgentPluginTemplateRendererTests {
             // must be byte-identical to the bundled originals.
             for relativePath in [
                 ".claude-plugin/marketplace.json",
-                "plugins/awesomux-claude-status/.claude-plugin/plugin.json",
+                "plugins/awesomux-runtime-status/.claude-plugin/plugin.json",
             ] {
                 let renderedData = try Data(contentsOf: rendered.marketplaceRootURL.appending(path: relativePath))
                 let bundledData = try Data(

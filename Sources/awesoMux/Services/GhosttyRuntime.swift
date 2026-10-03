@@ -518,6 +518,10 @@ final class GhosttyRuntime {
         }
     }
 
+    func localAPIProcessSources() -> [UUID: LocalAPIProcessSource] {
+        surfaceViews.compactMapValues { $0.localAPIProcessSource() }
+    }
+
     /// Observed foreground process name (`p_comm`) for a pane, or nil when no
     /// usable evidence exists (no live surface, latched error, no bridge pid).
     func foregroundComm(in paneID: TerminalPane.ID) -> String? {
