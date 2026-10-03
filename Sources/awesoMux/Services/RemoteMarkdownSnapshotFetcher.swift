@@ -2,6 +2,7 @@ import AwesoMuxConfig
 import AwesoMuxCore
 import CryptoKit
 import Foundation
+import SecureFileIO
 
 struct RemoteMarkdownReference: Equatable, Sendable {
     let identity: ResourceIdentity
@@ -967,9 +968,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         }
     }
 
-    private func cachedSnapshot(
-        for reference: RemoteMarkdownReference
-    ) -> RemoteMarkdownSnapshot? {
+    private func cachedSnapshot(for reference: RemoteMarkdownReference) -> RemoteMarkdownSnapshot? {
         guard validatedCacheDirectory(createIfMissing: false) != nil else { return nil }
         let fileURL = cacheFileURL(for: reference)
         guard ((try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile) == true else {
@@ -982,6 +981,34 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         return RemoteMarkdownSnapshot(fileURL: fileURL, identity: reference.identity)
     }
 
+    /// Avoid another SSH round trip for an immediate restart after a successful
+    /// cache write. Future timestamps are not evidence of freshness.
+    func isFreshSnapshot(
+        at fileURL: URL,
+        for identity: ResourceIdentity,
+        now: Date = Date()
+    ) -> Bool {
+        guard let reference = RemoteMarkdownReference.make(identity: identity),
+            fileURL.standardizedFileURL == cacheFileURL(for: reference).standardizedFileURL,
+            (try? fileManager.destinationOfSymbolicLink(atPath: fileURL.path)) == nil,
+            fileManager.isReadableFile(atPath: fileURL.path),
+            validatedCacheDirectory(createIfMissing: false) != nil,
+            let modified = (try? fileManager.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
+        else {
+            return false
+        }
+        let age = now.timeIntervalSince(modified)
+        guard age >= 0 && age < 60,
+            let contents = try? SecureFileReader.read(
+                at: fileURL,
+                maximumBytes: DocumentURLValidator.maxFileSizeBytes,
+                symlinkPolicy: .rejectFinalComponent
+            )
+        else { return false }
+        return !contents.data.starts(with: Self.legacyFailurePreamble)
+            && String(data: contents.data, encoding: .utf8) != nil
+    }
+
     /// Builds shipped before the failure page moved to its own name wrote that
     /// page to the snapshot path, where this cache lookup would keep serving it
     /// back — labelled as a point-in-time copy of the user's file — forever.
@@ -990,11 +1017,12 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     /// here rather than left to that side effect. Sniffing the app-authored
     /// preamble is the only available signal; a real document that opens with
     /// those exact two lines is merely re-fetched.
+    private static let legacyFailurePreamble = Data("# Couldn't fetch remote Markdown\n\nawesoMux could not read ".utf8)
+
     private static func isLegacyFailurePage(at fileURL: URL) -> Bool {
-        let preamble = Data("# Couldn't fetch remote Markdown\n\nawesoMux could not read ".utf8)
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return false }
         defer { try? handle.close() }
-        return (try? handle.read(upToCount: preamble.count)) == preamble
+        return (try? handle.read(upToCount: legacyFailurePreamble.count)) == legacyFailurePreamble
     }
 
     private func validatedCacheDirectory(createIfMissing: Bool) -> URL? {

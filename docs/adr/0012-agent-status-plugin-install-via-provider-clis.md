@@ -167,7 +167,7 @@ provider's integration never changes what another provider sees.
 
 1. **Claude Code** (restating the prior decision for completeness):
    `skills/awesomux-documents/SKILL.md` inside the bundled
-   `awesomux-claude-status` plugin tree. The installer already copies the whole
+   `awesomux-runtime-status` plugin tree. The installer already copies the whole
    plugin tree, so this requires no installer changes.
 
 2. **Codex:** the install-time-rendered `plugin.json` for
