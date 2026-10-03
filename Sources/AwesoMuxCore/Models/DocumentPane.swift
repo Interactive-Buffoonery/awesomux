@@ -7,6 +7,7 @@ import Foundation
 public enum GeneratedDocumentKind: String, Codable, Hashable, Sendable {
     case agentTranscript
     case branchChanges
+    case pullRequest
     case unknown
 
     public init(from decoder: Decoder) throws {
