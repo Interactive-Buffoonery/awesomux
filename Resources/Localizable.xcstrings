@@ -129,8 +129,11 @@
         }
       }
     },
-    "%@ will lose access immediately. Other connections keep their own grants." : {
-      "comment" : "Revoke assistant connection confirmation message."
+    "%@ will be able to read up to 24 KB of this agent's conversation. It can include private text, commands, and tool output. Access ends if this pane restarts." : {
+
+    },
+    "%@ will lose access right away. Other apps keep their access." : {
+      "comment" : "Remove outside app confirmation message."
     },
     "%@, setup %@" : {
       "comment" : "Setup name and list position",
@@ -592,10 +595,16 @@
     "Access change failed" : {
       "comment" : "Assistant access error label."
     },
+    "Access change failed: %@" : {
+
+    },
     "Access changes are active and saved, but awesoMux could not confirm directory durability. Retry Save before restarting." : {
 
     },
-    "Access is denied, but awesoMux could not finish removing this connection." : {
+    "Access ended because this pane restarted. Choose a pane to give access again." : {
+
+    },
+    "Access ends if this pane restarts." : {
 
     },
     "Access is disabled for this run, but the change could not be saved. Retry before restarting awesoMux." : {
@@ -663,6 +672,12 @@
     },
     "Add Always-Managed SSH Destination" : {
       "comment" : "Title of the sheet for adding an SSH destination to the always-manage list"
+    },
+    "Add App" : {
+
+    },
+    "Add App…" : {
+      "comment" : "Add outside app button."
     },
     "Add Argument" : {
 
@@ -751,11 +766,8 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
-    "Allow Context Sharing" : {
-
-    },
-    "Allow assistant access" : {
-      "comment" : "Assistant access setting label.\nAssistant access toggle accessibility label."
+    "Allow outside apps" : {
+      "comment" : "Outside app access toggle accessibility label.\nOutside app access toggle label."
     },
     "Allow permission request. Command-Return when focused." : {
       "comment" : "Accessibility label for the allow button on the remote permission banner, including keyboard shortcut"
@@ -772,11 +784,11 @@
     "Already checking this session's log." : {
       "comment" : "VoiceOver announcement when Resume is invoked while a session-log probe is already in flight"
     },
-    "Also allow terminal history for this target" : {
-
-    },
     "Also play a sound for the workspace you're currently viewing when its agent finishes a turn." : {
       "comment" : "Notification settings hint shared with accessibility."
+    },
+    "Also share recent terminal output" : {
+
     },
     "Always" : {
       "comment" : "Menu bar visibility choice"
@@ -829,8 +841,8 @@
     "Another awesoMux instance is changing agent integrations; try again." : {
       "comment" : "CLI agent plugin install state lock contention warning"
     },
-    "Any process running as your macOS user can invoke the bundled helper with a known handle. Review grants as access to this Mac and revoke connections you no longer use." : {
-      "comment" : "Assistant access same-user boundary disclosure."
+    "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using." : {
+      "comment" : "Outside app access same-user boundary disclosure."
     },
     "Apache License" : {
       "comment" : "Button opening an Apache license text"
@@ -840,6 +852,9 @@
     },
     "App actions" : {
       "comment" : "Keys settings label."
+    },
+    "App name" : {
+
     },
     "Appearance settings reset to defaults." : {
       "comment" : "VoiceOver announcement after resetting the Appearance settings pane"
@@ -864,6 +879,9 @@
     },
     "Apply Layout Preset…" : {
 
+    },
+    "Apps" : {
+      "comment" : "Outside app access app list label."
     },
     "Argument %@" : {
       "comment" : "Argument position"
@@ -891,9 +909,6 @@
     },
     "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting." : {
       "comment" : "Terminal settings hint."
-    },
-    "Assistant access" : {
-      "comment" : "Agents settings title."
     },
     "Auto-clean up at launch" : {
       "comment" : "Terminal settings label."
@@ -1014,6 +1029,15 @@
     "Cache trust decisions per workspace once you have approved them." : {
       "comment" : "Agents settings hint."
     },
+    "Can read session details" : {
+
+    },
+    "Can see agent status" : {
+
+    },
+    "Can see agent status in" : {
+
+    },
     "Can't Open Pull Request" : {
       "comment" : "Alert title when the connected pull request snapshot could not open"
     },
@@ -1073,6 +1097,12 @@
       "comment" : "Title for a terminal link that awesoMux rejected or could not resolve"
     },
     "Catppuccin" : {
+
+    },
+    "Change Access" : {
+
+    },
+    "Change Access…" : {
 
     },
     "Changes: %arg vs %arg — %arg" : {
@@ -1307,6 +1337,9 @@
     "Closed %arg" : {
       "comment" : "VoiceOver announcement after closing a document tab"
     },
+    "Closed pane" : {
+
+    },
     "Closed workspace %arg" : {
       "comment" : "VoiceOver announcement after a workspace is closed; argument is the workspace title."
     },
@@ -1450,29 +1483,11 @@
     "Connect via SSH…" : {
 
     },
-    "Connected-computer access" : {
-      "comment" : "Assistant access boundary label."
-    },
-    "Connection change failed: %@" : {
-      "comment" : "Accessibility label for a failed assistant connection registration or scope edit."
-    },
-    "Connection name" : {
-
-    },
     "Connection to %arg is active." : {
       "comment" : "VoiceOver announcement when a remote pane connection recovers"
     },
     "Connection to %arg may be stale." : {
       "comment" : "VoiceOver announcement when a remote pane connection may be stale"
-    },
-    "Connections" : {
-      "comment" : "Assistant access connections label."
-    },
-    "Context" : {
-
-    },
-    "Context target pane" : {
-
     },
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
@@ -1489,9 +1504,6 @@
     "Copy Draft" : {
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
     },
-    "Copy Helper Command" : {
-
-    },
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
     },
@@ -1507,6 +1519,9 @@
     "Copy Run URL" : {
 
     },
+    "Copy Setup Command" : {
+
+    },
     "Copy Shortcut Diagnostics Path" : {
 
     },
@@ -1514,7 +1529,7 @@
 
     },
     "Copy failed" : {
-      "comment" : "Assistant helper-command copy error label."
+      "comment" : "Outside app setup-command copy error label."
     },
     "Copy mode enabled. Selecting text will not create comments." : {
       "comment" : "VoiceOver announcement when a Markdown document enters copy mode"
@@ -1749,14 +1764,8 @@
     "Creating…" : {
       "comment" : "Worktree creation in progress accessibility label.\nWorktree creation in progress button label."
     },
-    "Credentials identify separate connections, not ChatGPT or other service accounts." : {
-      "comment" : "Assistant access identity boundary hint."
-    },
     "Current" : {
       "comment" : "Main worktree indicator."
-    },
-    "Current target" : {
-
     },
     "Cursor" : {
       "comment" : "Terminal settings title."
@@ -1877,9 +1886,6 @@
     "Diagnostics summary: %arg" : {
 
     },
-    "Direct delivery" : {
-
-    },
     "Disconnected from %arg in %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane in a split is blocked because background terminal sessions are disabled",
       "localizations" : {
@@ -1986,8 +1992,8 @@
     "END SESSION" : {
 
     },
-    "Each connection has its own Keychain credential and independently revocable status scope." : {
-      "comment" : "Assistant access connections hint."
+    "Each app gets its own key. Removing one doesn't affect the others." : {
+      "comment" : "Outside app access app list hint."
     },
     "Each field is one literal argument, including spaces. Leave an argument field empty to pass an empty argument." : {
 
@@ -2006,12 +2012,6 @@
     },
     "Edit Custom Command" : {
       "comment" : "Title of the sheet that edits an existing custom command"
-    },
-    "Edit Scope…" : {
-
-    },
-    "Edit Status Scope" : {
-
     },
     "Edit annotation" : {
 
@@ -2145,9 +2145,6 @@
       "comment" : "Spoken form of beat one. Argument is the New Workspace shortcut spelled out, e.g. Command N.\nWelcome tour beat one. Argument is the New Workspace keyboard shortcut as symbols, e.g. ⌘N."
     },
     "Every session is attached to an open pane. When you quit with a session running, it keeps the shell and scrollback alive — and shows up here to pin or end." : {
-
-    },
-    "Exact target grant" : {
 
     },
     "Executable" : {
@@ -2317,14 +2314,14 @@
     "Give it a name and a single-line shell command." : {
       "comment" : "Settings field hint for the add-custom-command button"
     },
+    "Give the setup command to the app so it can check on your agents." : {
+
+    },
     "Glow" : {
       "comment" : "Appearance settings section title"
     },
     "Glow strength" : {
       "comment" : "Settings field label for the glow strength slider"
-    },
-    "Granted" : {
-
     },
     "Gray" : {
       "comment" : "Workspace group tint color",
@@ -2364,9 +2361,6 @@
 
     },
     "Help and feedback" : {
-
-    },
-    "Helper command" : {
 
     },
     "Hide Agent Activity" : {
@@ -2447,6 +2441,9 @@
     },
     "Inactive sessions that emit output get a needs-attention indicator in the sidebar." : {
       "comment" : "Workspace settings hint."
+    },
+    "Includes new panes added to these workspaces." : {
+
     },
     "Includes workspace names and project context in macOS notification previews." : {
       "comment" : "Notification settings hint shared with accessibility."
@@ -2550,6 +2547,9 @@
     "Keep terminal sessions running in the background" : {
 
     },
+    "Keeps access to these panes." : {
+
+    },
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
     },
@@ -2592,6 +2592,9 @@
     },
     "Left" : {
 
+    },
+    "Let AI apps on this Mac, like Claude Desktop or ChatGPT, see what your agents are doing. You choose which panes each app can see." : {
+      "comment" : "Outside app access settings subtitle."
     },
     "Let awesoMux get my attention" : {
 
@@ -2737,9 +2740,6 @@
     },
     "Mocha, Latte, or follow the system appearance." : {
       "comment" : "Theme section subtitle"
-    },
-    "Monitoring" : {
-
     },
     "Mono font" : {
       "comment" : "Accessibility label for the terminal font picker\nSettings field label for the terminal font picker"
@@ -2990,6 +2990,9 @@
     "Next permission request." : {
       "comment" : "VoiceOver announcement when a queued remote permission prompt becomes active"
     },
+    "No" : {
+
+    },
     "No Agent Transcript" : {
       "comment" : "Alert title shown when awesoMux cannot open a pane's agent transcript."
     },
@@ -3008,22 +3011,19 @@
     "No agents running" : {
       "comment" : "Empty state for the sidebar agent activity panel"
     },
+    "No apps added yet." : {
+      "comment" : "Empty outside app list."
+    },
     "No background sessions" : {
 
     },
     "No background sessions. Nothing to clean up." : {
 
     },
-    "No connections registered." : {
-      "comment" : "Empty assistant connections state."
-    },
     "No conversation turns could be rendered from the most recent history." : {
       "comment" : "Notice in a rendered agent transcript when the recent history held nothing renderable"
     },
     "No editors added yet" : {
-
-    },
-    "No exact provider session identity" : {
 
     },
     "No executable was found at %arg" : {
@@ -3052,6 +3052,9 @@
     },
     "No scrollback to show." : {
       "comment" : "Empty state in the Show Scrollback sheet when the pane returned no scrollback\nVoiceOver announcement when Show Scrollback finishes with no terminal history"
+    },
+    "No session ID found" : {
+
     },
     "No supported editors are installed. Install one, or add it below, for the Open control to work." : {
 
@@ -3116,17 +3119,23 @@
     "Off" : {
       "comment" : "Settings label when Open at Login is disabled."
     },
-    "Off blocks every connection immediately. Installing a client or registering it does not turn access on." : {
-      "comment" : "Assistant access global toggle hint."
+    "Off — no app can see anything." : {
+      "comment" : "Outside app access toggle state."
     },
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
+    },
+    "On — apps can see what's listed above." : {
+      "comment" : "Outside app access toggle state."
     },
     "One record larger than %arg could not be displayed." : {
       "comment" : "Notice for an agent transcript record so large that only its tail fell inside the window, so its size is a lower bound"
     },
     "One record of %arg was too large to display." : {
       "comment" : "Notice naming the formatted byte size of one agent transcript record that was skipped"
+    },
+    "Only add apps you trust" : {
+      "comment" : "Outside app access safety label."
     },
     "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
@@ -3280,6 +3289,9 @@
     "Output marks needs attention" : {
       "comment" : "Workspace settings label."
     },
+    "Outside app access" : {
+      "comment" : "Agents settings title."
+    },
     "Oversized runtime event data was dropped" : {
       "comment" : "Diagnostics event summary"
     },
@@ -3424,12 +3436,6 @@
     },
     "Permissions" : {
       "comment" : "Agents settings title."
-    },
-    "Persistent pane grants follow selected panes across ordinary status changes." : {
-
-    },
-    "Persistent workspace grants include panes added to selected workspaces later." : {
-
     },
     "Pin" : {
       "comment" : "Sidebar workspace context-menu action that pins the workspace to the top of the sidebar."
@@ -3662,6 +3668,9 @@
     "Recent Workspaces" : {
       "comment" : "Dock right-click menu item whose submenu lists recently closed workspaces to reopen."
     },
+    "Recent terminal output" : {
+
+    },
     "Recently Closed" : {
 
     },
@@ -3763,21 +3772,6 @@
     },
     "Refreshing…" : {
       "comment" : "Button title on a remote Markdown snapshot tab while a refresh is fetching over SSH"
-    },
-    "Register" : {
-
-    },
-    "Register Connection" : {
-
-    },
-    "Register Connection…" : {
-      "comment" : "Register assistant connection button."
-    },
-    "Register local client connections and choose which status and session context they may read." : {
-      "comment" : "Assistant access settings subtitle."
-    },
-    "Registration creates a credential in your Keychain through the bundled helper. The credential is never shown or copied." : {
-      "comment" : "Assistant registration credential disclosure."
     },
     "Reload Ghostty Configuration" : {
 
@@ -3920,7 +3914,7 @@
       "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
     },
     "Remove %@" : {
-      "comment" : "Remove named setup"
+      "comment" : "Remove named outside app.\nRemove named setup"
     },
     "Remove %arg" : {
       "comment" : "Accessibility label for the remove button of a named custom command"
@@ -3936,6 +3930,9 @@
     },
     "Remove agent setup?" : {
 
+    },
+    "Remove app?" : {
+      "comment" : "Remove outside app confirmation title."
     },
     "Remove argument %@" : {
       "comment" : "Remove argument at position"
@@ -4217,20 +4214,8 @@
     "Review the group's current local and remote panes, then close it again." : {
       "comment" : "Body of the notice shown when a group changes while its close confirmation is open."
     },
-    "Reviewed instructions" : {
-
-    },
     "Reviews" : {
       "comment" : "Section heading in a read-only pull request snapshot"
-    },
-    "Revoke" : {
-
-    },
-    "Revoke %@" : {
-      "comment" : "Revoke named assistant connection."
-    },
-    "Revoke connection?" : {
-      "comment" : "Revoke assistant connection confirmation title."
     },
     "Right" : {
 
@@ -4407,14 +4392,14 @@
     "Select a local terminal pane, then try again." : {
       "comment" : "Worktree split destination unavailable or changed."
     },
+    "Select a pane running an agent, then try again." : {
+
+    },
     "Select a workspace group, then try again." : {
       "comment" : "Worktree Manager open recovery when no workspace group is selected."
     },
     "Select an agent transcript tab first — Resume acts on the transcript you're reading" : {
       "comment" : "Unavailable reason for resuming when the selected document tab is not an agent transcript"
-    },
-    "Select an available agent pane before sharing context." : {
-
     },
     "Select and copy without creating comments" : {
       "comment" : "Help text for the Copy Mode toggle while it is inactive."
@@ -4511,10 +4496,13 @@
     "Settings…" : {
       "comment" : "Dock right-click menu item that opens the Settings window."
     },
-    "Share Current Target Context…" : {
+    "Share Details" : {
 
     },
-    "Share Session Context" : {
+    "Share Session Details" : {
+
+    },
+    "Share Session Details…" : {
 
     },
     "Shell" : {
@@ -4671,12 +4659,6 @@
     "State file custody" : {
       "comment" : "Bridge doctor check title"
     },
-    "Status" : {
-
-    },
-    "Status access" : {
-
-    },
     "Steady" : {
       "comment" : "Diagnostics resource trend"
     },
@@ -4691,7 +4673,7 @@
         }
       }
     },
-    "Stop Context Sharing" : {
+    "Stop Sharing Details" : {
 
     },
     "Stop checking %arg status" : {
@@ -4735,9 +4717,6 @@
     },
     "TOML at %@." : {
       "comment" : "Advanced settings subtitle. Placeholder is the configuration file path."
-    },
-    "Target pane" : {
-
     },
     "Target path" : {
       "comment" : "New worktree target path field label."
@@ -4812,10 +4791,7 @@
     "Terminal font size" : {
 
     },
-    "Terminal history" : {
-
-    },
-    "Terminal history can include shell output and text from earlier programs. It is a separate source and is never used automatically when a transcript is unavailable." : {
+    "Terminal output can include anything printed in this pane, including by earlier programs. awesoMux never sends it in place of the conversation." : {
 
     },
     "Terminal output wants to replace the macOS clipboard with %arg characters (%arg bytes)." : {
@@ -4880,6 +4856,9 @@
     "The annotation couldn't be saved. It may be too long, invalid, or duplicated." : {
       "comment" : "Save failure alert body when the annotation itself is rejected"
     },
+    "The app wasn't added, and awesoMux couldn't remove its unused Keychain key." : {
+
+    },
     "The awesoMux remote helper is missing or reports an incompatible protocol version." : {
       "comment" : "Bridge doctor failure reason"
     },
@@ -4900,9 +4879,6 @@
     },
     "The config file on disk is invalid. Changes made here won't be saved until it's fixed." : {
 
-    },
-    "The connection was not registered, and awesoMux could not remove its unused Keychain credential." : {
-      "comment" : "Assistant registration failure after compensating credential cleanup also failed."
     },
     "The current directory cannot be used to launch an agent setup. Choose an accessible directory owned by your user." : {
       "comment" : "Agent setup launch rejected by the shared startup directory safety check"
@@ -5010,6 +4986,9 @@
     "The live saved file changed while awesoMux was reopening it, and awesoMux could not preserve the version it had already read. Automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes could not be archived"
     },
+    "The pane changed before saving. Review it and try again." : {
+
+    },
     "The pane changed, so Show Scrollback was canceled. Try again." : {
       "comment" : "VoiceOver announcement when a terminal surface is replaced while Show Scrollback is loading"
     },
@@ -5100,9 +5079,6 @@
     "The source is unavailable or changed" : {
       "comment" : "Remote handoff source error title"
     },
-    "The target changed or context sharing could not be saved. Review the current target again." : {
-
-    },
     "The target overlaps an existing worktree." : {
       "comment" : "Worktree target overlap validation."
     },
@@ -5165,6 +5141,9 @@
     "This agent doesn't support review annotations" : {
       "comment" : "Disabled annotation handoff reason when the document's agent has no annotation protocol mapping"
     },
+    "This app no longer has access, but awesoMux couldn't finish removing it." : {
+
+    },
     "This branch has no open pull request in the connected GitHub repository." : {
       "comment" : "Reason a connected pull request document could not open"
     },
@@ -5181,9 +5160,6 @@
 
     },
     "This connection is denied for this run, but the scope change could not be saved. Retry before restarting awesoMux." : {
-
-    },
-    "This connection may share up to 24 KiB of this session with its assistant service. Content may include private text, commands, or tool output. The grant expires when this exact target changes." : {
 
     },
     "This destination is already on the list." : {
@@ -5216,20 +5192,14 @@
     "This generated document cannot be edited." : {
       "comment" : "Alert body when a generated document has unknown provenance"
     },
-    "This grant expired because the target incarnation changed. Saving refreshes it to the selected pane's current target." : {
-      "comment" : "Assistant exact-target grant expiry warning."
-    },
-    "This grant expired. Select an available target to renew access." : {
-      "comment" : "Assistant exact-target grant warning when its pane is unavailable."
-    },
-    "This grant expires when the selected pane's target incarnation changes." : {
-
-    },
     "This is the part a plain terminal can't do. Run Claude Code, Codex, or another agent in a workspace and awesoMux watches it for you: the sidebar shows whether it's thinking, waiting on you, or done, and a notification says so even when awesoMux is behind another app." : {
       "comment" : "Welcome tour beat three, introducing agent awareness and notifications."
     },
     "This link prefills the recipient, body, or subject. Verify before opening." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
+    },
+    "This pane" : {
+
     },
     "This pane has running activity. Closing the pane will stop it." : {
       "comment" : "Body of the close-pane confirmation dialog when generic activity is running.",
@@ -5255,6 +5225,9 @@
     },
     "This pane reported a session id awesoMux won't use to look up a file. Start a new agent session and try again." : {
       "comment" : "Transcript failure when the reported provider session id failed validation"
+    },
+    "This pane restarted since access was last saved. Saving gives access to the pane as it is now." : {
+
     },
     "This pane runs over SSH, and its repository is on the remote host. Show the changes from a local pane." : {
       "comment" : "Branch diff failure when the pane runs over SSH"
@@ -5655,6 +5628,9 @@
         }
       }
     },
+    "Yes" : {
+
+    },
     "Your Ghostty config controls the terminal background." : {
 
     },
@@ -5717,9 +5693,6 @@
     "awesoMux connected to the host but could not read %arg." : {
       "comment" : "Body of the missing remote Markdown page; the placeholder is the remote origin"
     },
-    "awesoMux could not copy the helper command." : {
-
-    },
     "awesoMux could not create an owner-only local listener." : {
       "comment" : "Bridge doctor failure reason"
     },
@@ -5732,16 +5705,10 @@
     "awesoMux could not read %arg using SSH." : {
       "comment" : "Body of the failed remote Markdown fetch page; the placeholder is the remote origin"
     },
-    "awesoMux could not save the access setting." : {
+    "awesoMux couldn't check which panes are available. Try again." : {
 
     },
-    "awesoMux could not save this connection." : {
-
-    },
-    "awesoMux could not verify current targets for this connection." : {
-
-    },
-    "awesoMux could not verify the selected agent target for context sharing." : {
+    "awesoMux couldn't copy the setup command." : {
 
     },
     "awesoMux couldn't find a branch to compare against. It looks for origin's default branch, then main or master — a repository with no remote, no commits, or differently named branches has none of them." : {
@@ -5749,6 +5716,9 @@
     },
     "awesoMux couldn't find git. Install the Xcode command line tools, or git through Homebrew, and try again." : {
       "comment" : "Branch diff failure when no git executable was found"
+    },
+    "awesoMux couldn't read the agent in the selected pane. Session details work only for agents running on this Mac." : {
+
     },
     "awesoMux couldn't read this repository's branches. Git didn't finish the lookup." : {
       "comment" : "Branch diff failure when the ref listing could not be run or did not complete"
@@ -5759,11 +5729,17 @@
     "awesoMux couldn't safely read OpenCode's session database. Check that it still exists and is owned by your user." : {
       "comment" : "Transcript failure when OpenCode's SQLite session store cannot be read safely"
     },
+    "awesoMux couldn't save the access setting." : {
+
+    },
     "awesoMux couldn't save the rendered diff to its cache." : {
       "comment" : "Branch diff failure when writing the rendered Markdown to the app cache fails"
     },
     "awesoMux couldn't save the rendered transcript to its cache." : {
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
+    },
+    "awesoMux couldn't save this app's access." : {
+
     },
     "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history." : {
       "comment" : "Explanation shown when Show Scrollback cannot safely estimate terminal history size"
@@ -5836,6 +5812,9 @@
     },
     "awesoMux runtime" : {
       "comment" : "Diagnostics app process group"
+    },
+    "awesoMux saves a key for this app in your Keychain. You never need to see or copy it." : {
+      "comment" : "Outside app key disclosure."
     },
     "awesoMux searched the agent's session folder and found nothing recorded for this pane's session. If you've moved the agent's Config home, check it in Settings." : {
       "comment" : "Transcript failure when nothing on disk matched the session"

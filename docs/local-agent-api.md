@@ -1,7 +1,7 @@
 # Shared local agent API
 
 The app-owned status transport is opt-in. Installation grants nothing. A user
-registers each local client in **Settings → Agents → Assistant access**, reviews
+adds each local client in **Settings → Agents → Outside app access**, reviews
 the default current-target scope or explicitly chooses a persistent pane or
 workspace scope, and separately enables global access. Each
 connection has an independent credential and can be edited or revoked without
@@ -281,10 +281,10 @@ scenario names. It does not claim native real-agent acceptance.
 For native validation, use a linked worktree and
 `./script/build_and_run.sh --stage-local-api-e2e`. This stages an ordinary debug
 build with its isolated `development:<worktree>` profile; it has no authorization
-bypass. Open the staged app and Agents settings, leave global access off, register
-two connections with different scopes, then copy each nonsecret helper command.
+bypass. Open the staged app and Agents settings, leave global access off, add
+two apps with different scopes, then use Copy Setup Command on each.
 Confirm both return `access_disabled`; enable access and compare their rosters.
-Revoke the first and confirm its helper returns `credential_unavailable` or a
+Remove the first and confirm its helper returns `credential_unavailable` or a
 denial while the second still works. Disable global access and confirm the second
 returns `access_disabled`. Relaunch the same staged bundle and confirm the saved
 global state and remaining connection are unchanged. Record any Keychain trust
