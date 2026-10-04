@@ -117,10 +117,10 @@ struct AssistantAccessSettingsSection: View {
                 contextTargetVersions = [:]
                 return
             }
-            contextTargetVersions = (try? await captureTargetVersions()) ?? [:]
+            contextTargetVersions = try? await captureTargetVersions()
             for await _ in Timer.publish(every: 2, on: .main, in: .common).autoconnect().values {
                 guard !Task.isCancelled else { return }
-                contextTargetVersions = (try? await captureTargetVersions()) ?? [:]
+                contextTargetVersions = try? await captureTargetVersions()
             }
         }
         .sheet(item: $editor) { request in
