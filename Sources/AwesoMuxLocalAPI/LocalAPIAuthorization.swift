@@ -45,17 +45,20 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
     public let globalRevision: UUID
     public let connectionRevision: UUID
     public let statusScope: LocalAPITargetScope
+    public let contextGrant: LocalAPIContextGrant?
 
     public init(
         connectionID: UUID,
         globalRevision: UUID,
         connectionRevision: UUID,
-        statusScope: LocalAPITargetScope
+        statusScope: LocalAPITargetScope,
+        contextGrant: LocalAPIContextGrant? = nil
     ) {
         self.connectionID = connectionID
         self.globalRevision = globalRevision
         self.connectionRevision = connectionRevision
         self.statusScope = statusScope
+        self.contextGrant = contextGrant
     }
 }
 

@@ -67,6 +67,45 @@ final class LocalAPIService {
             guard let store, let runtime else { return LocalAPIResponse(requestID: request.requestID, error: .appUnavailable) }
             store.bindLocalAPIInstance(instance)
             let operation = LocalAPIOperation(rawValue: request.operation)
+            if operation == .agentContext {
+                return await LocalAPIContextCapture.response(
+                    request: request, instanceID: instance, lease: lease,
+                    authorization: accessStore.runtimeAuthority.provider,
+                    sample: {
+                        guard let paneID = request.paneID else { throw LocalAPIError.invalidRequest }
+                        return try await Self.sampleContextTarget(paneID: paneID, store: store, runtime: runtime)
+                    },
+                    read: { agent, source, limit in
+                        guard let workspace = store.session(id: agent.workspaceID),
+                            let pane = workspace.layout.pane(id: agent.paneID)
+                        else { throw LocalAPIError.staleTarget }
+                        guard case .local = pane.executionPlan else { throw LocalAPIError.remoteContext }
+                        if source == .terminalHistory {
+                            return (try await runtime.localAPIHistory(paneID: agent.paneID, limit: limit), false)
+                        }
+                        guard let kind = AgentKind(rawValue: agent.provider),
+                            let home = AgentTranscriptPaneInputs.resolutionAttempts(
+                                for: kind, integrations: runtime.agentIntegrations
+                            ).first?.configHome
+                        else { throw LocalAPIError.unsupportedProvider }
+                        let plan = pane.executionPlan
+                        let chrome = AgentTranscriptOpener.localizedChrome(agentKind: kind)
+                        let worker = Task.detached(priority: .utility) {
+                            try Task.checkCancellation()
+                            return try LocalAPIContextReader.read(
+                                agentKind: kind, executionPlan: plan, configHome: home,
+                                sessionID: agent.providerSessionID, limit: limit, chrome: chrome
+                            )
+                        }
+                        let rendered = try await withTaskCancellationHandler {
+                            try await worker.value
+                        } onCancel: {
+                            worker.cancel()
+                        }
+                        return (rendered.text, rendered.isTruncated)
+                    }
+                )
+            }
             var agents: [LocalAPIAgent]?
             if operation == .listAgents {
                 let providers: [UUID: AgentKind]
@@ -116,7 +155,7 @@ final class LocalAPIService {
                 requestID: request.requestID, profile: profileValue, appInstanceID: instance,
                 capturedAt: Date(), connectionStatus: operation == .connectionStatus ? .connected : nil,
                 capabilities: operation == .capabilities ? LocalAPICapabilities() : nil,
-                agents: agents
+                agents: agents, contextGrant: operation == .connectionStatus ? lease.contextGrant : nil
             )
         }
         accessStore.setInvalidationHandler { [weak server] connectionID in
@@ -142,6 +181,31 @@ final class LocalAPIService {
             }
         }
         return nil
+    }
+
+    static func sampleContextTarget(
+        paneID: UUID, store: SessionStore, runtime: GhosttyRuntime
+    ) async throws -> LocalAPIAgent {
+        let providers = try store.localAPIProviders()
+        guard let provider = providers[paneID] else { throw LocalAPIError.staleTarget }
+        let key = store.localAPIRoutingKeys()[paneID]
+        let source = runtime.localAPIProcessSources()[paneID]
+        let worker = Task.detached(priority: .utility) { source?.agentIncarnation(provider: provider) }
+        let incarnation = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        try Task.checkCancellation()
+        guard (try store.localAPIProviders())[paneID] == provider,
+            store.localAPIRoutingKeys()[paneID] == key,
+            runtime.localAPIProcessSources()[paneID] == source
+        else { throw LocalAPIError.staleTarget }
+        let incarnations = incarnation.map { [paneID: $0] } ?? [:]
+        guard let agent = store.localAPIAgents(processIncarnations: incarnations, limitedTo: [paneID]).first else {
+            throw LocalAPIError.staleTarget
+        }
+        return agent
     }
 
     private static func candidatePaneIDs(

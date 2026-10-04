@@ -472,10 +472,14 @@ reduction, not a reliable human-approval classifier.
 
 If another doc contradicts this file on **persistence** (JSON vs UserDefaults) or **whether libghostty is linked** (it is, via `GhosttyKit` + `GhosttyKitLinker`), treat **this document + `ghostty-integration.md`** as current.
 
-## Shared local status API
+## Shared local agent API
 
 The bundled `awesomux-agent` helper calls the profile-specific app-owned local
-API. Normal builds deny all operations until explicit connection grants are
-implemented. `SessionStore` supplies native pane snapshots and opaque target
-versions; `LocalAPIService` joins off-actor process evidence without selecting
-panes or acknowledging attention. See [the contract and E2E workflow](local-agent-api.md).
+API. Access is disabled by default and requires independently revocable connection
+grants. `SessionStore` supplies native pane snapshots and opaque target versions;
+`LocalAPIService` joins off-actor process evidence without selecting panes or
+acknowledging attention. Context sharing requires a separate exact-target grant;
+terminal history additionally requires source-specific consent. Transcript reads
+reuse ADR-0033's bounded exact-identity adapters, and both permission and target
+identity are rechecked before content returns. See
+[the contract and E2E workflow](local-agent-api.md).

@@ -180,10 +180,10 @@ public enum AgentTranscriptRenderer {
     /// The pure renderer's output. `renderedRecordCount` exists so the reading
     /// wrapper can tell "the window held no conversation" from "the window held
     /// a conversation that fit".
-    struct Rendered: Equatable {
-        var text: String
-        var renderedRecordCount: Int
-        var isTruncated: Bool
+    public struct Rendered: Equatable, Sendable {
+        public var text: String
+        public var renderedRecordCount: Int
+        public var isTruncated: Bool
     }
 
     // MARK: Reading entry point
@@ -248,6 +248,29 @@ public enum AgentTranscriptRenderer {
         }
     }
 
+    /// Assistant reads use one bounded window, independent of viewer budgets.
+    public static func renderContext(
+        _ transcript: AgentTranscript,
+        chrome: Chrome,
+        budgetBytes: Int = 24 * 1024
+    ) -> Result<Rendered, AgentTranscriptUnavailable> {
+        guard let provider = AgentTranscriptImporter.Provider(agentKind: transcript.agentKind) else {
+            return .failure(.unsupportedAgent(transcript.agentKind))
+        }
+        do {
+            let tail = try transcript.handle.readSuffix(maximumBytes: 512 * 1024)
+            return .success(
+                render(
+                    jsonlTail: tail.data, provider: provider, chrome: chrome,
+                    sessionID: transcript.sessionID, hasEarlierBytes: tail.startOffset > 0,
+                    startsOnRecordBoundary: tail.precedingByte == UInt8(ascii: "\n"),
+                    isFinalWindow: true, budgetBytes: budgetBytes
+                ))
+        } catch {
+            return .failure(.unreadable(error))
+        }
+    }
+
     /// Renders the bounded rows selected by `OpenCodeTranscriptDatabase` into
     /// the same newest-history document shape as the JSONL providers.
     public static func renderOpenCode(
@@ -256,6 +279,15 @@ public enum AgentTranscriptRenderer {
         chrome: Chrome,
         budgetBytes: Int = budgetBytes
     ) -> String {
+        renderOpenCodeContext(snapshot, sessionID: sessionID, chrome: chrome, budgetBytes: budgetBytes).text
+    }
+
+    public static func renderOpenCodeContext(
+        _ snapshot: OpenCodeTranscriptSnapshot,
+        sessionID: String,
+        chrome: Chrome,
+        budgetBytes: Int = 24 * 1024
+    ) -> Rendered {
         let documentHeader = header(chrome: chrome, sessionID: sessionID)
         let truncatedNotice = truncationNotice(chrome)
         let noTurnsNotice = emptyWindowNotice(chrome)
@@ -284,7 +316,7 @@ public enum AgentTranscriptRenderer {
         if isTruncated { text += truncatedNotice }
         if chunks.isEmpty { text += noTurnsNotice }
         text += chunks.reversed().joined()
-        return text
+        return Rendered(text: text, renderedRecordCount: chunks.count, isTruncated: isTruncated)
     }
 
     private static func openCodeRole(from data: Data?) -> String {

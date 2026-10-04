@@ -751,6 +751,9 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
+    "Allow Context Sharing" : {
+
+    },
     "Allow assistant access" : {
       "comment" : "Assistant access setting label.\nAssistant access toggle accessibility label."
     },
@@ -768,6 +771,9 @@
     },
     "Already checking this session's log." : {
       "comment" : "VoiceOver announcement when Resume is invoked while a session-log probe is already in flight"
+    },
+    "Also allow terminal history for this target" : {
+
     },
     "Also play a sound for the workspace you're currently viewing when its agent finishes a turn." : {
       "comment" : "Notification settings hint shared with accessibility."
@@ -1465,6 +1471,9 @@
     "Context" : {
 
     },
+    "Context target pane" : {
+
+    },
     "Continue Without Helper" : {
       "comment" : "Decline remote helper setup while continuing the SSH connection"
     },
@@ -2138,6 +2147,9 @@
     "Every session is attached to an open pane. When you quit with a session running, it keeps the shell and scrollback alive — and shows up here to pin or end." : {
 
     },
+    "Exact target grant" : {
+
+    },
     "Executable" : {
       "comment" : "Diagnostics process table column"
     },
@@ -2541,11 +2553,11 @@
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
     },
-    "Last reported remote directory: %arg. The report may be from an earlier SSH connection." : {
-      "comment" : "Help for the cached remote working directory shown in the path bar"
-    },
     "Last Visible Terminal Output" : {
       "comment" : "Caption for best-effort screen output captured before a failed remote pane was disposed"
+    },
+    "Last reported remote directory: %arg. The report may be from an earlier SSH connection." : {
+      "comment" : "Help for the cached remote working directory shown in the path bar"
     },
     "Latest error" : {
       "comment" : "Advanced settings label."
@@ -3009,6 +3021,9 @@
       "comment" : "Notice in a rendered agent transcript when the recent history held nothing renderable"
     },
     "No editors added yet" : {
+
+    },
+    "No exact provider session identity" : {
 
     },
     "No executable was found at %arg" : {
@@ -3758,7 +3773,7 @@
     "Register Connection…" : {
       "comment" : "Register assistant connection button."
     },
-    "Register local client connections and choose exactly which status they may read." : {
+    "Register local client connections and choose which status and session context they may read." : {
       "comment" : "Assistant access settings subtitle."
     },
     "Registration creates a credential in your Keychain through the bundled helper. The credential is never shown or copied." : {
@@ -4398,6 +4413,9 @@
     "Select an agent transcript tab first — Resume acts on the transcript you're reading" : {
       "comment" : "Unavailable reason for resuming when the selected document tab is not an agent transcript"
     },
+    "Select an available agent pane before sharing context." : {
+
+    },
     "Select and copy without creating comments" : {
       "comment" : "Help text for the Copy Mode toggle while it is inactive."
     },
@@ -4492,6 +4510,12 @@
     },
     "Settings…" : {
       "comment" : "Dock right-click menu item that opens the Settings window."
+    },
+    "Share Current Target Context…" : {
+
+    },
+    "Share Session Context" : {
+
     },
     "Shell" : {
       "comment" : "Corner tab command label when the companion runs a plain shell.\nDiagnostics process type\nGeneric agent name for a plain shell in an accessibility label.\nGeneric agent-kind display name for a plain shell session (not an AI agent brand name)",
@@ -4667,6 +4691,9 @@
         }
       }
     },
+    "Stop Context Sharing" : {
+
+    },
     "Stop checking %arg status" : {
 
     },
@@ -4783,6 +4810,12 @@
 
     },
     "Terminal font size" : {
+
+    },
+    "Terminal history" : {
+
+    },
+    "Terminal history can include shell output and text from earlier programs. It is a separate source and is never used automatically when a transcript is unavailable." : {
 
     },
     "Terminal output wants to replace the macOS clipboard with %arg characters (%arg bytes)." : {
@@ -5067,6 +5100,9 @@
     "The source is unavailable or changed" : {
       "comment" : "Remote handoff source error title"
     },
+    "The target changed or context sharing could not be saved. Review the current target again." : {
+
+    },
     "The target overlaps an existing worktree." : {
       "comment" : "Worktree target overlap validation."
     },
@@ -5145,6 +5181,9 @@
 
     },
     "This connection is denied for this run, but the scope change could not be saved. Retry before restarting awesoMux." : {
+
+    },
+    "This connection may share up to 24 KiB of this session with its assistant service. Content may include private text, commands, or tool output. The grant expires when this exact target changes." : {
 
     },
     "This destination is already on the list." : {
@@ -5700,6 +5739,9 @@
 
     },
     "awesoMux could not verify current targets for this connection." : {
+
+    },
+    "awesoMux could not verify the selected agent target for context sharing." : {
 
     },
     "awesoMux couldn't find a branch to compare against. It looks for origin's default branch, then main or master — a repository with no remote, no commits, or differently named branches has none of them." : {

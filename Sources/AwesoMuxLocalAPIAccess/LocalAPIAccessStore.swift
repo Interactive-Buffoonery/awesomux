@@ -15,6 +15,7 @@ public struct LocalAPIConnectionGrant: Codable, Equatable, Identifiable, Sendabl
     public var credentialVerifier: Data
     public var revision: UUID
     public var statusScope: LocalAPITargetScope
+    public var contextGrant: LocalAPIContextGrant?
 
     public init(
         id: UUID,
@@ -22,7 +23,8 @@ public struct LocalAPIConnectionGrant: Codable, Equatable, Identifiable, Sendabl
         createdAt: Date,
         credentialVerifier: Data,
         revision: UUID,
-        statusScope: LocalAPITargetScope
+        statusScope: LocalAPITargetScope,
+        contextGrant: LocalAPIContextGrant? = nil
     ) {
         self.id = id
         self.label = label
@@ -30,6 +32,7 @@ public struct LocalAPIConnectionGrant: Codable, Equatable, Identifiable, Sendabl
         self.credentialVerifier = credentialVerifier
         self.revision = revision
         self.statusScope = statusScope
+        self.contextGrant = contextGrant
     }
 }
 
@@ -91,7 +94,8 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                         self.state.globalRevision == lease.globalRevision,
                         let connection = self.state.connections.first(where: { $0.id == lease.connectionID }),
                         connection.revision == lease.connectionRevision,
-                        connection.statusScope == lease.statusScope
+                        connection.statusScope == lease.statusScope,
+                        connection.contextGrant == lease.contextGrant
                     else { throw LocalAPIError.permissionDenied }
                     // The server retains this lease from credential authorization.
                     // Every policy change invalidates its revisions before another write.
@@ -135,6 +139,13 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
             connection.statusScope.isValid
         else { return .failure(.permissionDenied) }
 
+        if request.operation == LocalAPIOperation.agentContext.rawValue {
+            guard let grant = connection.contextGrant,
+                request.paneID == grant.paneID, request.targetVersion == grant.targetVersion,
+                request.source != .terminalHistory || grant.allowTerminalHistory
+            else { return .failure(.permissionDenied) }
+        }
+
         let candidate = Self.verifier(
             credential: credential,
             profile: state.profile,
@@ -149,7 +160,8 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
             connectionID: connectionID,
             globalRevision: state.globalRevision,
             connectionRevision: connection.revision,
-            statusScope: connection.statusScope
+            statusScope: connection.statusScope,
+            contextGrant: connection.contextGrant
         )
         guard expected == nil || expected == lease else { return .failure(.permissionDenied) }
         return .success(lease)
@@ -302,14 +314,25 @@ public final class LocalAPIAccessStore {
         }
     }
 
+    public func updateContextGrant(connectionID: UUID, contextGrant: LocalAPIContextGrant?) throws {
+        try updateConnection(connectionID: connectionID) { $0.contextGrant = contextGrant }
+    }
+
     public func updateStatusScope(connectionID: UUID, statusScope: LocalAPITargetScope) throws {
-        try requireWritableAuthority()
         guard statusScope.isValid else { throw LocalAPIAccessFailure.invalidScope }
+        try updateConnection(connectionID: connectionID) { $0.statusScope = statusScope }
+    }
+
+    private func updateConnection(
+        connectionID: UUID,
+        change: (inout LocalAPIConnectionGrant) -> Void
+    ) throws {
+        try requireWritableAuthority()
         guard let index = state.connections.firstIndex(where: { $0.id == connectionID }) else {
             throw LocalAPIAccessFailure.connectionNotFound
         }
         var candidate = state
-        candidate.connections[index].statusScope = statusScope
+        change(&candidate.connections[index])
         candidate.connections[index].revision = UUID()
 
         var denied = candidate
@@ -460,11 +483,18 @@ public final class LocalAPIAccessStore {
             Set(root.keys) == Set(["schemaVersion", "profile", "installationID", "globallyEnabled", "globalRevision", "connections"]),
             let connections = root["connections"] as? [[String: Any]],
             connections.allSatisfy({
-                Set($0.keys) == Set(["id", "label", "createdAt", "credentialVerifier", "revision", "statusScope"])
+                Set($0.keys).isSubset(of: ["id", "label", "createdAt", "credentialVerifier", "revision", "statusScope", "contextGrant"])
                     && scopeShapeIsValid($0["statusScope"])
+                    && contextShapeIsValid($0["contextGrant"])
             })
         else { return false }
         return true
+    }
+
+    private static func contextShapeIsValid(_ value: Any?) -> Bool {
+        guard let value else { return true }
+        guard let grant = value as? [String: Any] else { return false }
+        return Set(grant.keys) == ["paneID", "targetVersion", "allowTerminalHistory"]
     }
 
     private static func scopeShapeIsValid(_ value: Any?) -> Bool {

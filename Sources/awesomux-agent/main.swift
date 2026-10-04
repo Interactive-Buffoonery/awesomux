@@ -14,13 +14,31 @@ if let credentialCommand = CredentialCommand(arguments: arguments) {
 }
 
 let response: LocalAPIResponse
-if arguments.count == 5, arguments[0] == "--profile",
+if [5, 13].contains(arguments.count), arguments[0] == "--profile",
     LocalAPIProfile.isValid(arguments[1]),
     arguments[2] == "--credential-handle",
     let connectionID = UUID(uuidString: arguments[3]),
     let operation = LocalAPIOperation(rawValue: arguments[4])
 {
     do {
+        var paneID: UUID?
+        var targetVersion: UUID?
+        var limit: Int?
+        var source: LocalAPIContextSource?
+        if operation == .agentContext {
+            guard arguments.count == 13, arguments[5] == "--pane-id",
+                let parsedPaneID = UUID(uuidString: arguments[6]),
+                arguments[7] == "--target-version", let parsedVersion = UUID(uuidString: arguments[8]),
+                arguments[9] == "--limit", let parsedLimit = Int(arguments[10]), parsedLimit > 0,
+                arguments[11] == "--source", let parsedSource = LocalAPIContextSource(rawValue: arguments[12])
+            else { throw LocalAPIError.invalidRequest }
+            paneID = parsedPaneID
+            targetVersion = parsedVersion
+            limit = parsedLimit
+            source = parsedSource
+        } else if arguments.count != 5 {
+            throw LocalAPIError.invalidRequest
+        }
         let credential = try LocalAPICredentialKeychain.load(profile: arguments[1], connectionID: connectionID)
         guard let encodedCredential = LocalAPICredential.encode(credential) else {
             throw LocalAPICredentialKeychainError.invalidCredential
@@ -29,7 +47,8 @@ if arguments.count == 5, arguments[0] == "--profile",
             profile: arguments[1],
             operation: operation,
             connectionID: connectionID,
-            credential: encodedCredential
+            credential: encodedCredential,
+            paneID: paneID, targetVersion: targetVersion, limit: limit, source: source
         )
         do {
             response = try LocalAPIClient.call(request)
@@ -41,7 +60,7 @@ if arguments.count == 5, arguments[0] == "--profile",
             )
         }
     } catch {
-        response = LocalAPIResponse(error: .credentialUnavailable)
+        response = LocalAPIResponse(error: error as? LocalAPIError ?? .credentialUnavailable)
     }
 } else {
     response = LocalAPIResponse(error: .invalidRequest)

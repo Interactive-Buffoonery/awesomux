@@ -9,6 +9,8 @@ struct AssistantAccessSettingsSection: View {
     @Environment(LocalAPIAccessStore.self) private var accessStore
     @Environment(SessionStore.self) private var sessionStore
     @Environment(GhosttyRuntime.self) private var ghosttyRuntime
+    @State private var contextConsent: AssistantContextConsentRequest?
+    @State private var contextErrorMessage: String?
     @State private var editor: ConnectionEditorRequest?
     @State private var editorErrorMessage: String?
     @State private var revoking: LocalAPIConnectionGrant?
@@ -21,7 +23,7 @@ struct AssistantAccessSettingsSection: View {
             index: 3,
             title: String(localized: "Assistant access", comment: "Agents settings title."),
             subtitle: String(
-                localized: "Register local client connections and choose exactly which status they may read.",
+                localized: "Register local client connections and choose which status and session context they may read.",
                 comment: "Assistant access settings subtitle."
             )
         ) {
@@ -119,6 +121,12 @@ struct AssistantAccessSettingsSection: View {
                 isWorking: isWorking,
                 errorMessage: editorErrorMessage,
                 save: save
+            )
+        }
+        .sheet(item: $contextConsent) { request in
+            AssistantContextConsent(
+                request: request, isWorking: isWorking, errorMessage: contextErrorMessage,
+                save: { allowHistory in saveContext(request, allowHistory: allowHistory) }
             )
         }
         .confirmationDialog(
@@ -278,7 +286,38 @@ struct AssistantAccessSettingsSection: View {
             }
 
             capabilityRow(name: String(localized: "Status"), value: String(localized: "Granted"), systemImage: "checkmark.circle.fill")
-            capabilityRow(name: String(localized: "Context"), value: String(localized: "Unavailable"), systemImage: "minus.circle")
+            capabilityRow(
+                name: String(localized: "Context"),
+                value: connection.contextGrant == nil ? String(localized: "Off") : String(localized: "Exact target grant"),
+                systemImage: connection.contextGrant == nil ? "minus.circle" : "checkmark.circle.fill"
+            )
+            if let grant = connection.contextGrant {
+                Text(grant.paneID.uuidString.lowercased())
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .accessibilityLabel(String(localized: "Context target pane"))
+                capabilityRow(
+                    name: String(localized: "Terminal history"),
+                    value: grant.allowTerminalHistory ? String(localized: "Granted") : String(localized: "Off"),
+                    systemImage: grant.allowTerminalHistory ? "checkmark.circle.fill" : "minus.circle"
+                )
+            }
+            HStack {
+                Button(String(localized: "Share Current Target Context…")) { presentContextConsent(connection) }
+                    .disabled(!canMutate)
+                if connection.contextGrant != nil {
+                    Button(String(localized: "Stop Context Sharing")) {
+                        do {
+                            try accessStore.updateContextGrant(connectionID: connection.id, contextGrant: nil)
+                            errorMessage = nil
+                        } catch {
+                            errorMessage = String(localized: "awesoMux could not save this connection.")
+                        }
+                    }
+                    .disabled(!canMutate)
+                }
+            }
+            .buttonStyle(.bordered)
             capabilityRow(
                 name: String(localized: "Reviewed instructions"), value: String(localized: "Unavailable"), systemImage: "minus.circle")
             capabilityRow(name: String(localized: "Direct delivery"), value: String(localized: "Unavailable"), systemImage: "minus.circle")
@@ -306,6 +345,58 @@ struct AssistantAccessSettingsSection: View {
         .background(RoundedRectangle(cornerRadius: AwRadius.button).fill(Color.aw.surface.elevated))
         .overlay(RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5))
         .accessibilityElement(children: .contain)
+    }
+
+    private func presentContextConsent(_ connection: LocalAPIConnectionGrant) {
+        guard let paneID = sessionStore.selectedSession?.activePaneID else {
+            errorMessage = String(localized: "Select an available agent pane before sharing context.")
+            return
+        }
+        isWorking = true
+        contextErrorMessage = nil
+        Task { @MainActor in
+            defer { isWorking = false }
+            do {
+                let agent = try await LocalAPIService.sampleContextTarget(
+                    paneID: paneID, store: sessionStore, runtime: ghosttyRuntime
+                )
+                guard agent.executionLocation == "local", agent.identityEvidence == "local_process_incarnation" else {
+                    throw LocalAPIError.contextUnavailable
+                }
+                contextConsent = AssistantContextConsentRequest(
+                    connectionID: connection.id, connectionLabel: connection.label, agent: agent
+                )
+            } catch {
+                errorMessage = String(localized: "awesoMux could not verify the selected agent target for context sharing.")
+            }
+        }
+    }
+
+    private func saveContext(_ request: AssistantContextConsentRequest, allowHistory: Bool) {
+        isWorking = true
+        contextErrorMessage = nil
+        Task { @MainActor in
+            defer { isWorking = false }
+            do {
+                let agent = try await LocalAPIService.sampleContextTarget(
+                    paneID: request.agent.paneID, store: sessionStore, runtime: ghosttyRuntime
+                )
+                guard contextConsent?.id == request.id else { return }
+                guard agent.targetVersion == request.agent.targetVersion else { throw LocalAPIError.staleTarget }
+                try accessStore.updateContextGrant(
+                    connectionID: request.connectionID,
+                    contextGrant: LocalAPIContextGrant(
+                        paneID: agent.paneID, targetVersion: agent.targetVersion, allowTerminalHistory: allowHistory
+                    )
+                )
+                contextConsent = nil
+                errorMessage = nil
+            } catch {
+                contextErrorMessage =
+                    accessStore.persistenceFailureMessage
+                    ?? String(localized: "The target changed or context sharing could not be saved. Review the current target again.")
+            }
+        }
     }
 
     private func capabilityRow(name: String, value: String, systemImage: String) -> some View {

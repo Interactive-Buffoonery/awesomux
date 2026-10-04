@@ -6,6 +6,7 @@ public enum LocalAPIContract {
     public static let maximumResponseBytes = 256 * 1024
     public static let timeout: TimeInterval = 5
     public static let maximumClients = 8
+    public static let maximumContextBytes = 24 * 1024
 
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
@@ -25,6 +26,7 @@ public enum LocalAPIOperation: String, Codable, CaseIterable, Sendable {
     case connectionStatus = "get_connection_status"
     case capabilities = "get_capabilities"
     case listAgents = "list_agents"
+    case agentContext = "get_agent_context"
 }
 
 public struct LocalAPIRequest: Codable, Sendable {
@@ -34,12 +36,18 @@ public struct LocalAPIRequest: Codable, Sendable {
     public let operation: String
     public let connectionID: UUID?
     public let credential: String?
+    public let paneID: UUID?
+    public let targetVersion: UUID?
+    public let limit: Int?
+    public let source: LocalAPIContextSource?
 
     public init(
         profile: String,
         operation: LocalAPIOperation,
         connectionID: UUID? = nil,
-        credential: String? = nil
+        credential: String? = nil,
+        paneID: UUID? = nil, targetVersion: UUID? = nil,
+        limit: Int? = nil, source: LocalAPIContextSource? = nil
     ) {
         schemaVersion = LocalAPIContract.version
         requestID = UUID()
@@ -47,6 +55,10 @@ public struct LocalAPIRequest: Codable, Sendable {
         self.operation = operation.rawValue
         self.connectionID = connectionID
         self.credential = credential
+        self.paneID = paneID
+        self.targetVersion = targetVersion
+        self.limit = limit
+        self.source = source
     }
 }
 
@@ -68,6 +80,12 @@ public enum LocalAPIError: String, Error, Codable, Sendable {
     case cancelled
     case staleTarget = "stale_target"
     case transportFailure = "transport_failure"
+    case contextUnavailable = "context_unavailable"
+    case noSessionIdentity = "no_session_identity"
+    case unsupportedProvider = "unsupported_provider"
+    case remoteContext = "remote_context"
+    case contextTooLarge = "context_too_large"
+    case processIdentityUnknown = "process_identity_unknown"
 }
 
 public struct LocalAPICapabilities: Codable, Sendable {
@@ -75,6 +93,7 @@ public struct LocalAPICapabilities: Codable, Sendable {
     public let maximumRequestBytes: Int
     public let maximumResponseBytes: Int
     public let timeoutSeconds: TimeInterval
+    public let maximumContextBytes: Int
     public let context: Bool
     public let instructions: Bool
     public let monitoring: Bool
@@ -84,7 +103,8 @@ public struct LocalAPICapabilities: Codable, Sendable {
         maximumRequestBytes = LocalAPIContract.maximumRequestBytes
         maximumResponseBytes = LocalAPIContract.maximumResponseBytes
         timeoutSeconds = LocalAPIContract.timeout
-        context = false
+        maximumContextBytes = LocalAPIContract.maximumContextBytes
+        context = true
         instructions = false
         monitoring = false
     }
@@ -148,11 +168,14 @@ public struct LocalAPIResponse: Codable, Sendable {
     public let connectionStatus: LocalAPIConnectionStatus?
     public let capabilities: LocalAPICapabilities?
     public let agents: [LocalAPIAgent]?
+    public let agentContext: LocalAPIAgentContext?
+    public let contextGrant: LocalAPIContextGrant?
 
     public init(
         requestID: UUID? = nil, error: LocalAPIError? = nil, profile: String? = nil,
         appInstanceID: UUID? = nil, capturedAt: Date? = nil,
-        connectionStatus: LocalAPIConnectionStatus? = nil, capabilities: LocalAPICapabilities? = nil, agents: [LocalAPIAgent]? = nil
+        connectionStatus: LocalAPIConnectionStatus? = nil, capabilities: LocalAPICapabilities? = nil, agents: [LocalAPIAgent]? = nil,
+        agentContext: LocalAPIAgentContext? = nil, contextGrant: LocalAPIContextGrant? = nil
     ) {
         schemaVersion = LocalAPIContract.version
         self.requestID = requestID
@@ -163,6 +186,8 @@ public struct LocalAPIResponse: Codable, Sendable {
         self.connectionStatus = connectionStatus
         self.capabilities = capabilities
         self.agents = agents
+        self.agentContext = agentContext
+        self.contextGrant = contextGrant
     }
 }
 

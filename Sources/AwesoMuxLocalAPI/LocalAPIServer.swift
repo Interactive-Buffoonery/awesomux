@@ -152,13 +152,25 @@ public final class LocalAPIServer: @unchecked Sendable {
         do {
             let data = try io.readFrame(fd, maximum: LocalAPIContract.maximumRequestBytes, oversized: .requestTooLarge)
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                Set(object.keys).isSubset(of: ["schemaVersion", "requestID", "profile", "operation", "connectionID", "credential"]),
+                Set(object.keys).isSubset(of: [
+                    "schemaVersion", "requestID", "profile", "operation", "connectionID", "credential", "paneID", "targetVersion", "limit",
+                    "source",
+                ]),
                 let request = try? LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: data)
             else { throw LocalAPIError.invalidRequest }
             requestID = request.requestID
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == endpoint.profile else { throw LocalAPIError.profileMismatch }
             guard LocalAPIOperation(rawValue: request.operation) != nil else { throw LocalAPIError.unsupportedOperation }
+            if request.operation == LocalAPIOperation.agentContext.rawValue {
+                guard request.paneID != nil, request.targetVersion != nil,
+                    request.source != nil, let limit = request.limit, limit > 0
+                else { throw LocalAPIError.invalidRequest }
+            } else {
+                guard request.paneID == nil, request.targetVersion == nil,
+                    request.source == nil, request.limit == nil
+                else { throw LocalAPIError.invalidRequest }
+            }
             let lease = try authorization.authorize(request).get()
             lock.withLock { clients[fd]?.connectionID = lease.connectionID }
             let peerFD = dup(fd)
