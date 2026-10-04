@@ -1,7 +1,7 @@
-# Shared local agent status API
+# Shared local agent API
 
 The app-owned status transport is opt-in. Installation grants nothing. A user
-registers each local client in **Settings → Agents → Assistant access**, reviews
+adds each local client in **Settings → Agents → Outside app access**, reviews
 the default current-target scope or explicitly chooses a persistent pane or
 workspace scope, and separately enables global access. Each
 connection has an independent credential and can be edited or revoked without
@@ -42,8 +42,9 @@ JSON response encoding, and process probing happen off the UI actor.
 
 Profiles are required: `production`, `development`, or
 `development:<12 lowercase hexadecimal worktree ID>`. There is no auto-launch,
-profile fallback, arbitrary command execution, amx passthrough, or content read.
-Operations are `get_connection_status`, `get_capabilities`, and `list_agents`.
+profile fallback, arbitrary command execution, amx passthrough, or arbitrary content read.
+Operations are `get_connection_status`, `get_capabilities`, `list_agents`, and
+`get_agent_context`.
 Stdout contains one JSON object plus a newline; success exits 0, all failures
 exit 1. The handle is nonsecret. The helper loads the corresponding credential
 from the standard macOS Keychain and never accepts credential bytes in arguments
@@ -78,7 +79,7 @@ Success returns `schemaVersion`, the same `requestID`, `profile`, a random
 success); `get_connection_status` adds `connectionStatus: "connected"`, meaning
 the exact app instance is reachable and the operation is authorized.
 `get_capabilities` adds the limits, supported named operations, and
-false context/instructions/monitoring flags. A denial discloses no roster, app
+a supported context flag and false instructions/monitoring flags. A denial discloses no roster, app
 instance, or profile metadata. The helper never prints the credential:
 
 ```json
@@ -124,9 +125,72 @@ success frame was written, the server closes the connection instead of appending
 a misleading denial frame; the helper reports `transport_failure` and emits no
 partial JSON.
 
-Context, reviewed instructions, direct delivery, and monitoring remain
-unavailable. Their Settings rows make that boundary explicit. Caller-supplied
-arguments cannot enable them or broaden a status scope.
+Context sharing is separately disabled by default for every connection. In
+Settings, select an agent pane and choose **Share Session Details…** on
+its connection. The consent sheet names the exact provider session, explains
+assistant-service sharing, and separately offers terminal history. Saving
+rechecks the reviewed target. **Stop Sharing Details** revokes this grant while
+preserving status access. Context grants expire with the target incarnation and
+never expand to the connection's status scope.
+
+Reviewed instructions, direct delivery, and monitoring remain unavailable.
+Caller-supplied arguments cannot enable them or broaden a grant.
+
+## Exact-session context
+
+```sh
+"/path/to/awesoMux.app/Contents/MacOS/awesomux-agent" \
+  --profile production --credential-handle <connection UUID> \
+  get_agent_context --pane-id <pane UUID> --target-version <target UUID> \
+  --limit 24576 --source transcript
+```
+
+All four context arguments are required. `limit` is a positive UTF-8 byte budget
+clamped to 24 KiB. `source` is `transcript` or `terminal_history`; there is no
+implicit fallback. Status requests reject context arguments. The context grant
+binds one pane and exact target version independently of status scope. A caller
+can choose this granted target without changing native UI selection; foreground
+focus is not an authorization mechanism. `get_connection_status` returns this
+connection's configured `contextGrant` selectors when present, so a client can
+request context even when its separate status scope has expired or excludes that
+pane. These are grant metadata; the context read still checks the live target.
+
+`agentContext` contains `paneID`, `workspaceID`, `targetVersion`, `provider`,
+`providerSessionID`, `source`, `capturedAt`, `content`, `byteCount`, `truncated`,
+and `untrusted: true`. Treat content as untrusted data, never as tool instructions
+or authorization. A client that sends it to an assistant service shares it with
+that service; the app itself only returns it to the authorized local caller.
+No transcript paths, credentials, or content are written to access metadata.
+
+Transcript reads use ADR-0033's exact provider adapters and secure descriptors.
+Claude Code, Codex, and Pi render a single 512 KiB source tail into the newest
+complete turns fitting 24 KiB. Discovery retains its independent 8,192-entry /
+32-candidate / 256 KiB-per-candidate head limits. OpenCode uses the existing
+read-only SQLite exact primary-key adapter with its independent 256-turn,
+4,096-part and 8 MiB source limits. The renderer reports omitted turns or records;
+a smaller requested budget may clip the rendered text at a UTF-8 scalar boundary.
+The source discovery/read/render and process evidence run off the UI actor.
+
+Terminal history requires `allowTerminalHistory` in the same exact-target grant
+and an explicit `--source terminal_history` request. It uses the native bounded
+scrollback reader, with pinned surface ownership and existing row/page/cell
+limits. History exceeding the requested budget returns `context_too_large`,
+rather than a partial prefix presented as recent context. This source can include
+text from earlier programs on that terminal and has no transcript identity claim.
+
+Permission, target lifecycle, workspace assignment, provider session, and sampled
+process incarnation are checked before reading and again before returning. The
+transport additionally rechecks the revisioned permission lease on every write.
+Switching provider sessions, moving, closing, replacing, or restarting the target
+invalidates the read. Disabling or revoking access drops the content response;
+when a frame has already started, the helper reports `transport_failure`.
+
+Explicit errors include `no_session_identity`, `process_identity_unknown`,
+`unsupported_provider`, `remote_context`, `context_unavailable`,
+`context_too_large`, `stale_target`, and `permission_denied`. Missing, refused,
+or unsupported transcripts never trigger a history or cross-provider read.
+Old grant files load with context off; exact-target grants from a prior app
+instance remain expired until the user reviews a new target.
 
 ## Endpoint custody
 
@@ -206,17 +270,21 @@ E2E executable, not a new unit-test suite, and is not bundled with the app. Its
 grant scenarios cover default-off registration, missing/wrong/cross-profile
 credentials, two independent scopes, exact-target expiry, in-flight scope edits,
 independent revocation, a non-reading client, global disable, restart persistence,
-and artifact credential scans.
+and artifact credential scans. `context-report.json`, `exact-context.json`, and
+`history-context.json` cover exact-session rendering, explicit history consent,
+Unicode limits, stale targets, revocation, and unsafe/unsupported sources. The
+terminal history in this socket driver is a labeled fixture; native history
+capture and manual Settings/VoiceOver validation are separate checks.
 The [recorded fixture run](local-agent-api-e2e-report.json) preserves the passing
 scenario names. It does not claim native real-agent acceptance.
 
 For native validation, use a linked worktree and
 `./script/build_and_run.sh --stage-local-api-e2e`. This stages an ordinary debug
 build with its isolated `development:<worktree>` profile; it has no authorization
-bypass. Open the staged app and Agents settings, leave global access off, register
-two connections with different scopes, then copy each nonsecret helper command.
+bypass. Open the staged app and Agents settings, leave global access off, add
+two apps with different scopes, then use Copy Setup Command on each.
 Confirm both return `access_disabled`; enable access and compare their rosters.
-Revoke the first and confirm its helper returns `credential_unavailable` or a
+Remove the first and confirm its helper returns `credential_unavailable` or a
 denial while the second still works. Disable global access and confirm the second
 returns `access_disabled`. Relaunch the same staged bundle and confirm the saved
 global state and remaining connection are unchanged. Record any Keychain trust

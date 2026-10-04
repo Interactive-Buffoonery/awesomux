@@ -164,8 +164,8 @@ struct LocalAPIE2E {
         try check(connected.connectionStatus == .connected && connected.agents == nil, "connection status is explicit without a roster")
         let capability = try await call(.capabilities)
         try check(
-            capability.capabilities?.context == false && capability.capabilities?.instructions == false,
-            "future context and input capabilities are disabled")
+            capability.capabilities?.context == true && capability.capabilities?.instructions == false,
+            "context is supported while input remains disabled")
         do {
             _ = try LocalAPIServer(profile: profile) { _, _, _ in LocalAPIResponse() }
             throw E2EFailure(message: "same-profile contender took ownership")
@@ -288,8 +288,9 @@ struct LocalAPIE2E {
             )
         )
         checks.append(contentsOf: try await runGrantScenarios(helper: helper, artifact: artifact, agents: store.localAPIAgents()))
+        checks.append(contentsOf: try await runContextScenarios(helper: helper, artifact: artifact))
         let report: [String: Any] = [
-            "kind": "socket/store/helper and profile-scoped connection grant E2E", "profile": profile, "checks": checks,
+            "kind": "socket/store/helper, connection grants, and exact-context fixture E2E", "profile": profile, "checks": checks,
             "realAgentNativeProof": "separate artifact required",
         ]
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(
@@ -633,10 +634,10 @@ struct LocalAPIE2E {
             operation: .capabilities
         )
         try check(
-            capabilities.capabilities?.context == false
+            capabilities.capabilities?.context == true
                 && capabilities.capabilities?.instructions == false
                 && capabilities.capabilities?.monitoring == false,
-            "context instructions and monitoring remain unavailable"
+            "context is supported while instructions and monitoring remain unavailable"
         )
 
         let exactInitial = try await callHelper(

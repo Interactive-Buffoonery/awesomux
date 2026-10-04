@@ -2,6 +2,7 @@ import AppKit
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxLocalAPI
 import Carbon.HIToolbox
 import Darwin
 import DesignSystem
@@ -531,6 +532,29 @@ final class GhosttyRuntime {
                 paneID: paneID,
                 in: store
             )
+        }
+    }
+
+    func localAPIHistory(paneID: UUID, limit: Int) async throws -> String {
+        guard let view = surfaceViews[paneID], let surface = view.surface else { throw LocalAPIError.contextUnavailable }
+        let address = UInt(bitPattern: surface)
+        let limits = ScrollbackDumpPolicy.Limits.default
+        let result = await scrollbackReadCoordinator.read(surfaceID: address) {
+            ScrollbackDumpReader.read(maximumBytes: limit) { buffer, written in
+                awesomux_surface_read_scrollback(
+                    UnsafeMutableRawPointer(bitPattern: address),
+                    Int(limits.maximumRows),
+                    Int(limits.maximumEstimatedBytes / limits.estimatedBytesPerCell),
+                    ScrollbackDumpPolicy.maximumNativePageBytes,
+                    buffer.baseAddress!, buffer.count, &written
+                )
+            }
+        }
+        guard surfaceViews[paneID] === view, view.surface == surface else { throw LocalAPIError.staleTarget }
+        switch result {
+        case .loaded(let text): return text
+        case .tooLarge: throw LocalAPIError.contextTooLarge
+        case .busy, .failed: throw LocalAPIError.contextUnavailable
         }
     }
 

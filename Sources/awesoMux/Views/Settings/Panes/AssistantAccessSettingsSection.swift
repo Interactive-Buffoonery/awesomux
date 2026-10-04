@@ -1,7 +1,9 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
+import Combine
 import DesignSystem
 import SwiftUI
 
@@ -9,33 +11,61 @@ struct AssistantAccessSettingsSection: View {
     @Environment(LocalAPIAccessStore.self) private var accessStore
     @Environment(SessionStore.self) private var sessionStore
     @Environment(GhosttyRuntime.self) private var ghosttyRuntime
+    @State private var contextConsent: AssistantContextConsentRequest?
+    @State private var contextErrorMessage: String?
     @State private var editor: ConnectionEditorRequest?
     @State private var editorErrorMessage: String?
     @State private var revoking: LocalAPIConnectionGrant?
     @State private var errorMessage: String?
     @State private var copyErrorMessage: String?
     @State private var isWorking = false
+    @State private var contextTargetVersions: [UUID: UUID]?
 
     var body: some View {
         SettingsSection(
             index: 3,
-            title: String(localized: "Assistant access", comment: "Agents settings title."),
+            title: String(localized: "Outside app access", comment: "Agents settings title."),
             subtitle: String(
-                localized: "Register local client connections and choose exactly which status they may read.",
-                comment: "Assistant access settings subtitle."
+                localized:
+                    "Let AI apps on this Mac, like Claude Desktop or ChatGPT, see what your agents are doing. You choose which panes each app can see.",
+                comment: "Outside app access settings subtitle."
             )
         ) {
             SettingsField(
-                label: String(localized: "Allow assistant access", comment: "Assistant access setting label."),
+                label: String(localized: "Apps", comment: "Outside app access app list label."),
                 hint: String(
-                    localized: "Off blocks every connection immediately. Installing a client or registering it does not turn access on.",
-                    comment: "Assistant access global toggle hint."
+                    localized: "Each app gets its own key. Removing one doesn't affect the others.",
+                    comment: "Outside app access app list hint."
                 ),
-                isFirst: true,
+                isFirst: true
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if accessStore.state.connections.isEmpty {
+                        Text(String(localized: "No apps added yet.", comment: "Empty outside app list."))
+                            .foregroundStyle(Color.aw.text2)
+                    } else {
+                        ForEach(accessStore.state.connections) { connection in
+                            connectionCard(connection)
+                        }
+                    }
+
+                    Button(String(localized: "Add App…", comment: "Add outside app button.")) {
+                        presentEditor()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canMutate)
+                }
+            }
+
+            SettingsField(
+                label: String(localized: "Allow outside apps", comment: "Outside app access toggle label."),
+                hint: accessStore.state.globallyEnabled
+                    ? String(localized: "On — apps can see what's listed above.", comment: "Outside app access toggle state.")
+                    : String(localized: "Off — no app can see anything.", comment: "Outside app access toggle state."),
                 forwardsAccessibilityToControl: true
             ) {
                 Toggle(
-                    String(localized: "Allow assistant access", comment: "Assistant access toggle accessibility label."),
+                    String(localized: "Allow outside apps", comment: "Outside app access toggle accessibility label."),
                     isOn: Binding(
                         get: { accessStore.state.globallyEnabled },
                         set: setGloballyEnabled
@@ -47,47 +77,18 @@ struct AssistantAccessSettingsSection: View {
             }
 
             SettingsField(
-                label: String(localized: "Connected-computer access", comment: "Assistant access boundary label."),
-                hint: String(
-                    localized: "Credentials identify separate connections, not ChatGPT or other service accounts.",
-                    comment: "Assistant access identity boundary hint."
-                )
+                label: String(localized: "Only add apps you trust", comment: "Outside app access safety label.")
             ) {
                 Text(
                     String(
                         localized:
-                            "Any process running as your macOS user can invoke the bundled helper with a known handle. Review grants as access to this Mac and revoke connections you no longer use.",
-                        comment: "Assistant access same-user boundary disclosure."
+                            "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using.",
+                        comment: "Outside app access same-user boundary disclosure."
                     )
                 )
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text2)
                 .fixedSize(horizontal: false, vertical: true)
-            }
-
-            SettingsField(
-                label: String(localized: "Connections", comment: "Assistant access connections label."),
-                hint: String(
-                    localized: "Each connection has its own Keychain credential and independently revocable status scope.",
-                    comment: "Assistant access connections hint."
-                )
-            ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if accessStore.state.connections.isEmpty {
-                        Text(String(localized: "No connections registered.", comment: "Empty assistant connections state."))
-                            .foregroundStyle(Color.aw.text2)
-                    } else {
-                        ForEach(accessStore.state.connections) { connection in
-                            connectionCard(connection)
-                        }
-                    }
-
-                    Button(String(localized: "Register Connection…", comment: "Register assistant connection button.")) {
-                        presentEditor()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canMutate)
-                }
             }
 
             if let visibleErrorMessage {
@@ -111,6 +112,17 @@ struct AssistantAccessSettingsSection: View {
                 }
             }
         }
+        .task(id: accessStore.state.connections.filter { $0.contextGrant != nil }.map(\.id)) {
+            guard accessStore.state.connections.contains(where: { $0.contextGrant != nil }) else {
+                contextTargetVersions = [:]
+                return
+            }
+            contextTargetVersions = try? await captureTargetVersions()
+            for await _ in Timer.publish(every: 2, on: .main, in: .common).autoconnect().values {
+                guard !Task.isCancelled else { return }
+                contextTargetVersions = try? await captureTargetVersions()
+            }
+        }
         .sheet(item: $editor) { request in
             AssistantConnectionEditor(
                 request: request,
@@ -121,14 +133,20 @@ struct AssistantAccessSettingsSection: View {
                 save: save
             )
         }
+        .sheet(item: $contextConsent) { request in
+            AssistantContextConsent(
+                request: request, isWorking: isWorking, errorMessage: contextErrorMessage,
+                save: { allowHistory in saveContext(request, allowHistory: allowHistory) }
+            )
+        }
         .confirmationDialog(
-            String(localized: "Revoke connection?", comment: "Revoke assistant connection confirmation title."),
+            String(localized: "Remove app?", comment: "Remove outside app confirmation title."),
             isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }),
             titleVisibility: .visible,
             presenting: revoking
         ) { connection in
             Button(
-                String(format: String(localized: "Revoke %@", comment: "Revoke named assistant connection."), connection.label),
+                String(format: String(localized: "Remove %@", comment: "Remove named outside app."), connection.label),
                 role: .destructive
             ) {
                 revoke(connection)
@@ -137,8 +155,8 @@ struct AssistantAccessSettingsSection: View {
             Text(
                 String(
                     format: String(
-                        localized: "%@ will lose access immediately. Other connections keep their own grants.",
-                        comment: "Revoke assistant connection confirmation message."
+                        localized: "%@ will lose access right away. Other apps keep their access.",
+                        comment: "Remove outside app confirmation message."
                     ), connection.label
                 )
             )
@@ -155,7 +173,7 @@ struct AssistantAccessSettingsSection: View {
 
     private var visibleErrorLabel: String {
         if accessStore.persistenceFailureMessage == nil, errorMessage == nil, copyErrorMessage != nil {
-            return String(localized: "Copy failed", comment: "Assistant helper-command copy error label.")
+            return String(localized: "Copy failed", comment: "Outside app setup-command copy error label.")
         }
         return String(localized: "Access change failed", comment: "Assistant access error label.")
     }
@@ -237,7 +255,7 @@ struct AssistantAccessSettingsSection: View {
                 }
                 editor = request
             } catch {
-                errorMessage = String(localized: "awesoMux could not verify current targets for this connection.")
+                errorMessage = String(localized: "awesoMux couldn't check which panes are available. Try again.")
             }
         }
     }
@@ -267,40 +285,41 @@ struct AssistantAccessSettingsSection: View {
     @ViewBuilder
     private func connectionCard(_ connection: LocalAPIConnectionGrant) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(connection.label)
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(Color.aw.text)
-                Spacer()
-                Text(scopeSummary(connection.statusScope))
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text2)
+            Text(connection.label)
+                .awFont(AwFont.UI.label)
+                .foregroundStyle(Color.aw.text)
+
+            accessRow(
+                name: String(localized: "Can see agent status"),
+                value: scopeSummary(connection.statusScope),
+                detail: scopeExplanation(connection.statusScope),
+                isGranted: true
+            )
+            accessRow(
+                name: String(localized: "Can read session details"),
+                value: contextSummary(connection),
+                isGranted: contextIsCurrent(connection)
+            )
+            if let grant = connection.contextGrant {
+                accessRow(
+                    name: String(localized: "Recent terminal output"),
+                    value: contextIsCurrent(connection)
+                        ? (grant.allowTerminalHistory ? String(localized: "Yes") : String(localized: "No"))
+                        : contextSummary(connection),
+                    isGranted: contextIsCurrent(connection) && grant.allowTerminalHistory
+                )
             }
 
-            capabilityRow(name: String(localized: "Status"), value: String(localized: "Granted"), systemImage: "checkmark.circle.fill")
-            capabilityRow(name: String(localized: "Context"), value: String(localized: "Unavailable"), systemImage: "minus.circle")
-            capabilityRow(
-                name: String(localized: "Reviewed instructions"), value: String(localized: "Unavailable"), systemImage: "minus.circle")
-            capabilityRow(name: String(localized: "Direct delivery"), value: String(localized: "Unavailable"), systemImage: "minus.circle")
-            capabilityRow(name: String(localized: "Monitoring"), value: String(localized: "Unavailable"), systemImage: "minus.circle")
-
-            Text(helperCommand(connection))
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(Color.aw.text2)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(String(localized: "Helper command"))
-
-            HStack(spacing: 8) {
-                Button(String(localized: "Copy Helper Command")) {
-                    copyHelperCommand(connection)
-                }
-                Button(String(localized: "Edit Scope…")) { presentEditor(connection) }
-                    .disabled(!canMutate)
-                Button(String(localized: "Revoke"), role: .destructive) { revoking = connection }
-                    .disabled(!canMutate)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { connectionActions(connection) }
+                VStack(alignment: .leading, spacing: 8) { connectionActions(connection) }
             }
             .buttonStyle(.bordered)
+
+            Text(String(localized: "Give the setup command to the app so it can check on your agents."))
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text3)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: AwRadius.button).fill(Color.aw.surface.elevated))
@@ -308,25 +327,141 @@ struct AssistantAccessSettingsSection: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func capabilityRow(name: String, value: String, systemImage: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage).accessibilityHidden(true)
+    @ViewBuilder
+    private func connectionActions(_ connection: LocalAPIConnectionGrant) -> some View {
+        Button(String(localized: "Copy Setup Command")) { copyHelperCommand(connection) }
+        Button(String(localized: "Change Access…")) { presentEditor(connection) }
+            .disabled(!canMutate)
+        Button(String(localized: "Share Session Details…")) { presentContextConsent(connection) }
+            .disabled(!canMutate)
+        if connection.contextGrant != nil {
+            Button(String(localized: "Stop Sharing Details")) {
+                do {
+                    try accessStore.updateContextGrant(connectionID: connection.id, contextGrant: nil)
+                    errorMessage = nil
+                } catch {
+                    errorMessage = String(localized: "awesoMux couldn't save this app's access.")
+                }
+            }
+            .disabled(!canMutate)
+        }
+        Button(String(localized: "Remove"), role: .destructive) { revoking = connection }
+            .disabled(!canMutate)
+    }
+
+    private func contextIsCurrent(_ connection: LocalAPIConnectionGrant) -> Bool {
+        guard let grant = connection.contextGrant else { return false }
+        return contextTargetVersions?[grant.paneID] == grant.targetVersion
+    }
+
+    private func contextSummary(_ connection: LocalAPIConnectionGrant) -> String {
+        guard let grant = connection.contextGrant else { return String(localized: "No") }
+        guard contextTargetVersions != nil else { return String(localized: "Checking access…") }
+        guard contextIsCurrent(connection) else { return String(localized: "Access ended") }
+        return paneTitle(grant.paneID)
+    }
+
+    private func presentContextConsent(_ connection: LocalAPIConnectionGrant) {
+        guard let paneID = sessionStore.selectedSession?.activePaneID else {
+            errorMessage = String(localized: "Select a pane running an agent, then try again.")
+            return
+        }
+        isWorking = true
+        contextErrorMessage = nil
+        Task { @MainActor in
+            defer { isWorking = false }
+            do {
+                let agent = try await LocalAPIService.sampleContextTarget(
+                    paneID: paneID, store: sessionStore, runtime: ghosttyRuntime
+                )
+                guard agent.executionLocation == "local", agent.identityEvidence == "local_process_incarnation" else {
+                    throw LocalAPIError.contextUnavailable
+                }
+                guard agent.providerSessionID != nil, let provider = AgentKind(rawValue: agent.provider),
+                    [.claudeCode, .codex, .pi, .openCode].contains(provider)
+                else {
+                    errorMessage = String(
+                        localized: "This agent's conversation isn't available yet. Wait for a supported agent session, then try again.")
+                    return
+                }
+                contextConsent = AssistantContextConsentRequest(
+                    connectionID: connection.id, connectionLabel: connection.label,
+                    paneTitle: paneTitle(agent.paneID), agent: agent
+                )
+            } catch {
+                errorMessage = String(
+                    localized:
+                        "awesoMux couldn't read the agent in the selected pane. Session details work only for agents running on this Mac.")
+            }
+        }
+    }
+
+    private func saveContext(_ request: AssistantContextConsentRequest, allowHistory: Bool) {
+        isWorking = true
+        contextErrorMessage = nil
+        Task { @MainActor in
+            defer { isWorking = false }
+            do {
+                let agent = try await LocalAPIService.sampleContextTarget(
+                    paneID: request.agent.paneID, store: sessionStore, runtime: ghosttyRuntime
+                )
+                guard contextConsent?.id == request.id else { return }
+                guard agent.targetVersion == request.agent.targetVersion else { throw LocalAPIError.staleTarget }
+                try accessStore.updateContextGrant(
+                    connectionID: request.connectionID,
+                    contextGrant: LocalAPIContextGrant(
+                        paneID: agent.paneID, targetVersion: agent.targetVersion, allowTerminalHistory: allowHistory
+                    )
+                )
+                contextTargetVersions = nil
+                contextConsent = nil
+                errorMessage = nil
+            } catch {
+                contextErrorMessage =
+                    accessStore.persistenceFailureMessage
+                    ?? String(localized: "The pane changed before saving. Review it and try again.")
+            }
+        }
+    }
+
+    private func accessRow(name: String, value: String, detail: String? = nil, isGranted: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: isGranted ? "checkmark.circle.fill" : "minus.circle").accessibilityHidden(true)
             Text(name)
             Spacer()
-            Text(value).foregroundStyle(Color.aw.text2)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value).foregroundStyle(Color.aw.text2)
+                if let detail {
+                    Text(detail).foregroundStyle(Color.aw.text3)
+                }
+            }
+            .multilineTextAlignment(.trailing)
         }
         .awFont(AwFont.UI.meta)
         .accessibilityElement(children: .combine)
     }
 
+    private func paneTitle(_ paneID: UUID) -> String {
+        panes.first { $0.id == paneID }.map { "\($0.title) — \($0.workspaceTitle)" }
+            ?? String(localized: "Closed pane")
+    }
+
     private func scopeSummary(_ scope: LocalAPITargetScope) -> String {
         switch scope {
-        case .exactTarget:
-            String(localized: "Current target")
+        case .exactTarget(let paneID, _):
+            paneTitle(paneID)
         case .persistentPanes(let paneIDs):
             String.localizedStringWithFormat(String(localized: "%lld panes"), Int64(paneIDs.count))
         case .persistentWorkspaces(let workspaceIDs):
             String.localizedStringWithFormat(String(localized: "%lld workspaces"), Int64(workspaceIDs.count))
+        }
+    }
+
+    private func scopeExplanation(_ scope: LocalAPITargetScope) -> String {
+        switch scope {
+        case .exactTarget: AssistantAccessScopeKind.currentTarget.explanation
+        case .persistentPanes: AssistantAccessScopeKind.panes.explanation
+        case .persistentWorkspaces: AssistantAccessScopeKind.workspaces.explanation
         }
     }
 
@@ -340,7 +475,7 @@ struct AssistantAccessSettingsSection: View {
         copyErrorMessage = nil
         NSPasteboard.general.clearContents()
         guard NSPasteboard.general.setString(helperCommand(connection), forType: .string) else {
-            let message = String(localized: "awesoMux could not copy the helper command.")
+            let message = String(localized: "awesoMux couldn't copy the setup command.")
             copyErrorMessage = message
             TerminalAccessibilityAnnouncer.announce(message)
             return
@@ -354,7 +489,7 @@ struct AssistantAccessSettingsSection: View {
         } catch {
             errorMessage =
                 accessStore.persistenceFailureMessage
-                ?? String(localized: "awesoMux could not save the access setting.")
+                ?? String(localized: "awesoMux couldn't save the access setting.")
         }
     }
 
@@ -378,12 +513,12 @@ struct AssistantAccessSettingsSection: View {
             } catch LocalAPICredentialBrokerError.cleanupFailed {
                 editorErrorMessage = String(
                     localized:
-                        "The connection was not registered, and awesoMux could not remove its unused Keychain credential."
+                        "The app wasn't added, and awesoMux couldn't remove its unused Keychain key."
                 )
             } catch {
                 editorErrorMessage =
                     accessStore.persistenceFailureMessage
-                    ?? String(localized: "awesoMux could not save this connection.")
+                    ?? String(localized: "awesoMux couldn't save this app's access.")
             }
         }
     }
@@ -395,7 +530,7 @@ struct AssistantAccessSettingsSection: View {
         } catch {
             errorMessage =
                 accessStore.persistenceFailureMessage
-                ?? String(localized: "awesoMux could not save the access setting.")
+                ?? String(localized: "awesoMux couldn't save the access setting.")
         }
     }
 
@@ -410,7 +545,7 @@ struct AssistantAccessSettingsSection: View {
             } catch {
                 errorMessage =
                     accessStore.persistenceFailureMessage
-                    ?? String(localized: "Access is denied, but awesoMux could not finish removing this connection.")
+                    ?? String(localized: "This app no longer has access, but awesoMux couldn't finish removing it.")
             }
         }
     }
@@ -436,9 +571,17 @@ private enum AssistantAccessScopeKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .currentTarget: String(localized: "Current target")
+        case .currentTarget: String(localized: "This pane")
         case .panes: String(localized: "Selected panes")
         case .workspaces: String(localized: "Selected workspaces")
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .currentTarget: String(localized: "Access ends if this pane restarts.")
+        case .panes: String(localized: "Keeps access to these panes.")
+        case .workspaces: String(localized: "Includes new panes added to these workspaces.")
         }
     }
 }
@@ -486,18 +629,18 @@ private struct AssistantConnectionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(draft.connectionID == nil ? String(localized: "Register Connection") : String(localized: "Edit Status Scope"))
+            Text(draft.connectionID == nil ? String(localized: "Add App") : String(localized: "Change Access"))
                 .font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
 
             if draft.connectionID == nil {
-                TextField(String(localized: "Connection name"), text: $draft.label)
-                    .accessibilityLabel(String(localized: "Connection name"))
+                TextField(String(localized: "App name"), text: $draft.label)
+                    .accessibilityLabel(String(localized: "App name"))
                 Text(
                     String(
                         localized:
-                            "Registration creates a credential in your Keychain through the bundled helper. The credential is never shown or copied.",
-                        comment: "Assistant registration credential disclosure."
+                            "awesoMux saves a key for this app in your Keychain. You never need to see or copy it.",
+                        comment: "Outside app key disclosure."
                     )
                 )
                 .font(.caption)
@@ -507,7 +650,7 @@ private struct AssistantConnectionEditor: View {
                 Text(draft.label).font(.headline)
             }
 
-            Picker(String(localized: "Status access"), selection: $draft.scopeKind) {
+            Picker(String(localized: "Can see agent status in"), selection: $draft.scopeKind) {
                 ForEach(AssistantAccessScopeKind.allCases) { kind in
                     Text(kind.title).tag(kind)
                 }
@@ -518,7 +661,7 @@ private struct AssistantConnectionEditor: View {
                 VStack(alignment: .leading, spacing: 8) {
                     switch draft.scopeKind {
                     case .currentTarget:
-                        Picker(String(localized: "Target pane"), selection: selectedExactPaneID) {
+                        Picker(String(localized: "Pane"), selection: selectedExactPaneID) {
                             ForEach(panes.filter { draft.targetVersions[$0.id] != nil }) { pane in
                                 Text("\(pane.title) — \(pane.workspaceTitle)").tag(Optional(pane.id))
                             }
@@ -544,9 +687,7 @@ private struct AssistantConnectionEditor: View {
             }
             .frame(minHeight: 140, maxHeight: 280)
 
-            Text(
-                scopeExplanation
-            )
+            Text(draft.scopeKind.explanation)
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -566,14 +707,14 @@ private struct AssistantConnectionEditor: View {
                     .font(.caption)
                     .foregroundStyle(Color.aw.peach)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(String(format: String(localized: "Connection change failed: %@"), errorMessage))
+                    .accessibilityLabel(String(format: String(localized: "Access change failed: %@"), errorMessage))
             }
 
             HStack {
                 Spacer()
                 Button(String(localized: "Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(draft.connectionID == nil ? String(localized: "Register") : String(localized: "Save")) {
+                Button(draft.connectionID == nil ? String(localized: "Add App") : String(localized: "Save")) {
                     save(draft, selectedScope)
                 }
                 .keyboardShortcut(.defaultAction)
@@ -618,12 +759,12 @@ private struct AssistantConnectionEditor: View {
             draft.selectedPaneIDs == [reviewed.paneID]
         else { return nil }
         guard let currentTargetVersion = draft.targetVersions[reviewed.paneID] else {
-            return String(localized: "This grant expired. Select an available target to renew access.")
+            return String(localized: "Access ended because this pane restarted. Choose a pane to give access again.")
         }
         guard currentTargetVersion != reviewed.targetVersion else { return nil }
         return String(
             localized:
-                "This grant expired because the target incarnation changed. Saving refreshes it to the selected pane's current target."
+                "This pane restarted since access was last saved. Saving gives access to the pane as it is now."
         )
     }
 
@@ -632,17 +773,6 @@ private struct AssistantConnectionEditor: View {
             get: { draft.selectedPaneIDs.first },
             set: { draft.selectedPaneIDs = $0.map { [$0] } ?? [] }
         )
-    }
-
-    private var scopeExplanation: String {
-        switch draft.scopeKind {
-        case .currentTarget:
-            String(localized: "This grant expires when the selected pane's target incarnation changes.")
-        case .panes:
-            String(localized: "Persistent pane grants follow selected panes across ordinary status changes.")
-        case .workspaces:
-            String(localized: "Persistent workspace grants include panes added to selected workspaces later.")
-        }
     }
 
     private func setBinding(_ id: UUID, in selection: Binding<Set<UUID>>) -> Binding<Bool> {
