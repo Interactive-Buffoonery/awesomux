@@ -1,7 +1,9 @@
 import AppKit
+import AwesoMuxBridgeProtocol
 import AwesoMuxCore
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
+import Combine
 import DesignSystem
 import SwiftUI
 
@@ -17,6 +19,7 @@ struct AssistantAccessSettingsSection: View {
     @State private var errorMessage: String?
     @State private var copyErrorMessage: String?
     @State private var isWorking = false
+    @State private var contextTargetVersions: [UUID: UUID]?
 
     var body: some View {
         SettingsSection(
@@ -107,6 +110,17 @@ struct AssistantAccessSettingsSection: View {
                         }
                     }
                 }
+            }
+        }
+        .task(id: accessStore.state.connections.filter { $0.contextGrant != nil }.map(\.id)) {
+            guard accessStore.state.connections.contains(where: { $0.contextGrant != nil }) else {
+                contextTargetVersions = [:]
+                return
+            }
+            contextTargetVersions = (try? await captureTargetVersions()) ?? [:]
+            for await _ in Timer.publish(every: 2, on: .main, in: .common).autoconnect().values {
+                guard !Task.isCancelled else { return }
+                contextTargetVersions = (try? await captureTargetVersions()) ?? [:]
             }
         }
         .sheet(item: $editor) { request in
@@ -283,40 +297,22 @@ struct AssistantAccessSettingsSection: View {
             )
             accessRow(
                 name: String(localized: "Can read session details"),
-                value: connection.contextGrant.map { paneTitle($0.paneID) } ?? String(localized: "No"),
-                isGranted: connection.contextGrant != nil
+                value: contextSummary(connection),
+                isGranted: contextIsCurrent(connection)
             )
             if let grant = connection.contextGrant {
                 accessRow(
                     name: String(localized: "Recent terminal output"),
-                    value: grant.allowTerminalHistory ? String(localized: "Yes") : String(localized: "No"),
-                    isGranted: grant.allowTerminalHistory
+                    value: contextIsCurrent(connection)
+                        ? (grant.allowTerminalHistory ? String(localized: "Yes") : String(localized: "No"))
+                        : contextSummary(connection),
+                    isGranted: contextIsCurrent(connection) && grant.allowTerminalHistory
                 )
             }
 
-            HStack(spacing: 8) {
-                Button(String(localized: "Copy Setup Command")) {
-                    copyHelperCommand(connection)
-                }
-                Button(String(localized: "Change Access…")) { presentEditor(connection) }
-                    .disabled(!canMutate)
-                if connection.contextGrant == nil {
-                    Button(String(localized: "Share Session Details…")) { presentContextConsent(connection) }
-                        .disabled(!canMutate)
-                } else {
-                    Button(String(localized: "Stop Sharing Details")) {
-                        do {
-                            try accessStore.updateContextGrant(connectionID: connection.id, contextGrant: nil)
-                            errorMessage = nil
-                        } catch {
-                            errorMessage = String(localized: "awesoMux couldn't save this app's access.")
-                        }
-                    }
-                    .disabled(!canMutate)
-                }
-                Spacer()
-                Button(String(localized: "Remove"), role: .destructive) { revoking = connection }
-                    .disabled(!canMutate)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { connectionActions(connection) }
+                VStack(alignment: .leading, spacing: 8) { connectionActions(connection) }
             }
             .buttonStyle(.bordered)
 
@@ -329,6 +325,40 @@ struct AssistantAccessSettingsSection: View {
         .background(RoundedRectangle(cornerRadius: AwRadius.button).fill(Color.aw.surface.elevated))
         .overlay(RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5))
         .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func connectionActions(_ connection: LocalAPIConnectionGrant) -> some View {
+        Button(String(localized: "Copy Setup Command")) { copyHelperCommand(connection) }
+        Button(String(localized: "Change Access…")) { presentEditor(connection) }
+            .disabled(!canMutate)
+        Button(String(localized: "Share Session Details…")) { presentContextConsent(connection) }
+            .disabled(!canMutate)
+        if connection.contextGrant != nil {
+            Button(String(localized: "Stop Sharing Details")) {
+                do {
+                    try accessStore.updateContextGrant(connectionID: connection.id, contextGrant: nil)
+                    errorMessage = nil
+                } catch {
+                    errorMessage = String(localized: "awesoMux couldn't save this app's access.")
+                }
+            }
+            .disabled(!canMutate)
+        }
+        Button(String(localized: "Remove"), role: .destructive) { revoking = connection }
+            .disabled(!canMutate)
+    }
+
+    private func contextIsCurrent(_ connection: LocalAPIConnectionGrant) -> Bool {
+        guard let grant = connection.contextGrant else { return false }
+        return contextTargetVersions?[grant.paneID] == grant.targetVersion
+    }
+
+    private func contextSummary(_ connection: LocalAPIConnectionGrant) -> String {
+        guard let grant = connection.contextGrant else { return String(localized: "No") }
+        guard contextTargetVersions != nil else { return String(localized: "Checking access…") }
+        guard contextIsCurrent(connection) else { return String(localized: "Access ended") }
+        return paneTitle(grant.paneID)
     }
 
     private func presentContextConsent(_ connection: LocalAPIConnectionGrant) {
@@ -347,8 +377,16 @@ struct AssistantAccessSettingsSection: View {
                 guard agent.executionLocation == "local", agent.identityEvidence == "local_process_incarnation" else {
                     throw LocalAPIError.contextUnavailable
                 }
+                guard agent.providerSessionID != nil, let provider = AgentKind(rawValue: agent.provider),
+                    [.claudeCode, .codex, .pi, .openCode].contains(provider)
+                else {
+                    errorMessage = String(
+                        localized: "This agent's conversation isn't available yet. Wait for a supported agent session, then try again.")
+                    return
+                }
                 contextConsent = AssistantContextConsentRequest(
-                    connectionID: connection.id, connectionLabel: connection.label, agent: agent
+                    connectionID: connection.id, connectionLabel: connection.label,
+                    paneTitle: paneTitle(agent.paneID), agent: agent
                 )
             } catch {
                 errorMessage = String(
@@ -375,6 +413,9 @@ struct AssistantAccessSettingsSection: View {
                         paneID: agent.paneID, targetVersion: agent.targetVersion, allowTerminalHistory: allowHistory
                     )
                 )
+                var versions = contextTargetVersions ?? [:]
+                versions[agent.paneID] = agent.targetVersion
+                contextTargetVersions = versions
                 contextConsent = nil
                 errorMessage = nil
             } catch {

@@ -601,6 +601,9 @@
     "Access changes are active and saved, but awesoMux could not confirm directory durability. Retry Save before restarting." : {
 
     },
+    "Access ended" : {
+
+    },
     "Access ended because this pane restarted. Choose a pane to give access again." : {
 
     },
@@ -1168,6 +1171,9 @@
       "comment" : "Diagnostics freshness"
     },
     "Checking" : {
+
+    },
+    "Checking access…" : {
 
     },
     "Checking for an installed file…" : {
@@ -4856,6 +4862,9 @@
     "The annotation couldn't be saved. It may be too long, invalid, or duplicated." : {
       "comment" : "Save failure alert body when the annotation itself is rejected"
     },
+    "The app may send these details to its assistant service." : {
+
+    },
     "The app wasn't added, and awesoMux couldn't remove its unused Keychain key." : {
 
     },
@@ -5140,6 +5149,9 @@
     },
     "This agent doesn't support review annotations" : {
       "comment" : "Disabled annotation handoff reason when the document's agent has no annotation protocol mapping"
+    },
+    "This agent's conversation isn't available yet. Wait for a supported agent session, then try again." : {
+
     },
     "This app no longer has access, but awesoMux couldn't finish removing it." : {
 

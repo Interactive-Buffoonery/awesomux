@@ -5,12 +5,14 @@ struct AssistantContextConsentRequest: Identifiable {
     let id = UUID()
     let connectionID: UUID
     let connectionLabel: String
+    let paneTitle: String
     let agent: LocalAPIAgent
 }
 
 struct AssistantContextConsent: View {
     @Environment(\.dismiss) private var dismiss
     @State private var allowTerminalHistory = false
+    @AccessibilityFocusState private var errorIsFocused: Bool
     let request: AssistantContextConsentRequest
     let isWorking: Bool
     let errorMessage: String?
@@ -22,7 +24,8 @@ struct AssistantContextConsent: View {
                 .font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
             Text(request.connectionLabel).font(.headline)
-            Text("\(request.agent.workspaceName) — \(request.agent.provider)")
+            Text(request.paneTitle)
+            Text(request.agent.provider)
             Text(request.agent.providerSessionID ?? String(localized: "No session ID found"))
                 .font(.caption.monospaced())
                 .textSelection(.enabled)
@@ -36,6 +39,8 @@ struct AssistantContextConsent: View {
                 )
             )
             .fixedSize(horizontal: false, vertical: true)
+            Text(String(localized: "The app may send these details to its assistant service."))
+                .fixedSize(horizontal: false, vertical: true)
             Toggle(String(localized: "Also share recent terminal output"), isOn: $allowTerminalHistory)
             Text(
                 String(
@@ -49,6 +54,7 @@ struct AssistantContextConsent: View {
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityFocused($errorIsFocused)
             }
             HStack {
                 Spacer()
@@ -61,5 +67,8 @@ struct AssistantContextConsent: View {
         }
         .padding(24)
         .frame(width: 520)
+        .onChange(of: errorMessage) { _, message in
+            errorIsFocused = message != nil
+        }
     }
 }

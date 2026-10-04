@@ -126,10 +126,10 @@ a misleading denial frame; the helper reports `transport_failure` and emits no
 partial JSON.
 
 Context sharing is separately disabled by default for every connection. In
-Settings, select an agent pane and choose **Share Current Target Context…** on
+Settings, select an agent pane and choose **Share Session Details…** on
 its connection. The consent sheet names the exact provider session, explains
 assistant-service sharing, and separately offers terminal history. Saving
-rechecks the reviewed target. **Stop Context Sharing** revokes this grant while
+rechecks the reviewed target. **Stop Sharing Details** revokes this grant while
 preserving status access. Context grants expire with the target incarnation and
 never expand to the connection's status scope.
 
