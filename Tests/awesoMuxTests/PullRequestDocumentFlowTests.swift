@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 
@@ -39,7 +40,10 @@ struct PullRequestDocumentFlowTests {
             if [ -f switch-origin ] && [ "$1" = "api" ]; then /usr/bin/git remote set-url origin git@github.com:other/repo.git; fi
             if [ -f switch-branch ] && [ "$1" = "api" ]; then /usr/bin/git symbolic-ref HEAD refs/heads/456; fi
             /usr/bin/printf '%s\\n' "$*" >> argv.log
-            if [ -f delay ]; then /bin/sleep 0.2; fi
+            if [ -f hold-repo-view ] && [ "$1 $2" = "repo view" ]; then
+              /usr/bin/touch repo-view-started
+              \(ShellWait.untilExists(path: "release-repo-view")) || exit 1
+            fi
             case "$1 $2" in
               "repo view") echo '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}' ;;
               "pr list") /bin/cat list.json ;;
@@ -51,7 +55,7 @@ struct PullRequestDocumentFlowTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let cache = GeneratedDocumentCache(cacheDirectoryURL: directory.appending(path: "cache"), fileNameSuffix: ".pull-request.md")
         let opener = PullRequestDocumentOpener(
-            ghRunner: BoundedCommandRunner(executableCandidates: [executable.path]), cache: cache
+            ghRunner: BoundedCommandRunner(executableCandidates: [executable.path], timeout: .seconds(15)), cache: cache
         )
         let pane = TerminalPane(title: "shell", workingDirectory: directory.path, executionPlan: .local)
         let session = TerminalSession(title: "flow", workingDirectory: directory.path, layout: .pane(pane), activePaneID: pane.id)
@@ -100,14 +104,25 @@ struct PullRequestDocumentFlowTests {
             #expect(argv.contains("api repos/owner/repo/" + endpoint + " --hostname github.com --paginate --slurp"))
         }
         // A superseded command must stop between stages and never author a cache file.
-        try Data().write(to: directory.appending(path: "delay"))
+        let holdRepositoryQuery = directory.appending(path: "hold-repo-view")
+        let repositoryQueryStarted = directory.appending(path: "repo-view-started")
+        let releaseRepositoryQuery = directory.appending(path: "release-repo-view")
+        try Data().write(to: holdRepositoryQuery)
         let cancelled = Task { await opener.open(session: session, pane: pane) }
-        try await Task.sleep(for: .milliseconds(40))
+        defer {
+            cancelled.cancel()
+            try? Data().write(to: releaseRepositoryQuery)
+        }
+        try #require(
+            await waitUntilEventually {
+                FileManager.default.fileExists(atPath: repositoryQueryStarted.path)
+            })
         cancelled.cancel()
+        try Data().write(to: releaseRepositoryQuery)
         #expect(await cancelled.value == .failure(.commandFailed))
         let afterCancellation = try String(contentsOf: directory.appending(path: "argv.log"), encoding: .utf8)
         #expect(afterCancellation.components(separatedBy: "pr list").count == argv.components(separatedBy: "pr list").count)
-        try FileManager.default.removeItem(at: directory.appending(path: "delay"))
+        try FileManager.default.removeItem(at: holdRepositoryQuery)
         // Reopening unchanged content must still hold a lease until publication completes.
         let reopened = try await opener.open(session: session, pane: pane).get()
         #expect(DocumentPaneView.selfWriteRegistry.context(fileURL: reopened.fileURL, onDiskSource: reopened.markdown)?.isSelfWrite == true)
