@@ -413,9 +413,7 @@ struct AssistantAccessSettingsSection: View {
                         paneID: agent.paneID, targetVersion: agent.targetVersion, allowTerminalHistory: allowHistory
                     )
                 )
-                var versions = contextTargetVersions ?? [:]
-                versions[agent.paneID] = agent.targetVersion
-                contextTargetVersions = versions
+                contextTargetVersions = nil
                 contextConsent = nil
                 errorMessage = nil
             } catch {
