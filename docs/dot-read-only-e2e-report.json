@@ -1,0 +1,67 @@
+{
+  "issue": "INT-1201",
+  "date": "2026-10-05",
+  "baseCommit": "df2ad317d88b0f0fc64e5e32970e8ee065310842",
+  "packaging": {
+    "scope": "packaging CLI; no Dot, phone, native UI, or real-agent acceptance",
+    "checks": [
+      "package CLI creates archive",
+      "second package succeeds",
+      "archives are byte-for-byte reproducible",
+      "archive contains only the self-contained skill resources",
+      "archive entries stay within one skill folder",
+      "packaged awesomux-read-only/SKILL.md matches source",
+      "packaged awesomux-read-only/references/helper.md matches source",
+      "extracted reference is available beside the skill",
+      "existing archive is refused and unchanged",
+      "invalid output extension creates nothing",
+      "missing resources fail before output creation",
+      "symlinked resource fails before output creation"
+    ],
+    "archiveSHA256": "e0d158010d09a61fbdc9d7798be97800b3598b589406ca68b4757bfd8ca95005"
+  },
+  "stagedResources": "Both bundled resources match their source bytes",
+  "skillValidation": "Passed skill-creator quick_validate.py with PyYAML",
+  "builds": {
+    "awesomux-agent": "passed",
+    "local-api-e2e": "passed"
+  },
+  "preflight": {
+    "command": "./script/preflight.sh",
+    "exitCode": 0,
+    "swiftTestingCases": 3180,
+    "includes": "Existing deterministic guards, zmx, Swift suites, and staged app signing/launch verification"
+  },
+  "localAPIE2E": {
+    "exitCode": 133,
+    "result": "Failed before scenarios",
+    "error": "helper could not store a Keychain credential",
+    "passedScenarioCount": 0
+  },
+  "codeReview": {
+    "specialties": [
+      "edge cases",
+      "security",
+      "accessibility",
+      "performance",
+      "QA scenarios",
+      "Swift/macOS integration",
+      "spec compliance",
+      "skill quality"
+    ],
+    "verifiedFindings": 1,
+    "autoFix": 1,
+    "ask": 0,
+    "unresolved": 0,
+    "addressed": "Symlink scenario supplies the other resource and checks the specific refusal; focused re-review confirmed the fix"
+  },
+  "pendingAcceptance": [
+    "Real phone-to-Dot-to-Mac route",
+    "Skill discovery in the actual local task",
+    "Two real agents and one selected transcript",
+    "Native Settings and accessibility",
+    "Keychain trust prompts",
+    "App exit, Mac disconnection, stale selection, disabled sharing and revocation"
+  ],
+  "limits": "Packaging and existing automated suites do not establish real Dot acceptance. Hands-on testing is deferred until after the draft PR."
+}
