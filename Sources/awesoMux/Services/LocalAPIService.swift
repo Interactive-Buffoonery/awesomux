@@ -107,7 +107,8 @@ final class LocalAPIService {
                 )
             }
             var agents: [LocalAPIAgent]?
-            if operation == .listAgents {
+            var sampledIncarnations: [UUID: String] = [:]
+            if operation == .listAgents || operation == .attentionEvents {
                 let providers: [UUID: AgentKind]
                 do {
                     providers = try store.localAPIProviders()
@@ -140,6 +141,7 @@ final class LocalAPIService {
                     keys == store.localAPIRoutingKeys().filter({ candidatePaneIDs.contains($0.key) }),
                     sources == runtime.localAPIProcessSources().filter({ candidatePaneIDs.contains($0.key) })
                 else { return LocalAPIResponse(requestID: request.requestID, error: .staleTarget) }
+                sampledIncarnations = incarnations
                 agents = store.localAPIAgents(
                     processIncarnations: incarnations,
                     limitedTo: candidatePaneIDs
@@ -151,11 +153,24 @@ final class LocalAPIService {
                     )
                 }
             }
+            var attentionEvents: LocalAPIAttentionPage?
+            if operation == .attentionEvents {
+                do {
+                    attentionEvents = try store.localAPIAttentionEvents(
+                        cursor: request.cursor, limit: request.limit ?? 0, lease: lease,
+                        processIncarnations: sampledIncarnations
+                    )
+                } catch {
+                    return LocalAPIResponse(requestID: request.requestID, error: error as? LocalAPIError ?? .transportFailure)
+                }
+            }
             return LocalAPIResponse(
                 requestID: request.requestID, profile: profileValue, appInstanceID: instance,
                 capturedAt: Date(), connectionStatus: operation == .connectionStatus ? .connected : nil,
                 capabilities: operation == .capabilities ? LocalAPICapabilities() : nil,
-                agents: agents, contextGrant: operation == .connectionStatus ? lease.contextGrant : nil
+                agents: operation == .listAgents ? agents : nil,
+                contextGrant: operation == .connectionStatus ? lease.contextGrant : nil,
+                attentionEvents: attentionEvents
             )
         }
         accessStore.setInvalidationHandler { [weak server] connectionID in

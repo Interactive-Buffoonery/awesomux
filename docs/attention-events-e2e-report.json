@@ -1,0 +1,74 @@
+{
+  "checks": [
+    "attention is denied while global access is off",
+    "capabilities advertise bounded attention reads without monitoring",
+    "first attention check starts with retained history",
+    "repeated attention state emits one raised record",
+    "event preserves the exact pane and provider session identity",
+    "attention reads preserve selection unread and native acknowledgment",
+    "resolution after a previous read has a correlated attention ID and time",
+    "two clients independently see an alert that resolves between checks",
+    "persistent pane and workspace scopes exclude unrelated history",
+    "pagination skips hidden events without skipping authorized resolution",
+    "a consumed cursor does not replay events",
+    "a cursor cannot transfer between connections",
+    "malformed cursor fails explicitly",
+    "altered cursor fails authentication",
+    "zero page size is rejected",
+    "attention helper rejects context-only flags before loading credentials",
+    "attention wire request rejects context selectors",
+    "native waiting state produces an alert without an attention overlay",
+    "agent resumption resolves the native waiting alert",
+    "retention overflow explicitly requires current-state recovery",
+    "oversized page request clamps to 100 events",
+    "retained event history is bounded to 512 distinct ordered changes",
+    "gap recovery returns only authorized current agents",
+    "a fresh recovery cursor resumes with later events",
+    "exact target sees only its incarnation's events",
+    "replaced provider session explicitly expires the exact target's event access",
+    "session replacement resolves attention under the original identity",
+    "moving a pane resolves its old workspace alert without exposing the new workspace",
+    "closing a pane records its final resolution",
+    "grant edits invalidate old cursor positions without returning history",
+    "new grant scope resumes only its own events",
+    "global disable during capture prevents event return",
+    "app restart explicitly resets event history and cursor",
+    "restart seeds only current attention instead of replaying old history",
+    "revocation during capture prevents event return",
+    "revoking Dot leaves the other connection usable"
+  ],
+  "kind": "socket/store attention fixture E2E; helper credential path not exercised",
+  "nativeRealAgentAndPhoneAcceptance": "not exercised",
+  "providerAndProcessEvidence": "labeled fixtures",
+  "issue": "INT-1202",
+  "baseCommit": "a2bc578fc6613e3b9374fe0ca78202826bb6350f",
+  "checkedAt": "2026-10-05",
+  "repeatCommand": "./script/ensure_ghostty_artifacts.sh && swift build --product awesomux-agent && swift build --product local-api-e2e && .build/debug/local-api-e2e --attention-socket-only .build/debug/awesomux-agent .build/attention-socket-evidence",
+  "helperKeychainRun": {
+    "result": "blocked",
+    "reason": "The full driver failed before its scenarios: helper could not store a Keychain credential."
+  },
+  "preflight": {
+    "result": "passed",
+    "exitCode": 0,
+    "command": "./script/preflight.sh",
+    "swiftTestCases": 3180,
+    "swiftShards": [
+      227,
+      90,
+      50,
+      2813
+    ],
+    "otherChecks": [
+      "deterministic guards",
+      "vendored zmx suite",
+      "staged app build/sign/launch"
+    ],
+    "logArtifact": ".build/attention-socket-evidence/final-preflight.log"
+  },
+  "review": {
+    "kind": "implementing agent code review",
+    "independentReview": false
+  },
+  "checkCount": 36
+}

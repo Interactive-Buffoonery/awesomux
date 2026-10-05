@@ -14,7 +14,7 @@ if let credentialCommand = CredentialCommand(arguments: arguments) {
 }
 
 let response: LocalAPIResponse
-if [5, 13].contains(arguments.count), arguments[0] == "--profile",
+if [5, 7, 9, 13].contains(arguments.count), arguments[0] == "--profile",
     LocalAPIProfile.isValid(arguments[1]),
     arguments[2] == "--credential-handle",
     let connectionID = UUID(uuidString: arguments[3]),
@@ -25,6 +25,7 @@ if [5, 13].contains(arguments.count), arguments[0] == "--profile",
         var targetVersion: UUID?
         var limit: Int?
         var source: LocalAPIContextSource?
+        var cursor: String?
         if operation == .agentContext {
             guard arguments.count == 13, arguments[5] == "--pane-id",
                 let parsedPaneID = UUID(uuidString: arguments[6]),
@@ -36,6 +37,16 @@ if [5, 13].contains(arguments.count), arguments[0] == "--profile",
             targetVersion = parsedVersion
             limit = parsedLimit
             source = parsedSource
+        } else if operation == .attentionEvents {
+            guard [7, 9].contains(arguments.count), arguments[5] == "--limit",
+                let parsedLimit = Int(arguments[6]), parsedLimit > 0
+            else { throw LocalAPIError.invalidRequest }
+            limit = parsedLimit
+            if arguments.count == 9 {
+                guard arguments[7] == "--cursor", !arguments[8].isEmpty, arguments[8].utf8.count <= 2048
+                else { throw LocalAPIError.invalidRequest }
+                cursor = arguments[8]
+            }
         } else if arguments.count != 5 {
             throw LocalAPIError.invalidRequest
         }
@@ -48,7 +59,7 @@ if [5, 13].contains(arguments.count), arguments[0] == "--profile",
             operation: operation,
             connectionID: connectionID,
             credential: encodedCredential,
-            paneID: paneID, targetVersion: targetVersion, limit: limit, source: source
+            paneID: paneID, targetVersion: targetVersion, limit: limit, source: source, cursor: cursor
         )
         do {
             response = try LocalAPIClient.call(request)

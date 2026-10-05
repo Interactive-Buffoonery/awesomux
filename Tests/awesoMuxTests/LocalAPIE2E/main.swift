@@ -13,6 +13,12 @@ struct E2EFailure: Error { let message: String }
 struct LocalAPIE2E {
     @MainActor static func main() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.count == 3, args[0] == "--attention-socket-only" {
+            let artifact = URL(fileURLWithPath: args[2], isDirectory: true)
+            try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+            _ = try await runAttentionScenarios(helper: args[1], artifact: artifact, useKeychainHelper: false)
+            return
+        }
         if args.count == 2, args[0] == "--crash-host" {
             let host = try LocalAPIServer(profile: args[1]) { _, _, _ in LocalAPIResponse() }
             host.start()
@@ -289,6 +295,7 @@ struct LocalAPIE2E {
         )
         checks.append(contentsOf: try await runGrantScenarios(helper: helper, artifact: artifact, agents: store.localAPIAgents()))
         checks.append(contentsOf: try await runContextScenarios(helper: helper, artifact: artifact))
+        checks.append(contentsOf: try await runAttentionScenarios(helper: helper, artifact: artifact))
         let report: [String: Any] = [
             "kind": "socket/store/helper, connection grants, and exact-context fixture E2E", "profile": profile, "checks": checks,
             "realAgentNativeProof": "separate artifact required",

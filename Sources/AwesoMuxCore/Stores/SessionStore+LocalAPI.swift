@@ -25,8 +25,12 @@ public extension SessionStore {
     func bindLocalAPIInstance(_ instanceID: UUID) {
         guard localAPIInstanceID != instanceID else { return }
         localAPIInstanceID = instanceID
+        localAPITracking = true
         localAPITargets.removeAll()
         reconcileLocalAPIAssignments()
+        localAPIAttentionJournal = LocalAPIAttentionJournal(instanceID: instanceID)
+        localAPIActiveAttention.removeAll()
+        recordLocalAPIAttentionChanges()
     }
 
     func localAPIProviders() throws -> [UUID: AgentKind] {
@@ -137,15 +141,23 @@ extension SessionStore {
     func reconcileLocalAPIAssignment(_ pane: TerminalPane, workspaceID: UUID) {
         guard localAPITracking else { return }
         let terminalID = pane.terminalSessionID.rawValue
-        if let existing = localAPITargets[pane.id], existing.workspaceID == workspaceID,
+        let runtime = runtimeEventReducer.stateByPaneID[pane.id]
+        if var existing = localAPITargets[pane.id], existing.workspaceID == workspaceID,
             existing.terminalSessionID == terminalID, existing.executionPlan == pane.executionPlan,
             existing.provider == pane.agentKind
         {
+            if existing.runtimeEpoch != runtime?.identityEpoch || existing.providerSessionID != runtime?.providerSessionID {
+                existing.version = UUID()
+                existing.runtimeEpoch = runtime?.identityEpoch
+                existing.providerSessionID = runtime?.providerSessionID
+                localAPITargets[pane.id] = existing
+            }
             return
         }
         localAPITargets[pane.id] = LocalAPITargetRecord(
             workspaceID: workspaceID, terminalSessionID: terminalID,
-            executionPlan: pane.executionPlan, provider: pane.agentKind
+            executionPlan: pane.executionPlan, provider: pane.agentKind,
+            runtimeEpoch: runtime?.identityEpoch, providerSessionID: runtime?.providerSessionID
         )
     }
 
