@@ -21,6 +21,13 @@ The local Codex task can discover an installed skill under
 surface. Verify actual discovery in the task; directory presence alone is not
 proof that Dot can use it. Installation does not register or enable app access.
 
+In the maintainer's tested ChatGPT app, that user-level folder was absent from
+the task catalog. A compatibility link from `~/.codex/skills/awesomux-read-only`
+to the reviewed installed folder enabled discovery in a fresh task. If this
+occurs, explain the observed workaround to the user; inspect any existing
+destination rather than overwriting it. Do not install or modify catalog paths
+as part of an ordinary status/context request.
+
 ## Commands
 
 These are templates, not commands to run with placeholder values. Construct
@@ -71,7 +78,7 @@ identity. Missing transcripts never imply permission to read history.
 | --- | --- |
 | Local task/Mac unavailable | Report the route failure; the user can bring the Mac online with ChatGPT open or review Dot's connected-Mac permission. |
 | `app_unavailable` | The user can open the intended build; retain the configured profile. |
-| `credential_unavailable` | The user can review the connection and Keychain trust for the exact helper path. Never extract Keychain credentials. |
+| `credential_unavailable` | A credential may be missing or inaccessible under restricted execution. Review the execution environment and connection; see below. Never extract Keychain credentials. |
 | `access_disabled` / `permission_denied` | The user can review global access, status scope, or session sharing in awesoMux. Do not expand access automatically. |
 | `stale_target` | Refresh authorized metadata, then ask for a new explicit selection. |
 | `no_session_identity` / `process_identity_unknown` | Explain that exact live session identity is unavailable. |
@@ -83,3 +90,12 @@ identity. Missing transcripts never imply permission to read history.
 Ad-hoc builds may cause Keychain trust prompts when the helper identity changes.
 The user should inspect the displayed binary path. Dot's automatic action review
 also applies; the skill cannot suppress platform-required approvals.
+
+In the maintainer run, restricted execution returned `credential_unavailable`,
+but normal reviewed escalation of the same helper succeeded with unchanged
+credentials and grants. If the host supports execution approval, request its
+normal approval for the exact configured helper and named read operation.
+Proceed only when approved; if unavailable or denied, stop and report the
+limitation. Do not weaken the sandbox globally, broaden grants, change profiles,
+or use a credential export to make a denied call succeed. Persistent failure
+after approved execution requires reviewing the connection and helper trust.

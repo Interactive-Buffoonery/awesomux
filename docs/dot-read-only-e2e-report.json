@@ -56,12 +56,71 @@
     "addressed": "Symlink scenario supplies the other resource and checks the specific refusal; focused re-review confirmed the fix"
   },
   "pendingAcceptance": [
-    "Real phone-to-Dot-to-Mac route",
-    "Skill discovery in the actual local task",
-    "Two real agents and one selected transcript",
-    "Native Settings and accessibility",
-    "Keychain trust prompts",
-    "App exit, Mac disconnection, stale selection, disabled sharing and revocation"
+    "Phone-requested selected transcript read end-to-end",
+    "App exit and Mac disconnection",
+    "Stale selection",
+    "Global disable, connection revocation, and connected-Mac revocation",
+    "Native Settings keyboard/VoiceOver and Keychain trust prompts"
   ],
-  "limits": "Packaging and existing automated suites do not establish real Dot acceptance. Hands-on testing is deferred until after the draft PR."
+  "limits": "Maintainer evidence establishes phone-triggered status and Mac-side selected transcript isolation/sharing revocation on the tested commit. Remaining acceptance checks and the original Keychain-blocked fixture E2E are separate evidence gaps.",
+  "maintainerAcceptance": {
+    "date": "2026-10-05",
+    "testedCommit": "2e3ebaf0bbc1cc83da4983553c0a4fef6a5b70fc",
+    "evidenceURL": "https://github.com/Interactive-Buffoonery/awesomux/pull/728#issuecomment-6003148028",
+    "source": "Maintainer-reported testing; not a rerun by the coding agent",
+    "passed": [
+      "Mac development build opened; Ghostty 81/81, packaging 12/12, and signature verification passed",
+      "Two disposable real Codex sessions listed with status matching the app",
+      "Only session A synthetic transcript returned, 279 bytes; session B denied",
+      "Session A denied after sharing stopped; terminal history remained off",
+      "Phone status request created a fresh Mac task which discovered the skill and checked connection, capabilities, and both sessions"
+    ],
+    "setupGotchas": [
+      "The tested app catalog required a compatibility link from ~/.codex/skills/awesomux-read-only to the reviewed ~/.agents/skills installation",
+      "Restricted execution returned credential_unavailable; normal reviewed escalation of the same helper succeeded without credential or grant changes"
+    ],
+    "notRun": [
+      "Full preflight in the maintainer run",
+      "Remaining failure/accessibility cases"
+    ],
+    "productionDeployment": false
+  },
+  "followupValidation": {
+    "date": "2026-10-05",
+    "workingTreeBaseCommit": "2e3ebaf0bbc1cc83da4983553c0a4fef6a5b70fc",
+    "scope": "Documented setup recovery and skill instruction changes",
+    "packaging": {
+      "scope": "packaging CLI; no Dot, phone, native UI, or real-agent acceptance",
+      "checks": [
+        "package CLI creates archive",
+        "second package succeeds",
+        "archives are byte-for-byte reproducible",
+        "archive contains only the self-contained skill resources",
+        "archive entries stay within one skill folder",
+        "packaged awesomux-read-only/SKILL.md matches source",
+        "packaged awesomux-read-only/references/helper.md matches source",
+        "extracted reference is available beside the skill",
+        "existing archive is refused and unchanged",
+        "invalid output extension creates nothing",
+        "missing resources fail before output creation",
+        "symlinked resource fails before output creation"
+      ],
+      "archiveSHA256": "bc7a82c2d6d23ea0a128ab8cb6ce602f795ea27c5155f995d390879c9f78dbcd"
+    },
+    "skillValidation": "Passed quick_validate.py with PyYAML",
+    "preflight": {
+      "command": "./script/preflight.sh",
+      "exitCode": 0,
+      "swiftTestingCases": 3180,
+      "artifact": ".build/dot-skill-evidence/followup-preflight.log"
+    },
+    "focusedCodeReview": {
+      "specialties": [
+        "security",
+        "skill quality"
+      ],
+      "unresolved": 0
+    },
+    "stagedResources": "Both bundled resources match their source bytes"
+  }
 }

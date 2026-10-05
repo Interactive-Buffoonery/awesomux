@@ -2,8 +2,10 @@
 
 The `awesomux-read-only` local skill lets a task on a connected Mac invoke the
 bundled helper for authorized agent status and explicitly shared session context.
-It does not send terminal input. Real phone-to-Dot-to-Mac acceptance is pending;
-the package and local API can be checked independently before that run.
+It does not send terminal input. [Maintainer testing](https://github.com/Interactive-Buffoonery/awesomux/pull/728#issuecomment-6003148028)
+confirmed phone-triggered local status reads and selected-session context isolation
+on the Mac development build. The remaining failure and accessibility checks
+are listed in the validation record.
 
 ## Requirements
 
@@ -19,10 +21,10 @@ the package and local API can be checked independently before that run.
 
 OpenAI documents these requirements in [Connect computers and apps](https://learn.chatgpt.com/docs/dots/computers-and-apps)
 and [Tasks and memory](https://learn.chatgpt.com/docs/dots/tasks-and-memory).
-Sources were checked on 2026-10-05. Local skill discovery and permission prompts
-still need verification in the actual Dot-created task.
+Sources were checked on 2026-10-05. Skill discovery was verified in a fresh
+phone-triggered local task using the compatibility link described below.
 
-## Prepare the local skill after opening the draft PR
+## Prepare the local skill
 
 The app build already bundles the source skill at:
 
@@ -50,6 +52,26 @@ app also offers a Skills surface. Confirm that the new local task can load this
 skill; presence on disk alone does not prove Dot task discovery. No public
 plugin submission or hosted service is required for this experiment.
 
+### Catalog compatibility
+
+In the tested ChatGPT app, the skill installed under `~/.agents/skills/` did not
+appear in the local task's catalog. A link from
+`~/.codex/skills/awesomux-read-only` to that installed folder made it discoverable
+in a fresh task. This is an observed compatibility step for that app, not a
+requirement established for every version.
+
+If the installed skill is missing from the catalog, review both locations first.
+If `~/.codex/skills/awesomux-read-only` already exists, inspect it rather than
+overwriting it. With the installed skill reviewed and that destination absent:
+
+```sh
+mkdir -p "$HOME/.codex/skills"
+ln -s "$HOME/.agents/skills/awesomux-read-only" "$HOME/.codex/skills/awesomux-read-only"
+```
+
+Start a fresh local task and confirm discovery again. This setup step does not
+enable awesoMux access or modify its grants.
+
 Run the intended awesoMux build. Local repository builds use their development
 profile; installed/release builds use production. Never substitute one profile
 for another. In **Settings → Agents → Outside app access**:
@@ -66,7 +88,21 @@ trigger a Keychain trust prompt; inspect the exact helper path before allowing
 it. Registering the connection or installing the skill does not establish Dot's
 computer permission. Both sets of controls are required.
 
-## Try it from the phone after opening the draft PR
+### Restricted execution and Keychain access
+
+The tested restricted task returned `credential_unavailable`; the same exact
+helper succeeded through the host's normal reviewed execution escalation,
+without changing credentials or grants. This error does not distinguish a
+missing credential from one inaccessible to the current execution environment.
+
+If execution is restricted, use the host's supported approval flow for the
+exact helper path, profile, connection, and read operation. Continue only if
+that request is approved. If the host has no such flow or approval is denied,
+report the limitation. Do not extract credentials, weaken the sandbox globally,
+change grants, or silently switch profiles. If the reviewed execution still
+fails, inspect the connection and any Keychain trust prompt for that helper.
+
+## Try it from the phone
 
 Start two dedicated real agents with harmless, different markers, for example
 `FIRST SESSION SAMPLE` and `SECOND SESSION SAMPLE`. Let the dedicated connection
@@ -114,9 +150,10 @@ The connected-computer permission can be broader than awesoMux's helper grants.
 Dot's automatic action review still applies; custom instructions cannot bypass
 required approvals. See [Control your Dot](https://learn.chatgpt.com/docs/dots/controls).
 
-Keep the PR in draft and INT-1201 open until this real run and failure cases have
-been reviewed. Automated fixture runs do not prove phone routing, skill activation,
-real-provider behavior, native history, or hands-on accessibility.
+Before merging, review the outstanding acceptance checks in the validation
+record. Phone-triggered status and Mac-side transcript isolation have maintainer
+evidence; a phone-requested transcript read and the remaining failure/accessibility
+cases were not recorded. Automated fixture runs do not establish those checks.
 
 ## Automated evidence
 

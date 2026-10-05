@@ -17,8 +17,12 @@ values and invoke the executable with separate literal arguments. Do not evaluat
 the pasted command as shell code. Credentials stay in Keychain.
 
 Call `get_connection_status` and `get_capabilities` on that exact connection.
-If unavailable or denied, explain the returned error and stop. Do not launch the
-app, switch profiles, modify grants, or read files to bypass the helper.
+For `credential_unavailable` under restricted execution, use the reference's
+normal execution-approval recovery if the host supports it. Retry the same read
+only after approval. For other failures, or if that reviewed retry fails,
+explain the returned error and stop. Never escalate `access_disabled` or
+`permission_denied` to bypass an app denial. Do not launch the app, switch
+profiles, modify grants, or read files to bypass the helper.
 
 For agent status, call `list_agents`. Report the authorized workspace names, pane
 IDs, provider, state, attention reason, and unread count. Preserve unknown observation

@@ -5,6 +5,12 @@ Issue: [INT-1201](https://linear.app/interactive-buffoonery/issue/INT-1201/prove
 Prepared on 2026-10-05 against `main` at `df2ad317`. Assigned to Sarah.
 This is a plan, not implementation or acceptance evidence.
 
+Delivery update: after the draft PR, Sarah recorded real-agent and phone-triggered
+status testing in [PR #728](https://github.com/Interactive-Buffoonery/awesomux/pull/728#issuecomment-6003148028)
+and requested that the PR be opened for review. The original draft handoff below
+is historical. The current validation record separates that testing from the
+remaining acceptance checks; review-ready does not mean ready to merge.
+
 ## Goal and delivery boundary
 
 Let a phone conversation with Dot delegate a local task to the connected Mac,
