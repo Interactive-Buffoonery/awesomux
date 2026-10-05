@@ -1,5 +1,8 @@
 # Shared local agent API
 
+For the local skill package and pending phone acceptance procedure, see
+[Read-only awesoMux access from Dot](dot-read-only.md).
+
 The app-owned status transport is opt-in. Installation grants nothing. A user
 adds each local client in **Settings → Agents → Outside app access**, reviews
 the default current-target scope or explicitly chooses a persistent pane or

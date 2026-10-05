@@ -26,5 +26,6 @@ python3 "$ROOT_DIR/script/test_prepare_ghostty_source.py"
 "$ROOT_DIR/script/agent-hooks/test-awesomux-agent-event.sh"
 "$ROOT_DIR/script/test-command-output-limit.sh"
 python3 "$ROOT_DIR/script/test-agent-plugin-inspection.py"
+python3 -B "$ROOT_DIR/script/test-dot-skill-package.py"
 "$ROOT_DIR/script/test.sh" all
 "$ROOT_DIR/script/build_and_run.sh" --verify
