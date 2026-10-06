@@ -200,6 +200,32 @@ extension SessionStore {
         runtimeEventReducer.lastEndedAgentKind(for: paneID)
     }
 
+    /// Corrects only text-inferred identity while the caller observes SSH in
+    /// the foreground. A prior local SessionEnd still suppresses heuristic state.
+    @discardableResult
+    public func applyUnmanagedSSHAgentIdentity(
+        id: TerminalSession.ID,
+        paneID: TerminalPane.ID,
+        agentKind: AgentKind,
+        foregroundCommand: String
+    ) -> Bool {
+        guard ShellRecognition.normalizedCommandName(foregroundCommand) == "ssh",
+            agentKind == .claudeCode || agentKind == .codex,
+            let pane = session(id: id)?.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            !pane.agentKindIsRuntimeEstablished,
+            pane.agentKind != agentKind
+        else { return false }
+        return applyPaneUpdate(
+            sessionID: id,
+            paneID: paneID,
+            update: WorkspaceAttentionReducer.SessionUpdate(
+                agentKind: agentKind,
+                agentKindIsRuntimeEstablished: false
+            )
+        )
+    }
+
     /// Applies visible-text detector state to a pane. Public unread deltas only
     /// add badges. `paneID` defaults to the session's active pane.
     @discardableResult

@@ -8,6 +8,7 @@ final class GhosttySurfaceTerminalEventState {
     let visibleTextAgentStateReducer = VisibleTextAgentStateReducer()
     var lastAgentDetectionSample: TimeInterval = 0
     var lastDetectedVisibleText = ""
+    var sshForegroundObservation: (pane: PaneStoreWriteKey, command: String, sampledAt: TimeInterval)?
     /// Visible text as of the last `.valueChanged` accessibility post, so the
     /// sampler only announces once per distinct change instead of once per
     /// sample tick. See `scheduleAccessibilityValueChangeAnnouncement()`.
