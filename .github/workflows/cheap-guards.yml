@@ -35,41 +35,43 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Verify Swift toolchain
-        run: |
-          ./script/check-toolchain.sh
-          ./script/test-toolchain.sh
+      - parallel:
+          - name: Verify Swift toolchain
+            run: |
+              ./script/check-toolchain.sh
+              ./script/test-toolchain.sh
 
-      - name: CI automation unit tests
-        run: ./script/test-ci-automation.sh
+          - name: CI automation unit tests
+            run: ./script/test-ci-automation.sh
 
-      - name: Public-seed source policy
-        run: ./script/check_public_seed_source.sh
+          - name: Public-seed source policy
+            run: ./script/check_public_seed_source.sh
 
-      - name: Plural localization guards
-        run: ./script/check_plural_guards.sh
+          - name: Plural localization guards
+            run: ./script/check_plural_guards.sh
+
+          - name: Ghostty license pin guardrail tests
+            run: ./script/test-ghostty-license-pins.sh
+
+          - name: Ghostty license pins
+            run: ./script/check_ghostty_license_pins.sh
+
+          - name: Ghostty source extension tests
+            run: python3 script/test_prepare_ghostty_source.py
 
       - name: Test wait guardrail tests
         run: ./script/test-test-wait-guard.sh
 
-      - name: Test wait policy
-        env:
-          TEST_WAIT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: ./script/check_test_waits.sh
-
       - name: Formatter guardrail tests
         run: ./script/test-format.sh
 
-      - name: Swift format lint
-        env:
-          FORMAT_LINT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: ./script/format.sh --lint
+      - parallel:
+          - name: Test wait policy
+            env:
+              TEST_WAIT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+            run: ./script/check_test_waits.sh
 
-      - name: Ghostty license pin guardrail tests
-        run: ./script/test-ghostty-license-pins.sh
-
-      - name: Ghostty license pins
-        run: ./script/check_ghostty_license_pins.sh
-
-      - name: Ghostty source extension tests
-        run: python3 script/test_prepare_ghostty_source.py
+          - name: Swift format lint
+            env:
+              FORMAT_LINT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+            run: ./script/format.sh --lint
