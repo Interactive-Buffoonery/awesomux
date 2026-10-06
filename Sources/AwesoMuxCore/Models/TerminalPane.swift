@@ -3,8 +3,12 @@ import Foundation
 
 public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID
-    public var terminalSessionID: TerminalSessionID
-    public var terminalBackendMetadata: TerminalBackendMetadata
+    public var terminalSessionID: TerminalSessionID {
+        didSet { if terminalSessionID != oldValue { remoteFileContext = nil } }
+    }
+    public var terminalBackendMetadata: TerminalBackendMetadata {
+        didSet { if terminalBackendMetadata != oldValue { remoteFileContext = nil } }
+    }
     public var title: String
     /// True once the user (or a programmatic rename) pinned a custom title, so
     /// the live OSC 0/2 terminal title stops overwriting it. Mirrors
@@ -14,7 +18,9 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// Durable authority for where this pane executes and who owns its
     /// persistent terminal session. Observed title/connection metadata below
     /// may enrich presentation but never retarget this plan.
-    public var executionPlan: PaneExecutionPlan
+    public var executionPlan: PaneExecutionPlan {
+        didSet { if executionPlan != oldValue { remoteFileContext = nil } }
+    }
     /// Decode-only migration marker. Missing legacy plan state is represented
     /// as a local placeholder until a group-aware restore reducer replaces it.
     /// Excluded from Codable/equality/hash and discharged before restored state
@@ -34,6 +40,8 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// may be an SSH config alias, unlike `remoteHost`, which comes from the
     /// remote prompt.
     public var remoteSSHTarget: String?
+    /// Explicit runtime-only context for independent, confirmed file reads.
+    public var remoteFileContext: RemoteFileContext? = nil
     /// Runtime-only one-shot state for the automatic managed-workspace offer.
     /// The safely observed target remains available for an explicit conversion.
     public var hasConsumedManagedSSHWorkspaceOffer: Bool
@@ -445,6 +453,7 @@ public extension TerminalPane {
             && lhs.executionPlan == rhs.executionPlan
             && lhs.color == rhs.color
             && lhs.remoteHost == rhs.remoteHost
+            && lhs.remoteFileContext == rhs.remoteFileContext
             && lhs.remoteSSHTarget == rhs.remoteSSHTarget
             && lhs.pendingRemoteSSHTarget == rhs.pendingRemoteSSHTarget
             && lhs.agentKind == rhs.agentKind
@@ -463,6 +472,7 @@ public extension TerminalPane {
         hasher.combine(executionPlan)
         hasher.combine(color)
         hasher.combine(remoteHost)
+        hasher.combine(remoteFileContext)
         hasher.combine(remoteSSHTarget)
         hasher.combine(pendingRemoteSSHTarget)
         hasher.combine(agentKind)

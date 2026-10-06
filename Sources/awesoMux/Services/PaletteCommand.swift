@@ -166,6 +166,7 @@ struct PaletteAppActions {
     let reloadGhosttyConfiguration: @MainActor () -> Void
     let openInIDE: @MainActor () -> Void
     let showKeyboardCheatsheet: @MainActor () -> Void
+    let setRemoteFileContext: @MainActor () -> Void
     let openMarkdownFile: @MainActor () -> Void
     let viewFiles: @MainActor () -> Void
     let openSessionManager: @MainActor () -> Void
@@ -247,6 +248,7 @@ struct PaletteAppActions {
             reloadGhosttyConfiguration: reloadGhosttyConfiguration,
             openInIDE: action,
             showKeyboardCheatsheet: action,
+            setRemoteFileContext: action,
             openMarkdownFile: action,
             viewFiles: action,
             openSessionManager: action,
@@ -1002,6 +1004,16 @@ enum PaletteCommandRegistry {
                 isEnabled: !availability.isAnySheetPresented,
                 selectionScope: .none,
                 run: actions.showKeyboardCheatsheet
+            ),
+            PaletteCommand(
+                id: KeyboardShortcutCatalog.setRemoteFileContextID,
+                title: String(localized: "Set Remote File Context…", comment: "Command to configure the active pane remote file context"),
+                subtitle: nil,
+                keywords: ["ssh", "remote", "markdown", "file", "context", "alias"],
+                shortcut: nil,
+                isEnabled: selected?.activePane?.executionPlan == .local && !availability.isAnySheetPresented,
+                selectionScope: .pane,
+                run: actions.setRemoteFileContext
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.openMarkdownFile.id,

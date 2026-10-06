@@ -555,6 +555,19 @@ extension SessionStore {
     }
 
     @discardableResult
+    public func setRemoteFileContext(
+        _ context: RemoteFileContext?, sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID, expectedTerminalSessionID: TerminalSessionID
+    ) -> Bool {
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            pane.executionPlan == .local, pane.terminalSessionID == expectedTerminalSessionID
+        else { return false }
+        let changed = mutatePane(sessionID: sessionID, paneID: paneID) { $0.remoteFileContext = context }
+        if changed { commit(WorkspaceMutationEffect(riskSessionIDs: [sessionID])) }
+        return changed
+    }
+
+    @discardableResult
     public func setRemoteForegroundLivenessSnapshot(
         _ snapshot: RemoteForegroundLivenessSnapshot?,
         sessionID: TerminalSession.ID,
@@ -1241,6 +1254,7 @@ extension SessionStore {
         }
 
         let changed = mutatePane(sessionID: sessionID, paneID: paneID) { pane in
+            pane.remoteFileContext = nil
             pane.remoteHost = nil
             pane.remoteSSHTarget = nil
             pane.pendingRemoteSSHTarget = nil

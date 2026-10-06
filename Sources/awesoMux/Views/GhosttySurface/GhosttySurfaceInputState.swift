@@ -10,6 +10,8 @@ final class GhosttySurfaceInputState {
     /// pre-armed — no menu, no press, one silently swallowed gesture.
     var rightClickMenuRouteArmed = false
     var mouseOverLink: String?
+    var reportedMousePosition: CGPoint?
+    var reportedMouseSurfaceIdentity: UInt64?
     /// OSC 8 hyperlink peek-preview state (INT-453). See `GhosttySurfaceLinkPeek`.
     /// `peekedLink` is the link the popover is currently presenting (distinct from
     /// `mouseOverLink`, which is only the hovered link — they differ during the
@@ -33,6 +35,11 @@ final class GhosttySurfaceInputState {
     /// gates (blocked classes always confirm). Upgrade path: a narrow query API
     /// in the ghostty fork, then re-derive here instead of snapshotting.
     var armedLinkClickValue: String?
+    /// Bound Markdown clicks retain their raw path and press-time authority.
+    var armedMarkdownClick: GhosttySurfaceMarkdownClick?
+    /// Remains active after drag cancellation so the paired native release
+    /// cannot open a locally resolved namesake or duplicate the app-side open.
+    var appOwnedMarkdownClickActive = false
     /// Plain-click opens are deferred by `NSEvent.doubleClickInterval` so the
     /// second press of a double-click (word-select inside a hyperlink) cancels
     /// the open instead of racing it — the first press of the pair still has

@@ -177,10 +177,16 @@ with a cross-process lock.
 
 Remote Markdown cache entries are keyed by the full typed resource identity,
 so the same path on local, host A, and host B cannot share provenance or a tab.
-SSH fetches use only the active pane's declared `RemoteTarget`; prompt titles,
-display hostnames, and submitted-command observations remain presentation or
-diagnostic signals. Relative remote Markdown paths resolve only from explicit
-remote-directory metadata and otherwise fail closed.
+Managed SSH fetches use the initiating pane's declared `RemoteTarget`. Unmanaged
+fetches require confirmation of an independent SSH file-read destination for
+each operation. A local pane's runtime-only `RemoteFileContext` records a chosen
+target, fixed base directory, and generation ID to prefill that confirmation;
+it does not change execution identity or grant continuing read authority.
+Prompt titles, display hostnames, and submitted-command observations remain
+presentation or diagnostic signals. Relative remote Markdown paths resolve
+against an explicitly chosen base or trusted remote-directory metadata. Context
+edits and known connection changes invalidate captured read origins. Snapshots
+keep their own destination and restrictive read policy after context is cleared.
 
 Older sketch docs assumed UserDefaults for v0; **the shipped direction is JSON on disk** for session/workspace restore.
 

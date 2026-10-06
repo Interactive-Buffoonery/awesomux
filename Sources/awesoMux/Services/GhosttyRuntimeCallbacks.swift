@@ -158,6 +158,7 @@ extension GhosttyRuntime {
                 pointer: action.action.mouse_over_link.url,
                 length: action.action.mouse_over_link.len
             )
+            view.nativeMouseLink.withLock { $0.updateTarget(link) }
             Task { @MainActor in
                 view.updateMouseOverLink(link)
                 if let link, !link.isEmpty {
@@ -176,6 +177,7 @@ extension GhosttyRuntime {
             }
 
             let shape = action.action.mouse_shape
+            view.nativeMouseLink.withLock { $0.updatePointer(shape == GHOSTTY_MOUSE_SHAPE_POINTER) }
             Task { @MainActor in
                 view.setCursorShape(shape)
             }
