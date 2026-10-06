@@ -670,7 +670,10 @@ struct AwesoMuxApp: App {
                                 origin: origin,
                                 overlayIdentity: overlayIdentity
                             )
-                        else { return }
+                        else {
+                            remoteMarkdownPathOpenRequest = nil
+                            return
+                        }
                         remoteMarkdownPathOpenRequest = nil
                         Task { @MainActor in
                             guard
