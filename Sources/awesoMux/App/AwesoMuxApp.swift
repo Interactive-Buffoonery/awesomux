@@ -5614,8 +5614,11 @@ struct AwesoMuxApp: App {
         guard let session = sessionStore.selectedSession else {
             return
         }
+        let context = RemoteMarkdownTypedPathOpen.context(for: session)
         if let tab = session.layout.firstDocumentGroup?.selectedTab,
-            tab.remoteReadPolicy == .confirmationRequired, tab.remoteResourceIdentity != nil
+            tab.remoteReadPolicy == .confirmationRequired,
+            let tabTarget = tab.remoteResourceIdentity?.remoteTarget,
+            case .remote(let target, _) = context, target == tabTarget
         {
             openConfirmedRemoteMarkdown(in: session, document: tab)
             return
@@ -5627,7 +5630,7 @@ struct AwesoMuxApp: App {
             openConfirmedRemoteMarkdown(in: session, document: nil)
             return
         }
-        switch RemoteMarkdownTypedPathOpen.context(for: session) {
+        switch context {
         case .remote(let target, let associatedPaneID):
             guard !isAnySheetPresented else { return }
             remoteMarkdownPathOpenRequest = RemoteMarkdownPathOpenRequest(
