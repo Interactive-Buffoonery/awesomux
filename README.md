@@ -56,6 +56,8 @@ Remote Markdown links open read-only snapshots over OpenSSH. Declared SSH panes 
 
 In an ordinary terminal running SSH, choose an independent file-read alias from `~/.ssh/config` and confirm the exact destination and resolved path. This reads one file without converting the terminal into a managed workspace. Terminal SSH flags, nested connections, and wrappers are not recreated. OpenSSH owns credentials; the app does not request or store them. Every later **Refresh**, Markdown link, or new file read requires another confirmation.
 
+For filenames in ordinary SSH output, use **File → Set Remote File Context…** (also in the command palette). Choose an OpenSSH config alias, an optional user, and a fixed `/…` or `~/…` project directory. The path bar displays **Remote files: destination · directory**, with **Edit** and **Clear** controls. Setting it makes no connection. Click a Markdown filename to read a snapshot after confirming the exact destination and resolved path. Bare filenames do not gain a hover underline. The chosen directory stays fixed: an unobserved remote `cd` or nested SSH command cannot update it, so edit the context when either changes. Context is runtime-only and is not inherited by restored, reopened, duplicated, or split panes.
+
 Restored remote Markdown shows the saved copy until you click **Refresh**. To fetch declared snapshots automatically over SSH at launch, enable **Settings → General → Refresh remote Markdown on launch** (off by default). Automatic refresh reuses snapshots written less than a minute ago; **Refresh** always fetches. Snapshots requiring confirmation always restore from cache, even when launch refresh is enabled.
 
 Markdown panes are meant to support the terminal, not replace it: each workspace

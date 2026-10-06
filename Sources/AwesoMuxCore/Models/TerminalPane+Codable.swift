@@ -2,7 +2,7 @@ import AwesoMuxBridgeProtocol
 import Foundation
 
 extension TerminalPane {
-    // CodingKeys omits runtime-only state (`remoteHost`, `remoteSSHTarget`,
+    // CodingKeys omits runtime-only state (`remoteFileContext`, `remoteHost`, `remoteSSHTarget`,
     // `hasConsumedManagedSSHWorkspaceOffer`, `pendingRemoteSSHTarget`,
     // `hasObservedPendingRemoteSSHProcess`,
     // `remoteConnectionHealth`, `remoteWorkingDirectory`,

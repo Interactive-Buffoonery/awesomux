@@ -64,7 +64,7 @@ enum RemoteMarkdownReadRouting {
     }
 
     static func isRemoteFileContext(_ pane: TerminalPane) -> Bool {
-        pane.executionPlan.remoteTarget != nil || pane.hasManagedSSHObservation
+        pane.executionPlan.remoteTarget != nil || pane.remoteFileContext != nil || pane.hasManagedSSHObservation
     }
 
     static func consume(_ read: Read, store: SessionStore) -> Bool {
@@ -89,13 +89,15 @@ enum RemoteMarkdownReadRouting {
         guard current(origin, store: store) == origin else { return nil }
         guard !Task.isCancelled else { return nil }
         if origin.documentID == nil, origin.executionPlan?.remoteTarget == nil,
-            origin.observedRemoteHost == nil, origin.observedSSHTarget == nil,
+            origin.remoteFileContext == nil, origin.observedRemoteHost == nil, origin.observedSSHTarget == nil,
             origin.pendingSSHTarget == nil, origin.observedPendingSSHProcess != true
         {
             return nil
         }
+        let binding = origin.documentID == nil ? origin.remoteFileContext : nil
+        let chosenPath = binding.flatMap { RemoteMarkdownPath.resolve(path, relativeTo: $0.baseDirectory) } ?? path
         let declared = authorization.authorizeDeclared(origin: origin)
-        let target = declared?.target ?? origin.documentIdentity?.remoteTarget
+        let target = declared?.target ?? origin.documentIdentity?.remoteTarget ?? binding?.target
         let normalized = RemoteMarkdownReference.normalizedTypedPath(path)
         if let declared, let normalized,
             let reference = RemoteMarkdownReference.make(typedPath: normalized, target: declared.target)
@@ -110,7 +112,8 @@ enum RemoteMarkdownReadRouting {
             let choice = await present(
                 target: target,
                 suggestedAlias: proposedTarget.map(\.sshDestination) ?? prefill,
-                path: path, locksPath: locksPath,
+                path: chosenPath, locksPath: locksPath || (binding != nil && !path.isEmpty),
+                fixedBaseDirectory: binding?.baseDirectory,
                 isCurrent: { current(origin, store: store) == origin }
             ), current(origin, store: store) == origin, !Task.isCancelled,
             let reference = RemoteMarkdownReference.make(typedPath: choice.path, target: choice.target)
@@ -144,7 +147,8 @@ enum RemoteMarkdownReadRouting {
     private static var presenting = false
 
     private static func present(
-        target: RemoteTarget?, suggestedAlias: String, path: String, locksPath: Bool, isCurrent: @escaping () -> Bool
+        target: RemoteTarget?, suggestedAlias: String, path: String, locksPath: Bool, fixedBaseDirectory: String?,
+        isCurrent: @escaping () -> Bool
     ) async -> Choice? {
         guard !presenting, let parent = NSApp.keyWindow ?? NSApp.mainWindow, parent.attachedSheet == nil else { return nil }
         presenting = true
@@ -171,7 +175,8 @@ enum RemoteMarkdownReadRouting {
                 )
             }
             let view = RemoteMarkdownReadConfirmationSheet(
-                target: target, suggestedAlias: suggestedAlias, initialPath: path, locksPath: locksPath, isCurrent: isCurrent,
+                target: target, suggestedAlias: suggestedAlias, initialPath: path, locksPath: locksPath,
+                fixedBaseDirectory: fixedBaseDirectory, isCurrent: isCurrent,
                 complete: finish
             )
             let host = NSHostingController(
@@ -200,6 +205,7 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
     let target: RemoteTarget?
     let complete: (RemoteMarkdownReadRouting.Choice?) -> Void
     let locksPath: Bool
+    let fixedBaseDirectory: String?
     let isCurrent: () -> Bool
     @State private var originChanged = false
     @State private var alias: String
@@ -211,15 +217,17 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
 
     init(
         target: RemoteTarget?, suggestedAlias: String, initialPath: String,
-        locksPath: Bool, isCurrent: @escaping () -> Bool,
+        locksPath: Bool, fixedBaseDirectory: String?, isCurrent: @escaping () -> Bool,
         complete: @escaping (RemoteMarkdownReadRouting.Choice?) -> Void
     ) {
         self.target = target
         self.complete = complete
         self.locksPath = locksPath
+        self.fixedBaseDirectory = fixedBaseDirectory
         self.isCurrent = isCurrent
         _alias = State(initialValue: suggestedAlias)
         _path = State(initialValue: initialPath)
+        _base = State(initialValue: fixedBaseDirectory ?? "")
     }
 
     private var chosenTarget: RemoteTarget? {
@@ -295,6 +303,7 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
                         comment: "Placeholder for an absolute or home-relative remote base directory"), text: $base
                 )
                 .textFieldStyle(.roundedBorder).focused($focused, equals: .base)
+                .disabled(fixedBaseDirectory != nil)
                 .accessibilityLabel(
                     String(
                         localized: "Chosen remote base directory",

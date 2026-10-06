@@ -196,6 +196,8 @@ enum KeyboardShortcutCatalog {
         keyDisplay: "N"
     )
 
+    static let setRemoteFileContextID = "setRemoteFileContext"
+
     static let openMarkdownFile = KeyBinding(
         id: "openMarkdownFile",
         action: "Open Markdown File…",

@@ -468,7 +468,24 @@ struct TerminalPathBarView: View {
     }
 
     private var content: some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            if let context = session.activePane?.remoteFileContext, let pane = session.activePane, let sessionStore {
+                HStack {
+                    Text("Remote files: \(context.target.sshDestination) · \(context.baseDirectory)")
+                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button(String(localized: "Edit", comment: "Edit the active pane remote file context")) {
+                        RemoteFileContextEditor.present(sessionID: session.id, paneID: pane.id, store: sessionStore)
+                    }.accessibilityLabel(
+                        String(localized: "Edit Remote File Context", comment: "Accessibility label for editing remote file context"))
+                    Button(String(localized: "Clear", comment: "Clear the active pane remote file context")) {
+                        sessionStore.setRemoteFileContext(
+                            nil, sessionID: session.id, paneID: pane.id, expectedTerminalSessionID: pane.terminalSessionID)
+                    }.accessibilityLabel(
+                        String(localized: "Clear Remote File Context", comment: "Accessibility label for clearing remote file context"))
+                }.awFont(AwFont.UI.body)
+            }
+            HStack(spacing: 8) {
             if let remoteHost = model.remoteHost {
                 // Remote (SSH) session: the local cwd/git affordances would point
                 // at the wrong machine, so show the remote host and reported path.
@@ -476,6 +493,7 @@ struct TerminalPathBarView: View {
                 Spacer(minLength: 8)
             } else {
                 localContent
+            }
             }
         }
         .padding(.horizontal, 12)
@@ -1223,6 +1241,7 @@ extension TerminalPathBarView: Equatable {
             executionPlan: pane?.executionPlan ?? .local,
             remoteHost: pane?.remotePresentationHost,
             observedRemoteHost: pane?.remoteHost,
+            remoteFileContext: pane?.remoteFileContext,
             remoteWorkingDirectory: pane?.remoteWorkingDirectory,
             remoteConnectionHealth: pane?.remoteConnectionHealth ?? .active,
             activeAgentKind: session.activeAgentKind,
@@ -1255,6 +1274,7 @@ extension TerminalPathBarView: Equatable {
         let executionPlan: PaneExecutionPlan
         let remoteHost: String?
         let observedRemoteHost: String?
+        let remoteFileContext: RemoteFileContext?
         /// Runtime-observed remote cwd drives the displayed and copied path even
         /// when the remote host remains unchanged.
         let remoteWorkingDirectory: String?

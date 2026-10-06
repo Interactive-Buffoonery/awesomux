@@ -1091,7 +1091,7 @@
       "comment" : "Unavailable agent integration install state status"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -1215,6 +1215,9 @@
     "Choose" : {
       "comment" : "Confirm button for the worktree target path picker."
     },
+    "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
+
+    },
     "Choose a remote base directory" : {
       "comment" : "Label requiring an explicitly chosen remote directory for a relative link"
     },
@@ -1260,6 +1263,9 @@
     "Clean up" : {
 
     },
+    "Clear" : {
+      "comment" : "Clear the active pane remote file context"
+    },
     "Clear %arg?" : {
       "comment" : "Title of the clear-workspace (permanent close) confirmation dialog. Argument is the bidi-isolated workspace title."
     },
@@ -1268,6 +1274,9 @@
     },
     "Clear Pane Color" : {
 
+    },
+    "Clear Remote File Context" : {
+      "comment" : "Accessibility label for clearing remote file context"
     },
     "Clear Search" : {
 
@@ -2026,7 +2035,7 @@
       "comment" : "Notice in a rendered agent transcript when older turns exceeded the size budget"
     },
     "Edit" : {
-
+      "comment" : "Edit the active pane remote file context"
     },
     "Edit %@" : {
       "comment" : "Edit named setup"
@@ -2036,6 +2045,9 @@
     },
     "Edit Custom Command" : {
       "comment" : "Title of the sheet that edits an existing custom command"
+    },
+    "Edit Remote File Context" : {
+      "comment" : "Accessibility label for editing remote file context"
     },
     "Edit annotation" : {
 
@@ -2112,6 +2124,9 @@
     "Enter a remote Markdown path to enable Open" : {
       "comment" : "Accessibility hint for the disabled Open button when the remote Markdown path field is empty"
     },
+    "Enter a remote base directory." : {
+      "comment" : "Required-field guidance for the fixed remote file directory"
+    },
     "Enter a valid branch name." : {
       "comment" : "Invalid branch name syntax validation.\nWorktree creation failure message for an invalid branch name."
     },
@@ -2135,6 +2150,12 @@
     },
     "Enter an SSH alias, hostname, or user@host, not a command option." : {
       "comment" : "Validation message when a managed SSH workspace destination is invalid"
+    },
+    "Enter an SSH config alias." : {
+      "comment" : "Required-field guidance for remote file context"
+    },
+    "Enter an absolute /… or ~/… directory without control or invisible characters." : {
+      "comment" : "Inline validation for the fixed remote file directory"
     },
     "Enter an absolute /… or ~/… path ending in .md or .markdown." : {
       "comment" : "Validation caption when the remote Markdown typed path is unsupported"
@@ -2225,7 +2246,7 @@
       "comment" : "Diagnostics event summary"
     },
     "File-read SSH config alias" : {
-      "comment" : "Label for the OpenSSH config alias used for this file read"
+      "comment" : "Label for a simple OpenSSH configuration alias\nLabel for the OpenSSH config alias used for this file read"
     },
     "File-read destination" : {
       "comment" : "Label for the independently authorized SSH file-read destination"
@@ -3860,6 +3881,9 @@
     "Remote Markdown snapshots cannot be edited in awesoMux yet." : {
       "comment" : "Alert body explaining why a remote Markdown snapshot rejects an edit"
     },
+    "Remote base directory (/… or ~/…)" : {
+      "comment" : "Label requesting a fixed lexical directory on the remote host"
+    },
     "Remote connection details" : {
       "comment" : "VoiceOver label for the remote connection details panel"
     },
@@ -3874,6 +3898,16 @@
     },
     "Remote file transfer is unsupported" : {
       "comment" : "Remote handoff unsupported error title"
+    },
+    "Remote files: %arg · %arg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Remote files: %1$arg · %2$arg"
+          }
+        }
+      }
     },
     "Remote helper" : {
       "comment" : "Bridge doctor check title\nRemote helper installation preference label"
@@ -4329,6 +4363,9 @@
     "SSH to a destination below reconnects as managed without asking. Destinations added here persist locally; to have the remote host own the session, answer the prompt on a live connection instead. Removing one restores the usual prompt for it." : {
       "comment" : "Workspace settings hint."
     },
+    "SSH user (optional)" : {
+      "comment" : "Label for an optional separate SSH username"
+    },
     "SSH · %arg" : {
       "comment" : "Location summary for panes that all run on one declared SSH destination."
     },
@@ -4517,17 +4554,26 @@
     "Sessions idle longer than this threshold are cleaned up at launch." : {
 
     },
+    "Set Context" : {
+      "comment" : "Save the fixed file-read context without connecting"
+    },
     "Set Group Color" : {
       "comment" : "Undo action for changing a workspace group color."
     },
     "Set Pane Color to %arg" : {
 
     },
+    "Set Remote File Context…" : {
+      "comment" : "Title for configuring runtime-only remote Markdown file links"
+    },
     "Set Workspace Group Color to %arg" : {
 
     },
     "Set up agents…" : {
       "comment" : "Welcome tour button opening the agent settings section"
+    },
+    "Setting this context does not connect over SSH. It lasts only for this pane and is not restored." : {
+      "comment" : "Help describing the runtime-only lifetime of remote file context"
     },
     "Settings" : {
 
@@ -5504,8 +5550,14 @@
     "Use Ghostty config to keep imported/user terminal themes, choose a bundled Catppuccin or Selenized theme, or choose an awesoMux color and adjust it if needed." : {
       "comment" : "Settings field hint for the terminal background source picker"
     },
+    "Use a simple SSH config alias without a username, spaces, or flags." : {
+      "comment" : "Inline validation for the remote file alias"
+    },
     "Use a single-line executable path and arguments without control characters, up to 4096 bytes total." : {
 
+    },
+    "Use a username without spaces or SSH flags." : {
+      "comment" : "Inline validation for the optional remote file username"
     },
     "Use a wrapper executable for environment variables or credentials. Do not put secrets in arguments." : {
 

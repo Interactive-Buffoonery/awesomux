@@ -366,9 +366,18 @@ extension GhosttyRuntime {
     }
 
     @MainActor
-    static func openURLAction(_ action: OpenURLAction, from view: GhosttySurfaceNSView) async {
+    static func openURLAction(
+        _ action: OpenURLAction, from view: GhosttySurfaceNSView,
+        capturedOrigin: RemoteMarkdownReadOrigin? = nil
+    ) async {
         let workspaceID = view.sessionID
         let paneID = view.paneID
+        if let capturedOrigin,
+            capturedOrigin.sessionID != workspaceID || capturedOrigin.paneID != paneID
+                || RemoteMarkdownReadRouting.current(capturedOrigin, store: view.sessionStore) != capturedOrigin
+        {
+            return
+        }
         guard let pane = view.sessionStore.session(id: workspaceID)?.layout.pane(id: paneID) else {
             if RemoteMarkdownReadRouting.isRemoteFileContext(view.pane), RemoteMarkdownReference.isPotentialPayload(action.value) {
                 return
@@ -381,7 +390,8 @@ extension GhosttyRuntime {
 
         if RemoteMarkdownReadRouting.isRemoteFileContext(pane), RemoteMarkdownReference.isPotentialPayload(action.value) {
             guard let path = RemoteMarkdownReference.remotePath(from: action.value),
-                let captured = RemoteMarkdownReadRouting.origin(sessionID: workspaceID, paneID: paneID, store: view.sessionStore),
+                let captured = capturedOrigin
+                    ?? RemoteMarkdownReadRouting.origin(sessionID: workspaceID, paneID: paneID, store: view.sessionStore),
                 let read = await RemoteMarkdownReadRouting.authorize(path: path, origin: captured, store: view.sessionStore),
                 DeferredPaneEventDispatchGuard.shouldApply(
                     capturedSessionID: workspaceID, capturedPaneID: paneID,

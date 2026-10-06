@@ -484,6 +484,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // clears state deterministically and keeps click-through intact).
         dismissLinkPeek()
         inputState.armedLinkClickValue = nil
+        inputState.armedMarkdownClick = nil
+        inputState.appOwnedMarkdownClickActive = false
         // Any new press cancels a prior click's deferred open — this is what
         // turns the second press of a double-click into a cancellation.
         inputState.pendingLinkOpenWorkItem?.cancel()
@@ -552,12 +554,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // current surface identity. That covers cold-start/respawn windows and
         // lets the later mouseUp verify it is still talking to the same native
         // surface incarnation.
-        // Arm plain-click link activation only for a single-click press that
-        // actually goes to the surface (focus-only clicks returned above).
-        // clickCount > 1 is a word/line selection gesture — the second press
-        // must not re-open the link. ⌘-clicks are excluded: libghostty's own
-        // release-time link path handles those.
-        if event.clickCount == 1, !event.modifierFlags.contains(.command) {
+        if let markdown = markdownClick(at: event) {
+            inputState.appOwnedMarkdownClickActive = true
+            if event.clickCount == 1 { inputState.armedMarkdownClick = markdown }
+        } else if event.clickCount == 1, !event.modifierFlags.contains(.command) {
             inputState.armedLinkClickValue = inputState.mouseOverLink
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_LEFT, event: event)
@@ -571,12 +571,21 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         )
         logMouseDiagnostic(event: "mouse-up", extra: "decision=\(decision)")
 
+        defer { inputState.appOwnedMarkdownClickActive = false }
         guard decision == .send else {
+            inputState.armedMarkdownClick = nil
+            inputState.armedLinkClickValue = nil
             return
         }
 
         sendMouseButton(.release, button: GHOSTTY_MOUSE_LEFT, event: event)
         markNeedsAttentionPromptAnsweredFromCapturedMouse()
+
+        if let markdown = inputState.armedMarkdownClick {
+            inputState.armedMarkdownClick = nil
+            deferMarkdownClick(markdown)
+            return
+        }
 
         // INT-453: complete plain-click link activation (armed at press,
         // cancelled by drag). Routed through the same funnel as
@@ -871,6 +880,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // A drag is a selection gesture, not a click — never open the link the
         // press started on.
         inputState.armedLinkClickValue = nil
+        inputState.armedMarkdownClick = nil
         sendMousePosition(event)
     }
 
@@ -1572,6 +1582,12 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             if inputState.leftClickLinkBypassActive {
                 mods = ghostty_input_mods_e(mods.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
             }
+        }
+
+        // Native mouseButtonCallback updates its cached modifiers before link
+        // activation, so removing Super leaves the raw-path opener in control.
+        if button == GHOSTTY_MOUSE_LEFT, inputState.appOwnedMarkdownClickActive {
+            mods = ghostty_input_mods_e(mods.rawValue & ~GHOSTTY_MODS_SUPER.rawValue)
         }
 
         // Ghostty's `SurfaceView_AppKit.mouseDown`/`mouseUp` never send a

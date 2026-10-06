@@ -83,3 +83,20 @@ explicit base directory or full `/…` or `~/…` path. Unqualified daemon or pa
 cwd strings do not authorize resolution. Managed reads retain declared authority
 and managed transport after this path choice. Unmanaged reads use independent
 noninteractive OpenSSH, with no managed control socket or local-file fallback.
+
+## Amendment: runtime file context for ordinary SSH panes
+
+A local execution pane may explicitly bind an independent file-read target and
+fixed lexical base directory through Set Remote File Context. This runtime-only
+binding does not change execution identity or observations and performs no
+network access. Every read still confirms the exact target and path and uses
+unmanaged OpenSSH transport. Relative terminal filenames resolve against the
+chosen base, never an inferred or subsequently observed cwd. Documents retain
+their own saved identity and restrictive read policy after context edits.
+
+Each edit creates a fresh context generation. Click capture, transport admission,
+and result application compare that generation and all captured origin values;
+clear, edit, closure, replacement, or observed SSH lifecycle changes revoke
+pending reads. Restoration and pane creation do not copy the binding. Unknown
+remote directory changes and nested connections cannot be detected reliably;
+the persistent path-bar label and each-read preview expose the fixed destination.

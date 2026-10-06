@@ -492,6 +492,8 @@ final class GhosttySurfaceNSView: NSView {
             // click-open fire against a detached pane.
             dismissLinkPeek()
             inputState.armedLinkClickValue = nil
+            inputState.armedMarkdownClick = nil
+            inputState.appOwnedMarkdownClickActive = false
             inputState.pendingLinkOpenWorkItem?.cancel()
             inputState.pendingLinkOpenWorkItem = nil
         }

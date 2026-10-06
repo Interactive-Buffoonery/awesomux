@@ -1076,6 +1076,10 @@ struct AwesoMuxApp: App {
             }
 
             CommandGroup(after: .newItem) {
+                Button("Set Remote File Context…") {
+                    setRemoteFileContext()
+                }
+                .disabled(sessionStore.selectedSession?.activePane?.executionPlan != .local)
                 Button("Open Markdown File…") {
                     openMarkdownFile()
                 }
@@ -5106,6 +5110,7 @@ struct AwesoMuxApp: App {
             reloadGhosttyConfiguration: reloadGhosttyConfiguration,
             openInIDE: openSelectedWorkspaceInIDE,
             showKeyboardCheatsheet: toggleKeyboardCheatsheet,
+            setRemoteFileContext: setRemoteFileContext,
             openMarkdownFile: openMarkdownFile,
             viewFiles: requestViewFiles,
             openSessionManager: toggleSessionManager,
@@ -5609,6 +5614,13 @@ struct AwesoMuxApp: App {
     /// File → Open Markdown / ⌘O / palette. Local sessions keep `NSOpenPanel`;
     /// SSH panes and remote snapshot tabs get a typed-path sheet instead — never
     /// the Mac disk browser, and never View Files directory listing (VF-0).
+    private func setRemoteFileContext() {
+        guard !isAnySheetPresented, let session = sessionStore.selectedSession,
+            let pane = session.activePane
+        else { return }
+        RemoteFileContextEditor.present(sessionID: session.id, paneID: pane.id, store: sessionStore)
+    }
+
     private func openMarkdownFile() {
         healSheetWedgeBeforeGatedCommand()
         guard let session = sessionStore.selectedSession else {

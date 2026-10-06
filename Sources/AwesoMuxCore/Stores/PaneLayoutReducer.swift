@@ -33,6 +33,7 @@ struct PaneLayoutReducer: Sendable {
         if new.workingDirectory != old.workingDirectory
             || new.remoteHost != old.remoteHost
             || new.remoteSSHTarget != old.remoteSSHTarget
+            || new.remoteFileContext != old.remoteFileContext
             || new.hasConsumedManagedSSHWorkspaceOffer != old.hasConsumedManagedSSHWorkspaceOffer
             || new.pendingRemoteSSHTarget != old.pendingRemoteSSHTarget
             || new.hasObservedPendingRemoteSSHProcess != old.hasObservedPendingRemoteSSHProcess
@@ -942,10 +943,12 @@ struct PaneLayoutReducer: Sendable {
                     // can differ from its original-path title.
                     if !isLocalDirectoryTitle {
                         if pane.executionPlan == .local, originalPane.remoteHost?.caseInsensitiveCompare(host) != .orderedSame {
+                            pane.remoteFileContext = nil
                             pane.remoteWorkingDirectory = nil
                         }
                         pane.remoteHost = host
                         if let pendingTarget = pane.pendingRemoteSSHTarget {
+                            pane.remoteFileContext = nil
                             pane.remoteSSHTarget = pendingTarget
                             pane.hasConsumedManagedSSHWorkspaceOffer = false
                             pane.pendingRemoteSSHTarget = nil
@@ -981,6 +984,11 @@ struct PaneLayoutReducer: Sendable {
                 guard pane.pendingRemoteSSHTarget == nil else { break }
                 if let localDirectory = validatedLocalWorkingDirectory {
                     pane.workingDirectory = localDirectory
+                    if originalPane.remoteHost != nil || originalPane.remoteSSHTarget != nil
+                        || originalPane.hasObservedPendingRemoteSSHProcess
+                    {
+                        pane.remoteFileContext = nil
+                    }
                     pane.remoteHost = nil
                     pane.remoteSSHTarget = nil
                     pane.hasConsumedManagedSSHWorkspaceOffer = false
@@ -1036,7 +1044,11 @@ struct PaneLayoutReducer: Sendable {
             || pane.remoteSSHTarget != nil
             || pane.pendingRemoteSSHTarget != nil
             || pane.hasConsumedManagedSSHWorkspaceOffer
+        let hadFileContext = pane.remoteFileContext != nil
         if mayReplaceRuntimeObservation {
+            if hadRuntimeObservation || RemoteSSHCommandTarget.isSSHCommand(command) {
+                pane.remoteFileContext = nil
+            }
             pane.remoteHost = nil
             pane.remoteSSHTarget = nil
             pane.pendingRemoteSSHTarget = nil
@@ -1059,7 +1071,7 @@ struct PaneLayoutReducer: Sendable {
                 || (pane.remoteHost == nil && pane.pendingRemoteSSHTarget == nil)
         else { return nil }
         guard target != nil else {
-            guard mayReplaceRuntimeObservation, hadRuntimeObservation,
+            guard mayReplaceRuntimeObservation, hadRuntimeObservation || hadFileContext,
                 let layout = session.layout.replacingPane(id: paneID, with: .pane(pane))
             else {
                 return nil
@@ -1168,6 +1180,7 @@ struct PaneLayoutReducer: Sendable {
             return nil
         }
 
+        pane.remoteFileContext = nil
         pane.agentKind = .shell
         pane.agentKindIsRuntimeEstablished = false
         pane.agentExecutionState = AgentKind.shell.initialSessionState.executionState ?? .idle

@@ -13,6 +13,7 @@ struct RemoteMarkdownReadOrigin: Equatable, Sendable {
     let paneID: TerminalPane.ID?
     let terminalSessionID: TerminalSessionID?
     let executionPlan: PaneExecutionPlan?
+    let remoteFileContext: RemoteFileContext?
     let connectionHealth: RemoteConnectionHealth?
     let observedRemoteHost: String?
     let observedSSHTarget: String?
@@ -29,6 +30,7 @@ struct RemoteMarkdownReadOrigin: Equatable, Sendable {
         paneID = pane?.id
         terminalSessionID = pane?.terminalSessionID
         executionPlan = pane?.executionPlan
+        remoteFileContext = pane?.remoteFileContext
         connectionHealth = pane?.remoteConnectionHealth
         let observesUnmanaged = pane?.executionPlan == .local
         observedRemoteHost = observesUnmanaged ? pane?.remoteHost : nil

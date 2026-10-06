@@ -18,11 +18,15 @@ Files opens the existing Markdown browser in the right-hand document panel; a
 local terminal can create that panel before a document is selected.
 
 Remote Markdown opens are read-only snapshots. Their durable provenance is a
-`ResourceIdentity` built from the initiating pane's declared
-`PaneExecutionPlan` and remote path; the downloaded local cache URL is only
-implementation storage. Runtime titles and observed SSH commands never grant
-fetch authority, and relative paths require explicitly reported remote working
-directory metadata.
+`ResourceIdentity` built from the declared SSH destination or an independently
+confirmed file-read destination and remote path; the downloaded local cache URL
+is only implementation storage. A local pane can hold a runtime-only Remote File
+Context with an explicitly chosen SSH alias and fixed base directory. It enables
+Markdown filename clicks and prefills confirmation, without changing the pane's
+`PaneExecutionPlan` or granting continuing permission. Every unmanaged read
+requires confirmation. Runtime titles and observed SSH commands never grant
+fetch authority. Relative paths require an explicitly chosen base directory or
+trusted remote-directory metadata, depending on the opening flow.
 
 The review/comment workflow is intentionally file-backed. A document can carry
 one whole-document note plus any number of inline annotations. Selecting rendered
