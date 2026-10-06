@@ -1,17 +1,16 @@
 import AppKit
 
 struct GhosttyNativeLinkState: Sendable {
-    private(set) var isLink = false
+    private var isPointer = false
+    var isLink: Bool { isPointer || value != nil }
     private(set) var value: String?
 
     mutating func updatePointer(_ isPointer: Bool) {
-        isLink = isPointer
-        value = nil
+        self.isPointer = isPointer
     }
 
     mutating func updateTarget(_ target: String?) {
         value = target.flatMap { $0.isEmpty ? nil : $0 }
-        isLink = value != nil
     }
 }
 

@@ -99,6 +99,15 @@ Artifact: `.build/verification/pr733-explicit-link-focused.log`.
 and production build/staged-app verification. Artifact:
 `.build/verification/pr733-explicit-link-preflight.log`.
 
+The follow-up native-state correction separates pointer shape from link target.
+A shape-only callback preserves the target until an explicit empty/nil link
+callback clears it. The existing focused regression now exercises both signal
+orders, repeated pointer changes, and target clearing; all 11 tests passed.
+Artifact: `.build/verification/pr733-link-state-focused.log`.
+`./script/preflight.sh` exited 0, including the full existing test run and
+production build/staged-app verification. Artifact:
+`.build/verification/pr733-link-state-preflight.log`.
+
 The focused checks exercise production policy, not the renderer or native
 mouse gestures. Native acceptance below remains outstanding.
 
