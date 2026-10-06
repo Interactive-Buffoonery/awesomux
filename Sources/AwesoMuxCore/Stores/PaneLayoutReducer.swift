@@ -152,6 +152,7 @@ struct PaneLayoutReducer: Sendable {
         fileURL: URL,
         associatedTerminalPaneID: TerminalPane.ID?,
         remoteResourceIdentity: ResourceIdentity? = nil,
+        remoteReadPolicy: RemoteDocumentReadPolicy = .declaredIdentity,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
         branchChangesIdentity: BranchChangesIdentity? = nil,
         generatedDocumentKind: GeneratedDocumentKind? = nil,
@@ -188,6 +189,14 @@ struct PaneLayoutReducer: Sendable {
             }
             if var existing = matchingTab {
                 var changed = false
+                let effectiveReadPolicy = existing.remoteReadPolicy.preservingRestriction(of: remoteReadPolicy)
+                if existing.remoteReadPolicy != effectiveReadPolicy {
+                    existing.remoteReadPolicy = effectiveReadPolicy
+                    if let index = group.tabs.firstIndex(where: { $0.id == existing.id }) {
+                        group.tabs[index] = existing
+                    }
+                    changed = true
+                }
                 let storedAssociationIsDead =
                     existing.associatedTerminalPaneID
                     .map { session.layout.pane(id: $0) == nil } ?? true
@@ -297,6 +306,7 @@ struct PaneLayoutReducer: Sendable {
                 title: title,
                 associatedTerminalPaneID: liveIncomingAssociation,
                 remoteResourceIdentity: remoteResourceIdentity,
+                remoteReadPolicy: remoteReadPolicy,
                 agentTranscriptIdentity: agentTranscriptIdentity,
                 branchChangesIdentity: branchChangesIdentity,
                 generatedDocumentKind: generatedDocumentKind
@@ -318,6 +328,7 @@ struct PaneLayoutReducer: Sendable {
             title: title,
             associatedTerminalPaneID: liveIncomingAssociation,
             remoteResourceIdentity: remoteResourceIdentity,
+            remoteReadPolicy: remoteReadPolicy,
             agentTranscriptIdentity: agentTranscriptIdentity,
             branchChangesIdentity: branchChangesIdentity,
             generatedDocumentKind: generatedDocumentKind
