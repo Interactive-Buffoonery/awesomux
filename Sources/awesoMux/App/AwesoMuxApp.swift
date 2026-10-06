@@ -171,6 +171,7 @@ struct AwesoMuxApp: App {
     /// remote-markdown sheet so a retry after a failed fetch starts from the
     /// previous attempt instead of an empty field.
     @State private var remoteMarkdownTypedPathHistory = RemoteMarkdownTypedPathHistory()
+    @State private var remoteFileContextEditor = RemoteFileContextEditor.shared
     @State private var remoteAdditionalSSHFeaturesSheetPresenter =
         RemoteAdditionalSSHFeaturesSheetPresenter.shared
     // True only after a request sheet's content actually appeared. Guards the
@@ -1081,7 +1082,7 @@ struct AwesoMuxApp: App {
                 ) {
                     setRemoteFileContext()
                 }
-                .disabled(sessionStore.selectedSession?.activePane?.executionPlan != .local)
+                .disabled(sessionStore.selectedSession?.activePane?.executionPlan != .local || isAnySheetPresented)
                 Button("Open Markdown File…") {
                     openMarkdownFile()
                 }
@@ -3000,6 +3001,7 @@ struct AwesoMuxApp: App {
             || workspaceGroupRenameRequest != nil
             || quickSettingsRequest != nil
             || remoteMarkdownPathOpenRequest != nil
+            || remoteFileContextEditor.isPresented
             || remoteAdditionalSSHFeaturesSheetPresenter.request != nil
             || ghosttyRuntime.isScrollbackDumpSheetPresented
     }
@@ -5620,7 +5622,7 @@ struct AwesoMuxApp: App {
         guard !isAnySheetPresented, let session = sessionStore.selectedSession,
             let pane = session.activePane
         else { return }
-        RemoteFileContextEditor.present(sessionID: session.id, paneID: pane.id, store: sessionStore)
+        RemoteFileContextEditor.shared.present(sessionID: session.id, paneID: pane.id, store: sessionStore)
     }
 
     private func openMarkdownFile() {

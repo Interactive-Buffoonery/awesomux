@@ -3,11 +3,17 @@ import AwesoMuxCore
 import AwesoMuxConfig
 import DesignSystem
 import SwiftUI
+import Observation
 
 @MainActor
-enum RemoteFileContextEditor {
-    static func present(sessionID: TerminalSession.ID, paneID: TerminalPane.ID, store: SessionStore) {
-        guard let pane = store.session(id: sessionID)?.layout.pane(id: paneID), pane.executionPlan == .local,
+@Observable
+final class RemoteFileContextEditor {
+    static let shared = RemoteFileContextEditor()
+    private(set) var isPresented = false
+
+    private init() {}
+    func present(sessionID: TerminalSession.ID, paneID: TerminalPane.ID, store: SessionStore) {
+        guard !isPresented, let pane = store.session(id: sessionID)?.layout.pane(id: paneID), pane.executionPlan == .local,
             let origin = RemoteMarkdownReadRouting.origin(sessionID: sessionID, paneID: paneID, store: store),
             let parent = NSApp.keyWindow ?? NSApp.mainWindow, parent.attachedSheet == nil
         else { return }
@@ -26,7 +32,11 @@ enum RemoteFileContextEditor {
         sheet.contentViewController = host
         host.view.layoutSubtreeIfNeeded()
         sheet.setContentSize(host.view.fittingSize)
-        parent.beginSheet(sheet) { _ in sheet.contentViewController = nil }
+        isPresented = true
+        parent.beginSheet(sheet) { [self] _ in
+            sheet.contentViewController = nil
+            isPresented = false
+        }
     }
 }
 

@@ -479,7 +479,7 @@ struct TerminalPathBarView: View {
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button(String(localized: "Edit", comment: "Edit the active pane remote file context")) {
-                        RemoteFileContextEditor.present(sessionID: session.id, paneID: pane.id, store: sessionStore)
+                        RemoteFileContextEditor.shared.present(sessionID: session.id, paneID: pane.id, store: sessionStore)
                     }.accessibilityLabel(
                         String(localized: "Edit Remote File Context", comment: "Accessibility label for editing remote file context"))
                     Button(String(localized: "Clear", comment: "Clear the active pane remote file context")) {
