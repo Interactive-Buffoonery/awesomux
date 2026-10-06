@@ -171,7 +171,7 @@ enum RemoteMarkdownTabRefresh {
                 onFinished: nil
             )
         } else {
-            prepared = read.fetcher.startAttempt(
+            prepared = read.fetcher(store: sessionStore).startAttempt(
                 reference,
                 consumer: consumer,
                 announcementSessionID: sessionID
@@ -201,7 +201,7 @@ enum RemoteMarkdownTabRefresh {
                 )
             }
         }
-        let attempt = await prepared.value()
+        let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
         let fetchedOutcome = attempt.outcome
         guard RemoteMarkdownReadRouting.validate(read, store: sessionStore) else { return nil }
         if Task.isCancelled {

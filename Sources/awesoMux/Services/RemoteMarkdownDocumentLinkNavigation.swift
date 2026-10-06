@@ -67,9 +67,13 @@ enum RemoteMarkdownDocumentLinkNavigation {
             return nil
         }
         defer { coordinator?.finish(sessionID: sessionID, identity: reference.identity) }
-        guard
-            let sourceDocument = sourceDocumentID.flatMap({ sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(id: $0) })
-                ?? sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(forRemoteResource: source),
+        let sourceDocument: DocumentPane?
+        if let sourceDocumentID {
+            sourceDocument = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(id: sourceDocumentID)
+        } else {
+            sourceDocument = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(forRemoteResource: source)
+        }
+        guard let sourceDocument,
             sourceDocument.remoteResourceIdentity == source,
             let captured = RemoteMarkdownReadRouting.origin(
                 sessionID: sessionID, paneID: paneID, documentID: sourceDocument.id, store: sessionStore
@@ -94,7 +98,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
                 onFinished: nil
             )
         } else {
-            prepared = read.fetcher.startAttempt(
+            prepared = read.fetcher(store: sessionStore).startAttempt(
                 reference,
                 consumer: .document,
                 announcementSessionID: sessionID
@@ -119,7 +123,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
                 overlayIdentity: source
             )
         }
-        let attempt = await prepared.value()
+        let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
         guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return nil }
         guard let outcome = attempt.outcome else {
             guard sessionStore.session(id: sessionID) != nil else {

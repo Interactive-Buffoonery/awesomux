@@ -128,6 +128,16 @@ final class RemoteMarkdownReadAuthorization {
         return true
     }
 
+    func validateBeforeTransport(_ attempt: RemoteMarkdownReadAttempt, currentOrigin: RemoteMarkdownReadOrigin?) -> Bool {
+        guard let entry = attempts[attempt.token], entry.attempt == attempt,
+            case .fetching = entry.stage, currentOrigin == attempt.origin
+        else {
+            discard(attempt)
+            return false
+        }
+        return true
+    }
+
     /// Call before applying the result, including after a cache/coalesced fetch.
     func validateAfterFetch(_ attempt: RemoteMarkdownReadAttempt, currentOrigin: RemoteMarkdownReadOrigin?) -> Bool {
         let entry = attempts[attempt.token]

@@ -139,7 +139,7 @@ enum RemoteMarkdownTypedPathOpen {
         guard RemoteMarkdownReadRouting.consume(read, store: sessionStore) else { return nil }
         let attempt =
             startAttempt?(reference)
-            ?? read.fetcher.startAttempt(
+            ?? read.fetcher(store: sessionStore).startAttempt(
                 reference,
                 consumer: .failurePresenter,
                 announcementSessionID: sessionID
@@ -238,12 +238,13 @@ enum RemoteMarkdownTypedPathOpen {
             }
         }
         defer { progress.finish(claim) }
-        let outcome =
+        let outcome = await RemoteMarkdownReadRouting.wait(for: read) {
             if let preparedOpen {
                 await preparedOpen.attempt.value().outcome
             } else {
-                if let fetch { await fetch(reference) } else { await read.fetcher.fetch(reference) }
+                if let fetch { await fetch(reference) } else { await read.fetcher(store: sessionStore).fetch(reference) }
             }
+        }
         guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return nil }
         guard let outcome else {
             onFetchFailure()

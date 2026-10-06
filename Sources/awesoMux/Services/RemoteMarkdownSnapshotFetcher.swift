@@ -356,6 +356,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     }
 
     static let shared = RemoteMarkdownFetchCoordinator()
+    typealias Admission = @MainActor @Sendable () -> Bool
 
     // Synchronous registration reserves a prune turn before its caller returns;
     // an actor method could let a later fetch enqueue first while the call is
@@ -376,14 +377,51 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         private var consumerCountsByScope: [UUID: [Consumer: Int]] = [:]
         private var announcementOwnerScopes: Set<UUID> = []
 
-        func register(_ consumer: Consumer, sessionID: UUID?) -> Bool {
+        private enum AdmissionState { case pending, admitted, refused }
+        private var admissionState = AdmissionState.pending
+        private var admissionRevision: UInt64 = 0
+        private var admissions: [Admission?] = []
+
+        func registerParticipant(_ consumer: Consumer, sessionID: UUID?, admission: Admission?) -> Bool? {
             lock.withLock {
+                guard admissionState != .refused else { return nil }
+                admissionRevision &+= 1
+                admissions.append(admission)
                 let scope = sessionID ?? Self.unscoped
                 consumerCountsByScope[scope, default: [:]][consumer, default: 0] += 1
-                guard consumer != .restore, announcementOwnerScopes.insert(scope).inserted else {
-                    return false
-                }
+                guard consumer != .restore, announcementOwnerScopes.insert(scope).inserted else { return false }
                 return true
+            }
+        }
+
+        func register(_ consumer: Consumer, sessionID: UUID?) -> Bool {
+            registerParticipant(consumer, sessionID: sessionID, admission: nil) ?? false
+        }
+
+        /// The admission decision after queued predecessors defines operation start.
+        func admit() async -> Bool {
+            while true {
+                let snapshot = lock.withLock { (admissionState, admissionRevision, admissions) }
+                switch snapshot.0 {
+                case .admitted: return true
+                case .refused: return false
+                case .pending: break
+                }
+                let permitted = await MainActor.run {
+                    snapshot.2.contains { predicate in predicate?() ?? true }
+                }
+                let decision: Bool? = lock.withLock {
+                    switch admissionState {
+                    case .admitted: return true
+                    case .refused: return false
+                    case .pending: break
+                    }
+                    guard admissionRevision == snapshot.1 else { return nil }
+                    admissionState = permitted ? .admitted : .refused
+                    admissions.removeAll()
+                    return permitted
+                }
+                if let decision { return decision }
             }
         }
 
@@ -494,6 +532,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     }
 
     private struct InFlightFetch {
+        let id: UUID
         let task: Task<RemoteMarkdownFetchOutcome?, Never>
         let cohort: Cohort
     }
@@ -539,6 +578,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         onCoalesced: (@Sendable () async -> Void)? = nil,
         onRegistered: (@Sendable () async -> Void)? = nil,
         onFinished: (@Sendable () async -> Void)? = nil,
+        admission: Admission? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) async -> Attempt {
         await prepare(
@@ -548,6 +588,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
             onCoalesced: onCoalesced,
             onRegistered: onRegistered,
             onFinished: onFinished,
+            admission: admission,
             operation: operation
         ).value()
     }
@@ -559,12 +600,14 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         onCoalesced: (@Sendable () async -> Void)? = nil,
         onRegistered: (@Sendable () async -> Void)? = nil,
         onFinished: (@Sendable () async -> Void)? = nil,
+        admission: Admission? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) -> PreparedAttempt {
         switch registerFetch(
             for: key,
             consumer: consumer,
             announcementSessionID: announcementSessionID,
+            admission: admission,
             operation: operation
         ) {
         case .existing(let task, let cohort, let ownsAnnouncements):
@@ -601,15 +644,16 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         for key: Key,
         consumer: Cohort.Consumer,
         announcementSessionID: UUID?,
+        admission: Admission?,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) -> FetchRegistration {
         lock.lock()
         defer { lock.unlock() }
-        if let existing = inFlight[key] {
-            let ownsAnnouncements = existing.cohort.register(
-                consumer,
-                sessionID: announcementSessionID
+        if let existing = inFlight[key],
+            let ownsAnnouncements = existing.cohort.registerParticipant(
+                consumer, sessionID: announcementSessionID, admission: admission
             )
+        {
             return .existing(existing.task, existing.cohort, ownsAnnouncements)
         }
         // Chain after the previous fetch for this target and after the latest
@@ -624,11 +668,11 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         let previousPrune = directoryTails[Self.pruneScope(cacheDirectoryPath: key.cacheDirectoryPath)]
         let id = UUID()
         let cohort = Cohort()
-        let ownsAnnouncements = cohort.register(consumer, sessionID: announcementSessionID)
+        let ownsAnnouncements = cohort.registerParticipant(consumer, sessionID: announcementSessionID, admission: admission) ?? false
         let task = Task<RemoteMarkdownFetchOutcome?, Never> {
             await previousPrune?.task.value
             await previousFetch?.task.value
-            let result = await operation()
+            let result = await cohort.admit() ? await operation() : nil
             self.finishFetch(
                 for: key,
                 scope: scope,
@@ -636,7 +680,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
             )
             return result
         }
-        inFlight[key] = InFlightFetch(task: task, cohort: cohort)
+        inFlight[key] = InFlightFetch(id: id, task: task, cohort: cohort)
         let tail = Task {
             _ = await task.value
         }
@@ -647,7 +691,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     private func finishFetch(for key: Key, scope: String, scopeID: UUID) {
         lock.lock()
         defer { lock.unlock() }
-        inFlight[key] = nil
+        if inFlight[key]?.id == scopeID { inFlight[key] = nil }
         if directoryTails[scope]?.id == scopeID {
             directoryTails[scope] = nil
         }
@@ -729,6 +773,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         maxOutputBytes: DocumentURLValidator.maxFileSizeBytes + 1
     )
     var transport: RemoteMarkdownTransport = .managed
+    var admission: RemoteMarkdownFetchCoordinator.Admission?
     var fileManager: FileManager = .default
     var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> BoundedCommandResult)?
     var onCoalescedFetch: (@Sendable () async -> Void)?
@@ -763,7 +808,8 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
             announcementSessionID: announcementSessionID,
             onCoalesced: onCoalescedFetch,
             onRegistered: onFetchRegistered,
-            onFinished: onFetchFinished
+            onFinished: onFetchFinished,
+            admission: admission
         ) {
             await fetchUncoordinated(reference)
         }

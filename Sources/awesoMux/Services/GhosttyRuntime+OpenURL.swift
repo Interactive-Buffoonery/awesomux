@@ -96,23 +96,11 @@ struct OpenURLAction {
 extension GhosttyRuntime {
     @MainActor
     static var recentLinkRemoteSnapshotProvider:
-        @MainActor (RemoteMarkdownReference, UUID) -> RemoteMarkdownFetchCoordinator.PreparedAttempt = {
-            RemoteMarkdownSnapshotFetcher().startAttempt(
-                $0,
-                consumer: .failurePresenter,
-                announcementSessionID: $1
-            )
-    }
+        (@MainActor (RemoteMarkdownReference, UUID) -> RemoteMarkdownFetchCoordinator.PreparedAttempt)?
 
     @MainActor
     static func resetRecentLinkRemoteSnapshotProviderForTesting() {
-        recentLinkRemoteSnapshotProvider = {
-            RemoteMarkdownSnapshotFetcher().startAttempt(
-                $0,
-                consumer: .failurePresenter,
-                announcementSessionID: $1
-            )
-        }
+        recentLinkRemoteSnapshotProvider = nil
     }
 
     @MainActor
@@ -184,9 +172,8 @@ extension GhosttyRuntime {
             else { return }
             let reference = read.reference
             let prepared =
-                read.attempt.readPolicy == .declaredIdentity
-                ? recentLinkRemoteSnapshotProvider(reference, sessionID)
-                : read.fetcher.startAttempt(reference, consumer: .failurePresenter, announcementSessionID: sessionID)
+                recentLinkRemoteSnapshotProvider?(reference, sessionID)
+                ?? read.fetcher(store: sessionStore).startAttempt(reference, consumer: .failurePresenter, announcementSessionID: sessionID)
             let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
             let progress = RemoteMarkdownFetchProgressCoordinator.shared
             _ = progress.begin(
@@ -205,7 +192,7 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            let fetched = await prepared.value().outcome
+            let fetched = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value().outcome }
             guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return }
             guard let outcome = fetched else {
                 remoteMarkdownFetchFailurePresenter(nil)
@@ -401,7 +388,7 @@ extension GhosttyRuntime {
                 RemoteMarkdownReadRouting.consume(read, store: view.sessionStore)
             else { return }
             let reference = read.reference
-            let prepared = read.fetcher.startAttempt(
+            let prepared = read.fetcher(store: view.sessionStore).startAttempt(
                 reference,
                 consumer: .failurePresenter,
                 announcementSessionID: workspaceID
@@ -424,7 +411,7 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            let fetched = await prepared.value().outcome
+            let fetched = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value().outcome }
             guard RemoteMarkdownReadRouting.validate(read, store: view.sessionStore), !Task.isCancelled else { return }
             guard let outcome = fetched else {
                 remoteMarkdownFetchFailurePresenter(view)

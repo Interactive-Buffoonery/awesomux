@@ -1,21 +1,47 @@
 import AppKit
 import AwesoMuxCore
+import AwesoMuxConfig
 import SwiftUI
+import DesignSystem
 
 /// All remote viewer reads cross this operation-scoped boundary before starting SSH.
 @MainActor
 enum RemoteMarkdownReadRouting {
     static let authorization = RemoteMarkdownReadAuthorization()
+    static var appSettingsStore: AppSettingsStore?
+    static var originChangedMessage: String {
+        String(
+            localized: "The originating pane or document changed. Cancel and open the file again.",
+            comment: "Remote Markdown sheet notice when its captured source changes before the read")
+    }
 
-    struct Read {
+    struct Read: Sendable {
         let reference: RemoteMarkdownReference
         let attempt: RemoteMarkdownReadAttempt
+        let lifetime = Lifetime()
 
-        var fetcher: RemoteMarkdownSnapshotFetcher {
+        @MainActor
+        func fetcher(store: SessionStore) -> RemoteMarkdownSnapshotFetcher {
             var fetcher = RemoteMarkdownSnapshotFetcher()
             fetcher.transport = attempt.readPolicy == .confirmationRequired ? .unmanaged : .managed
+            fetcher.admission = {
+                !lifetime.isCancelled
+                    && authorization.validateBeforeTransport(attempt, currentOrigin: current(attempt.origin, store: store))
+            }
             return fetcher
         }
+    }
+
+    final class Lifetime: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+        var isCancelled: Bool { lock.withLock { cancelled } }
+        func cancel() { lock.withLock { cancelled = true } }
+    }
+
+    static func wait<T: Sendable>(for read: Read, operation: () async -> T) async -> T {
+        if Task.isCancelled { read.lifetime.cancel() }
+        return await withTaskCancellationHandler(operation: operation, onCancel: { read.lifetime.cancel() })
     }
 
     static func origin(
@@ -136,12 +162,20 @@ enum RemoteMarkdownReadRouting {
                 sheet.contentViewController = nil
                 continuation.resume(returning: choice)
             }
-            let host = NSHostingController(rootView: view)
+            let host = NSHostingController(rootView: RemoteMarkdownReadSheetAppearance(content: view, settings: appSettingsStore))
             sheet.contentViewController = host
             host.view.layoutSubtreeIfNeeded()
             sheet.setContentSize(host.view.fittingSize)
             parent.beginSheet(sheet)
         }
+    }
+}
+
+private struct RemoteMarkdownReadSheetAppearance: View {
+    let content: RemoteMarkdownReadConfirmationSheet
+    let settings: AppSettingsStore?
+    var body: some View {
+        if let settings { content.appearanceBridge(settings) } else { content }
     }
 }
 
@@ -183,61 +217,105 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Open Remote Markdown").font(.title2).accessibilityAddTraits(.isHeader)
-            Text("Read one file over SSH as a read-only snapshot.")
-                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(String(localized: "Open Remote Markdown", comment: "Title for confirming one remote Markdown file read")).awFont(
+                AwFont.UI.title
+            ).accessibilityAddTraits(.isHeader)
+            Text(
+                String(
+                    localized: "Read one file over SSH as a read-only snapshot.",
+                    comment: "Caption explaining the one-operation remote Markdown confirmation")
+            )
+            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let target {
-                LabeledContent("File-read destination", value: target.sshDestination)
+                LabeledContent(
+                    String(localized: "File-read destination", comment: "Label for the independently authorized SSH file-read destination"),
+                    value: target.sshDestination)
             } else {
-                Text("File-read SSH config alias")
-                TextField("Alias from ~/.ssh/config", text: $alias)
-                    .textFieldStyle(.roundedBorder).focused($focused, equals: .alias)
-                    .accessibilityLabel("File-read SSH config alias")
+                Text(String(localized: "File-read SSH config alias", comment: "Label for the OpenSSH config alias used for this file read"))
+                TextField(
+                    String(
+                        localized: "Alias from ~/.ssh/config",
+                        comment: "Placeholder requesting an OpenSSH config alias, not SSH command flags"), text: $alias
+                )
+                .textFieldStyle(.roundedBorder).focused($focused, equals: .alias)
+                .accessibilityLabel(
+                    String(localized: "File-read SSH config alias", comment: "Label for the OpenSSH config alias used for this file read"))
                 Text(
-                    "Choose the destination for this read. Existing terminal SSH options and connections cannot be reused; configure an alias in OpenSSH."
+                    String(
+                        localized:
+                            "Choose the destination for this read. Existing terminal SSH options and connections cannot be reused; configure an alias in OpenSSH.",
+                        comment: "Help explaining independent SSH file-read configuration")
                 )
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            Text("Remote path")
+            Text(String(localized: "Remote path", comment: "Label for the remote Markdown file path"))
             if locksPath {
                 Text(path).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             } else {
-                TextField("/path/file.md, ~/file.md, or relative file.md", text: $path)
-                    .textFieldStyle(.roundedBorder).focused($focused, equals: .path)
-                    .accessibilityLabel("Remote Markdown path")
+                TextField(
+                    String(
+                        localized: "/path/file.md, ~/file.md, or relative file.md",
+                        comment: "Placeholder showing supported remote Markdown path forms"), text: $path
+                )
+                .textFieldStyle(.roundedBorder).focused($focused, equals: .path)
+                .accessibilityLabel(
+                    String(localized: "Remote Markdown path", comment: "Accessibility label for the remote Markdown file path field"))
             }
             if !path.hasPrefix("/"), !path.hasPrefix("~") {
-                Text("Choose a remote base directory")
-                TextField("/remote/directory or ~/directory", text: $base)
-                    .textFieldStyle(.roundedBorder).focused($focused, equals: .base)
-                    .accessibilityLabel("Chosen remote base directory")
                 Text(
-                    "The terminal's current directory is unavailable. Choose a base directory or replace the path with a full /… or ~/… path."
+                    String(
+                        localized: "Choose a remote base directory",
+                        comment: "Label requiring an explicitly chosen remote directory for a relative link"))
+                TextField(
+                    String(
+                        localized: "/remote/directory or ~/directory",
+                        comment: "Placeholder for an absolute or home-relative remote base directory"), text: $base
+                )
+                .textFieldStyle(.roundedBorder).focused($focused, equals: .base)
+                .accessibilityLabel(
+                    String(
+                        localized: "Chosen remote base directory",
+                        comment: "Accessibility label for the explicitly chosen remote base directory"))
+                Text(
+                    String(
+                        localized:
+                            "The terminal's current directory is unavailable. Choose a base directory or replace the path with a full /… or ~/… path.",
+                        comment: "Help explaining how to resolve a remote relative link without trustworthy cwd metadata")
                 )
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if let chosenTarget, let resolved {
-                LabeledContent("Destination", value: chosenTarget.sshDestination)
-                LabeledContent("Resolved remote path", value: resolved)
-                    .textSelection(.enabled)
+                LabeledContent(
+                    String(localized: "Destination", comment: "Label for the exact SSH destination in the file-read preview"),
+                    value: chosenTarget.sshDestination)
+                LabeledContent(
+                    String(localized: "Resolved remote path", comment: "Label for the exact lexical remote path in the file-read preview"),
+                    value: resolved
+                )
+                .textSelection(.enabled)
             }
             if originChanged {
-                Text("The originating pane or document changed. Cancel and open the file again.")
+                Text(RemoteMarkdownReadRouting.originChangedMessage)
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { complete(nil) }.keyboardShortcut(.cancelAction)
-                Button("Read File") {
+                Button(String(localized: "Cancel", comment: "Cancel one remote Markdown file read"), role: .cancel) { complete(nil) }
+                    .keyboardShortcut(.cancelAction)
+                Button(String(localized: "Read File", comment: "Confirm the displayed SSH destination and path for one read")) {
                     guard let chosenTarget, let resolved else { return }
                     guard isCurrent() else {
-                        originChanged = true
+                        if !originChanged {
+                            originChanged = true
+                            TerminalAccessibilityAnnouncer.announce(RemoteMarkdownReadRouting.originChangedMessage)
+                        }
                         return
                     }
                     complete(.init(target: chosenTarget, path: resolved, base: RemoteMarkdownPath.normalize(base)))
                 }.keyboardShortcut(.defaultAction).disabled(chosenTarget == nil || resolved == nil)
             }
         }
+        .awFont(AwFont.UI.body)
         .padding(20).frame(minWidth: 420, idealWidth: 520)
         .onAppear { focused = target == nil ? .alias : .path }
     }

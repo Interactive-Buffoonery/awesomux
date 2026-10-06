@@ -363,6 +363,7 @@ struct AwesoMuxApp: App {
             loadResult = SessionPersistence.LoadResult(store: store, recoveryWarning: nil)
         }
         _appSettingsStore = State(initialValue: appSettingsStore)
+        RemoteMarkdownReadRouting.appSettingsStore = appSettingsStore
         _localAPIAccessStore = State(initialValue: localAPIAccessStore)
         _sessionStore = State(initialValue: loadResult.store)
         _remoteMarkdownRefreshCoordinator = State(initialValue: remoteMarkdownRefreshCoordinator)
@@ -634,6 +635,10 @@ struct AwesoMuxApp: App {
                 RemoteMarkdownPathOpenSheet(
                     target: request.target,
                     initialPath: remoteMarkdownTypedPathHistory.lastPath(for: request.target) ?? "",
+                    isOriginCurrent: {
+                        guard let origin = request.origin else { return false }
+                        return RemoteMarkdownReadRouting.current(origin, store: sessionStore) == origin
+                    },
                     onCancel: { remoteMarkdownPathOpenRequest = nil },
                     onOpen: { path in
                         let sessionID = request.sessionID

@@ -530,10 +530,10 @@
 
     },
     "/path/file.md, ~/file.md, or relative file.md" : {
-
+      "comment" : "Placeholder showing supported remote Markdown path forms"
     },
     "/remote/directory or ~/directory" : {
-
+      "comment" : "Placeholder for an absolute or home-relative remote base directory"
     },
     "1 hour" : {
       "comment" : "VoiceOver Diagnostics history window"
@@ -758,7 +758,7 @@
       "comment" : "Notification settings label."
     },
     "Alias from ~/.ssh/config" : {
-
+      "comment" : "Placeholder requesting an OpenSSH config alias, not SSH command flags"
     },
     "All categories" : {
 
@@ -1091,7 +1091,7 @@
       "comment" : "Unavailable agent integration install state status"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -1216,7 +1216,7 @@
       "comment" : "Confirm button for the worktree target path picker."
     },
     "Choose a remote base directory" : {
-
+      "comment" : "Label requiring an explicitly chosen remote directory for a relative link"
     },
     "Choose an IDE for this project." : {
       "comment" : "IDE picker alert explanatory text."
@@ -1234,7 +1234,7 @@
       "comment" : "Accessibility help for the IDE picker popup."
     },
     "Choose the destination for this read. Existing terminal SSH options and connections cannot be reused; configure an alias in OpenSSH." : {
-
+      "comment" : "Help explaining independent SSH file-read configuration"
     },
     "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections." : {
       "comment" : "Managed SSH settings section description"
@@ -1255,7 +1255,7 @@
       "comment" : "Open a folder picker for the worktree target path."
     },
     "Chosen remote base directory" : {
-
+      "comment" : "Accessibility label for the explicitly chosen remote base directory"
     },
     "Clean up" : {
 
@@ -1855,7 +1855,7 @@
       "comment" : "Section heading in a read-only pull request snapshot"
     },
     "Destination" : {
-      "comment" : "Remote helper detail label"
+      "comment" : "Label for the exact SSH destination in the file-read preview\nRemote helper detail label"
     },
     "Detached" : {
       "comment" : "Accessibility state for a detached worktree."
@@ -2225,10 +2225,10 @@
       "comment" : "Diagnostics event summary"
     },
     "File-read SSH config alias" : {
-
+      "comment" : "Label for the OpenSSH config alias used for this file read"
     },
     "File-read destination" : {
-
+      "comment" : "Label for the independently authorized SSH file-read destination"
     },
     "Files" : {
 
@@ -3186,7 +3186,7 @@
       "comment" : "Command palette action for opening a link detected in a terminal pane"
     },
     "Open Remote Markdown" : {
-      "comment" : "Title for the typed-path sheet that opens a remote Markdown file over SSH"
+      "comment" : "Title for confirming one remote Markdown file read\nTitle for the typed-path sheet that opens a remote Markdown file over SSH"
     },
     "Open System Settings" : {
 
@@ -3672,10 +3672,10 @@
 
     },
     "Read File" : {
-
+      "comment" : "Confirm the displayed SSH destination and path for one read"
     },
     "Read one file over SSH as a read-only snapshot." : {
-
+      "comment" : "Caption explaining the one-operation remote Markdown confirmation"
     },
     "Read-Only Diff" : {
       "comment" : "Alert title when the user tries to annotate a generated branch diff"
@@ -3849,7 +3849,7 @@
       "comment" : "VoiceOver announcement after a fresh remote Markdown document loads"
     },
     "Remote Markdown path" : {
-      "comment" : "Accessibility label for the remote Markdown typed-path field"
+      "comment" : "Accessibility label for the remote Markdown file path field\nAccessibility label for the remote Markdown typed-path field"
     },
     "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale." : {
       "comment" : "VoiceOver announcement when a failed refresh falls back to cached remote Markdown"
@@ -3914,7 +3914,7 @@
       "comment" : "VoiceOver location summary for a group with more than one remote destination.\nVoiceOver location summary for panes that all run on one declared SSH destination."
     },
     "Remote path" : {
-      "comment" : "Label for the remote Markdown absolute or ~/ path field"
+      "comment" : "Label for the remote Markdown absolute or ~/ path field\nLabel for the remote Markdown file path"
     },
     "Remote session %arg" : {
       "comment" : "Accessibility label for the remote session name on an always-managed SSH row"
@@ -4126,7 +4126,7 @@
       "comment" : "VoiceOver announcement when the resolved-annotations filter turns off"
     },
     "Resolved remote path" : {
-
+      "comment" : "Label for the exact lexical remote path in the file-read preview"
     },
     "Resolves to" : {
       "comment" : "Label for the punycode form an IDN host actually resolves to in the OSC 8 confirmation modal."
@@ -5029,7 +5029,7 @@
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes could not be archived"
     },
     "The originating pane or document changed. Cancel and open the file again." : {
-
+      "comment" : "Remote Markdown sheet notice when its captured source changes before the read"
     },
     "The pane changed before saving. Review it and try again." : {
 
@@ -5140,7 +5140,7 @@
 
     },
     "The terminal's current directory is unavailable. Choose a base directory or replace the path with a full /… or ~/… path." : {
-
+      "comment" : "Help explaining how to resolve a remote relative link without trustworthy cwd metadata"
     },
     "The workspace closed before the changes could open." : {
       "comment" : "VoiceOver announcement when a rendered branch diff has no workspace left to open into"
