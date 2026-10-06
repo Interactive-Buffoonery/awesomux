@@ -747,7 +747,7 @@ struct SessionRestoreReducer: Sendable {
                     title: tab.title,
                     associatedTerminalPaneID: tab.associatedTerminalPaneID,
                     remoteResourceIdentity: tab.remoteResourceIdentity,
-                    agentTranscriptIdentity: tab.agentTranscriptIdentity,
+                    remoteReadPolicy: tab.remoteReadPolicy, agentTranscriptIdentity: tab.agentTranscriptIdentity,
                     branchChangesIdentity: tab.branchChangesIdentity,
                     generatedDocumentKind: tab.generatedDocumentKind
                 )
