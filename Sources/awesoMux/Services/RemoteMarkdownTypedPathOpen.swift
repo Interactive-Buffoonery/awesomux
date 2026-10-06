@@ -238,16 +238,25 @@ enum RemoteMarkdownTypedPathOpen {
             }
         }
         defer { progress.finish(claim) }
-        let outcome = await RemoteMarkdownReadRouting.wait(for: read) {
+        let attempt = await RemoteMarkdownReadRouting.wait(for: read) {
             if let preparedOpen {
-                await preparedOpen.attempt.value().outcome
+                return await preparedOpen.attempt.value()
+            } else if let fetch {
+                let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+                cohort.add(.failurePresenter)
+                return RemoteMarkdownFetchCoordinator.Attempt(
+                    outcome: await fetch(reference), cohort: cohort, announcementSessionID: sessionID
+                )
             } else {
-                if let fetch { await fetch(reference) } else { await read.fetcher(store: sessionStore).fetch(reference) }
+                return await read.fetcher(store: sessionStore).startAttempt(
+                    reference, consumer: .failurePresenter, announcementSessionID: sessionID
+                ).value()
             }
         }
+        let outcome = attempt.outcome
         guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return nil }
         guard let outcome else {
-            onFetchFailure()
+            if attempt.cohort.claimOutcome(sessionID: sessionID) { onFetchFailure() }
             return nil
         }
         // Sheet dismiss already happened; the associated SSH pane can reconnect
@@ -271,7 +280,7 @@ enum RemoteMarkdownTypedPathOpen {
             // to explain.
             return nil
         }
-        if preparedOpen?.attempt.ownsAnnouncements ?? claim.isFirstWaiter {
+        if attempt.cohort.claimOutcome(sessionID: sessionID) {
             onAnnounceOutcome(outcome)
         }
         return openedID

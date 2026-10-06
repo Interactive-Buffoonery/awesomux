@@ -376,11 +376,17 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         private static let unscoped = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
         private var consumerCountsByScope: [UUID: [Consumer: Int]] = [:]
         private var announcementOwnerScopes: Set<UUID> = []
+        private var outcomeOwnerScopes: Set<UUID> = []
 
         private enum AdmissionState { case pending, admitted, refused }
         private var admissionState = AdmissionState.pending
         private var admissionRevision: UInt64 = 0
         private var admissions: [Admission?] = []
+
+        /// A live waiter claims completion independently of loading ownership.
+        func claimOutcome(sessionID: UUID?) -> Bool {
+            lock.withLock { outcomeOwnerScopes.insert(sessionID ?? Self.unscoped).inserted }
+        }
 
         func registerParticipant(_ consumer: Consumer, sessionID: UUID?, admission: Admission?) -> Bool? {
             lock.withLock {

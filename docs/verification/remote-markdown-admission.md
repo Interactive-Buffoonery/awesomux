@@ -26,3 +26,21 @@ Failure modes checked:
 
 Admission after queued predecessors is the operation-start linearization point.
 It does not claim an atomic boundary with the operating system's process launch.
+
+## Coalesced outcome ownership fault scenario
+
+Recorded before the outcome-claim change: a queued read's loading owner becomes
+stale or cancelled, while a valid follower opens the already-selected remote
+resource. The follower admits the read but has no loading ownership, and the
+document group suppresses its same-resource now-showing cue. A successful result
+or failure therefore needs a distinct once-per-workspace outcome claim after
+live validation. A valid follower must claim once; repeated claims in that
+workspace must fail, while another workspace may independently claim its cue.
+
+Unavailable-result fault recorded before its routing adjustment: a stale document
+failure presenter remains counted in the cohort, while a valid explicit Refresh
+receives no saved result. Static presenter counts must not silence that Refresh.
+The first live eligible consumer claims the unavailable cue once, with Refresh
+retaining its visible stale banner and later document popups suppressed. Quiet
+restore keeps its existing deferral policy. The isolated claim scenario covers
+both a saved result and nil; existing routing fixtures verify nil speech counts.

@@ -554,7 +554,7 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         #expect(fragmentAnnouncements == 2)
     }
 
-    @Test("a coalesced fragment link scrolls without duplicating speech")
+    @Test("a live coalesced fragment link claims its completion cue")
     @MainActor
     func coalescedFragmentLinkStillScrolls() async throws {
         let store = SessionStore()
@@ -625,7 +625,7 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         )
 
         #expect(scrolledTabID == openedID)
-        #expect(fragmentAnnouncements == 0)
+        #expect(fragmentAnnouncements == 1)
     }
 
     @Test("a fragment link announces at-top when the already-open tab closes during fetch")

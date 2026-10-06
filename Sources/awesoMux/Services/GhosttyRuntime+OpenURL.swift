@@ -181,8 +181,8 @@ extension GhosttyRuntime {
                 identity: reference.identity,
                 origin: origin
             )
-            let announcesOutcome = prepared.ownsAnnouncements
-            if announcesOutcome {
+            let ownsLoadingAnnouncement = prepared.ownsAnnouncements
+            if ownsLoadingAnnouncement {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
             defer {
@@ -192,10 +192,11 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            let fetched = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value().outcome }
+            let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
+            let fetched = attempt.outcome
             guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return }
             guard let outcome = fetched else {
-                remoteMarkdownFetchFailurePresenter(nil)
+                if attempt.cohort.claimOutcome(sessionID: sessionID) { remoteMarkdownFetchFailurePresenter(nil) }
                 return
             }
             let hadVisibleDocument =
@@ -205,7 +206,7 @@ extension GhosttyRuntime {
                 sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                 .selectedTab?.remoteResourceIdentity
             let currentRemoteIdentity = outcome.snapshot.identity
-            RemoteMarkdownTabRefresh.apply(
+            let openedID = RemoteMarkdownTabRefresh.apply(
                 outcome,
                 in: sessionID,
                 associatedWith: paneID,
@@ -217,8 +218,9 @@ extension GhosttyRuntime {
             // never fires, so this call is the only announcement. Otherwise
             // speak only for a same-identity in-place refresh, where
             // DocumentGroupView intentionally suppresses "Now showing".
-            if announcesOutcome,
-                !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity
+            if openedID != nil,
+                !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity,
+                attempt.cohort.claimOutcome(sessionID: sessionID)
             {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
@@ -400,8 +402,8 @@ extension GhosttyRuntime {
                 identity: reference.identity,
                 origin: origin
             )
-            let announcesOutcome = prepared.ownsAnnouncements
-            if announcesOutcome {
+            let ownsLoadingAnnouncement = prepared.ownsAnnouncements
+            if ownsLoadingAnnouncement {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
             defer {
@@ -411,10 +413,11 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            let fetched = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value().outcome }
+            let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
+            let fetched = attempt.outcome
             guard RemoteMarkdownReadRouting.validate(read, store: view.sessionStore), !Task.isCancelled else { return }
             guard let outcome = fetched else {
-                remoteMarkdownFetchFailurePresenter(view)
+                if attempt.cohort.claimOutcome(sessionID: workspaceID) { remoteMarkdownFetchFailurePresenter(view) }
                 return
             }
             // A rejected dispatch means the pane/session moved on while this
@@ -432,7 +435,7 @@ extension GhosttyRuntime {
             else {
                 return
             }
-            RemoteMarkdownTabRefresh.apply(
+            let openedID = RemoteMarkdownTabRefresh.apply(
                 outcome,
                 in: workspaceID,
                 associatedWith: paneID,
@@ -440,7 +443,7 @@ extension GhosttyRuntime {
                 readPolicy: read.attempt.readPolicy,
                 selectingTab: true
             )
-            if announcesOutcome {
+            if openedID != nil, attempt.cohort.claimOutcome(sessionID: workspaceID) {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
             return

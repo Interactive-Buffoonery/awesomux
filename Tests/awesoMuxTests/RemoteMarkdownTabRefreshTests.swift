@@ -923,7 +923,7 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(probe.count(of: refreshFailedMessage) == 0)
     }
 
-    @Test("Refresh owns announcements when a same-file link follows")
+    @Test("Refresh keeps loading while the first live link claims outcome")
     func refreshThenLinkSharesAnnouncementOwnership() async throws {
         let identity = remoteIdentity()
         let source = remoteIdentity(path: "/repo/README.md")
@@ -996,14 +996,14 @@ struct RemoteMarkdownTabRefreshTests {
         _ = await refresh.value
 
         #expect(refreshLoading == 1)
-        #expect(refreshOutcomes == 1)
+        #expect(refreshOutcomes == 0)
         #expect(linkLoading == 0)
-        #expect(linkOutcomes == 0)
+        #expect(linkOutcomes == 1)
         #expect(linkFragmentCues == 0)
         #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
     }
 
-    @Test("link owns announcements when a same-file Refresh follows")
+    @Test("link keeps loading while the first live Refresh claims outcome")
     func linkThenRefreshSharesAnnouncementOwnership() async throws {
         let identity = remoteIdentity()
         let source = remoteIdentity(path: "/repo/README.md")
@@ -1074,9 +1074,9 @@ struct RemoteMarkdownTabRefreshTests {
         _ = await open.value
 
         #expect(linkLoading == 1)
-        #expect(linkOutcomes == 1)
+        #expect(linkOutcomes == 0)
         #expect(refreshLoading == 0)
-        #expect(refreshOutcomes == 0)
+        #expect(refreshOutcomes == 1)
     }
 
     @Test("same-file nil fetch keeps the link's visible failure after its tab closes")
@@ -1294,7 +1294,7 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(restoreFailures == 1)
     }
 
-    @Test("Refresh defers nil speech to a same-session failure presenter")
+    @Test("live Refresh claims nil speech despite a prior failure presenter")
     func refreshDefersNilToFailurePresenter() async throws {
         let identity = remoteIdentity()
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-presenter-\(UUID().uuidString).md")
@@ -1323,7 +1323,8 @@ struct RemoteMarkdownTabRefreshTests {
             }
         )
 
-        #expect(failures == 0)
+        #expect(failures == 1)
+        #expect(!cohort.claimOutcome(sessionID: sessionID))
     }
 
     @Test("another session's presenter does not suppress restore failure")
@@ -1598,9 +1599,9 @@ struct RemoteMarkdownTabRefreshTests {
         gate.open()
         _ = await refresh.value
 
-        #expect(refreshOutcomes == 1)
+        #expect(refreshOutcomes == 0)
         #expect(linkLoading == 0)
-        #expect(linkOutcomes == 0)
+        #expect(linkOutcomes == 1)
     }
 }
 

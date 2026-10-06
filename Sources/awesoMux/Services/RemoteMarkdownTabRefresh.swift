@@ -204,22 +204,12 @@ enum RemoteMarkdownTabRefresh {
         let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
         let fetchedOutcome = attempt.outcome
         guard RemoteMarkdownReadRouting.validate(read, store: sessionStore) else { return nil }
-        if Task.isCancelled {
-            if let fetchedOutcome,
-                announceOutcome,
-                ownsAnnouncements,
-                attempt.hasCoalescedInteractiveConsumer,
-                sessionStore.session(id: sessionID) != nil
-            {
-                onAnnounceOutcome(fetchedOutcome)
-            }
-            return nil
-        }
+        guard !Task.isCancelled else { return nil }
         guard let outcome = fetchedOutcome else {
             let ownsFailureAnnouncement =
                 announceFailure
                 ? !attempt.hasInteractiveConsumer
-                : ownsAnnouncements
+                : true
             // A nil outcome is a failed attempt (typically a cache/failure-page
             // write miss), not success. Note the policy against the tab's
             // current path so the stale banner can say so, and speak it for the
@@ -228,14 +218,6 @@ enum RemoteMarkdownTabRefresh {
                 let tab = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                     .tab(id: documentID)
             else {
-                if announceOutcome,
-                    ownsFailureAnnouncement,
-                    attempt.hasCoalescedInteractiveConsumer,
-                    !attempt.hasFailurePresenter,
-                    sessionStore.session(id: sessionID) != nil
-                {
-                    onAnnounceFailure()
-                }
                 return nil
             }
             let path = tab.fileURL.standardizedFileURL.path
@@ -247,7 +229,8 @@ enum RemoteMarkdownTabRefresh {
                 RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
                 if ownsFailureAnnouncement,
                     announceOutcome || announceFailure,
-                    !attempt.hasFailurePresenter
+                    announceOutcome || !attempt.hasFailurePresenter,
+                    attempt.cohort.claimOutcome(sessionID: sessionID)
                 {
                     onAnnounceFailure()
                 }
@@ -259,15 +242,7 @@ enum RemoteMarkdownTabRefresh {
         guard let liveSession = sessionStore.session(id: sessionID) else {
             return nil
         }
-        guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else {
-            if announceOutcome,
-                ownsAnnouncements,
-                attempt.hasCoalescedInteractiveConsumer
-            {
-                onAnnounceOutcome(outcome)
-            }
-            return nil
-        }
+        guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else { return nil }
         let openedID = apply(
             outcome,
             in: sessionID,
@@ -277,7 +252,7 @@ enum RemoteMarkdownTabRefresh {
             selectingTab: selectingTab,
             announceOutcome: false
         )
-        if announceOutcome, ownsAnnouncements, openedID != nil {
+        if announceOutcome, openedID != nil, attempt.cohort.claimOutcome(sessionID: sessionID) {
             onAnnounceOutcome(outcome)
         }
         return outcome

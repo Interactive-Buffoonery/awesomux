@@ -126,6 +126,24 @@ struct AdmissionProof {
         await running.open(); _ = await replacement.value(); _ = await joined.value()
         #expect(state.commands == 1 && state.caches == 1)
     }
+    @Test(arguments: [false, true]) func staleLoadingOwnerTransfersOneOutcome(unavailable: Bool) async {
+        let coordinator = RemoteMarkdownFetchCoordinator(), leader = State(), follower = State(), effects = State(), gate = Gate()
+        let directory = UUID().uuidString, identity = key("file", directory: directory), workspace = UUID()
+        let blocked = blocker(coordinator, directory: directory, gate: gate)
+        let first = coordinator.prepare(for: identity, consumer: unavailable ? .document : .refresh, announcementSessionID: workspace, admission: { leader.valid }) {
+            let result = await operation(effects); return unavailable ? nil : result
+        }
+        let second = coordinator.prepare(for: identity, consumer: unavailable ? .refresh : .document, announcementSessionID: workspace, admission: { follower.valid }) {
+            let result = await operation(effects); return unavailable ? nil : result
+        }
+        #expect(first.ownsAnnouncements && !second.ownsAnnouncements)
+        leader.valid = false
+        await gate.open(); _ = await blocked.value(); _ = await first.value(); _ = await second.value()
+        #expect(second.cohort.claimOutcome(sessionID: workspace))
+        #expect(!second.cohort.claimOutcome(sessionID: workspace))
+        #expect(second.cohort.claimOutcome(sessionID: UUID()))
+        #expect(effects.commands == 1 && effects.caches == 1)
+    }
     @Test func changedOriginRejectsDisplayAfterStart() async {
         let coordinator = RemoteMarkdownFetchCoordinator(), state = State()
         let fetched = coordinator.prepare(for: key("file", directory: UUID().uuidString), admission: { state.valid }) {
