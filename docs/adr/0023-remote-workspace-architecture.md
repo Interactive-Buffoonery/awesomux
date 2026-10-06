@@ -222,3 +222,12 @@ automation (see [`docs/amx-automation.md`](../amx-automation.md)), and
 local-socket liveness probing on the quit path. App-relaunch reattach — the
 remote zmx already holds the session when awesoMux next attaches — is the
 promise; recovering a live drop automatically is not.
+
+## Amendment: unmanaged Markdown file reads
+
+An ordinary terminal running SSH can open a read-only Markdown snapshot through
+an independently confirmed file-read config alias. This operation does not
+convert the terminal, alter its execution plan, or reuse its SSH options. Each
+read confirms one destination and file; observed SSH evidence can invalidate the
+origin but cannot grant access. Credentials remain in OpenSSH as defined above.
+See ADR-0021 for operation authorization, path selection, and cached-only restore.

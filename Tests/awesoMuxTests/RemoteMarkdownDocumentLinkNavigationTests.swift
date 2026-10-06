@@ -17,6 +17,15 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         )
     }
 
+    @MainActor
+    private func installSource(_ identity: ResourceIdentity, in sessionID: TerminalSession.ID, store: SessionStore) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("remote-md-source-\(UUID().uuidString).md")
+        try "# source\n".write(to: url, atomically: true, encoding: .utf8)
+        _ = try #require(
+            store.openDocumentPane(fileURL: url, in: sessionID, remoteResourceIdentity: identity, associationPolicy: .preserveNil))
+        return url
+    }
+
     /// Lets a test hold one open inside `fetch` while it starts a second click.
     private final class FetchGate: @unchecked Sendable {
         private let lock = NSLock()
@@ -81,6 +90,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md",
@@ -160,6 +171,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let cacheURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("remote-md-link-fragment-\(UUID().uuidString).md")
         try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
@@ -214,6 +227,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md#install",
@@ -255,6 +270,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md#install",
@@ -297,6 +314,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md#install",
@@ -365,6 +384,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md",
@@ -416,6 +437,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md",
@@ -446,6 +469,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md",
@@ -478,6 +503,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let cacheURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("remote-md-link-reopen-\(UUID().uuidString).md")
         try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
@@ -533,6 +560,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let cacheURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("remote-md-link-coalesced-\(UUID().uuidString).md")
@@ -605,6 +634,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let cacheURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("remote-md-link-close-during-fetch-\(UUID().uuidString).md")
         try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
@@ -666,6 +697,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let cacheURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("remote-md-link-open-during-fetch-\(UUID().uuidString).md")
         try "# sibling\n".write(to: cacheURL, atomically: true, encoding: .utf8)
@@ -720,6 +753,8 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let store = SessionStore()
         let sessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let sourceURL = try installSource(source, in: sessionID, store: store)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md",
@@ -788,6 +823,12 @@ struct RemoteMarkdownDocumentLinkNavigationTests {
         let firstSessionID = store.addSession(workingDirectory: "/tmp")
         let secondSessionID = store.addSession(workingDirectory: "/tmp")
         let source = remoteIdentity()
+        let firstSourceURL = try installSource(source, in: firstSessionID, store: store)
+        let secondSourceURL = try installSource(source, in: secondSessionID, store: store)
+        defer {
+            try? FileManager.default.removeItem(at: firstSourceURL)
+            try? FileManager.default.removeItem(at: secondSourceURL)
+        }
         let link = try #require(
             RemoteMarkdownReference.linkURL(
                 forMarkdownDestination: "sibling.md",

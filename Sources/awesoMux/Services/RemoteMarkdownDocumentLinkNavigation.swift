@@ -31,6 +31,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
     static func open(
         url: URL,
         from source: ResourceIdentity,
+        sourceDocumentID: DocumentPane.ID? = nil,
         in sessionID: TerminalSession.ID,
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
@@ -66,6 +67,17 @@ enum RemoteMarkdownDocumentLinkNavigation {
             return nil
         }
         defer { coordinator?.finish(sessionID: sessionID, identity: reference.identity) }
+        guard
+            let sourceDocument = sourceDocumentID.flatMap({ sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(id: $0) })
+                ?? sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(forRemoteResource: source),
+            sourceDocument.remoteResourceIdentity == source,
+            let captured = RemoteMarkdownReadRouting.origin(
+                sessionID: sessionID, paneID: paneID, documentID: sourceDocument.id, store: sessionStore
+            ),
+            let read = await RemoteMarkdownReadRouting.authorize(
+                path: reference.remotePath, origin: captured, store: sessionStore, locksPath: true),
+            RemoteMarkdownReadRouting.consume(read, store: sessionStore)
+        else { return nil }
         let prepared: RemoteMarkdownFetchCoordinator.PreparedAttempt
         if let startAttempt {
             prepared = startAttempt(reference)
@@ -82,7 +94,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
                 onFinished: nil
             )
         } else {
-            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+            prepared = read.fetcher.startAttempt(
                 reference,
                 consumer: .document,
                 announcementSessionID: sessionID
@@ -108,6 +120,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
             )
         }
         let attempt = await prepared.value()
+        guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return nil }
         guard let outcome = attempt.outcome else {
             guard sessionStore.session(id: sessionID) != nil else {
                 return nil
@@ -128,6 +141,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
+            readPolicy: read.attempt.readPolicy,
             selectingTab: true,
             announceOutcome: false
         )

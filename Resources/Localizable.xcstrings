@@ -529,6 +529,12 @@
     "/absolute/path/to/agent" : {
 
     },
+    "/path/file.md, ~/file.md, or relative file.md" : {
+
+    },
+    "/remote/directory or ~/directory" : {
+
+    },
     "1 hour" : {
       "comment" : "VoiceOver Diagnostics history window"
     },
@@ -750,6 +756,9 @@
     },
     "Alert for the focused workspace too" : {
       "comment" : "Notification settings label."
+    },
+    "Alias from ~/.ssh/config" : {
+
     },
     "All categories" : {
 
@@ -1206,6 +1215,9 @@
     "Choose" : {
       "comment" : "Confirm button for the worktree target path picker."
     },
+    "Choose a remote base directory" : {
+
+    },
     "Choose an IDE for this project." : {
       "comment" : "IDE picker alert explanatory text."
     },
@@ -1220,6 +1232,9 @@
     },
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
+    },
+    "Choose the destination for this read. Existing terminal SSH options and connections cannot be reused; configure an alias in OpenSSH." : {
+
     },
     "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections." : {
       "comment" : "Managed SSH settings section description"
@@ -1238,6 +1253,9 @@
     },
     "Choose…" : {
       "comment" : "Open a folder picker for the worktree target path."
+    },
+    "Chosen remote base directory" : {
+
     },
     "Clean up" : {
 
@@ -2205,6 +2223,12 @@
     },
     "File watcher configuration reload was rejected" : {
       "comment" : "Diagnostics event summary"
+    },
+    "File-read SSH config alias" : {
+
+    },
+    "File-read destination" : {
+
     },
     "Files" : {
 
@@ -3647,6 +3671,12 @@
     "RESOLVED" : {
 
     },
+    "Read File" : {
+
+    },
+    "Read one file over SSH as a read-only snapshot." : {
+
+    },
     "Read-Only Diff" : {
       "comment" : "Alert title when the user tries to annotate a generated branch diff"
     },
@@ -4094,6 +4124,9 @@
     },
     "Resolved annotations shown" : {
       "comment" : "VoiceOver announcement when the resolved-annotations filter turns off"
+    },
+    "Resolved remote path" : {
+
     },
     "Resolves to" : {
       "comment" : "Label for the punycode form an IDN host actually resolves to in the OSC 8 confirmation modal."
@@ -4995,6 +5028,9 @@
     "The live saved file changed while awesoMux was reopening it, and awesoMux could not preserve the version it had already read. Automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes could not be archived"
     },
+    "The originating pane or document changed. Cancel and open the file again." : {
+
+    },
     "The pane changed before saving. Review it and try again." : {
 
     },
@@ -5101,6 +5137,9 @@
       "comment" : "Existing worktree target validation."
     },
     "The terminal runtime is not available." : {
+
+    },
+    "The terminal's current directory is unavailable. Choose a base directory or replace the path with a full /… or ~/… path." : {
 
     },
     "The workspace closed before the changes could open." : {

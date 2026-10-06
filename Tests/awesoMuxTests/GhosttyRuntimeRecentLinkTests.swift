@@ -132,7 +132,7 @@ struct GhosttyRuntimeRecentLinkTests {
         GhosttyRuntime.remoteMarkdownFetchFailurePresenter = { _ in }
 
         await GhosttyRuntime.openRecentLink(
-            "docs/readme.md",
+            "/srv/project/docs/readme.md",
             in: session.id,
             associatedWith: pane.id,
             sessionStore: store
@@ -180,19 +180,18 @@ struct GhosttyRuntimeRecentLinkTests {
             sessionStore: store
         )
 
-        #expect(captured?.identity.location == .remote(target))
-        #expect(captured?.identity.path.rawValue == "/srv/project/README.md")
+        #expect(captured == nil)
         #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
     }
 
-    @Test func unresolvedRemoteMarkdownPresentsRoutingFailure() async throws {
+    @Test func remoteRelativeMarkdownNeedsExplicitPathChoice() async throws {
         GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting()
         defer { GhosttyRuntime.resetRemoteMarkdownRoutingFailurePresenterForTesting() }
         let target = try #require(RemoteTarget(parsing: "deploy@example.com"))
         let pane = TerminalPane(
             title: "remote",
             workingDirectory: "/local",
-            remoteWorkingDirectory: nil,
+            remoteWorkingDirectory: "/stale/remote/cwd",
             executionPlan: .ssh(.init(target: target))
         )
         let session = makeSession(pane)
@@ -210,7 +209,8 @@ struct GhosttyRuntimeRecentLinkTests {
             sessionStore: store
         )
 
-        #expect(didPresent)
+        #expect(!didPresent)
+        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
     }
 
     @Test("recent-link remote outcome announces on first open and in-place refresh only")
@@ -223,11 +223,10 @@ struct GhosttyRuntimeRecentLinkTests {
             contentsOf: repositoryRoot.appending(path: "Sources/awesoMux/Services/GhosttyRuntime+OpenURL.swift"),
             encoding: .utf8
         )
-        guard let openRecentRange = source.range(of: "static func openRecentLink(") else {
-            Issue.record("missing openRecentLink")
-            return
-        }
-        let body = String(source[openRecentRange.lowerBound...].prefix(2800))
+        let body = try SourceContract.declarationBody(
+            after: "static func openRecentLink(", in: source,
+            path: "Sources/awesoMux/Services/GhosttyRuntime+OpenURL.swift"
+        )
         #expect(
             body.contains("hadVisibleDocument"),
             "openRecentLink must detect whether a document view was already mounted"
@@ -268,7 +267,7 @@ struct GhosttyRuntimeRecentLinkTests {
         }
 
         await GhosttyRuntime.openRecentLink(
-            "docs/readme.md",
+            "/srv/project/docs/readme.md",
             in: session.id,
             associatedWith: pane.id,
             sessionStore: store
@@ -327,7 +326,7 @@ struct GhosttyRuntimeRecentLinkTests {
 
         let openTask = Task { @MainActor in
             await GhosttyRuntime.openRecentLink(
-                "docs/readme.md",
+                "/srv/project/docs/readme.md",
                 in: session.id,
                 associatedWith: pane.id,
                 sessionStore: store

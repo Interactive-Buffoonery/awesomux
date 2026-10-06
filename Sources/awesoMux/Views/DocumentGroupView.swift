@@ -320,6 +320,7 @@ struct DocumentGroupView: View {
                                 if let openedID = await RemoteMarkdownDocumentLinkNavigation.open(
                                     url: url,
                                     from: sourceIdentity,
+                                    sourceDocumentID: document.id,
                                     in: session.id,
                                     associatedWith: liveAssociation,
                                     sessionStore: sessionStore,

@@ -73,7 +73,7 @@ final class RemoteMarkdownReadAuthorization {
     private var attempts: [UUID: (attempt: RemoteMarkdownReadAttempt, stage: Stage)] = [:]
     private var registrationOrder: [UUID] = []
 
-    func authorizeDeclared(origin: RemoteMarkdownReadOrigin) -> RemoteMarkdownReadAttempt? {
+    func authorizeDeclared(origin: RemoteMarkdownReadOrigin, chosenBaseDirectory: String? = nil) -> RemoteMarkdownReadAttempt? {
         guard origin.documentReadPolicy != .confirmationRequired else { return nil }
         let target: RemoteTarget
         if origin.documentID != nil {
@@ -90,7 +90,7 @@ final class RemoteMarkdownReadAuthorization {
             guard let declaredTarget = origin.executionPlan?.remoteTarget else { return nil }
             target = declaredTarget
         }
-        return register(origin: origin, target: target, policy: .declaredIdentity, chosenBaseDirectory: nil)
+        return register(origin: origin, target: target, policy: .declaredIdentity, chosenBaseDirectory: chosenBaseDirectory)
     }
 
     /// Call only after the user approves this exact independent file-read target.

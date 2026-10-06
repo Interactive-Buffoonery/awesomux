@@ -932,6 +932,11 @@ struct RemoteMarkdownTabRefreshTests {
         )
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-race-\(UUID().uuidString).md")
         let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        _ = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                associationPolicy: .preserveNil, selectingNewTab: false
+            ))
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let gate = FetchGate()
         let cohort = RemoteMarkdownFetchCoordinator.Cohort()
@@ -1007,6 +1012,11 @@ struct RemoteMarkdownTabRefreshTests {
         )
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-link-race-\(UUID().uuidString).md")
         let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        _ = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                associationPolicy: .preserveNil, selectingNewTab: false
+            ))
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let gate = FetchGate()
         let cohort = RemoteMarkdownFetchCoordinator.Cohort()
@@ -1078,6 +1088,11 @@ struct RemoteMarkdownTabRefreshTests {
         )
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-failure-race-\(UUID().uuidString).md")
         let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        _ = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                associationPolicy: .preserveNil, selectingNewTab: false
+            ))
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let cohort = RemoteMarkdownFetchCoordinator.Cohort()
         cohort.add(.refresh)
@@ -1136,6 +1151,11 @@ struct RemoteMarkdownTabRefreshTests {
         )
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-cancelled-failure-\(UUID().uuidString).md")
         let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        _ = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                associationPolicy: .preserveNil, selectingNewTab: false
+            ))
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let cohort = RemoteMarkdownFetchCoordinator.Cohort()
         cohort.add(.refresh)
@@ -1194,6 +1214,11 @@ struct RemoteMarkdownTabRefreshTests {
         )
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-link-failure-\(UUID().uuidString).md")
         let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        _ = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                associationPolicy: .preserveNil, selectingNewTab: false
+            ))
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let cohort = RemoteMarkdownFetchCoordinator.Cohort()
         cohort.add(.restore)
@@ -1445,6 +1470,11 @@ struct RemoteMarkdownTabRefreshTests {
         )
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-link-success-\(UUID().uuidString).md")
         let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        _ = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                associationPolicy: .preserveNil, selectingNewTab: false
+            ))
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let gate = FetchGate()
         let cohort = RemoteMarkdownFetchCoordinator.Cohort()
@@ -1508,6 +1538,11 @@ struct RemoteMarkdownTabRefreshTests {
         )
         let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-cancel-race-\(UUID().uuidString).md")
         let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+        _ = try #require(
+            store.openDocumentPane(
+                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                associationPolicy: .preserveNil, selectingNewTab: false
+            ))
         let progress = RemoteMarkdownFetchProgressCoordinator()
         let gate = FetchGate()
         let cohort = RemoteMarkdownFetchCoordinator.Cohort()

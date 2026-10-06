@@ -660,13 +660,12 @@ struct AwesoMuxApp: App {
                                 typedPath: path,
                                 target: target,
                                 sessionID: sessionID,
+                                sessionStore: sessionStore,
+                                capturedOrigin: request.origin,
                                 origin: origin,
                                 overlayIdentity: overlayIdentity
                             )
-                        else {
-                            remoteMarkdownPathOpenRequest = nil
-                            return
-                        }
+                        else { return }
                         remoteMarkdownPathOpenRequest = nil
                         Task { @MainActor in
                             guard
@@ -5607,16 +5606,54 @@ struct AwesoMuxApp: App {
         guard let session = sessionStore.selectedSession else {
             return
         }
+        if let tab = session.layout.firstDocumentGroup?.selectedTab,
+            tab.remoteReadPolicy == .confirmationRequired, tab.remoteResourceIdentity != nil
+        {
+            openConfirmedRemoteMarkdown(in: session, document: tab)
+            return
+        }
+        if let pane = session.activePane, pane.executionPlan == .local,
+            RemoteMarkdownReadRouting.isRemoteFileContext(pane),
+            session.layout.firstDocumentGroup?.selectedTab == nil
+        {
+            openConfirmedRemoteMarkdown(in: session, document: nil)
+            return
+        }
         switch RemoteMarkdownTypedPathOpen.context(for: session) {
         case .remote(let target, let associatedPaneID):
             guard !isAnySheetPresented else { return }
             remoteMarkdownPathOpenRequest = RemoteMarkdownPathOpenRequest(
                 sessionID: session.id,
                 target: target,
-                associatedPaneID: associatedPaneID
+                associatedPaneID: associatedPaneID,
+                origin: RemoteMarkdownTypedPathOpen.submissionOrigin(
+                    sessionID: session.id, paneID: associatedPaneID, store: sessionStore, target: target)
             )
         case .local:
             openLocalMarkdownFilePanel()
+        }
+    }
+
+    private func openConfirmedRemoteMarkdown(in session: TerminalSession, document: DocumentPane?) {
+        guard !isAnySheetPresented,
+            let captured = RemoteMarkdownTypedPathOpen.submissionOrigin(
+                sessionID: session.id, paneID: document?.associatedTerminalPaneID ?? session.activePaneID, store: sessionStore
+            )
+        else { return }
+        Task { @MainActor in
+            guard let read = await RemoteMarkdownReadRouting.authorize(path: "", origin: captured, store: sessionStore),
+                let prepared = RemoteMarkdownTypedPathOpen.prepareLoadingIfValid(
+                    typedPath: read.reference.remotePath, target: read.attempt.target, sessionID: session.id,
+                    sessionStore: sessionStore, capturedOrigin: captured, authorizedRead: read,
+                    origin: document == nil ? .surface(paneID: session.activePaneID) : .document,
+                    overlayIdentity: document?.remoteResourceIdentity
+                ),
+                let tabID = await RemoteMarkdownTypedPathOpen.open(
+                    typedPath: read.reference.remotePath, target: read.attempt.target, in: session.id,
+                    associatedWith: captured.paneID, sessionStore: sessionStore, preparedOpen: prepared
+                )
+            else { return }
+            documentTabActions.requestFocus(for: tabID, in: session.id)
         }
     }
 
@@ -6028,6 +6065,7 @@ private struct RemoteMarkdownPathOpenRequest: Identifiable, Sendable {
     let sessionID: TerminalSession.ID
     let target: RemoteTarget
     let associatedPaneID: TerminalPane.ID?
+    let origin: RemoteMarkdownReadOrigin?
 }
 
 private struct QuickSettingsRequest: Identifiable, Sendable {

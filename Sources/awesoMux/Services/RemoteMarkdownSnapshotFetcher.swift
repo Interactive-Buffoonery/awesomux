@@ -290,7 +290,7 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         return DocumentURLValidator.allowedExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 
-    private static func remotePath(from payload: String) -> String? {
+    static func remotePath(from payload: String) -> String? {
         let candidatePath = MarkdownLinkIntercept.documentCandidatePath(from: payload)
         guard !candidatePath.isEmpty,
             let parsed = URL(string: candidatePath)
