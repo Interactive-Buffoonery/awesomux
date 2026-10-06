@@ -153,20 +153,37 @@ enum RemoteMarkdownReadRouting {
             let sheet = NSWindow()
             sheet.styleMask = [.titled]
             var completed = false
-            let view = RemoteMarkdownReadConfirmationSheet(
-                target: target, suggestedAlias: suggestedAlias, initialPath: path, locksPath: locksPath, isCurrent: isCurrent
-            ) { choice in
+            var observations: [NSObjectProtocol] = []
+            let finish: @MainActor (Choice?) -> Void = { choice in
                 guard !completed else { return }
                 completed = true
-                parent.endSheet(sheet)
+                observations.forEach(NotificationCenter.default.removeObserver)
+                observations.removeAll()
+                if sheet.sheetParent === parent { parent.endSheet(sheet) }
                 sheet.contentViewController = nil
                 continuation.resume(returning: choice)
             }
-            let host = NSHostingController(rootView: RemoteMarkdownReadSheetAppearance(content: view, settings: appSettingsStore))
+            for window in [parent, sheet] {
+                observations.append(
+                    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+                        MainActor.assumeIsolated { finish(nil) }
+                    }
+                )
+            }
+            let view = RemoteMarkdownReadConfirmationSheet(
+                target: target, suggestedAlias: suggestedAlias, initialPath: path, locksPath: locksPath, isCurrent: isCurrent,
+                complete: finish
+            )
+            let host = NSHostingController(
+                rootView: RemoteMarkdownReadSheetAppearance(content: view, settings: appSettingsStore)
+                    .onDisappear { finish(nil) }
+            )
             sheet.contentViewController = host
+            sheet.makeFirstResponder(host.view)
             host.view.layoutSubtreeIfNeeded()
             sheet.setContentSize(host.view.fittingSize)
-            parent.beginSheet(sheet)
+            parent.beginSheet(sheet) { _ in finish(nil) }
+            NSAccessibility.post(element: host.view, notification: .focusedUIElementChanged)
         }
     }
 }
@@ -189,6 +206,7 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
     @State private var path: String
     @State private var base = ""
     @FocusState private var focused: Field?
+    @AccessibilityFocusState private var confirmationFocused: Bool
     private enum Field { case alias, path, base }
 
     init(
@@ -208,8 +226,12 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
         target ?? RemoteMarkdownReadRouting.configAlias(alias).flatMap { RemoteTarget(parsing: $0) }
     }
 
+    private var trimmedBase: String {
+        base.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var resolved: String? {
-        guard let resolved = RemoteMarkdownPath.resolve(path.trimmingCharacters(in: .whitespacesAndNewlines), relativeTo: base),
+        guard let resolved = RemoteMarkdownPath.resolve(path.trimmingCharacters(in: .whitespacesAndNewlines), relativeTo: trimmedBase),
             let supported = RemoteMarkdownReference.normalizedTypedPath(resolved)
         else { return nil }
         return supported
@@ -220,6 +242,7 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
             Text(String(localized: "Open Remote Markdown", comment: "Title for confirming one remote Markdown file read")).awFont(
                 AwFont.UI.title
             ).accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($confirmationFocused)
             Text(
                 String(
                     localized: "Read one file over SSH as a read-only snapshot.",
@@ -311,12 +334,15 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
                         }
                         return
                     }
-                    complete(.init(target: chosenTarget, path: resolved, base: RemoteMarkdownPath.normalize(base)))
+                    complete(.init(target: chosenTarget, path: resolved, base: RemoteMarkdownPath.normalize(trimmedBase)))
                 }.keyboardShortcut(.defaultAction).disabled(chosenTarget == nil || resolved == nil)
             }
         }
         .awFont(AwFont.UI.body)
         .padding(20).frame(minWidth: 420, idealWidth: 520)
-        .onAppear { focused = target == nil ? .alias : .path }
+        .onAppear {
+            focused = target == nil ? .alias : (locksPath ? nil : .path)
+            confirmationFocused = true
+        }
     }
 }

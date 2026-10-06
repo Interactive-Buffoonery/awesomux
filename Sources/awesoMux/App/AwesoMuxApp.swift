@@ -5645,12 +5645,19 @@ struct AwesoMuxApp: App {
                 sessionID: session.id, paneID: document?.associatedTerminalPaneID ?? session.activePaneID, store: sessionStore
             )
         else { return }
+        let progressOrigin: RemoteMarkdownFetchProgressCoordinator.Origin
+        if document != nil {
+            progressOrigin = .document
+        } else {
+            guard let paneID = captured.paneID else { return }
+            progressOrigin = .surface(paneID: paneID)
+        }
         Task { @MainActor in
             guard let read = await RemoteMarkdownReadRouting.authorize(path: "", origin: captured, store: sessionStore),
                 let prepared = RemoteMarkdownTypedPathOpen.prepareLoadingIfValid(
                     typedPath: read.reference.remotePath, target: read.attempt.target, sessionID: session.id,
                     sessionStore: sessionStore, capturedOrigin: captured, authorizedRead: read,
-                    origin: document == nil ? .surface(paneID: session.activePaneID) : .document,
+                    origin: progressOrigin,
                     overlayIdentity: document?.remoteResourceIdentity
                 ),
                 let tabID = await RemoteMarkdownTypedPathOpen.open(
