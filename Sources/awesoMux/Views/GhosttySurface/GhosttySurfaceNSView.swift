@@ -151,6 +151,10 @@ final class GhosttySurfaceNSView: NSView {
     /// and its invalidation triggers.
     var terminalAccessibilityScreenContentsCache = GhosttySurfaceAccessibilityScreenContentsCache()
 
+    // Native callbacks can precede their MainActor UI updates. Keep click
+    // routing synchronized without touching AppKit under Ghostty's lock.
+    nonisolated let nativeMouseLink = OSAllocatedUnfairLock(initialState: GhosttyNativeLinkState())
+
     var currentMouseSurfaceIdentity: UInt64? {
         surface == nil ? nil : lifecycleState.mouseSurfaceIncarnationID
     }
@@ -333,6 +337,7 @@ final class GhosttySurfaceNSView: NSView {
         terminalEventState.lastDetectedVisibleText = ""
         terminalEventState.lastAccessibilityReportedVisibleText = nil
 
+        nativeMouseLink.withLock { $0 = GhosttyNativeLinkState() }
         guard let surface else {
             lifecycleState.mouseSurfaceIncarnationID = nil
             return
@@ -348,6 +353,7 @@ final class GhosttySurfaceNSView: NSView {
         lifecycleState.mouseSurfaceIncarnationID = nil
         lifecycleState.lastAppliedSurfaceBackingState = nil
         runtime.freeSurface(surface)
+        nativeMouseLink.withLock { $0 = GhosttyNativeLinkState() }
     }
 
     func update(

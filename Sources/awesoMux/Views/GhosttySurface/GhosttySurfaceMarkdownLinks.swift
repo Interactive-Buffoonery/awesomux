@@ -22,6 +22,12 @@ extension GhosttySurfaceNSView {
                 surface: surfaceIdentity, reportedSurface: inputState.reportedMouseSurfaceIdentity)
         else { return nil }
 
+        let nativeLink = nativeMouseLink.withLock { $0 }
+        if let value = nativeLink.value, RemoteMarkdownReference.isPotentialPayload(value) {
+            return GhosttySurfaceMarkdownClick(value: value, origin: origin, surfaceIdentity: surfaceIdentity)
+        }
+        guard !nativeLink.isLink else { return nil }
+
         // Read current terminal text; asynchronous hover callbacks can still
         // describe a different filename even when the pointer is current.
         var word = ghostty_text_s()
@@ -36,6 +42,7 @@ extension GhosttySurfaceNSView {
             let value = GhosttyMarkdownClickProbe.filename(
                 selectedWord, start: UInt64(word.offset_start), length: UInt64(word.offset_len),
                 columns: UInt64(size.columns), rows: UInt64(size.rows), visible: word.tl_px_x >= 0 && word.tl_px_y >= 0,
+                hasNativeLink: nativeLink.isLink,
                 readCell: { self.markdownCell(at: $0, columns: UInt64(size.columns), surface: surface) })
         else { return nil }
         return GhosttySurfaceMarkdownClick(value: value, origin: origin, surfaceIdentity: surfaceIdentity)

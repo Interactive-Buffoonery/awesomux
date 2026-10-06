@@ -85,6 +85,20 @@ GhosttyMarkdownClickProbeTests` passed all 10 tests; its artifact is
 verification; its artifact is
 `.build/verification/pr733-hover-fallback-preflight.log`.
 
+The explicit-hyperlink correction stores native link callbacks synchronously
+under a lock, independently of deferred UI hover updates. A native hyperlink
+uses its actual target; its displayed filename never becomes a bare-file
+payload. Native pointer callbacks also block filename probing when link
+previews are disabled and no target callback is available. The cache clears
+when the surface is disposed, and plain-click target capture uses the same
+position/incarnation freshness check as filename probing.
+
+`swift test --filter GhosttyMarkdownClickProbeTests` passed all 11 tests.
+Artifact: `.build/verification/pr733-explicit-link-focused.log`.
+`./script/preflight.sh` also exited 0, including the full existing test run
+and production build/staged-app verification. Artifact:
+`.build/verification/pr733-explicit-link-preflight.log`.
+
 The focused checks exercise production policy, not the renderer or native
 mouse gestures. Native acceptance below remains outstanding.
 
@@ -112,7 +126,13 @@ files and a relative `[Next](next.md)` link in the first.
 5. Print HTTPS links ending in `.md`, email-like text, `.md.bak`, and non-Markdown
    names. Verify bare-word handling does not claim them. Preserve explicit
    terminal hyperlinks, ordinary selection, drag selection, and double-click
-   word selection. Bare filenames have no new hover underline.
+   word selection. Print an OSC 8 hyperlink labelled `notes.md` with an HTTPS
+   target, then another with a different Markdown file target. Plain-click and
+   Command-click must use the target, never the displayed `notes.md`. Repeat
+   with link previews disabled: Command-click must preserve native routing and
+   neither gesture may offer the displayed filename. Move from each link onto
+   a bare filename before the UI hover callback runs and verify the filename
+   still opens. Bare filenames have no new hover underline.
 6. Switch focus during the delayed click, edit/clear context, close the pane,
    reset the shell, and reconnect or submit another SSH command. Verify stale
    clicks cannot open using replacement context or fall back to Mac paths.

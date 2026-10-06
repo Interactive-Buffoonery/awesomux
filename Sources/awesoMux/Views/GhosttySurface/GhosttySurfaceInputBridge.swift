@@ -562,10 +562,17 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         if let markdown = markdownClick(at: event) {
             inputState.appOwnedMarkdownClickActive = true
             if event.clickCount == 1 { inputState.armedMarkdownClick = markdown }
-        } else if event.clickCount == 1, !event.modifierFlags.contains(.command),
-            !hasRemoteFileContext || !(inputState.mouseOverLink.map(RemoteMarkdownReference.isPotentialPayload) ?? false)
-        {
-            inputState.armedLinkClickValue = inputState.mouseOverLink
+        } else if event.clickCount == 1, !event.modifierFlags.contains(.command) {
+            if hasRemoteFileContext {
+                if GhosttyMarkdownClickProbe.isCurrent(
+                    press: mousePosition(for: event), reported: inputState.reportedMousePosition,
+                    surface: currentMouseSurfaceIdentity, reportedSurface: inputState.reportedMouseSurfaceIdentity)
+                {
+                    inputState.armedLinkClickValue = nativeMouseLink.withLock { $0.value }
+                }
+            } else {
+                inputState.armedLinkClickValue = inputState.mouseOverLink
+            }
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_LEFT, event: event)
         markNeedsAttentionPromptAnsweredFromCapturedMouse()

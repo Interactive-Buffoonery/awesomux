@@ -1,5 +1,20 @@
 import AppKit
 
+struct GhosttyNativeLinkState: Sendable {
+    private(set) var isLink = false
+    private(set) var value: String?
+
+    mutating func updatePointer(_ isPointer: Bool) {
+        isLink = isPointer
+        value = nil
+    }
+
+    mutating func updateTarget(_ target: String?) {
+        value = target.flatMap { $0.isEmpty ? nil : $0 }
+        isLink = value != nil
+    }
+}
+
 @MainActor
 enum GhosttyMarkdownClickProbe {
     static func isCurrent(press: CGPoint, reported: CGPoint?, surface: UInt64?, reportedSurface: UInt64?) -> Bool {
@@ -7,11 +22,11 @@ enum GhosttyMarkdownClickProbe {
     }
 
     static func filename(
-        _ text: String, start: UInt64, length: UInt64, columns: UInt64, rows: UInt64, visible: Bool,
+        _ text: String, start: UInt64, length: UInt64, columns: UInt64, rows: UInt64, visible: Bool, hasNativeLink: Bool = false,
         readCell: (UInt64) -> String?
     ) -> String? {
         let value = MarkdownLinkIntercept.strippingTrailingSentencePunctuation(text)
-        guard !value.isEmpty,
+        guard !hasNativeLink, !value.isEmpty,
             value.unicodeScalars.allSatisfy({
                 CharacterSet.alphanumerics.contains($0) || CharacterSet.nonBaseCharacters.contains($0)
                     || "._-/~".unicodeScalars.contains($0)

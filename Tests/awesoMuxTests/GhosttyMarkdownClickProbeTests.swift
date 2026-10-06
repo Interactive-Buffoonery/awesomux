@@ -73,6 +73,24 @@ import Testing
             ) { _ in " " } == "current.md")
     }
 
+    @Test func explicitHyperlinkLabelKeepsNativeRouting() {
+        #expect(
+            GhosttyMarkdownClickProbe.filename(
+                "notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true, hasNativeLink: true
+            ) { _ in " " } == nil)
+        var link = GhosttyNativeLinkState()
+        link.updatePointer(true)
+        #expect(link.isLink)
+        #expect(link.value == nil)
+        link.updateTarget("https://example.com/different")
+        #expect(link.value == "https://example.com/different")
+        link.updatePointer(false)
+        #expect(!link.isLink)
+        #expect(link.value == nil)
+        link.updateTarget("")
+        #expect(!link.isLink)
+    }
+
     @Test func nonFilenameTextKeepsNativeRouting() {
         #expect(
             GhosttyMarkdownClickProbe.filename(
