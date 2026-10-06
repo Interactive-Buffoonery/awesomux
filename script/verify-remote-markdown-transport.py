@@ -30,23 +30,68 @@ def method(source, name):
     return match.group().replace("private static func", "static func")
 
 
+PARENT_GUARD = """import os, stat
+
+def trusted_parent_fd(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    info = os.fstat(fd)
+    trusted_owner = info.st_uid in (0, os.getuid())
+    protected_entries = bool(info.st_mode & stat.S_ISVTX) or not (info.st_mode & 0o022)
+    if not trusted_owner or not protected_entries:
+        os.close(fd)
+        raise PermissionError("fixture parent must be trusted and private or sticky")
+    return fd
+"""
+
+
+def fixture_setup_command(parent=None, home=False):
+    prefix = ".amx-markdown-proof-" if home else "amx-markdown-proof-"
+    content = "# home proof\n" if home else "# managed snapshot proof\n"
+    script = PARENT_GUARD + f"""
+import secrets, tempfile
+parent = os.path.expanduser("~") if {home!r} else ({parent!r} or tempfile.gettempdir())
+if not os.path.isabs(parent):
+    raise ValueError("fixture parent must be absolute")
+parent_fd = trusted_parent_fd(parent)
+try:
+    name = {prefix!r} + secrets.token_hex(8)
+    os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+    leaf_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    try:
+        file_fd = os.open("README.md", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=leaf_fd)
+        with os.fdopen(file_fd, "w") as fixture:
+            fixture.write({content!r})
+    finally:
+        os.close(leaf_fd)
+    print(os.path.join(parent, name), end="")
+finally:
+    os.close(parent_fd)
+"""
+    return "python3 -c " + shlex.quote(script)
+
+
 def cleanup_fixture(host, path, multiplexing=()):
     candidate = PurePosixPath(path)
     if not candidate.is_absolute() or not re.fullmatch(r"\.?amx-markdown-proof-[A-Za-z0-9]+", candidate.name):
         raise RuntimeError("refusing cleanup of an unexpected fixture path")
-    script = f"""import os
+    script = PARENT_GUARD + f"""
 path = {path!r}
-fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+parent_fd = trusted_parent_fd(os.path.dirname(path))
 try:
-    if os.fstat(fd).st_uid != os.getuid():
-        raise PermissionError("fixture directory belongs to another user")
+    name = os.path.basename(path)
+    leaf_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
     try:
-        os.unlink("README.md", dir_fd=fd)
-    except FileNotFoundError:
-        pass
+        if os.fstat(leaf_fd).st_uid != os.getuid():
+            raise PermissionError("fixture directory belongs to another user")
+        try:
+            os.unlink("README.md", dir_fd=leaf_fd)
+        except FileNotFoundError:
+            pass
+    finally:
+        os.close(leaf_fd)
+    os.rmdir(name, dir_fd=parent_fd)
 finally:
-    os.close(fd)
-os.rmdir(path)
+    os.close(parent_fd)
 """
     result = run(["ssh"] + list(multiplexing) + ["-o", "BatchMode=yes", "--", host,
         "python3 -c " + shlex.quote(script)])
@@ -108,6 +153,7 @@ let value: [String: Any] = [
 print(String(data: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), encoding: .utf8)!)
 '''
     report = {"scope": "focused production-method proof; no app/UI E2E", "host": args.host}
+    report["fixtureParentPolicy"] = "POSIX root/current owner and private or sticky; pinned parent descriptor"
     report["sourceRevision"] = run(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).stdout.strip()
     report["sourceSHA256"] = {
         name: hashlib.sha256((services / name).read_bytes()).hexdigest()
@@ -121,13 +167,10 @@ print(String(data: try JSONSerialization.data(withJSONObject: value, options: [.
         compiled = run(["swiftc", str(source), "-o", str(executable)])
         if compiled.returncode:
             raise RuntimeError(compiled.stderr)
-        temp_override = ""
-        if args.remote_temp_directory:
-            if not PurePosixPath(args.remote_temp_directory).is_absolute():
-                parser.error("remote temp directory must be absolute")
-            temp_override = "TMPDIR=" + shlex.quote(args.remote_temp_directory) + "; "
+        if args.remote_temp_directory and not PurePosixPath(args.remote_temp_directory).is_absolute():
+            parser.error("remote temp directory must be absolute")
         setup = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", args.host,
-                     temp_override + "d=$(mktemp -d \"${TMPDIR:-/tmp}/amx-markdown-proof-XXXXXX\") || exit; printf '# managed snapshot proof\\n' > \"$d/README.md\"; printf '%s' \"$d\""])
+                     fixture_setup_command(args.remote_temp_directory)])
         if setup.returncode:
             raise RuntimeError("fixture setup failed: " + setup.stderr)
         remote_fixture = setup.stdout.strip()
@@ -158,7 +201,7 @@ print(String(data: try JSONSerialization.data(withJSONObject: value, options: [.
             # The default-shell read and explicit zsh read use the same
             # production-generated command, so shell coverage is unambiguous.
             home_setup = run(["ssh"] + values["multiplexing"] + ["--", args.host,
-                "d=$(mktemp -d \"$HOME/.amx-markdown-proof-XXXXXX\") || exit; printf '# home proof\\n' > \"$d/README.md\"; printf '%s' \"$d\""])
+                fixture_setup_command(home=True)])
             if home_setup.returncode:
                 raise RuntimeError(home_setup.stderr)
             home_directory = home_setup.stdout.strip()
