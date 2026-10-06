@@ -96,23 +96,11 @@ struct OpenURLAction {
 extension GhosttyRuntime {
     @MainActor
     static var recentLinkRemoteSnapshotProvider:
-        @MainActor (RemoteMarkdownReference, UUID) -> RemoteMarkdownFetchCoordinator.PreparedAttempt = {
-            RemoteMarkdownSnapshotFetcher().startAttempt(
-                $0,
-                consumer: .failurePresenter,
-                announcementSessionID: $1
-            )
-    }
+        (@MainActor (RemoteMarkdownReference, UUID) -> RemoteMarkdownFetchCoordinator.PreparedAttempt)?
 
     @MainActor
     static func resetRecentLinkRemoteSnapshotProviderForTesting() {
-        recentLinkRemoteSnapshotProvider = {
-            RemoteMarkdownSnapshotFetcher().startAttempt(
-                $0,
-                consumer: .failurePresenter,
-                announcementSessionID: $1
-            )
-        }
+        recentLinkRemoteSnapshotProvider = nil
     }
 
     @MainActor
@@ -174,14 +162,18 @@ extension GhosttyRuntime {
             return
         }
 
-        if case .ssh = pane.executionPlan,
+        if RemoteMarkdownReadRouting.isRemoteFileContext(pane),
             RemoteMarkdownReference.isPotentialPayload(value)
         {
-            guard let reference = RemoteMarkdownReference.make(payload: value, pane: pane) else {
-                remoteMarkdownRoutingFailurePresenter(nil)
-                return
-            }
-            let prepared = recentLinkRemoteSnapshotProvider(reference, sessionID)
+            guard let path = RemoteMarkdownReference.remotePath(from: value),
+                let captured = RemoteMarkdownReadRouting.origin(sessionID: sessionID, paneID: paneID, store: sessionStore),
+                let read = await RemoteMarkdownReadRouting.authorize(path: path, origin: captured, store: sessionStore),
+                RemoteMarkdownReadRouting.consume(read, store: sessionStore)
+            else { return }
+            let reference = read.reference
+            let prepared =
+                recentLinkRemoteSnapshotProvider?(reference, sessionID)
+                ?? read.fetcher(store: sessionStore).startAttempt(reference, consumer: .failurePresenter, announcementSessionID: sessionID)
             let origin = RemoteMarkdownFetchProgressCoordinator.Origin.surface(paneID: paneID)
             let progress = RemoteMarkdownFetchProgressCoordinator.shared
             _ = progress.begin(
@@ -189,8 +181,8 @@ extension GhosttyRuntime {
                 identity: reference.identity,
                 origin: origin
             )
-            let announcesOutcome = prepared.ownsAnnouncements
-            if announcesOutcome {
+            let ownsLoadingAnnouncement = prepared.ownsAnnouncements
+            if ownsLoadingAnnouncement {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
             defer {
@@ -200,8 +192,11 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            guard let outcome = await prepared.value().outcome else {
-                remoteMarkdownFetchFailurePresenter(nil)
+            let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
+            let fetched = attempt.outcome
+            guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return }
+            guard let outcome = fetched else {
+                if attempt.cohort.claimOutcome(sessionID: sessionID) { remoteMarkdownFetchFailurePresenter(nil) }
                 return
             }
             let hadVisibleDocument =
@@ -211,19 +206,21 @@ extension GhosttyRuntime {
                 sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                 .selectedTab?.remoteResourceIdentity
             let currentRemoteIdentity = outcome.snapshot.identity
-            RemoteMarkdownTabRefresh.apply(
+            let openedID = RemoteMarkdownTabRefresh.apply(
                 outcome,
                 in: sessionID,
                 associatedWith: paneID,
                 sessionStore: sessionStore,
+                readPolicy: read.attempt.readPolicy,
                 selectingTab: true
             )
             // When no document view was mounted, DocumentGroupView's .onChange
             // never fires, so this call is the only announcement. Otherwise
             // speak only for a same-identity in-place refresh, where
             // DocumentGroupView intentionally suppresses "Now showing".
-            if announcesOutcome,
-                !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity
+            if openedID != nil,
+                !hadVisibleDocument || previousRemoteIdentity == currentRemoteIdentity,
+                attempt.cohort.claimOutcome(sessionID: sessionID)
             {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
@@ -373,18 +370,27 @@ extension GhosttyRuntime {
         let workspaceID = view.sessionID
         let paneID = view.paneID
         guard let pane = view.sessionStore.session(id: workspaceID)?.layout.pane(id: paneID) else {
+            if RemoteMarkdownReadRouting.isRemoteFileContext(view.pane), RemoteMarkdownReference.isPotentialPayload(action.value) {
+                return
+            }
             if let url = action.url {
                 openURL(url)
             }
             return
         }
 
-        if case .ssh = pane.executionPlan, RemoteMarkdownReference.isPotentialPayload(action.value) {
-            guard let reference = RemoteMarkdownReference.make(payload: action.value, pane: pane) else {
-                remoteMarkdownRoutingFailurePresenter(view)
-                return
-            }
-            let prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+        if RemoteMarkdownReadRouting.isRemoteFileContext(pane), RemoteMarkdownReference.isPotentialPayload(action.value) {
+            guard let path = RemoteMarkdownReference.remotePath(from: action.value),
+                let captured = RemoteMarkdownReadRouting.origin(sessionID: workspaceID, paneID: paneID, store: view.sessionStore),
+                let read = await RemoteMarkdownReadRouting.authorize(path: path, origin: captured, store: view.sessionStore),
+                DeferredPaneEventDispatchGuard.shouldApply(
+                    capturedSessionID: workspaceID, capturedPaneID: paneID,
+                    currentSessionID: view.sessionID, currentPaneID: view.paneID
+                ),
+                RemoteMarkdownReadRouting.consume(read, store: view.sessionStore)
+            else { return }
+            let reference = read.reference
+            let prepared = read.fetcher(store: view.sessionStore).startAttempt(
                 reference,
                 consumer: .failurePresenter,
                 announcementSessionID: workspaceID
@@ -396,8 +402,8 @@ extension GhosttyRuntime {
                 identity: reference.identity,
                 origin: origin
             )
-            let announcesOutcome = prepared.ownsAnnouncements
-            if announcesOutcome {
+            let ownsLoadingAnnouncement = prepared.ownsAnnouncements
+            if ownsLoadingAnnouncement {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdownLoading()
             }
             defer {
@@ -407,8 +413,11 @@ extension GhosttyRuntime {
                     origin: origin
                 )
             }
-            guard let outcome = await prepared.value().outcome else {
-                remoteMarkdownFetchFailurePresenter(view)
+            let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
+            let fetched = attempt.outcome
+            guard RemoteMarkdownReadRouting.validate(read, store: view.sessionStore), !Task.isCancelled else { return }
+            guard let outcome = fetched else {
+                if attempt.cohort.claimOutcome(sessionID: workspaceID) { remoteMarkdownFetchFailurePresenter(view) }
                 return
             }
             // A rejected dispatch means the pane/session moved on while this
@@ -426,14 +435,15 @@ extension GhosttyRuntime {
             else {
                 return
             }
-            RemoteMarkdownTabRefresh.apply(
+            let openedID = RemoteMarkdownTabRefresh.apply(
                 outcome,
                 in: workspaceID,
                 associatedWith: paneID,
                 sessionStore: view.sessionStore,
+                readPolicy: read.attempt.readPolicy,
                 selectingTab: true
             )
-            if announcesOutcome {
+            if openedID != nil, attempt.cohort.claimOutcome(sessionID: workspaceID) {
                 TerminalAccessibilityAnnouncer.announceRemoteMarkdown(outcome)
             }
             return

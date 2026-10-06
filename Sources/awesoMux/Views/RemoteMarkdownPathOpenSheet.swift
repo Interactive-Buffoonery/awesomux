@@ -9,6 +9,8 @@ struct RemoteMarkdownPathOpenSheet: View {
     let target: RemoteTarget
     let onCancel: () -> Void
     let onOpen: (String) -> Void
+    let isOriginCurrent: () -> Bool
+    @State private var originChanged = false
 
     @State private var draftPath: String
     @FocusState private var isPathFocused: Bool
@@ -16,12 +18,14 @@ struct RemoteMarkdownPathOpenSheet: View {
     init(
         target: RemoteTarget,
         initialPath: String = "",
+        isOriginCurrent: @escaping () -> Bool = { true },
         onCancel: @escaping () -> Void,
         onOpen: @escaping (String) -> Void
     ) {
         self.target = target
         self.onCancel = onCancel
         self.onOpen = onOpen
+        self.isOriginCurrent = isOriginCurrent
         _draftPath = State(initialValue: initialPath)
     }
 
@@ -85,6 +89,12 @@ struct RemoteMarkdownPathOpenSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if originChanged {
+                Text(RemoteMarkdownReadRouting.originChangedMessage)
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) {
@@ -158,6 +168,13 @@ struct RemoteMarkdownPathOpenSheet: View {
 
     private func submit(_ path: String?) {
         guard let path else { return }
+        guard isOriginCurrent() else {
+            if !originChanged {
+                originChanged = true
+                TerminalAccessibilityAnnouncer.announce(RemoteMarkdownReadRouting.originChangedMessage)
+            }
+            return
+        }
         onOpen(path)
     }
 }

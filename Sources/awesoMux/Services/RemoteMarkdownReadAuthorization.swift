@@ -73,7 +73,7 @@ final class RemoteMarkdownReadAuthorization {
     private var attempts: [UUID: (attempt: RemoteMarkdownReadAttempt, stage: Stage)] = [:]
     private var registrationOrder: [UUID] = []
 
-    func authorizeDeclared(origin: RemoteMarkdownReadOrigin) -> RemoteMarkdownReadAttempt? {
+    func authorizeDeclared(origin: RemoteMarkdownReadOrigin, chosenBaseDirectory: String? = nil) -> RemoteMarkdownReadAttempt? {
         guard origin.documentReadPolicy != .confirmationRequired else { return nil }
         let target: RemoteTarget
         if origin.documentID != nil {
@@ -90,7 +90,7 @@ final class RemoteMarkdownReadAuthorization {
             guard let declaredTarget = origin.executionPlan?.remoteTarget else { return nil }
             target = declaredTarget
         }
-        return register(origin: origin, target: target, policy: .declaredIdentity, chosenBaseDirectory: nil)
+        return register(origin: origin, target: target, policy: .declaredIdentity, chosenBaseDirectory: chosenBaseDirectory)
     }
 
     /// Call only after the user approves this exact independent file-read target.
@@ -125,6 +125,16 @@ final class RemoteMarkdownReadAuthorization {
             return false
         }
         attempts[attempt.token] = (attempt, .fetching)
+        return true
+    }
+
+    func validateBeforeTransport(_ attempt: RemoteMarkdownReadAttempt, currentOrigin: RemoteMarkdownReadOrigin?) -> Bool {
+        guard let entry = attempts[attempt.token], entry.attempt == attempt,
+            case .fetching = entry.stage, currentOrigin == attempt.origin
+        else {
+            discard(attempt)
+            return false
+        }
         return true
     }
 

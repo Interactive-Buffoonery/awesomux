@@ -62,3 +62,24 @@ Relative paths require explicitly reported remote working-directory metadata,
 and missing or malformed identity fails closed without local filesystem
 fallback. The bounded non-interactive SSH transport described above remains
 unchanged.
+
+## Amendment: independent one-operation file reads
+
+An unmanaged SSH terminal may open a remote Markdown snapshot after the user
+explicitly chooses an independent OpenSSH config alias and confirms the exact
+file path. Submitted-command observations may prefill a simple alias but never
+authorize the destination or recreate flags, wrappers, or nested connections.
+This permission covers one file read; Refresh, document navigation, and later
+opens require confirmation again. It does not change the terminal execution plan.
+
+A declared snapshot retains its saved destination. Snapshots from confirmed reads
+persist a restrictive read policy and restore cached-only, regardless of launch
+refresh settings. Equal-resource tab deduplication can tighten this policy but
+cannot relax it. Every network entry point consumes operation authorization
+before starting and revalidates its originating pane or document after awaiting.
+
+Terminal-relative links without trustworthy remote cwd metadata ask for an
+explicit base directory or full `/…` or `~/…` path. Unqualified daemon or pane
+cwd strings do not authorize resolution. Managed reads retain declared authority
+and managed transport after this path choice. Unmanaged reads use independent
+noninteractive OpenSSH, with no managed control socket or local-file fallback.

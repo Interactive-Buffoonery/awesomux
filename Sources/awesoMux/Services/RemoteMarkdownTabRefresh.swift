@@ -40,6 +40,7 @@ enum RemoteMarkdownTabRefresh {
         in sessionID: TerminalSession.ID,
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
+        readPolicy: RemoteDocumentReadPolicy = .declaredIdentity,
         selectingTab: Bool,
         announceOutcome: Bool = false
     ) -> DocumentPane.ID? {
@@ -54,6 +55,7 @@ enum RemoteMarkdownTabRefresh {
             in: sessionID,
             associatedWith: paneID,
             remoteResourceIdentity: snapshot.identity,
+            remoteReadPolicy: readPolicy,
             // Footer Refresh / live open: heal a dead (restored-nil)
             // association. Restore re-fetch keeps `.preserveNil` so a
             // background tab cannot capture the launch-time active pane.
@@ -134,6 +136,20 @@ enum RemoteMarkdownTabRefresh {
         else {
             return nil
         }
+        let livePaneID = paneID.flatMap { sessionStore.session(id: sessionID)?.layout.pane(id: $0)?.id }
+        guard
+            let captured = RemoteMarkdownReadRouting.origin(
+                sessionID: sessionID, paneID: livePaneID, documentID: documentID, store: sessionStore
+            )
+        else { return nil }
+        guard captured.documentIdentity == identity else { return nil }
+        // Background restore cannot ask for a new one-operation confirmation.
+        if !selectingTab, captured.documentReadPolicy == .confirmationRequired { return nil }
+        guard
+            let read = await RemoteMarkdownReadRouting.authorize(
+                path: reference.remotePath, origin: captured, store: sessionStore, locksPath: true
+            ), !Task.isCancelled, RemoteMarkdownReadRouting.consume(read, store: sessionStore)
+        else { return nil }
         // Footer Refresh shares announcement ownership with link opens for the
         // same remote file. Keep the tab latch above as the stronger duplicate
         // guard for repeated Refresh clicks; this identity-keyed claim only
@@ -155,7 +171,7 @@ enum RemoteMarkdownTabRefresh {
                 onFinished: nil
             )
         } else {
-            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+            prepared = read.fetcher(store: sessionStore).startAttempt(
                 reference,
                 consumer: consumer,
                 announcementSessionID: sessionID
@@ -185,24 +201,15 @@ enum RemoteMarkdownTabRefresh {
                 )
             }
         }
-        let attempt = await prepared.value()
+        let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
         let fetchedOutcome = attempt.outcome
-        if Task.isCancelled {
-            if let fetchedOutcome,
-                announceOutcome,
-                ownsAnnouncements,
-                attempt.hasCoalescedInteractiveConsumer,
-                sessionStore.session(id: sessionID) != nil
-            {
-                onAnnounceOutcome(fetchedOutcome)
-            }
-            return nil
-        }
+        guard RemoteMarkdownReadRouting.validate(read, store: sessionStore) else { return nil }
+        guard !Task.isCancelled else { return nil }
         guard let outcome = fetchedOutcome else {
             let ownsFailureAnnouncement =
                 announceFailure
                 ? !attempt.hasInteractiveConsumer
-                : ownsAnnouncements
+                : true
             // A nil outcome is a failed attempt (typically a cache/failure-page
             // write miss), not success. Note the policy against the tab's
             // current path so the stale banner can say so, and speak it for the
@@ -211,14 +218,6 @@ enum RemoteMarkdownTabRefresh {
                 let tab = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?
                     .tab(id: documentID)
             else {
-                if announceOutcome,
-                    ownsFailureAnnouncement,
-                    attempt.hasCoalescedInteractiveConsumer,
-                    !attempt.hasFailurePresenter,
-                    sessionStore.session(id: sessionID) != nil
-                {
-                    onAnnounceFailure()
-                }
                 return nil
             }
             let path = tab.fileURL.standardizedFileURL.path
@@ -230,7 +229,8 @@ enum RemoteMarkdownTabRefresh {
                 RemoteSnapshotStalePolicy.note(.remoteRefreshFailed, path: path)
                 if ownsFailureAnnouncement,
                     announceOutcome || announceFailure,
-                    !attempt.hasFailurePresenter
+                    announceOutcome || !attempt.hasFailurePresenter,
+                    attempt.cohort.claimOutcome(sessionID: sessionID)
                 {
                     onAnnounceFailure()
                 }
@@ -242,24 +242,17 @@ enum RemoteMarkdownTabRefresh {
         guard let liveSession = sessionStore.session(id: sessionID) else {
             return nil
         }
-        guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else {
-            if announceOutcome,
-                ownsAnnouncements,
-                attempt.hasCoalescedInteractiveConsumer
-            {
-                onAnnounceOutcome(outcome)
-            }
-            return nil
-        }
+        guard liveSession.layout.firstDocumentGroup?.tab(id: documentID) != nil else { return nil }
         let openedID = apply(
             outcome,
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
+            readPolicy: read.attempt.readPolicy,
             selectingTab: selectingTab,
             announceOutcome: false
         )
-        if announceOutcome, ownsAnnouncements, openedID != nil {
+        if announceOutcome, openedID != nil, attempt.cohort.claimOutcome(sessionID: sessionID) {
             onAnnounceOutcome(outcome)
         }
         return outcome
@@ -297,7 +290,9 @@ enum RemoteMarkdownTabRefresh {
         }
         guard automaticallyRefresh else { return }
         let candidates: [(RestoreTarget, URL)] = targets.compactMap { target in
-            guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID) else {
+            guard let tab = store.session(id: target.sessionID)?.layout.firstDocumentGroup?.tab(id: target.documentID),
+                tab.remoteReadPolicy == .declaredIdentity
+            else {
                 return nil
             }
             return (target, tab.fileURL)

@@ -52,7 +52,11 @@ awesoMux can open local Markdown files right next to your terminal, so you can
 read, review, and mark up notes without losing sight of the agent doing the
 work.
 
-Restored remote Markdown shows the saved copy until you click **Refresh**. To fetch it automatically over SSH at launch, enable **Settings → General → Refresh remote Markdown on launch** (off by default). Automatic refresh reuses snapshots written less than a minute ago; **Refresh** always fetches.
+Remote Markdown links open read-only snapshots over OpenSSH. Declared SSH panes use their declared destination and managed connection. A relative terminal link asks you to choose a remote base directory or enter a full `/…` or `~/…` path; the app does not infer a trustworthy remote directory from the local daemon.
+
+In an ordinary terminal running SSH, choose an independent file-read alias from `~/.ssh/config` and confirm the exact destination and resolved path. This reads one file without converting the terminal into a managed workspace. Terminal SSH flags, nested connections, and wrappers are not recreated. OpenSSH owns credentials; the app does not request or store them. Every later **Refresh**, Markdown link, or new file read requires another confirmation.
+
+Restored remote Markdown shows the saved copy until you click **Refresh**. To fetch declared snapshots automatically over SSH at launch, enable **Settings → General → Refresh remote Markdown on launch** (off by default). Automatic refresh reuses snapshots written less than a minute ago; **Refresh** always fetches. Snapshots requiring confirmation always restore from cache, even when launch refresh is enabled.
 
 Markdown panes are meant to support the terminal, not replace it: each workspace
 still keeps at least one terminal pane open. You can open `.md` and

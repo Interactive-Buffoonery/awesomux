@@ -10,6 +10,7 @@ import Foundation
 enum RemoteMarkdownTypedPathOpen {
     struct PreparedOpen {
         let reference: RemoteMarkdownReference
+        let read: RemoteMarkdownReadRouting.Read
         let attempt: RemoteMarkdownFetchCoordinator.PreparedAttempt
         let progressClaim: RemoteMarkdownFetchProgressCoordinator.Claim
     }
@@ -102,6 +103,9 @@ enum RemoteMarkdownTypedPathOpen {
         typedPath: String,
         target: RemoteTarget,
         sessionID: TerminalSession.ID,
+        sessionStore: SessionStore? = nil,
+        capturedOrigin: RemoteMarkdownReadOrigin? = nil,
+        authorizedRead: RemoteMarkdownReadRouting.Read? = nil,
         origin: RemoteMarkdownFetchProgressCoordinator.Origin,
         overlayIdentity: ResourceIdentity? = nil,
         progress: RemoteMarkdownFetchProgressCoordinator = .shared,
@@ -117,9 +121,25 @@ enum RemoteMarkdownTypedPathOpen {
             onRoutingFailure()
             return nil
         }
+        guard let sessionStore else { return nil }
+        let captured = capturedOrigin ?? submissionOrigin(sessionID: sessionID, paneID: nil, store: sessionStore, target: target)
+        let read: RemoteMarkdownReadRouting.Read
+        if let authorizedRead {
+            read = authorizedRead
+        } else {
+            guard let captured, let authorization = RemoteMarkdownReadRouting.authorization.authorizeDeclared(origin: captured),
+                authorization.target == target
+            else { return nil }
+            read = .init(reference: reference, attempt: authorization)
+        }
+        guard read.reference == reference else {
+            RemoteMarkdownReadRouting.authorization.discard(read.attempt)
+            return nil
+        }
+        guard RemoteMarkdownReadRouting.consume(read, store: sessionStore) else { return nil }
         let attempt =
             startAttempt?(reference)
-            ?? RemoteMarkdownSnapshotFetcher().startAttempt(
+            ?? read.fetcher(store: sessionStore).startAttempt(
                 reference,
                 consumer: .failurePresenter,
                 announcementSessionID: sessionID
@@ -133,7 +153,7 @@ enum RemoteMarkdownTypedPathOpen {
         if attempt.ownsAnnouncements {
             onAnnounceLoading()
         }
-        return PreparedOpen(reference: reference, attempt: attempt, progressClaim: claim)
+        return PreparedOpen(reference: reference, read: read, attempt: attempt, progressClaim: claim)
     }
 
     /// Interactive typed-path open. Mirrors OSC / Md→Md a11y for non-sheet
@@ -156,9 +176,7 @@ enum RemoteMarkdownTypedPathOpen {
         in sessionID: TerminalSession.ID,
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
-        fetch: @MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? = {
-            await RemoteMarkdownSnapshotFetcher().fetch($0)
-        },
+        fetch: (@MainActor (RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome?)? = nil,
         onRoutingFailure: @MainActor () -> Void = {
             GhosttyRuntime.remoteMarkdownRoutingFailurePresenter(nil)
         },
@@ -179,6 +197,17 @@ enum RemoteMarkdownTypedPathOpen {
         guard let reference = preparedOpen?.reference ?? reference(typedPath: typedPath, target: target) else {
             onRoutingFailure()
             return nil
+        }
+        let read: RemoteMarkdownReadRouting.Read
+        if let preparedOpen {
+            read = preparedOpen.read
+        } else {
+            guard let captured = submissionOrigin(sessionID: sessionID, paneID: paneID, store: sessionStore, target: target),
+                let authorized = await RemoteMarkdownReadRouting.authorize(
+                    path: typedPath, origin: captured, store: sessionStore, proposedTarget: target
+                ), authorized.reference == reference, RemoteMarkdownReadRouting.consume(authorized, store: sessionStore)
+            else { return nil }
+            read = authorized
         }
         let claim: RemoteMarkdownFetchProgressCoordinator.Claim
         if let preparedOpen {
@@ -209,35 +238,37 @@ enum RemoteMarkdownTypedPathOpen {
             }
         }
         defer { progress.finish(claim) }
-        let outcome =
+        let attempt = await RemoteMarkdownReadRouting.wait(for: read) {
             if let preparedOpen {
-                await preparedOpen.attempt.value().outcome
+                return await preparedOpen.attempt.value()
+            } else if let fetch {
+                let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+                cohort.add(.failurePresenter)
+                return RemoteMarkdownFetchCoordinator.Attempt(
+                    outcome: await fetch(reference), cohort: cohort, announcementSessionID: sessionID
+                )
             } else {
-                await fetch(reference)
+                return await read.fetcher(store: sessionStore).startAttempt(
+                    reference, consumer: .failurePresenter, announcementSessionID: sessionID
+                ).value()
             }
+        }
+        let outcome = attempt.outcome
+        guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return nil }
         guard let outcome else {
-            onFetchFailure()
+            if attempt.cohort.claimOutcome(sessionID: sessionID) { onFetchFailure() }
             return nil
         }
         // Sheet dismiss already happened; the associated SSH pane can reconnect
         // or repoint during the round trip. Applying host-A bytes onto a pane
         // that now names host B would attach the snapshot to the wrong context.
         guard
-            associatedContextStillMatches(
-                capturedTarget: target,
-                in: sessionID,
-                associatedWith: paneID,
-                sessionStore: sessionStore
-            )
-        else {
-            return nil
-        }
-        guard
             let openedID = RemoteMarkdownTabRefresh.apply(
                 outcome,
                 in: sessionID,
                 associatedWith: paneID,
                 sessionStore: sessionStore,
+                readPolicy: read.attempt.readPolicy,
                 selectingTab: true,
                 announceOutcome: false
             )
@@ -249,10 +280,25 @@ enum RemoteMarkdownTypedPathOpen {
             // to explain.
             return nil
         }
-        if preparedOpen?.attempt.ownsAnnouncements ?? claim.isFirstWaiter {
+        if attempt.cohort.claimOutcome(sessionID: sessionID) {
             onAnnounceOutcome(outcome)
         }
         return openedID
+    }
+
+    @MainActor
+    static func submissionOrigin(sessionID: TerminalSession.ID, paneID: TerminalPane.ID?, store: SessionStore, target: RemoteTarget? = nil)
+        -> RemoteMarkdownReadOrigin?
+    {
+        guard let session = store.session(id: sessionID) else { return nil }
+        if let document = session.layout.firstDocumentGroup?.selectedTab,
+            document.remoteResourceIdentity != nil,
+            target == nil || document.remoteResourceIdentity?.remoteTarget == target
+        {
+            let associated = document.associatedTerminalPaneID.flatMap { session.layout.pane(id: $0)?.id }
+            return RemoteMarkdownReadRouting.origin(sessionID: sessionID, paneID: associated, documentID: document.id, store: store)
+        }
+        return RemoteMarkdownReadRouting.origin(sessionID: sessionID, paneID: paneID ?? session.activePaneID, store: store)
     }
 
     /// After a fetch, refuse apply when the originating session/pane is gone or

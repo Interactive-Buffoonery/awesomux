@@ -31,6 +31,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
     static func open(
         url: URL,
         from source: ResourceIdentity,
+        sourceDocumentID: DocumentPane.ID? = nil,
         in sessionID: TerminalSession.ID,
         associatedWith paneID: TerminalPane.ID?,
         sessionStore: SessionStore,
@@ -66,6 +67,21 @@ enum RemoteMarkdownDocumentLinkNavigation {
             return nil
         }
         defer { coordinator?.finish(sessionID: sessionID, identity: reference.identity) }
+        let sourceDocument: DocumentPane?
+        if let sourceDocumentID {
+            sourceDocument = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(id: sourceDocumentID)
+        } else {
+            sourceDocument = sessionStore.session(id: sessionID)?.layout.firstDocumentGroup?.tab(forRemoteResource: source)
+        }
+        guard let sourceDocument,
+            sourceDocument.remoteResourceIdentity == source,
+            let captured = RemoteMarkdownReadRouting.origin(
+                sessionID: sessionID, paneID: paneID, documentID: sourceDocument.id, store: sessionStore
+            ),
+            let read = await RemoteMarkdownReadRouting.authorize(
+                path: reference.remotePath, origin: captured, store: sessionStore, locksPath: true),
+            RemoteMarkdownReadRouting.consume(read, store: sessionStore)
+        else { return nil }
         let prepared: RemoteMarkdownFetchCoordinator.PreparedAttempt
         if let startAttempt {
             prepared = startAttempt(reference)
@@ -82,7 +98,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
                 onFinished: nil
             )
         } else {
-            prepared = RemoteMarkdownSnapshotFetcher().startAttempt(
+            prepared = read.fetcher(store: sessionStore).startAttempt(
                 reference,
                 consumer: .document,
                 announcementSessionID: sessionID
@@ -107,15 +123,16 @@ enum RemoteMarkdownDocumentLinkNavigation {
                 overlayIdentity: source
             )
         }
-        let attempt = await prepared.value()
+        let attempt = await RemoteMarkdownReadRouting.wait(for: read) { await prepared.value() }
+        guard RemoteMarkdownReadRouting.validate(read, store: sessionStore), !Task.isCancelled else { return nil }
         guard let outcome = attempt.outcome else {
             guard sessionStore.session(id: sessionID) != nil else {
                 return nil
             }
             // The sheet is both the sighted failure state and VoiceOver's
-            // result cue. Refresh/restore owners defer to it when a document
-            // waiter joined, so presenting it here does not double-speak.
-            onFetchFailure()
+            // result cue. A prior live Refresh may already have claimed the
+            // result through its visible stale banner and failure announcement.
+            if attempt.cohort.claimOutcome(sessionID: sessionID) { onFetchFailure() }
             return nil
         }
         // Checked after the fetch so a tab opened or closed elsewhere during
@@ -128,12 +145,12 @@ enum RemoteMarkdownDocumentLinkNavigation {
             in: sessionID,
             associatedWith: paneID,
             sessionStore: sessionStore,
+            readPolicy: read.attempt.readPolicy,
             selectingTab: true,
             announceOutcome: false
         )
-        if isFirstWaiter, openedID != nil {
-            onAnnounceOutcome(outcome)
-        }
+        let ownsOutcome = openedID != nil && attempt.cohort.claimOutcome(sessionID: sessionID)
+        if ownsOutcome { onAnnounceOutcome(outcome) }
         // Stale cache and failure pages contradict the cue; a session gone
         // mid-fetch returns nil from apply. Existing tabs must confirm that
         // their mounted viewport or saved unmounted anchor was reset first.
@@ -144,7 +161,7 @@ enum RemoteMarkdownDocumentLinkNavigation {
         {
             let landedAtTop =
                 !targetAlreadyOpen || onScrollFragmentTargetToTop(openedID)
-            if isFirstWaiter, landedAtTop {
+            if ownsOutcome, landedAtTop {
                 onAnnounceFragmentOpened()
             }
         }
