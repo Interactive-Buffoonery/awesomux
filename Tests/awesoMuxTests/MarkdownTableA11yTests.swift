@@ -195,8 +195,11 @@ struct WideTableOverflowTests {
         #expect(textView.frame.width == 500)
     }
 
-    @Test("a clip-view frame notification drives the coalesced geometry pass")
-    func notificationDrivenResize() throws {
+    @Test(
+        "a clip-view frame notification drives the coalesced geometry pass",
+        arguments: [NSScroller.Style.overlay, .legacy]
+    )
+    func notificationDrivenResize(scrollerStyle: NSScroller.Style) throws {
         let prose = "A body paragraph that is fine."
         let (scrollView, textView, coordinator, _) = makeWideTableHarness(source: prose)
 
@@ -210,6 +213,7 @@ struct WideTableOverflowTests {
         )
         defer { NotificationCenter.default.removeObserver(coordinator) }
 
+        scrollView.scrollerStyle = scrollerStyle
         scrollView.setFrameSize(NSSize(width: 500, height: 400))
         // The observer coalesces through one runloop hop; spin the runloop
         // until the pass lands (bounded, so a regression fails fast). The
@@ -220,12 +224,20 @@ struct WideTableOverflowTests {
             (storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil)
                 as? NSParagraphStyle)?.tailIndent
         }
+        // AppKit can reconcile the style with system preferences while the
+        // runloop drains. Legacy scrollers reserve width even for short prose.
+        func expectedTailIndent() -> CGFloat {
+            let scrollerWidth =
+                scrollView.scrollerStyle == .legacy
+                ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+            return 500 - textView.textContainerInset.width * 2 - scrollerWidth
+        }
         let deadline = Date().addingTimeInterval(2)
-        while tailIndent() != 460, Date() < deadline {
+        while tailIndent() != expectedTailIndent(), Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
 
-        #expect(tailIndent() == CGFloat(460))
+        #expect(tailIndent() == expectedTailIndent())
         #expect(textView.frame.width == 500)
     }
 
