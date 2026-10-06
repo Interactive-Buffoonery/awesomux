@@ -125,7 +125,10 @@ print(String(data: try JSONSerialization.data(withJSONObject: value, options: [.
             if not re.fullmatch(r"\.amx-markdown-proof-[A-Za-z0-9]+", home_directory):
                 raise RuntimeError("unexpected home fixture name from remote setup")
             try:
-                home_values = json.loads(run([str(executable), args.host, "~/" + home_directory + "/README.md"]).stdout)
+                home_run = run([str(executable), args.host, "~/" + home_directory + "/README.md"])
+                if home_run.returncode:
+                    raise RuntimeError(home_run.stderr)
+                home_values = json.loads(home_run.stdout)
                 home_read = run(["ssh"] + no_auth + home_values["managed"])
                 report["tildeReadExit"] = home_read.returncode
                 report["tildeContentMatches"] = home_read.stdout == "# home proof\n"
