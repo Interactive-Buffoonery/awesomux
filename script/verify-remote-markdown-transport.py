@@ -205,6 +205,7 @@ print(String(data: try JSONSerialization.data(withJSONObject: value, options: [.
             report["passed"] = (
                 fresh.returncode != 0 and reused.returncode == 0
                 and report["managedContentMatches"] and report["tildeContentMatches"]
+                and report["tildeReadExit"] == 0
                 and report.get("zshReadExit", 0) == 0
                 and report.get("zshContentMatches", True)
                 and report.get("zshLegacyReadExit", 20) == 20
