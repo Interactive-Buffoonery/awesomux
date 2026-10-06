@@ -1,0 +1,140 @@
+import AwesoMuxBridgeProtocol
+import AwesoMuxCore
+import Foundation
+
+/// Captured identity, not a connection grant. Observations only invalidate an
+/// unmanaged attempt; they never supply its independently confirmed target.
+struct RemoteMarkdownReadOrigin: Equatable, Sendable {
+    let sessionID: TerminalSession.ID
+    let documentID: DocumentPane.ID?
+    let documentIdentity: ResourceIdentity?
+    let documentReadPolicy: RemoteDocumentReadPolicy?
+    let associatedTerminalPaneID: TerminalPane.ID?
+    let paneID: TerminalPane.ID?
+    let terminalSessionID: TerminalSessionID?
+    let executionPlan: PaneExecutionPlan?
+    let connectionHealth: RemoteConnectionHealth?
+    let observedRemoteHost: String?
+    let observedSSHTarget: String?
+    let pendingSSHTarget: String?
+    let observedPendingSSHProcess: Bool?
+
+    init(sessionID: TerminalSession.ID, pane: TerminalPane?, document: DocumentPane? = nil) {
+        precondition(pane != nil || document != nil)
+        self.sessionID = sessionID
+        documentID = document?.id
+        documentIdentity = document?.remoteResourceIdentity
+        documentReadPolicy = document?.remoteReadPolicy
+        associatedTerminalPaneID = document?.associatedTerminalPaneID
+        paneID = pane?.id
+        terminalSessionID = pane?.terminalSessionID
+        executionPlan = pane?.executionPlan
+        connectionHealth = pane?.remoteConnectionHealth
+        let observesUnmanaged = pane?.executionPlan == .local
+        observedRemoteHost = observesUnmanaged ? pane?.remoteHost : nil
+        observedSSHTarget = observesUnmanaged ? pane?.remoteSSHTarget : nil
+        pendingSSHTarget = observesUnmanaged ? pane?.pendingRemoteSSHTarget : nil
+        observedPendingSSHProcess = observesUnmanaged ? pane?.hasObservedPendingRemoteSSHProcess : nil
+    }
+}
+
+struct RemoteMarkdownReadAttempt: Equatable, Sendable {
+    let origin: RemoteMarkdownReadOrigin
+    let target: RemoteTarget
+    let readPolicy: RemoteDocumentReadPolicy
+    /// The explicitly chosen base, never an inferred current working directory.
+    let chosenBaseDirectory: String?
+    fileprivate let token: UUID
+
+    fileprivate init(
+        origin: RemoteMarkdownReadOrigin,
+        target: RemoteTarget,
+        readPolicy: RemoteDocumentReadPolicy,
+        chosenBaseDirectory: String?
+    ) {
+        self.origin = origin
+        self.target = target
+        self.readPolicy = readPolicy
+        self.chosenBaseDirectory = chosenBaseDirectory
+        token = UUID()
+    }
+}
+
+/// One operation per authorization. No reliable unmanaged SSH lifecycle epoch
+/// exists, so every later read must return to explicit confirmation.
+@MainActor
+final class RemoteMarkdownReadAuthorization {
+    private enum Stage {
+        case authorized
+        case fetching
+    }
+
+    private var attempts: [UUID: (attempt: RemoteMarkdownReadAttempt, stage: Stage)] = [:]
+
+    func authorizeDeclared(origin: RemoteMarkdownReadOrigin) -> RemoteMarkdownReadAttempt? {
+        guard origin.documentReadPolicy != .confirmationRequired,
+            let target = origin.executionPlan?.remoteTarget,
+            origin.documentIdentity == nil || origin.documentIdentity?.location == .remote(target)
+        else {
+            return nil
+        }
+        return register(origin: origin, target: target, policy: .declaredIdentity, chosenBaseDirectory: nil)
+    }
+
+    /// Call only after the user approves this exact independent file-read target.
+    /// Confirmation never edits the terminal's execution plan or persisted target.
+    func confirmOneOperation(
+        origin: RemoteMarkdownReadOrigin,
+        target: RemoteTarget,
+        chosenBaseDirectory: String? = nil
+    ) -> RemoteMarkdownReadAttempt? {
+        guard origin.documentIdentity == nil || origin.documentIdentity?.location == .remote(target) else {
+            return nil
+        }
+        return register(
+            origin: origin,
+            target: target,
+            policy: .confirmationRequired,
+            chosenBaseDirectory: chosenBaseDirectory
+        )
+    }
+
+    func consumeBeforeFetch(_ attempt: RemoteMarkdownReadAttempt, currentOrigin: RemoteMarkdownReadOrigin?) -> Bool {
+        guard let entry = attempts[attempt.token], entry.attempt == attempt,
+            case .authorized = entry.stage,
+            currentOrigin == attempt.origin
+        else {
+            discard(attempt)
+            return false
+        }
+        attempts[attempt.token] = (attempt, .fetching)
+        return true
+    }
+
+    /// Call before applying the result, including after a cache/coalesced fetch.
+    func validateAfterFetch(_ attempt: RemoteMarkdownReadAttempt, currentOrigin: RemoteMarkdownReadOrigin?) -> Bool {
+        let entry = attempts.removeValue(forKey: attempt.token)
+        guard let entry, entry.attempt == attempt, case .fetching = entry.stage else { return false }
+        return currentOrigin == attempt.origin
+    }
+
+    func discard(_ attempt: RemoteMarkdownReadAttempt) {
+        attempts.removeValue(forKey: attempt.token)
+    }
+
+    private func register(
+        origin: RemoteMarkdownReadOrigin,
+        target: RemoteTarget,
+        policy: RemoteDocumentReadPolicy,
+        chosenBaseDirectory: String?
+    ) -> RemoteMarkdownReadAttempt {
+        let attempt = RemoteMarkdownReadAttempt(
+            origin: origin,
+            target: target,
+            readPolicy: policy,
+            chosenBaseDirectory: chosenBaseDirectory
+        )
+        attempts[attempt.token] = (attempt, .authorized)
+        return attempt
+    }
+}

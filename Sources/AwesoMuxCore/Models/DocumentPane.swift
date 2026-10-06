@@ -16,6 +16,22 @@ public enum GeneratedDocumentKind: String, Codable, Hashable, Sendable {
     }
 }
 
+/// Durable read consent is separate from host/path provenance.
+public enum RemoteDocumentReadPolicy: String, Codable, Hashable, Sendable {
+    case declaredIdentity
+    case confirmationRequired
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: (try? container.decode(String.self)) ?? "") ?? .confirmationRequired
+    }
+
+    public func preservingRestriction(of other: Self) -> Self {
+        self == .confirmationRequired || other == .confirmationRequired
+            ? .confirmationRequired : .declaredIdentity
+    }
+}
+
 /// A document tab, not a terminal pane. Agent, remote, and shell state lives
 /// on `TerminalPane`.
 public struct DocumentPane: Identifiable, Hashable, Sendable {
@@ -28,6 +44,7 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
     /// Non-nil when `fileURL` is implementation storage for a remote Markdown
     /// resource. The typed identity, never the cache URL, is its provenance.
     public internal(set) var remoteResourceIdentity: ResourceIdentity?
+    public internal(set) var remoteReadPolicy: RemoteDocumentReadPolicy
     /// Non-nil when `fileURL` is an awesoMux-rendered agent transcript. Like
     /// `remoteResourceIdentity`, the typed identity is the provenance and the
     /// cache URL is only implementation storage.
@@ -75,6 +92,7 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
         title: String,
         associatedTerminalPaneID: TerminalPane.ID? = nil,
         remoteResourceIdentity: ResourceIdentity? = nil,
+        remoteReadPolicy: RemoteDocumentReadPolicy = .declaredIdentity,
         agentTranscriptIdentity: AgentTranscriptIdentity? = nil,
         branchChangesIdentity: BranchChangesIdentity? = nil,
         generatedDocumentKind: GeneratedDocumentKind? = nil
@@ -100,6 +118,7 @@ public struct DocumentPane: Identifiable, Hashable, Sendable {
             "A remote document requires a valid remote Markdown identity"
         )
         self.remoteResourceIdentity = remoteResourceIdentity
+        self.remoteReadPolicy = remoteReadPolicy
     }
 }
 
@@ -110,6 +129,7 @@ extension DocumentPane: Codable {
         case title
         case associatedTerminalPaneID
         case remoteResourceIdentity
+        case remoteReadPolicy
         case remoteSnapshotOrigin
         case agentTranscriptIdentity
         case branchChangesIdentity
@@ -187,6 +207,10 @@ extension DocumentPane: Codable {
                 forKey: .associatedTerminalPaneID
             ),
             remoteResourceIdentity: identity,
+            remoteReadPolicy: container.contains(.remoteReadPolicy)
+                ? ((try? container.decode(RemoteDocumentReadPolicy.self, forKey: .remoteReadPolicy))
+                    ?? .confirmationRequired)
+                : .declaredIdentity,
             agentTranscriptIdentity: transcriptIdentity,
             branchChangesIdentity: branchChangesIdentity,
             generatedDocumentKind: generatedDocumentKind
@@ -265,6 +289,7 @@ extension DocumentPane: Codable {
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(associatedTerminalPaneID, forKey: .associatedTerminalPaneID)
         try container.encodeIfPresent(remoteResourceIdentity, forKey: .remoteResourceIdentity)
+        try container.encode(remoteReadPolicy, forKey: .remoteReadPolicy)
         // No validity guard, unlike `remoteResourceIdentity`: an
         // `AgentTranscriptIdentity` cannot be constructed or decoded invalid,
         // and it has no mutable members to invalidate afterwards.
