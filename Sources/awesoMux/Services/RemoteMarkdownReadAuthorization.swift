@@ -72,11 +72,21 @@ final class RemoteMarkdownReadAuthorization {
     private var attempts: [UUID: (attempt: RemoteMarkdownReadAttempt, stage: Stage)] = [:]
 
     func authorizeDeclared(origin: RemoteMarkdownReadOrigin) -> RemoteMarkdownReadAttempt? {
-        guard origin.documentReadPolicy != .confirmationRequired,
-            let target = origin.executionPlan?.remoteTarget,
-            origin.documentIdentity == nil || origin.documentIdentity?.location == .remote(target)
-        else {
-            return nil
+        guard origin.documentReadPolicy != .confirmationRequired else { return nil }
+        let target: RemoteTarget
+        if origin.documentID != nil {
+            // Managed snapshots retain their saved authority after terminal
+            // closure; a sibling pane must never choose their read target.
+            guard let identity = origin.documentIdentity,
+                identity.isSupportedRemoteMarkdownSnapshot,
+                let savedTarget = identity.remoteTarget
+            else {
+                return nil
+            }
+            target = savedTarget
+        } else {
+            guard let declaredTarget = origin.executionPlan?.remoteTarget else { return nil }
+            target = declaredTarget
         }
         return register(origin: origin, target: target, policy: .declaredIdentity, chosenBaseDirectory: nil)
     }
@@ -88,8 +98,13 @@ final class RemoteMarkdownReadAuthorization {
         target: RemoteTarget,
         chosenBaseDirectory: String? = nil
     ) -> RemoteMarkdownReadAttempt? {
-        guard origin.documentIdentity == nil || origin.documentIdentity?.location == .remote(target) else {
-            return nil
+        if origin.documentID != nil {
+            guard let identity = origin.documentIdentity,
+                identity.isSupportedRemoteMarkdownSnapshot,
+                identity.remoteTarget == target
+            else {
+                return nil
+            }
         }
         return register(
             origin: origin,
