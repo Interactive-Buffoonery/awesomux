@@ -69,7 +69,9 @@ final class RemoteMarkdownReadAuthorization {
         case fetching
     }
 
+    private static let maximumAttempts = 512
     private var attempts: [UUID: (attempt: RemoteMarkdownReadAttempt, stage: Stage)] = [:]
+    private var registrationOrder: [UUID] = []
 
     func authorizeDeclared(origin: RemoteMarkdownReadOrigin) -> RemoteMarkdownReadAttempt? {
         guard origin.documentReadPolicy != .confirmationRequired else { return nil }
@@ -128,13 +130,15 @@ final class RemoteMarkdownReadAuthorization {
 
     /// Call before applying the result, including after a cache/coalesced fetch.
     func validateAfterFetch(_ attempt: RemoteMarkdownReadAttempt, currentOrigin: RemoteMarkdownReadOrigin?) -> Bool {
-        let entry = attempts.removeValue(forKey: attempt.token)
+        let entry = attempts[attempt.token]
+        discard(attempt)
         guard let entry, entry.attempt == attempt, case .fetching = entry.stage else { return false }
         return currentOrigin == attempt.origin
     }
 
     func discard(_ attempt: RemoteMarkdownReadAttempt) {
         attempts.removeValue(forKey: attempt.token)
+        registrationOrder.removeAll { $0 == attempt.token }
     }
 
     private func register(
@@ -149,7 +153,13 @@ final class RemoteMarkdownReadAuthorization {
             readPolicy: policy,
             chosenBaseDirectory: chosenBaseDirectory
         )
+        // Abandoned fetching records share the bound. Eviction revokes the
+        // token, so even an already-started read can no longer apply a result.
+        if registrationOrder.count >= Self.maximumAttempts {
+            attempts.removeValue(forKey: registrationOrder.removeFirst())
+        }
         attempts[attempt.token] = (attempt, .authorized)
+        registrationOrder.append(attempt.token)
         return attempt
     }
 }
