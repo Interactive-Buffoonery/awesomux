@@ -108,6 +108,22 @@ Artifact: `.build/verification/pr733-link-state-focused.log`.
 production build/staged-app verification. Artifact:
 `.build/verification/pr733-link-state-preflight.log`.
 
+The pointer-update correction limits shape-based link evidence to callbacks
+inside `ghostty_surface_mouse_pos`; independent OSC 22 cursor-style updates
+do not establish a link. An explicit target clear also clears pointer-based
+suppression, including when the terminal's own cursor shape is a pointer.
+Reported position/identity is published after the native call returns, and
+click routing rejects a native position update still in progress. The pinned
+Ghostty code emits link-exit shape and empty-target actions synchronously
+before that return (`Surface.zig`, `mouseRefreshLinks` and `cursorPosCallback`).
+
+All 11 focused tests passed, including OSC 22 without a target, preview-disabled
+pointer evidence, target preservation, and explicit clearing with pointer shape.
+Artifact: `.build/verification/pr733-pointer-transaction-focused.log`.
+`./script/preflight.sh` exited 0, including the full existing test run and
+production build/staged-app verification. Artifact:
+`.build/verification/pr733-pointer-transaction-preflight.log`.
+
 The focused checks exercise production policy, not the renderer or native
 mouse gestures. Native acceptance below remains outstanding.
 
@@ -141,7 +157,10 @@ files and a relative `[Next](next.md)` link in the first.
    with link previews disabled: Command-click must preserve native routing and
    neither gesture may offer the displayed filename. Move from each link onto
    a bare filename before the UI hover callback runs and verify the filename
-   still opens. Bare filenames have no new hover underline.
+   still opens. Set the terminal cursor shape to pointer using OSC 22, move off
+   an OSC 8 link onto a bare filename, and verify the filename remains clickable.
+   Repeat with the pointer cursor set before any hyperlink is hovered.
+   Bare filenames have no new hover underline.
 6. Switch focus during the delayed click, edit/clear context, close the pane,
    reset the shell, and reconnect or submit another SSH command. Verify stale
    clicks cannot open using replacement context or fall back to Mac paths.

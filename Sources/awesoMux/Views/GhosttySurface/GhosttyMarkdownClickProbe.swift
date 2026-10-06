@@ -2,15 +2,28 @@ import AppKit
 
 struct GhosttyNativeLinkState: Sendable {
     private var isPointer = false
+    private(set) var isUpdatingPosition = false
     var isLink: Bool { isPointer || value != nil }
     private(set) var value: String?
 
+    mutating func beginPositionUpdate() {
+        isUpdatingPosition = true
+    }
+
+    mutating func endPositionUpdate() {
+        isUpdatingPosition = false
+    }
+
     mutating func updatePointer(_ isPointer: Bool) {
+        // Link refresh emits pointer shape inside the native position call.
+        // Independent OSC 22 cursor-style changes are not link evidence.
+        guard isUpdatingPosition else { return }
         self.isPointer = isPointer
     }
 
     mutating func updateTarget(_ target: String?) {
         value = target.flatMap { $0.isEmpty ? nil : $0 }
+        if value == nil { isPointer = false }
     }
 }
 

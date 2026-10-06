@@ -23,6 +23,7 @@ extension GhosttySurfaceNSView {
         else { return nil }
 
         let nativeLink = nativeMouseLink.withLock { $0 }
+        guard !nativeLink.isUpdatingPosition else { return nil }
         if let value = nativeLink.value, RemoteMarkdownReference.isPotentialPayload(value) {
             return GhosttySurfaceMarkdownClick(value: value, origin: origin, surfaceIdentity: surfaceIdentity)
         }

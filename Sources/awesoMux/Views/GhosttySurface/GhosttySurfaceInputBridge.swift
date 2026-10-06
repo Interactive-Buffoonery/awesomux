@@ -270,14 +270,16 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
            hasNoMouseButtonHeld,
            ghostty_surface_mouse_captured(surface),
            let pos = currentMousePositionInView() {
-            inputState.reportedMousePosition = pos
-            inputState.reportedMouseSurfaceIdentity = currentMouseSurfaceIdentity
+            nativeMouseLink.withLock { $0.beginPositionUpdate() }
             ghostty_surface_mouse_pos(
                 surface,
                 pos.x,
                 pos.y,
                 GhosttyInputMapper.mouseModifiers(event.modifierFlags, mouseCaptured: true)
             )
+            nativeMouseLink.withLock { $0.endPositionUpdate() }
+            inputState.reportedMousePosition = pos
+            inputState.reportedMouseSurfaceIdentity = currentMouseSurfaceIdentity
         }
 
         // INT-453: ⌘ pressed while already resting on a link promotes the peek to
@@ -568,7 +570,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                     press: mousePosition(for: event), reported: inputState.reportedMousePosition,
                     surface: currentMouseSurfaceIdentity, reportedSurface: inputState.reportedMouseSurfaceIdentity)
                 {
-                    inputState.armedLinkClickValue = nativeMouseLink.withLock { $0.value }
+                    inputState.armedLinkClickValue = nativeMouseLink.withLock { $0.isUpdatingPosition ? nil : $0.value }
                 }
             } else {
                 inputState.armedLinkClickValue = inputState.mouseOverLink
@@ -1642,11 +1644,10 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // mouse mode, so one motion event can straddle the transition with a
         // stale decision — the same window the ⌘-shift bypass has always had.
         let pos = mousePosition(for: event)
-        inputState.reportedMousePosition = pos
-        inputState.reportedMouseSurfaceIdentity = currentMouseSurfaceIdentity
         let buttonFree = hasNoMouseButtonHeld
         let needsCaptureState = buttonFree || event.modifierFlags.contains(.command)
         let captured = needsCaptureState && ghostty_surface_mouse_captured(surface)
+        nativeMouseLink.withLock { $0.beginPositionUpdate() }
         ghostty_surface_mouse_pos(
             surface,
             pos.x,
@@ -1659,6 +1660,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
                 armLinkHover: buttonFree && !captured
             )
         )
+        nativeMouseLink.withLock { $0.endPositionUpdate() }
+        inputState.reportedMousePosition = pos
+        inputState.reportedMouseSurfaceIdentity = currentMouseSurfaceIdentity
     }
 
     // INT-138: NO clamp. libghostty treats negative coordinates as the "cursor
