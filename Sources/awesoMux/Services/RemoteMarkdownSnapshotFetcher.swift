@@ -4,6 +4,13 @@ import CryptoKit
 import Foundation
 import SecureFileIO
 
+enum RemoteMarkdownTransport: Hashable, Sendable {
+    /// Reuses the app-managed profile shared with the declared SSH pane.
+    case managed
+    /// Leaves multiplexing to the user's OpenSSH configuration.
+    case unmanaged
+}
+
 struct RemoteMarkdownReference: Equatable, Sendable {
     let identity: ResourceIdentity
 
@@ -53,7 +60,7 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     }
 
     /// Typed-path open (V0): absolute `/…` or current-user `~/…` paths ending
-    /// in `.md` / `.markdown`. Normalizes with the same helpers as Md→Md click
+    /// in `.md` / `.markdown`. Normalizes with the remote lexical Md→Md click
     /// gates, then binds the path to a declared `RemoteTarget` — never a title
     /// host. Relative paths and escapes fail closed.
     static func make(typedPath: String, target: RemoteTarget) -> RemoteMarkdownReference? {
@@ -71,7 +78,7 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     /// Shared by the open sheet (enable Open) and `make(typedPath:target:)`.
     static func normalizedTypedPath(_ typedPath: String) -> String? {
         let trimmed = typedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let normalized = MarkdownLinkIntercept.normalizedDocumentFilePath(trimmed),
+        guard let normalized = RemoteMarkdownPath.normalize(trimmed),
             ResourceIdentity.isSupportedRemoteMarkdownPath(normalized),
             !MarkdownLinkIntercept.containsUnsafePathScalars(normalized)
         else {
@@ -113,7 +120,7 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         let baseDirectory = (sourcePath as NSString).deletingLastPathComponent
         guard !baseDirectory.isEmpty,
             baseDirectory != ".",
-            let joined = MarkdownLinkIntercept.joinRelativeDocumentPath(
+            let joined = RemoteMarkdownPath.joinDocumentPath(
                 relative.path,
                 toDirectory: baseDirectory
             )
@@ -140,7 +147,7 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     /// wider than the typed-path sheet already offers the same user on the
     /// same host. Reads stay read-only under the declared target either way.
     ///
-    /// Paths are normalized with the same absolute `standardizingPath` / tilde
+    /// Paths are normalized with the same absolute / tilde
     /// lexical `..` walk as render-time resolve *before* containment — a raw
     /// `…/docs/../secret.md` string must not pass a prefix check.
     static func make(
@@ -156,11 +163,11 @@ struct RemoteMarkdownReference: Equatable, Sendable {
         let rawBaseDirectory = (sourcePath as NSString).deletingLastPathComponent
         guard !rawBaseDirectory.isEmpty,
             rawBaseDirectory != ".",
-            let baseDirectory = MarkdownLinkIntercept.normalizedDocumentDirectoryPath(
+            let baseDirectory = RemoteMarkdownPath.normalize(
                 rawBaseDirectory
             ),
-            let normalizedPath = MarkdownLinkIntercept.normalizedDocumentFilePath(remotePath),
-            MarkdownLinkIntercept.contains(childPath: normalizedPath, in: baseDirectory)
+            let normalizedPath = RemoteMarkdownPath.normalize(remotePath),
+            RemoteMarkdownPath.contains(normalizedPath, in: baseDirectory)
         else {
             return nil
         }
@@ -302,42 +309,8 @@ struct RemoteMarkdownReference: Equatable, Sendable {
     }
 
     private static func resolve(_ path: String, relativeTo directory: String?) -> String? {
-        if path.hasPrefix("/") {
-            return (path as NSString).standardizingPath
-        }
-        if path.hasPrefix("~/") {
-            return normalizedTildePath(path)
-        }
-        guard let directory,
-            directory.hasPrefix("/") || directory == "~" || directory.hasPrefix("~/")
-        else {
-            return nil
-        }
-        if directory == "~" || directory.hasPrefix("~/") {
-            return normalizedTildePath(
-                (directory as NSString).appendingPathComponent(path)
-            )
-        }
-        return ((directory as NSString).appendingPathComponent(path) as NSString).standardizingPath
+        RemoteMarkdownPath.resolve(path, relativeTo: directory)
     }
-
-    private static func normalizedTildePath(_ path: String) -> String? {
-        guard path.hasPrefix("~/") else { return nil }
-        var components: [Substring] = []
-        for component in path.dropFirst(2).split(separator: "/", omittingEmptySubsequences: true) {
-            switch component {
-            case ".":
-                continue
-            case "..":
-                guard !components.isEmpty else { return nil }
-                components.removeLast()
-            default:
-                components.append(component)
-            }
-        }
-        return "~/" + components.joined(separator: "/")
-    }
-
 }
 
 struct RemoteMarkdownSnapshot: Equatable, Sendable {
@@ -379,6 +352,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
     struct Key: Hashable, Sendable {
         let identity: ResourceIdentity
         let cacheDirectoryPath: String
+        var transport: RemoteMarkdownTransport = .managed
     }
 
     static let shared = RemoteMarkdownFetchCoordinator()
@@ -754,6 +728,7 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         timeout: .seconds(8),
         maxOutputBytes: DocumentURLValidator.maxFileSizeBytes + 1
     )
+    var transport: RemoteMarkdownTransport = .managed
     var fileManager: FileManager = .default
     var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> BoundedCommandResult)?
     var onCoalescedFetch: (@Sendable () async -> Void)?
@@ -779,7 +754,8 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     ) -> RemoteMarkdownFetchCoordinator.PreparedAttempt {
         let key = RemoteMarkdownFetchCoordinator.Key(
             identity: reference.identity,
-            cacheDirectoryPath: cacheDirectoryURL.standardizedFileURL.path
+            cacheDirectoryPath: cacheDirectoryURL.standardizedFileURL.path,
+            transport: transport
         )
         return RemoteMarkdownFetchCoordinator.shared.prepare(
             for: key,
@@ -930,13 +906,18 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         // maxFileSizeBytes + 1 so an oversize remote surfaces as truncation
         // rather than a silently short body.
         return await runner.runDetailed(
-            arguments: Self.sshArguments(target: reference.sshTarget, path: reference.remotePath),
+            arguments: Self.sshArguments(target: reference.sshTarget, path: reference.remotePath, transport: transport),
             inDirectory: FileManager.default.currentDirectoryPath
         )
     }
 
-    static func sshArguments(target: String, path: String) -> [String] {
-        [
+    static func sshArguments(
+        target: String,
+        path: String,
+        transport: RemoteMarkdownTransport = .managed
+    ) -> [String] {
+        let multiplexing = transport == .managed ? AmxBackend.sshMultiplexingOptions() : []
+        return multiplexing + [
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=5",
             "-o", "NumberOfPasswordPrompts=0",
@@ -950,8 +931,9 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
         let quotedPath = Self.shellSingleQuoted(path)
         let missing = RemoteReadExit.fileNotReadable
         let tooLarge = RemoteReadExit.fileTooLarge
+        // zsh expands an unescaped tilde in parameter-removal patterns.
         return
-            "p=\(quotedPath); case \"$p\" in \"~/\"*) p=\"$HOME/${p#~/}\";; esac; [ -f \"$p\" ] || exit \(missing); size=$(wc -c < \"$p\") || exit \(missing); [ \"$size\" -le \(DocumentURLValidator.maxFileSizeBytes) ] || exit \(tooLarge); cat -- \"$p\""
+            "p=\(quotedPath); case \"$p\" in \"~/\"*) p=\"$HOME/${p#\\~/}\";; esac; [ -f \"$p\" ] || exit \(missing); size=$(wc -c < \"$p\") || exit \(missing); [ \"$size\" -le \(DocumentURLValidator.maxFileSizeBytes) ] || exit \(tooLarge); cat -- \"$p\""
     }
 
     private func write(

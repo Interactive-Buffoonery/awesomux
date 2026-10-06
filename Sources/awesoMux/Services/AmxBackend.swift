@@ -335,6 +335,15 @@ enum AmxBackend {
         return current.isEmpty ? integrationDir : integrationDir + ":" + current
     }
 
+    /// Shared managed connection profile; authentication stays with OpenSSH.
+    static func sshMultiplexingOptions() -> [String] {
+        [
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=" + sshControlPath(),
+            "-o", "ControlPersist=60",
+        ]
+    }
+
     /// The `ssh` tokens appended after `attach <id>` for a remote pane. Each
     /// token is shell-quoted by the caller. Transport only — no credentials
     /// (ADR-0022).
@@ -342,11 +351,8 @@ enum AmxBackend {
         for remote: RemoteTarget,
         remoteCommand: String? = nil
     ) -> [String] {
-        var tokens = [
-            "ssh",
-            "-o", "ControlMaster=auto",
-            "-o", "ControlPath=" + sshControlPath(),
-            "-o", "ControlPersist=60",
+        var tokens =
+            ["ssh"] + sshMultiplexingOptions() + [
             "-o", "ConnectTimeout=10",
             "-o", "ServerAliveInterval=15",
         ]
