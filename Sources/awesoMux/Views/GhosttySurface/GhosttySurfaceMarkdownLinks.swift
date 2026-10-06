@@ -19,7 +19,6 @@ extension GhosttySurfaceNSView {
         // Preserve explicit hyperlinks and native path matches before probing
         // bare filenames. Native command-click otherwise resolves relative paths
         // against the local shell before our remote routing sees them.
-        sendMousePosition(event)
         if let value = inputState.mouseOverLink {
             guard RemoteMarkdownReference.isPotentialPayload(value) else { return nil }
             return GhosttySurfaceMarkdownClick(value: value, origin: origin, surfaceIdentity: surfaceIdentity)
