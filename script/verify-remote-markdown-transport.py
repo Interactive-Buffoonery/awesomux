@@ -34,11 +34,20 @@ def cleanup_fixture(host, path, multiplexing=()):
     candidate = PurePosixPath(path)
     if not candidate.is_absolute() or not re.fullmatch(r"\.?amx-markdown-proof-[A-Za-z0-9]+", candidate.name):
         raise RuntimeError("refusing cleanup of an unexpected fixture path")
-    script = (
-        "import os, pathlib; p = pathlib.Path(" + repr(path) + "); "
-        "assert not p.is_symlink() and p.stat().st_uid == os.getuid(); "
-        "(p / 'README.md').unlink(missing_ok=True); p.rmdir()"
-    )
+    script = f"""import os
+path = {path!r}
+fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    if os.fstat(fd).st_uid != os.getuid():
+        raise PermissionError("fixture directory belongs to another user")
+    try:
+        os.unlink("README.md", dir_fd=fd)
+    except FileNotFoundError:
+        pass
+finally:
+    os.close(fd)
+os.rmdir(path)
+"""
     result = run(["ssh"] + list(multiplexing) + ["-o", "BatchMode=yes", "--", host,
         "python3 -c " + shlex.quote(script)])
     if result.returncode:
