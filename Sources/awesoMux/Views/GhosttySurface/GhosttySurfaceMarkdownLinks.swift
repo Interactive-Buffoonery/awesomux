@@ -36,7 +36,6 @@ extension GhosttySurfaceNSView {
             let value = GhosttyMarkdownClickProbe.filename(
                 selectedWord, start: UInt64(word.offset_start), length: UInt64(word.offset_len),
                 columns: UInt64(size.columns), rows: UInt64(size.rows), visible: word.tl_px_x >= 0 && word.tl_px_y >= 0,
-                hoveredLink: inputState.mouseOverLink,
                 readCell: { self.markdownCell(at: $0, columns: UInt64(size.columns), surface: surface) })
         else { return nil }
         return GhosttySurfaceMarkdownClick(value: value, origin: origin, surfaceIdentity: surfaceIdentity)

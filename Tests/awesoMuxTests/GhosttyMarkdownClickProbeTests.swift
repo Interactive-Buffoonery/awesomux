@@ -66,21 +66,17 @@ import Testing
         }
     }
 
-    @Test func conflictingHoverCannotChooseAnotherFile() {
+    @Test func currentFilenameUsesOnlyCurrentTerminalText() {
         #expect(
             GhosttyMarkdownClickProbe.filename(
-                "current.md", start: 8, length: 9, columns: 12, rows: 4, visible: true, hoveredLink: "previous.md"
-            ) { _ in " " } == nil)
-        #expect(
-            GhosttyMarkdownClickProbe.filename(
-                "current.md", start: 8, length: 9, columns: 12, rows: 4, visible: true, hoveredLink: "current.md"
+                "current.md", start: 8, length: 9, columns: 12, rows: 4, visible: true
             ) { _ in " " } == "current.md")
     }
 
-    @Test func nonFilenameHyperlinkKeepsNativeRouting() {
+    @Test func nonFilenameTextKeepsNativeRouting() {
         #expect(
             GhosttyMarkdownClickProbe.filename(
-                "notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true, hoveredLink: "https://example.com/notes.md"
+                "https://example.com/notes.md", start: 8, length: 27, columns: 12, rows: 4, visible: true
             ) { _ in " " } == nil)
     }
 

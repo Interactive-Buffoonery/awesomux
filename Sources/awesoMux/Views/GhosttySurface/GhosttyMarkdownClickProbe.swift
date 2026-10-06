@@ -7,7 +7,7 @@ enum GhosttyMarkdownClickProbe {
     }
 
     static func filename(
-        _ text: String, start: UInt64, length: UInt64, columns: UInt64, rows: UInt64, visible: Bool, hoveredLink: String? = nil,
+        _ text: String, start: UInt64, length: UInt64, columns: UInt64, rows: UInt64, visible: Bool,
         readCell: (UInt64) -> String?
     ) -> String? {
         let value = MarkdownLinkIntercept.strippingTrailingSentencePunctuation(text)
@@ -20,9 +20,6 @@ enum GhosttyMarkdownClickProbe {
             RemoteMarkdownReference.isPotentialPayload(value),
             RemoteMarkdownReference.remotePath(from: value) == value
         else { return nil }
-        // Hover is only a veto: never substitute its asynchronously delivered
-        // target for the current text, or reinterpret an explicit hyperlink.
-        if let hoveredLink, RemoteMarkdownReference.remotePath(from: hoveredLink) != value { return nil }
         let cells = columns * rows
         let end = start + length
         // Native offsets count grid cells, including wide cells and wrapped

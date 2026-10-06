@@ -48,11 +48,12 @@ also disabled while that gate is active.
 
 Remote-context filename clicks read terminal text instead of the asynchronously
 cached hover target. A press whose coordinates or surface identity differ from
-the last reported pointer position fails closed without injecting a position
-report before the button event. Plain remote-context opens require a visible
-standalone filename matching any explicit link target; other labels retain
-native Command-click routing. A cached Markdown hover target cannot bypass a
-failed filename probe.
+the last reported pointer position cannot arm an app-side Markdown open. It
+retains native Command-click handling rather than suppressing Command without
+arming an open. No position report is injected before the button event. Plain
+remote-context opens use a visible standalone filename without consulting cached
+hover state. A cached Markdown hover target cannot bypass a failed filename
+probe.
 
 Focused boundary checks cover native cell offsets across wraps, wide and
 combining text, joined names, punctuation, clipped selections, failed cell reads,
@@ -75,6 +76,14 @@ Review follow-up validation:
   test passed in isolation and in the successful full rerun.
 - Native automation remained unavailable (`timeoutReached` when selecting the
   development bundle). No native click or sheet-lifecycle acceptance is claimed.
+
+The subsequent hover/fallback correction removed both the unconditional
+Command suppression and the hover veto. `./script/swift-test.sh --filter
+GhosttyMarkdownClickProbeTests` passed all 10 tests; its artifact is
+`.build/verification/pr733-hover-fallback-focused.log`. The full
+`./script/preflight.sh` also passed, including the production build/staged-app
+verification; its artifact is
+`.build/verification/pr733-hover-fallback-preflight.log`.
 
 The focused checks exercise production policy, not the renderer or native
 mouse gestures. Native acceptance below remains outstanding.

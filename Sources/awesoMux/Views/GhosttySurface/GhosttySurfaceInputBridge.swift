@@ -559,12 +559,7 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         let hasRemoteFileContext =
             sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.remoteFileContext != nil
             && event.modifierFlags.intersection([.control, .option, .shift]).isEmpty
-        let positionIsCurrent = GhosttyMarkdownClickProbe.isCurrent(
-            press: mousePosition(for: event), reported: inputState.reportedMousePosition,
-            surface: currentMouseSurfaceIdentity, reportedSurface: inputState.reportedMouseSurfaceIdentity)
-        if hasRemoteFileContext, !positionIsCurrent {
-            inputState.appOwnedMarkdownClickActive = true
-        } else if let markdown = markdownClick(at: event) {
+        if let markdown = markdownClick(at: event) {
             inputState.appOwnedMarkdownClickActive = true
             if event.clickCount == 1 { inputState.armedMarkdownClick = markdown }
         } else if event.clickCount == 1, !event.modifierFlags.contains(.command),
