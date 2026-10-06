@@ -3900,6 +3900,7 @@
       "comment" : "Remote handoff unsupported error title"
     },
     "Remote files: %arg · %arg" : {
+      "comment" : "Active pane remote file context: SSH destination followed by remote base directory",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4564,7 +4565,7 @@
 
     },
     "Set Remote File Context…" : {
-      "comment" : "Title for configuring runtime-only remote Markdown file links"
+      "comment" : "Command to configure the active pane remote file context\nTitle for configuring runtime-only remote Markdown file links"
     },
     "Set Workspace Group Color to %arg" : {
 

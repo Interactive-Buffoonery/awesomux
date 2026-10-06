@@ -1007,7 +1007,7 @@ enum PaletteCommandRegistry {
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.setRemoteFileContextID,
-                title: "Set Remote File Context…",
+                title: String(localized: "Set Remote File Context…", comment: "Command to configure the active pane remote file context"),
                 subtitle: nil,
                 keywords: ["ssh", "remote", "markdown", "file", "context", "alias"],
                 shortcut: nil,

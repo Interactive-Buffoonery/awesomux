@@ -471,8 +471,12 @@ struct TerminalPathBarView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let context = session.activePane?.remoteFileContext, let pane = session.activePane, let sessionStore {
                 HStack {
-                    Text("Remote files: \(context.target.sshDestination) · \(context.baseDirectory)")
-                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        String(
+                            localized: "Remote files: \(context.target.sshDestination) · \(context.baseDirectory)",
+                            comment: "Active pane remote file context: SSH destination followed by remote base directory")
+                    )
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button(String(localized: "Edit", comment: "Edit the active pane remote file context")) {
                         RemoteFileContextEditor.present(sessionID: session.id, paneID: pane.id, store: sessionStore)

@@ -1076,7 +1076,9 @@ struct AwesoMuxApp: App {
             }
 
             CommandGroup(after: .newItem) {
-                Button("Set Remote File Context…") {
+                Button(
+                    String(localized: "Set Remote File Context…", comment: "Command to configure the active pane remote file context")
+                ) {
                     setRemoteFileContext()
                 }
                 .disabled(sessionStore.selectedSession?.activePane?.executionPlan != .local)
