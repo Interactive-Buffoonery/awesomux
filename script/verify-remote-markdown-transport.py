@@ -53,19 +53,51 @@ parent = os.path.expanduser("~") if {home!r} else ({parent!r} or tempfile.gettem
 if not os.path.isabs(parent):
     raise ValueError("fixture parent must be absolute")
 parent_fd = trusted_parent_fd(parent)
+name = None
+directory_created = False
+readme_created = False
+leaf_fd = None
+setup_error = None
 try:
     name = {prefix!r} + secrets.token_hex(8)
     os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+    directory_created = True
     leaf_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    file_fd = os.open("README.md", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=leaf_fd)
+    readme_created = True
     try:
-        file_fd = os.open("README.md", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=leaf_fd)
-        with os.fdopen(file_fd, "w") as fixture:
-            fixture.write({content!r})
-    finally:
-        os.close(leaf_fd)
-    print(os.path.join(parent, name), end="")
+        fixture = os.fdopen(file_fd, "w")
+    except BaseException:
+        os.close(file_fd)
+        raise
+    with fixture:
+        fixture.write({content!r})
+except BaseException as failure:
+    setup_error = failure
+    try:
+        if readme_created:
+            try:
+                os.unlink("README.md", dir_fd=leaf_fd)
+            except FileNotFoundError:
+                pass
+        if directory_created:
+            os.rmdir(name, dir_fd=parent_fd)
+    except BaseException as rollback_error:
+        raise failure from rollback_error
+    raise
 finally:
-    os.close(parent_fd)
+    close_error = None
+    for fd in (leaf_fd, parent_fd):
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError as failure:
+                close_error = close_error or failure
+    if close_error is not None:
+        if setup_error is not None:
+            raise setup_error from close_error
+        raise close_error
+print(os.path.join(parent, name), end="")
 """
     return "python3 -c " + shlex.quote(script)
 
