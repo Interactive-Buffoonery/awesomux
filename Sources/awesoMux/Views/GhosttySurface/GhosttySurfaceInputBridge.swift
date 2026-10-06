@@ -270,6 +270,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
            hasNoMouseButtonHeld,
            ghostty_surface_mouse_captured(surface),
            let pos = currentMousePositionInView() {
+            inputState.reportedMousePosition = pos
+            inputState.reportedMouseSurfaceIdentity = currentMouseSurfaceIdentity
             ghostty_surface_mouse_pos(
                 surface,
                 pos.x,
@@ -554,10 +556,20 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // current surface identity. That covers cold-start/respawn windows and
         // lets the later mouseUp verify it is still talking to the same native
         // surface incarnation.
-        if let markdown = markdownClick(at: event) {
+        let hasRemoteFileContext =
+            sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.remoteFileContext != nil
+            && event.modifierFlags.intersection([.control, .option, .shift]).isEmpty
+        let positionIsCurrent = GhosttyMarkdownClickProbe.isCurrent(
+            press: mousePosition(for: event), reported: inputState.reportedMousePosition,
+            surface: currentMouseSurfaceIdentity, reportedSurface: inputState.reportedMouseSurfaceIdentity)
+        if hasRemoteFileContext, !positionIsCurrent {
+            inputState.appOwnedMarkdownClickActive = true
+        } else if let markdown = markdownClick(at: event) {
             inputState.appOwnedMarkdownClickActive = true
             if event.clickCount == 1 { inputState.armedMarkdownClick = markdown }
-        } else if event.clickCount == 1, !event.modifierFlags.contains(.command) {
+        } else if event.clickCount == 1, !event.modifierFlags.contains(.command),
+            !hasRemoteFileContext || !(inputState.mouseOverLink.map(RemoteMarkdownReference.isPotentialPayload) ?? false)
+        {
             inputState.armedLinkClickValue = inputState.mouseOverLink
         }
         sendMouseButton(.press, button: GHOSTTY_MOUSE_LEFT, event: event)
@@ -831,6 +843,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
             return
         }
 
+        inputState.reportedMousePosition = nil
+        inputState.reportedMouseSurfaceIdentity = nil
         ghostty_surface_mouse_pos(
             surface,
             -1,
@@ -1626,6 +1640,8 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // mouse mode, so one motion event can straddle the transition with a
         // stale decision — the same window the ⌘-shift bypass has always had.
         let pos = mousePosition(for: event)
+        inputState.reportedMousePosition = pos
+        inputState.reportedMouseSurfaceIdentity = currentMouseSurfaceIdentity
         let buttonFree = hasNoMouseButtonHeld
         let needsCaptureState = buttonFree || event.modifierFlags.contains(.command)
         let captured = needsCaptureState && ghostty_surface_mouse_captured(surface)

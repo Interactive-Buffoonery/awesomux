@@ -16,14 +16,14 @@ extension GhosttySurfaceNSView {
             event.modifierFlags.intersection([.control, .option, .shift]).isEmpty
         else { return nil }
 
-        // Preserve explicit hyperlinks and native path matches before probing
-        // bare filenames. Native command-click otherwise resolves relative paths
-        // against the local shell before our remote routing sees them.
-        if let value = inputState.mouseOverLink {
-            guard RemoteMarkdownReference.isPotentialPayload(value) else { return nil }
-            return GhosttySurfaceMarkdownClick(value: value, origin: origin, surfaceIdentity: surfaceIdentity)
-        }
+        guard
+            GhosttyMarkdownClickProbe.isCurrent(
+                press: mousePosition(for: event), reported: inputState.reportedMousePosition,
+                surface: surfaceIdentity, reportedSurface: inputState.reportedMouseSurfaceIdentity)
+        else { return nil }
 
+        // Read current terminal text; asynchronous hover callbacks can still
+        // describe a different filename even when the pointer is current.
         var word = ghostty_text_s()
         guard ghostty_surface_quicklook_word(surface, &word) else { return nil }
         defer { ghostty_surface_free_text(surface, &word) }
@@ -31,46 +31,18 @@ extension GhosttySurfaceNSView {
         let selectedWord = String(
             decoding: UnsafeBufferPointer(start: UnsafeRawPointer(pointer).assumingMemoryBound(to: UInt8.self), count: Int(word.text_len)),
             as: UTF8.self)
-        let value = MarkdownLinkIntercept.strippingTrailingSentencePunctuation(selectedWord)
-        guard Self.isStandaloneMarkdownWord(value),
-            hasStandaloneMarkdownBoundaries(word, surface: surface)
+        let size = ghostty_surface_size(surface)
+        guard
+            let value = GhosttyMarkdownClickProbe.filename(
+                selectedWord, start: UInt64(word.offset_start), length: UInt64(word.offset_len),
+                columns: UInt64(size.columns), rows: UInt64(size.rows), visible: word.tl_px_x >= 0 && word.tl_px_y >= 0,
+                hoveredLink: inputState.mouseOverLink,
+                readCell: { self.markdownCell(at: $0, columns: UInt64(size.columns), surface: surface) })
         else { return nil }
         return GhosttySurfaceMarkdownClick(value: value, origin: origin, surfaceIdentity: surfaceIdentity)
     }
 
-    private static func isStandaloneMarkdownWord(_ value: String) -> Bool {
-        guard !value.isEmpty,
-            value.unicodeScalars.allSatisfy({
-                CharacterSet.alphanumerics.contains($0) || CharacterSet.nonBaseCharacters.contains($0)
-                    || "._-/~".unicodeScalars.contains($0)
-            }),
-            !MarkdownLinkIntercept.containsUnsafePathScalars(value),
-            RemoteMarkdownReference.isPotentialPayload(value),
-            let path = RemoteMarkdownReference.remotePath(from: value)
-        else { return false }
-        return path == value
-    }
-
-    private func hasStandaloneMarkdownBoundaries(_ word: ghostty_text_s, surface: ghostty_surface_t) -> Bool {
-        let size = ghostty_surface_size(surface)
-        let columns = UInt64(size.columns)
-        let cells = columns * UInt64(size.rows)
-        let start = UInt64(word.offset_start)
-        let end = start + UInt64(word.offset_len)
-        guard columns > 0, cells > 0, start < cells, end < cells,
-            word.tl_px_x >= 0, word.tl_px_y >= 0
-        else { return false }
-
-        // These native offsets count grid cells, not bytes or Swift characters.
-        // Neighbor reads retain Ghostty's wide-cell, combining and wrap handling.
-        // A selection cut by the viewport has unreliable offsets; require both
-        // delimiters to be visible rather than opening a possible partial name.
-        guard start > 0, end + 1 < cells else { return false }
-        return isMarkdownDelimiter(at: start - 1, columns: columns, surface: surface)
-            && isMarkdownDelimiter(at: end + 1, columns: columns, surface: surface)
-    }
-
-    private func isMarkdownDelimiter(at cell: UInt64, columns: UInt64, surface: ghostty_surface_t) -> Bool {
+    private func markdownCell(at cell: UInt64, columns: UInt64, surface: ghostty_surface_t) -> String? {
         var point = ghostty_point_s()
         point.tag = GHOSTTY_POINT_VIEWPORT
         point.coord = GHOSTTY_POINT_COORD_EXACT
@@ -80,16 +52,12 @@ extension GhosttySurfaceNSView {
         selection.top_left = point
         selection.bottom_right = point
         var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return false }
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
-        guard text.text_len <= 16, let pointer = text.text else { return false }
-        let value = String(
+        guard text.text_len <= 16, let pointer = text.text else { return nil }
+        return String(
             decoding: UnsafeBufferPointer(start: UnsafeRawPointer(pointer).assumingMemoryBound(to: UInt8.self), count: Int(text.text_len)),
             as: UTF8.self)
-        return value.isEmpty
-            || value.unicodeScalars.allSatisfy {
-                CharacterSet.whitespacesAndNewlines.contains($0) || "'\"`;,()[]{}<>|".unicodeScalars.contains($0)
-            }
     }
 
     func deferMarkdownClick(_ click: GhosttySurfaceMarkdownClick) {

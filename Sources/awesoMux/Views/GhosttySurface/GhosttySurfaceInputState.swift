@@ -10,6 +10,8 @@ final class GhosttySurfaceInputState {
     /// pre-armed — no menu, no press, one silently swallowed gesture.
     var rightClickMenuRouteArmed = false
     var mouseOverLink: String?
+    var reportedMousePosition: CGPoint?
+    var reportedMouseSurfaceIdentity: UInt64?
     /// OSC 8 hyperlink peek-preview state (INT-453). See `GhosttySurfaceLinkPeek`.
     /// `peekedLink` is the link the popover is currently presenting (distinct from
     /// `mouseOverLink`, which is only the hovered link — they differ during the

@@ -40,6 +40,45 @@ Local logs live in `.build/verification/`, including `preflight-final.log`,
 `pane-classification.log`, `remote-markdown-authorization.log`, and
 `remote-markdown-transport.json`. Re-run the commands to produce fresh artifacts.
 
+## Review follow-up
+
+The context editor now participates in the observable shared sheet gate from
+`beginSheet` through AppKit's dismissal completion. The File-menu command is
+also disabled while that gate is active.
+
+Remote-context filename clicks read terminal text instead of the asynchronously
+cached hover target. A press whose coordinates or surface identity differ from
+the last reported pointer position fails closed without injecting a position
+report before the button event. Plain remote-context opens require a visible
+standalone filename matching any explicit link target; other labels retain
+native Command-click routing. A cached Markdown hover target cannot bypass a
+failed filename probe.
+
+Focused boundary checks cover native cell offsets across wraps, wide and
+combining text, joined names, punctuation, clipped selections, failed cell reads,
+and stale press coordinates/surface identities. Run:
+
+```sh
+./script/swift-test.sh --filter GhosttyMarkdownClickProbeTests
+```
+
+Review follow-up validation:
+
+- `./script/swift-test.sh --filter
+  'GhosttyMarkdownClickProbeTests|ProcessCommandRunnerCompletionTests'`: exit 0,
+  15 tests across two suites passed, including 10 click-probe tests. Artifact:
+  `.build/verification/pr733-focused.log`.
+- `./script/preflight.sh`: exit 0, including all existing suites and the
+  production build/staged-app verification. Artifact:
+  `.build/verification/pr733-followup-preflight-final.log`. The first attempt
+  stopped on a one-second `ProcessCommandRunnerCompletionTests` timeout; that
+  test passed in isolation and in the successful full rerun.
+- Native automation remained unavailable (`timeoutReached` when selecting the
+  development bundle). No native click or sheet-lifecycle acceptance is claimed.
+
+The focused checks exercise production policy, not the renderer or native
+mouse gestures. Native acceptance below remains outstanding.
+
 ## Repeatable native acceptance
 
 Use an unlocked Mac running the development bundle from this branch. Create a
@@ -78,7 +117,10 @@ files and a relative `[Next](next.md)` link in the first.
    and read policy rather than borrowing the focused pane's authority.
 9. Use keyboard-only navigation and VoiceOver in the editor and path bar.
    Verify initial focus, validation announcements, target/base labels,
-   Edit/Clear actions, Escape, and Return. Capture screenshots or a recording
+   Edit/Clear actions, Escape, and Return. While the editor is open, verify
+   Close Pane, Open Markdown File, and competing sheet commands are disabled;
+   after cancellation or save, verify they become available again. Capture
+   screenshots or a recording
    and a result log with the tested build revision.
 
 Leave the PR in draft until the native acceptance artifact is available.
