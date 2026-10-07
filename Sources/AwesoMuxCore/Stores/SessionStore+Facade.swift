@@ -927,6 +927,7 @@ extension SessionStore {
         // re-asserts the `.waiting` a Stop already set — so `didMutate` is false
         // and no commit follows. Membership must therefore reconcile itself.
         updateUnansweredTurn(paneID: paneID, event: event)
+        defer { recordLocalAPIAttentionChanges(at: now) }
         // Two commits are intentional: unread must land before a nested
         // openDocumentPane full rebuild (so rebuild sees the tree's new badges),
         // and risk reclassify must run after titles/document side effects even
@@ -1370,6 +1371,7 @@ extension SessionStore {
         // itself. Runs before the selection write so an observer woken by that
         // write already sees a reconciled section.
         reconcileLiftedSessionIDs()
+        recordLocalAPIAttentionChanges(at: now)
 
         if case .set(let sessionID) = effect.selection {
             // Unconditional write: same-value re-assign must still publish (INT-652).

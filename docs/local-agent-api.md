@@ -46,8 +46,8 @@ JSON response encoding, and process probing happen off the UI actor.
 Profiles are required: `production`, `development`, or
 `development:<12 lowercase hexadecimal worktree ID>`. There is no auto-launch,
 profile fallback, arbitrary command execution, amx passthrough, or arbitrary content read.
-Operations are `get_connection_status`, `get_capabilities`, `list_agents`, and
-`get_agent_context`.
+Operations are `get_connection_status`, `get_capabilities`, `list_agents`,
+`get_agent_context`, and `get_attention_events`.
 Stdout contains one JSON object plus a newline; success exits 0, all failures
 exit 1. The handle is nonsecret. The helper loads the corresponding credential
 from the standard macOS Keychain and never accepts credential bytes in arguments
@@ -82,7 +82,8 @@ Success returns `schemaVersion`, the same `requestID`, `profile`, a random
 success); `get_connection_status` adds `connectionStatus: "connected"`, meaning
 the exact app instance is reachable and the operation is authorized.
 `get_capabilities` adds the limits, supported named operations, and
-a supported context flag and false instructions/monitoring flags. A denial discloses no roster, app
+supported context and attention-event flags, attention retention/page limits,
+and false instructions/monitoring flags. A denial discloses no roster, app
 instance, or profile metadata. The helper never prints the credential:
 
 ```json
@@ -94,7 +95,7 @@ Typed errors include `invalid_request`, `unsupported_version`,
 `permission_denied`, `app_unavailable`, `insecure_endpoint`, `endpoint_busy`,
 `credential_unavailable`, `path_too_long`, `request_too_large`,
 `response_too_large`, `timeout`, `cancelled`,
-`stale_target`, and `transport_failure`. A malformed request may have no request
+`stale_target`, `invalid_cursor`, and `transport_failure`. A malformed request may have no request
 ID. An empty roster must never hide endpoint or authorization failure.
 
 ## Grant persistence and revocation
@@ -138,6 +139,73 @@ never expand to the connection's status scope.
 
 Reviewed instructions, direct delivery, and monitoring remain unavailable.
 Caller-supplied arguments cannot enable them or broaden a grant.
+
+## Recent agent alerts
+
+```sh
+"/path/to/awesoMux.app/Contents/MacOS/awesomux-agent" \
+  --profile production --credential-handle <connection UUID> \
+  get_attention_events --limit 100
+"/path/to/awesoMux.app/Contents/MacOS/awesomux-agent" \
+  --profile production --credential-handle <connection UUID> \
+  get_attention_events --limit 100 --cursor '<previous nextCursor>'
+```
+
+`limit` is required and positive, capped at 100 events. `cursor` is optional on
+its first call. Context selectors and sources are rejected for this operation.
+The response's `attentionEvents` contains `events`, `nextCursor`, `cursorStatus`,
+`hasMore`, and `currentStateRecoveryRequired`. Save the cursor only after handling
+the page; while `hasMore` is true, fetch the next page before waiting to check
+again. Each connection keeps its own cursor. Reads do not consume another
+connection's history or change selection, unread counts, or acknowledgement.
+
+The app records changes synchronously from native attention updates rather than
+sampling them when a client calls. Events have a stable `id`, an `attentionID`
+shared by the raised and resolved records, `change` (`raised` or `resolved`),
+`paneID`, `workspaceID`, `provider`, optional `providerSessionID`, `targetVersion`,
+local `occurredAt`, and `reason`. A resolved record also has `resolvedAt`.
+A raised record describes the alert at that time; clients apply its later
+resolution by `attentionID`. A brief alert therefore remains visible even if
+it clears between two requests. Repeated unchanged state creates no new record.
+Reasons use the native attention vocabulary; waiting without an attention overlay
+uses `waitingForInput`, and error without an overlay uses `agentError`.
+Closing, moving, or replacing an alerted target resolves its old record under the
+original identity. A new target that still needs attention gets a separate alert.
+Event target versions describe captured identity; they do not authorize input.
+
+The existing status grant authorizes alert metadata. Persistent pane/workspace
+scopes filter the identity recorded with each event, including retained events
+from panes that have since closed. Exact-target grants additionally require the
+same live target version; closed, moved, or replaced targets return `stale_target`
+without a page through an expired exact grant. No context or transcript content is included.
+
+Only the latest 512 changes are retained, in memory. Restart discards the old
+history and records the currently visible attention as a new baseline. A first
+request returns retained history, without promising anything older. Cursors are
+authenticated, encrypted, and bound to the app instance, connection, and grant
+revisions; they contain no credential. They cannot broaden access or reveal
+unrelated event positions.
+
+| Cursor status | Meaning and next step |
+| --- | --- |
+| `initial` | First request; process the retained events. |
+| `current` | Continue processing events from the saved position. |
+| `history_gap` | The saved position is older than retained history. |
+| `app_restarted` | The cursor belongs to a different app instance. |
+| `access_changed` | The connection or global access revision changed. |
+
+The last three statuses return no events, `currentStateRecoveryRequired: true`,
+and a fresh cursor at the current end. Call `list_agents` to recover the
+connection's authorized current state, then resume with that fresh cursor.
+Events occurring during recovery remain after the cursor, so they can still be
+read. A malformed cursor, or a same-instance altered, future-position, or
+other-connection cursor, returns `invalid_cursor`; discard it and explicitly start
+again if wanted.
+A revoked connection or disabled global access still returns the normal denial,
+without a page. Authorization is rechecked before every socket write.
+
+This operation supplies history for a client to check. It does not schedule
+checks, deliver Dot messages, or implement monitoring; that work is INT-1203.
 
 ## Exact-session context
 
@@ -292,6 +360,22 @@ denial while the second still works. Disable global access and confirm the secon
 returns `access_disabled`. Relaunch the same staged bundle and confirm the saved
 global state and remaining connection are unchanged. Record any Keychain trust
 prompt and verify its helper path belongs to that staged bundle.
+
+For an attention-only socket run that does not require Keychain access:
+
+```sh
+"$BIN/local-api-e2e" --attention-socket-only "$BIN/awesomux-agent" \
+  .build/attention-socket-evidence
+```
+
+This mode uses real connection grants, their credentials, and the socket transport;
+it bypasses only Keychain/helper credential loading in the E2E caller, not app
+authorization. The normal full driver also runs the attention scenarios through
+the helper and Keychain. `attention-report.json`, `attention-between-checks.json`,
+and `attention-gap.json` label the run type and preserve the checks and event
+pages. The [recorded attention run](attention-events-e2e-report.json) lists the
+passing scenarios and separate verification limits. Provider/process inputs remain fixtures. Use a fresh output directory for
+full-driver runs so earlier profile grant fixtures are not reused.
 
 Use two real dedicated agents to compare native status and attention with the
 scoped helper JSON. Manual UI, accessibility, real-agent behavior, full preflight,

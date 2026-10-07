@@ -7,6 +7,8 @@ public enum LocalAPIContract {
     public static let timeout: TimeInterval = 5
     public static let maximumClients = 8
     public static let maximumContextBytes = 24 * 1024
+    public static let maximumAttentionEvents = 512
+    public static let maximumAttentionPageSize = 100
 
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
@@ -27,6 +29,7 @@ public enum LocalAPIOperation: String, Codable, CaseIterable, Sendable {
     case capabilities = "get_capabilities"
     case listAgents = "list_agents"
     case agentContext = "get_agent_context"
+    case attentionEvents = "get_attention_events"
 }
 
 public struct LocalAPIRequest: Codable, Sendable {
@@ -40,6 +43,7 @@ public struct LocalAPIRequest: Codable, Sendable {
     public let targetVersion: UUID?
     public let limit: Int?
     public let source: LocalAPIContextSource?
+    public let cursor: String?
 
     public init(
         profile: String,
@@ -47,7 +51,7 @@ public struct LocalAPIRequest: Codable, Sendable {
         connectionID: UUID? = nil,
         credential: String? = nil,
         paneID: UUID? = nil, targetVersion: UUID? = nil,
-        limit: Int? = nil, source: LocalAPIContextSource? = nil
+        limit: Int? = nil, source: LocalAPIContextSource? = nil, cursor: String? = nil
     ) {
         schemaVersion = LocalAPIContract.version
         requestID = UUID()
@@ -59,6 +63,7 @@ public struct LocalAPIRequest: Codable, Sendable {
         self.targetVersion = targetVersion
         self.limit = limit
         self.source = source
+        self.cursor = cursor
     }
 }
 
@@ -86,6 +91,7 @@ public enum LocalAPIError: String, Error, Codable, Sendable {
     case remoteContext = "remote_context"
     case contextTooLarge = "context_too_large"
     case processIdentityUnknown = "process_identity_unknown"
+    case invalidCursor = "invalid_cursor"
 }
 
 public struct LocalAPICapabilities: Codable, Sendable {
@@ -94,6 +100,9 @@ public struct LocalAPICapabilities: Codable, Sendable {
     public let maximumResponseBytes: Int
     public let timeoutSeconds: TimeInterval
     public let maximumContextBytes: Int
+    public let maximumAttentionEvents: Int
+    public let maximumAttentionPageSize: Int
+    public let attentionEvents: Bool
     public let context: Bool
     public let instructions: Bool
     public let monitoring: Bool
@@ -104,6 +113,9 @@ public struct LocalAPICapabilities: Codable, Sendable {
         maximumResponseBytes = LocalAPIContract.maximumResponseBytes
         timeoutSeconds = LocalAPIContract.timeout
         maximumContextBytes = LocalAPIContract.maximumContextBytes
+        maximumAttentionEvents = LocalAPIContract.maximumAttentionEvents
+        maximumAttentionPageSize = LocalAPIContract.maximumAttentionPageSize
+        attentionEvents = true
         context = true
         instructions = false
         monitoring = false
@@ -170,12 +182,14 @@ public struct LocalAPIResponse: Codable, Sendable {
     public let agents: [LocalAPIAgent]?
     public let agentContext: LocalAPIAgentContext?
     public let contextGrant: LocalAPIContextGrant?
+    public let attentionEvents: LocalAPIAttentionPage?
 
     public init(
         requestID: UUID? = nil, error: LocalAPIError? = nil, profile: String? = nil,
         appInstanceID: UUID? = nil, capturedAt: Date? = nil,
         connectionStatus: LocalAPIConnectionStatus? = nil, capabilities: LocalAPICapabilities? = nil, agents: [LocalAPIAgent]? = nil,
-        agentContext: LocalAPIAgentContext? = nil, contextGrant: LocalAPIContextGrant? = nil
+        agentContext: LocalAPIAgentContext? = nil, contextGrant: LocalAPIContextGrant? = nil,
+        attentionEvents: LocalAPIAttentionPage? = nil
     ) {
         schemaVersion = LocalAPIContract.version
         self.requestID = requestID
@@ -188,6 +202,7 @@ public struct LocalAPIResponse: Codable, Sendable {
         self.agents = agents
         self.agentContext = agentContext
         self.contextGrant = contextGrant
+        self.attentionEvents = attentionEvents
     }
 }
 

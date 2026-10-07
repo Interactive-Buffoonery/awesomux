@@ -487,5 +487,8 @@ grants. `SessionStore` supplies native pane snapshots and opaque target versions
 acknowledging attention. Context sharing requires a separate exact-target grant;
 terminal history additionally requires source-specific consent. Transcript reads
 reuse ADR-0033's bounded exact-identity adapters, and both permission and target
-identity are rechecked before content returns. See
+identity are rechecked before content returns. Recent attention changes are
+recorded synchronously in a bounded in-memory journal; status grants filter its
+history and each connection keeps its own cursor. Reads preserve native unread
+and acknowledgement state. See
 [the contract and E2E workflow](local-agent-api.md).

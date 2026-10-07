@@ -1,4 +1,5 @@
 import AwesoMuxBridgeProtocol
+import AwesoMuxLocalAPI
 import Foundation
 import Observation
 
@@ -432,6 +433,8 @@ public final class SessionStore {
     @ObservationIgnored var localAPITargets: [UUID: LocalAPITargetRecord] = [:]
     @ObservationIgnored var localAPITracking = false
     @ObservationIgnored var localAPIInstanceID: UUID?
+    @ObservationIgnored var localAPIAttentionJournal: LocalAPIAttentionJournal?
+    @ObservationIgnored var localAPIActiveAttention: [UUID: LocalAPIActiveAttention] = [:]
 
     public internal(set) var liftedSessionIDs: [TerminalSession.ID] = []
 

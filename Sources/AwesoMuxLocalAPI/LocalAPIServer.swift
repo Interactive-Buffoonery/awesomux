@@ -154,7 +154,7 @@ public final class LocalAPIServer: @unchecked Sendable {
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "credential", "paneID", "targetVersion", "limit",
-                    "source",
+                    "source", "cursor",
                 ]),
                 let request = try? LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: data)
             else { throw LocalAPIError.invalidRequest }
@@ -164,11 +164,16 @@ public final class LocalAPIServer: @unchecked Sendable {
             guard LocalAPIOperation(rawValue: request.operation) != nil else { throw LocalAPIError.unsupportedOperation }
             if request.operation == LocalAPIOperation.agentContext.rawValue {
                 guard request.paneID != nil, request.targetVersion != nil,
-                    request.source != nil, let limit = request.limit, limit > 0
+                    request.source != nil, request.cursor == nil, let limit = request.limit, limit > 0
+                else { throw LocalAPIError.invalidRequest }
+            } else if request.operation == LocalAPIOperation.attentionEvents.rawValue {
+                guard request.paneID == nil, request.targetVersion == nil, request.source == nil,
+                    let limit = request.limit, limit > 0,
+                    request.cursor.map({ !$0.isEmpty && $0.utf8.count <= 2048 }) ?? true
                 else { throw LocalAPIError.invalidRequest }
             } else {
                 guard request.paneID == nil, request.targetVersion == nil,
-                    request.source == nil, request.limit == nil
+                    request.source == nil, request.limit == nil, request.cursor == nil
                 else { throw LocalAPIError.invalidRequest }
             }
             let lease = try authorization.authorize(request).get()
