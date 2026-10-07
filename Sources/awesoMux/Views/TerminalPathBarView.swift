@@ -469,6 +469,27 @@ struct TerminalPathBarView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let pane = session.activePane,
+                pane.remotePresentationHost != nil,
+                pane.remoteConnectionHealth == .possiblyStale
+            {
+                Label {
+                    Text(
+                        String(
+                            localized:
+                                "SSH connection may be interrupted. Input and output may pause until SSH recovers or reports failure.",
+                            comment: "Visible warning after a network change or wake; SSH has not confirmed a disconnect"
+                        )
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(Color.aw.text)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(Color.aw.yellow)
+                        .accessibilityHidden(true)
+                }
+                .awFont(AwFont.UI.body)
+            }
             if let context = session.activePane?.remoteFileContext, let pane = session.activePane, let sessionStore {
                 HStack {
                     Text(
