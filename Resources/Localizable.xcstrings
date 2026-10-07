@@ -4353,6 +4353,9 @@
     "SSH connection failed" : {
       "comment" : "Title on the overlay covering a remote pane whose SSH connection failed or ended"
     },
+    "SSH connection may be interrupted. Input and output may pause until SSH recovers or reports failure." : {
+      "comment" : "Visible warning after a network change or wake; SSH has not confirmed a disconnect"
+    },
     "SSH connection to %arg failed." : {
       "comment" : "Accessibility label for a remote pane whose SSH connection failed\nVoiceOver announcement when a remote pane's SSH connection fails"
     },

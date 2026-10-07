@@ -242,6 +242,15 @@ extension GhosttySurfaceNSView {
             } else {
                 foregroundProcess.sample?.comm
             }
+        if let foregroundCommand,
+            ShellRecognition.normalizedCommandName(foregroundCommand) == "ssh"
+        {
+            terminalEventState.sshForegroundObservation = (
+                PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), foregroundCommand, CACurrentMediaTime()
+            )
+        } else {
+            terminalEventState.sshForegroundObservation = nil
+        }
         let justObservedSSHClient = sessionStore.clearManagedSSHObservationIfExitedToLocalShell(
             sessionID: sessionID,
             paneID: paneID,
@@ -781,6 +790,7 @@ extension GhosttySurfaceNSView {
         }
 
         terminalEventState.lastAgentDetectionSample = now
+        sampleUnmanagedSSHAgentIdentity(now: now)
         guard visibleText != terminalEventState.lastDetectedVisibleText else {
             return
         }
@@ -876,7 +886,6 @@ extension GhosttySurfaceNSView {
             return nil
         }
 
-        var text = ghostty_text_s()
         let selection = ghostty_selection_s(
             top_left: ghostty_point_s(
                 tag: GHOSTTY_POINT_VIEWPORT,
@@ -892,6 +901,45 @@ extension GhosttySurfaceNSView {
             ),
             rectangle: false
         )
+        return readTerminalText(surface: surface, selection: selection)
+    }
+
+    private func sampleUnmanagedSSHAgentIdentity(now: TimeInterval) {
+        guard let observation = terminalEventState.sshForegroundObservation,
+            observation.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID),
+            now - observation.sampledAt < 1,
+            let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            !pane.agentKindIsRuntimeEstablished,
+            pane.freshRemoteForegroundComm() == nil,
+            let surface
+        else { return }
+
+        // Read the editable bottom rows, independent of the user's scrollback
+        // viewport. Reuse the existing foreground probe rather than polling SSH again.
+        let rows = UInt32(ghostty_surface_size(surface).rows)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_EXACT,
+                x: 0, y: rows > 8 ? rows - 8 : 0),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0, y: 0),
+            rectangle: false
+        )
+        guard let text = readTerminalText(surface: surface, selection: selection),
+            let kind = UnmanagedSSHAgentIdentity.detectedKind(inActiveText: text),
+            kind != pane.agentKind
+        else { return }
+
+        _ = sessionStore.applyUnmanagedSSHAgentIdentity(
+            id: sessionID, paneID: paneID, agentKind: kind,
+            foregroundCommand: observation.command
+        )
+    }
+
+    private func readTerminalText(surface: ghostty_surface_t, selection: ghostty_selection_s) -> String? {
+        var text = ghostty_text_s()
         guard ghostty_surface_read_text(surface, selection, &text) else {
             return nil
         }
