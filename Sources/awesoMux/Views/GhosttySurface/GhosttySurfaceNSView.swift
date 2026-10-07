@@ -335,6 +335,7 @@ final class GhosttySurfaceNSView: NSView {
         // silently suppressing both the `.valueChanged` post and agent-state
         // re-detection for that first post-respawn tick.
         terminalEventState.lastDetectedVisibleText = ""
+        terminalEventState.sshForegroundObservation = nil
         terminalEventState.lastAccessibilityReportedVisibleText = nil
 
         nativeMouseLink.withLock { $0 = GhosttyNativeLinkState() }

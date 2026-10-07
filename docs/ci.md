@@ -18,6 +18,11 @@ The `Require fast CI` repository ruleset requires these stable check names:
   trusted default-branch workflow code. Dependabot pull requests skip this
   human-authored description check because GitHub owns their generated bodies.
 
+The fast guard job runs independent checks in parallel after setup. The wait
+guardrail and formatter fixtures remain sequential because they modify the
+checkout and Git index. Changed-line wait and format checks run in parallel
+only after those fixtures finish and clean up.
+
 The ruleset does not require a branch to be up to date before merging. Other
 checks, including pull-request sizing and native CI, remain useful but advisory.
 
