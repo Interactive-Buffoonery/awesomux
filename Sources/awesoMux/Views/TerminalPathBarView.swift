@@ -482,12 +482,13 @@ struct TerminalPathBarView: View {
                         )
                     )
                     .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(Color.aw.text)
                 } icon: {
                     Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(Color.aw.yellow)
                         .accessibilityHidden(true)
                 }
                 .awFont(AwFont.UI.body)
-                .foregroundStyle(Color.aw.yellow)
             }
             if let context = session.activePane?.remoteFileContext, let pane = session.activePane, let sessionStore {
                 HStack {
