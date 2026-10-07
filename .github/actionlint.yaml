@@ -1,0 +1,17 @@
+# TEMPORARY: actionlint v1.7.12 (latest as of 2026-03-30) does not parse
+# GitHub Actions `jobs.<job_id>.steps[*].parallel`, which shipped
+# 2026-06-25. It reports a syntax-check false positive:
+#
+#   step must run script with "run" section or run action with "uses" section
+#
+# Ignore only that message, and only in the release workflow that uses
+# `parallel:` (PR #737). Other checks stay enabled on this file, and this
+# check stays enabled on every other workflow.
+#
+# Remove this file once actionlint releases parallel-step support.
+# Upstream: https://github.com/rhysd/actionlint/issues/693
+# Open PR: https://github.com/rhysd/actionlint/pull/694
+paths:
+  ".github/workflows/release.yml":
+    ignore:
+      - 'step must run script with "run" section or run action with "uses" section'
