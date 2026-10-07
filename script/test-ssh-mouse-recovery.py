@@ -78,7 +78,7 @@ def main():
     remote_tui = ssh + " -tt " + shlex.quote("python3 -c " + shlex.quote(TUI))
     results = []
 
-    for case in ("ssh-exit", "local-tui", "remote-tui", "compound-tui", "next-tui", "nested-tui", "reattach-tui", "ordinary-command", "hook-chain", "ssh-failure", "suspended-ssh", "absolute-ssh", "unrelated-stopped"):
+    for case in ("disowned-pipe", "disowned-bang", "ssh-exit", "local-tui", "remote-tui", "compound-tui", "next-tui", "nested-tui", "reattach-tui", "ordinary-command", "hook-chain", "ssh-failure", "suspended-ssh", "absolute-ssh", "unrelated-stopped"):
         startup = "PS1='PROOF> '\nRPROMPT=''\n"
         startup += "_proof_preexec() { printf 'LATER-PREEXEC\\n'; }\n"
         startup += "_proof_precmd() { printf 'LATER-PRECMD:%s\\n' $?; }\n"
@@ -126,7 +126,13 @@ def main():
                     output += read_until(master, b"PROOF> ") + drain(master)
                 captured.extend(output)
                 assert RESET in output, "SSH prompt did not emit canonical mouse cleanup"
-            if case in ("hook-chain", "ssh-failure"):
+            if case in ("disowned-pipe", "disowned-bang"):
+                suffix = " &|" if case == "disowned-pipe" else " &!"
+                os.write(master, (ssh + " 'exit 0'" + suffix + "\r").encode())
+                output = read_until(master, b"PROOF> ") + drain(master)
+                captured.extend(output)
+                assert RESET not in output, "disowned background SSH reset mouse modes"
+            elif case in ("hook-chain", "ssh-failure"):
                 command = "false" if case == "hook-chain" else ssh + " 'exit 7'"
                 os.write(master, (command + "\r").encode())
                 output = read_until(master, b"PROOF> ") + drain(master)

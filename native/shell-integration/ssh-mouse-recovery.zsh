@@ -21,7 +21,7 @@ _awesomux_ssh_mouse_recovery_init() {
         builtin local word
         for word in "${words[@]}"; do
             case "$word" in
-                ';'|'&'|'&&'|'||'|'|'|'|&'|'('|')'|'{'|'}'|$'\n') return 0 ;;
+                ';'|'&'|'&|'|'&&'|'||'|'|'|'|&'|'('|')'|'{'|'}'|$'\n') return 0 ;;
             esac
         done
         _awesomux_ssh_mouse_recovery_prior_pids=()
