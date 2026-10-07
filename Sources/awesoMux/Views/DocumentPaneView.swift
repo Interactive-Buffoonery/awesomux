@@ -794,38 +794,6 @@ struct DocumentPaneSendBar: View {
         )
     }
 
-    /// Resolves the display path for the nudge text, relative to `cwd`.
-    nonisolated static func resolveDisplayPath(
-        for fileURL: URL,
-        relativeTo cwd: String
-    ) -> String {
-        let raw = rawDisplayPath(for: fileURL, relativeTo: cwd)
-        // Filenames are untrusted (a hostile repo can ship `evil\n.md`). The nudge is
-        // typed into the live PTY with no trailing newline so the user is the trigger
-        // — but an embedded newline/CR/ESC in the path would auto-submit a partial
-        // line, bypassing that gate. Strip control characters before the string ever
-        // reaches the terminal; U+FFFD keeps the path legible.
-        return String(
-            raw.unicodeScalars.map {
-                CharacterSet.controlCharacters.contains($0) ? "\u{FFFD}" : Character($0)
-            })
-    }
-
-    private nonisolated static func rawDisplayPath(
-        for fileURL: URL,
-        relativeTo cwd: String
-    ) -> String {
-        let filePath = fileURL.path
-        guard !cwd.isEmpty, !filePath.isEmpty else {
-            return fileURL.lastPathComponent
-        }
-        let cwdWithSlash = cwd.hasSuffix("/") ? cwd : cwd + "/"
-        guard filePath.hasPrefix(cwdWithSlash) else {
-            return fileURL.lastPathComponent
-        }
-        let relative = String(filePath.dropFirst(cwdWithSlash.count))
-        return relative.isEmpty ? fileURL.lastPathComponent : relative
-    }
 }
 
 // MARK: - AllCommentsResolvedNotice

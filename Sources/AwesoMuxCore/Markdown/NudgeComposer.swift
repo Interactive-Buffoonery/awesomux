@@ -51,6 +51,19 @@ public extension PlanAnnotationAuthor {
 /// Composes the plain-English nudge text injected into the document's associated
 /// terminal when the user taps a document handoff action.
 public enum NudgeComposer {
+    /// A local handoff must name the same absolute path before and after staging.
+    /// Control characters are forbidden even though the multiline draft allows
+    /// tabs and newlines; replacing them would name a different file.
+    public static func absoluteLocalPath(for fileURL: URL) -> String? {
+        guard fileURL.isFileURL else { return nil }
+        let path = fileURL.path
+        guard path.hasPrefix("/"),
+            !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+            RichInputStaging.stagedPayload(path) == path
+        else { return nil }
+        return path
+    }
+
     /// Legacy generic composition retained for callers and migration guidance.
     public static func text(displayPath: String) -> String {
         compose(

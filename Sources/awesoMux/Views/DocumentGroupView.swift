@@ -435,6 +435,9 @@ struct DocumentGroupView: View {
             RichInputComposerSheet(
                 seed: context.seed,
                 title: context.title,
+                reviewedFilePath: context.fileURL.path,
+                receivingTerminal: context.terminalTitle,
+                capturedWorkingDirectory: context.workingDirectory,
                 onSend: { stageComposerText($0, in: context) },
                 onClose: { composerContext = nil }
             )
@@ -875,13 +878,11 @@ struct DocumentGroupView: View {
         selectedAnnotationID: String? = nil,
         openAnnotationIDs: [String]? = nil
     ) {
-        guard case .available(let target) = resolveSendTarget(for: document.id),
+        guard document.isEditable, document.fileURL.isFileURL,
+            case .available(let target) = resolveSendTarget(for: document.id),
             let provider = PlanAnnotationAuthor(agentKind: target.agentKind)
         else { return }
-        let displayPath = DocumentPaneSendBar.resolveDisplayPath(
-            for: document.fileURL,
-            relativeTo: target.workingDirectory
-        )
+        let displayPath = NudgeComposer.absoluteLocalPath(for: document.fileURL) ?? document.fileURL.path
         let resolvedOpenAnnotationIDs =
             openAnnotationIDs
             ?? tabMemory.render(for: document)?.renderedDoc?.openAnnotationIDs
@@ -889,7 +890,11 @@ struct DocumentGroupView: View {
         composerFocusPaneID = target.id
         composerContext = ComposerContext(
             documentID: document.id,
+            fileURL: document.fileURL,
             targetPaneID: target.id,
+            providerKind: target.agentKind,
+            terminalTitle: target.title,
+            workingDirectory: target.workingDirectory,
             title: String(
                 localized: "Send to \(target.agentKind.displayName)",
                 comment: "Title of the multiline provider handoff composer"
@@ -958,6 +963,28 @@ struct DocumentGroupView: View {
     /// payload is control-char sanitized before it reaches the live PTY. `.failed`
     /// keeps the composer open with the draft intact.
     private func stageComposerText(_ draft: String, in context: ComposerContext) -> RichInputSendResult {
+        guard let currentDocument = session.layout.firstDocumentGroup?.tab(id: context.documentID),
+            currentDocument.fileURL == context.fileURL,
+            currentDocument.isEditable,
+            currentDocument.fileURL.isFileURL
+        else {
+            let reason = String(
+                localized:
+                    "Couldn't send — the reviewed document changed or is no longer editable. Close this composer and reopen Send to Agent.",
+                comment: "Composer refusal when the captured local document identity changed"
+            )
+            TerminalAccessibilityAnnouncer.announce(reason)
+            return .failed(reason)
+        }
+        guard NudgeComposer.absoluteLocalPath(for: context.fileURL) != nil else {
+            let reason = String(
+                localized:
+                    "Couldn't send — this file path contains control or direction-formatting characters that cannot be pasted exactly. Your draft is preserved.",
+                comment: "Composer refusal when path sanitization would name a different file"
+            )
+            TerminalAccessibilityAnnouncer.announce(reason)
+            return .failed(reason)
+        }
         let resolution = resolveSendTarget(for: context.documentID)
         guard case .available(let target) = resolution, target.id == context.targetPaneID else {
             let reason: String
@@ -969,6 +996,14 @@ struct DocumentGroupView: View {
                     comment: "Composer failure when a document has no eligible send target"
                 )
             }
+            TerminalAccessibilityAnnouncer.announce(reason)
+            return .failed(reason)
+        }
+        guard target.agentKind == context.providerKind else {
+            let reason = String(
+                localized: "Couldn't send — the receiving terminal's agent changed. Close this composer and reopen Send to Agent.",
+                comment: "Composer refusal when the pinned pane now has a different provider"
+            )
             TerminalAccessibilityAnnouncer.announce(reason)
             return .failed(reason)
         }
@@ -1004,7 +1039,11 @@ struct DocumentGroupView: View {
 private struct ComposerContext: Identifiable {
     let id = UUID()
     let documentID: DocumentPane.ID
+    let fileURL: URL
     let targetPaneID: TerminalPane.ID
+    let providerKind: AgentKind
+    let terminalTitle: String
+    let workingDirectory: String
     let title: String
     let seed: String
 }
