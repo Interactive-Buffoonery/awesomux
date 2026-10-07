@@ -142,15 +142,17 @@ final class LocalAPIService {
                     sources == runtime.localAPIProcessSources().filter({ candidatePaneIDs.contains($0.key) })
                 else { return LocalAPIResponse(requestID: request.requestID, error: .staleTarget) }
                 sampledIncarnations = incarnations
-                agents = store.localAPIAgents(
-                    processIncarnations: incarnations,
-                    limitedTo: candidatePaneIDs
-                ).filter {
-                    lease.statusScope.allows(
-                        paneID: $0.paneID,
-                        workspaceID: $0.workspaceID,
-                        targetVersion: $0.targetVersion
-                    )
+                if operation == .listAgents {
+                    agents = store.localAPIAgents(
+                        processIncarnations: incarnations,
+                        limitedTo: candidatePaneIDs
+                    ).filter {
+                        lease.statusScope.allows(
+                            paneID: $0.paneID,
+                            workspaceID: $0.workspaceID,
+                            targetVersion: $0.targetVersion
+                        )
+                    }
                 }
             }
             var attentionEvents: LocalAPIAttentionPage?
