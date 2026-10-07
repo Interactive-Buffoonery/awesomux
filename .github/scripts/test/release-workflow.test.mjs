@@ -14,7 +14,7 @@ const canValidateAppcast = existsSync("/usr/bin/xmllint");
 
 test("release workflow validates the DMG, checksum, and summary before publication", () => {
   const verification = workflow.match(
-    /\n      - name: Verify release outputs before publication[\s\S]*?(?=\n      - name: Upload release DMG)/,
+    /\n      - name: Verify release outputs before publication[\s\S]*?(?=\n      - parallel:)/,
   )?.[0];
   assert.ok(verification, "release output verification step must exist");
   assert.match(verification, /DMG_PATH="dist\/release\/\$DMG_NAME"/);
