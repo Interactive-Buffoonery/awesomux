@@ -1682,11 +1682,20 @@
     "Couldn't replace saved workspace data" : {
       "comment" : "Title for a failed explicit session recovery replacement"
     },
+    "Couldn't send — the receiving terminal's agent changed. Close this composer and reopen Send to Agent." : {
+      "comment" : "Composer refusal when the pinned pane now has a different provider"
+    },
+    "Couldn't send — the reviewed document changed or is no longer editable. Close this composer and reopen Send to Agent." : {
+      "comment" : "Composer refusal when the captured local document identity changed"
+    },
     "Couldn't send — this document's terminal isn't available" : {
       "comment" : "Composer failure when a document has no eligible send target\nVoiceOver announcement when a document has no eligible send target"
     },
     "Couldn't send — this document's terminal isn't running" : {
       "comment" : "Composer failure when the target terminal's process has exited"
+    },
+    "Couldn't send — this file path contains control or direction-formatting characters that cannot be pasted exactly. Your draft is preserved." : {
+      "comment" : "Composer refusal when path sanitization would name a different file"
     },
     "Couldn't verify a local terminal for this document path" : {
       "comment" : "Unavailable reason for sending a Mac-local document path when foreground process evidence is unavailable"
@@ -3722,6 +3731,9 @@
     "Reading branch changes." : {
       "comment" : "VoiceOver announcement when rendering a pane's branch diff starts"
     },
+    "Receiving terminal" : {
+      "comment" : "Composer label for the pinned receiving terminal"
+    },
     "Recent Workspaces" : {
       "comment" : "Dock right-click menu item whose submenu lists recently closed workspaces to reopen."
     },
@@ -4139,6 +4151,9 @@
     "Report a bug…" : {
 
     },
+    "Reported folder when opened" : {
+      "comment" : "Composer label for the terminal folder captured when the composer opened"
+    },
     "Reset" : {
       "comment" : "Appearance settings section title"
     },
@@ -4287,6 +4302,9 @@
     },
     "Review the group's current local and remote panes, then close it again." : {
       "comment" : "Body of the notice shown when a group changes while its close confirmation is open."
+    },
+    "Reviewed file" : {
+      "comment" : "Composer label for the captured absolute document path"
     },
     "Reviews" : {
       "comment" : "Section heading in a read-only pull request snapshot"
@@ -5483,7 +5501,7 @@
 
     },
     "Unknown" : {
-      "comment" : "Fallback status when GitHub reports no check status"
+      "comment" : "Composer placeholder when the terminal has not reported a folder\nFallback status when GitHub reports no check status"
     },
     "Unknown Ghostty configuration problem." : {
 

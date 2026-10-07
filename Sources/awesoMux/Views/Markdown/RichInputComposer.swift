@@ -21,6 +21,9 @@ enum RichInputSendResult: Equatable {
 /// terminal, preserving the nudge's deliberate human-in-the-loop gate.
 struct RichInputComposerSheet: View {
     let title: String
+    let reviewedFilePath: String
+    let receivingTerminal: String
+    let capturedWorkingDirectory: String
     /// Stages the sanitized draft; returns `.sent` on success or `.failed`
     /// (with a reason) to keep the composer open.
     let onSend: (String) -> RichInputSendResult
@@ -38,10 +41,16 @@ struct RichInputComposerSheet: View {
     init(
         seed: String,
         title: String,
+        reviewedFilePath: String,
+        receivingTerminal: String,
+        capturedWorkingDirectory: String,
         onSend: @escaping (String) -> RichInputSendResult,
         onClose: @escaping () -> Void
     ) {
         self.title = title
+        self.reviewedFilePath = reviewedFilePath
+        self.receivingTerminal = receivingTerminal
+        self.capturedWorkingDirectory = capturedWorkingDirectory
         self.onSend = onSend
         self.onClose = onClose
         _draft = State(initialValue: seed)
@@ -57,6 +66,7 @@ struct RichInputComposerSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().overlay(Color.aw.border2)
+            handoffDetails
             editor
                 .padding(16)
             if let failureMessage {
@@ -89,6 +99,43 @@ struct RichInputComposerSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private var handoffDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            detailRow(
+                String(localized: "Reviewed file", comment: "Composer label for the captured absolute document path"),
+                value: reviewedFilePath
+            )
+            detailRow(
+                String(localized: "Receiving terminal", comment: "Composer label for the pinned receiving terminal"),
+                value: receivingTerminal
+            )
+            detailRow(
+                String(
+                    localized: "Reported folder when opened",
+                    comment: "Composer label for the terminal folder captured when the composer opened"),
+                value: capturedWorkingDirectory.isEmpty
+                    ? String(localized: "Unknown", comment: "Composer placeholder when the terminal has not reported a folder")
+                    : capturedWorkingDirectory
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+
+    private func detailRow(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.aw.text2)
+            Text(value)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.aw.text)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var editor: some View {
