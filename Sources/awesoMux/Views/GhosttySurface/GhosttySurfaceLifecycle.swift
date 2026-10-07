@@ -433,6 +433,45 @@ extension GhosttySurfaceNSView {
                 )
                 return
             }
+            var browserHelperPath: String?
+            if runtime.remoteBrowserSettingsStore?.workspaces.value.remoteBrowserEnabled == true {
+                var browserAvailable =
+                    (try? await RemoteHelperInstaller.browserCapability(
+                        remote: remote,
+                        controlPath: controlPath,
+                        helperPath: helperPath
+                    )) == .supported
+                if !browserAvailable {
+                    _ = await RemoteHelperInstaller.offerAdditionalSSHFeatures(
+                        remote: remote,
+                        controlPath: controlPath,
+                        remoteHome: home,
+                        helperPath: helperPath,
+                        window: self?.window,
+                        authorityIsCurrent: { [weak self] in
+                            guard let self else { return false }
+                            return self.lifecycleState.bridgePreflightGeneration == generation
+                                && self.paneID == expectedPaneID
+                                && self.sessionID == expectedWorkspaceSessionID
+                                && self.pane.terminalSessionID == terminalSessionID
+                                && self.pane.executionPlan.remoteTarget == remote
+                                && runtime.remoteBrowserSettingsStore?.workspaces.value.remoteBrowserEnabled == true
+                        },
+                        includeBrowser: true
+                    )
+                    browserAvailable =
+                        (try? await RemoteHelperInstaller.browserCapability(
+                            remote: remote,
+                            controlPath: controlPath,
+                            helperPath: helperPath
+                        )) == .supported
+                }
+                guard !Task.isCancelled else { return }
+                if browserAvailable, runtime.remoteBrowserSettingsStore?.workspaces.value.remoteBrowserEnabled == true {
+                    browserHelperPath = RemoteHelperInstaller.browserWrapperPath(helperPath: helperPath)
+                }
+            }
+            let verifiedBrowserHelperPath = browserHelperPath
             let request = BridgeAttachPreflight.Request(
                 session: terminalSessionID,
                 remote: remote,
@@ -445,7 +484,8 @@ extension GhosttySurfaceNSView {
                         status: statusChannel,
                         remote: remote,
                         stateFilePath: channel.stateFilePath,
-                        helperPath: helperPath
+                        helperPath: helperPath,
+                        browserHelperPath: verifiedBrowserHelperPath
                     )
                 }
             )

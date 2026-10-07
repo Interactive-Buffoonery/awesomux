@@ -22,6 +22,11 @@ actor BridgeConnectionActor {
         fileprivate let rawValue: UInt64
     }
 
+    enum Lane: Sendable, Equatable, Hashable {
+        case legacy
+        case browser
+    }
+
     /// Test-only generation minter. Production generations are stamped solely by
     /// this actor's promotion counter (`promoteToActive`/`acceptReadyConnections`),
     /// and the `rawValue` stays `fileprivate` so a peer can never forge one. E1's
@@ -33,9 +38,9 @@ actor BridgeConnectionActor {
     /// forge-proof. `#if DEBUG` so a generation minter is never compiled into a
     /// release build (swift test runs debug, so tests keep it).
     #if DEBUG
-    static func makeGenerationForTesting(_ rawValue: UInt64) -> Generation {
-        Generation(rawValue: rawValue)
-    }
+        static func makeGenerationForTesting(_ rawValue: UInt64) -> Generation {
+            Generation(rawValue: rawValue)
+        }
     #endif
 
     struct FrameDelivery: Sendable, Equatable {
@@ -49,7 +54,13 @@ actor BridgeConnectionActor {
         let replacedConnection: ConnectionID?
     }
 
+    enum LanePromotion: Sendable, Equatable {
+        case promoted(Promotion)
+        case busy
+    }
+
     typealias ConnectionLostHandler = @Sendable (ConnectionID, Generation) async -> Void
+    typealias BrowserConnectionLostHandler = @Sendable (Generation) async -> Void
 
     nonisolated let socketPath: String
     nonisolated let frames: AsyncStream<FrameDelivery>
@@ -62,8 +73,9 @@ actor BridgeConnectionActor {
     private var listenerFD: Int32
     private var listenerSource: DispatchSourceRead?
     private var connections: [ConnectionID: ConnectionState] = [:]
-    private var activeConnection: ConnectionID?
+    private var activeConnections: [Lane: ConnectionID] = [:]
     private var connectionLostHandler: ConnectionLostHandler?
+    private var browserConnectionLostHandler: BrowserConnectionLostHandler?
 
     /// Reused across every `readReadyConnection` call. Actor isolation
     /// serializes reads, so one shared 8 KiB scratch buffer is safe and
@@ -100,12 +112,12 @@ actor BridgeConnectionActor {
             try Self.configureCloseOnExecAndNonblocking(fd)
             try Self.bind(fd, to: directory.socketPath)
             guard BridgeListenerDirectory.isSecureDirectory(at: directory.directoryPath),
-                  chmod(directory.socketPath, 0o600) == 0,
-                  Self.isOwnerOnlySocket(at: directory.socketPath)
+                chmod(directory.socketPath, 0o600) == 0,
+                Self.isOwnerOnlySocket(at: directory.socketPath)
             else {
                 throw ConnectionError.insecureSocket
             }
-            guard Darwin.listen(fd, 2) == 0 else { throw ConnectionError.listenFailed }
+            guard Darwin.listen(fd, 4) == 0 else { throw ConnectionError.listenFailed }
         } catch {
             Darwin.close(fd)
             Self.remove(directory)
@@ -132,6 +144,7 @@ actor BridgeConnectionActor {
             state.readSource.cancel()
             state.helloDeadlineTask?.cancel()
             state.partialDeadlineTask?.cancel()
+            state.browserDeadlineSource?.cancel()
         }
         Self.remove(directory)
         frameContinuation.finish()
@@ -159,27 +172,51 @@ actor BridgeConnectionActor {
         connectionLostHandler = handler
     }
 
+    func setBrowserConnectionLostHandler(_ handler: @escaping BrowserConnectionLostHandler) {
+        browserConnectionLostHandler = handler
+    }
+
     func promoteToActive(_ connection: ConnectionID) -> Promotion? {
+        guard case .promoted(let promotion) = promoteToActive(connection, lane: .legacy) else {
+            return nil
+        }
+        return promotion
+    }
+
+    func promoteToActive(_ connection: ConnectionID, lane: Lane) -> LanePromotion? {
         guard var state = connections[connection] else { return nil }
-        if activeConnection == connection {
-            return Promotion(generation: state.generation, replacedConnection: nil)
+        if activeConnections[lane] == connection {
+            return .promoted(Promotion(generation: state.generation, replacedConnection: nil))
+        }
+        if lane == .browser, activeConnections[.browser] != nil {
+            return .busy
         }
 
         guard nextGeneration < UInt64.max else {
             _ = closeConnection(connection)
             return nil
         }
-        let replaced = activeConnection
-        activeConnection = connection
+        let replaced = activeConnections[lane]
+        activeConnections[lane] = connection
         nextGeneration += 1
         state.generation = Generation(rawValue: nextGeneration)
         state.helloDeadlineTask?.cancel()
         state.helloDeadlineTask = nil
+        state.lane = lane
+        if lane == .browser {
+            let timeout = DispatchSource.makeTimerSource(queue: .global())
+            timeout.schedule(deadline: .now() + helloDeadline)
+            timeout.setEventHandler { [weak self] in
+                Task { await self?.closeUnexpectedConnection(connection) }
+            }
+            state.browserDeadlineSource = timeout
+            timeout.activate()
+        }
         connections[connection] = state
         if let replaced, replaced != connection {
             _ = closeConnection(replaced)
         }
-        return Promotion(generation: state.generation, replacedConnection: replaced)
+        return .promoted(Promotion(generation: state.generation, replacedConnection: replaced))
     }
 
     /// Handshake nacks may target the still-valid candidate generation;
@@ -187,7 +224,7 @@ actor BridgeConnectionActor {
     func send(_ handshake: BridgeHandshake, generation: Generation) async -> Bool {
         let destination: ConnectionID?
         switch handshake {
-        case .helloNack:
+        case .helloNack, .helloBusy:
             destination = connections.first { $0.value.generation == generation }?.key
         case .helloAck:
             destination = activeState(matching: generation)?.0
@@ -195,19 +232,35 @@ actor BridgeConnectionActor {
             destination = nil
         }
         guard let destination,
-              let line = try? handshake.encodedLine()
+            let line = try? handshake.encodedLine()
         else { return false }
         return await write(line, to: destination)
     }
 
     func send(_ envelope: BridgeEnvelope, generation: Generation) async -> Bool {
-        guard case .permissionDecision = envelope.message,
-              let destination = activeState(matching: generation),
-              let line = try? envelope.encodedLine()
+        let lane: Lane
+        switch envelope.message {
+        case .permissionDecision:
+            lane = .legacy
+        case .browserOpenResult:
+            lane = .browser
+        default:
+            return false
+        }
+        guard let destination = activeState(matching: generation, lane: lane),
+            let line = try? envelope.encodedLine()
         else {
             return false
         }
-        return await write(line, to: destination.0)
+        let sent = await write(line, to: destination.0)
+        if lane == .browser {
+            await closeUnexpectedConnection(destination.0)
+        }
+        return sent
+    }
+
+    func isActive(_ generation: Generation, lane: Lane) -> Bool {
+        activeState(matching: generation, lane: lane) != nil
     }
 
     func close(_ connection: ConnectionID) async {
@@ -239,8 +292,7 @@ actor BridgeConnectionActor {
                 return
             }
 
-            let hasHandshakingConnection = connections.keys.contains { $0 != activeConnection }
-            if hasHandshakingConnection || (activeConnection == nil && !connections.isEmpty) {
+            if connections.values.count(where: { $0.lane == nil }) >= 2 {
                 Darwin.close(fd)
                 continue
             }
@@ -330,7 +382,22 @@ actor BridgeConnectionActor {
                     await closeUnexpectedConnection(id)
                     return
                 }
-                guard activeConnection == id, Self.isAllowedInbound(envelope.message) else { continue }
+                guard let lane = state.lane,
+                    activeConnections[lane] == id,
+                    Self.isAllowedInbound(envelope.message, lane: lane)
+                else { continue }
+                if lane == .browser {
+                    guard !state.browserRequestDelivered else {
+                        await closeUnexpectedConnection(id)
+                        return
+                    }
+                    state.browserRequestDelivered = true
+                    if case .browserOpenRequest(let request) = envelope.message {
+                        state.browserDeadlineSource?.schedule(
+                            deadline: .now() + max(0, min(120, request.expiresAt - Date().timeIntervalSince1970))
+                        )
+                    }
+                }
                 guard deliver(frame, id: id, generation: state.generation) else {
                     await closeUnexpectedConnection(id)
                     return
@@ -366,7 +433,8 @@ actor BridgeConnectionActor {
         state.partialDeadlineTask?.cancel()
         state.partialDeadlineTask = nil
         guard state.tail.startedAt != nil else { return }
-        let remaining = BridgeFrameReader.partialLineDeadline
+        let remaining =
+            BridgeFrameReader.partialLineDeadline
             - MonotonicClock.now().timeIntervalSince(state.tail.startedAt!)
         state.partialDeadlineTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(max(0, remaining) + 0.001))
@@ -381,14 +449,21 @@ actor BridgeConnectionActor {
     }
 
     private func expireHello(for id: ConnectionID) {
-        guard connections[id] != nil, activeConnection != id else { return }
+        guard connections[id]?.lane == nil else { return }
         _ = closeConnection(id)
     }
 
     private func activeState(matching generation: Generation) -> (ConnectionID, ConnectionState)? {
-        guard let activeConnection,
-              let state = connections[activeConnection],
-              state.generation == generation
+        for lane in [Lane.legacy, .browser] {
+            if let state = activeState(matching: generation, lane: lane) { return state }
+        }
+        return nil
+    }
+
+    private func activeState(matching generation: Generation, lane: Lane) -> (ConnectionID, ConnectionState)? {
+        guard let activeConnection = activeConnections[lane],
+            let state = connections[activeConnection],
+            state.generation == generation
         else {
             return nil
         }
@@ -423,8 +498,8 @@ actor BridgeConnectionActor {
         var retryDelay: Duration = .milliseconds(1)
         while offset < bytes.count {
             guard !Task.isCancelled,
-                  let current = connections[id],
-                  current.fd == state.fd
+                let current = connections[id],
+                current.fd == state.fd
             else {
                 return false
             }
@@ -455,31 +530,44 @@ actor BridgeConnectionActor {
     }
 
     @discardableResult
-    private func closeConnection(_ id: ConnectionID) -> (Generation, Bool)? {
+    private func closeConnection(_ id: ConnectionID) -> (Generation, Lane?)? {
         guard let state = connections.removeValue(forKey: id) else { return nil }
-        let wasActive = activeConnection == id
-        if wasActive { activeConnection = nil }
+        let activeLane = state.lane.flatMap { activeConnections[$0] == id ? $0 : nil }
+        if let activeLane { activeConnections[activeLane] = nil }
         state.helloDeadlineTask?.cancel()
         state.partialDeadlineTask?.cancel()
+        state.browserDeadlineSource?.cancel()
         state.readSource.cancel()
-        return (state.generation, wasActive)
+        return (state.generation, activeLane)
     }
 
     private func closeUnexpectedConnection(_ id: ConnectionID) async {
-        guard let (generation, wasActive) = closeConnection(id), wasActive else { return }
-        await connectionLostHandler?(id, generation)
+        guard let (generation, lane) = closeConnection(id), let lane else { return }
+        switch lane {
+        case .legacy:
+            await connectionLostHandler?(id, generation)
+        case .browser:
+            await browserConnectionLostHandler?(generation)
+        }
     }
 
-    private static func isAllowedInbound(_ message: BridgeMessage) -> Bool {
-        switch message {
-        case .agentStatus, .paneRename, .handoffNotify, .permissionRequest, .permissionResolved:
+    private static func isAllowedInbound(_ message: BridgeMessage, lane: Lane) -> Bool {
+        switch (lane, message) {
+        case (.legacy, .agentStatus), (.legacy, .paneRename), (.legacy, .handoffNotify),
+            (.legacy, .permissionRequest), (.legacy, .permissionResolved):
             // `permission-resolved` is helper→app (spec §"permission-resolved
             // (helper → app)" and the failure-modes table): the helper's own
             // terminal-state notice the app consumes to tear a prompt down when
             // it can no longer deliver a decision. Admitting it inbound is what
             // makes E1's `BridgePermissionCoordinator.handleHelperResolved` live.
             true
-        case .permissionDecision:
+        case (.browser, .browserOpenRequest):
+            true
+        case (.legacy, .permissionDecision), (.legacy, .browserOpenRequest),
+            (.legacy, .browserOpenResult), (.browser, .agentStatus),
+            (.browser, .paneRename), (.browser, .handoffNotify),
+            (.browser, .permissionRequest), (.browser, .permissionDecision),
+            (.browser, .permissionResolved), (.browser, .browserOpenResult):
             // `permission-decision` is app→helper only; an inbound one is a
             // misdirected/forged frame and is dropped, never surfaced.
             false
@@ -499,10 +587,12 @@ actor BridgeConnectionActor {
     private static func configureConnection(_ fd: Int32) throws {
         try configureCloseOnExecAndNonblocking(fd)
         var noSignal: Int32 = 1
-        guard setsockopt(
-            fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
-            socklen_t(MemoryLayout.size(ofValue: noSignal))
-        ) == 0 else {
+        guard
+            setsockopt(
+                fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
+                socklen_t(MemoryLayout.size(ofValue: noSignal))
+            ) == 0
+        else {
             throw ConnectionError.socketConfigurationFailed
         }
     }
@@ -544,16 +634,20 @@ actor BridgeConnectionActor {
     private struct ConnectionState: Sendable {
         let fd: Int32
         var generation: Generation
+        var lane: Lane?
         let readSource: DispatchSourceRead
         var tail = BridgeFrameReader.PendingTail.empty
         var hasHello = false
+        var browserRequestDelivered = false
+        var browserDeadlineSource: DispatchSourceTimer?
         var isWriting = false
         var helloDeadlineTask: Task<Void, Never>?
         var partialDeadlineTask: Task<Void, Never>?
 
-        init(fd: Int32, generation: Generation, readSource: DispatchSourceRead) {
+        init(fd: Int32, generation: Generation, lane: Lane? = nil, readSource: DispatchSourceRead) {
             self.fd = fd
             self.generation = generation
+            self.lane = lane
             self.readSource = readSource
         }
     }

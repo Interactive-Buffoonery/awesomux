@@ -583,6 +583,9 @@
     "A previous scrollback read is still finishing. Choose Done, wait a moment, then try again." : {
       "comment" : "Explanation when Show Scrollback is retried before its previous native read finishes"
     },
+    "A program on %arg wants to open this page in your default browser." : {
+
+    },
     "About" : {
       "comment" : "Advanced settings title."
     },
@@ -817,6 +820,16 @@
     "Always Manage “%arg”" : {
       "comment" : "Remember-menu item naming the SSH destination that will be managed without asking"
     },
+    "Always allow %arg to open links to %arg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Always allow %1$arg to open links to %2$arg"
+          }
+        }
+      }
+    },
     "Always make SSH managed without asking" : {
       "comment" : "Workspace settings label."
     },
@@ -912,6 +925,9 @@
     },
     "Ask before ⌘⇧W, the sidebar close button, or ⌘W on a workspace's last pane closes a workspace with active agent or terminal activity. Skipped when nothing's at risk. App quit (⌘Q) has its own prompt; ⌘W on any other pane uses the toggle below." : {
       "comment" : "Workspace settings hint."
+    },
+    "Ask when a remote program requests your browser. Requires a supported helper in a managed SSH workspace. Turning this off stops new requests immediately; reconnect after turning it on." : {
+
     },
     "Asks before Command-Shift-W, the sidebar close button, or Command-W on a workspace's last pane closes a workspace whose agent or shell is active. Skipped when nothing is at risk. Command-Q (app quit) has its own prompt. Command-W on any other pane uses the pane-confirmation toggle below." : {
 
@@ -1227,6 +1243,9 @@
     "Choose an agent provider and an absolute executable path." : {
 
     },
+    "Choose how SSH connections become managed, approve helper installation, and control links opened on your Mac." : {
+      "comment" : "Managed SSH settings section description"
+    },
     "Choose or create the folder for the new worktree." : {
       "comment" : "Worktree target path picker guidance message."
     },
@@ -1238,9 +1257,6 @@
     },
     "Choose the destination for this read. Existing terminal SSH options and connections cannot be reused; configure an alias in OpenSSH." : {
       "comment" : "Help explaining independent SSH file-read configuration"
-    },
-    "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections." : {
-      "comment" : "Managed SSH settings section description"
     },
     "Choose when the awesoMux smile appears in the macOS menu bar." : {
       "comment" : "General settings menu bar section description"
@@ -1536,6 +1552,9 @@
     },
     "Copy Draft" : {
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
+    },
+    "Copy Link" : {
+
     },
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
@@ -2038,6 +2057,9 @@
       "comment" : "Outside app access app list hint."
     },
     "Each field is one literal argument, including spaces. Leave an argument field empty to pass an empty argument." : {
+
+    },
+    "Each permission applies to one SSH host and one website address. Remove it to ask again." : {
 
     },
     "Earlier turns are omitted. This document holds the most recent history that fits." : {
@@ -3200,11 +3222,17 @@
     "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
     },
+    "Only this website, HTTP or HTTPS, and port are allowed. Change it in Settings → Workspaces → Managed SSH." : {
+
+    },
     "Open" : {
       "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
     },
     "Open Agent Transcript" : {
       "comment" : "Workspace menu item that opens the active pane's agent session as a document"
+    },
+    "Open Link" : {
+
     },
     "Open Markdown File…" : {
 
@@ -3269,6 +3297,9 @@
     "Open prefilled email?" : {
       "comment" : "OSC 8 confirmation dialog title segment when a mailto URL has prefill parameters."
     },
+    "Open remote web links on your Mac" : {
+
+    },
     "Open session" : {
       "comment" : "Session Manager action to select an open session"
     },
@@ -3280,6 +3311,9 @@
     },
     "Open the searchable keyboard shortcuts overlay." : {
       "comment" : "Keys settings hint."
+    },
+    "Open this link on your Mac?" : {
+
     },
     "Opened at the top of the document. Section jumps are not supported yet." : {
       "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
@@ -4019,6 +4053,16 @@
     },
     "Remove argument %@" : {
       "comment" : "Remove argument at position"
+    },
+    "Remove browser permission for %arg and %arg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Remove browser permission for %1$arg and %2$arg"
+          }
+        }
+      }
     },
     "Remove editor" : {
 
@@ -5662,6 +5706,9 @@
           }
         }
       }
+    },
+    "Websites allowed without asking" : {
+
     },
     "Welcome to awesoMux" : {
       "comment" : "Announced to VoiceOver when the welcome tour panel presents"

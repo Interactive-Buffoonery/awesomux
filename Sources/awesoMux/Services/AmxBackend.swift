@@ -355,9 +355,9 @@ enum AmxBackend {
     ) -> [String] {
         var tokens =
             ["ssh"] + sshMultiplexingOptions() + [
-            "-o", "ConnectTimeout=10",
-            "-o", "ServerAliveInterval=15",
-        ]
+                "-o", "ConnectTimeout=10",
+                "-o", "ServerAliveInterval=15",
+            ]
         if remoteCommand != nil {
             // Supplying a command disables ssh's automatic TTY allocation.
             // The managed session must remain an interactive login shell, so
@@ -809,9 +809,10 @@ enum AmxBackend {
         stateFilePath: String,
         session: TerminalSessionID,
         helperPath: String,
-        remoteCommand: String
+        remoteCommand: String,
+        browserHelperPath: String? = nil
     ) -> String {
-        let tokens = [
+        var tokens = [
             shellQuote(envExecutablePath),
             // Belt-and-braces remote scrub of the LOCAL status pair. The outer
             // ssh attach command (`attachCommand`) already `-u`-scrubs these on
@@ -829,6 +830,19 @@ enum AmxBackend {
             shellQuote("AWESOMUX_BRIDGE_SESSION=" + session.rawValue),
             shellQuote("AWESOMUX_BRIDGE_HELPER=" + helperPath),
         ]
+        if let browserHelperPath, !browserHelperPath.isEmpty {
+            let wrapper = browserHelperPath as NSString
+            let directory = wrapper.deletingLastPathComponent
+            let executable = wrapper.lastPathComponent
+            if browserHelperPath.hasPrefix("/"), !directory.isEmpty, !executable.isEmpty {
+                // BROWSER is commonly parsed as a command line rather than an
+                // executable path. A basename stays reliable when the remote
+                // home contains spaces; the owner-only wrapper directory is
+                // prepended to PATH as one shell word.
+                tokens.append(shellQuote("PATH=" + directory) + ":\"$PATH\"")
+                tokens.append(shellQuote("BROWSER=" + executable))
+            }
+        }
         return (tokens + [remoteCommand]).joined(separator: " ")
     }
 
@@ -845,7 +859,8 @@ enum AmxBackend {
         status: AmxStatusChannel?,
         remote: RemoteTarget,
         stateFilePath: String,
-        helperPath: String
+        helperPath: String,
+        browserHelperPath: String? = nil
     ) -> String? {
         guard TerminalSessionID.isValid(sessionID.rawValue) else {
             return nil
@@ -876,7 +891,8 @@ enum AmxBackend {
             helperPath: helperPath,
             // `env` execs the expanded shell path directly. `exec` itself is a
             // shell builtin, not an executable, and would make env exit 127.
-            remoteCommand: "\"$SHELL\" -l"
+            remoteCommand: "\"$SHELL\" -l",
+            browserHelperPath: browserHelperPath
         )
         tokens += sshTailTokens(for: remote, remoteCommand: remoteShell).map(shellQuote)
         return tokens.joined(separator: " ")
@@ -887,7 +903,8 @@ enum AmxBackend {
         status: AmxStatusChannel?,
         remote: RemoteTarget,
         stateFilePath: String,
-        helperPath: String
+        helperPath: String,
+        browserHelperPath: String? = nil
     ) -> String? {
         guard let executableURL = bundledExecutableURL() else {
             return nil
@@ -899,7 +916,8 @@ enum AmxBackend {
             status: status,
             remote: remote,
             stateFilePath: stateFilePath,
-            helperPath: helperPath
+            helperPath: helperPath,
+            browserHelperPath: browserHelperPath
         )
     }
 
@@ -1318,6 +1336,25 @@ enum AmxBackend {
             ] + bridgeExecMasterOptionTokens + [
                 // See bridgeStateFileWriteCommand: `--` stops a `-`-prefixed
                 // destination from being parsed as an ssh option (ADR-0021).
+                "--",
+                shellQuote(remote.sshDestination),
+                shellQuote(remoteScript),
+            ]
+        return tokens.joined(separator: " ")
+    }
+
+    static func browserHelperCheckCommand(
+        controlPath: String,
+        remote: RemoteTarget,
+        helperPath: String
+    ) -> String {
+        let wrapperPath = RemoteHelperInstaller.browserWrapperPath(helperPath: helperPath)
+        let remoteScript = "test -x " + shellQuote(wrapperPath)
+        let tokens =
+            [
+                "ssh",
+                "-S", shellQuote(controlPath),
+            ] + bridgeExecMasterOptionTokens + [
                 "--",
                 shellQuote(remote.sshDestination),
                 shellQuote(remoteScript),
