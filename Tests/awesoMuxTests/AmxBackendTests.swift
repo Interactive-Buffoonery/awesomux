@@ -68,7 +68,7 @@ struct AmxBackendAttachCommandTests {
         #expect(
             command == "'/usr/bin/env' "
                 + "-u CLAUDE_CODE_CHILD_SESSION -u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
-                + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN "
+                + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN -u AWESOMUX_SSH_MOUSE_RECOVERY "
                 + "'ZMX_DIR=/tmp/amx' 'ZMX_DIR_MODE=700' "
                 + "'/Apps/awesoMux.app/Contents/MacOS/amx' attach --labels "
                 + "'awesomux.agent-kind= awesomux.group-id= awesomux.group-name= "
@@ -850,7 +850,7 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
     private static var expectedPrefix: String {
         "'/usr/bin/env' "
             + "-u CLAUDE_CODE_CHILD_SESSION -u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
-            + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN "
+            + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN -u AWESOMUX_SSH_MOUSE_RECOVERY "
             + "-u AWESOMUX_AGENT_EVENT_PROTOCOL -u AWESOMUX_SESSION_ID -u AWESOMUX_PANE_ID "
             + "-u AWESOMUX_AGENT_EVENT_FILE -u AWESOMUX_AGENT_HOOK "
             + "-u AWESOMUX_AGENT_ENABLED_SOURCES -u AWESOMUX_AMX -u AWESOMUX_PROFILE "

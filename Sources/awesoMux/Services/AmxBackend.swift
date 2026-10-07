@@ -253,6 +253,7 @@ enum AmxBackend {
             "-u ZMX_LOG_MODE",
             "-u AMX_STATUS_FILE",
             "-u AMX_STATUS_TOKEN",
+            "-u AWESOMUX_SSH_MOUSE_RECOVERY",
         ]
         if remote != nil {
             tokens += AgentRuntimeEnvironmentKey.paneScopedKeys.map { "-u \($0)" }
@@ -306,7 +307,8 @@ enum AmxBackend {
         switch ShellRecognition.basename(shellPath) {
         case "zsh":
             var tokens = [
-                shellQuote("ZDOTDIR=" + ghosttyResourcesDir + "/shell-integration/zsh")
+                shellQuote("ZDOTDIR=" + ghosttyResourcesDir + "/shell-integration/zsh"),
+                shellQuote("AWESOMUX_SSH_MOUSE_RECOVERY=1"),
             ]
             if let inheritedZDOTDIR {
                 tokens.append(shellQuote("GHOSTTY_ZSH_ZDOTDIR=" + inheritedZDOTDIR))
@@ -822,6 +824,7 @@ enum AmxBackend {
             // forge its token. Exact names only — `env -u` cannot glob.
             "-u AMX_STATUS_FILE",
             "-u AMX_STATUS_TOKEN",
+            "-u AWESOMUX_SSH_MOUSE_RECOVERY",
             shellQuote("AWESOMUX_BRIDGE_STATE=" + stateFilePath),
             shellQuote("AWESOMUX_BRIDGE_SESSION=" + session.rawValue),
             shellQuote("AWESOMUX_BRIDGE_HELPER=" + helperPath),
