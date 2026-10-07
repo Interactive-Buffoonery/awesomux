@@ -44,8 +44,9 @@ def read_until(fd, needle, timeout=15):
 def drain(fd, timeout=0.2):
     data = bytearray()
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not select.select([fd], [], [], deadline - time.monotonic())[0]:
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
             break
         data.extend(os.read(fd, 65536))
     return bytes(data)
