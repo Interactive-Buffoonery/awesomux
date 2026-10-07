@@ -156,6 +156,52 @@ matching keys in a user's `~/.config/ghostty/config` are overridden.
 Choose the `System default` option to skip awesoMux's family override
 entirely and let your Ghostty config and CoreText resolution stand.
 
+## SSH mouse recovery in local zsh
+
+Local bridged zsh panes install awesoMux's independently written
+`native/shell-integration/ssh-mouse-recovery.zsh` through the generated startup
+resources. A one-shot environment marker enables the hook and is consumed before
+child programs or nested shells start. The generated-source fingerprint includes
+the hook, so cached resources cannot silently omit it. Vendor files and pins stay
+unchanged.
+
+After a directly entered `ssh` or `/usr/bin/ssh` command exits, the shell emits
+only mouse tracking and encoding disables before its next prompt. This restores
+both amx's VT parser and the attached Ghostty terminal in PTY output order;
+there is no asynchronous reset that could reach a newly started TUI. awesoMux
+local shell prompts use normal terminal selection. Mouse capture remains owned
+by foreground terminal programs while they run. A suspended direct SSH job
+retains its mouse modes through `fg`; cleanup happens after the recorded job
+actually exits. The record includes its process ID so an unrelated job reusing
+the same job number cannot keep the old recovery pending. A stopped SSH TUI
+continues to own mouse modes at the local prompt, so normal prompt selection is
+restored when it exits, rather than while it is suspended.
+
+Compound commands, shell functions named `ssh`, and wrappers are outside this
+hook's scope. A command such as
+`ssh host; local-tui` keeps its existing terminal behavior. Bash and fish are unchanged. Existing persistent zsh shells
+need to be recreated once to load the updated startup resources; reattaching a
+shell that already loaded the hook retains it. Startup files that replace the
+shell's hook arrays can disable integration, including this recovery hook.
+
+The disposable PTY check uses a chosen SSH host and produces inspectable logs:
+
+```sh
+python3 script/test-ssh-mouse-recovery.py \
+  --amx .build/amx/amx \
+  --integration .build/ghostty/share/ghostty/shell-integration/zsh \
+  --host example-host \
+  --output /tmp/amx-mouse-proof
+```
+
+It covers SSH exit, live local and remote TUIs, a compound SSH/TUI command,
+next-command ordering, a nested shell, reattachment, an ordinary command,
+nonzero command status through later shell hooks, absolute SSH with a shell
+function present, suspension/resumption, and unrelated stopped-job reuse.
+The output directory contains a readable `report.txt` PASS summary and one
+transcript per case. Inspect both when reviewing a run. It verifies amx and the
+emitted attach bytes; running-app mouse movement remains a separate manual check.
+
 ## Terminal Color Identity
 
 Terminal appearance is split between visual config and terminal identity:

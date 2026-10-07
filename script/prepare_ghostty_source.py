@@ -15,6 +15,7 @@ INPUTS = (
     ROOT / "native/ghostty/scrollback.zig",
     ROOT / "native/ghostty/embedded-scrollback.zig.inc",
     ROOT / "Sources/GhosttyKit/AwesoMuxGhostty.h",
+    ROOT / "native/shell-integration/ssh-mouse-recovery.zsh",
 )
 
 
@@ -47,6 +48,15 @@ def prepare(vendor, destination):
         terminal = staging / "src/terminal/main.zig"
         with terminal.open("a") as file:
             file.write('\n// awesoMux native safety regression tests.\ntest { _ = @import("awesomux_scrollback.zig"); }\n')
+        integration = staging / "src/shell-integration/zsh"
+        shutil.copyfile(INPUTS[4], integration / "awesomux-ssh-mouse-recovery")
+        with (integration / ".zshenv").open("a") as file:
+            file.write(
+                '\nif [[ ${AWESOMUX_SSH_MOUSE_RECOVERY:-} == 1 ]]; then\n'
+                '    builtin unset AWESOMUX_SSH_MOUSE_RECOVERY\n'
+                '    builtin source "$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/awesomux-ssh-mouse-recovery"\n'
+                'fi\n'
+            )
         (staging / ".awesomux-extension").write_text(fingerprint() + "\n")
         staging.rename(target)
     finally:

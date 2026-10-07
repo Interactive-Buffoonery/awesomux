@@ -26,6 +26,8 @@ class SourcePreparationTests(unittest.TestCase):
         self.output = root / "output"
         (self.vendor / "src/apprt").mkdir(parents=True)
         (self.vendor / "src/terminal").mkdir(parents=True)
+        (self.vendor / "src/shell-integration/zsh").mkdir(parents=True)
+        (self.vendor / "src/shell-integration/zsh/.zshenv").write_text("# fixture\n")
         (self.vendor / "src/apprt/embedded.zig").write_text("pub const CAPI = struct {\n};\n")
         (self.vendor / "src/terminal/main.zig").write_text("// fixture\n")
         self.git("init", "--quiet")
