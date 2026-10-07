@@ -128,7 +128,7 @@ struct RichInputComposerSheet: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.aw.text2)
+                .foregroundStyle(Color.aw.text)
             Text(value)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.aw.text)
