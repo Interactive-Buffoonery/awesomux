@@ -202,6 +202,7 @@ SPARKLE_POLICY_KEYS=(
   SUFeedURL
   SUPublicEDKey
   SUEnableAutomaticChecks
+  SUScheduledCheckInterval
   SUAutomaticallyUpdate
   SUAllowsAutomaticUpdates
   SUEnableSystemProfiling
@@ -214,6 +215,7 @@ if [[ "$SPARKLE_ENABLED" -eq 1 ]]; then
     "SUFeedURL=https://github.com/Interactive-Buffoonery/awesomux/releases/latest/download/appcast.xml"
     "SUPublicEDKey=$SPARKLE_PUBLIC_ED_KEY"
     "SUEnableAutomaticChecks=true"
+    "SUScheduledCheckInterval=3600"
     "SUAutomaticallyUpdate=false"
     "SUAllowsAutomaticUpdates=false"
     "SUEnableSystemProfiling=false"

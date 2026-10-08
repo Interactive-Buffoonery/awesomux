@@ -33,6 +33,9 @@ compatibility spike proves otherwise.
   no App Sandbox for direct releases, and no hardened-runtime exception
   entitlements unless a concrete signed-release failure proves they are needed.
 - Stable release bundles explicitly enable Sparkle with a public EdDSA key.
+  Automatic update checks default to every hour (`SUScheduledCheckInterval =
+  3600`), including existing installs without a saved interval override.
+  Discovery shows the sidebar reminder; installation remains user initiated.
   Nightly, development, test, and local-install bundles omit the stable feed
   configuration.
 - A later TestFlight path needs App Store Connect upload, provisioning, and beta
