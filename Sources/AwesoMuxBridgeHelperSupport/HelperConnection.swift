@@ -16,6 +16,7 @@ public final class HelperConnection {
         case closed
         case timedOut
         case protocolViolation
+        case busy
     }
 
     private let fd: Int32
@@ -127,7 +128,9 @@ public final class HelperConnection {
             case .helloAck(let ackSession, let ackProto, _)
             where ackSession == session && ackProto == proto:
                 return
-            case .helloAck, .helloNack, .hello:
+            case .helloBusy(let busyProto) where busyProto == proto:
+                throw ConnectionError.busy
+            case .helloAck, .helloNack, .helloBusy, .hello:
                 throw ConnectionError.protocolViolation
             }
         }
@@ -155,6 +158,19 @@ public final class HelperConnection {
         // without sweeping — the pending entry never resolves, the outer
         // loop recomputes the same past deadline, and the process spins at
         // 100% CPU forever instead of denying and exiting.
+        throw ConnectionError.timedOut
+    }
+
+    public func readBrowserResult(requestID: String, deadline: Date) throws -> BridgeEnvelope {
+        while monotonicNow() < deadline {
+            let frame = try readFrame(deadline: deadline)
+            if case .envelope(let envelope) = frame,
+                case .browserOpenResult(let result) = envelope.message,
+                result.inReplyTo == requestID
+            {
+                return envelope
+            }
+        }
         throw ConnectionError.timedOut
     }
 

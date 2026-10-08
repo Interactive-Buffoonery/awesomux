@@ -200,7 +200,7 @@ struct WorkspaceSettingsPane: View {
             title: String(localized: "Managed SSH", comment: "Workspace settings title."),
             subtitle: String(
                 localized:
-                    "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections.",
+                    "Choose how SSH connections become managed, approve helper installation, and control links opened on your Mac.",
                 comment: "Managed SSH settings section description"
             )
         ) {
@@ -256,6 +256,50 @@ struct WorkspaceSettingsPane: View {
                     localized: "Removing an alias from below restores automatic offers for it.", comment: "Workspace settings hint.")
             ) {
                 managedSSHIgnoredDestinationsControl
+            }
+
+            SettingsField(
+                label: String(localized: "Open remote web links on your Mac"),
+                hint: String(
+                    localized:
+                        "Ask when a remote program requests your browser. Requires a supported helper in a managed SSH workspace. Turning this off stops new requests immediately; reconnect after turning it on."
+                ),
+                forwardsAccessibilityToControl: true
+            ) {
+                Toggle("Open remote web links on your Mac", isOn: appSettingsStore.workspaces.binding(\.remoteBrowserEnabled))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            if !appSettingsStore.workspaces.value.remoteBrowserAllowedOrigins.isEmpty {
+                SettingsField(
+                    label: String(localized: "Websites allowed without asking"),
+                    hint: String(localized: "Each permission applies to one SSH host and one website address. Remove it to ask again.")
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(appSettingsStore.workspaces.value.remoteBrowserAllowedOrigins.keys.sorted(), id: \.self) { host in
+                            ForEach(appSettingsStore.workspaces.value.remoteBrowserAllowedOrigins[host, default: []], id: \.self) {
+                                origin in
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(host).font(.callout)
+                                        Text(origin).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button("Remove") {
+                                        appSettingsStore.workspaces.update {
+                                            $0.remoteBrowserAllowedOrigins[host]?.removeAll { $0 == origin }
+                                            if $0.remoteBrowserAllowedOrigins[host]?.isEmpty == true {
+                                                $0.remoteBrowserAllowedOrigins.removeValue(forKey: host)
+                                            }
+                                        }
+                                    }
+                                    .accessibilityLabel(String(localized: "Remove browser permission for \(host) and \(origin)"))
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             SettingsField(

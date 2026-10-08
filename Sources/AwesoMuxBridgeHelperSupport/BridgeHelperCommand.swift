@@ -11,9 +11,10 @@ public enum BridgeHelperCommand {
     /// future protocol bump can advertise both the old and new version
     /// during rollout.
     public static let supportedProtocols = [
-        "awesomux-bridge-v1", "awesomux-handoff-v1", "awesomux-liveness-v1",
+        "awesomux-bridge-v1", "awesomux-browser-v1", "awesomux-handoff-v1", "awesomux-liveness-v1",
     ]
     private static let supportedBridgeProtocols = ["awesomux-bridge-v1"]
+    private static let browserProtocol = "awesomux-browser-v1"
 
     /// `--self-check` exit codes, consumed by the doctor's state-file-custody
     /// and round-trip signals (INT-698 F1). Ordered by the stage that failed so
@@ -111,6 +112,50 @@ public enum BridgeHelperCommand {
             return 0
         }
 
+        if arguments.first == "browser-open" {
+            let suppliedURL = arguments.dropFirst().first ?? ""
+            guard let request = parseBrowserArguments(arguments) else {
+                errorOutput("awesoMuxBridgeHelper: invalid browser request")
+                if !suppliedURL.isEmpty { errorOutput(copyableBrowserURL(suppliedURL)) }
+                return 64
+            }
+            guard let context = loadContext(environment: environment, readState: readState) else {
+                return browserFailure("bridge unavailable", url: request.url, output: errorOutput)
+            }
+            do {
+                let connection = try connect(context.state, context.session)
+                try connection.handshake(proto: browserProtocol, helper: helperVersion, wallNow: now())
+                let requestID = UUID().uuidString
+                let expiresAt = now().addingTimeInterval(request.timeout).timeIntervalSince1970
+                try connection.send(
+                    BridgeEnvelope(
+                        token: context.state.token,
+                        session: context.session,
+                        id: requestID,
+                        ts: now().timeIntervalSince1970,
+                        message: .browserOpenRequest(
+                            BrowserOpenRequest(url: request.url, expiresAt: expiresAt)
+                        )
+                    )
+                )
+                let deadline = connection.monotonicNow().addingTimeInterval(request.timeout)
+                let envelope = try connection.readBrowserResult(requestID: requestID, deadline: deadline)
+                guard case .browserOpenResult(let result) = envelope.message else {
+                    return browserFailure("invalid response", url: request.url, output: errorOutput)
+                }
+                guard result.outcome == .opened else {
+                    return browserFailure(result.outcome.rawValue, url: request.url, output: errorOutput)
+                }
+                return 0
+            } catch HelperConnection.ConnectionError.busy {
+                return browserFailure("busy", url: request.url, output: errorOutput)
+            } catch HelperConnection.ConnectionError.timedOut {
+                return browserFailure("expired", url: request.url, output: errorOutput)
+            } catch {
+                return browserFailure("disconnected", url: request.url, output: errorOutput)
+            }
+        }
+
         if arguments.count == 2, arguments[0] == "--emit" {
             guard let context = loadContext(environment: environment, readState: readState),
                 supportedBridgeProtocols.contains(context.state.proto),
@@ -155,6 +200,54 @@ public enum BridgeHelperCommand {
     private struct LivenessUnavailable: Error {}
 
     private static let helperVersion = "awesomux-remote-helper/1.0.0"
+    private static let defaultBrowserTimeout: TimeInterval = 30
+    private static let maximumBrowserTimeout: TimeInterval = 120
+
+    private static func parseBrowserArguments(
+        _ arguments: [String]
+    ) -> (url: String, timeout: TimeInterval)? {
+        guard arguments.count == 2 || arguments.count == 4,
+            arguments[0] == "browser-open"
+        else { return nil }
+        let url = arguments[1]
+        guard !url.isEmpty,
+            url.utf8.count <= BridgeMessage.FieldLimit.browserURL,
+            URL(string: url)?.scheme != nil
+        else { return nil }
+        let timeout: TimeInterval
+        if arguments.count == 4 {
+            guard arguments[2] == "--timeout",
+                let parsed = TimeInterval(arguments[3]),
+                parsed.isFinite,
+                (1...maximumBrowserTimeout).contains(parsed)
+            else { return nil }
+            timeout = parsed
+        } else {
+            timeout = defaultBrowserTimeout
+        }
+        return (url, timeout)
+    }
+
+    private static func browserFailure(
+        _ reason: String,
+        url: String,
+        output: (String) -> Void
+    ) -> Int32 {
+        output("awesoMuxBridgeHelper: browser open \(reason)")
+        output(copyableBrowserURL(url))
+        return 1
+    }
+
+    private static func copyableBrowserURL(_ url: String) -> String {
+        url.unicodeScalars.map { scalar in
+            switch scalar.properties.generalCategory {
+            case .control, .format:
+                String(scalar).utf8.map { String(format: "%%%02X", $0) }.joined()
+            default:
+                String(scalar)
+            }
+        }.joined()
+    }
 
     private static func parseHandoffArguments(
         _ arguments: [String]

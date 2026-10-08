@@ -30,6 +30,7 @@ enum RemoteHelperInstaller {
     static let successToken = "AWESOMUX_HELPER_INSTALLED"
     static let unsafeRemoteLayoutToken = "AWESOMUX_HELPER_UNSAFE_REMOTE_LAYOUT"
     static let bridgeRequiredProtocols = [AmxBackend.bridgeProtocolVersion]
+    static let browserRequiredProtocols = ["awesomux-browser-v1"]
     static let handoffRequiredProtocols = ["awesomux-handoff-v1"]
     static let livenessRequiredProtocols = ["awesomux-liveness-v1"]
     static let requiredProtocols = bridgeRequiredProtocols + handoffRequiredProtocols
@@ -84,11 +85,13 @@ enum RemoteHelperInstaller {
         let bridge: Bool
         let handoff: Bool
         let liveness: Bool
+        let browser: Bool
 
         init(protocols: Set<String>) {
             bridge = Set(bridgeRequiredProtocols).isSubset(of: protocols)
             handoff = Set(handoffRequiredProtocols).isSubset(of: protocols)
             liveness = Set(livenessRequiredProtocols).isSubset(of: protocols)
+            browser = Set(browserRequiredProtocols).isSubset(of: protocols)
         }
     }
 
@@ -96,7 +99,7 @@ enum RemoteHelperInstaller {
         FeatureCapabilities(
             protocols: BridgeDoctorSignals.compatibleProtocols(
                 helperVersionOutput: helperVersionOutput,
-                appSupported: Set(requiredProtocols + livenessRequiredProtocols)
+                appSupported: Set(requiredProtocols + livenessRequiredProtocols + browserRequiredProtocols)
             )
         )
     }
@@ -416,7 +419,7 @@ enum RemoteHelperInstaller {
         let output = String(decoding: data, as: UTF8.self)
         let compatible = BridgeDoctorSignals.compatibleProtocols(
             helperVersionOutput: output,
-            appSupported: Set(Self.requiredProtocols + livenessRequiredProtocols)
+            appSupported: Set(Self.requiredProtocols + livenessRequiredProtocols + browserRequiredProtocols)
         )
         return Set(requiredProtocols).isSubset(of: compatible) ? .supported : .incompatible
     }
@@ -425,17 +428,67 @@ enum RemoteHelperInstaller {
         remote: RemoteTarget,
         controlPath: String,
         helperPath: String,
+        includeBrowser: Bool = false,
         execChannel: @escaping BridgeDoctorSignals.ExecChannel = { command, stdin in
             try await BridgeExecChannel.run(command: command, stdin: stdin)
         }
     ) async throws -> Capability {
-        try await capability(
+        let protocols =
+            requiredProtocols + livenessRequiredProtocols
+            + (includeBrowser ? browserRequiredProtocols : [])
+        return try await capability(
             remote: remote,
             controlPath: controlPath,
             helperPath: helperPath,
-            requiredProtocols: requiredProtocols + livenessRequiredProtocols,
+            requiredProtocols: protocols,
             execChannel: execChannel
         )
+    }
+
+    static func browserCapability(
+        remote: RemoteTarget,
+        controlPath: String,
+        helperPath: String,
+        execChannel: @escaping BridgeDoctorSignals.ExecChannel = { command, stdin in
+            try await BridgeExecChannel.run(command: command, stdin: stdin)
+        }
+    ) async throws -> Capability {
+        let protocolCapability = try await capability(
+            remote: remote,
+            controlPath: controlPath,
+            helperPath: helperPath,
+            requiredProtocols: browserRequiredProtocols,
+            execChannel: execChannel
+        )
+        guard protocolCapability == .supported else { return protocolCapability }
+        do {
+            _ = try await execChannel(
+                AmxBackend.browserHelperCheckCommand(
+                    controlPath: controlPath,
+                    remote: remote,
+                    helperPath: helperPath
+                ),
+                nil
+            )
+            return .supported
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as BoundedProcessRunner.ExecError {
+            switch error {
+            case .nonzeroExit(1), .nonzeroExit(127):
+                return .incompatible
+            case .nonzeroExit(255), .spawnFailed, .timedOut, .outputTooLarge, .inputFailed:
+                return .probeFailed
+            case .nonzeroExit:
+                return .incompatible
+            }
+        } catch {
+            return .probeFailed
+        }
+    }
+
+    static func browserWrapperPath(helperPath: String) -> String {
+        helperPath + "-browser"
     }
 
     static func probePlatform(
@@ -586,13 +639,17 @@ enum RemoteHelperInstaller {
         requiredProtocols: [String] = requiredProtocols
     ) -> String {
         let destinationPath = BridgeAttachDecision.helperPath(remoteHome: remoteHome)
+        let browserWrapperPath = browserWrapperPath(helperPath: destinationPath)
         let binDirectoryPath = (destinationPath as NSString).deletingLastPathComponent
         let awesomuxDirectoryPath = (binDirectoryPath as NSString).deletingLastPathComponent
         let home = shellQuote(remoteHome)
         let awesomuxDirectory = shellQuote(awesomuxDirectoryPath)
         let binDirectory = shellQuote(binDirectoryPath)
         let destination = shellQuote(destinationPath)
+        let browserWrapper = shellQuote(browserWrapperPath)
         let temporaryTemplate = shellQuote(binDirectoryPath + "/.helper.XXXXXXXX")
+        let wrapperTemporaryTemplate = shellQuote(binDirectoryPath + "/.browser.XXXXXXXX")
+        let wrapperContents = "#!/bin/sh\nexec " + shellQuote(destinationPath) + " browser-open \"$@\""
         // GNU stat can emit stdout before rejecting BSD flags; discard failed probe output.
         var commands = [
             "umask 077",
@@ -600,6 +657,7 @@ enum RemoteHelperInstaller {
             "awesomux_dir=\(awesomuxDirectory)",
             "bin_dir=\(binDirectory)",
             "destination=\(destination)",
+            "browser_wrapper=\(browserWrapper)",
             "fail_unsafe_layout() { /bin/cat >/dev/null; printf '%s\\n' \(shellQuote(unsafeRemoteLayoutToken)); exit 0; }",
             "uid=$(/usr/bin/id -u) || exit 1",
             "stat_owner() { if stat_value=$(/usr/bin/stat -f '%u' \"$1\" 2>/dev/null); then printf '%s\\n' \"$stat_value\"; else /usr/bin/stat -c '%u' \"$1\" 2>/dev/null; fi; }",
@@ -611,8 +669,10 @@ enum RemoteHelperInstaller {
             "ensure_private_dir \"$awesomux_dir\"",
             "ensure_private_dir \"$bin_dir\"",
             "if [ -e \"$destination\" ] || [ -L \"$destination\" ]; then [ ! -L \"$destination\" ] && [ -f \"$destination\" ] && [ \"$(stat_owner \"$destination\")\" = \"$uid\" ] || fail_unsafe_layout; fi",
+            "if [ -e \"$browser_wrapper\" ] || [ -L \"$browser_wrapper\" ]; then [ ! -L \"$browser_wrapper\" ] && [ -f \"$browser_wrapper\" ] && [ \"$(stat_owner \"$browser_wrapper\")\" = \"$uid\" ] || fail_unsafe_layout; fi",
             "tmp=$(/usr/bin/mktemp \(temporaryTemplate)) || exit 1",
-            "trap '/bin/rm -f \"$tmp\"' EXIT",
+            "wrapper_tmp=$(/usr/bin/mktemp \(wrapperTemporaryTemplate)) || exit 1",
+            "trap '/bin/rm -f \"$tmp\" \"$wrapper_tmp\"' EXIT",
             "trap 'exit 1' HUP INT TERM",
             "/bin/chmod 700 \"$tmp\" || exit 1",
             "/bin/cat > \"$tmp\" || exit 1",
@@ -626,7 +686,10 @@ enum RemoteHelperInstaller {
                 "printf '%s\\n' \"$version\" | /usr/bin/grep -Fqx \(shellQuote($0)) || exit 1"
             })
         commands.append(contentsOf: [
+            "/usr/bin/printf '%s\n' \(shellQuote(wrapperContents)) > \"$wrapper_tmp\" || exit 1",
+            "/bin/chmod 700 \"$wrapper_tmp\" || exit 1",
             "/bin/mv -f \"$tmp\" \"$destination\" || exit 1",
+            "/bin/mv -f \"$wrapper_tmp\" \"$browser_wrapper\" || exit 1",
             "trap - EXIT HUP INT TERM",
             "printf '%s\\n' \(shellQuote(successToken))",
         ])
@@ -773,7 +836,8 @@ enum RemoteHelperInstaller {
         remoteHome: String,
         helperPath: String,
         window: NSWindow?,
-        authorityIsCurrent: @escaping @MainActor () -> Bool
+        authorityIsCurrent: @escaping @MainActor () -> Bool,
+        includeBrowser: Bool = false
     ) async -> Bool {
         guard installPolicy() != .neverAsk else { return false }
         guard let window,
@@ -791,7 +855,8 @@ enum RemoteHelperInstaller {
             let capability = try await additionalSSHCapability(
                 remote: remote,
                 controlPath: controlPath,
-                helperPath: helperPath
+                helperPath: helperPath,
+                includeBrowser: includeBrowser
             )
             guard let action = capability.approvalAction else {
                 return capability == .supported
@@ -819,10 +884,16 @@ enum RemoteHelperInstaller {
                     try await install(
                         helper: helper, remote: remote, controlPath: controlPath, remoteHome: remoteHome,
                         requiredProtocols: requiredProtocols + livenessRequiredProtocols
+                            + (includeBrowser ? browserRequiredProtocols : [])
                     )
                 },
                 capabilityProbe: { remote, controlPath, helperPath in
-                    try await additionalSSHCapability(remote: remote, controlPath: controlPath, helperPath: helperPath)
+                    try await additionalSSHCapability(
+                        remote: remote,
+                        controlPath: controlPath,
+                        helperPath: helperPath,
+                        includeBrowser: includeBrowser
+                    )
                 },
                 successPresentation: { _ in }
             )

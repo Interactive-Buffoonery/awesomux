@@ -91,7 +91,7 @@ struct BridgeAgentStatusAdapter: Sendable {
             // never open/execute/read it.
             surfaceHandoff(notify, envelope.session)
 
-        case .permissionRequest, .permissionDecision, .permissionResolved:
+        case .permissionRequest, .permissionDecision, .permissionResolved, .browserOpenRequest, .browserOpenResult:
             // Permission lifecycle is a separate seam (its own request map + UI);
             // this adapter is strictly the agent-status/rename/handoff read-model
             // translator. Dropping here is correct, not a gap.

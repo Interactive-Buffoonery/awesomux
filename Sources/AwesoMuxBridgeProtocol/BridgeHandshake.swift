@@ -15,6 +15,8 @@ public enum BridgeHandshake: Sendable, Equatable {
     case helloAck(session: String, proto: String, ts: Double)
     /// App → helper, sent when `hello.proto` names an unsupported version.
     case helloNack(supported: [String])
+    /// App → helper, sent when the single browser-helper slot is occupied.
+    case helloBusy(proto: String)
 
     private static let decoder = JSONDecoder()
     private static let encoder = JSONEncoder()
@@ -54,6 +56,10 @@ public enum BridgeHandshake: Sendable, Equatable {
                 return nil
             }
             return .helloNack(supported: supported)
+
+        case "hello-busy":
+            guard let proto = wire.proto else { return nil }
+            return .helloBusy(proto: proto)
 
         default:
             return nil
@@ -104,6 +110,9 @@ public enum BridgeHandshake: Sendable, Equatable {
             case .helloNack(let supported):
                 type = "hello-nack"
                 self.supported = supported
+            case .helloBusy(let proto):
+                type = "hello-busy"
+                self.proto = proto
             }
         }
     }

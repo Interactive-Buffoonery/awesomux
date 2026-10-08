@@ -114,6 +114,8 @@ public enum BridgeMessage: Sendable, Equatable {
     case permissionRequest(PermissionRequest)
     case permissionDecision(PermissionDecision)
     case permissionResolved(PermissionResolved)
+    case browserOpenRequest(BrowserOpenRequest)
+    case browserOpenResult(BrowserOpenResult)
 
     /// Wire `type` discriminator.
     var wireType: String {
@@ -124,6 +126,8 @@ public enum BridgeMessage: Sendable, Equatable {
         case .permissionRequest: "permission-request"
         case .permissionDecision: "permission-decision"
         case .permissionResolved: "permission-resolved"
+        case .browserOpenRequest: "browser-open-request"
+        case .browserOpenResult: "browser-open-result"
         }
     }
 
@@ -134,8 +138,10 @@ public enum BridgeMessage: Sendable, Equatable {
         switch type {
         case "agent-status", "pane-rename", "permission-resolved":
             4 * 1024
-        case "handoff-notify", "permission-request", "permission-decision":
+        case "handoff-notify", "permission-request", "permission-decision", "browser-open-request":
             8 * 1024
+        case "browser-open-result":
+            4 * 1024
         default:
             nil
         }
@@ -166,6 +172,40 @@ public enum BridgeMessage: Sendable, Equatable {
     public enum FieldLimit {
         public static let title = 200  // same semantic field as the local pane title.
         static let path = 1024  // matches AmxBackend.parseCwdOutput's remote-path bound.
+        public static let browserURL = 4 * 1024
+    }
+}
+
+public struct BrowserOpenRequest: Sendable, Equatable {
+    public var url: String
+    public var expiresAt: Double
+
+    public init(url: String, expiresAt: Double) {
+        self.url = url
+        self.expiresAt = expiresAt
+    }
+}
+
+public enum BrowserOpenOutcome: String, Sendable, Equatable, Codable {
+    case opened
+    case cancelled
+    case copied
+    case disabled
+    case expired
+    case disconnected
+    case busy
+    case failed
+    case invalid
+    case rateLimited = "rate-limited"
+}
+
+public struct BrowserOpenResult: Sendable, Equatable {
+    public var inReplyTo: String
+    public var outcome: BrowserOpenOutcome
+
+    public init(inReplyTo: String, outcome: BrowserOpenOutcome) {
+        self.inReplyTo = inReplyTo
+        self.outcome = outcome
     }
 }
 
@@ -347,6 +387,10 @@ extension BridgeEnvelope {
         var scope: PermissionDecision.Scope?
         var reason: PermissionResolved.Reason?
 
+        // browser-open-request / browser-open-result
+        var url: String?
+        var outcome: BrowserOpenOutcome?
+
         init(envelope: BridgeEnvelope) {
             v = BridgeEnvelope.supportedVersion
             type = envelope.message.wireType
@@ -384,6 +428,12 @@ extension BridgeEnvelope {
             case .permissionResolved(let payload):
                 inReplyTo = payload.inReplyTo
                 reason = payload.reason
+            case .browserOpenRequest(let payload):
+                url = payload.url
+                expiresAt = payload.expiresAt
+            case .browserOpenResult(let payload):
+                inReplyTo = payload.inReplyTo
+                outcome = payload.outcome
             }
         }
     }
@@ -485,6 +535,19 @@ extension BridgeEnvelope.Wire {
         case "permission-resolved":
             guard let inReplyTo, let reason else { return nil }
             return .permissionResolved(PermissionResolved(inReplyTo: inReplyTo, reason: reason))
+
+        case "browser-open-request":
+            guard let url,
+                let validatedURL = Self.validatedFreeText(url, maxLength: BridgeMessage.FieldLimit.browserURL),
+                !validatedURL.isEmpty,
+                let expiresAt,
+                expiresAt.isFinite
+            else { return nil }
+            return .browserOpenRequest(BrowserOpenRequest(url: validatedURL, expiresAt: expiresAt))
+
+        case "browser-open-result":
+            guard let inReplyTo, !inReplyTo.isEmpty, let outcome else { return nil }
+            return .browserOpenResult(BrowserOpenResult(inReplyTo: inReplyTo, outcome: outcome))
 
         default:
             return nil
