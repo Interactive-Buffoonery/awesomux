@@ -127,11 +127,19 @@ struct SessionDetailView: View {
                         onManage: {
                             onManageSSHConnection(session.id, session.activePaneID)
                         },
-                        onDismiss: {
+                        onDismiss: { [sessionID = session.id, paneID = session.activePaneID] in
                             _ = sessionStore.consumeManagedSSHWorkspaceOffer(
-                                sessionID: session.id,
-                                paneID: session.activePaneID
+                                sessionID: sessionID,
+                                paneID: paneID
                             )
+                            // Removing the clicked button can leave no first
+                            // responder; hand the keyboard back to the shell.
+                            DispatchQueue.main.async {
+                                guard sessionStore.selectedSessionID == sessionID,
+                                    sessionStore.session(id: sessionID)?.activePaneID == paneID
+                                else { return }
+                                ghosttyRuntime.focusSurface(toPane: paneID)
+                            }
                         }
                     )
                     // One notice per connection: a new pane or host is a fresh
