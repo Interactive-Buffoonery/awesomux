@@ -490,11 +490,7 @@ struct PermissionActionButton: NSViewRepresentable {
         button.keyEquivalent = ""
         button.target = context.coordinator
         button.action = #selector(Coordinator.fire)
-        if isProminent {
-            button.bezelColor = NSColor(tint)
-        } else {
-            button.contentTintColor = NSColor(tint)
-        }
+        applyTint(to: button)
         button.setAccessibilityLabel(accessibilityLabel)
         button.toolTip = accessibilityLabel
         return button
@@ -502,12 +498,22 @@ struct PermissionActionButton: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSButton, context: Context) {
         context.coordinator.action = action
+        // The accent can change while a notice stays on screen.
+        applyTint(to: nsView)
         if nsView.title != title {
             nsView.title = title
         }
         if nsView.toolTip != accessibilityLabel {
             nsView.setAccessibilityLabel(accessibilityLabel)
             nsView.toolTip = accessibilityLabel
+        }
+    }
+
+    private func applyTint(to button: NSButton) {
+        if isProminent {
+            button.bezelColor = NSColor(tint)
+        } else {
+            button.contentTintColor = NSColor(tint)
         }
     }
 
