@@ -3506,6 +3506,8 @@ struct AwesoMuxApp: App {
         let hasConfirmedRemoteTitle = pane?.remoteHost != nil && pane?.remoteSSHTarget != nil
         // A foreground SSH client can still be asking for authentication.
         // Keep terminal focus until a remote title or an explicit user action.
+        // Deferring leaves the offer unconsumed. A confirmed title changes
+        // managedSSHOfferIdentity; title-less hosts use Make Active Pane Managed.
         if !hasConfirmedRemoteTitle {
             if pendingEffect == .present { return }
             if pendingEffect == .convert(sessionName: nil),

@@ -718,6 +718,7 @@ extension GhosttySurfaceNSView {
             at: finishedAt
         )
         let foregroundProcess = foregroundProcessLivenessAndSample(includeLibprocSample: true)
+        let observedPane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
         let foregroundCommand =
             if commandBridgeSessionID != nil {
                 commandBridgeEnactor.foregroundComm()
@@ -729,7 +730,10 @@ extension GhosttySurfaceNSView {
             paneID: paneID,
             liveness: foregroundProcess.liveness,
             foregroundCommand: foregroundCommand,
-            localShellOwnsTerminal: localShellOwnsTerminal(sample: foregroundProcess.sample)
+            localShellOwnsTerminal: observedPane.map {
+                $0.hasObservedManagedSSH || $0.hasObservedPendingRemoteSSHProcess
+            } == true
+                && localShellOwnsTerminal(sample: foregroundProcess.sample)
         )
         resetAgentChromeIfEnteringSSH(justObservedSSHClient: justObservedSSHClient)
 
