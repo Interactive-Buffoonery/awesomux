@@ -469,10 +469,14 @@ final class BridgePermissionKeyMonitor {
 /// focus-safety requirement (see `PaneCloseButton` for the same pattern and the
 /// blank-surface gotcha it avoids). Deliberately NOT the app's default button:
 /// no key equivalent, so Return can never trigger Allow.
-private struct PermissionActionButton: NSViewRepresentable {
+/// Also used by other in-pane notices that must leave keyboard focus with the
+/// terminal.
+struct PermissionActionButton: NSViewRepresentable {
     let title: String
     let accessibilityLabel: String
     let tint: Color
+    /// Fills the bezel for a primary action instead of tinting its title.
+    var isProminent = false
     let action: () -> Void
 
     func makeNSView(context: Context) -> NSButton {
@@ -486,7 +490,11 @@ private struct PermissionActionButton: NSViewRepresentable {
         button.keyEquivalent = ""
         button.target = context.coordinator
         button.action = #selector(Coordinator.fire)
-        button.contentTintColor = NSColor(tint)
+        if isProminent {
+            button.bezelColor = NSColor(tint)
+        } else {
+            button.contentTintColor = NSColor(tint)
+        }
         button.setAccessibilityLabel(accessibilityLabel)
         button.toolTip = accessibilityLabel
         return button
