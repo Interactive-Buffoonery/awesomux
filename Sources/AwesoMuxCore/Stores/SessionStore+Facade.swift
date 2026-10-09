@@ -1235,6 +1235,27 @@ extension SessionStore {
         return RemoteTarget(parsing: rawTarget)
     }
 
+    /// Records that the observed SSH client for a pending target finished
+    /// login. Only a titleless connection needs this evidence; a remote title
+    /// already confirms the session through `remoteHost`.
+    @discardableResult
+    public func noteRemoteSSHLoginObserved(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> Bool {
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            pane.hasObservedPendingRemoteSSHProcess,
+            pane.pendingRemoteSSHTarget != nil,
+            !pane.hasObservedRemoteSSHLogin
+        else {
+            return false
+        }
+        return mutatePane(sessionID: sessionID, paneID: paneID) {
+            $0.hasObservedRemoteSSHLogin = true
+        }
+    }
+
     /// Clears runtime remote observations after local process state proves an
     /// ordinary SSH command returned to its shell.
     ///
@@ -1290,6 +1311,7 @@ extension SessionStore {
             pane.remoteSSHTarget = nil
             pane.pendingRemoteSSHTarget = nil
             pane.hasObservedPendingRemoteSSHProcess = false
+            pane.hasObservedRemoteSSHLogin = false
             pane.hasConsumedManagedSSHWorkspaceOffer = false
             pane.remoteWorkingDirectory = nil
             pane.remoteConnectionHealth = .active

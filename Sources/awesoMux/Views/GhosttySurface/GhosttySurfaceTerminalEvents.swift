@@ -275,6 +275,10 @@ extension GhosttySurfaceNSView {
             } == true
                 && localShellOwnsTerminal(sample: foregroundProcess.sample)
         )
+        noteRemoteSSHLoginIfObserved(
+            foregroundCommand: foregroundCommand,
+            sample: foregroundProcess.sample
+        )
         Self.updatePendingSSHForegroundProbeBudget(
             pendingTarget: livePane?.pendingRemoteSSHTarget,
             hasObservedPendingRemoteSSHProcess:
@@ -346,6 +350,35 @@ extension GhosttySurfaceNSView {
                 executionState: .idle,
                 phase: .sessionEnd
             ))
+    }
+
+    /// A titleless SSH connection gives no remote signal that login finished,
+    /// so read the terminal mode the local client leaves behind.
+    @MainActor
+    private func noteRemoteSSHLoginIfObserved(
+        foregroundCommand: String?,
+        sample: ForegroundProcessSample?
+    ) {
+        guard let foregroundCommand,
+            ShellRecognition.normalizedCommandName(foregroundCommand) == "ssh",
+            let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
+            pane.hasObservedPendingRemoteSSHProcess, !pane.hasObservedRemoteSSHLogin
+        else { return }
+        let terminalMemberPID: pid_t?
+        if commandBridgeSessionID == nil {
+            terminalMemberPID = sample?.pid
+        } else if let incarnation = commandBridgeEnactor.respawnLedger.lastIncarnation,
+            ProcessLivenessProbe.matchesDaemonIncarnation(incarnation),
+            let daemonPID = pid_t(exactly: incarnation.pid)
+        {
+            terminalMemberPID = ProcessLivenessProbe.terminalForegroundPID(daemonPID: daemonPID)
+        } else {
+            terminalMemberPID = nil
+        }
+        guard let terminalMemberPID,
+            ProcessLivenessProbe.controllingTerminalIsRaw(pid: terminalMemberPID) == true
+        else { return }
+        sessionStore.noteRemoteSSHLoginObserved(sessionID: sessionID, paneID: paneID)
     }
 
     @MainActor

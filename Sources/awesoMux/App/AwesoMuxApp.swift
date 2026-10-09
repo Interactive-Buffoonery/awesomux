@@ -441,6 +441,7 @@ struct AwesoMuxApp: App {
                 canMakeWorkspaceManaged: canMakeWorkspaceManaged,
                 onMakeWorkspaceManaged: { requestManagedSSHWorkspaceConversion($0) },
                 onManagedSSHWorkspaceOffer: requestManagedSSHWorkspaceOffer,
+                onManageSSHConnection: requestManagedSSHConnectionFromNotice,
                 onReopenClosedWorkspace: reopenMostRecentlyClosedWorkspace,
                 hasRecoveryWarning: recoveryWarning != nil,
                 recoveryReplacementIndicatorState: RecoveryReplacementIndicatorState.resolve(
@@ -3542,6 +3543,25 @@ struct AwesoMuxApp: App {
             confirm: {
                 announceManagedSSHConversion(target: target)
             }
+        )
+    }
+
+    /// The notice's explicit action opens the same choices as the automatic
+    /// offer, including remembering the answer for this host.
+    private func requestManagedSSHConnectionFromNotice(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) {
+        guard !isAnySheetPresented,
+            let target = sessionStore.consumeManagedSSHWorkspaceOffer(
+                sessionID: sessionID,
+                paneID: paneID
+            )
+        else { return }
+        sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest.automaticOffer(
+            sessionID: sessionID,
+            paneID: paneID,
+            target: target
         )
     }
 

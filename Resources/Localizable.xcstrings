@@ -1516,6 +1516,9 @@
     "Connect via SSH…" : {
 
     },
+    "Connected to %arg" : {
+      "comment" : "SSH notice title after login finished; the argument is the SSH host"
+    },
     "Connection to %arg is active." : {
       "comment" : "VoiceOver announcement when a remote pane connection recovers"
     },
@@ -1946,7 +1949,10 @@
       "comment" : "Section heading in a read-only pull request snapshot"
     },
     "Dismiss" : {
-      "comment" : "Dismiss a persistent-session restart notice\nDismiss assistant access error."
+      "comment" : "Button that hides the SSH management notice for this connection\nDismiss a persistent-session restart notice\nDismiss assistant access error."
+    },
+    "Dismiss notice for %arg" : {
+      "comment" : "Accessibility label for the SSH notice's dismiss button; the argument is the SSH host"
     },
     "Dismiss restart notice for %arg" : {
       "comment" : "Dismiss a restart notice, naming its pane"
@@ -2731,8 +2737,17 @@
     "Malformed runtime event was ignored" : {
       "comment" : "Diagnostics event summary"
     },
+    "Manage Connection" : {
+      "comment" : "Button on the SSH notice that opens managed-workspace options"
+    },
     "Manage Worktrees…" : {
       "comment" : "Command palette action that opens Worktree Manager.\nWorkspace menu action that opens Worktree Manager."
+    },
+    "Manage connection to %arg" : {
+      "comment" : "Accessibility label for the SSH notice's manage button; the argument is the SSH host"
+    },
+    "Manage this connection in awesoMux." : {
+      "comment" : "SSH notice explanation offering to manage the connection"
     },
     "Managed" : {
       "comment" : "Kicker on the notice shown when an SSH pane becomes a managed workspace"
