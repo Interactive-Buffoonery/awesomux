@@ -13,6 +13,20 @@ private struct ForegroundProcessSample: Sendable {
 }
 
 extension GhosttySurfaceNSView {
+    private func localShellOwnsTerminal(sample: ForegroundProcessSample?) -> Bool {
+        if commandBridgeSessionID == nil {
+            guard let sample, sample.hasLiveSurface, !sample.processExited,
+                let pid = sample.pid
+            else { return false }
+            return ProcessLivenessProbe.localShellOwnsTerminal(shellPID: pid)
+        }
+        guard let incarnation = commandBridgeEnactor.respawnLedger.lastIncarnation,
+            ProcessLivenessProbe.matchesDaemonIncarnation(incarnation),
+            let daemonPID = pid_t(exactly: incarnation.pid)
+        else { return false }
+        return ProcessLivenessProbe.localShellOwnsTerminal(daemonPID: daemonPID)
+    }
+
     /// Sample foreground-process liveness for the quit gate. Bridged panes are
     /// authoritatively safe (work survives quit); otherwise classify from
     /// libghostty's foreground pid + a libproc child check.
@@ -255,7 +269,11 @@ extension GhosttySurfaceNSView {
             sessionID: sessionID,
             paneID: paneID,
             liveness: foregroundProcess.liveness,
-            foregroundCommand: foregroundCommand
+            foregroundCommand: foregroundCommand,
+            localShellOwnsTerminal: livePane.map {
+                $0.hasObservedManagedSSH || $0.hasObservedPendingRemoteSSHProcess
+            } == true
+                && localShellOwnsTerminal(sample: foregroundProcess.sample)
         )
         Self.updatePendingSSHForegroundProbeBudget(
             pendingTarget: livePane?.pendingRemoteSSHTarget,
@@ -710,7 +728,8 @@ extension GhosttySurfaceNSView {
             sessionID: sessionID,
             paneID: paneID,
             liveness: foregroundProcess.liveness,
-            foregroundCommand: foregroundCommand
+            foregroundCommand: foregroundCommand,
+            localShellOwnsTerminal: localShellOwnsTerminal(sample: foregroundProcess.sample)
         )
         resetAgentChromeIfEnteringSSH(justObservedSSHClient: justObservedSSHClient)
 

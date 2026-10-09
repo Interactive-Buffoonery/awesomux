@@ -1195,19 +1195,22 @@ extension SessionStore {
             session.activePaneID == paneID,
             let pane = session.layout.pane(id: paneID),
             pane.executionPlan == .local,
-            pane.remoteConnectionHealth == .active,
-            pane.remoteHost != nil,
-            let rawTarget = pane.remoteSSHTarget,
-            let target = RemoteTarget(parsing: rawTarget)
+            pane.remoteConnectionHealth == .active
         else {
             return nil
         }
-        return target
+        if pane.remoteHost != nil, let rawTarget = pane.remoteSSHTarget {
+            return RemoteTarget(parsing: rawTarget)
+        }
+        guard pane.hasObservedPendingRemoteSSHProcess,
+            let rawTarget = pane.pendingRemoteSSHTarget
+        else { return nil }
+        return RemoteTarget(parsing: rawTarget)
     }
 
-    /// Best destination to pre-fill for an explicit conversion. A confirmed
-    /// target wins; otherwise the submitted SSH alias is only a suggestion in
-    /// the user-reviewed sheet and never authorizes an automatic conversion.
+    /// Best destination to pre-fill for an explicit conversion. A title-confirmed
+    /// target wins; an unobserved submitted alias is only a suggestion in the
+    /// user-reviewed sheet and never authorizes an automatic conversion.
     public func managedSSHConversionSuggestion(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
@@ -1243,7 +1246,8 @@ extension SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         liveness: ForegroundProcessLiveness,
-        foregroundCommand: String? = nil
+        foregroundCommand: String? = nil,
+        localShellOwnsTerminal: Bool = false
     ) -> Bool {
         guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
             pane.executionPlan == .local
@@ -1267,11 +1271,11 @@ extension SessionStore {
 
         let pendingProcessReturned =
             pane.hasObservedPendingRemoteSSHProcess
-            && (liveness == .idleShell || liveness == .bridged)
+            && (liveness == .idleShell || liveness == .bridged || localShellOwnsTerminal)
         // A bridged idle sample alone can describe wrapped SSH. Require the
         // independently sampled terminal foreground to be a recognized shell.
         let confirmedProcessReturned =
-            (liveness == .idleShell
+            (localShellOwnsTerminal || liveness == .idleShell
                 || (liveness == .bridged
                     && ShellRecognition.isRecognizedShell(foregroundCommand ?? "")))
             && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
