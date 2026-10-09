@@ -469,14 +469,10 @@ final class BridgePermissionKeyMonitor {
 /// focus-safety requirement (see `PaneCloseButton` for the same pattern and the
 /// blank-surface gotcha it avoids). Deliberately NOT the app's default button:
 /// no key equivalent, so Return can never trigger Allow.
-/// Also used by other in-pane notices that must leave keyboard focus with the
-/// terminal.
-struct PermissionActionButton: NSViewRepresentable {
+private struct PermissionActionButton: NSViewRepresentable {
     let title: String
     let accessibilityLabel: String
     let tint: Color
-    /// Fills the bezel for a primary action instead of tinting its title.
-    var isProminent = false
     let action: () -> Void
 
     func makeNSView(context: Context) -> NSButton {
@@ -490,7 +486,7 @@ struct PermissionActionButton: NSViewRepresentable {
         button.keyEquivalent = ""
         button.target = context.coordinator
         button.action = #selector(Coordinator.fire)
-        applyTint(to: button)
+        button.contentTintColor = NSColor(tint)
         button.setAccessibilityLabel(accessibilityLabel)
         button.toolTip = accessibilityLabel
         return button
@@ -498,22 +494,12 @@ struct PermissionActionButton: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSButton, context: Context) {
         context.coordinator.action = action
-        // The accent can change while a notice stays on screen.
-        applyTint(to: nsView)
         if nsView.title != title {
             nsView.title = title
         }
         if nsView.toolTip != accessibilityLabel {
             nsView.setAccessibilityLabel(accessibilityLabel)
             nsView.toolTip = accessibilityLabel
-        }
-    }
-
-    private func applyTint(to button: NSButton) {
-        if isProminent {
-            button.bezelColor = NSColor(tint)
-        } else {
-            button.contentTintColor = NSColor(tint)
         }
     }
 

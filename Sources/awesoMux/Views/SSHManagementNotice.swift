@@ -10,70 +10,33 @@ struct SSHManagementNotice: View {
     let host: String
     let onManage: () -> Void
     let onDismiss: () -> Void
+    // Observed so the primary button re-tints when the accent setting changes.
     @Environment(\.awAccent) private var accentResolver
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "network")
-                .font(.system(size: 17))
-                .foregroundStyle(Color.aw.text2)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(Self.title(host: host))
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(Color.aw.text)
-                Text(Self.detail)
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text2)
+        HStack(spacing: 8) {
+            // Both parts are already localized.
+            Text(verbatim: "\(Self.title(host: host)). \(Self.detail)")
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(String(localized: "Manage Connection", comment: "Button on the SSH notice that opens managed-workspace options")) {
+                onManage()
             }
-            .lineLimit(1)
-            .accessibilityElement(children: .combine)
-
-            Spacer(minLength: 12)
-
-            PermissionActionButton(
-                title: String(
-                    localized: "Manage Connection",
-                    comment: "Button on the SSH notice that opens managed-workspace options"
-                ),
-                accessibilityLabel: String(
-                    localized: "Manage connection to \(host)",
-                    comment: "Accessibility label for the SSH notice's manage button; the argument is the SSH host"
-                ),
-                tint: Color.aw.accent(accentResolver.accent),
-                isProminent: true,
-                action: onManage
-            )
-            .frame(minWidth: 24, minHeight: 24)
-            .layoutPriority(1)
-
-            PermissionActionButton(
-                title: String(
-                    localized: "Dismiss",
-                    comment: "Button that hides the SSH management notice for this connection"
-                ),
-                accessibilityLabel: String(
-                    localized: "Dismiss notice for \(host)",
-                    comment: "Accessibility label for the SSH notice's dismiss button; the argument is the SSH host"
-                ),
-                tint: Color.aw.text2,
-                action: onDismiss
-            )
-            .frame(minWidth: 24, minHeight: 24)
-            .layoutPriority(1)
+            .buttonStyle(.borderedProminent)
+            .tint(Color.aw.accent(accentResolver.accent))
+            // Login input belongs to the terminal: a click must not move
+            // keyboard focus here. VoiceOver still reaches both buttons.
+            .focusable(false)
+            Button(String(localized: "Dismiss", comment: "Button that hides the SSH management notice for this connection")) {
+                onDismiss()
+            }
+            .focusable(false)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(minHeight: 46)
-        .background {
-            Color.aw.surface.chrome
-                .overlay(alignment: .top) {
-                    Rectangle()
-                        .fill(Color.aw.border2)
-                        .frame(height: 0.5)
-                }
-        }
+        // Same row treatment as the pane's restarted-session notice.
+        .awFont(AwFont.Mono.meta)
+        .foregroundStyle(Color.aw.text)
+        .padding(8)
+        .background(Color.aw.surface.chrome)
         .accessibilityElement(children: .contain)
         .onAppear {
             TerminalAccessibilityAnnouncer.announce(
