@@ -4,7 +4,7 @@ import Foundation
 extension TerminalPane {
     // CodingKeys omits runtime-only state (`remoteFileContext`, `remoteHost`, `remoteSSHTarget`,
     // `hasConsumedManagedSSHWorkspaceOffer`, `pendingRemoteSSHTarget`,
-    // `hasObservedPendingRemoteSSHProcess`,
+    // `hasObservedPendingRemoteSSHProcess`, `hasObservedRemoteSSHLogin`,
     // `remoteConnectionHealth`, `remoteWorkingDirectory`,
     // `liveTerminalTitle`, `remoteConnectionGeneration`, and the runtime-only agent fields
     // `lastAgentStateChangeAt` / `shellActivity` / `needsTerminalQuitConfirmation` /

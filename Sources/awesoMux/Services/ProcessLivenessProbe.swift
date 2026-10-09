@@ -188,6 +188,30 @@ enum ProcessLivenessProbe {
         return true
     }
 
+    /// Whether the terminal controlling `pid` is in raw (non-canonical) mode,
+    /// or nil when it cannot be read. OpenSSH reads passwords and host-key
+    /// answers with the terminal still line-buffered, and switches to raw mode
+    /// only once its interactive session starts.
+    static func controllingTerminalIsRaw(pid: pid_t) -> Bool? {
+        guard pid > 0 else { return nil }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
+            size == MemoryLayout<kinfo_proc>.stride
+        else { return nil }
+        let device = info.kp_eproc.e_tdev
+        // NODEV (-1) means the process has no controlling terminal.
+        guard device != -1, let name = devname(device, S_IFCHR) else { return nil }
+        // O_NOCTTY keeps this read-only check from adopting the terminal.
+        let descriptor = open("/dev/" + String(cString: name), O_RDONLY | O_NOCTTY | O_NONBLOCK)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+        var attributes = termios()
+        guard tcgetattr(descriptor, &attributes) == 0 else { return nil }
+        return attributes.c_lflag & tcflag_t(ICANON) == 0
+    }
+
     static func bridgedLiveness(
         daemonPID: pid_t,
         childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },

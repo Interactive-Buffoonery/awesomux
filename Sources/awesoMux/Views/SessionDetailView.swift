@@ -10,6 +10,7 @@ struct SessionDetailView: View {
     let ghosttyRuntime: GhosttyRuntime
     let onRenameWorkspace: (TerminalSession) -> Void
     let onManagedSSHWorkspaceOffer: (TerminalSession.ID, TerminalPane.ID) -> Void
+    let onManageSSHConnection: (TerminalSession.ID, TerminalPane.ID) -> Void
     /// Announcing reopen handler shared with the menu / keyboard command so the
     /// on-screen button posts the same VoiceOver feedback on both success and
     /// nil (INT-166 review: the button used to call the store directly and
@@ -113,6 +114,37 @@ struct SessionDetailView: View {
                                 presentedPathBarMenu = nil
                             }
                     }
+                }
+
+                if let host = SSHManagementNotice.host(
+                    session: session,
+                    sessionStore: sessionStore,
+                    workspaces: appSettingsStore.workspaces.value,
+                    commandBridgeEnabled: appSettingsStore.terminal.value.commandBridgeEnabled
+                ) {
+                    SSHManagementNotice(
+                        host: host,
+                        onManage: {
+                            onManageSSHConnection(session.id, session.activePaneID)
+                        },
+                        onDismiss: { [sessionID = session.id, paneID = session.activePaneID] in
+                            _ = sessionStore.consumeManagedSSHWorkspaceOffer(
+                                sessionID: sessionID,
+                                paneID: paneID
+                            )
+                            // Removing the clicked button can leave no first
+                            // responder; hand the keyboard back to the shell.
+                            DispatchQueue.main.async {
+                                guard sessionStore.selectedSessionID == sessionID,
+                                    sessionStore.session(id: sessionID)?.activePaneID == paneID
+                                else { return }
+                                ghosttyRuntime.focusSurface(toPane: paneID)
+                            }
+                        }
+                    )
+                    // One notice per connection: a new pane or host is a fresh
+                    // arrival for the VoiceOver announcement.
+                    .id(SSHManagementNoticeIdentity(paneID: session.activePaneID, host: host))
                 }
 
                 // The scope, not the bar, is what a display-only title write
@@ -825,6 +857,11 @@ final class EmptyWorkspacePrimaryActionFocusButton: NSButton {
             _ = self.initialAccessibilityFocusRequest?.consume(byFocusing: visibleTarget)
         }
     }
+}
+
+private struct SSHManagementNoticeIdentity: Hashable {
+    let paneID: TerminalPane.ID
+    let host: String
 }
 
 private struct NeedsInputBar: View {

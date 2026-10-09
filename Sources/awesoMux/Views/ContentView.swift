@@ -78,6 +78,7 @@ struct ContentView: View {
     let canMakeWorkspaceManaged: (TerminalSession) -> Bool
     let onMakeWorkspaceManaged: (TerminalSession) -> Void
     let onManagedSSHWorkspaceOffer: (TerminalSession.ID, TerminalPane.ID) -> Void
+    let onManageSSHConnection: (TerminalSession.ID, TerminalPane.ID) -> Void
     let onReopenClosedWorkspace: () -> Void
     let hasRecoveryWarning: Bool
     let recoveryReplacementIndicatorState: RecoveryReplacementIndicatorState
@@ -438,6 +439,7 @@ struct ContentView: View {
                         ghosttyRuntime: ghosttyRuntime,
                         onRenameWorkspace: onRenameWorkspace,
                         onManagedSSHWorkspaceOffer: onManagedSSHWorkspaceOffer,
+                        onManageSSHConnection: onManageSSHConnection,
                         onReopenClosedWorkspace: onReopenClosedWorkspace,
                         onOpenSelectedWorkspaceInIDE: onOpenSelectedWorkspaceInIDE,
                         onOpenSelectedWorkspaceInIDEWithApp: onOpenSelectedWorkspaceInIDEWithApp,
