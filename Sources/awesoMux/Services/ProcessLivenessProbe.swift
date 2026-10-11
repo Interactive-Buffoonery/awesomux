@@ -166,6 +166,28 @@ enum ProcessLivenessProbe {
         return observed == executable ? .matching : .notMatching
     }
 
+    /// Background prompt workers do not keep an ordinary SSH session remote.
+    /// A shell wrapper with a child in its foreground group still does.
+    static func localShellOwnsTerminal(daemonPID: pid_t) -> Bool {
+        guard let roots = childPIDs(pid: daemonPID), roots.count == 1,
+            let root = roots.first
+        else { return false }
+        return localShellOwnsTerminal(shellPID: root)
+    }
+
+    static func localShellOwnsTerminal(shellPID: pid_t) -> Bool {
+        guard let command = foregroundComm(pid: shellPID),
+            ShellRecognition.isRecognizedShell(command),
+            let group = terminalForegroundProcessGroup(pid: shellPID), group == shellPID,
+            let children = childPIDs(pid: shellPID)
+        else { return false }
+        for child in children {
+            let childGroup = getpgid(child)
+            guard childGroup > 0, childGroup != group else { return false }
+        }
+        return true
+    }
+
     static func bridgedLiveness(
         daemonPID: pid_t,
         childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },

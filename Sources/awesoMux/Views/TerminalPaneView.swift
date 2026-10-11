@@ -99,13 +99,16 @@ struct TerminalPaneView: View {
     private var managedSSHOfferIdentity: ManagedSSHWorkspaceOfferIdentity? {
         guard let pane = session.activePane,
             pane.executionPlan == .local,
-            let remoteSSHTarget = pane.remoteSSHTarget
+            let target = sessionStore.managedSSHConversionTarget(
+                sessionID: session.id, paneID: pane.id
+            )
         else {
             return nil
         }
         return ManagedSSHWorkspaceOfferIdentity(
             paneID: pane.id,
-            sshDestination: remoteSSHTarget
+            sshDestination: target.sshDestination,
+            hasConfirmedRemoteTitle: pane.remoteHost != nil && pane.remoteSSHTarget != nil
         )
     }
 }
@@ -113,6 +116,7 @@ struct TerminalPaneView: View {
 struct ManagedSSHWorkspaceOfferIdentity: Equatable {
     let paneID: TerminalPane.ID
     let sshDestination: String
+    let hasConfirmedRemoteTitle: Bool
 }
 
 struct TerminalPaneLayoutView: View {

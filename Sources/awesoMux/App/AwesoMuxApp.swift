@@ -3502,6 +3502,20 @@ struct AwesoMuxApp: App {
         if pendingEffect == .doNothing || (pendingEffect == .present && isAnySheetPresented) {
             return
         }
+        let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
+        let hasConfirmedRemoteTitle = pane?.remoteHost != nil && pane?.remoteSSHTarget != nil
+        // A foreground SSH client can still be asking for authentication.
+        // Keep terminal focus until a remote title or an explicit user action.
+        // Deferring leaves the offer unconsumed. A confirmed title changes
+        // managedSSHOfferIdentity; title-less hosts use Make Active Pane Managed.
+        if !hasConfirmedRemoteTitle {
+            if pendingEffect == .present { return }
+            if pendingEffect == .convert(sessionName: nil),
+                !appSettingsStore.terminal.value.commandBridgeEnabled
+            {
+                return
+            }
+        }
         guard
             let target = sessionStore.consumeManagedSSHWorkspaceOffer(
                 sessionID: sessionID,
@@ -3520,6 +3534,7 @@ struct AwesoMuxApp: App {
                 )
             },
             present: {
+                guard hasConfirmedRemoteTitle else { return }
                 sshWorkspaceConnectRequest = SSHWorkspaceConnectRequest.automaticOffer(
                     sessionID: sessionID,
                     paneID: paneID,
