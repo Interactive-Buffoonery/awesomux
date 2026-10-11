@@ -88,10 +88,11 @@ Run:
 ssh <host> '~/.awesomux/bin/awesomux-bridge-helper --version'
 ```
 
-The output should include all three lines:
+The output should include all four lines:
 
 ```text
 awesomux-bridge-v1
+awesomux-browser-v1
 awesomux-handoff-v1
 awesomux-liveness-v1
 ```
