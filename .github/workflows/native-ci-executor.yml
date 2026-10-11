@@ -291,7 +291,7 @@ jobs:
       - name: Upload native results
         id: artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-ci-${{ matrix.group }}-${{ needs.resolve.outputs.target-sha }}
           path: .build/test-results/
@@ -442,7 +442,7 @@ jobs:
 
       - name: Upload release build results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-ci-release-build-${{ needs.resolve.outputs.target-sha }}
           path: .build/test-results/
