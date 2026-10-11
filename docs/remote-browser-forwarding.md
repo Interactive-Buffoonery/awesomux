@@ -94,14 +94,21 @@ The journey verifies:
 - request expiry, connection loss, and a fresh request after reconnect.
 
 The artifact directory contains `browser-e2e-report.txt`,
-`helper-results.log`, `browser-hit.txt`, `browser-prompt.png`, SSH logs, and
-the isolated TOML settings file. The PNG is an `NSView` bitmap of the real
-sheet. It confirms the prompt content and layout, but AppKit does not render
-the button labels into this offscreen bitmap; the integration test locates and
-presses the live buttons by their actual titles.
+`helper-results.log`, `browser-hit.txt`, `browser-prompt.png`,
+`browser-prompt-enlarged-text.png`, SSH logs, and the isolated TOML settings
+file. The first PNG attempts an `NSView` bitmap of the real sheet. The test
+checks that all three titled buttons are inside the sheet before capture. The
+offscreen bitmap can omit button-label glyphs even when the live controls are
+visible, so capture a normal running-app screenshot for visual approval. The
+enlarged-text PNG renders the same SwiftUI prompt view with the `accessibility3`
+text size in an isolated window; it is useful layout evidence, not proof that
+the system text-size setting was changed for the running app.
 
 This automated journey does not verify VoiceOver speech, physical keyboard
-Return/Escape behavior, or saving the **Always allow** checkbox through a
-manual click. It writes the equivalent grant through the real settings store,
-then verifies production lookup and revocation. Check those three interactions
-separately in a running app when preparing a release that changes the prompt.
+Return/Escape behavior, saving the **Always allow** checkbox through a manual
+click, the system enlarged-text setting in the running app, or a complete
+managed SSH connection launched through the app. It also does not provide a
+reliable full-sheet visual screenshot. It writes the equivalent grant through
+the real settings store, then verifies production lookup and revocation. Check
+those interactions separately in a running app when preparing a release that
+changes the prompt.

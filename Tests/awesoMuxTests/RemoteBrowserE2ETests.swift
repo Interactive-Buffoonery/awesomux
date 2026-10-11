@@ -3,6 +3,7 @@ import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxTestSupport
 import Foundation
+import SwiftUI
 import Testing
 @testable import awesoMux
 
@@ -95,6 +96,7 @@ struct RemoteBrowserE2ETests {
 
         let pending = fixture.runBrowserTask(url: "https://example.invalid/pending", timeout: 20)
         let sheet = try await requireSheet(on: window)
+        try assertPromptButtonsAreInsideSheet(in: sheet)
         try saveScreenshot(of: sheet, to: artifact.appending(path: "browser-prompt.png"))
 
         let busy = try await fixture.runBrowser(url: "https://example.invalid/busy", timeout: 5)
@@ -189,6 +191,13 @@ struct RemoteBrowserE2ETests {
         try #require(reconnectedResult.stderr.contains("browser open cancelled"))
         record("PASS a fresh tunnel reconnect serves a new browser request")
 
+        try saveEnlargedTextPrompt(
+            source: fixture.destination,
+            url: try #require(URL(string: "https://example.invalid/a/long/path?with=query#fragment")),
+            to: artifact.appending(path: "browser-prompt-enlarged-text.png")
+        )
+        record("PASS the prompt view rendered at accessibility3 text size")
+
     }
 
     @MainActor
@@ -224,6 +233,16 @@ struct RemoteBrowserE2ETests {
     }
 
     @MainActor
+    private func assertPromptButtonsAreInsideSheet(in sheet: NSWindow) throws {
+        let content = try #require(sheet.contentView)
+        for title in ["Cancel", "Open Link", "Copy Link"] {
+            let button = try #require(findButton(in: content, matching: { $0.title == title }))
+            let frame = button.convert(button.bounds, to: content)
+            #expect(!button.isHidden && button.alphaValue > 0 && content.bounds.contains(frame))
+        }
+    }
+
+    @MainActor
     private func findButton(in view: NSView?, matching predicate: (NSButton) -> Bool) -> NSButton? {
         guard let view else { return nil }
         if let button = view as? NSButton, predicate(button) { return button }
@@ -235,14 +254,45 @@ struct RemoteBrowserE2ETests {
 
     @MainActor
     private func saveScreenshot(of window: NSWindow, to url: URL) throws {
-        guard let view = window.contentView,
-            let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        guard let view = window.contentView else { throw BrowserE2EError.screenshotFailed }
+        try saveScreenshot(of: view, to: url)
+    }
+
+    @MainActor
+    private func saveScreenshot(of view: NSView, to url: URL) throws {
+        guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds)
         else { throw BrowserE2EError.screenshotFailed }
         view.cacheDisplay(in: view.bounds, to: representation)
         guard let data = representation.representation(using: .png, properties: [:]) else {
             throw BrowserE2EError.screenshotFailed
         }
         try data.write(to: url, options: .atomic)
+    }
+
+    @MainActor
+    private func saveEnlargedTextPrompt(source: String, url: URL, to artifact: URL) throws {
+        let view = NSHostingView(
+            rootView: RemoteBrowserPromptView(
+                source: source,
+                url: url,
+                warning: nil,
+                choice: RemoteBrowserPromptChoice(),
+                canRemember: true
+            )
+            .environment(\.dynamicTypeSize, .accessibility3)
+        )
+        view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
+        let window = NSWindow(
+            contentRect: view.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        view.layoutSubtreeIfNeeded()
+        try saveScreenshot(of: view, to: artifact)
     }
 }
 
