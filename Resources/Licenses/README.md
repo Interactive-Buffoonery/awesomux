@@ -17,8 +17,8 @@ named in the table:
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
 | Selenized | `jan-warchol/selenized` v1.0 | `Selenized/LICENSE` |
 | swift-toml | `827506c90475e82d5a7f191f950fb3025cbdc0d6` | `swift-toml/LICENSE.md` |
-| swift-markdown | `3c6f9523da3a1ec2fd829673e472d95b8097a3b8` | `swift-markdown/LICENSE.txt`, `swift-markdown/NOTICE.txt` |
-| swift-cmark | `924936d0427cb25a61169739a7660230bffa6ea6` | `swift-cmark/COPYING` |
+| swift-markdown | `25cb61d3482054b09ae76ca4f281b1bfe7fe5a43` | `swift-markdown/LICENSE.txt`, `swift-markdown/NOTICE.txt` |
+| swift-cmark | `08ddb528923cc1a6527e02b7a1aee9e516ca749a` | `swift-cmark/COPYING` |
 | FreeType | 2.13.2 (`N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub`) | `FreeType/LICENSE.TXT`, `FreeType/FTL.TXT`, `FreeType/GPLv2.TXT` |
 | libpng | 1.6.43 (`N-V-__8AAJrvXQCqAT8Mg9o_tk6m0yf5Fz-gCNEOKLyTSerD`) | `libpng/LICENSE` |
 | zlib | 1.3.1 (`N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o`) | `zlib/LICENSE` |
