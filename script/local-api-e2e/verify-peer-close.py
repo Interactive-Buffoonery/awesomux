@@ -88,6 +88,7 @@ actual = subprocess.run([str(driver), "cancelled"], capture_output=True, text=Tr
 results.append(dict(name="explicit_cancellation", expected="cancelled", actual=actual,
                     passed=actual == "cancelled"))
 report = dict(commit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
+              transport_sha256=hashlib.sha256((sources / "LocalAPITransport.swift").read_bytes()).hexdigest(),
               checks=results, surface="production LocalAPIClient with real Unix sockets")
 (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
 for result in results:
