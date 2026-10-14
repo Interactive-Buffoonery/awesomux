@@ -43,3 +43,16 @@ can precede its owning commit.
 
 No new unit tests are added. The root integration run owns full preflight and
 application/UI verification.
+
+To exercise an exit notification that arrives before the child is reapable:
+
+```sh
+python3 script/codex-transport-e2e/run.py --defer-first-reap --cases exit \
+  --output /tmp/codex-reap-race
+```
+
+This explicitly labeled syscall fault injection returns zero from the first
+`waitpid` call in a temporary source copy. Later calls reap the real subprocess.
+Production source is unchanged; the report hashes the compiled copy and names
+the injection. Build logs redact checkout and temporary build paths. Historical
+committed build logs have only their checkout paths redacted.
