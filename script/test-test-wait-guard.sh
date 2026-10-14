@@ -6,11 +6,22 @@ UNIT_FIXTURE="$ROOT_DIR/Tests/AwesoMuxCoreTests/TestWaitGuardFixture.swift"
 SYSTEM_FIXTURE="$ROOT_DIR/Tests/awesoMuxTests/TestWaitGuardFixture.swift"
 guard_fixture=""
 
+cleanup_guard_fixture() {
+    [[ -n "$guard_fixture" ]] || return 0
+    if command -v trash >/dev/null 2>&1 && trash "$guard_fixture"; then
+        guard_fixture=""
+        return
+    fi
+    # Linux CI has no trash command; this tree contains only disposable fixtures.
+    find "$guard_fixture" -depth -delete
+    guard_fixture=""
+}
+
 cleanup() {
     git -C "$ROOT_DIR" reset --quiet -- "$UNIT_FIXTURE" "$SYSTEM_FIXTURE" 2>/dev/null || true
     unlink "$UNIT_FIXTURE" 2>/dev/null || true
     unlink "$SYSTEM_FIXTURE" 2>/dev/null || true
-    if [[ -n "$guard_fixture" ]]; then trash "$guard_fixture"; fi
+    cleanup_guard_fixture
 }
 trap cleanup EXIT
 
@@ -143,7 +154,6 @@ if TEST_WAIT_BASE=HEAD "$guard_fixture/script/check_test_waits.sh" >/dev/null 2>
     echo "error: production pipe exception accepted another file" >&2
     exit 1
 fi
-trash "$guard_fixture"
-guard_fixture=""
+cleanup_guard_fixture
 
 echo "Test wait guard tests passed"
