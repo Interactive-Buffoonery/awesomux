@@ -607,6 +607,9 @@
     "Access changes are active and saved, but awesoMux could not confirm directory durability. Retry Save before restarting." : {
 
     },
+    "Access continues if these panes restart." : {
+
+    },
     "Access ended" : {
 
     },
@@ -2610,9 +2613,6 @@
     "Keep terminal sessions running in the background" : {
 
     },
-    "Keeps access to these panes." : {
-
-    },
     "Keyboard Shortcuts" : {
       "comment" : "Keyboard cheatsheet panel title bar."
     },
@@ -2656,7 +2656,7 @@
     "Left" : {
 
     },
-    "Let AI apps on this Mac, like Claude Desktop or ChatGPT, see what your agents are doing. You choose which panes each app can see." : {
+    "Let AI apps on this Mac check on your agents. You choose which panes each app can see." : {
       "comment" : "Outside app access settings subtitle."
     },
     "Let awesoMux get my attention" : {
@@ -4907,7 +4907,7 @@
     "Terminal font size" : {
 
     },
-    "Terminal output can include anything printed in this pane, including by earlier programs. awesoMux never sends it in place of the conversation." : {
+    "Terminal output can include anything printed in this pane, including output from earlier programs. The app has to ask for it separately; awesoMux never substitutes it for the conversation." : {
 
     },
     "Terminal output wants to replace the macOS clipboard with %arg characters (%arg bytes)." : {
@@ -4972,7 +4972,7 @@
     "The annotation couldn't be saved. It may be too long, invalid, or duplicated." : {
       "comment" : "Save failure alert body when the annotation itself is rejected"
     },
-    "The app may send these details to its assistant service." : {
+    "The app may send what it reads to its assistant service. Stopping sharing later doesn't remove anything it already read." : {
 
     },
     "The app wasn't added, and awesoMux couldn't remove its unused Keychain key." : {
@@ -5327,6 +5327,9 @@
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
     },
     "This pane" : {
+
+    },
+    "This pane changed. Close this sheet and open it again to review access." : {
 
     },
     "This pane has running activity. Closing the pane will stop it." : {

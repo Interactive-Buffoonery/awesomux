@@ -39,13 +39,18 @@ struct AssistantContextConsent: View {
                 )
             )
             .fixedSize(horizontal: false, vertical: true)
-            Text(String(localized: "The app may send these details to its assistant service."))
+            Text(
+                String(
+                    localized:
+                        "The app may send what it reads to its assistant service. Stopping sharing later doesn't remove anything it already read."
+                )
+            )
                 .fixedSize(horizontal: false, vertical: true)
             Toggle(String(localized: "Also share recent terminal output"), isOn: $allowTerminalHistory)
             Text(
                 String(
                     localized:
-                        "Terminal output can include anything printed in this pane, including by earlier programs. awesoMux never sends it in place of the conversation."
+                        "Terminal output can include anything printed in this pane, including output from earlier programs. The app has to ask for it separately; awesoMux never substitutes it for the conversation."
                 )
             )
             .font(.caption)

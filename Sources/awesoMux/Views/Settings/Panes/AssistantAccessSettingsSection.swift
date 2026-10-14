@@ -15,6 +15,7 @@ struct AssistantAccessSettingsSection: View {
     @State private var contextErrorMessage: String?
     @State private var editor: ConnectionEditorRequest?
     @State private var editorErrorMessage: String?
+    @State private var staleEditorScope: LocalAPITargetScope?
     @State private var revoking: LocalAPIConnectionGrant?
     @State private var errorMessage: String?
     @State private var copyErrorMessage: String?
@@ -27,7 +28,7 @@ struct AssistantAccessSettingsSection: View {
             title: String(localized: "Outside app access", comment: "Agents settings title."),
             subtitle: String(
                 localized:
-                    "Let AI apps on this Mac, like Claude Desktop or ChatGPT, see what your agents are doing. You choose which panes each app can see.",
+                    "Let AI apps on this Mac check on your agents. You choose which panes each app can see.",
                 comment: "Outside app access settings subtitle."
             )
         ) {
@@ -130,6 +131,7 @@ struct AssistantAccessSettingsSection: View {
                 panes: panes,
                 isWorking: isWorking,
                 errorMessage: editorErrorMessage,
+                staleScope: staleEditorScope,
                 save: save
             )
         }
@@ -195,6 +197,7 @@ struct AssistantAccessSettingsSection: View {
     private func presentEditor(_ connection: LocalAPIConnectionGrant? = nil) {
         isWorking = true
         editorErrorMessage = nil
+        staleEditorScope = nil
         Task { @MainActor in
             defer { isWorking = false }
             do {
@@ -255,7 +258,7 @@ struct AssistantAccessSettingsSection: View {
                 }
                 editor = request
             } catch {
-                errorMessage = String(localized: "awesoMux couldn't check which panes are available. Try again.")
+                reportAccessError(String(localized: "awesoMux couldn't check which panes are available. Try again."))
             }
         }
     }
@@ -340,7 +343,7 @@ struct AssistantAccessSettingsSection: View {
                     try accessStore.updateContextGrant(connectionID: connection.id, contextGrant: nil)
                     errorMessage = nil
                 } catch {
-                    errorMessage = String(localized: "awesoMux couldn't save this app's access.")
+                    reportAccessError(String(localized: "awesoMux couldn't save this app's access."))
                 }
             }
             .disabled(!canMutate)
@@ -363,7 +366,7 @@ struct AssistantAccessSettingsSection: View {
 
     private func presentContextConsent(_ connection: LocalAPIConnectionGrant) {
         guard let paneID = sessionStore.selectedSession?.activePaneID else {
-            errorMessage = String(localized: "Select a pane running an agent, then try again.")
+            reportAccessError(String(localized: "Select a pane running an agent, then try again."))
             return
         }
         isWorking = true
@@ -380,8 +383,10 @@ struct AssistantAccessSettingsSection: View {
                 guard agent.providerSessionID != nil, let provider = AgentKind(rawValue: agent.provider),
                     [.claudeCode, .codex, .pi, .openCode].contains(provider)
                 else {
-                    errorMessage = String(
-                        localized: "This agent's conversation isn't available yet. Wait for a supported agent session, then try again.")
+                    reportAccessError(
+                        String(
+                            localized: "This agent's conversation isn't available yet. Wait for a supported agent session, then try again.")
+                    )
                     return
                 }
                 contextConsent = AssistantContextConsentRequest(
@@ -389,9 +394,11 @@ struct AssistantAccessSettingsSection: View {
                     paneTitle: paneTitle(agent.paneID), agent: agent
                 )
             } catch {
-                errorMessage = String(
+                reportAccessError(
+                    String(
                     localized:
-                        "awesoMux couldn't read the agent in the selected pane. Session details work only for agents running on this Mac.")
+                            "awesoMux couldn't read the agent in the selected pane. Session details work only for agents running on this Mac."
+                    ))
             }
         }
     }
@@ -482,14 +489,20 @@ struct AssistantAccessSettingsSection: View {
         }
     }
 
+    private func reportAccessError(_ message: String) {
+        errorMessage = message
+        TerminalAccessibilityAnnouncer.announce(accessStore.persistenceFailureMessage ?? message)
+    }
+
     private func setGloballyEnabled(_ enabled: Bool) {
         do {
             try accessStore.setGloballyEnabled(enabled)
             errorMessage = nil
         } catch {
-            errorMessage =
+            reportAccessError(
                 accessStore.persistenceFailureMessage
                 ?? String(localized: "awesoMux couldn't save the access setting.")
+            )
         }
     }
 
@@ -499,27 +512,49 @@ struct AssistantAccessSettingsSection: View {
         Task { @MainActor in
             defer { isWorking = false }
             do {
+                try await validateEditor(request, scope: scope)
                 if let connectionID = request.connectionID {
                     try accessStore.updateStatusScope(connectionID: connectionID, statusScope: scope)
                 } else {
                     _ = try await LocalAPICredentialBroker().register(
                         in: accessStore,
                         label: request.label,
-                        statusScope: scope
+                        statusScope: scope,
+                        validateBeforeActivation: { try await validateEditor(request, scope: scope) }
                     )
                 }
                 editor = nil
                 errorMessage = nil
+            } catch LocalAPIError.staleTarget {
+                guard editor?.id == request.id else { return }
+                staleEditorScope = scope
+                editorErrorMessage = String(localized: "This pane changed. Close this sheet and open it again to review access.")
             } catch LocalAPICredentialBrokerError.cleanupFailed {
-                editorErrorMessage = String(
+                let message = String(
                     localized:
                         "The app wasn't added, and awesoMux couldn't remove its unused Keychain key."
                 )
+                if editor?.id == request.id {
+                    editorErrorMessage = message
+                } else {
+                    reportAccessError(message)
+                }
             } catch {
+                guard editor?.id == request.id else { return }
                 editorErrorMessage =
                     accessStore.persistenceFailureMessage
                     ?? String(localized: "awesoMux couldn't save this app's access.")
             }
+        }
+    }
+
+    private func validateEditor(_ request: ConnectionEditorRequest, scope: LocalAPITargetScope) async throws {
+        try Task.checkCancellation()
+        guard editor?.id == request.id else { throw CancellationError() }
+        if case .exactTarget(let paneID, let targetVersion) = scope {
+            let currentVersions = try await captureTargetVersions()
+            guard editor?.id == request.id else { throw CancellationError() }
+            guard currentVersions[paneID] == targetVersion else { throw LocalAPIError.staleTarget }
         }
     }
 
@@ -528,9 +563,10 @@ struct AssistantAccessSettingsSection: View {
             try accessStore.retryPersistence()
             errorMessage = nil
         } catch {
-            errorMessage =
+            reportAccessError(
                 accessStore.persistenceFailureMessage
                 ?? String(localized: "awesoMux couldn't save the access setting.")
+            )
         }
     }
 
@@ -543,9 +579,10 @@ struct AssistantAccessSettingsSection: View {
             do {
                 try await LocalAPICredentialBroker().revoke(connectionID: connection.id, in: accessStore)
             } catch {
-                errorMessage =
+                reportAccessError(
                     accessStore.persistenceFailureMessage
                     ?? String(localized: "This app no longer has access, but awesoMux couldn't finish removing it.")
+                )
             }
         }
     }
@@ -580,7 +617,7 @@ private enum AssistantAccessScopeKind: String, CaseIterable, Identifiable {
     var explanation: String {
         switch self {
         case .currentTarget: String(localized: "Access ends if this pane restarts.")
-        case .panes: String(localized: "Keeps access to these panes.")
+        case .panes: String(localized: "Access continues if these panes restart.")
         case .workspaces: String(localized: "Includes new panes added to these workspaces.")
         }
     }
@@ -605,10 +642,12 @@ private struct AssistantAccessReviewedTarget {
 private struct AssistantConnectionEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: ConnectionEditorRequest
+    @AccessibilityFocusState private var errorIsFocused: Bool
     let workspaces: [AssistantAccessWorkspace]
     let panes: [AssistantAccessPane]
     let isWorking: Bool
     let errorMessage: String?
+    let staleScope: LocalAPITargetScope?
     let save: (ConnectionEditorRequest, LocalAPITargetScope) -> Void
 
     init(
@@ -617,6 +656,7 @@ private struct AssistantConnectionEditor: View {
         panes: [AssistantAccessPane],
         isWorking: Bool,
         errorMessage: String?,
+        staleScope: LocalAPITargetScope?,
         save: @escaping (ConnectionEditorRequest, LocalAPITargetScope) -> Void
     ) {
         _draft = State(initialValue: request)
@@ -624,6 +664,7 @@ private struct AssistantConnectionEditor: View {
         self.panes = panes
         self.isWorking = isWorking
         self.errorMessage = errorMessage
+        self.staleScope = staleScope
         self.save = save
     }
 
@@ -708,6 +749,7 @@ private struct AssistantConnectionEditor: View {
                     .foregroundStyle(Color.aw.peach)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(String(format: String(localized: "Access change failed: %@"), errorMessage))
+                    .accessibilityFocused($errorIsFocused)
             }
 
             HStack {
@@ -723,6 +765,9 @@ private struct AssistantConnectionEditor: View {
         }
         .padding(24)
         .frame(width: 520)
+        .onChange(of: errorMessage) { _, message in
+            errorIsFocused = message != nil
+        }
     }
 
     private var selectedScope: LocalAPITargetScope {
@@ -750,7 +795,8 @@ private struct AssistantConnectionEditor: View {
         case .workspaces:
             hasSelection = !draft.selectedWorkspaceIDs.isEmpty
         }
-        return hasSelection && (draft.connectionID != nil || !draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        return hasSelection && selectedScope != staleScope
+            && (draft.connectionID != nil || !draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     private var exactTargetExpiryMessage: String? {
