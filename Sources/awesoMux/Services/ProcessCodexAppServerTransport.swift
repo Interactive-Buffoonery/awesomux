@@ -443,12 +443,19 @@ private final class CodexAppServerProcess: @unchecked Sendable {
     private func reap() {
         lock.lock()
         defer { lock.unlock() }
+        guard pid > 0 else { return }
         var status: Int32 = 0
         var result: pid_t
         repeat {
             result = waitpid(pid, &status, WNOHANG)
         } while result < 0 && errno == EINTR
-        guard result != 0 else { return }
+        guard result != 0 else {
+            // NOTE_EXIT can precede the zombie state required by waitpid.
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(10)) { [self] in
+                reap()
+            }
+            return
+        }
         pid = 0
         exitSource.cancel()
         exitSource.setEventHandler(handler: nil)
