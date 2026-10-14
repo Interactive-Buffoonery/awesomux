@@ -42,7 +42,9 @@ struct LocalAPIIO {
                 Darwin.read(fd, bytes.baseAddress!.advanced(by: offset), count - offset)
             }
             if n < 0, errno == EAGAIN || errno == EINTR { continue }
-            guard n > 0 else { throw LocalAPIError.cancelled }
+            guard n > 0 else {
+                throw cancelled() ? LocalAPIError.cancelled : LocalAPIError.transportFailure
+            }
             offset += n
         }
         return result
