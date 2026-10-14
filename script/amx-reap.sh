@@ -98,27 +98,53 @@ done
 STATE="$HOME/Library/Application Support/$SUPPORT_NAME/session-state.json"
 
 owned_ids() {
-  [[ -f "$STATE" ]] || return 0
+  if [[ ! -e "$STATE" && ! -L "$STATE" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$STATE" ]]; then
+    echo "session state is not a regular file: $STATE" >&2
+    return 1
+  fi
   # Every terminalSessionID in the persisted layout = a pane that can reattach.
   # Path goes in via argv, not interpolated into the script source — a quote in
   # $HOME would otherwise break out of the string literal.
   # Perl, not python3: /usr/bin/python3 resolves to Xcode's Python.app bundle,
   # which LaunchServices registers as a regular foreground app — the test suite
   # calls this script repeatedly and each call flashed an empty desktop window.
-  /usr/bin/perl -e '
+  /usr/bin/perl -MJSON::PP=decode_json -e '
 use strict; use warnings;
-open(my $fh, "<", $ARGV[0]) or exit 0;
+open(my $fh, "<", $ARGV[0]) or die "open $ARGV[0]: $!\n";
 my $raw = do { local $/; <$fh> };
+my $snapshot = decode_json($raw);
 my %seen;
-$seen{$1} = 1 while $raw =~ /"terminalSessionID"\s*:\s*"([^"]+)"/g;
+sub visit {
+  my ($value) = @_;
+  if (ref($value) eq "HASH") {
+    my $id = $value->{terminalSessionID};
+    if (defined($id) && !ref($id) && $id =~ /\A[a-z0-9][a-z0-9-]{0,45}\z/) {
+      $seen{$id} = 1;
+    }
+    visit($_) for values %$value;
+  } elsif (ref($value) eq "ARRAY") {
+    visit($_) for @$value;
+  }
+}
+visit($snapshot);
 print "$_\n" for sort keys %seen;
 ' "$STATE"
 }
 
-live_ids() { "$AMX" list --short 2>/dev/null | sed '/^$/d'; }
+live_ids() { "$AMX" list --short | sed '/^$/d'; }
 
-OWNED="$(owned_ids || true)"
-LIVE="$(live_ids || true)"
+OWNED=""
+if [[ "$MODE" != "all" ]] && ! OWNED="$(owned_ids)"; then
+  echo "could not read owned session ids from $STATE; refusing to continue." >&2
+  exit 1
+fi
+if ! LIVE="$(live_ids)"; then
+  echo "could not list live amx sessions; refusing to continue." >&2
+  exit 1
+fi
 
 is_owned() { grep -qxF "$1" <<<"$OWNED"; }
 
@@ -145,20 +171,42 @@ case "$MODE" in
     ;;
   orphans)
     echo "profile: $PROFILE  |  zmx dir: $ZMX_DIR"
-    n=0
+    n=0; failures=0
     while IFS= read -r id; do
       [[ -n "$id" ]] || continue
-      if ! is_owned "$id"; then echo "reaping orphan $id"; "$AMX" kill "$id" --force >/dev/null 2>&1 || true; n=$((n+1)); fi
+      if ! is_owned "$id"; then
+        echo "reaping orphan $id"
+        if "$AMX" kill "$id" --force >/dev/null 2>&1; then
+          n=$((n + 1))
+        else
+          echo "failed to reap orphan $id" >&2
+          failures=$((failures + 1))
+        fi
+      fi
     done <<<"$LIVE"
+    if (( failures > 0 )); then
+      echo "reaped $n orphan daemon(s); $failures failed."
+      exit 1
+    fi
     echo "reaped $n orphan daemon(s); left owned daemons untouched."
     ;;
   all)
     echo "profile: $PROFILE  |  zmx dir: $ZMX_DIR"
-    n=0
+    n=0; failures=0
     while IFS= read -r id; do
       [[ -n "$id" ]] || continue
-      echo "killing $id"; "$AMX" kill "$id" --force >/dev/null 2>&1 || true; n=$((n+1))
+      echo "killing $id"
+      if "$AMX" kill "$id" --force >/dev/null 2>&1; then
+        n=$((n + 1))
+      else
+        echo "failed to kill $id" >&2
+        failures=$((failures + 1))
+      fi
     done <<<"$LIVE"
+    if (( failures > 0 )); then
+      echo "killed $n daemon(s); $failures failed."
+      exit 1
+    fi
     echo "killed $n daemon(s). (If awesoMux is open, its panes are now in the recoverable-error state.)"
     ;;
   *)
