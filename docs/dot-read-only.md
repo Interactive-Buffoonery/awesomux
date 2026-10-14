@@ -44,9 +44,18 @@ The packaging command refuses existing output files. Choose a new filename for
 another build. The ZIP contains one skill folder and its helper reference; no
 Mac-specific helper path, connection handle, or credential is included.
 
-For a local Codex task, extract that folder into `~/.agents/skills/` only after
-reviewing its contents. Do not overwrite an existing installation without
-reviewing it. OpenAI documents that user-level discovery location in
+For a local Codex task, review the two source resources, then install or update
+them from the reviewed checkout:
+
+```sh
+python3 -B script/install-dot-skill.py
+```
+
+The installer owns only `SKILL.md` and `references/helper.md`. Changed files get
+sibling backups; unrelated installed files are preserved. Symlink destinations
+and unexpected file types are refused. Setup runs should be serialized.
+The command leaves existing connection configuration and catalog links unchanged.
+OpenAI documents that user-level discovery location in
 [Build skills](https://learn.chatgpt.com/docs/build-skills). The ChatGPT desktop
 app also offers a Skills surface. Confirm that the new local task can load this
 skill; presence on disk alone does not prove Dot task discovery. No public
@@ -79,9 +88,23 @@ for another. In **Settings → Agents → Outside app access**:
 1. Add a dedicated connection and review its status scope.
 2. Enable global access.
 3. Use **Copy Setup Command** to obtain the reviewed helper path, profile, and
-   connection UUID. Provide this nonsecret setup data to the local task.
-4. Select one agent and choose **Share Session Details…** for that connection.
-   Leave terminal history off unless it is specifically needed and reviewed.
+   connection UUID. Save those reviewed values once from the checkout, passing
+   each literal argument safely (these placeholders must be replaced):
+
+   ```text
+   python3 -B script/install-dot-skill.py --helper-path <absolute executable helper> --profile <exact profile> --connection-id <UUID>
+   ```
+
+   All three options are required together. Saved JSON at
+   `~/.config/awesomux/read-only-connection.json` contains only schema version
+   `1`, helper path, profile, and connection ID, with mode `0600`. Different
+   existing values require explicit `--replace-connection` after review and are
+   backed up. Invalid or unrelated config is refused rather than overwritten.
+   This local file is never included in the portable ZIP.
+4. Only if session context is requested, select one agent and choose
+   **Share Session Details…** for that connection. Status-only checks need no
+   context sharing. Leave terminal history off unless specifically requested
+   and reviewed.
 
 Credentials remain in the standard Mac Keychain. Ad-hoc development builds can
 trigger a Keychain trust prompt; inspect the exact helper path before allowing
@@ -111,9 +134,9 @@ list both, but share context for only the first.
 Ask the same Dot from the phone:
 
 ```text
-Create a local task on my connected Mac and use awesomux-read-only to list
+Create a new local task on my connected Mac and use awesomux-read-only to list
 the authorized awesoMux agents. Do not send input to either agent. Use the
-setup values I supplied for this connection.
+reviewed saved connection setup on that Mac.
 ```
 
 Then select the intended pane explicitly and ask for its shared transcript.
@@ -122,6 +145,44 @@ ambiguous, the task must ask you to choose. Confirm the first marker is returned
 with source, provider/session identity, capture time, byte count, and truncation
 metadata. An attempt to read the second pane must fail without returning its
 marker. Keep terminal history off for this transcript proof.
+
+## Short recurring status trial
+
+Ask Dot to create a new local task using this skill and the saved connection.
+Explicitly agree on a short cadence, end time, destination, and which changes to report. Use ChatGPT's supported recurring task mechanism. Each run checks
+connection status and capabilities, then `list_agents`; it needs no event cursor.
+Snapshots may miss attention raised and resolved between runs, and waiting does
+not prove work completed. Local tasks are expected to report results back to Dot in your Dot chat; unattended
+updates are not yet verified. ChatGPT can alert you on your phone according to its
+notification settings. Verify unattended chat updates and observed phone alerts
+separately; the local task does not need to target or verify phone push delivery.
+
+Suggested phone prompt for a bounded trial:
+
+```text
+Create a new local task on my connected Mac. Load awesomux-read-only and use
+its reviewed saved connection setup. Run a status snapshot every 2 minutes
+for 10 minutes, then stop. Report each result back to me here in our Dot chat,
+including if the Mac, helper, app, or access is unavailable. ChatGPT can alert
+me on my phone according to my notification settings; the local task does not
+need to send or verify a phone push notification. Check
+connection status and capabilities, then list the authorized agents. Do not
+read session context or send agent input. Show when each status was last seen, separately from when you checked; snapshots can miss changes and do not prove complete event
+coverage or successful work completion. Use ChatGPT's supported task mechanism.
+If scheduling or local execution is unsupported, state that limitation instead
+of claiming the task was created.
+```
+
+This is a proposed trial, not a recorded successful task. ChatGPT-owned recurring
+execution and unattended Dot chat updates remain unverified until observed.
+Record the saved task, first/later read times, unavailable result, and stopping
+after the final check. Separately record whether ChatGPT alerted the user on
+their phone.
+
+Complete event monitoring is a separate contract: it requires a silent baseline,
+durable cursor/checkpoint reuse, full pagination, deduplication, and visible gap
+recovery. Follow the skill's helper reference before promising that coverage.
+The local skill and helper do not implement a scheduler or notification service.
 
 ## Acceptance record
 
@@ -143,7 +204,7 @@ the route and results verifiable. Capture each scenario independently:
 | Connection revoked | Future helper reads denied or credential unavailable. |
 | Connected-Mac access revoked | Dot cannot start further work through that Mac connection. Inspect/stop any already-running local task separately. |
 | Native setup | Inspect Settings, keyboard/VoiceOver behavior, and any Keychain trust prompts. |
-| No input | Compare both real agents before/after; the workflow issues only the four read operations. |
+| No input | Compare both real agents before/after; the workflow issues only the permitted read operations. |
 
 Revocation cannot recall information already returned to the assistant service.
 The connected-computer permission can be broader than awesoMux's helper grants.
@@ -162,6 +223,7 @@ and preflight checks from the Keychain-blocked API E2E and pending manual checks
 
 ```sh
 python3 -B script/test-dot-skill-package.py .build/dot-skill-evidence/package
+python3 -B script/test-dot-skill-install.py .build/dot-skill-evidence/install
 ./script/ensure_ghostty_artifacts.sh
 swift build --product awesomux-agent
 swift build --product local-api-e2e
@@ -172,6 +234,10 @@ BIN="$(swift build --show-bin-path)"
 
 The packaging driver records a reproducible archive hash, source equality,
 extraction, refusal to overwrite, missing resources, and symlink refusal.
+The installation driver uses disposable home directories to verify owned-file
+updates and backups, saved-config reuse and explicit replacement, invalid setup,
+symlink refusal, mode `0600`, and preserved unrelated files/configuration. Its
+report does not establish real helper access or Dot discovery.
 The existing local API E2E driver exercises the real helper, Keychain and socket
 against labeled provider/history fixtures. Its context scenarios include one
 selected transcript, another session's refusal, source consent, limits, stale
