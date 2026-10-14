@@ -61,6 +61,12 @@ check_line() {
     # direct children. That matches the rule's intent — the whole system-test
     # bucket is exempt — but the line reads as if it were scoped to one level.
     [[ "$file" == Tests/awesoMuxTests/*.swift ]] && return
+    # Runtime pipe backpressure requires kernel readiness, not a test delay.
+    # This exact bounded call rechecks closure every 25 ms on the writer queue.
+    if [[ "$file" == Sources/awesoMux/Services/ProcessCodexAppServerTransport.swift ]] \
+        && [[ "${content#"${content%%[![:space:]]*}"}" == 'let ready = poll(&descriptorState, 1, 25)' ]]; then
+        return
+    fi
     if [[ "$content" =~ $wait_pattern ]]; then
         printf '%s:%s:%s\n' "$file" "$line" "$content" >&2
         found=1

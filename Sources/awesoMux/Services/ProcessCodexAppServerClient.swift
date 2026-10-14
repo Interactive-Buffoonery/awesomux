@@ -155,7 +155,7 @@ actor ProcessCodexAppServerClient: CodexAppServerClient {
                     }
                 }
                 group.addTask { [transport] in
-                    try await Task.sleep(until: deadline, clock: .continuous)
+                    try await ContinuousClock().sleep(until: deadline)
                     timedOut.set()
                     transport.close()
                     throw CodexAppServerError.requestTimedOut(method: method)
