@@ -1,4 +1,5 @@
 import AwesoMuxBridgeProtocol
+import Darwin
 import Foundation
 
 // MARK: - ProcessCodexAppServerTransport
@@ -8,7 +9,7 @@ import Foundation
 /// child so the session sees the same config home every other Codex call targets
 /// (contract §2.1). Owns the process lifetime: closed explicitly or on `deinit`.
 final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked Sendable {
-    private let process = Process()
+    private let process: CodexAppServerProcess
     private let inputPipe = Pipe() // our writes → child stdin
     private let outputPipe = Pipe() // child stdout → our reads
 
@@ -63,22 +64,13 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
             )
         }
 
-        process.executableURL = url
-        process.arguments = arguments
-        // Minimal env + the one key Codex must see; never inherit the host env.
-        process.environment = [
-            "PATH": defaultPath,
-            "CODEX_HOME": codexHome
-        ]
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            throw CodexAppServerError.appServerUnavailable(reason: error.localizedDescription)
-        }
+        process = try CodexAppServerProcess(
+            executableURL: url,
+            arguments: arguments,
+            environment: ["PATH=\(defaultPath)", "CODEX_HOME=\(codexHome)"],
+            input: inputPipe,
+            output: outputPipe
+        )
     }
 
     deinit {
@@ -142,9 +134,7 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
 
         try? inputPipe.fileHandleForWriting.close()
         try? outputPipe.fileHandleForReading.close()
-        if process.isRunning {
-            process.terminate()
-        }
+        process.terminate()
     }
 
     // MARK: - Line buffering (synchronous helpers: NSLock is unavailable from
@@ -331,5 +321,90 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
             return (lines, Data(), nil, .unterminatedLineTooLarge)
         }
         return (lines, newTail, newTail.isEmpty ? nil : now, nil)
+    }
+}
+
+/// Owns reaping as well as signaling. Foundation's Process can reap before its
+/// termination callback runs, so checking isRunning before a delayed kill is
+/// insufficient: that PID may already belong to an unrelated process.
+private final class CodexAppServerProcess: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pid: pid_t
+    private let exitSource: DispatchSourceProcess
+
+    init(executableURL: URL, arguments: [String], environment: [String], input: Pipe, output: Pipe) throws {
+        func check(_ status: Int32) throws {
+            guard status == 0 else {
+                throw CodexAppServerError.appServerUnavailable(reason: String(cString: strerror(status)))
+            }
+        }
+        var actions: posix_spawn_file_actions_t?
+        try check(posix_spawn_file_actions_init(&actions))
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        try check(posix_spawn_file_actions_adddup2(&actions, input.fileHandleForReading.fileDescriptor, STDIN_FILENO))
+        try check(posix_spawn_file_actions_adddup2(&actions, output.fileHandleForWriting.fileDescriptor, STDOUT_FILENO))
+        try check(posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0))
+
+        var attributes: posix_spawnattr_t?
+        try check(posix_spawnattr_init(&attributes))
+        defer { posix_spawnattr_destroy(&attributes) }
+        // Inherit only the three explicitly configured standard descriptors.
+        try check(
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)))
+        var mask = sigset_t()
+        sigemptyset(&mask)
+        try check(posix_spawnattr_setsigmask(&attributes, &mask))
+        var defaults = sigset_t()
+        sigfillset(&defaults)
+        try check(posix_spawnattr_setsigdefault(&attributes, &defaults))
+
+        let argumentStorage = ([executableURL.path] + arguments).map { strdup($0) }
+        let environmentStorage = environment.map { strdup($0) }
+        defer {
+            argumentStorage.forEach { free($0) }
+            environmentStorage.forEach { free($0) }
+        }
+        guard (argumentStorage + environmentStorage).allSatisfy({ $0 != nil }) else {
+            throw CodexAppServerError.appServerUnavailable(reason: "Could not allocate app-server arguments")
+        }
+        var argv = argumentStorage + [nil]
+        var envp = environmentStorage + [nil]
+        var child: pid_t = 0
+        try check(posix_spawn(&child, executableURL.path, &actions, &attributes, &argv, &envp))
+        pid = child
+        try? input.fileHandleForReading.close()
+        try? output.fileHandleForWriting.close()
+
+        exitSource = DispatchSource.makeProcessSource(identifier: child, eventMask: .exit, queue: .global(qos: .utility))
+        // Retain ownership until exit even when the transport has been released.
+        exitSource.setEventHandler { [self] in reap() }
+        exitSource.activate()
+    }
+
+    func terminate() {
+        lock.lock()
+        if pid > 0 { Darwin.kill(pid, SIGTERM) }
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(250)) { [self] in
+            lock.lock()
+            defer { lock.unlock() }
+            // Only reap() can release this PID, under this same lock. Even an
+            // exited child reserves its PID until we reap its zombie.
+            if pid > 0 { Darwin.kill(pid, SIGKILL) }
+        }
+    }
+
+    private func reap() {
+        lock.lock()
+        defer { lock.unlock() }
+        var status: Int32 = 0
+        var result: pid_t
+        repeat {
+            result = waitpid(pid, &status, WNOHANG)
+        } while result < 0 && errno == EINTR
+        guard result != 0 else { return }
+        pid = 0
+        exitSource.cancel()
+        exitSource.setEventHandler(handler: nil)
     }
 }
