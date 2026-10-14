@@ -3,7 +3,7 @@
 Run from the repository root on macOS with Swift 6 and Python 3:
 
 ```sh
-python3 script/codex-transport-e2e/run.py --output /tmp/codex-transport-results
+python3 script/codex-transport-e2e/run.py --output /tmp/codex-transport-results --contracts
 ```
 
 The driver compiles the actual production transport, client, wire models,
@@ -23,11 +23,23 @@ Failure surfaces covered by the harness:
 - Normal initialize, large config write, and hooks/list round trip: newline
   framing, request IDs, `edits`, `upsert`, and reload flag remain usable.
 
-`--cases close echo` selects cases. `--expect-bugs` checks the original failure
-signatures (close exits 1; timeout/cancel hit watchdog 124; echo succeeds).
-Run that option against c96d09c2 with this harness copied into an isolated tree.
-The committed before evidence was recorded before any production edits. Reports
-include production source hashes because evidence can precede its owning commit.
+Additional cases cover a silent response wait, sending after close, a naturally
+exiting child, and teardown from deinit. `--cases close echo` selects cases.
+`--contracts` copies the existing, unmodified client tests and their fake into a
+temporary Swift package and requires a nonzero passing Swift Testing count.
+
+To reproduce the original failures without changing the checkout:
+
+```sh
+python3 script/codex-transport-e2e/run.py --source-ref c96d09c2 \
+  --cases close timeout cancel echo --expect-bugs --output /tmp/codex-transport-before
+```
+
+`--expect-bugs` requires close to exit 1, timeout/cancel to hit watchdog 124, and
+echo to succeed. The committed `before` evidence was recorded before any
+production edits; `before-recheck` uses the final harness against those same
+original sources. Reports include source and harness hashes because evidence
+can precede its owning commit.
 
 No new unit tests are added. The root integration run owns full preflight and
 application/UI verification.

@@ -1,0 +1,62 @@
+Building for debugging...
+[Planning deferred tasks]
+[33 / 64]
+[34 / 65] AwesoMuxBridgeProtocol
+[44 / 101]
+[49 / 101]
+[52 / 101]
+[53 / 101]
+[57 / 101]
+[60 / 101]
+[65 / 101]
+[66 / 101]
+[67 / 101]
+[68 / 101]
+[77 / 102] awesoMux
+[86 / 111] awesoMux
+[94 / 111] AwesoMuxBridgeProtocol
+[96 / 111] awesoMux
+[101 / 112] awesoMuxTests-product
+[102 / 118]
+[107 / 118] awesoMuxTests-product
+[112 / 118] awesoMuxTests-product
+[114 / 118] awesoMuxTests-product
+Build complete! (7.46 sec)
+􀟈  Test run started.
+􀄵  Testing Library Version: 2084
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite "ProcessCodexAppServerClient JSON-RPC" started.
+􀟈  Test "multi-cwd hooks/list data flattens all hooks in stable order" started.
+􀟈  Test "cancelling a pending request closes the transport instead of wedging" started.
+􀟈  Test "close tears down the transport" started.
+􀟈  Test "initializes once, not before every method on the same session" started.
+􀟈  Test "maps JSON-RPC method-not-found to a detectable degrade error" started.
+􀟈  Test "serializes a config/batchWrite request with the edits wire key and reload flag" started.
+􀟈  Test "performs the initialize handshake before the first real method" started.
+􀟈  Test "legacy and unfamiliar trust statuses remain decodable" started.
+􀟈  Test "empty hooks/list data decodes to no hooks" started.
+􀟈  Test "a silent server that never replies surfaces requestTimedOut, not a hang" started.
+􀟈  Test "a hooks/list result of the wrong shape surfaces as malformedResponse" started.
+􀟈  Test "dropping the client tears down the transport on deinit" started.
+􀟈  Test "decodes a hooks/list payload across every trustStatus variant" started.
+􀟈  Test "non-method-not-found RPC errors surface as rpcError" started.
+􀟈  Test "skips unrelated messages and correlates the matching id" started.
+􀟈  Test "EOF before a matching response surfaces connectionClosed" started.
+􁁛  Test "legacy and unfamiliar trust statuses remain decodable" passed after 0.002 seconds.
+􁁛  Test "close tears down the transport" passed after 0.003 seconds.
+􁁛  Test "dropping the client tears down the transport on deinit" passed after 0.003 seconds.
+􁁛  Test "cancelling a pending request closes the transport instead of wedging" passed after 0.003 seconds.
+􁁛  Test "EOF before a matching response surfaces connectionClosed" passed after 0.003 seconds.
+􁁛  Test "empty hooks/list data decodes to no hooks" passed after 0.003 seconds.
+􁁛  Test "serializes a config/batchWrite request with the edits wire key and reload flag" passed after 0.003 seconds.
+􁁛  Test "non-method-not-found RPC errors surface as rpcError" passed after 0.003 seconds.
+􁁛  Test "maps JSON-RPC method-not-found to a detectable degrade error" passed after 0.003 seconds.
+􁁛  Test "a hooks/list result of the wrong shape surfaces as malformedResponse" passed after 0.004 seconds.
+􁁛  Test "skips unrelated messages and correlates the matching id" passed after 0.004 seconds.
+􁁛  Test "multi-cwd hooks/list data flattens all hooks in stable order" passed after 0.004 seconds.
+􁁛  Test "initializes once, not before every method on the same session" passed after 0.004 seconds.
+􁁛  Test "decodes a hooks/list payload across every trustStatus variant" passed after 0.004 seconds.
+􁁛  Test "performs the initialize handshake before the first real method" passed after 0.004 seconds.
+􁁛  Test "a silent server that never replies surfaces requestTimedOut, not a hang" passed after 1.598 seconds.
+􁁛  Suite "ProcessCodexAppServerClient JSON-RPC" passed after 1.598 seconds.
+􁁛  Test run with 16 tests in 1 suite passed after 1.598 seconds.

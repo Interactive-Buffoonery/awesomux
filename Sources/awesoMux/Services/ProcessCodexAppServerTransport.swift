@@ -14,6 +14,7 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
     private let outputPipe = Pipe() // child stdout → our reads
 
     private let lock = NSLock()
+    private let writeQueue = DispatchQueue(label: "app.awesomux.codex-stdin", qos: .userInitiated)
     /// Fully extracted lines awaiting `receive()`. A single chunk burst can
     /// carry many frames but the protocol hands them out one call at a time.
     /// Consumed through `bufferedLinesCursor`: `removeFirst()` shifts every
@@ -64,6 +65,15 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
             )
         }
 
+        let descriptor = inputPipe.fileHandleForWriting.fileDescriptor
+        let flags = fcntl(descriptor, F_GETFL)
+        guard flags >= 0,
+            fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0,
+            fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0
+        else {
+            throw CodexAppServerError.appServerUnavailable(reason: "Could not configure app-server stdin")
+        }
+
         process = try CodexAppServerProcess(
             executableURL: url,
             arguments: arguments,
@@ -78,12 +88,47 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
     }
 
     func send(_ message: Data) async throws {
+        try Task.checkCancellation()
         var framed = message
-        framed.append(0x0A) // newline frame
-        do {
-            try inputPipe.fileHandleForWriting.write(contentsOf: framed)
-        } catch {
-            throw CodexAppServerError.connectionClosed
+        framed.append(0x0A)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                writeQueue.async { [self, framed] in
+                    do {
+                        try writeFrame(framed)
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        } onCancel: {
+            // A partially transmitted frame cannot be reused for another RPC.
+            self.close()
+        }
+    }
+
+    /// The serial queue owns stdin through its final close, preventing both
+    /// interleaved frames and descriptor reuse while a write/poll is in flight.
+    /// No syscall can block indefinitely or occupy a cooperative executor.
+    private func writeFrame(_ framed: Data) throws {
+        guard !lock.withLock({ didClose }) else { throw CodexAppServerError.connectionClosed }
+        let descriptor = inputPipe.fileHandleForWriting.fileDescriptor
+        try framed.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                guard !lock.withLock({ didClose }) else { throw CodexAppServerError.connectionClosed }
+                let count = Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                if count > 0 {
+                    offset += count
+                    continue
+                }
+                if count < 0, errno == EINTR { continue }
+                guard count < 0, errno == EAGAIN else { throw CodexAppServerError.connectionClosed }
+                var descriptorState = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
+                let ready = poll(&descriptorState, 1, 25)
+                if ready < 0, errno != EINTR { throw CodexAppServerError.connectionClosed }
+            }
         }
     }
 
@@ -132,7 +177,8 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
         lock.unlock()
         guard !alreadyClosed else { return }
 
-        try? inputPipe.fileHandleForWriting.close()
+        let input = inputPipe.fileHandleForWriting
+        writeQueue.async { try? input.close() }
         try? outputPipe.fileHandleForReading.close()
         process.terminate()
     }

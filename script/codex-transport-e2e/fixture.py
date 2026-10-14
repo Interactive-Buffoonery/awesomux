@@ -12,6 +12,8 @@ assert home.name.startswith('case-')
 signal.signal(signal.SIGTERM, signal.SIG_IGN if mode != 'echo' else signal.SIG_DFL)
 (home / 'pid').write_text(str(os.getpid()))
 print('{"ready":true}', flush=True)
+if mode == 'exit':
+    sys.exit(0)
 if mode == 'resist':
     while True:
         time.sleep(1)

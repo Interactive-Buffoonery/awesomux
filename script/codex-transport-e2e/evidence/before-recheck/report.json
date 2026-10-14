@@ -1,0 +1,48 @@
+{
+  "head": "b81523737c9baa4f79a6bf2c470da6934856b15b",
+  "swift_version": "swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx27.0.0",
+  "source_ref": "c96d09c21104e0079366877e1b1f9f079aadfcf0",
+  "source_sha256": {
+    "Sources/awesoMux/Services/ProcessCodexAppServerTransport.swift": "96001464b7a8a5816a4816473c6657766ec6763fa865414c2da92158851ab2c9",
+    "Sources/awesoMux/Services/ProcessCodexAppServerClient.swift": "184cf7653d5aed160ee20b2d593b77e0877d2b9dc3ce5748a7a1ee6f2a196c6d",
+    "Sources/awesoMux/Services/CodexAppServerClient.swift": "a46d92507074aa30974e5543bb3f2d859f349d84112e2191dae0bfce4686e25b",
+    "Sources/awesoMux/Services/CodexHookEntry.swift": "7f21222d93738467d1d40b6a7c7de93430df45ea61d07bef8fe4420e504dda7f",
+    "Sources/awesoMux/Services/JSONValue.swift": "01b7feed7ea31620c883c0c348d7c2b66d71169d18fe101a99478e0531f26e30",
+    "Sources/awesoMux/Services/OneShotFlag.swift": "3fb75bee999f8e6958129f9af11a900b3bdc12fe1de549bb60955a5b8840a8c6",
+    "Sources/awesoMux/Services/ProcessCommandRunner.swift": "c13a1d2630339eed6b8a7cae698de264d5170ed67ccb303f14b609d6de9e614b",
+    "Sources/awesoMux/Services/CommandRunner.swift": "8fa8d809e6d752d0e8638ea9befd032c591ad9c690ecdac42a6adc91aaf84650",
+    "Sources/AwesoMuxBridgeProtocol/MonotonicClock.swift": "9adf96d1feeefbea8142f0cff391bb42726034c418b7ff8f0b6fb53ee1b6d382"
+  },
+  "harness_sha256": {
+    "run.py": "643c8a86339d8c40db16d3e768538653c4be82a38d0c2c6d92c819f810e2bf07",
+    "fixture.py": "e2fe2dc59e54f9aea710dd2ee4cc58684716d5651356789e355ee6aaed4869e2",
+    "Driver.swift": "cca93fb5854a9473767a1b0f4c0d4cf045331f3d0a119535bb5c5334c3a8cc12"
+  },
+  "build": "/var/folders/83/7b7fy7fn5jv0f655ltwhv2bw0000gp/T/codex-transport-e2e-t7qxpxfx",
+  "results": [
+    {
+      "mode": "close",
+      "exit": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "mode": "timeout",
+      "exit": 124,
+      "expected": 124,
+      "passed": true
+    },
+    {
+      "mode": "cancel",
+      "exit": 124,
+      "expected": 124,
+      "passed": true
+    },
+    {
+      "mode": "echo",
+      "exit": 0,
+      "expected": 0,
+      "passed": true
+    }
+  ]
+}
