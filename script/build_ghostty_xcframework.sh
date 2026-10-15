@@ -353,6 +353,13 @@ ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test-lib-
   -Demit-lib-vt=true \
   -Dtest-filter=awesomux-scrollback --summary all
 
+# Link detection belongs to the full config module, outside libghostty-vt.
+ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test \
+  --cache-dir "$AWESOMUX_ZIG_CACHE_DIR" \
+  -Doptimize="$AWESOMUX_GHOSTTY_OPTIMIZE" \
+  -Dapp-runtime=none -Demit-macos-app=false \
+  -Dtest-filter=awesomux-link-paths --summary all
+
 if [[ ! -d "$GHOSTTY_BUILT_SHARE_DIR" ]]; then
   echo "Ghostty build completed without required artifacts." >&2
   exit 1

@@ -16,6 +16,7 @@ INPUTS = (
     ROOT / "native/ghostty/embedded-scrollback.zig.inc",
     ROOT / "Sources/GhosttyKit/AwesoMuxGhostty.h",
     ROOT / "native/shell-integration/ssh-mouse-recovery.zsh",
+    ROOT / "native/ghostty/link-paths.zig",
 )
 
 
@@ -48,6 +49,13 @@ def prepare(vendor, destination):
         terminal = staging / "src/terminal/main.zig"
         with terminal.open("a") as file:
             file.write('\n// awesoMux native safety regression tests.\ntest { _ = @import("awesomux_scrollback.zig"); }\n')
+        config = staging / "src/config/Config.zig"
+        source = config.read_text()
+        marker = ".regex = url.regex,"
+        if source.count(marker) != 1:
+            raise RuntimeError("Ghostty link detector changed; review the path extension before building")
+        config.write_text(source.replace(marker, '.regex = @import("awesomux_link_paths.zig").regex,', 1))
+        shutil.copyfile(INPUTS[5], staging / "src/config/awesomux_link_paths.zig")
         integration = staging / "src/shell-integration/zsh"
         shutil.copyfile(INPUTS[4], integration / "awesomux-ssh-mouse-recovery")
         with (integration / ".zshenv").open("a") as file:
