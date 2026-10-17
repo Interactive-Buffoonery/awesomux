@@ -1322,6 +1322,24 @@ extension SessionStore {
         return false
     }
 
+    /// Revokes cached and in-flight remote evidence without inferring an SSH
+    /// failure from a machine-wide wake or network-path change.
+    public func invalidateRemoteConnectivityEvidence() {
+        var affectedSessionIDs: Set<TerminalSession.ID> = []
+        for groupIndex in _groups.indices {
+            for sessionIndex in _groups[groupIndex].sessions.indices {
+                let result = _groups[groupIndex].sessions[sessionIndex].layout
+                    .invalidatingRemoteConnectivityEvidence()
+                guard result.didChange else { continue }
+                _groups[groupIndex].sessions[sessionIndex].layout = result.layout
+                affectedSessionIDs.insert(_groups[groupIndex].sessions[sessionIndex].id)
+            }
+        }
+        if !affectedSessionIDs.isEmpty {
+            commit(WorkspaceMutationEffect(riskSessionIDs: affectedSessionIDs))
+        }
+    }
+
     public func markRemotePanesPossiblyStale() {
         guard !index.remotePaneIDs.isEmpty else {
             return

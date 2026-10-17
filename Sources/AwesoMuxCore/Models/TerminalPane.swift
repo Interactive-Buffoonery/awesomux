@@ -140,6 +140,9 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// to pretend it observed the other.
     public var remoteConnectionGeneration: String?
     public var remoteForegroundLivenessSnapshot: RemoteForegroundLivenessSnapshot?
+    /// Runtime-only revocation token for evidence captured before connectivity
+    /// changed. It does not diagnose the SSH connection or alter its identity.
+    public var remoteConnectivityEpoch: UUID = UUID()
     /// Runtime-only OSC 9;4 progress report. A restored pane starts absent until
     /// the live terminal process announces its current operation again.
     public var progressReport: TerminalProgressReport?
