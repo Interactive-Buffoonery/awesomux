@@ -30,6 +30,8 @@ cd "$ROOT_DIR"
 source "$ROOT_DIR/script/runtime-profile.sh"
 runtime_profile="$(awesomux_checkout_profile "$ROOT_DIR")"
 ./script/build_and_run.sh --stage-local-api-e2e > "$STAGE_LOG" 2>&1
+# Build the client now so compiling it can't eat into the pairing window.
+swift build --product companion-pairing-e2e >> "$STAGE_LOG" 2>&1
 
 if [[ ! -x "$APP_BINARY" ]]; then
   echo "error: staged development executable is missing: $APP_BINARY" >&2

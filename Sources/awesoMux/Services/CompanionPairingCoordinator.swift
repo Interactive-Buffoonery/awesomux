@@ -232,6 +232,9 @@ final class CompanionPairingCoordinator {
     func stop() {
         cancelPairing()
         stopWatchingNetwork()
+        listenerStartTask?.cancel()
+        listenerStartTask = nil
+        listenerStartID = nil
         listenerLifecycle = UUID()
         listenerGeneration = UUID()
         server?.stop()

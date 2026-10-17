@@ -206,8 +206,8 @@ enum CompanionCertificate {
         guard SecRandomCopyBytes(kSecRandomDefault, serialBytes.count, &serialBytes) == errSecSuccess else {
             throw CompanionIdentityError.certificateCreation
         }
-        serialBytes[0] &= 0x7F
-        if serialBytes.allSatisfy({ $0 == 0 }) { serialBytes[serialBytes.count - 1] = 1 }
+        // A positive serial with a nonzero first byte keeps the DER INTEGER minimal.
+        serialBytes[0] = serialBytes[0] & 0x7F | 0x40
         let calendar = Calendar(identifier: .gregorian)
         let notBefore = Date().addingTimeInterval(-86_400)
         guard let notAfter = calendar.date(byAdding: .year, value: 10, to: notBefore) else {

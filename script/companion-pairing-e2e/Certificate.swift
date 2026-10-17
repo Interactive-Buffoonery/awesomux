@@ -114,8 +114,8 @@ enum E2ECertificate {
         guard SecRandomCopyBytes(kSecRandomDefault, serial.count, &serial) == errSecSuccess else {
             throw E2EFailure("could not create a certificate serial")
         }
-        serial[0] &= 0x7F
-        if serial.allSatisfy({ $0 == 0 }) { serial[serial.count - 1] = 1 }
+        // A positive serial with a nonzero first byte keeps the DER INTEGER minimal.
+        serial[0] = serial[0] & 0x7F | 0x40
         let notBefore = Date().addingTimeInterval(-60)
         let notAfter = notBefore.addingTimeInterval(24 * 60 * 60)
         let tbs = E2EASN1.sequence(
