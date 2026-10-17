@@ -264,6 +264,9 @@ final class GhosttyRuntime {
     var bridgeAttachPreflightFactoryOverride: (@MainActor (TerminalSessionID) -> BridgeAttachPreflight)?
 
     @ObservationIgnored
+    weak var remoteBrowserSettingsStore: AppSettingsStore?
+
+    @ObservationIgnored
     private var agentIntegrationsProvider: @MainActor () -> AgentIntegrationsConfig = { .defaultValue }
 
     #if DEBUG

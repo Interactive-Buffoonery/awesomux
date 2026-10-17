@@ -976,6 +976,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ghosttyRuntime.configureCommandBridgeEnabledProvider {
             appSettingsStore.terminal.value.commandBridgeEnabled
         }
+        ghosttyRuntime.remoteBrowserSettingsStore = appSettingsStore
         ghosttyRuntime.configureAgentIntegrationsProvider {
             appSettingsStore.agentIntegrations.value
         }

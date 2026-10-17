@@ -339,13 +339,37 @@ extension GhosttyRuntime {
         // agent-status heartbeat × N panes lands those wasted hops on the same
         // actor the sidebar renders on. `permissionDecision` is app→helper and
         // never arrives inbound — routed to neither.
+        let browserTarget = sessionStore.session(id: workspaceSessionID)?.layout.pane(id: paneID)?.executionPlan.remoteTarget
+        let browser = RemoteBrowserCoordinator(
+            token: token,
+            session: session.rawValue,
+            settings: remoteBrowserSettingsStore,
+            destination: { [weak sessionStore] in
+                guard let browserTarget,
+                    let pane = sessionStore?.session(id: workspaceSessionID)?.layout.pane(id: paneID),
+                    pane.terminalSessionID == session,
+                    case .ssh(let execution) = pane.executionPlan,
+                    execution.persistenceOwner == .localAmx,
+                    execution.target == browserTarget
+                else { return nil }
+                return execution.target.sshDestination
+            },
+            window: { [weak self] in self?.cachedSurfaceView(for: paneID)?.window },
+            isConnected: { [router] generation in
+                await router.supervisor?.isBrowserGenerationActive(generation) ?? false
+            },
+            reply: { [router] envelope, generation in
+                _ = await router.supervisor?.sendBrowserResult(envelope: envelope, generation: generation)
+            }
+        )
+
         let frameSink: BridgeConnectionSupervisor.FrameSink = { envelope, generation in
             switch envelope.message {
             case .agentStatus, .paneRename, .handoffNotify:
                 await adapter.frameSink(envelope, generation)
             case .permissionRequest, .permissionResolved:
                 await coordinator.frameSink(envelope, generation)
-            case .permissionDecision:
+            case .permissionDecision, .browserOpenRequest, .browserOpenResult:
                 break
             }
         }
@@ -363,7 +387,13 @@ extension GhosttyRuntime {
             expectedToken: token,
             expectedSession: session.rawValue,
             frameSink: frameSink,
-            connectionLostSink: connectionLostSink
+            connectionLostSink: connectionLostSink,
+            browserRequestSink: { envelope, generation in
+                await browser.receive(envelope, generation: generation)
+            },
+            browserConnectionLostSink: { generation in
+                await browser.connectionLost(generation)
+            }
         )
         router.supervisor = supervisor
 
@@ -372,6 +402,7 @@ extension GhosttyRuntime {
             await supervisor.shutdown()
             await MainActor.run {
                 coordinator.teardownState()
+                browser.teardown()
                 store.discardStaged(token: token)
                 store.clearLive(session: session, ifMatches: coordinator)
             }

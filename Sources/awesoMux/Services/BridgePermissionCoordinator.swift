@@ -252,7 +252,7 @@ final class BridgePermissionCoordinator {
             admit(id: envelope.id, request: request, generation: generation)
         case .permissionResolved(let resolved):
             handleHelperResolved(resolved)
-        case .agentStatus, .paneRename, .handoffNotify, .permissionDecision:
+        case .agentStatus, .paneRename, .handoffNotify, .permissionDecision, .browserOpenRequest, .browserOpenResult:
             // agent-status/rename/handoff are E2's read-model frames;
             // permission-decision is app→helper and never arrives inbound.
             break

@@ -257,7 +257,8 @@ import PackageDescription
             .testTarget(
                 name: "awesoMuxTests",
                 dependencies: [
-                    "awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport", "AwesoMuxAppKitTestHost", "DesignSystem",
+                    "awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxBridgeHelperSupport", "AwesoMuxCore", "AwesoMuxTestSupport",
+                    "AwesoMuxAppKitTestHost", "DesignSystem",
                 ],
                 exclude: ["LocalAPIE2E"]
             ),
