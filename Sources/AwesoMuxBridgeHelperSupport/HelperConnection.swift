@@ -109,7 +109,8 @@ public final class HelperConnection {
         }
     }
 
-    public func handshake(proto: String, helper: String, wallNow: Date = Date()) throws {
+    @discardableResult
+    public func handshake(proto: String, helper: String, wallNow: Date = Date()) throws -> Date {
         try write(
             BridgeHandshake.hello(
                 proto: proto,
@@ -125,9 +126,9 @@ public final class HelperConnection {
             let frame = try readFrame(deadline: deadline)
             guard case .handshake(let handshake) = frame else { continue }
             switch handshake {
-            case .helloAck(let ackSession, let ackProto, _)
+            case .helloAck(let ackSession, let ackProto, let timestamp)
             where ackSession == session && ackProto == proto:
-                return
+                return Date(timeIntervalSince1970: timestamp)
             case .helloBusy(let busyProto) where busyProto == proto:
                 throw ConnectionError.busy
             case .helloAck, .helloNack, .helloBusy, .hello:

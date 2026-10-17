@@ -124,9 +124,10 @@ public enum BridgeHelperCommand {
             }
             do {
                 let connection = try connect(context.state, context.session)
-                try connection.handshake(proto: browserProtocol, helper: helperVersion, wallNow: now())
+                let macTime = try connection.handshake(proto: browserProtocol, helper: helperVersion, wallNow: now())
                 let requestID = UUID().uuidString
-                let expiresAt = now().addingTimeInterval(request.timeout).timeIntervalSince1970
+                // Expiry is evaluated by the Mac, whose clock can differ from this host's.
+                let expiresAt = macTime.addingTimeInterval(request.timeout).timeIntervalSince1970
                 try connection.send(
                     BridgeEnvelope(
                         token: context.state.token,

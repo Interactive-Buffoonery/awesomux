@@ -259,22 +259,29 @@ struct WorkspaceSettingsPane: View {
             }
 
             SettingsField(
-                label: String(localized: "Open remote web links on your Mac"),
+                label: String(localized: "Open remote web links on your Mac", comment: "Managed SSH browser forwarding setting label"),
                 hint: String(
                     localized:
-                        "Ask when a remote program requests your browser. Requires a supported helper in a managed SSH workspace. Turning this off stops new requests immediately; reconnect after turning it on."
+                        "Ask when a remote program requests your browser. Requires a supported helper in a managed SSH workspace. Turning this off stops new requests immediately; reconnect after turning it on.",
+                    comment: "Explains remote browser forwarding requirements and the effect of changing the switch"
                 ),
                 forwardsAccessibilityToControl: true
             ) {
-                Toggle("Open remote web links on your Mac", isOn: appSettingsStore.workspaces.binding(\.remoteBrowserEnabled))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
+                Toggle(
+                    String(localized: "Open remote web links on your Mac", comment: "Managed SSH browser forwarding setting label"),
+                    isOn: appSettingsStore.workspaces.binding(\.remoteBrowserEnabled)
+                )
+                .labelsHidden()
+                .toggleStyle(.switch)
             }
 
             if !appSettingsStore.workspaces.value.remoteBrowserAllowedOrigins.isEmpty {
                 SettingsField(
-                    label: String(localized: "Websites allowed without asking"),
-                    hint: String(localized: "Each permission applies to one SSH host and one website address. Remove it to ask again.")
+                    label: String(localized: "Websites allowed without asking", comment: "Saved remote browser permissions section title"),
+                    hint: String(
+                        localized: "Each permission applies to one SSH host and one website address. Remove it to ask again.",
+                        comment: "Explains the scope and revocation of saved remote browser permissions"
+                    )
                 ) {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(appSettingsStore.workspaces.value.remoteBrowserAllowedOrigins.keys.sorted(), id: \.self) { host in
@@ -282,11 +289,11 @@ struct WorkspaceSettingsPane: View {
                                 origin in
                                 HStack {
                                     VStack(alignment: .leading) {
-                                        Text(host).font(.callout)
-                                        Text(origin).font(.caption).foregroundStyle(.secondary)
+                                        Text(host).awFont(AwFont.UI.body)
+                                        Text(origin).awFont(AwFont.UI.meta).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Button("Remove") {
+                                    Button(String(localized: "Remove", comment: "Revoke a saved remote browser permission")) {
                                         appSettingsStore.workspaces.update {
                                             $0.remoteBrowserAllowedOrigins[host]?.removeAll { $0 == origin }
                                             if $0.remoteBrowserAllowedOrigins[host]?.isEmpty == true {
@@ -294,7 +301,12 @@ struct WorkspaceSettingsPane: View {
                                             }
                                         }
                                     }
-                                    .accessibilityLabel(String(localized: "Remove browser permission for \(host) and \(origin)"))
+                                    .accessibilityLabel(
+                                        String(
+                                            localized: "Remove browser permission for \(host) and \(origin)",
+                                            comment:
+                                                "Revoke permission accessibility label; arguments are the SSH destination and exact website origin"
+                                        ))
                                 }
                             }
                         }

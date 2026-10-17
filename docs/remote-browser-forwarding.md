@@ -49,6 +49,9 @@ after turning it on so a new shell receives `BROWSER`.
 - Requests expire after at most two minutes. Closing the pane, losing the
   browser connection, or replacing the SSH attachment cancels pending work.
   Reconnecting does not replay a request.
+- Expiry uses the Mac timestamp returned by the authenticated handshake;
+  the remote host and Mac do not need synchronized wall clocks. The helper
+  independently bounds its wait using its monotonic clock.
 - The helper returns success only when macOS accepts the browser handoff. It
   does not claim that the page loaded or that sign-in succeeded. Other outcomes
   return a nonzero status and leave a copyable URL in the remote command's
@@ -92,6 +95,9 @@ The journey verifies:
 - an exact HTTP request reaching a loopback browser receiver;
 - remembered-origin lookup and revocation through `AppSettingsStore`;
 - request expiry, connection loss, and a fresh request after reconnect.
+- a missing wrapper triggering repair rather than being reported as supported;
+- teardown during the final connection check preventing a clipboard write;
+- a helper clock five minutes behind the Mac still reaching confirmation.
 
 The artifact directory contains `browser-e2e-report.txt`,
 `helper-results.log`, `browser-hit.txt`, `browser-prompt.png`,
@@ -100,8 +106,8 @@ file. The first PNG attempts an `NSView` bitmap of the real sheet. The test
 checks that all three titled buttons are inside the sheet before capture. The
 offscreen bitmap can omit button-label glyphs even when the live controls are
 visible, so capture a normal running-app screenshot for visual approval. The
-enlarged-text PNG renders the same SwiftUI prompt view with the `accessibility3`
-text size in an isolated window; it is useful layout evidence, not proof that
+enlarged-text PNG renders the same SwiftUI prompt view with the maximum 135%
+interface text scale in an isolated window; it is useful layout evidence, not proof that
 the system text-size setting was changed for the running app.
 
 This automated journey does not verify VoiceOver speech, physical keyboard

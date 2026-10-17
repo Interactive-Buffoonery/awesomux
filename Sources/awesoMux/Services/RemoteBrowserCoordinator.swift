@@ -118,11 +118,14 @@ final class RemoteBrowserCoordinator {
             defer { if Self.presentedRequest == presentationID { Self.presentedRequest = nil } }
             let choice = RemoteBrowserPromptChoice()
             let alert = NSAlert()
-            alert.messageText = String(localized: "Open this link on your Mac?")
-            alert.informativeText = String(localized: "A program on \(source) wants to open this page in your default browser.")
-            alert.addButton(withTitle: String(localized: "Cancel"))
-            alert.addButton(withTitle: String(localized: "Open Link"))
-            alert.addButton(withTitle: String(localized: "Copy Link"))
+            alert.messageText = String(localized: "Open this link on your Mac?", comment: "Remote browser request confirmation title")
+            alert.informativeText = String(
+                localized: "A program on \(source) wants to open this page in your default browser.",
+                comment: "Remote browser confirmation explanation; argument is the configured SSH destination"
+            )
+            alert.addButton(withTitle: String(localized: "Cancel", comment: "Cancel the remote browser request"))
+            alert.addButton(withTitle: String(localized: "Open Link", comment: "Open the remote-requested URL in the Mac browser"))
+            alert.addButton(withTitle: String(localized: "Copy Link", comment: "Copy the remote-requested URL without opening it"))
             alert.buttons[0].keyEquivalent = "\r"
             alert.buttons[1].keyEquivalent = ""
             alert.buttons[2].keyEquivalent = ""
@@ -130,7 +133,7 @@ final class RemoteBrowserCoordinator {
                 rootView: RemoteBrowserPromptView(
                     source: source, url: url, warning: warning, choice: choice,
                     canRemember: safeToRemember && !settings.isDiskConfigInvalid
-                ))
+                ).appearanceBridge(settings))
             view.setFrameSize(NSSize(width: 420, height: warning == nil ? 180 : 300))
             alert.accessoryView = view
             self.alert = alert
@@ -146,7 +149,8 @@ final class RemoteBrowserCoordinator {
             }
             expiry.cancel()
             self.alert = nil
-            guard !Task.isCancelled, await isConnected(generation), destination() == source else { return .disconnected }
+            let connected = await isConnected(generation)
+            guard !Task.isCancelled, connected, destination() == source else { return .disconnected }
             guard deadline > Date() else { return .expired }
             guard settings.workspaces.value.remoteBrowserEnabled else { return .disabled }
             if response == .alertThirdButtonReturn {
@@ -157,7 +161,8 @@ final class RemoteBrowserCoordinator {
             remember = choice.remember && safeToRemember
         }
 
-        guard !Task.isCancelled, await isConnected(generation), destination() == source else { return .disconnected }
+        let connected = await isConnected(generation)
+        guard !Task.isCancelled, connected, destination() == source else { return .disconnected }
         guard deadline > Date() else { return .expired }
         guard settings.workspaces.value.remoteBrowserEnabled else { return .disabled }
         // A grant revoked while the connection check awaited must not auto-open.

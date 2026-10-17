@@ -1,7 +1,10 @@
 import AppKit
+import AwesoMuxBridgeHelperSupport
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
+import AwesoMuxCore
 import AwesoMuxTestSupport
+import DesignSystem
 import Foundation
 import SwiftUI
 import Testing
@@ -83,6 +86,24 @@ struct RemoteBrowserE2ETests {
             )
         }
         func record(_ value: String) { report.append(value) }
+
+        let helperCopy = fixture.stateFile.deletingLastPathComponent().appending(path: "helper")
+        try FileManager.default.copyItem(atPath: helper, toPath: helperCopy.path)
+        let wrapperCapability = try await RemoteHelperInstaller.additionalSSHCapability(
+            remote: try #require(RemoteTarget(parsing: fixture.destination)),
+            controlPath: "/tmp/awesomux-browser-e2e-unused.sock",
+            helperPath: helperCopy.path,
+            includeBrowser: true,
+            execChannel: { command, stdin in
+                let probe = command.dropFirst(4)
+                    .replacingOccurrences(of: "ControlMaster=auto", with: "ControlMaster=no")
+                    .replacingOccurrences(of: "ControlPersist=60", with: "ControlPersist=no")
+                let configured = "ssh -F " + BrowserSSHFixture.shellQuote(sshConfig) + " " + probe
+                return try await BridgeExecChannel.run(command: configured, stdin: stdin)
+            }
+        )
+        #expect(wrapperCapability == .incompatible)
+        record("Missing browser wrapper capability: \(wrapperCapability)")
 
         let invalid = try await fixture.runBrowser(url: "file:///tmp/not-web", timeout: 5)
         #expect(invalid.status == 1 && invalid.stderr.contains("browser open invalid"))
@@ -191,12 +212,45 @@ struct RemoteBrowserE2ETests {
         try #require(reconnectedResult.stderr.contains("browser open cancelled"))
         record("PASS a fresh tunnel reconnect serves a new browser request")
 
+        try await Task.sleep(for: .seconds(10.2))
+        let cancelledCopyURL = "https://example.invalid/cancelled-during-connection-check"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("browser-e2e-cancellation-sentinel", forType: .string)
+        let cancelledCopy = fixture.runBrowserTask(url: cancelledCopyURL, timeout: 2)
+        let cancelledCopySheet = try await requireSheet(on: window)
+        sink.cancelAfterNextConnectionCheck = true
+        try clickButton("Copy Link", in: cancelledCopySheet)
+        _ = try await cancelledCopy.value
+        #expect(NSPasteboard.general.string(forType: .string) == "browser-e2e-cancellation-sentinel")
+        record("Clipboard after cancellation: \(NSPasteboard.general.string(forType: .string) ?? "empty")")
+
+        let skewed = Task.detached {
+            BridgeHelperCommand.run(
+                arguments: ["browser-open", "https://example.invalid/clock-skew", "--timeout", "5"],
+                environment: [
+                    "AWESOMUX_BRIDGE_STATE": fixture.stateFile.path,
+                    "AWESOMUX_BRIDGE_SESSION": fixture.session,
+                ],
+                now: { Date().addingTimeInterval(-300) }
+            )
+        }
+        let skewedPromptAppeared = await waitUntilEventually(deadline: .seconds(3)) {
+            window.attachedSheet != nil
+        }
+        #expect(skewedPromptAppeared)
+        if let skewedSheet = window.attachedSheet {
+            try clickButton("Cancel", in: skewedSheet)
+            try await requireSheetDismissal(skewedSheet, on: window)
+        }
+        _ = await skewed.value
+        record("Prompt with remote clock five minutes behind: \(skewedPromptAppeared)")
+
         try saveEnlargedTextPrompt(
             source: fixture.destination,
             url: try #require(URL(string: "https://example.invalid/a/long/path?with=query#fragment")),
             to: artifact.appending(path: "browser-prompt-enlarged-text.png")
         )
-        record("PASS the prompt view rendered at accessibility3 text size")
+        record("PASS the prompt view rendered at 135 percent interface text scale")
 
     }
 
@@ -280,6 +334,7 @@ struct RemoteBrowserE2ETests {
                 canRemember: true
             )
             .environment(\.dynamicTypeSize, .accessibility3)
+            .awTextScale(1.35)
         )
         view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
         let window = NSWindow(
@@ -308,6 +363,7 @@ private enum BrowserE2EError: Error {
 private final class BrowserE2ESink {
     private var supervisor: BridgeConnectionSupervisor?
     private var coordinator: RemoteBrowserCoordinator?
+    var cancelAfterNextConnectionCheck = false
 
     func configure(supervisor: BridgeConnectionSupervisor, coordinator: RemoteBrowserCoordinator) {
         self.supervisor = supervisor
@@ -323,7 +379,12 @@ private final class BrowserE2ESink {
     }
 
     func isActive(_ generation: BridgeConnectionActor.Generation) async -> Bool {
-        await supervisor?.isBrowserGenerationActive(generation) ?? false
+        let active = await supervisor?.isBrowserGenerationActive(generation) ?? false
+        if cancelAfterNextConnectionCheck {
+            cancelAfterNextConnectionCheck = false
+            coordinator?.teardown()
+        }
+        return active
     }
 
     func reply(_ envelope: BridgeEnvelope, generation: BridgeConnectionActor.Generation) async {
@@ -469,7 +530,7 @@ private final class BrowserSSHFixture: @unchecked Sendable {
         return result
     }
 
-    private static func shellQuote(_ value: String) -> String {
+    static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 }

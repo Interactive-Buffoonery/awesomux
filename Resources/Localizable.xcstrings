@@ -584,7 +584,7 @@
       "comment" : "Explanation when Show Scrollback is retried before its previous native read finishes"
     },
     "A program on %arg wants to open this page in your default browser." : {
-
+      "comment" : "Remote browser confirmation explanation; argument is the configured SSH destination"
     },
     "About" : {
       "comment" : "Advanced settings title."
@@ -821,6 +821,7 @@
       "comment" : "Remember-menu item naming the SSH destination that will be managed without asking"
     },
     "Always allow %arg to open links to %arg" : {
+      "comment" : "Remember a browser permission; first argument is the SSH destination, second is the website hostname",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -927,7 +928,7 @@
       "comment" : "Workspace settings hint."
     },
     "Ask when a remote program requests your browser. Requires a supported helper in a managed SSH workspace. Turning this off stops new requests immediately; reconnect after turning it on." : {
-
+      "comment" : "Explains remote browser forwarding requirements and the effect of changing the switch"
     },
     "Asks before Command-Shift-W, the sidebar close button, or Command-W on a workspace's last pane closes a workspace whose agent or shell is active. Skipped when nothing is at risk. Command-Q (app quit) has its own prompt. Command-W on any other pane uses the pane-confirmation toggle below." : {
 
@@ -1107,7 +1108,7 @@
       "comment" : "Unavailable agent integration install state status"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -1557,7 +1558,7 @@
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
     },
     "Copy Link" : {
-
+      "comment" : "Copy the remote-requested URL without opening it"
     },
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
@@ -2063,7 +2064,7 @@
 
     },
     "Each permission applies to one SSH host and one website address. Remove it to ask again." : {
-
+      "comment" : "Explains the scope and revocation of saved remote browser permissions"
     },
     "Earlier turns are omitted. This document holds the most recent history that fits." : {
       "comment" : "Notice in a rendered agent transcript when older turns exceeded the size budget"
@@ -3232,7 +3233,7 @@
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
     },
     "Only this website, HTTP or HTTPS, and port are allowed. Change it in Settings → Workspaces → Managed SSH." : {
-
+      "comment" : "Explanation that a saved browser permission covers only the exact website origin and where to revoke it"
     },
     "Open" : {
       "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
@@ -3241,7 +3242,7 @@
       "comment" : "Workspace menu item that opens the active pane's agent session as a document"
     },
     "Open Link" : {
-
+      "comment" : "Open the remote-requested URL in the Mac browser"
     },
     "Open Markdown File…" : {
 
@@ -3307,7 +3308,7 @@
       "comment" : "OSC 8 confirmation dialog title segment when a mailto URL has prefill parameters."
     },
     "Open remote web links on your Mac" : {
-
+      "comment" : "Managed SSH browser forwarding setting label"
     },
     "Open session" : {
       "comment" : "Session Manager action to select an open session"
@@ -3322,7 +3323,7 @@
       "comment" : "Keys settings hint."
     },
     "Open this link on your Mac?" : {
-
+      "comment" : "Remote browser request confirmation title"
     },
     "Opened at the top of the document. Section jumps are not supported yet." : {
       "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
@@ -4037,7 +4038,7 @@
 
     },
     "Remove" : {
-      "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
+      "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command\nRevoke a saved remote browser permission"
     },
     "Remove %@" : {
       "comment" : "Remove named outside app.\nRemove named setup"
@@ -4064,6 +4065,7 @@
       "comment" : "Remove argument at position"
     },
     "Remove browser permission for %arg and %arg" : {
+      "comment" : "Revoke permission accessibility label; arguments are the SSH destination and exact website origin",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5717,7 +5719,7 @@
       }
     },
     "Websites allowed without asking" : {
-
+      "comment" : "Saved remote browser permissions section title"
     },
     "Welcome to awesoMux" : {
       "comment" : "Announced to VoiceOver when the welcome tour panel presents"

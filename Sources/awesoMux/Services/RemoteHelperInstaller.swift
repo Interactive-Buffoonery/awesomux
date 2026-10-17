@@ -436,12 +436,16 @@ enum RemoteHelperInstaller {
         let protocols =
             requiredProtocols + livenessRequiredProtocols
             + (includeBrowser ? browserRequiredProtocols : [])
-        return try await capability(
+        let capability = try await capability(
             remote: remote,
             controlPath: controlPath,
             helperPath: helperPath,
             requiredProtocols: protocols,
             execChannel: execChannel
+        )
+        guard includeBrowser, capability == .supported else { return capability }
+        return try await browserWrapperCapability(
+            remote: remote, controlPath: controlPath, helperPath: helperPath, execChannel: execChannel
         )
     }
 
@@ -461,6 +465,17 @@ enum RemoteHelperInstaller {
             execChannel: execChannel
         )
         guard protocolCapability == .supported else { return protocolCapability }
+        return try await browserWrapperCapability(
+            remote: remote, controlPath: controlPath, helperPath: helperPath, execChannel: execChannel
+        )
+    }
+
+    private static func browserWrapperCapability(
+        remote: RemoteTarget,
+        controlPath: String,
+        helperPath: String,
+        execChannel: @escaping BridgeDoctorSignals.ExecChannel
+    ) async throws -> Capability {
         do {
             _ = try await execChannel(
                 AmxBackend.browserHelperCheckCommand(

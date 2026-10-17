@@ -1,4 +1,5 @@
 import Foundation
+import DesignSystem
 import Observation
 import SwiftUI
 
@@ -19,25 +20,36 @@ struct RemoteBrowserPromptView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(url.host ?? "")
-                    .font(.headline)
+                    .awFont(AwFont.UI.title)
                     .textSelection(.enabled)
                 Text(url.absoluteString)
-                    .font(.callout.monospaced())
+                    .awFont(AwFont.Mono.body)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if let warning {
                     Text(warning)
-                        .font(.callout)
+                        .awFont(AwFont.UI.body)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if canRemember {
                     Toggle(
-                        String(localized: "Always allow \(source) to open links to \(url.host ?? "")"),
+                        String(
+                            localized: "Always allow \(source) to open links to \(url.host ?? "")",
+                            comment: "Remember a browser permission; first argument is the SSH destination, second is the website hostname"
+                        ),
                         isOn: $choice.remember
                     )
-                    Text("Only this website, HTTP or HTTPS, and port are allowed. Change it in Settings → Workspaces → Managed SSH.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .awFont(AwFont.UI.body)
+                    Text(
+                        String(
+                            localized:
+                                "Only this website, HTTP or HTTPS, and port are allowed. Change it in Settings → Workspaces → Managed SSH.",
+                            comment:
+                                "Explanation that a saved browser permission covers only the exact website origin and where to revoke it"
+                        )
+                    )
+                    .awFont(AwFont.UI.meta)
+                    .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

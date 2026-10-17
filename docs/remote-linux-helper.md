@@ -170,6 +170,11 @@ Use these steps for local builds, CI builds, or recovery:
 
 5. Run the [check command](#check-the-installed-helper).
 
+Browser forwarding also needs the executable `awesomux-bridge-helper-browser`
+wrapper beside the helper. Reconnect through **Connect via SSH** with remote
+web links enabled and approve the helper setup offer to install or repair it.
+Copying only the helper binary does not install this wrapper.
+
 ## Check foreground activity by hand
 
 awesoMux runs this check before closing a remote session. You can run it by hand
