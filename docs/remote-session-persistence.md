@@ -4,6 +4,15 @@ awesoMux can reconnect to a named terminal session on a remote Mac or Linux
 host. The remote host owns the session, so its shell and running commands can
 keep going after awesoMux quits or the SSH connection closes.
 
+SSH workspaces launch with `TERM=xterm-256color` for compatibility with hosts
+that do not have Ghostty's terminfo installed. This applies to new SSH processes;
+reattaching to a running session preserves its existing terminal environment.
+In an existing remote shell, run `export TERM=xterm-256color` for the current
+session, or start a new session to receive the launch fallback automatically.
+Local shells keep `xterm-ghostty`. For a manually typed SSH connection, use
+`TERM=xterm-256color ssh <host>` if the host lacks `xterm-ghostty` terminfo.
+Remote terminfo setup is tracked in [#760](https://github.com/Interactive-Buffoonery/awesomux/issues/760).
+
 This setup uses `amx` or `zmx` on the remote host. It doesn't use the
 [`awesomux-bridge-helper`](remote-linux-helper.md). The bridge helper provides
 activity checks and file handoffs for regular managed SSH workspaces. It does
