@@ -682,12 +682,17 @@ private final class CompanionNetworkServer {
                         guard resumed.claim() else { return }
                         self?.port = listener.port?.rawValue
                         continuation.resume()
-                    case .failed:
+                    case .failed, .cancelled:
                         if resumed.claim() {
                             continuation.resume(throwing: CompanionPairingError.listenerUnavailable)
                         } else {
                             self?.listenerFailed()
                         }
+                    // Starts are serialized, so a start parked in .waiting would block every later recovery.
+                    case .waiting:
+                        guard resumed.claim() else { return }
+                        listener.cancel()
+                        continuation.resume(throwing: CompanionPairingError.listenerUnavailable)
                     default:
                         break
                     }
@@ -777,6 +782,10 @@ private final class CompanionNetworkServer {
         do {
             let phoneSPKI = try Self.peerSPKI(connection)
             let fingerprint = Data(SHA256.hash(data: phoneSPKI))
+            let isPaired = pairedConnections().contains {
+                $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
+            }
+            guard isPaired || (pairingIsOpen && limiter.allows(remote, kind: .pairing)) else { return }
             let firstFrameDeadline = Task { [delay] in
                 try? await delay(.seconds(LocalAPIContract.timeout))
                 guard !Task.isCancelled else { return }
@@ -787,9 +796,7 @@ private final class CompanionNetworkServer {
             do {
                 data = try await Self.readFrame(connection, maximum: LocalAPIContract.maximumRequestBytes)
             } catch let error as LocalAPIError {
-                if pairedConnections().contains(where: {
-                    $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
-                }) {
+                if isPaired {
                     try? await Self.sendFrame(
                         try LocalAPIContract.encoder().encode(LocalAPIResponse(error: error)), connection: connection
                     )
