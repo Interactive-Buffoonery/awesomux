@@ -202,6 +202,17 @@
     "%arg couldn't be refreshed." : {
       "comment" : "Accessibility lead-in for the banner shown when a remote snapshot refresh fails; the placeholder is the file name"
     },
+    "%arg error in %arg: %arg" : {
+      "comment" : "VoiceOver announcement when an agent plugin check or action fails; arguments are the provider name, the config folder path, and the failure detail",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg error in %2$arg: %3$arg"
+          }
+        }
+      }
+    },
     "%arg finished your turn" : {
       "comment" : "Notification title shown when a background agent finishes its turn and is waiting for the user's next message. Argument is the agent product name (e.g. Claude, Codex)."
     },
@@ -317,6 +328,28 @@
     },
     "%arg status" : {
 
+    },
+    "%arg status in %arg: %arg." : {
+      "comment" : "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, and the status",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg status in %2$arg: %3$arg."
+          }
+        }
+      }
+    },
+    "%arg status in %arg: %arg. %arg" : {
+      "comment" : "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, the status, and its guidance",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg status in %2$arg: %3$arg. %4$arg"
+          }
+        }
+      }
     },
     "%arg status: %arg" : {
       "comment" : "Announced when an agent integration card finishes checking and its status resolves",
@@ -640,44 +673,11 @@
     "Actions only mode" : {
 
     },
-    "Actions target the recorded Grok home %arg; the Config home field now points at %arg. Restore the field to keep using the recorded home." : {
-      "comment" : "Explains recorded and current provider configuration homes",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Actions target the recorded Grok home %1$arg; the Config home field now points at %2$arg. Restore the field to keep using the recorded home."
-          }
-        }
-      }
-    },
-    "Actions target the recorded config home %arg; the Config home field now points at %arg. Restore the field to keep using the recorded home." : {
-      "comment" : "Explains recorded and current provider configuration homes",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Actions target the recorded config home %1$arg; the Config home field now points at %2$arg. Restore the field to keep using the recorded home."
-          }
-        }
-      }
-    },
-    "Actions target the recorded home %arg; the CODEX_HOME field now points at %arg. Restore the field to keep using the recorded home." : {
-      "comment" : "Explains recorded and current provider configuration homes",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Actions target the recorded home %1$arg; the CODEX_HOME field now points at %2$arg. Restore the field to keep using the recorded home."
-          }
-        }
-      }
-    },
     "Actual host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated real host that NSWorkspace would open."
     },
     "Add" : {
-      "comment" : "Confirm button for the Add Editor file picker."
+      "comment" : "Confirm button for the Add Editor file picker.\nConfirm button for the agent config folder picker."
     },
     "Add Agent Setup…" : {
 
@@ -717,6 +717,12 @@
     },
     "Add a note…" : {
       "comment" : "Placeholder for a new comment annotation"
+    },
+    "Add folder" : {
+
+    },
+    "Add folder…" : {
+
     },
     "Adds an accent halo to the chrome cursor indicator. Does not affect the libghostty surface cursor." : {
       "comment" : "Terminal settings hint."
@@ -1219,6 +1225,9 @@
     },
     "Checking access…" : {
 
+    },
+    "Checking folders" : {
+      "comment" : "Agent plugin card summary while folder status checks run"
     },
     "Checking for an installed file…" : {
       "comment" : "Remove button hint while the integration check is still in flight"
@@ -2841,6 +2850,16 @@
     "Manage Worktrees…" : {
       "comment" : "Command palette action that opens Worktree Manager.\nWorkspace menu action that opens Worktree Manager."
     },
+    "Manage the %arg status plugin in another %arg folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Manage the %1$arg status plugin in another %2$arg folder"
+          }
+        }
+      }
+    },
     "Manage this connection in awesoMux." : {
       "comment" : "SSH notice explanation offering to manage the connection"
     },
@@ -4186,6 +4205,9 @@
     "Remove group %arg?" : {
       "comment" : "Title of the confirmation dialog shown when removing an empty workspace group with an SSH creation default. Argument is the bidi-isolated group name."
     },
+    "Remove this folder from the list. Remove the plugin first to uninstall it." : {
+
+    },
     "Remove “%arg”?" : {
       "comment" : "Title of the confirmation dialog before deleting a custom command"
     },
@@ -4197,6 +4219,9 @@
     },
     "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches." : {
       "comment" : "Terminal settings hint."
+    },
+    "Removes this folder from the list without changing it" : {
+
     },
     "Removing an alias from below restores automatic offers for it." : {
       "comment" : "Workspace settings hint."
@@ -4911,6 +4936,9 @@
     "Some characters or spacing will be adjusted. This name will be saved as “{savedName}”." : {
       "comment" : "Visual or spoken feedback in workspace group create and rename sheets. Preserve {savedName}; visual callers replace it with the exact saved name wrapped in bidi isolates."
     },
+    "Some folders could not be checked" : {
+      "comment" : "Agent plugin card summary when a folder status check failed"
+    },
     "Something replaced the saved workspace file while awesoMux was checking it, and awesoMux could not preserve the version it had already read. Your open workspaces are untouched, but automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown mid-session when saved workspace data changed while being read and the opened bytes could not be archived"
     },
@@ -4968,6 +4996,12 @@
 
     },
     "Stop checking %arg status" : {
+
+    },
+    "Stop managing" : {
+
+    },
+    "Stop managing folder" : {
 
     },
     "Stops awesoMux offering to convert SSH connections. Destinations on the always-manage list above keep converting — remove them there to stop that too." : {

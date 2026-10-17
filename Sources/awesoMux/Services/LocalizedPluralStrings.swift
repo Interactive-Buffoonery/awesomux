@@ -13,6 +13,7 @@ enum LocalizedPluralStrings {
     private static let footerAgentsTotalKey = "accessibility.footer.agentsTotal"
     private static let documentTaskProgressKey = "accessibility.document.taskProgress"
     private static let branchMenuMoreBranchesKey = "pathbar.branchMenu.moreBranches"
+    private static let agentPluginInstalledFoldersKey = "settings.agents.installedFolders"
     private static let documentRevisionIndicatorKey = "document.revisionIndicator"
     private static let diagnosticsProcessesKey = "accessibility.diagnostics.processes"
     private static let diagnosticsEventsKey = "accessibility.diagnostics.events"
@@ -210,6 +211,19 @@ enum LocalizedPluralStrings {
             comment: "Accessibility label component; arguments are completed task count and total task count."
         )
         return String.localizedStringWithFormat(format, done, total)
+    }
+
+    static func agentPluginInstalledFolders(
+        installed: Int,
+        total: Int,
+        bundle: Bundle = .main
+    ) -> String {
+        let format = format(
+            for: agentPluginInstalledFoldersKey,
+            bundle: bundle,
+            comment: "Agent plugin card summary; arguments are installed folder count and total folder count."
+        )
+        return String.localizedStringWithFormat(format, installed, total)
     }
 
     static func branchMenuMoreBranches(

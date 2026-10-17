@@ -7,16 +7,7 @@ extension ProcessAgentPluginRunner {
     // MARK: Status
 
     func codexStatus(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
-        var report = await codexStatusReport(setup: liveSetup)
-        // The drift note rides alongside whatever status the probe resolved: an
-        // edited-after-install CODEX_HOME field can split where status reads from
-        // and where actions write to, at any status, so it is attached uniformly
-        // rather than folded into one status' detail.
-        if let driftNote = codexConfigHomeDriftNote(live: liveSetup) {
-            report.note = driftNote
-            report.hasConfigHomeDrift = true
-        }
-        return report
+        await codexStatusReport(setup: liveSetup)
     }
 
     private func codexStatusReport(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
@@ -33,7 +24,7 @@ extension ProcessAgentPluginRunner {
             !configured.isEmpty,
             !directoryExists(home)
         {
-            return AgentPluginStatusReport(status: .needsRepair(codexMissingHomeGuidance(home: home)))
+            return AgentPluginStatusReport(status: .needsRepair(codexMissingHomeGuidance(home: home)), presence: .absent)
         }
 
         // `allow_managed_hooks_only` makes Codex ignore every user/project/session
@@ -49,7 +40,7 @@ extension ProcessAgentPluginRunner {
         }
 
         guard
-            let ref = effectiveRefForRecordedInstall(provider: .codex)
+            let ref = effectiveRefForRecordedInstall(provider: .codex, setup: setup)
                 ?? (try? marketplaceRef(provider: .codex))
         else {
             return AgentPluginStatusReport(status: .unsupported("Bundled marketplace catalog is missing"))
@@ -69,7 +60,7 @@ extension ProcessAgentPluginRunner {
         return await codexMapHooks(
             hooks,
             ref: ref,
-            hasInstallRecord: installRecord(provider: .codex) != nil,
+            hasInstallRecord: installRecord(provider: .codex, setup: setup) != nil,
             executable: executable,
             home: home
         )
@@ -82,24 +73,6 @@ extension ProcessAgentPluginRunner {
     /// the actual escape — Repair only works once the field points somewhere real.
     private func codexMissingHomeGuidance(home: URL) -> String {
         "CODEX_HOME does not exist: \(home.path). Point the CODEX_HOME field at an existing directory (or clear it for ~/.codex), then Repair"
-    }
-
-    /// A note when the live CODEX_HOME field diverges from the home the recorded
-    /// install actually targeted. Status/disable/uninstall follow the recorded
-    /// home; enable/repair follow the live field — so a post-install field edit
-    /// silently splits where status reads from and where actions land. Surfacing
-    /// the split lets the user reconcile it deliberately. `nil` when there is no
-    /// record or the two agree.
-    private func codexConfigHomeDriftNote(live liveSetup: AgentIntegrationSetup) -> String? {
-        guard let record = installRecord(provider: .codex) else { return nil }
-        let recordedHome = record.configHome
-        let liveHome = codexHome(setup: liveSetup).path
-        guard recordedHome != liveHome else { return nil }
-        return
-            String(
-                localized:
-                    "Actions target the recorded home \(recordedHome); the CODEX_HOME field now points at \(liveHome). Restore the field to keep using the recorded home.",
-                comment: "Explains recorded and current provider configuration homes")
     }
 
     /// Best-effort read of the documented `allow_managed_hooks_only` flag in the
@@ -154,7 +127,8 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(
                 status: hasInstallRecord
                     ? .needsRepair("awesoMux's Codex hook was installed but Codex reports no matching hook; repair or remove it")
-                    : .notInstalled
+                    : .notInstalled,
+                presence: .absent
             )
         }
 
@@ -172,7 +146,10 @@ extension ProcessAgentPluginRunner {
         // both partially disabled *and* untrusted reports needsRepair, not
         // needsReview.
         if matchingHooks.contains(where: { !$0.enabled }) {
-            return AgentPluginStatusReport(status: .needsRepair("Some awesoMux Codex hooks are disabled or missing"))
+            return AgentPluginStatusReport(
+                status: .needsRepair("Some awesoMux Codex hooks are disabled or missing"),
+                presence: .present
+            )
         }
 
         if matchingHooks.contains(where: { $0.trustStatus == .untrusted }) {
@@ -208,13 +185,13 @@ extension ProcessAgentPluginRunner {
                 home: home,
                 ref: ref
             ) {
-                return AgentPluginStatusReport(status: .needsRepair(deadHelperGuidance))
+                return AgentPluginStatusReport(status: .needsRepair(deadHelperGuidance), presence: .present)
             }
         } catch {
-            return AgentPluginStatusReport(status: .unsupported(error.localizedDescription))
+            return AgentPluginStatusReport(status: .unsupported(error.localizedDescription), presence: .present)
         }
 
-        if let guidance = outdatedSourceContentGuidance(provider: .codex) {
+        if let guidance = outdatedSourceContentGuidance(provider: .codex, configHome: home.path) {
             return AgentPluginStatusReport(status: .updateAvailable(guidance))
         }
 
@@ -372,9 +349,9 @@ extension ProcessAgentPluginRunner {
         // `codex plugin add` keeps a same-version cached plugin intact. When the
         // rendered helper path or bundled source has drifted, remove the recorded
         // plugin first so Repair actually picks up the freshly rendered hooks.
-        // Target the recorded install's home; the following add steps target the
-        // current settings, which is how Repair deliberately moves an install.
-        let staleRecord = staleCachedInstallRecord(provider: .codex, tree: tree)
+        // The record is this folder's, so only its binary can differ from the
+        // current settings.
+        let staleRecord = staleCachedInstallRecord(provider: .codex, setup: setup, tree: tree)
         let copyNeedsReplacement: Bool
         do {
             copyNeedsReplacement =
@@ -470,7 +447,7 @@ extension ProcessAgentPluginRunner {
         let executable = resolvedExecutable(provider: .codex, setup: setup)
         let home = codexHome(setup: setup)
         guard
-            let ref = effectiveRefForRecordedInstall(provider: .codex)
+            let ref = effectiveRefForRecordedInstall(provider: .codex, setup: setup)
                 ?? (try? marketplaceRef(provider: .codex))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
@@ -490,7 +467,7 @@ extension ProcessAgentPluginRunner {
         let executable = resolvedExecutable(provider: .codex, setup: setup)
         let home = codexHome(setup: setup)
         guard
-            let ref = effectiveRefForRecordedInstall(provider: .codex)
+            let ref = effectiveRefForRecordedInstall(provider: .codex, setup: setup)
                 ?? (try? marketplaceRef(provider: .codex))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled marketplace catalog is missing"))
@@ -509,7 +486,7 @@ extension ProcessAgentPluginRunner {
         ) {
             return failure
         }
-        try? removeInstallRecord(provider: .codex)
+        try? removeInstallRecord(provider: .codex, setup: setup)
         return AgentPluginActionOutcome(status: .notInstalled)
     }
 

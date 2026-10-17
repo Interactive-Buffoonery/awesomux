@@ -18,6 +18,22 @@
             <string>%lld enabled setups share this status hook.</string>
         </dict>
     </dict>
+    <key>settings.agents.installedFolders</key>
+    <dict>
+        <key>NSStringLocalizedFormatKey</key>
+        <string>Installed in %1$lld of %2$#@folders@</string>
+        <key>folders</key>
+        <dict>
+            <key>NSStringFormatSpecTypeKey</key>
+            <string>NSStringPluralRuleType</string>
+            <key>NSStringFormatValueTypeKey</key>
+            <string>lld</string>
+            <key>one</key>
+            <string>%2$lld folder</string>
+            <key>other</key>
+            <string>%2$lld folders</string>
+        </dict>
+    </dict>
     <key>accessibility.sidebar.searchResultPosition</key>
     <dict>
         <key>NSStringLocalizedFormatKey</key>
