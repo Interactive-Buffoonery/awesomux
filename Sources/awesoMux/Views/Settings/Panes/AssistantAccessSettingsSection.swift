@@ -41,11 +41,11 @@ struct AssistantAccessSettingsSection: View {
                 isFirst: true
             ) {
                 VStack(alignment: .leading, spacing: 12) {
-                    if accessStore.state.connections.isEmpty {
+                    if outsideAppConnections.isEmpty {
                         Text(String(localized: "No apps added yet.", comment: "Empty outside app list."))
                             .foregroundStyle(Color.aw.text2)
                     } else {
-                        ForEach(accessStore.state.connections) { connection in
+                        ForEach(outsideAppConnections) { connection in
                             connectionCard(connection)
                         }
                     }
@@ -113,8 +113,8 @@ struct AssistantAccessSettingsSection: View {
                 }
             }
         }
-        .task(id: accessStore.state.connections.filter { $0.contextGrant != nil }.map(\.id)) {
-            guard accessStore.state.connections.contains(where: { $0.contextGrant != nil }) else {
+        .task(id: outsideAppConnections.filter { $0.contextGrant != nil }.map(\.id)) {
+            guard outsideAppConnections.contains(where: { $0.contextGrant != nil }) else {
                 contextTargetVersions = [:]
                 return
             }
@@ -169,6 +169,10 @@ struct AssistantAccessSettingsSection: View {
         accessStore.ownsAuthority && accessStore.loadFailure == nil && !isWorking
     }
 
+    private var outsideAppConnections: [LocalAPIConnectionGrant] {
+        accessStore.state.connections.filter { $0.kind == .outsideApp }
+    }
+
     private var visibleErrorMessage: String? {
         accessStore.persistenceFailureMessage ?? errorMessage ?? copyErrorMessage
     }
@@ -215,6 +219,15 @@ struct AssistantAccessSettingsSection: View {
 
                 let request: ConnectionEditorRequest
                 switch connection?.statusScope {
+                case .allWorkspaces:
+                    request = ConnectionEditorRequest(
+                        connectionID: nil,
+                        label: "",
+                        scopeKind: .currentTarget,
+                        selectedPaneIDs: selectedPaneID.map { [$0] } ?? [],
+                        selectedWorkspaceIDs: selectedWorkspace.map { [$0] } ?? [],
+                        targetVersions: targetVersions
+                    )
                 case .exactTarget(let paneID, let targetVersion):
                     request = ConnectionEditorRequest(
                         connectionID: connection?.id,
@@ -451,6 +464,8 @@ struct AssistantAccessSettingsSection: View {
 
     private func scopeSummary(_ scope: LocalAPITargetScope) -> String {
         switch scope {
+        case .allWorkspaces:
+            String(localized: "All workspaces", comment: "Assistant access all-workspaces scope.")
         case .exactTarget(let paneID, _):
             paneTitle(paneID)
         case .persistentPanes(let paneIDs):
@@ -462,6 +477,8 @@ struct AssistantAccessSettingsSection: View {
 
     private func scopeExplanation(_ scope: LocalAPITargetScope) -> String {
         switch scope {
+        case .allWorkspaces:
+            String(localized: "All workspaces are visible.", comment: "Assistant access all-workspaces scope explanation.")
         case .exactTarget: AssistantAccessScopeKind.currentTarget.explanation
         case .persistentPanes: AssistantAccessScopeKind.panes.explanation
         case .persistentWorkspaces: AssistantAccessScopeKind.workspaces.explanation

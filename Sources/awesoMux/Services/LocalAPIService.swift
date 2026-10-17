@@ -50,6 +50,7 @@ enum LocalAPIProcessSource: Sendable, Equatable {
 @MainActor
 final class LocalAPIService {
     private let server: LocalAPIServer
+    private let capture: LocalAPIServer.Capture
     private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPI")
 
     init(
@@ -60,10 +61,7 @@ final class LocalAPIService {
     ) throws {
         let profileValue = profile.environmentValue
         guard accessStore.ownsAuthority, accessStore.loadFailure == nil else { throw LocalAPIError.accessDisabled }
-        server = try LocalAPIServer(
-            profile: profileValue,
-            authorization: accessStore.runtimeAuthority.provider
-        ) { [weak store, weak runtime] request, instance, lease in
+        let capture: LocalAPIServer.Capture = { [weak store, weak runtime] request, instance, lease in
             guard let store, let runtime else { return LocalAPIResponse(requestID: request.requestID, error: .appUnavailable) }
             store.bindLocalAPIInstance(instance)
             let operation = LocalAPIOperation(rawValue: request.operation)
@@ -175,6 +173,12 @@ final class LocalAPIService {
                 attentionEvents: attentionEvents
             )
         }
+        self.capture = capture
+        server = try LocalAPIServer(
+            profile: profileValue,
+            authorization: accessStore.runtimeAuthority.provider,
+            capture: capture
+        )
         accessStore.setInvalidationHandler { [weak server] connectionID in
             server?.invalidate(connectionID: connectionID)
         }
@@ -183,6 +187,15 @@ final class LocalAPIService {
     }
 
     func stop() { server.stop() }
+
+    var instanceID: UUID { server.instanceID }
+
+    func companionResponse(
+        request: LocalAPIRequest,
+        lease: LocalAPIAuthorizationLease
+    ) async -> LocalAPIResponse {
+        await capture(request, server.instanceID, lease)
+    }
 
     static func start(
         store: SessionStore,
@@ -231,6 +244,8 @@ final class LocalAPIService {
         workspaceIDs: [UUID: UUID]
     ) -> Set<UUID> {
         switch scope {
+        case .allWorkspaces:
+            return Set(providers.keys)
         case .exactTarget(let paneID, _):
             return providers[paneID] == nil ? [] : [paneID]
         case .persistentPanes(let paneIDs):

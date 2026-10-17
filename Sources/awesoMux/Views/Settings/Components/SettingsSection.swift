@@ -9,6 +9,7 @@ struct SettingsSection<Content: View>: View {
     let index: Int
     let title: String
     var subtitle: String?
+    var badge: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -21,10 +22,22 @@ struct SettingsSection<Content: View>: View {
                 .padding(.bottom, 6)
                 .accessibilityHidden(true)
 
-            Text(title)
-                .awFont(AwFont.UI.title)
-                .foregroundStyle(Color.aw.text)
-                .accessibilityAddTraits(.isHeader)
+            HStack(spacing: 8) {
+                Text(title)
+                    .awFont(AwFont.UI.title)
+                    .foregroundStyle(Color.aw.text)
+                    .accessibilityAddTraits(.isHeader)
+
+                if let badge {
+                    Text(badge)
+                        .awFont(AwFont.Mono.meta)
+                        .foregroundStyle(Color.aw.text2)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.aw.surface.elevated, in: Capsule())
+                        .overlay { Capsule().stroke(Color.aw.border, lineWidth: 0.5) }
+                }
+            }
 
             if let subtitle {
                 Text(subtitle)

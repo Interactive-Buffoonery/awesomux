@@ -132,6 +132,9 @@
     "%@ will be able to read up to 24 KB of this agent's conversation. It can include private text, commands, and tool output. Access ends if this pane restarts." : {
 
     },
+    "%@ will lose access right away." : {
+      "comment" : "Companion unpair confirmation message."
+    },
     "%@ will lose access right away. Other apps keep their access." : {
       "comment" : "Remove outside app confirmation message."
     },
@@ -775,8 +778,14 @@
     "All pinned" : {
 
     },
+    "All workspaces" : {
+      "comment" : "Assistant access all-workspaces scope."
+    },
+    "All workspaces are visible." : {
+      "comment" : "Assistant access all-workspaces scope explanation."
+    },
     "Allow" : {
-      "comment" : "Button on the OSC 52 clipboard-read confirmation dialog. Allows the terminal program to read the clipboard.\nButton that allows a remote agent's permission request"
+      "comment" : "Allow Companion pairing button.\nButton on the OSC 52 clipboard-read confirmation dialog. Allows the terminal program to read the clipboard.\nButton that allows a remote agent's permission request"
     },
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
@@ -790,11 +799,20 @@
     "Allow terminal program to read the clipboard" : {
       "comment" : "VoiceOver label for approving an OSC 52 clipboard read."
     },
+    "Allow this iPhone?" : {
+      "comment" : "Fallback Companion approval title."
+    },
+    "Allow “%@” to see your agents?" : {
+      "comment" : "Companion approval title."
+    },
     "Allowed" : {
       "comment" : "Settings label when macOS notification permission is granted."
     },
     "Allowed clipboard read for %arg" : {
       "comment" : "VoiceOver announcement after the user allows a terminal program to read the clipboard. Argument is the bidi-isolated pane title."
+    },
+    "Alpha" : {
+      "comment" : "Companion prerelease badge."
     },
     "Already checking this session's log." : {
       "comment" : "VoiceOver announcement when Resume is invoked while a session-log probe is already in flight"
@@ -1326,7 +1344,7 @@
       "comment" : "VoiceOver announcement after the user cancels a terminal clipboard read. Argument is the bidi-isolated pane title."
     },
     "Close" : {
-      "comment" : "Tooltip for the agent activity panel's close button"
+      "comment" : "Close Companion pairing sheet.\nTooltip for the agent activity panel's close button"
     },
     "Close %arg" : {
       "comment" : "Accessibility label and tooltip for a document tab's close button"
@@ -1489,6 +1507,15 @@
     "Compact mode" : {
       "comment" : "Settings field label for the sidebar compact mode toggle"
     },
+    "Companion is not listening. Open Settings and try pairing again." : {
+
+    },
+    "Companion pairing could not start." : {
+
+    },
+    "Companion unavailable" : {
+      "comment" : "Companion error label."
+    },
     "Compared with %arg in %arg." : {
       "comment" : "Line under the heading of a rendered branch diff naming the base ref and repository it is compared against; both arguments are Markdown code spans",
       "localizations" : {
@@ -1554,6 +1581,9 @@
     "Copies text you select to the clipboard. Because it's your own selection it copies regardless of the program-writes setting above, and may sync to your other devices via Universal Clipboard. \"System default\" defers to Ghostty (on, for macOS)." : {
       "comment" : "Terminal settings hint."
     },
+    "Copies the one-time pairing link." : {
+
+    },
     "Copy" : {
       "comment" : "Button that copies the text shown in the scrollback sheet\nTerminal context menu item that copies the selection"
     },
@@ -1564,7 +1594,7 @@
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
     },
     "Copy Link" : {
-      "comment" : "Copy the remote-requested URL without opening it"
+      "comment" : "Copy Companion pairing link button.\nCopy the remote-requested URL without opening it"
     },
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
@@ -1779,6 +1809,9 @@
     "Create" : {
       "comment" : "Button that creates a remote workspace group\nCreate worktree accessibility label.\nCreate worktree submit button label."
     },
+    "Create New Code" : {
+      "comment" : "Restart Companion pairing button."
+    },
     "Create Worktree…" : {
       "comment" : "Command palette action that opens Worktree Manager for worktree creation."
     },
@@ -1832,11 +1865,17 @@
     "Creates a new workspace in the current group." : {
       "comment" : "Accessibility help for the sidebar New Workspace action."
     },
+    "Creating pairing code" : {
+
+    },
     "Creating…" : {
       "comment" : "Worktree creation in progress accessibility label.\nWorktree creation in progress button label."
     },
     "Current" : {
       "comment" : "Main worktree indicator."
+    },
+    "Currently available on TestFlight" : {
+      "comment" : "Companion TestFlight link."
     },
     "Cursor" : {
       "comment" : "Terminal settings title."
@@ -1975,7 +2014,7 @@
       "comment" : "Section heading in a read-only pull request snapshot"
     },
     "Dismiss" : {
-      "comment" : "Button that hides the SSH management notice for this connection\nDismiss a persistent-session restart notice\nDismiss assistant access error."
+      "comment" : "Button that hides the SSH management notice for this connection\nDismiss Companion error.\nDismiss a persistent-session restart notice\nDismiss assistant access error."
     },
     "Dismiss restart notice for %arg" : {
       "comment" : "Dismiss a restart notice, naming its pane"
@@ -2021,6 +2060,9 @@
     },
     "Document tabs" : {
       "comment" : "Accessibility label for the document viewer's tab strip"
+    },
+    "Don't Allow" : {
+      "comment" : "Deny Companion pairing button."
     },
     "Done" : {
       "comment" : "Agent state label\nWelcome tour button closing the tour on the last beat",
@@ -2265,6 +2307,9 @@
     },
     "Expanded" : {
       "comment" : "Accessibility value for the footer total button while the agent activity panel is open\nVoiceOver state for visible remote connection details"
+    },
+    "Expires in %@" : {
+      "comment" : "Companion pairing countdown."
     },
     "Falling" : {
       "comment" : "Diagnostics resource trend"
@@ -2660,6 +2705,12 @@
     "Last reported remote directory: %arg. The report may be from an earlier SSH connection." : {
       "comment" : "Help for the cached remote working directory shown in the path bar"
     },
+    "Last seen %@" : {
+      "comment" : "Companion last-seen date."
+    },
+    "Last seen: not yet this launch" : {
+      "comment" : "Companion last-seen empty value."
+    },
     "Latest error" : {
       "comment" : "Advanced settings label."
     },
@@ -2709,6 +2760,12 @@
     "Link preview: %arg" : {
       "comment" : "VoiceOver announcement when a hovered hyperlink preview popover appears\nVoiceOver label for the hovered hyperlink preview popover"
     },
+    "Listening on Tailscale only" : {
+      "comment" : "Companion active Tailscale transport footer."
+    },
+    "Listening on local network only" : {
+      "comment" : "Companion active LAN transport footer."
+    },
     "Live processes" : {
       "comment" : "Diagnostics settings section title"
     },
@@ -2735,6 +2792,9 @@
     },
     "Local listener permissions" : {
       "comment" : "Bridge doctor check title"
+    },
+    "Local network" : {
+      "comment" : "Companion LAN choice."
     },
     "Local only" : {
 
@@ -3139,6 +3199,9 @@
     "No executable was found at %arg" : {
       "comment" : "Missing command executable"
     },
+    "No iPhone paired" : {
+      "comment" : "Companion empty state."
+    },
     "No matches" : {
       "comment" : "Spoken find-bar summary when a search finds nothing."
     },
@@ -3298,6 +3361,9 @@
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
     },
+    "Open awesoMux Companion on TestFlight" : {
+
+    },
     "Open folder %arg" : {
 
     },
@@ -3425,6 +3491,24 @@
     },
     "PID" : {
       "comment" : "Diagnostics process table column"
+    },
+    "Pair iPhone" : {
+      "comment" : "Companion pairing sheet title."
+    },
+    "Pair iPhone…" : {
+      "comment" : "Start Companion pairing button."
+    },
+    "Paired %@" : {
+      "comment" : "Companion paired date."
+    },
+    "Paired phones" : {
+      "comment" : "Companion paired-phone list label."
+    },
+    "Pairing transport" : {
+
+    },
+    "Pairing wasn't allowed. Create a new code to try again." : {
+
     },
     "Pane" : {
 
@@ -3735,6 +3819,9 @@
     },
     "Pull request opened." : {
       "comment" : "VoiceOver confirmation after opening a read-only pull request snapshot"
+    },
+    "QR code for pairing awesoMux Companion" : {
+
     },
     "Question mark opens shortcuts when text is not focused. Command slash opens shortcuts anywhere. Up and down arrows select a shortcut. Return runs the selected shortcut. Command C copies the selected shortcut. Escape closes." : {
 
@@ -4335,7 +4422,7 @@
       "comment" : "Retry Worktree Manager refresh action."
     },
     "Retry Save" : {
-      "comment" : "Retry assistant access metadata save."
+      "comment" : "Retry Companion metadata save.\nRetry assistant access metadata save."
     },
     "Retry saving the current workspaces" : {
 
@@ -4512,6 +4599,9 @@
     "Scales sidebar, panel, and settings text. macOS has no system control for app text size, so this is awesoMux's. Doesn't affect the terminal grid." : {
       "comment" : "Settings field hint for the app UI text-size slider"
     },
+    "Scan this code with the iPhone Camera app." : {
+
+    },
     "Schema version" : {
       "comment" : "Advanced settings label."
     },
@@ -4562,6 +4652,9 @@
     },
     "Security warning: %arg" : {
       "comment" : "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
+    },
+    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. This feature is currently read-only." : {
+      "comment" : "Companion settings description."
     },
     "Select All" : {
       "comment" : "Terminal context menu item that selects the whole terminal buffer"
@@ -4774,6 +4867,9 @@
     "Show workspace details" : {
       "comment" : "Notification settings label."
     },
+    "Shows a QR code and pairing link." : {
+
+    },
     "Shows remote connection details" : {
       "comment" : "VoiceOver hint for a collapsed remote connection details button"
     },
@@ -4915,6 +5011,9 @@
     },
     "TOML at %@." : {
       "comment" : "Advanced settings subtitle. Placeholder is the configuration file path."
+    },
+    "Tailscale" : {
+      "comment" : "Companion Tailscale choice."
     },
     "Target path" : {
       "comment" : "New worktree target path field label."
@@ -5190,6 +5289,9 @@
     "The originating pane or document changed. Cancel and open the file again." : {
       "comment" : "Remote Markdown sheet notice when its captured source changes before the read"
     },
+    "The pairing link couldn't be copied." : {
+
+    },
     "The pane changed before saving. Review it and try again." : {
 
     },
@@ -5333,6 +5435,15 @@
     "This Git repository has no healthy worktrees to show." : {
       "comment" : "Worktree Manager empty-state detail."
     },
+    "This Mac" : {
+
+    },
+    "This Mac doesn't currently have a Tailscale address." : {
+
+    },
+    "This Mac doesn't currently have a local network address." : {
+
+    },
     "This URL parses but has no host. Likely malformed." : {
       "comment" : "Body of the OSC 8 confirmation dialog for an http(s) URL with no host component."
     },
@@ -5407,6 +5518,9 @@
     },
     "This link prefills the recipient, body, or subject. Verify before opening." : {
       "comment" : "Body summary of the OSC 8 confirmation dialog for a mailto with attacker-controlled prefill parameters."
+    },
+    "This pairing code expired." : {
+
     },
     "This pane" : {
 
@@ -5614,6 +5728,21 @@
     },
     "Unmute restores macOS banners, sound, and Dock bounces for that workspace." : {
       "comment" : "Muted workspaces settings hint."
+    },
+    "Unpair" : {
+      "comment" : "Confirm Companion unpair button."
+    },
+    "Unpair %@" : {
+
+    },
+    "Unpair existing phones before switching network type." : {
+
+    },
+    "Unpair iPhone?" : {
+      "comment" : "Companion unpair confirmation title."
+    },
+    "Unpair…" : {
+      "comment" : "Companion unpair button."
     },
     "Unpin" : {
       "comment" : "Sidebar workspace context-menu action that removes the workspace from the pinned section, returning it to its group."
@@ -5903,6 +6032,9 @@
     "awesoMux" : {
       "comment" : "Tooltip and accessibility label for the idle menu bar item."
     },
+    "awesoMux Companion" : {
+      "comment" : "Companion settings sidebar title.\nCompanion settings title."
+    },
     "awesoMux Settings" : {
 
     },
@@ -5957,6 +6089,9 @@
     "awesoMux couldn't safely read OpenCode's session database. Check that it still exists and is owned by your user." : {
       "comment" : "Transcript failure when OpenCode's SQLite session store cannot be read safely"
     },
+    "awesoMux couldn't save the Companion access change." : {
+
+    },
     "awesoMux couldn't save the access setting." : {
 
     },
@@ -5967,6 +6102,9 @@
       "comment" : "Transcript failure when writing the rendered Markdown to the app cache fails"
     },
     "awesoMux couldn't save this app's access." : {
+
+    },
+    "awesoMux couldn't unpair this iPhone. Try again." : {
 
     },
     "awesoMux couldn’t determine this pane’s scrollback size safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history." : {
@@ -6091,6 +6229,9 @@
     },
     "generated document, read-only" : {
       "comment" : "Spoken qualifier on a document tab whose generated provenance is unknown"
+    },
+    "iPhone app" : {
+      "comment" : "Companion TestFlight row label."
     },
     "in use" : {
 

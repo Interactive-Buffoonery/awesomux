@@ -181,6 +181,7 @@ required_bundle_paths=(
   "Contents/Resources/AppIcon.icns"
   "Contents/Resources/Assets.car"
   "Contents/Resources/AgentIntegrations"
+  "Contents/Resources/companion-pairing-words.txt"
   "Contents/Resources/Fonts/HackNerdFontMono"
   "Contents/Resources/Licenses/Ghostty/LICENSE"
   "Contents/Resources/ghostty/shell-integration"

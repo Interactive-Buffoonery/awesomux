@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         category: "lifecycle"
     )
     private var localAPIService: LocalAPIService?
+    private var companionPairingCoordinator: CompanionPairingCoordinator?
     var sessionStore: SessionStore?
     private var appSettingsStore: AppSettingsStore?
     private var ghosttyRuntime: GhosttyRuntime?
@@ -821,6 +822,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         localAPIService?.stop()
+        companionPairingCoordinator?.stop()
         windowOrderDiagnostics.stop()
         let riskySessionCount = (sessionStore?.sessionsAtRiskOnQuitCount ?? 0)
             + (floatingPanelController?.sessionsAtRiskOnQuit.count ?? 0)
@@ -938,10 +940,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func startLocalAPI(
         store: SessionStore,
         runtime: GhosttyRuntime,
-        accessStore: LocalAPIAccessStore
+        accessStore: LocalAPIAccessStore,
+        companionPairingCoordinator: CompanionPairingCoordinator
     ) {
         guard localAPIService == nil else { return }
         localAPIService = LocalAPIService.start(store: store, runtime: runtime, accessStore: accessStore)
+        self.companionPairingCoordinator = companionPairingCoordinator
+        if let localAPIService { companionPairingCoordinator.configure(service: localAPIService) }
     }
 
     func bind(
