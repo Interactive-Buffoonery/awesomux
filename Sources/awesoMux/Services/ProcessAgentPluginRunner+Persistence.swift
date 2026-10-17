@@ -20,8 +20,18 @@ extension ProcessAgentPluginRunner {
         )
     }
 
+    /// Status probes for several folders run concurrently, so a probe can lose
+    /// the legacy-import lock to its sibling. The importer only copies a valid
+    /// legacy file byte-for-byte, so the lock-free view is the same manifest
+    /// the winner is about to publish. Mutations still import under the lock.
+    private func loadInstallManifestState() -> AgentInstallManifestLoadState<AgentPluginInstallManifest> {
+        let state = pluginManifestStore.loadState()
+        guard case .failed(.busy) = state else { return state }
+        return pluginManifestStore.loadStateReadOnly()
+    }
+
     func loadInstallManifest() -> AgentPluginInstallManifest {
-        switch pluginManifestStore.loadState() {
+        switch loadInstallManifestState() {
         case .missing, .failed:
             return .empty
         case .loaded(let manifest):
@@ -42,7 +52,7 @@ extension ProcessAgentPluginRunner {
     }
 
     func installManifestLoadWarning() -> String? {
-        switch pluginManifestStore.loadState() {
+        switch loadInstallManifestState() {
         case .failed(.unreadable):
             return String(
                 localized: "The install record could not be read. Agent integration changes are blocked until it is accessible.",
