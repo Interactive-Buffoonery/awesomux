@@ -26,6 +26,8 @@ class SourcePreparationTests(unittest.TestCase):
         self.output = root / "output"
         (self.vendor / "src/apprt").mkdir(parents=True)
         (self.vendor / "src/terminal").mkdir(parents=True)
+        (self.vendor / "src/config").mkdir(parents=True)
+        (self.vendor / "src/config/Config.zig").write_text(".regex = url.regex,\n")
         (self.vendor / "src/shell-integration/zsh").mkdir(parents=True)
         (self.vendor / "src/shell-integration/zsh/.zshenv").write_text("# fixture\n")
         (self.vendor / "src/apprt/embedded.zig").write_text("pub const CAPI = struct {\n};\n")
@@ -54,6 +56,38 @@ class SourcePreparationTests(unittest.TestCase):
         self.assertIn("awesomux_surface_read_scrollback", (generated / "src/apprt/embedded.zig").read_text())
         self.assertNotIn("awesomux_surface_read_scrollback", (self.vendor / "src/apprt/embedded.zig").read_text())
         self.assertEqual(generated, prepare.prepare(self.vendor, self.output))
+
+    def test_installs_link_detector_only_in_generated_source(self):
+        generated = prepare.prepare(self.vendor, self.output)
+        self.assertEqual(
+            (generated / "src/config/awesomux_link_paths.zig").read_bytes(),
+            (prepare.ROOT / "native/ghostty/link-paths.zig").read_bytes(),
+        )
+        self.assertIn('@import("awesomux_link_paths.zig").regex', (generated / "src/config/Config.zig").read_text())
+        self.assertEqual((self.vendor / "src/config/Config.zig").read_text(), ".regex = url.regex,\n")
+        self.assertFalse((self.vendor / "src/config/awesomux_link_paths.zig").exists())
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_changed_link_detector_invalidates_generated_source(self):
+        before = prepare.prepare(self.vendor, self.output)
+        with prepare.INPUTS[5].open("a") as file:
+            file.write("\n// changed link detector\n")
+        after = prepare.prepare(self.vendor, self.output)
+        self.assertNotEqual(before, after)
+        self.assertNotEqual(
+            (before / "src/config/awesomux_link_paths.zig").read_bytes(),
+            (after / "src/config/awesomux_link_paths.zig").read_bytes(),
+        )
+
+    def test_incompatible_link_detector_fails_without_publishing_source(self):
+        for source in ("// changed upstream\n", ".regex = url.regex,\n.regex = url.regex,\n"):
+            with self.subTest(source=source):
+                (self.vendor / "src/config/Config.zig").write_text(source)
+                self.commit()
+                with self.assertRaisesRegex(RuntimeError, "Ghostty link detector changed"):
+                    prepare.prepare(self.vendor, self.output)
+                self.assertEqual(list(self.output.iterdir()), [])
+                self.assertEqual(self.git("status", "--porcelain"), "")
 
     def test_extension_change_selects_fresh_source(self):
         before = prepare.prepare(self.vendor, self.output)

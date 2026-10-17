@@ -76,6 +76,21 @@ Stray `.staging*` or `*.old` entries under `.build/ghostty/` are leftovers
 from an interrupted run — safe to delete, and cleaned up automatically on the
 next build.
 
+## Delimited Markdown paths with spaces
+
+awesoMux adds detection for Markdown paths containing literal spaces when
+surrounded by matching parentheses, single or double quotes, or backticks.
+For example, `(support case/reply draft.md)` opens the complete relative path
+against the pane's working directory. Unquoted text keeps upstream detection;
+internal quotes and parentheses in filenames are outside this extension's scope.
+
+`native/ghostty/link-paths.zig` adds this branch ahead of the upstream detector.
+The source preparation script installs it only in the generated build copy,
+with a checked config insertion point and the existing artifact fingerprint.
+The pinned submodule is unchanged. The library build runs the
+`awesomux-link-paths` native regression tests before publishing artifacts.
+Existing document validation and remote-read authorization still own opens.
+
 ## Bounded Show Scrollback read
 
 Show Scrollback uses the awesoMux-only `awesomux_surface_read_scrollback`
