@@ -115,7 +115,7 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
     /// development or worktree build recovers to itself; falls back to the
     /// production id under a test host that has no bundle identity.
     var bundleIdentifier: String
-    private let renderLock = NSLock()
+    private let renderLock = NSRecursiveLock()
 
     init(
         resourcesDirectoryURL: URL = Bundle.main.resourceURL ?? Bundle.main.bundleURL,
@@ -145,6 +145,14 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
         rootDirectoryURL
             .appending(path: "rendered", directoryHint: .isDirectory)
             .appending(path: provider.rawValue, directoryHint: .isDirectory)
+    }
+
+    /// Runs `body` while no other render can replace the tree, so a caller that
+    /// renders and then reads the baked files never sees a half-copied tree.
+    func withRenderLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+        renderLock.lock()
+        defer { renderLock.unlock() }
+        return try body()
     }
 
     func render(

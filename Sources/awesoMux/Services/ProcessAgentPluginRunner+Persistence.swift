@@ -91,16 +91,7 @@ extension ProcessAgentPluginRunner {
         tree: AgentPluginRenderedTree,
         ref: AgentPluginMarketplaceRef
     ) throws {
-        let configHome: String
-        switch provider {
-        case .claudeCode:
-            configHome = claudeConfigHome(setup: setup).path
-        case .codex:
-            configHome = codexHome(setup: setup).path
-        case .grok:
-            configHome = grokHome(setup: setup).path
-        }
-
+        let configHome = pluginConfigHome(provider: provider, setup: setup)
         let record = AgentPluginInstallRecord(
             provider: provider,
             binaryPath: resolvedExecutable(provider: provider, setup: setup),
@@ -117,7 +108,7 @@ extension ProcessAgentPluginRunner {
         )
 
         var manifest = try pluginManifestStore.loadCurrentAssumingLock()
-        manifest.records.removeAll { $0.provider == provider }
+        manifest.removeRecord(provider: provider, configHome: configHome)
         manifest.records.append(record)
         try saveInstallManifest(manifest)
     }
@@ -146,25 +137,42 @@ extension ProcessAgentPluginRunner {
         }
     }
 
-    func removeInstallRecord(provider: AgentPluginProvider) throws {
+    /// The resolved config home a setup targets. Install records are keyed by
+    /// provider and this folder, so each folder keeps its own install.
+    func pluginConfigHome(provider: AgentPluginProvider, setup: AgentIntegrationSetup) -> String {
+        switch provider {
+        case .claudeCode: claudeConfigHome(setup: setup).path
+        case .codex: codexHome(setup: setup).path
+        case .grok: grokHome(setup: setup).path
+        }
+    }
+
+    func removeInstallRecord(provider: AgentPluginProvider, setup: AgentIntegrationSetup) throws {
         var manifest = try pluginManifestStore.loadCurrentAssumingLock()
-        manifest.records.removeAll { $0.provider == provider }
+        manifest.removeRecord(provider: provider, configHome: pluginConfigHome(provider: provider, setup: setup))
         try saveInstallManifest(manifest)
     }
 
-    func installRecord(provider: AgentPluginProvider) -> AgentPluginInstallRecord? {
-        loadInstallManifest().record(for: provider)
+    func installRecord(provider: AgentPluginProvider, setup: AgentIntegrationSetup) -> AgentPluginInstallRecord? {
+        loadInstallManifest().record(for: provider, configHome: pluginConfigHome(provider: provider, setup: setup))
     }
 
-    func installRecordReadOnly(provider: AgentPluginProvider) -> AgentPluginInstallRecord? {
-        loadInstallManifestReadOnly().record(for: provider)
+    func installRecordReadOnly(provider: AgentPluginProvider, setup: AgentIntegrationSetup) -> AgentPluginInstallRecord? {
+        loadInstallManifestReadOnly().record(for: provider, configHome: pluginConfigHome(provider: provider, setup: setup))
     }
 
+    func recordedConfigHomes(provider: AgentPluginProvider) -> [String] {
+        loadInstallManifestReadOnly().records.filter { $0.provider == provider }.map(\.configHome)
+    }
+
+    /// The setup an existing install in this folder was made with: the folder
+    /// stays the caller's, while the recorded binary keeps status and removal on
+    /// the executable that installed it.
     func effectiveSetupForRecordedInstall(
         provider: AgentPluginProvider,
         current setup: AgentIntegrationSetup
     ) -> AgentIntegrationSetup {
-        guard let record = installRecord(provider: provider) else {
+        guard let record = installRecord(provider: provider, setup: setup) else {
             return setup
         }
         return AgentIntegrationSetup(
@@ -174,11 +182,16 @@ extension ProcessAgentPluginRunner {
         )
     }
 
-    func effectiveRefForRecordedInstall(provider: AgentPluginProvider) -> AgentPluginMarketplaceRef? {
-        installRecord(provider: provider)?.pluginRef
+    func effectiveRefForRecordedInstall(
+        provider: AgentPluginProvider,
+        setup: AgentIntegrationSetup
+    ) -> AgentPluginMarketplaceRef? {
+        installRecord(provider: provider, setup: setup)?.pluginRef
     }
 
     private func saveInstallManifest(_ manifest: AgentPluginInstallManifest) throws {
+        var manifest = manifest
+        manifest.version = AgentPluginInstallManifest.currentVersion
         try pluginManifestStore.save(manifest)
     }
 }

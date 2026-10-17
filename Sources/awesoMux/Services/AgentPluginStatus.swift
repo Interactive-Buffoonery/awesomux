@@ -144,6 +144,34 @@ enum AgentPluginStatus: Equatable, Sendable {
     }
 }
 
+// MARK: - AgentPluginPresence
+
+/// Whether the plugin is actually in a folder, separate from which actions the
+/// status offers. A broken install still allows Remove so it can be cleaned up,
+/// yet a record whose folder or plugin is gone is not an install to count.
+enum AgentPluginPresence: Equatable, Sendable {
+    case present
+    case absent
+    /// The probe could not tell, e.g. the provider CLI failed or is missing.
+    case unknown
+}
+
+extension AgentPluginStatus {
+    /// The presence a status implies when the probe did not say otherwise.
+    /// `needsRepair` covers both broken installs and missing ones, so the sites
+    /// that know which one they saw pass it explicitly.
+    var presence: AgentPluginPresence {
+        switch self {
+        case .enabled, .disabled, .needsReview, .updateAvailable:
+            .present
+        case .notInstalled:
+            .absent
+        case .notConfigured, .needsRepair, .unsupported:
+            .unknown
+        }
+    }
+}
+
 // MARK: - AgentPluginStatusReport
 
 /// The result of a status probe: the mapped status plus optional diagnostics from
@@ -151,28 +179,22 @@ enum AgentPluginStatus: Equatable, Sendable {
 struct AgentPluginStatusReport: Equatable, Sendable {
     var status: AgentPluginStatus
     var diagnostics: AgentPluginDiagnostics?
-    /// True when status was read from the recorded install home but the live
-    /// config-home field points elsewhere. Repair/Install use the live field, so
-    /// the card can make that reconciliation path available without parsing note
-    /// copy.
-    var hasConfigHomeDrift: Bool
     /// Non-blocking advisory surfaced alongside the status, independent of it —
-    /// e.g. status probes read the recorded config home while Repair/Install read
-    /// the live field, so when those diverge the card must warn that actions and
-    /// status target different homes. Rendered like the dist/ warning, not as the
-    /// status detail.
+    /// e.g. an unreadable install record. Rendered like the dist/ warning, not as
+    /// the status detail.
     var note: String?
+    var presence: AgentPluginPresence
 
     init(
         status: AgentPluginStatus,
         diagnostics: AgentPluginDiagnostics? = nil,
-        hasConfigHomeDrift: Bool = false,
-        note: String? = nil
+        note: String? = nil,
+        presence: AgentPluginPresence? = nil
     ) {
         self.status = status
         self.diagnostics = diagnostics
-        self.hasConfigHomeDrift = hasConfigHomeDrift
         self.note = note
+        self.presence = presence ?? status.presence
     }
 }
 

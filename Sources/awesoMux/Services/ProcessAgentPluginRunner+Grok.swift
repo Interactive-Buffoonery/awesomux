@@ -7,12 +7,7 @@ extension ProcessAgentPluginRunner {
     // MARK: Status
 
     func grokStatus(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
-        var report = await grokStatusReport(setup: liveSetup)
-        if let driftNote = grokConfigHomeDriftNote(live: liveSetup) {
-            report.note = driftNote
-            report.hasConfigHomeDrift = true
-        }
-        return report
+        await grokStatusReport(setup: liveSetup)
     }
 
     private func grokStatusReport(setup liveSetup: AgentIntegrationSetup) async -> AgentPluginStatusReport {
@@ -24,11 +19,11 @@ extension ProcessAgentPluginRunner {
             !configured.isEmpty,
             !grokDirectoryExists(home)
         {
-            return AgentPluginStatusReport(status: .needsRepair(grokMissingHomeGuidance(home: home)))
+            return AgentPluginStatusReport(status: .needsRepair(grokMissingHomeGuidance(home: home)), presence: .absent)
         }
 
         guard
-            let ref = effectiveRefForRecordedInstall(provider: .grok)
+            let ref = effectiveRefForRecordedInstall(provider: .grok, setup: setup)
                 ?? (try? marketplaceRef(provider: .grok))
         else {
             return AgentPluginStatusReport(status: .unsupported("Bundled Grok plugin manifest is missing"))
@@ -62,7 +57,7 @@ extension ProcessAgentPluginRunner {
         return grokMapList(
             result.stdout,
             ref: ref,
-            hasInstallRecord: installRecord(provider: .grok) != nil,
+            hasInstallRecord: installRecord(provider: .grok, setup: setup) != nil,
             allowedHome: home
         )
     }
@@ -116,7 +111,8 @@ extension ProcessAgentPluginRunner {
             return AgentPluginStatusReport(
                 status: hasInstallRecord
                     ? .needsRepair("awesoMux's Grok plugin was installed but Grok reports no matching plugin; repair or remove it")
-                    : .notInstalled
+                    : .notInstalled,
+                presence: .absent
             )
         }
 
@@ -124,7 +120,10 @@ extension ProcessAgentPluginRunner {
         case "disabled":
             return AgentPluginStatusReport(status: .disabled)
         case "error", "errored", "failed", "invalid":
-            return AgentPluginStatusReport(status: .needsRepair("The Grok plugin reported status \(entry.status ?? "unknown")"))
+            return AgentPluginStatusReport(
+                status: .needsRepair("The Grok plugin reported status \(entry.status ?? "unknown")"),
+                presence: .present
+            )
         default:
             // Breakage outranks freshness: a structurally stale deploy
             // (snake_case events, missing directories) genuinely does not run,
@@ -139,9 +138,9 @@ extension ProcessAgentPluginRunner {
                 allowedHome: allowedHome,
                 fileManager: renderer.fileManager
             ) {
-                return AgentPluginStatusReport(status: .needsRepair(guidance))
+                return AgentPluginStatusReport(status: .needsRepair(guidance), presence: .present)
             }
-            if let guidance = outdatedSourceContentGuidance(provider: .grok) {
+            if let guidance = outdatedSourceContentGuidance(provider: .grok, configHome: allowedHome.path) {
                 return AgentPluginStatusReport(status: .updateAvailable(guidance))
             }
             return AgentPluginStatusReport(status: .enabled)
@@ -204,7 +203,7 @@ extension ProcessAgentPluginRunner {
         let executable = resolvedExecutable(provider: .grok, setup: setup)
         let home = grokHome(setup: setup)
         guard
-            let ref = effectiveRefForRecordedInstall(provider: .grok)
+            let ref = effectiveRefForRecordedInstall(provider: .grok, setup: setup)
                 ?? (try? marketplaceRef(provider: .grok))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled Grok plugin manifest is missing"))
@@ -230,7 +229,7 @@ extension ProcessAgentPluginRunner {
         let executable = resolvedExecutable(provider: .grok, setup: setup)
         let home = grokHome(setup: setup)
         guard
-            let ref = effectiveRefForRecordedInstall(provider: .grok)
+            let ref = effectiveRefForRecordedInstall(provider: .grok, setup: setup)
                 ?? (try? marketplaceRef(provider: .grok))
         else {
             return AgentPluginActionOutcome(status: .unsupported("Bundled Grok plugin manifest is missing"))
@@ -243,7 +242,7 @@ extension ProcessAgentPluginRunner {
             mapCommandError: { grokMutationFailure($0, executable: $1) }
         ) {
         case .success:
-            try? removeInstallRecord(provider: .grok)
+            try? removeInstallRecord(provider: .grok, setup: setup)
             return AgentPluginActionOutcome(status: .notInstalled)
         case .failure(let outcome):
             return outcome
@@ -282,18 +281,6 @@ extension ProcessAgentPluginRunner {
             return URL(fileURLWithPath: (configHome as NSString).expandingTildeInPath)
         }
         return homeDirectoryURL.appending(path: ".grok", directoryHint: .isDirectory)
-    }
-
-    private func grokConfigHomeDriftNote(live liveSetup: AgentIntegrationSetup) -> String? {
-        guard let record = installRecord(provider: .grok) else { return nil }
-        let recordedHome = record.configHome
-        let liveHome = grokHome(setup: liveSetup).path
-        guard recordedHome != liveHome else { return nil }
-        return
-            String(
-                localized:
-                    "Actions target the recorded Grok home \(recordedHome); the Config home field now points at \(liveHome). Restore the field to keep using the recorded home.",
-                comment: "Explains recorded and current provider configuration homes")
     }
 
     private func grokMissingHomeGuidance(home: URL) -> String {
