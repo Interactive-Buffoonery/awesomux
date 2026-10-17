@@ -52,6 +52,10 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// command. An idle sample may clear the target only after this transition,
     /// so the normal pre-exec idle-shell window cannot discard it.
     public var hasObservedPendingRemoteSSHProcess: Bool
+    /// True after the observed SSH client put its terminal into raw mode. SSH
+    /// keeps the terminal line-buffered while it asks for passwords or host-key
+    /// confirmation, so this is the earliest local evidence that login finished.
+    public var hasObservedRemoteSSHLogin: Bool
     /// Runtime-only health for the current remote connection. This is intentionally
     /// excluded from persistence with `remoteHost`; restored panes start active
     /// until live terminal signals prove they are remote/stale.
@@ -136,6 +140,9 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     /// to pretend it observed the other.
     public var remoteConnectionGeneration: String?
     public var remoteForegroundLivenessSnapshot: RemoteForegroundLivenessSnapshot?
+    /// Runtime-only revocation token for evidence captured before connectivity
+    /// changed. It does not diagnose the SSH connection or alter its identity.
+    public var remoteConnectivityEpoch: UUID = UUID()
     /// Runtime-only OSC 9;4 progress report. A restored pane starts absent until
     /// the live terminal process announces its current operation again.
     public var progressReport: TerminalProgressReport?
@@ -163,6 +170,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         hasConsumedManagedSSHWorkspaceOffer: Bool = false,
         pendingRemoteSSHTarget: String? = nil,
         hasObservedPendingRemoteSSHProcess: Bool = false,
+        hasObservedRemoteSSHLogin: Bool = false,
         remoteConnectionHealth: RemoteConnectionHealth = .active,
         remoteWorkingDirectory: String? = nil,
         liveTerminalTitle: String? = nil,
@@ -197,6 +205,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
         self.hasConsumedManagedSSHWorkspaceOffer = hasConsumedManagedSSHWorkspaceOffer
         self.pendingRemoteSSHTarget = pendingRemoteSSHTarget
         self.hasObservedPendingRemoteSSHProcess = hasObservedPendingRemoteSSHProcess
+        self.hasObservedRemoteSSHLogin = hasObservedRemoteSSHLogin
         self.remoteConnectionHealth = remoteConnectionHealth
         self.remoteWorkingDirectory = remoteWorkingDirectory
         self.liveTerminalTitle = liveTerminalTitle

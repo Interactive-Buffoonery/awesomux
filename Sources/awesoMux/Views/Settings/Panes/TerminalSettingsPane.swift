@@ -112,36 +112,39 @@ struct TerminalSettingsPane: View {
                     .toggleStyle(.switch)
                 }
 
-                SettingsField(
-                    label: String(localized: "Auto-clean up at launch", comment: "Terminal settings label."),
-                    hint: String(
-                        localized:
-                            "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches.",
-                        comment: "Terminal settings hint."),
-                    forwardsAccessibilityToControl: true
-                ) {
-                    Toggle(
-                        "Auto-clean up idle background sessions at launch", isOn: appSettingsStore.terminal.binding(\.daemonIdleCapEnabled)
-                    )
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                }
+                if appSettingsStore.terminal.value.commandBridgeEnabled || appSettingsStore.terminal.value.daemonIdleCapEnabled {
+                    SettingsField(
+                        label: String(localized: "Auto-clean up at launch", comment: "Terminal settings label."),
+                        hint: String(
+                            localized:
+                                "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches.",
+                            comment: "Terminal settings hint."),
+                        forwardsAccessibilityToControl: true
+                    ) {
+                        Toggle(
+                            "Auto-clean up idle background sessions at launch",
+                            isOn: appSettingsStore.terminal.binding(\.daemonIdleCapEnabled)
+                        )
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                    }
 
-                SettingsField(
-                    label: String(localized: "Idle threshold", comment: "Terminal settings label."),
-                    hint: String(
-                        localized:
-                            "Sessions idle for at least this long are eligible for removal on next launch. Only applies when auto-clean up is on.",
-                        comment: "Terminal settings hint.")
-                ) {
-                    Stepper(
-                        capDaysLabel,
-                        value: capDaysBinding,
-                        in: 1...90
-                    )
-                    .disabled(!appSettingsStore.terminal.value.daemonIdleCapEnabled)
-                    .accessibilityLabel("Idle threshold in days")
-                    .accessibilityHint("Sessions idle longer than this threshold are cleaned up at launch.")
+                    SettingsField(
+                        label: String(localized: "Idle threshold", comment: "Terminal settings label."),
+                        hint: String(
+                            localized:
+                                "Sessions idle for at least this long are eligible for removal on next launch. Only applies when auto-clean up is on.",
+                            comment: "Terminal settings hint.")
+                    ) {
+                        Stepper(
+                            capDaysLabel,
+                            value: capDaysBinding,
+                            in: 1...90
+                        )
+                        .disabled(!appSettingsStore.terminal.value.daemonIdleCapEnabled)
+                        .accessibilityLabel("Idle threshold in days")
+                        .accessibilityHint("Sessions idle longer than this threshold are cleaned up at launch.")
+                    }
                 }
             }
         }

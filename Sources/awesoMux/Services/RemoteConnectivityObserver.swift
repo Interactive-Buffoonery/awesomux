@@ -15,37 +15,27 @@ extension NWPathMonitor: ConnectivityPathMonitoring {}
 @MainActor
 final class RemoteConnectivityObserver {
     private let notificationCenter: NotificationCenter
-    private let debounceNanoseconds: UInt64
-    private let markRemotePanesPossiblyStale: @MainActor () -> Void
+    private let invalidateRemoteConnectivityEvidence: @MainActor () -> Void
     private let pathMonitorFactory: () -> any ConnectivityPathMonitoring
     private let pathsAreEqual: (NWPath, NWPath) -> Bool
-    /// Seam for the debounce wait (INT-557): tests inject a controllable gate so
-    /// the timer "elapses" on command instead of racing real wall-clock sleeps
-    /// under parallel test scheduling. Production uses the real sleep default.
-    private let sleep: @Sendable (Duration) async -> Void
     private let pathMonitorQueue = DispatchQueue(
         label: "com.interactivebuffoonery.awesomux.remote-connectivity"
     )
 
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: (any ConnectivityPathMonitoring)?
-    private var debounceTask: Task<Void, Never>?
     private var lastPath: NWPath?
 
     init(
         notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
-        debounceNanoseconds: UInt64 = 1_000_000_000,
         pathMonitorFactory: @escaping () -> any ConnectivityPathMonitoring = { NWPathMonitor() },
         pathsAreEqual: @escaping (NWPath, NWPath) -> Bool = (==),
-        sleep: @Sendable @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-        markRemotePanesPossiblyStale: @escaping @MainActor () -> Void
+        invalidateRemoteConnectivityEvidence: @escaping @MainActor () -> Void
     ) {
         self.notificationCenter = notificationCenter
-        self.debounceNanoseconds = debounceNanoseconds
         self.pathMonitorFactory = pathMonitorFactory
         self.pathsAreEqual = pathsAreEqual
-        self.sleep = sleep
-        self.markRemotePanesPossiblyStale = markRemotePanesPossiblyStale
+        self.invalidateRemoteConnectivityEvidence = invalidateRemoteConnectivityEvidence
     }
 
     isolated deinit {
@@ -86,8 +76,6 @@ final class RemoteConnectivityObserver {
 
         pathMonitor?.cancel()
         pathMonitor = nil
-        debounceTask?.cancel()
-        debounceTask = nil
         lastPath = nil
     }
 
@@ -103,19 +91,6 @@ final class RemoteConnectivityObserver {
     }
 
     func recordConnectivitySignal() {
-        debounceTask?.cancel()
-        // Captures by value, no self: the pending task must not keep the
-        // observer alive (deinit cancels it), and a cancelled sleep falls
-        // through to the isCancelled guard rather than marking.
-        debounceTask = Task { [sleep, debounceNanoseconds, markRemotePanesPossiblyStale] in
-            // Clamping is deliberate: Duration wants Int64, and a debounce
-            // anywhere near Int64.max nanoseconds (~292 years) is already
-            // "never" — saturating beats trapping.
-            await sleep(.nanoseconds(Int64(clamping: debounceNanoseconds)))
-            guard !Task.isCancelled else {
-                return
-            }
-            markRemotePanesPossiblyStale()
-        }
+        invalidateRemoteConnectivityEvidence()
     }
 }

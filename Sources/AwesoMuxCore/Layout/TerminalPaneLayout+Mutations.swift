@@ -95,6 +95,28 @@ public extension TerminalPaneLayout {
         }
     }
 
+    internal func invalidatingRemoteConnectivityEvidence() -> (layout: TerminalPaneLayout, didChange: Bool) {
+        switch self {
+        case var .pane(pane):
+            guard
+                pane.executionPlan.remoteTarget != nil || pane.remoteFileContext != nil
+                    || pane.hasManagedSSHObservation
+            else { return (self, false) }
+            pane.remoteConnectivityEpoch = UUID()
+            pane.remoteForegroundLivenessSnapshot = nil
+            return (.pane(pane), true)
+
+        case let .split(split):
+            let first = split.first.invalidatingRemoteConnectivityEvidence()
+            let second = split.second.invalidatingRemoteConnectivityEvidence()
+            guard first.didChange || second.didChange else { return (self, false) }
+            return (.split(split.rebuilding(first: first.layout, second: second.layout)), true)
+
+        case .documentGroup:
+            return (self, false)
+        }
+    }
+
     internal func markingRemotePanesPossiblyStale() -> (layout: TerminalPaneLayout, didChange: Bool) {
         switch self {
         case var .pane(pane):

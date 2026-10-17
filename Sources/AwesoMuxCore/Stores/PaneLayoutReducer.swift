@@ -37,6 +37,7 @@ struct PaneLayoutReducer: Sendable {
             || new.hasConsumedManagedSSHWorkspaceOffer != old.hasConsumedManagedSSHWorkspaceOffer
             || new.pendingRemoteSSHTarget != old.pendingRemoteSSHTarget
             || new.hasObservedPendingRemoteSSHProcess != old.hasObservedPendingRemoteSSHProcess
+            || new.hasObservedRemoteSSHLogin != old.hasObservedRemoteSSHLogin
             || new.remoteWorkingDirectory != old.remoteWorkingDirectory
             || new.remoteConnectionHealth != old.remoteConnectionHealth
             || new.remoteForegroundLivenessSnapshot != old.remoteForegroundLivenessSnapshot
@@ -950,9 +951,11 @@ struct PaneLayoutReducer: Sendable {
                         if let pendingTarget = pane.pendingRemoteSSHTarget {
                             pane.remoteFileContext = nil
                             pane.remoteSSHTarget = pendingTarget
-                            pane.hasConsumedManagedSSHWorkspaceOffer = false
+                            // Same connection: an offer already answered from the
+                            // titleless notice must not return as a sheet.
                             pane.pendingRemoteSSHTarget = nil
                             pane.hasObservedPendingRemoteSSHProcess = false
+                            pane.hasObservedRemoteSSHLogin = false
                         } else if originalPane.remoteHost != host {
                             pane.remoteSSHTarget = nil
                             pane.hasConsumedManagedSSHWorkspaceOffer = false
@@ -994,6 +997,7 @@ struct PaneLayoutReducer: Sendable {
                     pane.hasConsumedManagedSSHWorkspaceOffer = false
                     pane.pendingRemoteSSHTarget = nil
                     pane.hasObservedPendingRemoteSSHProcess = false
+                    pane.hasObservedRemoteSSHLogin = false
                     pane.remoteWorkingDirectory = nil
                     pane.remoteConnectionHealth = .active
                     pane.remoteForegroundLivenessSnapshot = nil
@@ -1053,6 +1057,7 @@ struct PaneLayoutReducer: Sendable {
             pane.remoteSSHTarget = nil
             pane.pendingRemoteSSHTarget = nil
             pane.hasObservedPendingRemoteSSHProcess = false
+            pane.hasObservedRemoteSSHLogin = false
             pane.hasConsumedManagedSSHWorkspaceOffer = false
             pane.remoteWorkingDirectory = nil
             pane.remoteConnectionHealth = .active
@@ -1081,6 +1086,7 @@ struct PaneLayoutReducer: Sendable {
         }
         pane.pendingRemoteSSHTarget = target
         pane.hasObservedPendingRemoteSSHProcess = false
+        pane.hasObservedRemoteSSHLogin = false
 
         guard let layout = session.layout.replacingPane(id: paneID, with: .pane(pane)) else {
             return nil

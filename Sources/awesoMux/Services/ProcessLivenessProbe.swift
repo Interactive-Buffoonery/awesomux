@@ -166,6 +166,52 @@ enum ProcessLivenessProbe {
         return observed == executable ? .matching : .notMatching
     }
 
+    /// Background prompt workers do not keep an ordinary SSH session remote.
+    /// A shell wrapper with a child in its foreground group still does.
+    static func localShellOwnsTerminal(daemonPID: pid_t) -> Bool {
+        guard let roots = childPIDs(pid: daemonPID), roots.count == 1,
+            let root = roots.first
+        else { return false }
+        return localShellOwnsTerminal(shellPID: root)
+    }
+
+    static func localShellOwnsTerminal(shellPID: pid_t) -> Bool {
+        guard let command = foregroundComm(pid: shellPID),
+            ShellRecognition.isRecognizedShell(command),
+            let group = terminalForegroundProcessGroup(pid: shellPID), group == shellPID,
+            let children = childPIDs(pid: shellPID)
+        else { return false }
+        for child in children {
+            let childGroup = getpgid(child)
+            guard childGroup > 0, childGroup != group else { return false }
+        }
+        return true
+    }
+
+    /// Whether the terminal controlling `pid` is in raw (non-canonical) mode,
+    /// or nil when it cannot be read. OpenSSH reads passwords and host-key
+    /// answers with the terminal still line-buffered, and switches to raw mode
+    /// only once its interactive session starts.
+    static func controllingTerminalIsRaw(pid: pid_t) -> Bool? {
+        guard pid > 0 else { return nil }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
+            size == MemoryLayout<kinfo_proc>.stride
+        else { return nil }
+        let device = info.kp_eproc.e_tdev
+        // NODEV (-1) means the process has no controlling terminal.
+        guard device != -1, let name = devname(device, S_IFCHR) else { return nil }
+        // O_NOCTTY keeps this read-only check from adopting the terminal.
+        let descriptor = open("/dev/" + String(cString: name), O_RDONLY | O_NOCTTY | O_NONBLOCK)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+        var attributes = termios()
+        guard tcgetattr(descriptor, &attributes) == 0 else { return nil }
+        return attributes.c_lflag & tcflag_t(ICANON) == 0
+    }
+
     static func bridgedLiveness(
         daemonPID: pid_t,
         childPIDs: (pid_t) -> [pid_t]? = { ProcessLivenessProbe.childPIDs(pid: $0) },

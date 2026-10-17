@@ -1000,7 +1000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dockBounceTracker.reset(groups: sessionStore.groups)
             workspaceAnnouncementTracker.reset(groups: sessionStore.groups)
             remoteConnectivityObserver = RemoteConnectivityObserver {
-                sessionStore.markRemotePanesPossiblyStale()
+                sessionStore.invalidateRemoteConnectivityEvidence()
             }
             remoteConnectivityObserver?.start()
             installFocusObservers()

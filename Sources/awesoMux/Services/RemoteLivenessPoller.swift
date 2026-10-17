@@ -6,6 +6,7 @@ actor RemoteLivenessPoller {
         let workspaceID: UUID
         let paneID: UUID
         let generation: String
+        let remoteConnectivityEpoch: UUID
     }
 
     private struct Active {

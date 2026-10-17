@@ -192,6 +192,7 @@ final class GhosttyRuntime {
         }
 
         let terminalSessionID = pane.terminalSessionID
+        let remoteConnectivityEpoch = pane.remoteConnectivityEpoch
         let command = AmxBackend.bridgeHelperForegroundLivenessCommand(
             controlPath: context.controlPath,
             remote: context.remote,
@@ -202,13 +203,15 @@ final class GhosttyRuntime {
             key: .init(
                 workspaceID: workspaceID,
                 paneID: paneID,
-                generation: context.generation
+                generation: context.generation,
+                remoteConnectivityEpoch: remoteConnectivityEpoch
             ),
             command: command
         )
 
         guard let current = store.session(id: workspaceID)?.layout.pane(id: paneID),
             current.terminalSessionID == terminalSessionID,
+            current.remoteConnectivityEpoch == remoteConnectivityEpoch,
             current.executionPlan.remoteTarget == context.remote,
             current.remoteConnectionHealth == .active,
             current.remoteConnectionGeneration == context.generation,

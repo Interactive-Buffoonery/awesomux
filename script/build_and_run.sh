@@ -849,6 +849,7 @@ if [[ "${AWESOMUX_SPARKLE_ENABLED:-}" == "1" ]]; then
   /usr/libexec/PlistBuddy -c 'Add :SUFeedURL string https://github.com/Interactive-Buffoonery/awesomux/releases/latest/download/appcast.xml' "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_ED_KEY" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool true' "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c 'Add :SUScheduledCheckInterval integer 3600' "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool false' "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c 'Add :SUAllowsAutomaticUpdates bool false' "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c 'Add :SUEnableSystemProfiling bool false' "$INFO_PLIST"

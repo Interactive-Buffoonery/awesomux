@@ -1195,19 +1195,22 @@ extension SessionStore {
             session.activePaneID == paneID,
             let pane = session.layout.pane(id: paneID),
             pane.executionPlan == .local,
-            pane.remoteConnectionHealth == .active,
-            pane.remoteHost != nil,
-            let rawTarget = pane.remoteSSHTarget,
-            let target = RemoteTarget(parsing: rawTarget)
+            pane.remoteConnectionHealth == .active
         else {
             return nil
         }
-        return target
+        if pane.remoteHost != nil, let rawTarget = pane.remoteSSHTarget {
+            return RemoteTarget(parsing: rawTarget)
+        }
+        guard pane.hasObservedPendingRemoteSSHProcess,
+            let rawTarget = pane.pendingRemoteSSHTarget
+        else { return nil }
+        return RemoteTarget(parsing: rawTarget)
     }
 
-    /// Best destination to pre-fill for an explicit conversion. A confirmed
-    /// target wins; otherwise the submitted SSH alias is only a suggestion in
-    /// the user-reviewed sheet and never authorizes an automatic conversion.
+    /// Best destination to pre-fill for an explicit conversion. A title-confirmed
+    /// target wins; an unobserved submitted alias is only a suggestion in the
+    /// user-reviewed sheet and never authorizes an automatic conversion.
     public func managedSSHConversionSuggestion(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID
@@ -1232,6 +1235,27 @@ extension SessionStore {
         return RemoteTarget(parsing: rawTarget)
     }
 
+    /// Records that the observed SSH client for a pending target finished
+    /// login. Only a titleless connection needs this evidence; a remote title
+    /// already confirms the session through `remoteHost`.
+    @discardableResult
+    public func noteRemoteSSHLoginObserved(
+        sessionID: TerminalSession.ID,
+        paneID: TerminalPane.ID
+    ) -> Bool {
+        guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            pane.executionPlan == .local,
+            pane.hasObservedPendingRemoteSSHProcess,
+            pane.pendingRemoteSSHTarget != nil,
+            !pane.hasObservedRemoteSSHLogin
+        else {
+            return false
+        }
+        return mutatePane(sessionID: sessionID, paneID: paneID) {
+            $0.hasObservedRemoteSSHLogin = true
+        }
+    }
+
     /// Clears runtime remote observations after local process state proves an
     /// ordinary SSH command returned to its shell.
     ///
@@ -1243,7 +1267,8 @@ extension SessionStore {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         liveness: ForegroundProcessLiveness,
-        foregroundCommand: String? = nil
+        foregroundCommand: String? = nil,
+        localShellOwnsTerminal: Bool = false
     ) -> Bool {
         guard let pane = session(id: sessionID)?.layout.pane(id: paneID),
             pane.executionPlan == .local
@@ -1267,11 +1292,11 @@ extension SessionStore {
 
         let pendingProcessReturned =
             pane.hasObservedPendingRemoteSSHProcess
-            && (liveness == .idleShell || liveness == .bridged)
+            && (liveness == .idleShell || liveness == .bridged || localShellOwnsTerminal)
         // A bridged idle sample alone can describe wrapped SSH. Require the
         // independently sampled terminal foreground to be a recognized shell.
         let confirmedProcessReturned =
-            (liveness == .idleShell
+            (localShellOwnsTerminal || liveness == .idleShell
                 || (liveness == .bridged
                     && ShellRecognition.isRecognizedShell(foregroundCommand ?? "")))
             && (pane.remoteHost != nil || pane.remoteSSHTarget != nil
@@ -1286,6 +1311,7 @@ extension SessionStore {
             pane.remoteSSHTarget = nil
             pane.pendingRemoteSSHTarget = nil
             pane.hasObservedPendingRemoteSSHProcess = false
+            pane.hasObservedRemoteSSHLogin = false
             pane.hasConsumedManagedSSHWorkspaceOffer = false
             pane.remoteWorkingDirectory = nil
             pane.remoteConnectionHealth = .active
@@ -1294,6 +1320,24 @@ extension SessionStore {
         guard changed else { return false }
         commit(WorkspaceMutationEffect(remotePaneMembership: [paneID: false]))
         return false
+    }
+
+    /// Revokes cached and in-flight remote evidence without inferring an SSH
+    /// failure from a machine-wide wake or network-path change.
+    public func invalidateRemoteConnectivityEvidence() {
+        var affectedSessionIDs: Set<TerminalSession.ID> = []
+        for groupIndex in _groups.indices {
+            for sessionIndex in _groups[groupIndex].sessions.indices {
+                let result = _groups[groupIndex].sessions[sessionIndex].layout
+                    .invalidatingRemoteConnectivityEvidence()
+                guard result.didChange else { continue }
+                _groups[groupIndex].sessions[sessionIndex].layout = result.layout
+                affectedSessionIDs.insert(_groups[groupIndex].sessions[sessionIndex].id)
+            }
+        }
+        if !affectedSessionIDs.isEmpty {
+            commit(WorkspaceMutationEffect(riskSessionIDs: affectedSessionIDs))
+        }
     }
 
     public func markRemotePanesPossiblyStale() {
