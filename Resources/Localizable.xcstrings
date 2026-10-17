@@ -1232,6 +1232,9 @@
     "Choose" : {
       "comment" : "Confirm button for the worktree target path picker."
     },
+    "Choose Emoji…" : {
+      "comment" : "Opens the macOS character panel to choose a workspace emoji."
+    },
     "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
 
     },
@@ -1252,6 +1255,9 @@
     },
     "Choose or enter a branch name." : {
       "comment" : "Blank branch validation."
+    },
+    "Choose or paste a single emoji." : {
+      "comment" : "Instruction in the workspace emoji editor."
     },
     "Choose the IDE or editor to open this project." : {
       "comment" : "Accessibility help for the IDE picker popup."
@@ -2099,6 +2105,9 @@
     "Email link" : {
       "comment" : "Privacy-preserving preview for a detected email link"
     },
+    "Emoji" : {
+      "comment" : "Placeholder for a single workspace emoji."
+    },
     "Enable %@" : {
       "comment" : "Enable named setup"
     },
@@ -2197,6 +2206,12 @@
     },
     "Enter an absolute path or a path starting with ~/ that ends in .md or .markdown." : {
       "comment" : "Accessibility hint for the remote Markdown typed-path field"
+    },
+    "Enter one emoji to enable Save." : {
+      "comment" : "Validation feedback for an invalid workspace emoji."
+    },
+    "Enter one emoji, or clear the field to remove the current emoji." : {
+      "comment" : "Explains how to save or remove the workspace emoji using the keyboard."
     },
     "Error" : {
       "comment" : "Agent state label\nDiagnostics event severity",
@@ -4055,6 +4070,9 @@
     "Remove %arg from the don’t-ask list" : {
       "comment" : "Accessibility label for the button removing an SSH destination from the don’t-ask list"
     },
+    "Remove Emoji" : {
+      "comment" : "Clears the workspace emoji badge."
+    },
     "Remove Group" : {
       "comment" : "Destructive button on the empty-group removal confirmation dialog."
     },
@@ -4169,6 +4187,9 @@
     },
     "Replace" : {
       "comment" : "Annotation intent option\nButton title that overwrites an existing layout preset."
+    },
+    "Replace Emoji…" : {
+      "comment" : "Opens the emoji editor to replace the workspace emoji."
     },
     "Replace Existing Preset?" : {
       "comment" : "Alert title when saving over an existing layout preset."
@@ -4640,6 +4661,12 @@
     "Set Context" : {
       "comment" : "Save the fixed file-read context without connecting"
     },
+    "Set Emoji for '%arg'" : {
+      "comment" : "Heading of the workspace emoji editor; argument is the workspace name."
+    },
+    "Set Emoji…" : {
+      "comment" : "Opens the emoji editor for a workspace with no emoji."
+    },
     "Set Group Color" : {
       "comment" : "Undo action for changing a workspace group color."
     },
@@ -4648,6 +4675,12 @@
     },
     "Set Remote File Context…" : {
       "comment" : "Command to configure the active pane remote file context\nTitle for configuring runtime-only remote Markdown file links"
+    },
+    "Set Workspace Emoji" : {
+      "comment" : "Accessible name of the workspace emoji editor."
+    },
+    "Set Workspace Emoji…" : {
+      "comment" : "Opens the emoji editor for a workspace."
     },
     "Set Workspace Group Color to %arg" : {
 
@@ -5762,6 +5795,9 @@
     },
     "Workspace changes are not being saved. Close or simplify workspaces, then retry." : {
 
+    },
+    "Workspace emoji" : {
+      "comment" : "Accessible name of the workspace emoji field."
     },
     "Workspace group color cleared" : {
       "comment" : "VoiceOver status message after clearing a workspace group's color."

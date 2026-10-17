@@ -284,6 +284,7 @@ struct SessionRestoreReducer: Sendable {
                 workingDirectory: fallbackWorkingDirectory,
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
+                emoji: session.emoji,
                 notificationsMuted: session.notificationsMuted,
                 moveOrigin: nonSelfReferentialMoveOrigin(
                     session.moveOrigin,
@@ -307,6 +308,7 @@ struct SessionRestoreReducer: Sendable {
                 workingDirectory: fallbackWorkingDirectory,
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
+                emoji: session.emoji,
                 notificationsMuted: session.notificationsMuted,
                 moveOrigin: nonSelfReferentialMoveOrigin(
                     session.moveOrigin,
@@ -419,6 +421,7 @@ struct SessionRestoreReducer: Sendable {
                 workingDirectory: fallbackWorkingDirectory,
                 syntheticTitle: fallbackSyntheticTitle,
                 isTitleUserEdited: session.isTitleUserEdited,
+                emoji: session.emoji,
                 notificationsMuted: session.notificationsMuted,
                 moveOrigin: nonSelfReferentialMoveOrigin(
                     session.moveOrigin,
@@ -454,6 +457,7 @@ struct SessionRestoreReducer: Sendable {
             workingDirectory: resolvedActivePane.workingDirectory,
             syntheticTitle: fallbackSyntheticTitle,
             isTitleUserEdited: session.isTitleUserEdited,
+            emoji: session.emoji,
             notificationsMuted: session.notificationsMuted,
             moveOrigin: nonSelfReferentialMoveOrigin(
                 session.moveOrigin,

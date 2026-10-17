@@ -48,6 +48,8 @@ struct SidebarSessionTile: View {
     let onClose: () -> Void
     let onClear: () -> Void
     let onRename: () -> Void
+    let onSetEmoji: () -> Void
+    let onRemoveEmoji: () -> Void
     let canMakeWorkspaceManaged: Bool
     let onMakeWorkspaceManaged: () -> Void
     let onToggleNotificationsMute: () -> Void
@@ -269,7 +271,7 @@ struct SidebarSessionTile: View {
         let rollup = session.agentRollup()
         // Keep the context-menu and inset expressions separate. Combining this
         // modifier chain exceeds Swift's type-checking budget for the view.
-        let tile = interactiveTile(location: location, rollup: rollup)
+        let labeledTile = interactiveTile(location: location, rollup: rollup)
             .contextMenu {
                 contextMenuContent
             }
@@ -278,6 +280,9 @@ struct SidebarSessionTile: View {
             .accessibilityValue(rowAccessibilityValue)
             .accessibilityAddTraits(.isButton)
             .accessibilityAddTraits(isActive ? [.isSelected] : [])
+
+        let tile =
+            labeledTile
             // Default VoiceOver activation (VO+space). Refactoring off
             // `Button(action: onSelect)` to free `.onDrag` removed the
             // built-in button activation, so without this the row's primary
@@ -305,6 +310,12 @@ struct SidebarSessionTile: View {
                 onTogglePin()
             }
             .accessibilityActions {
+                Button(emojiMenuTitle) {
+                    onSetEmoji()
+                }
+                if session.emoji != nil {
+                    Button(String(localized: "Remove Emoji", comment: "Clears the workspace emoji badge.")) { onRemoveEmoji() }
+                }
                 // Per-pane jump targets — the keyboard/VoiceOver parity for the
                 // mouse-only hover peek card (538 R3). The card is a transient
                 // floating overlay unreachable by assistive tech; these named
@@ -375,6 +386,14 @@ struct SidebarSessionTile: View {
             onRename()
         }
 
+        Button(emojiMenuTitle) {
+            onSetEmoji()
+        }
+
+        if session.emoji != nil {
+            Button(String(localized: "Remove Emoji", comment: "Clears the workspace emoji badge.")) { onRemoveEmoji() }
+        }
+
         Button("Make Active Pane Managed…") {
             onMakeWorkspaceManaged()
         }
@@ -431,6 +450,12 @@ struct SidebarSessionTile: View {
         } else {
             content
         }
+    }
+
+    private var emojiMenuTitle: String {
+        session.emoji == nil
+            ? String(localized: "Set Emoji…", comment: "Opens the emoji editor for a workspace with no emoji.")
+            : String(localized: "Replace Emoji…", comment: "Opens the emoji editor to replace the workspace emoji.")
     }
 
     /// Context-menu title and named accessibility action for the per-workspace
@@ -541,6 +566,14 @@ struct SidebarSessionTile: View {
             if displayMode == .expanded {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
+                        if let emoji = session.emoji {
+                            Text(emoji)
+                                .awFont(AwFont.UI.label)
+                                .lineLimit(1)
+                                .frame(width: 20)
+                                .clipped()
+                                .accessibilityHidden(true)
+                        }
                         titleText
                             .awFont(AwFont.UI.label)
                             .lineLimit(1)
@@ -971,7 +1004,8 @@ struct SidebarSessionTile: View {
         locale: Locale = .current
     ) -> String {
         SidebarVisibleRows.workspaceAccessibilityLabel(
-            title: title ?? session.displayTitle(bundle: bundle, locale: locale),
+            title: [session.emoji, title ?? session.displayTitle(bundle: bundle, locale: locale)]
+                .compactMap { $0 }.joined(separator: " "),
             agentKind: rollup.winningAgentKind,
             state: rollup.state,
             bundle: bundle,
@@ -1121,6 +1155,7 @@ extension SidebarSessionTile: Equatable {
     private struct RenderKey: Equatable {
         let sessionID: TerminalSession.ID
         let title: String
+        let emoji: String?
         // Folds the active pane's resolved remote host / cwd (and the
         // accessibility label) through the SAME computed property `body`
         // reads (`session.sidebarLocation`) — never raw pane fields.
@@ -1221,6 +1256,7 @@ extension SidebarSessionTile: Equatable {
             // gate suppresses the repaint, and a FILTERED row keeps a superseded
             // title. Key what you render.
             title: match?.matchedTitle ?? liveTitles.workspaceTitle(for: session),
+            emoji: session.emoji,
             location: session.sidebarLocation,
             notificationsMuted: session.notificationsMuted,
             sessionWorkingDirectory: session.workingDirectory,

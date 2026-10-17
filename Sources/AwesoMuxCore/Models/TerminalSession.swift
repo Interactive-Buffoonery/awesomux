@@ -40,6 +40,7 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
     }
     public var workingDirectory: String
     public var isTitleUserEdited: Bool
+    public internal(set) var emoji: String?
     /// Per-workspace notification mute (INT-598). Gates only the interruptive
     /// channels (macOS banner + sound) — the workspace keeps its sidebar
     /// indicators, unread badges, and dock-badge contribution so state stays
@@ -56,6 +57,7 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
         workingDirectory: String,
         syntheticTitle: SyntheticSessionTitle? = nil,
         isTitleUserEdited: Bool = false,
+        emoji: String? = nil,
         notificationsMuted: Bool = false,
         moveOrigin: PaneMoveOrigin? = nil,
         agentKind: AgentKind? = nil,
@@ -178,6 +180,7 @@ public struct TerminalSession: Identifiable, Hashable, Sendable {
         self.syntheticTitle = acceptedSyntheticTitle
         self.workingDirectory = workingDirectory
         self.isTitleUserEdited = isTitleUserEdited
+        self.emoji = WorkspaceEmoji.validated(emoji)
         self.notificationsMuted = notificationsMuted
         self.moveOrigin = moveOrigin
         self.layout = resolvedLayout
@@ -326,6 +329,7 @@ extension TerminalSession: Codable {
         case syntheticTitle
         case workingDirectory
         case isTitleUserEdited
+        case emoji
         case notificationsMuted
         case moveOrigin
         case agentKind
@@ -425,6 +429,7 @@ extension TerminalSession: Codable {
             workingDirectory: try container.decode(String.self, forKey: .workingDirectory),
             syntheticTitle: syntheticTitle,
             isTitleUserEdited: isTitleUserEdited,
+            emoji: (try? container.decodeIfPresent(String.self, forKey: .emoji)) ?? nil,
             // Additive key (INT-598) — absent in older snapshots, no schema
             // bump needed (`JSONDecoder` ignores unknown keys going forward,
             // and encode omits the key when false for byte-stability).
@@ -481,6 +486,7 @@ extension TerminalSession: Codable {
         try container.encodeIfPresent(syntheticTitle, forKey: .syntheticTitle)
         try container.encode(workingDirectory, forKey: .workingDirectory)
         try container.encode(isTitleUserEdited, forKey: .isTitleUserEdited)
+        try container.encodeIfPresent(emoji, forKey: .emoji)
         // Omit when false so snapshots for users who never mute stay
         // byte-for-byte unchanged (same rationale as `recentlyClosed`).
         if notificationsMuted {

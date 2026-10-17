@@ -10,6 +10,17 @@ public struct DaemonRecoveryHandle: Sendable {
 }
 
 extension SessionStore {
+    /// Sets a workspace badge without pinning its title; nil removes it and invalid input is ignored.
+    @discardableResult
+    public func setWorkspaceEmoji(id: TerminalSession.ID, emoji: String?) -> Bool {
+        guard let position = position(for: id) else { return false }
+        let validated = WorkspaceEmoji.validated(emoji)
+        guard emoji == nil || validated != nil else { return false }
+        guard _groups[position.groupIndex].sessions[position.sessionIndex].emoji != validated else { return true }
+        _groups[position.groupIndex].sessions[position.sessionIndex].emoji = validated
+        return true
+    }
+
     public struct CommandBridgePaneHealResult: Equatable, Sendable {
         public let sessionID: TerminalSession.ID
         public let pane: TerminalPane

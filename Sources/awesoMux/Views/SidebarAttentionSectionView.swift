@@ -23,6 +23,8 @@ struct SidebarAttentionSectionView: View {
     let onClose: (TerminalSession) -> Void
     let onClear: (TerminalSession) -> Void
     let onRename: (TerminalSession) -> Void
+    let onSetEmoji: (TerminalSession) -> Void
+    let onRemoveEmoji: (TerminalSession) -> Void
     let onAcknowledge: (TerminalSession) -> Void
     let onToggleNotificationsMute: (TerminalSession) -> Void
     let canMakeWorkspaceManaged: (TerminalSession) -> Bool
@@ -187,6 +189,8 @@ struct SidebarAttentionSectionView: View {
             onClose: { onClose(session) },
             onClear: { onClear(session) },
             onRename: { onRename(session) },
+            onSetEmoji: { onSetEmoji(session) },
+            onRemoveEmoji: { onRemoveEmoji(session) },
             canMakeWorkspaceManaged: canMakeWorkspaceManaged(session),
             onMakeWorkspaceManaged: { onMakeWorkspaceManaged(session) },
             onToggleNotificationsMute: { onToggleNotificationsMute(session) },

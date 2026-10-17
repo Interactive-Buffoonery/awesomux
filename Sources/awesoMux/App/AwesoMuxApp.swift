@@ -435,6 +435,8 @@ struct AwesoMuxApp: App {
                 onClearWorkspace: clearWorkspace,
                 onCloseWorkspaceGroup: closeWorkspaceGroup,
                 onRenameWorkspace: requestRenameWorkspace,
+                onSetWorkspaceEmoji: requestSetWorkspaceEmoji,
+                onRemoveWorkspaceEmoji: { sessionStore.setWorkspaceEmoji(id: $0.id, emoji: nil) },
                 onRenameWorkspaceGroup: requestRenameWorkspaceGroup,
                 onNewWorkspaceGroup: requestNewWorkspaceGroup,
                 onConnectViaSSH: { group in requestConnectViaSSH(group) },
@@ -508,16 +510,29 @@ struct AwesoMuxApp: App {
                 minHeight: ContentView.minimumWindowHeight
             )
             .sheet(item: $workspaceEditRequest, onDismiss: handleRequestSheetDismiss) { request in
-                WorkspaceEditSheet(
-                    title: request.title,
-                    onCancel: {
-                        workspaceEditRequest = nil
-                    },
-                    onSave: { title in
-                        sessionStore.renameSession(id: request.id, title: title)
-                        workspaceEditRequest = nil
+                Group {
+                    switch request.field {
+                    case .emoji:
+                        WorkspaceEmojiSheet(
+                            title: request.title,
+                            emoji: sessionStore.session(id: request.id)?.emoji,
+                            onCancel: { workspaceEditRequest = nil },
+                            onSave: { emoji in
+                                sessionStore.setWorkspaceEmoji(id: request.id, emoji: emoji)
+                                workspaceEditRequest = nil
+                            }
+                        )
+                    case .title:
+                        WorkspaceEditSheet(
+                            title: request.title,
+                            onCancel: { workspaceEditRequest = nil },
+                            onSave: { title in
+                                sessionStore.renameSession(id: request.id, title: title)
+                                workspaceEditRequest = nil
+                            }
+                        )
                     }
-                )
+                }
                 .onAppear { activeSheetDidPresent = true }
             }
             .sheet(item: $paneEditRequest, onDismiss: handleRequestSheetDismiss) { request in
@@ -1230,6 +1245,18 @@ struct AwesoMuxApp: App {
                 }
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.renameWorkspace))
                 .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
+
+                Button(String(localized: "Set Workspace Emoji…", comment: "Opens the emoji editor for a workspace.")) {
+                    if let session = sessionStore.selectedSession { requestSetWorkspaceEmoji(session) }
+                }
+                .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
+
+                if let session = sessionStore.selectedSession, session.emoji != nil {
+                    Button(String(localized: "Remove Emoji", comment: "Clears the workspace emoji badge.")) {
+                        sessionStore.setWorkspaceEmoji(id: session.id, emoji: nil)
+                    }
+                    .disabled(isAnySheetPresented)
+                }
 
                 Button(
                     sessionStore.selectedSession.map { sessionStore.isPinned($0.id) } == true
@@ -3420,8 +3447,14 @@ struct AwesoMuxApp: App {
 
         workspaceEditRequest = WorkspaceEditRequest(
             id: session.id,
-            title: currentSession.title
+            title: currentSession.title,
+            field: .title
         )
+    }
+
+    private func requestSetWorkspaceEmoji(_ session: TerminalSession) {
+        guard !isAnySheetPresented, let current = sessionStore.session(id: session.id) else { return }
+        workspaceEditRequest = WorkspaceEditRequest(id: current.id, title: current.title, field: .emoji)
     }
 
     private func requestRenameActivePane() {
@@ -6031,8 +6064,10 @@ struct AwesoMuxApp: App {
 }
 
 private struct WorkspaceEditRequest: Identifiable, Sendable {
+    enum Field: Sendable { case title, emoji }
     let id: TerminalSession.ID
     let title: String
+    let field: Field
 }
 
 private struct PaneEditRequest: Identifiable, Sendable {

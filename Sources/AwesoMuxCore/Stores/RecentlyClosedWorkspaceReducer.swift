@@ -38,6 +38,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             title: title,
             syntheticTitle: capturedSession.syntheticTitle,
             isTitleUserEdited: capturedSession.isTitleUserEdited,
+            emoji: capturedSession.emoji,
             agentKind: capturedSession.activeAgentKind,
             moveOrigin: capturedSession.moveOrigin,
             layout: capturedSession.layout,
@@ -370,6 +371,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
             workingDirectory: activeCwd,
             syntheticTitle: restoredSyntheticTitle,
             isTitleUserEdited: entry.isTitleUserEdited,
+            emoji: entry.emoji,
             moveOrigin: entry.moveOrigin,
             agentKind: entry.agentKind,
             // No session-level agentState: `reidentifiedLayout` already set each
@@ -425,7 +427,7 @@ struct RecentlyClosedWorkspaceReducer: Sendable {
         if session.activeAgentKind != .shell {
             return true
         }
-        if session.isTitleUserEdited {
+        if session.isTitleUserEdited || session.emoji != nil {
             return true
         }
         if session.unreadNotificationCount > 0 {
