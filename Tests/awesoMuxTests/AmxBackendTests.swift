@@ -862,7 +862,7 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
     /// invoking user's home directory, so it is interpolated rather than
     /// literal — the same accommodation the local-amx ssh-tail tests make.
     private static var expectedSSHTokens: String {
-        "'ssh' '-o' 'ControlMaster=auto' "
+        "'/usr/bin/env' 'TERM=xterm-256color' 'ssh' '-o' 'ControlMaster=auto' "
             + "'-o' 'ControlPath=\(AmxBackend.sshControlPath())' "
             + "'-o' 'ControlPersist=60' '-o' 'ConnectTimeout=10' '-o' 'ServerAliveInterval=15' "
             + "'-t' '--' 'alice@box' "

@@ -346,15 +346,16 @@ enum AmxBackend {
         ]
     }
 
-    /// The `ssh` tokens appended after `attach <id>` for a remote pane. Each
+    /// The environment-wrapped SSH command appended after `attach <id>` for a remote pane. Each
     /// token is shell-quoted by the caller. Transport only — no credentials
     /// (ADR-0022).
     private static func sshTailTokens(
         for remote: RemoteTarget,
         remoteCommand: String? = nil
     ) -> [String] {
+        // shortcut: use portable terminfo until remote capability setup is supported (#760).
         var tokens =
-            ["ssh"] + sshMultiplexingOptions() + [
+            [envExecutablePath, "TERM=xterm-256color", "ssh"] + sshMultiplexingOptions() + [
             "-o", "ConnectTimeout=10",
             "-o", "ServerAliveInterval=15",
         ]
@@ -913,8 +914,7 @@ enum AmxBackend {
     /// zmx running on another machine; the `AMX_STATUS_*` channel reports into a
     /// local file no remote process can write; the shell-integration env points
     /// at a bundled ghostty resources dir that does not exist on the far host.
-    /// The `env -u` prefix stays, and is the whole reason this still routes
-    /// through `env`: it strips the pane-scoped agent keys and the status pair
+    /// The outer `env -u` prefix stays: it strips the pane-scoped agent keys and the status pair
     /// from the ssh CLIENT, so a promiscuous `SendEnv`/`AcceptEnv` pair can
     /// never carry this instance's side channel across (ADR-0022).
     ///
