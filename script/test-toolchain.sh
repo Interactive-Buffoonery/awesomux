@@ -20,7 +20,7 @@ mkdir -p "$FIXTURE/script" "$FIXTURE/bin"
 cp "$ROOT_DIR/script/check-toolchain.sh" "$FIXTURE/script/"
 printf '6.3.3\n' > "$FIXTURE/.swift-version"
 printf '6.4\n' > "$FIXTURE/.swift-version-macos"
-printf '27.0\n' > "$FIXTURE/.xcode-version"
+printf '27.1\n' > "$FIXTURE/.xcode-version"
 printf 'darwin=main\nlinux=6.3.3\n' > "$FIXTURE/.swift-format-version"
 cat > "$FIXTURE/bin/tool" <<'EOF'
 #!/usr/bin/env bash
@@ -54,7 +54,7 @@ for tool in uname xcodebuild xcrun swift; do
     ln -s tool "$FIXTURE/bin/$tool"
 done
 export PATH="$FIXTURE/bin:$PATH"
-export TEST_PLATFORM=Darwin TEST_XCODE=27.0 TEST_SDK=27.0
+export TEST_PLATFORM=Darwin TEST_XCODE=27.1 TEST_SDK=27.0
 export TEST_SWIFT=6.4 TEST_SELECTED_SWIFT=6.4 TEST_FORMATTER=main
 unset TOOLCHAINS
 check() { bash "$FIXTURE/script/check-toolchain.sh"; }
@@ -73,7 +73,7 @@ TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault check
 TOOLCHAINS=org.swift.640 reject "require the default Xcode toolchain"
 SWIFT_EXEC=/alternate/swiftc reject "unset SWIFT_EXEC and SWIFT_EXEC_MANIFEST"
 SWIFT_EXEC_MANIFEST=/alternate/swiftc reject "unset SWIFT_EXEC and SWIFT_EXEC_MANIFEST"
-TEST_XCODE=26.6 reject "Xcode 27.0"
+TEST_XCODE=27.0 reject "Xcode 27.1"
 TEST_SDK=26.4 reject "SDK is required"
 TEST_SWIFT=6.3.3 reject "PATH Swift differs"
 TEST_SELECTED_SWIFT=6.3.3 reject "PATH Swift differs"
