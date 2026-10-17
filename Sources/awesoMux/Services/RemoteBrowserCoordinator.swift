@@ -110,6 +110,9 @@ final class RemoteBrowserCoordinator {
         let wasRemembered =
             safeToRemember
             && settings.workspaces.value.remoteBrowserAllowedOrigins[source, default: []].contains(origin)
+        let permissions = settings.workspaces.value.remoteBrowserAllowedOrigins
+        let permissionCapacityAvailable =
+            permissions[source].map { $0.count < 128 } ?? (permissions.count < 128)
         var remember = false
         if !wasRemembered {
             guard Self.presentedRequest == nil, let parent = window(), parent.attachedSheet == nil else { return .busy }
@@ -132,7 +135,13 @@ final class RemoteBrowserCoordinator {
             let view = NSHostingView(
                 rootView: RemoteBrowserPromptView(
                     source: source, url: url, warning: warning, choice: choice,
-                    canRemember: safeToRemember && !settings.isDiskConfigInvalid
+                    canRemember: safeToRemember && !settings.isDiskConfigInvalid && permissionCapacityAvailable,
+                    rememberUnavailableReason: safeToRemember && !permissionCapacityAvailable
+                        ? String(
+                            localized:
+                                "Saved browser permissions are full. Remove a permission in Settings → Workspaces → Managed SSH to save another.",
+                            comment: "Remote browser prompt explanation when saved website permissions reach the configured limit"
+                        ) : nil
                 ).appearanceBridge(settings))
             view.setFrameSize(NSSize(width: 420, height: warning == nil ? 180 : 300))
             alert.accessoryView = view
@@ -170,11 +179,28 @@ final class RemoteBrowserCoordinator {
             return .cancelled
         }
         guard NSWorkspace.shared.open(url) else { return .failed }
-        if remember, !settings.isDiskConfigInvalid {
-            settings.workspaces.update { config in
-                if !config.remoteBrowserAllowedOrigins[source, default: []].contains(origin) {
-                    config.remoteBrowserAllowedOrigins[source, default: []].append(origin)
+        if remember {
+            if !settings.isDiskConfigInvalid {
+                settings.workspaces.update { config in
+                    if !config.remoteBrowserAllowedOrigins[source, default: []].contains(origin) {
+                        config.remoteBrowserAllowedOrigins[source, default: []].append(origin)
+                    }
                 }
+            }
+            if !settings.workspaces.value.remoteBrowserAllowedOrigins[source, default: []].contains(origin),
+                let parent = window(), parent.attachedSheet == nil
+            {
+                let saveAlert = NSAlert()
+                saveAlert.messageText = String(
+                    localized: "Link opened, permission not saved",
+                    comment: "Warning title after opening a website when saving its browser permission fails"
+                )
+                saveAlert.informativeText = String(
+                    localized: "You will be asked again next time. Check Settings → Advanced → Latest error for details.",
+                    comment: "Explanation after a browser permission could not be saved"
+                )
+                saveAlert.addButton(withTitle: String(localized: "OK"))
+                saveAlert.beginSheetModal(for: parent) { _ in }
             }
         }
         return .opened

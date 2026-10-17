@@ -94,10 +94,11 @@ The journey verifies:
 - one browser lane at a time while ordinary status frames still flow;
 - an exact HTTP request reaching a loopback browser receiver;
 - remembered-origin lookup and revocation through `AppSettingsStore`;
-- request expiry, connection loss, and a fresh request after reconnect.
+- request expiry, connection loss, and a fresh request after reconnect;
 - a missing wrapper triggering repair rather than being reported as supported;
 - teardown during the final connection check preventing a clipboard write;
-- a helper clock five minutes behind the Mac still reaching confirmation.
+- a helper clock five minutes behind the Mac still reaching confirmation;
+- correlated expiry when the UI consumer cannot reply.
 
 The artifact directory contains `browser-e2e-report.txt`,
 `helper-results.log`, `browser-hit.txt`, `browser-prompt.png`,
@@ -111,10 +112,8 @@ interface text scale in an isolated window; it is useful layout evidence, not pr
 the system text-size setting was changed for the running app.
 
 This automated journey does not verify VoiceOver speech, physical keyboard
-Return/Escape behavior, saving the **Always allow** checkbox through a manual
-click, the system enlarged-text setting in the running app, or a complete
+Return/Escape behavior, saving **Always allow** through a manual click, the system enlarged-text setting in the running app, or a complete
 managed SSH connection launched through the app. It also does not provide a
-reliable full-sheet visual screenshot. It writes the equivalent grant through
-the real settings store, then verifies production lookup and revocation. Check
-those interactions separately in a running app when preparing a release that
+reliable full-sheet visual screenshot. It writes the equivalent grant through the real settings store, then verifies production lookup and revocation. Check
+the remaining interactions separately in a running app when preparing a release that
 changes the prompt.

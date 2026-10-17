@@ -207,7 +207,7 @@ actor BridgeConnectionActor {
             let timeout = DispatchSource.makeTimerSource(queue: .global())
             timeout.schedule(deadline: .now() + helloDeadline)
             timeout.setEventHandler { [weak self] in
-                Task { await self?.closeUnexpectedConnection(connection) }
+                Task { await self?.expireBrowserConnection(connection) }
             }
             state.browserDeadlineSource = timeout
             timeout.activate()
@@ -251,6 +251,12 @@ actor BridgeConnectionActor {
             let line = try? envelope.encodedLine()
         else {
             return false
+        }
+        if lane == .browser {
+            guard !destination.1.browserReplyClaimed else { return false }
+            var state = destination.1
+            state.browserReplyClaimed = true
+            connections[destination.0] = state
         }
         let sent = await write(line, to: destination.0)
         if lane == .browser {
@@ -393,9 +399,15 @@ actor BridgeConnectionActor {
                     }
                     state.browserRequestDelivered = true
                     if case .browserOpenRequest(let request) = envelope.message {
-                        state.browserDeadlineSource?.schedule(
-                            deadline: .now() + max(0, min(120, request.expiresAt - Date().timeIntervalSince1970))
+                        let remaining = max(0, min(120, request.expiresAt - Date().timeIntervalSince1970))
+                        state.browserRequest = BrowserRequestContext(
+                            generation: state.generation,
+                            id: envelope.id,
+                            token: envelope.token,
+                            session: envelope.session,
+                            deadline: MonotonicClock.now().addingTimeInterval(remaining)
                         )
+                        state.browserDeadlineSource?.schedule(deadline: .now() + remaining)
                     }
                 }
                 guard deliver(frame, id: id, generation: state.generation) else {
@@ -451,6 +463,41 @@ actor BridgeConnectionActor {
     private func expireHello(for id: ConnectionID) {
         guard connections[id]?.lane == nil else { return }
         _ = closeConnection(id)
+    }
+
+    private func expireBrowserConnection(_ id: ConnectionID) async {
+        guard var state = connections[id],
+            state.lane == .browser,
+            activeConnections[.browser] == id
+        else { return }
+        guard let request = state.browserRequest else {
+            await closeUnexpectedConnection(id)
+            return
+        }
+        guard request.generation == state.generation, !state.browserReplyClaimed else { return }
+        let remaining = request.deadline.timeIntervalSince(MonotonicClock.now())
+        if remaining > 0 {
+            state.browserDeadlineSource?.schedule(deadline: .now() + remaining)
+            return
+        }
+
+        let envelope = BridgeEnvelope(
+            token: request.token,
+            session: request.session,
+            id: UUID().uuidString,
+            ts: Date().timeIntervalSince1970,
+            message: .browserOpenResult(
+                BrowserOpenResult(inReplyTo: request.id, outcome: .expired)
+            )
+        )
+        guard let line = try? envelope.encodedLine() else {
+            await closeUnexpectedConnection(id)
+            return
+        }
+        state.browserReplyClaimed = true
+        connections[id] = state
+        _ = await write(line, to: id)
+        await closeUnexpectedConnection(id)
     }
 
     private func activeState(matching generation: Generation) -> (ConnectionID, ConnectionState)? {
@@ -639,6 +686,8 @@ actor BridgeConnectionActor {
         var tail = BridgeFrameReader.PendingTail.empty
         var hasHello = false
         var browserRequestDelivered = false
+        var browserRequest: BrowserRequestContext?
+        var browserReplyClaimed = false
         var browserDeadlineSource: DispatchSourceTimer?
         var isWriting = false
         var helloDeadlineTask: Task<Void, Never>?
@@ -650,5 +699,13 @@ actor BridgeConnectionActor {
             self.lane = lane
             self.readSource = readSource
         }
+    }
+
+    private struct BrowserRequestContext: Sendable {
+        let generation: Generation
+        let id: String
+        let token: String
+        let session: String
+        let deadline: Date
     }
 }

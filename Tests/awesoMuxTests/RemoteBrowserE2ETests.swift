@@ -245,6 +245,31 @@ struct RemoteBrowserE2ETests {
         _ = await skewed.value
         record("Prompt with remote clock five minutes behind: \(skewedPromptAppeared)")
 
+        sink.ignoreNextRequest = true
+        let expiryWithoutCoordinator = Task.detached { () throws -> BrowserOpenOutcome in
+            let connection = try HelperConnection.connect(
+                state: BridgeStateFile(proto: "awesomux-bridge-v1", gen: 1, socket: fixture.remoteSocket, token: fixture.token),
+                session: fixture.session
+            )
+            let macTime = try connection.handshake(proto: "awesomux-browser-v1", helper: "e2e")
+            let requestID = UUID().uuidString
+            try connection.send(
+                BridgeEnvelope(
+                    token: fixture.token, session: fixture.session, id: requestID,
+                    ts: Date().timeIntervalSince1970,
+                    message: .browserOpenRequest(
+                        BrowserOpenRequest(
+                            url: "https://example.invalid/actor-expiry", expiresAt: macTime.addingTimeInterval(0.2).timeIntervalSince1970
+                        ))
+                ))
+            let result = try connection.readBrowserResult(requestID: requestID, deadline: MonotonicClock.now().addingTimeInterval(3))
+            guard case .browserOpenResult(let response) = result.message else { throw BrowserE2EError.promptMissing }
+            return response.outcome
+        }
+        let actorExpiry = try await expiryWithoutCoordinator.value
+        #expect(actorExpiry == .expired)
+        record("PASS actor returns correlated expiry when the UI consumer cannot reply")
+
         try saveEnlargedTextPrompt(
             source: fixture.destination,
             url: try #require(URL(string: "https://example.invalid/a/long/path?with=query#fragment")),
@@ -364,6 +389,7 @@ private final class BrowserE2ESink {
     private var supervisor: BridgeConnectionSupervisor?
     private var coordinator: RemoteBrowserCoordinator?
     var cancelAfterNextConnectionCheck = false
+    var ignoreNextRequest = false
 
     func configure(supervisor: BridgeConnectionSupervisor, coordinator: RemoteBrowserCoordinator) {
         self.supervisor = supervisor
@@ -371,6 +397,10 @@ private final class BrowserE2ESink {
     }
 
     func receive(_ envelope: BridgeEnvelope, generation: BridgeConnectionActor.Generation) {
+        if ignoreNextRequest {
+            ignoreNextRequest = false
+            return
+        }
         coordinator?.receive(envelope, generation: generation)
     }
 

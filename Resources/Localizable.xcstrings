@@ -2688,6 +2688,9 @@
     "License" : {
       "comment" : "About window link to the project's own MIT license\nAdvanced settings label.\nButton opening a bundled third-party license file"
     },
+    "Link opened, permission not saved" : {
+      "comment" : "Warning title after opening a website when saving its browser permission fails"
+    },
     "Link preview: %arg" : {
       "comment" : "VoiceOver announcement when a hovered hyperlink preview popover appears\nVoiceOver label for the hovered hyperlink preview popover"
     },
@@ -4458,6 +4461,9 @@
     "Saved Workspace Data Replaced" : {
 
     },
+    "Saved browser permissions are full. Remove a permission in Settings → Workspaces → Managed SSH to save another." : {
+      "comment" : "Remote browser prompt explanation when saved website permissions reach the configured limit"
+    },
     "Saved layout preset %arg" : {
       "comment" : "VoiceOver announcement after saving a layout preset."
     },
@@ -5813,6 +5819,9 @@
     },
     "Yes" : {
 
+    },
+    "You will be asked again next time. Check Settings → Advanced → Latest error for details." : {
+      "comment" : "Explanation after a browser permission could not be saved"
     },
     "Your Ghostty config controls the terminal background." : {
 

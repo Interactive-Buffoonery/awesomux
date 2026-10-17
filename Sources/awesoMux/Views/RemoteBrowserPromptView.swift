@@ -15,6 +15,7 @@ struct RemoteBrowserPromptView: View {
     let warning: String?
     @Bindable var choice: RemoteBrowserPromptChoice
     let canRemember: Bool
+    var rememberUnavailableReason: String? = nil
 
     var body: some View {
         ScrollView {
@@ -30,6 +31,11 @@ struct RemoteBrowserPromptView: View {
                     Text(warning)
                         .awFont(AwFont.UI.body)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let rememberUnavailableReason {
+                    Text(rememberUnavailableReason)
+                        .awFont(AwFont.UI.meta)
+                        .foregroundStyle(.secondary)
                 }
                 if canRemember {
                     Toggle(
