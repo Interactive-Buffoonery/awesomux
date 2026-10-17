@@ -128,6 +128,12 @@ final class ProcessCodexAppServerTransport: CodexAppServerTransport, @unchecked 
                 var descriptorState = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
                 let ready = poll(&descriptorState, 1, 25)
                 if ready < 0, errno != EINTR { throw CodexAppServerError.connectionClosed }
+                if ready > 0 {
+                    let errors = Int16(POLLERR | POLLHUP | POLLNVAL)
+                    guard descriptorState.revents & errors == 0,
+                        descriptorState.revents & Int16(POLLOUT) != 0
+                    else { throw CodexAppServerError.connectionClosed }
+                }
             }
         }
     }
@@ -377,6 +383,8 @@ private final class CodexAppServerProcess: @unchecked Sendable {
     private let lock = NSLock()
     private var pid: pid_t
     private let exitSource: DispatchSourceProcess
+    private var terminationRequested = false
+    private var escalationComplete = false
 
     init(executableURL: URL, arguments: [String], environment: [String], input: Pipe, output: Pipe) throws {
         func check(_ status: Int32) throws {
@@ -396,7 +404,13 @@ private final class CodexAppServerProcess: @unchecked Sendable {
         defer { posix_spawnattr_destroy(&attributes) }
         // Inherit only the three explicitly configured standard descriptors.
         try check(
-            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)))
+            posix_spawnattr_setflags(
+                &attributes,
+                Int16(
+                    POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP
+                )
+            ))
+        try check(posix_spawnattr_setpgroup(&attributes, 0))
         var mask = sigset_t()
         sigemptyset(&mask)
         try check(posix_spawnattr_setsigmask(&attributes, &mask))
@@ -425,31 +439,57 @@ private final class CodexAppServerProcess: @unchecked Sendable {
         // Retain ownership until exit even when the transport has been released.
         exitSource.setEventHandler { [self] in reap() }
         exitSource.activate()
+        reap(retryIfRunning: false)
     }
 
     func terminate() {
         lock.lock()
-        if pid > 0 { Darwin.kill(pid, SIGTERM) }
+        guard pid > 1, !terminationRequested else {
+            lock.unlock()
+            return
+        }
+        terminationRequested = true
+        Darwin.kill(-pid, SIGTERM)
         lock.unlock()
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(250)) { [self] in
             lock.lock()
-            defer { lock.unlock() }
-            // Only reap() can release this PID, under this same lock. Even an
-            // exited child reserves its PID until we reap its zombie.
-            if pid > 0 { Darwin.kill(pid, SIGKILL) }
+            // Keep the group ID reserved by its leader until escalation completes.
+            if pid > 1 { Darwin.kill(-pid, SIGKILL) }
+            escalationComplete = true
+            lock.unlock()
+            reap()
         }
     }
 
-    private func reap() {
+    private func reap(retryIfRunning: Bool = true) {
         lock.lock()
         defer { lock.unlock() }
-        guard pid > 0 else { return }
+        guard pid > 1 else { return }
+        guard !terminationRequested || escalationComplete else { return }
+        var info = siginfo_t()
+        var observed: Int32
+        repeat {
+            observed = waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT)
+        } while observed < 0 && errno == EINTR
+        guard observed == 0 else { return }
+        guard info.si_pid != 0 else {
+            guard retryIfRunning else { return }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(10)) { [self] in
+                reap()
+            }
+            return
+        }
+        if !terminationRequested {
+            // A child that exits on its own can still leave pipe-owning descendants.
+            Darwin.kill(-pid, SIGKILL)
+        }
         var status: Int32 = 0
         var result: pid_t
         repeat {
             result = waitpid(pid, &status, WNOHANG)
         } while result < 0 && errno == EINTR
         guard result != 0 else {
+            guard retryIfRunning else { return }
             // NOTE_EXIT can precede the zombie state required by waitpid.
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(10)) { [self] in
                 reap()

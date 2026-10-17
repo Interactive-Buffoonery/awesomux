@@ -13,7 +13,12 @@ struct Driver {
             print("deinit child reaped")
             return
         }
-        let fixtureMode = ["close", "closed-send", "silent"].contains(mode) ? "resist" : ["echo", "exit"].contains(mode) ? mode : "backpressure"
+        let fixtureMode: String
+        switch mode {
+        case "close", "closed-send", "silent": fixtureMode = "resist"
+        case "echo", "exit", "descendant": fixtureMode = mode
+        default: fixtureMode = "backpressure"
+        }
         let transport = try ProcessCodexAppServerTransport(
             executable: args[2], codexHome: args[4],
             arguments: [args[3], fixtureMode]
@@ -21,7 +26,7 @@ struct Driver {
         defer { transport.close() }
         _ = try await transport.receive() // Child installed its signal handler.
         let pid = Int32(try String(contentsOfFile: args[4] + "/pid", encoding: .utf8))!
-        if ["close", "closed-send", "exit"].contains(mode) {
+        if ["close", "closed-send", "exit", "descendant"].contains(mode) {
             if mode == "exit" {
                 let eof = try await transport.receive()
                 precondition(eof == nil)
@@ -39,8 +44,15 @@ struct Driver {
             }
             try await Task.sleep(for: .seconds(1.5))
             let gone = kill(pid, 0) == -1 && errno == ESRCH
-            print("\(mode) child_gone=\(gone)")
-            exit(gone ? 0 : 1)
+            let descendantGone: Bool
+            if mode == "descendant" {
+                let descendantPID = Int32(try String(contentsOfFile: args[4] + "/descendant-pid", encoding: .utf8))!
+                descendantGone = kill(descendantPID, 0) == -1 && errno == ESRCH
+            } else {
+                descendantGone = true
+            }
+            print("\(mode) child_gone=\(gone) descendant_gone=\(descendantGone)")
+            exit(gone && descendantGone ? 0 : 1)
         }
         let client = ProcessCodexAppServerClient(
             transport: transport, requestTimeout: mode == "cancel" ? .seconds(20) : .milliseconds(300)

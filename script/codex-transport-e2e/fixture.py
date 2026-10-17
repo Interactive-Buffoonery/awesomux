@@ -11,6 +11,15 @@ home = pathlib.Path(os.environ['CODEX_HOME'])
 assert home.name.startswith('case-')
 signal.signal(signal.SIGTERM, signal.SIG_IGN if mode != 'echo' else signal.SIG_DFL)
 (home / 'pid').write_text(str(os.getpid()))
+if mode == 'descendant':
+    child = os.fork()
+    if child == 0:
+        signal.alarm(10)  # fork() doesn't inherit the parent's alarm.
+        (home / 'descendant-pid').write_text(str(os.getpid()))
+        while True:
+            time.sleep(1)
+    while not (home / 'descendant-pid').exists():
+        time.sleep(0.01)
 print('{"ready":true}', flush=True)
 if mode == 'exit':
     sys.exit(0)
