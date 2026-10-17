@@ -47,7 +47,7 @@ struct NativeTitlebarGeometry: Equatable {
 }
 
 /// The app keeps its own titlebar contents; AppKit owns the controls and their
-/// alignment in the primary window. Auxiliary windows retain compact chrome.
+/// alignment. Toolbar-less auxiliary windows retain their native compact chrome.
 struct NativeTitlebar<Content: View>: View {
     @ViewBuilder var content: (NativeTitlebarGeometry) -> Content
     @State private var geometry = NativeTitlebarGeometry()

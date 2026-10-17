@@ -4,6 +4,17 @@ import Testing
 
 @Suite struct MarkdownFileEnumeratorTests {
 
+    @Test func directoryBackNavigationStopsAtBrowserRoot() throws {
+        let nested = MarkdownDirectoryBrowser.contents(in: [], at: "docs/guides")
+        #expect(nested.parentRelativePath == "docs")
+
+        let parent = MarkdownDirectoryBrowser.contents(in: [], at: try #require(nested.parentRelativePath))
+        #expect(parent.parentRelativePath == "")
+
+        let root = MarkdownDirectoryBrowser.contents(in: [], at: try #require(parent.parentRelativePath))
+        #expect(root.parentRelativePath == nil)
+    }
+
     @Test func skipsGeneratedAndDependencyDirectories() throws {
         try withTemporaryDirectory { root in
             try writeFile("ok", at: root.appendingPathComponent("docs/plan.md"))

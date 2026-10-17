@@ -15,8 +15,6 @@ import SwiftUI
 /// matching the main window's chrome geometry while `WindowChromeConfigurator`
 /// keeps the native title bar transparent and stable across focus changes.
 enum SettingsTitlebarMetrics {
-    static let height = AwSpacing.titlebar
-    static let brandLeadingInset = AppTitlebarMetrics.trafficLightClearance
     static let extendsIntoNativeTitlebar = true
 }
 
@@ -74,25 +72,18 @@ struct SettingsShell<Selection: Hashable, Sidebar: View, Detail: View>: View {
     /// `AppTitlebarView`: the Brandmark over the sidebar column and a quiet
     /// "Settings" label over the content column.
     private var titlebar: some View {
-        HStack(spacing: 0) {
-            brandZone
-            contentZone
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: SettingsTitlebarMetrics.height)
-        .background {
-            ZStack {
-                LinearGradient(
-                    colors: [Color.aw.surface.chrome2, Color.aw.surface.chrome],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(WindowDragGesture())
-                    .allowsWindowActivationEvents(true)
+        NativeTitlebar { native in
+            HStack(spacing: 0) {
+                brandZone(leadingInset: native.leadingInset)
+                contentZone
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background {
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
+                .allowsWindowActivationEvents(true)
         }
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -105,13 +96,13 @@ struct SettingsShell<Selection: Hashable, Sidebar: View, Detail: View>: View {
     /// window resize keeps the wordmark aligned with the column beneath it.
     /// Carries the "awesoMux Settings" header semantics moved off the old
     /// sidebar kicker.
-    private var brandZone: some View {
+    private func brandZone(leadingInset: CGFloat) -> some View {
         HStack(spacing: 0) {
             Brandmark()
                 .allowsHitTesting(false)
             Spacer(minLength: 0)
         }
-        .padding(.leading, SettingsTitlebarMetrics.brandLeadingInset)
+        .padding(.leading, leadingInset)
         .padding(.trailing, 10)
         .frame(width: AwSettings.sidebarWidth, alignment: .leading)
         .accessibilityElement(children: .ignore)

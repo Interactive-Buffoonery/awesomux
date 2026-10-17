@@ -323,12 +323,63 @@ struct WorkspaceSettingsPane: View {
                 ),
                 forwardsAccessibilityToControl: true
             ) {
-                Picker("", selection: appSettingsStore.workspaces.binding(\.remoteHelperInstallPolicy)) {
+                Picker(
+                    "",
+                    selection: Binding(
+                        get: { appSettingsStore.workspaces.value.remoteHelperInstallPolicy },
+                        set: { policy in
+                            appSettingsStore.workspaces.update {
+                                $0.rememberHelperInstallPolicy(policy)
+                            }
+                        }
+                    )
+                ) {
                     Text("Ask Before Installing").tag(WorkspaceConfig.RemoteHelperInstallPolicy.ask)
                     Text("Always Install").tag(WorkspaceConfig.RemoteHelperInstallPolicy.alwaysInstall)
                     Text("Never Ask").tag(WorkspaceConfig.RemoteHelperInstallPolicy.neverAsk)
                 }
                 .labelsHidden()
+            }
+
+            if !appSettingsStore.workspaces.value.remoteHelperHostPolicies.isEmpty {
+                SettingsField(
+                    label: String(localized: "Host helper choices", comment: "Remembered SSH helper choices section title"),
+                    hint: String(
+                        localized:
+                            "These hosts have their own choice. Remove one to use the setting above. Changing the setting above replaces all host choices.",
+                        comment: "Explains how per-host helper preferences override and reset to the global preference"
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(appSettingsStore.workspaces.value.remoteHelperHostPolicies.keys.sorted(), id: \.self) { host in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(host).awFont(AwFont.UI.body)
+                                    Group {
+                                        switch appSettingsStore.workspaces.value.remoteHelperHostPolicies[host, default: .ask] {
+                                        case .ask: Text("Ask Before Installing")
+                                        case .alwaysInstall: Text("Always Install")
+                                        case .neverAsk: Text("Never Ask")
+                                        }
+                                    }
+                                    .awFont(AwFont.UI.meta)
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Remove") {
+                                    appSettingsStore.workspaces.update {
+                                        $0.remoteHelperHostPolicies.removeValue(forKey: host)
+                                    }
+                                }
+                                .accessibilityLabel(
+                                    String(
+                                        localized: "Remove helper choice for \(host)",
+                                        comment: "Revoke a saved SSH helper choice; argument is the SSH destination")
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

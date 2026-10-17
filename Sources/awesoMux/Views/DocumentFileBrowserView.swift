@@ -88,8 +88,8 @@ struct DocumentFileBrowserView: View {
                     .fill(Color.aw.border2.opacity(0.45))
                     .frame(height: 0.5)
             }
-            if let contents {
-                directoryBar(contents: contents)
+            if contents != nil {
+                directoryBar
                 Rectangle()
                     .fill(Color.aw.border2.opacity(0.45))
                     .frame(height: 0.5)
@@ -138,9 +138,21 @@ struct DocumentFileBrowserView: View {
     }
 
     private var browserToolbar: some View {
-        HStack(spacing: 8) {
-            Button(action: onCancel) {
-                Image(systemName: "chevron.left")
+        let breadcrumbs = MarkdownDirectoryBrowser.breadcrumbs(for: currentDirectory)
+        let parent: String? = breadcrumbs.isEmpty ? nil : breadcrumbs.dropLast().last?.relativePath ?? ""
+        let navigationLabel =
+            parent == nil
+            ? cancelLabel : String(localized: "Parent folder", comment: "Navigate to the parent folder in the Markdown browser")
+        return HStack(spacing: 8) {
+            Button {
+                if let parent {
+                    query = ""
+                    currentDirectory = parent
+                } else {
+                    onCancel()
+                }
+            } label: {
+                Image(systemName: parent == nil ? "xmark" : "chevron.left")
                     .font(.system(size: 12, weight: .semibold))
                     .frame(width: 24, height: 24)
             }
@@ -151,8 +163,8 @@ struct DocumentFileBrowserView: View {
                 RoundedRectangle(cornerRadius: 5)
                     .stroke(Color.aw.border2.opacity(0.8), lineWidth: 0.5)
             }
-            .help(cancelLabel)
-            .accessibilityLabel(cancelLabel)
+            .help(navigationLabel)
+            .accessibilityLabel(navigationLabel)
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -216,7 +228,7 @@ struct DocumentFileBrowserView: View {
         }
     }
 
-    private func directoryBar(contents: MarkdownDirectoryContents) -> some View {
+    private var directoryBar: some View {
         HStack(spacing: 6) {
             Button {
                 currentDirectory = ""
@@ -249,25 +261,6 @@ struct DocumentFileBrowserView: View {
             }
 
             Spacer(minLength: 8)
-
-            if let parent = contents.parentRelativePath {
-                Button {
-                    currentDirectory = parent
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 24, height: 22)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.aw.text2)
-                .background(Color.aw.surface.chrome2.opacity(0.7), in: RoundedRectangle(cornerRadius: 5))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(Color.aw.border2.opacity(0.8), lineWidth: 0.5)
-                }
-                .help("Parent folder")
-                .accessibilityLabel("Parent folder")
-            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

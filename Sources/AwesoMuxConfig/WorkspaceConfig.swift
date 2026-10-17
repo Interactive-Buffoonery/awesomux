@@ -12,6 +12,22 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
     @TOMLDefault<DefaultRemoteBrowserAllowedOrigins> public var remoteBrowserAllowedOrigins: [String: [String]]
 
     @TOMLDefault<DefaultRemoteHelperInstallPolicy> public var remoteHelperInstallPolicy: RemoteHelperInstallPolicy
+    @TOMLDefault<DefaultRemoteHelperHostPolicies>
+    public var remoteHelperHostPolicies: [String: RemoteHelperInstallPolicy]
+
+    public func helperInstallPolicy(for destination: String) -> RemoteHelperInstallPolicy {
+        remoteHelperHostPolicies[destination] ?? remoteHelperInstallPolicy
+    }
+
+    public mutating func rememberHelperInstallPolicy(_ policy: RemoteHelperInstallPolicy, for destination: String? = nil) {
+        if let destination {
+            remoteHelperHostPolicies[destination] = policy
+        } else {
+            remoteHelperInstallPolicy = policy
+            remoteHelperHostPolicies.removeAll()
+        }
+    }
+
     @TOMLDefault<DefaultWorkspaceDefaultGroup> private var defaultGroupStorage: String
     public var defaultGroup: String {
         get { defaultGroupStorage }
@@ -68,6 +84,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         confirmCloseWithRunningAgent: Bool = true,
         confirmDestructivePaneActionWithRunningAgent: Bool = true,
         remoteHelperInstallPolicy: RemoteHelperInstallPolicy = .ask,
+        remoteHelperHostPolicies: [String: RemoteHelperInstallPolicy] = [:],
         remoteBrowserEnabled: Bool = true,
         remoteBrowserAllowedOrigins: [String: [String]] = [:],
         managedSSHOffersEnabled: Bool = true,
@@ -82,6 +99,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         self.confirmCloseWithRunningAgent = confirmCloseWithRunningAgent
         self.confirmDestructivePaneActionWithRunningAgent = confirmDestructivePaneActionWithRunningAgent
         self.remoteHelperInstallPolicy = remoteHelperInstallPolicy
+        self.remoteHelperHostPolicies = remoteHelperHostPolicies
         self.remoteBrowserEnabled = remoteBrowserEnabled
         self.remoteBrowserAllowedOrigins = remoteBrowserAllowedOrigins
         self.managedSSHOffersEnabled = managedSSHOffersEnabled
@@ -114,6 +132,9 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
             remoteHelperInstallPolicy: try container.decode(
                 TOMLDefault<DefaultRemoteHelperInstallPolicy>.self,
                 forKey: .remoteHelperInstallPolicy
+            ).wrappedValue,
+            remoteHelperHostPolicies: try container.decode(
+                TOMLDefault<DefaultRemoteHelperHostPolicies>.self, forKey: .remoteHelperHostPolicies
             ).wrappedValue,
             remoteBrowserEnabled: try container.decode(
                 TOMLDefault<DefaultRemoteBrowserEnabled>.self,
@@ -160,6 +181,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
             forKey: .confirmDestructivePaneActionWithRunningAgent
         )
         try container.encode(remoteHelperInstallPolicy, forKey: .remoteHelperInstallPolicy)
+        try container.encode(remoteHelperHostPolicies, forKey: .remoteHelperHostPolicies)
         try container.encode(remoteBrowserEnabled, forKey: .remoteBrowserEnabled)
         try container.encode(remoteBrowserAllowedOrigins, forKey: .remoteBrowserAllowedOrigins)
         try container.encode(managedSSHOffersEnabled, forKey: .managedSSHOffersEnabled)
@@ -182,6 +204,7 @@ public struct WorkspaceConfig: Codable, Equatable, Sendable {
         case confirmCloseWithRunningAgent = "confirm_close_with_running_agent"
         case confirmDestructivePaneActionWithRunningAgent = "confirm_destructive_pane_action_with_running_agent"
         case remoteHelperInstallPolicy = "remote_helper_install_policy"
+        case remoteHelperHostPolicies = "remote_helper_host_policies"
         case remoteBrowserEnabled = "remote_browser_enabled"
         case remoteBrowserAllowedOrigins = "remote_browser_allowed_origins"
         case managedSSHOffersEnabled = "managed_ssh_offers_enabled"
@@ -283,6 +306,12 @@ extension WorkspaceConfig {
                 message: "Browser permissions must contain at most 128 hosts and 128 websites per host"
             )
         }
+        guard remoteHelperHostPolicies.count <= TOMLConfigCodec.maxTableKeys else {
+            throw .invalidValue(
+                path: "workspaces.remote_helper_host_policies",
+                message: "Remembered helper destinations must contain at most \(TOMLConfigCodec.maxTableKeys) entries"
+            )
+        }
         guard managedSSHAlwaysManaged.count <= TOMLConfigCodec.maxTableKeys else {
             throw .invalidValue(
                 path: "workspaces.managed_ssh_always_managed",
@@ -310,4 +339,8 @@ public struct DefaultRemoteBrowserEnabled: DefaultProvider {
 
 public struct DefaultRemoteBrowserAllowedOrigins: DefaultProvider {
     public static let defaultValue: [String: [String]] = [:]
+}
+
+public struct DefaultRemoteHelperHostPolicies: DefaultProvider {
+    public static let defaultValue: [String: WorkspaceConfig.RemoteHelperInstallPolicy] = [:]
 }
