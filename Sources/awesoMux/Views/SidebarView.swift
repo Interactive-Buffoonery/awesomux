@@ -34,6 +34,8 @@ struct SidebarView: View {
     let onClearWorkspace: (TerminalSession) -> Void
     let onCloseWorkspaceGroup: (SessionGroup) -> Void
     let onRenameWorkspace: (TerminalSession) -> Void
+    let onSetWorkspaceEmoji: (TerminalSession) -> Void
+    let onRemoveWorkspaceEmoji: (TerminalSession) -> Void
     let onRenameWorkspaceGroup: (SessionGroup) -> Void
     let onNewWorkspaceGroup: () -> Void
     let onConnectViaSSH: (SessionGroup) -> Void
@@ -356,6 +358,8 @@ struct SidebarView: View {
                                 onRename: {
                                     onRenameWorkspace($0)
                                 },
+                                onSetEmoji: onSetWorkspaceEmoji,
+                                onRemoveEmoji: onRemoveWorkspaceEmoji,
                                 onToggleNotificationsMute: { session in
                                     sessionStore.setNotificationsMuted(
                                         id: session.id,
@@ -1182,6 +1186,8 @@ struct SidebarView: View {
             onRename: {
                 onRenameWorkspace($0)
             },
+            onSetEmoji: onSetWorkspaceEmoji,
+            onRemoveEmoji: onRemoveWorkspaceEmoji,
             onAcknowledge: { session in
                 sessionStore.acknowledgeSession(id: session.id)
             },
@@ -1244,6 +1250,8 @@ struct SidebarView: View {
             onRename: {
                 onRenameWorkspace($0)
             },
+            onSetEmoji: onSetWorkspaceEmoji,
+            onRemoveEmoji: onRemoveWorkspaceEmoji,
             onAcknowledge: { session in
                 sessionStore.acknowledgeSession(id: session.id)
             },

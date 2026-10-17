@@ -72,6 +72,8 @@ struct ContentView: View {
     let onClearWorkspace: (TerminalSession) -> Void
     let onCloseWorkspaceGroup: (SessionGroup) -> Void
     let onRenameWorkspace: (TerminalSession) -> Void
+    let onSetWorkspaceEmoji: (TerminalSession) -> Void
+    let onRemoveWorkspaceEmoji: (TerminalSession) -> Void
     let onRenameWorkspaceGroup: (SessionGroup) -> Void
     let onNewWorkspaceGroup: () -> Void
     let onConnectViaSSH: (SessionGroup) -> Void
@@ -408,6 +410,8 @@ struct ContentView: View {
                         onClearWorkspace: onClearWorkspace,
                         onCloseWorkspaceGroup: onCloseWorkspaceGroup,
                         onRenameWorkspace: onRenameWorkspace,
+                        onSetWorkspaceEmoji: onSetWorkspaceEmoji,
+                        onRemoveWorkspaceEmoji: onRemoveWorkspaceEmoji,
                         onRenameWorkspaceGroup: onRenameWorkspaceGroup,
                         onNewWorkspaceGroup: onNewWorkspaceGroup,
                         onConnectViaSSH: onConnectViaSSH,

@@ -371,6 +371,8 @@ private final class SidebarSearchHostedFixture {
             onClearWorkspace: { _ in },
             onCloseWorkspaceGroup: { _ in },
             onRenameWorkspace: { _ in },
+            onSetWorkspaceEmoji: { _ in },
+            onRemoveWorkspaceEmoji: { _ in },
             onRenameWorkspaceGroup: { _ in },
             onNewWorkspaceGroup: {},
             onConnectViaSSH: { _ in },

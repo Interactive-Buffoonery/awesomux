@@ -7,6 +7,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
     public let title: String
     public let syntheticTitle: SyntheticSessionTitle?
     public let isTitleUserEdited: Bool
+    public let emoji: String?
     public let agentKind: AgentKind
     public let moveOrigin: PaneMoveOrigin?
     public let layout: TerminalPaneLayout
@@ -28,6 +29,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         title: String,
         syntheticTitle: SyntheticSessionTitle? = nil,
         isTitleUserEdited: Bool,
+        emoji: String? = nil,
         agentKind: AgentKind,
         moveOrigin: PaneMoveOrigin? = nil,
         layout: TerminalPaneLayout,
@@ -42,6 +44,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         self.title = title
         self.syntheticTitle = isTitleUserEdited ? nil : syntheticTitle
         self.isTitleUserEdited = isTitleUserEdited
+        self.emoji = WorkspaceEmoji.validated(emoji)
         self.agentKind = agentKind
         self.moveOrigin = moveOrigin
         self.layout = layout
@@ -81,6 +84,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
         case title
         case syntheticTitle
         case isTitleUserEdited
+        case emoji
         case agentKind
         case moveOrigin
         case layout
@@ -127,6 +131,7 @@ public struct RecentlyClosedWorkspace: Codable, Hashable, Sendable {
             title: title,
             syntheticTitle: syntheticTitle,
             isTitleUserEdited: isTitleUserEdited,
+            emoji: (try? container.decodeIfPresent(String.self, forKey: .emoji)) ?? nil,
             agentKind: agentKind,
             moveOrigin: (try? container.decodeIfPresent(PaneMoveOrigin.self, forKey: .moveOrigin)) ?? nil,
             layout: layout,

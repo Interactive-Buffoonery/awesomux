@@ -182,7 +182,8 @@ public enum SidebarVisibleRows {
         // state being announced — not the active pane's kind (INT-504 R1).
         let rollup = session.agentRollup()
         let label = workspaceAccessibilityLabel(
-            title: title ?? session.displayTitle(bundle: bundle, locale: locale),
+            title: [session.emoji, title ?? session.displayTitle(bundle: bundle, locale: locale)]
+                .compactMap { $0 }.joined(separator: " "),
             agentKind: rollup.winningAgentKind,
             state: rollup.state,
             bundle: bundle,
