@@ -5,8 +5,6 @@ import CoreImage.CIFilterBuiltins
 import DesignSystem
 import SwiftUI
 
-let companionTestFlightURL = URL(string: "https://testflight.apple.com/")!  // The real TestFlight link is pending.
-
 struct CompanionSettingsPane: View {
     @Environment(CompanionPairingCoordinator.self) private var coordinator
     @State private var showsPairing = false
@@ -28,11 +26,9 @@ struct CompanionSettingsPane: View {
                 label: String(localized: "iPhone app", comment: "Companion TestFlight row label."),
                 isFirst: true
             ) {
-                Link(
-                    String(localized: "Currently available on TestFlight", comment: "Companion TestFlight link."),
-                    destination: companionTestFlightURL
-                )
-                .accessibilityLabel(String(localized: "Open awesoMux Companion on TestFlight"))
+                // Becomes a TestFlight link once the public link exists.
+                Text(String(localized: "Coming soon to TestFlight", comment: "Companion iPhone app availability."))
+                    .awFont(AwFont.UI.meta)
             }
 
             SettingsField(

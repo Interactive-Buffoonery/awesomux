@@ -1444,6 +1444,9 @@
     "Color…" : {
       "comment" : "Pane title-bar context-menu submenu for choosing a pane color."
     },
+    "Coming soon to TestFlight" : {
+      "comment" : "Companion iPhone app availability."
+    },
     "Command" : {
 
     },
@@ -1873,9 +1876,6 @@
     },
     "Current" : {
       "comment" : "Main worktree indicator."
-    },
-    "Currently available on TestFlight" : {
-      "comment" : "Companion TestFlight link."
     },
     "Cursor" : {
       "comment" : "Terminal settings title."
@@ -3360,9 +3360,6 @@
     },
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
-    },
-    "Open awesoMux Companion on TestFlight" : {
-
     },
     "Open folder %arg" : {
 
