@@ -57,7 +57,7 @@ struct AwesoMuxSettingsView: View {
     @ViewBuilder
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(SettingsSectionID.visibleCases) { section in
+            ForEach(SettingsSectionID.allCases) { section in
                 SettingsSidebarItem(
                     section: section,
                     title: section.title,
@@ -142,11 +142,6 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
     case keys
     case advanced
     case diagnostics
-
-    // Remove this single gate when Companion ships after iPhone end-to-end proof.
-    static var visibleCases: [Self] {
-        allCases.filter { $0 != .companion || AppRuntimeProfile.current != .production }
-    }
 
     var id: Self { self }
 
