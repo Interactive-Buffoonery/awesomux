@@ -74,6 +74,11 @@ final class CompanionPairingCoordinator {
     @ObservationIgnored private var pendingApproval: PendingApproval?
     @ObservationIgnored private var pairingGeneration: UUID?
     @ObservationIgnored private var listenerGeneration = UUID()
+    @ObservationIgnored private var listenerStartTask: Task<Void, Error>?
+    @ObservationIgnored private var listenerStartID: UUID?
+    @ObservationIgnored private var listenerLifecycle = UUID()
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored private var recoveryTask: Task<Void, Never>?
 
     init(
         profile: AppRuntimeProfile,
@@ -105,6 +110,7 @@ final class CompanionPairingCoordinator {
             Task { @MainActor in self?.invalidateConnections(connectionID: connectionID) }
         }
         if let mostRecent = pairedPhones.last, let metadata = mostRecent.companion {
+            startWatchingNetwork()
             Task { await startListener(transport: metadata.transport, preferredPort: metadata.port) }
         }
         #if DEBUG
@@ -137,6 +143,13 @@ final class CompanionPairingCoordinator {
         pairingResult = nil
         let generation = UUID()
         pairingGeneration = generation
+        defer {
+            if pairingGeneration == generation, pairingSession == nil {
+                pairingGeneration = nil
+                stopListenerIfIdle()
+            }
+        }
+        startWatchingNetwork()
         let address = try Self.address(for: transport)
         let loadedIdentity: CompanionIdentity
         do {
@@ -186,7 +199,6 @@ final class CompanionPairingCoordinator {
     }
 
     func cancelPairing() {
-        let wasStarting = pairingGeneration != nil && pairingSession == nil
         let hadPendingApproval = pendingApproval != nil
         expiryTask?.cancel()
         expiryTask = nil
@@ -194,7 +206,6 @@ final class CompanionPairingCoordinator {
         pairingSession = nil
         server?.pairingIsOpen = false
         pairingGeneration = nil
-        if wasStarting { listenerGeneration = UUID() }
         resolveApproval(allowed: false)
         if !hadPendingApproval { stopListenerIfIdle() }
     }
@@ -211,13 +222,18 @@ final class CompanionPairingCoordinator {
     func retryPersistence() throws { try accessStore.retryPersistence() }
 
     func unpair(_ connection: LocalAPIConnectionGrant) throws {
+        defer {
+            lastSeen.removeValue(forKey: connection.id)
+            stopListenerIfIdle()
+        }
         try accessStore.revoke(connectionID: connection.id)
-        lastSeen.removeValue(forKey: connection.id)
-        stopListenerIfIdle()
     }
 
     func stop() {
         cancelPairing()
+        stopWatchingNetwork()
+        listenerLifecycle = UUID()
+        listenerGeneration = UUID()
         server?.stop()
         server = nil
         activeTransport = nil
@@ -229,7 +245,45 @@ final class CompanionPairingCoordinator {
         stopListenerIfIdle()
     }
 
+    private func startWatchingNetwork() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        let lifecycle = listenerLifecycle
+        monitor.pathUpdateHandler = { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.listenerLifecycle == lifecycle, self.pathMonitor != nil else { return }
+                await self.restoreListener()
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "awesomux.companion.path", qos: .utility))
+    }
+
+    private func stopWatchingNetwork() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+    }
+
+    private func restoreListener() async {
+        guard pathMonitor != nil, let metadata = pairedPhones.last?.companion else { return }
+        await startListener(transport: metadata.transport, preferredPort: metadata.port)
+    }
+
+    private func scheduleListenerRecovery() {
+        guard pathMonitor != nil, !pairedPhones.isEmpty, recoveryTask == nil else { return }
+        recoveryTask = Task { [weak self, delay] in
+            try? await delay(.seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            self.recoveryTask = nil
+            await self.restoreListener()
+        }
+    }
+
     private func startListener(transport: LocalAPICompanionTransport, preferredPort: UInt16) async {
+        guard pathMonitor != nil, !pairedPhones.isEmpty else { return }
+        let lifecycle = listenerLifecycle
         do {
             let loadedIdentity = try identity ?? CompanionIdentityStore.loadOrCreate(profile: profile.environmentValue)
             identity = loadedIdentity
@@ -239,11 +293,39 @@ final class CompanionPairingCoordinator {
                 preferredPort: preferredPort
             )
         } catch {
+            guard listenerLifecycle == lifecycle else { return }
             listenerErrorMessage = String(localized: "Companion is not listening. Open Settings and try pairing again.")
+            scheduleListenerRecovery()
         }
     }
 
     private func replaceListener(
+        identity: CompanionIdentity,
+        address: CompanionNetworkAddress,
+        preferredPort: UInt16?
+    ) async throws {
+        let lifecycle = listenerLifecycle
+        let pending = listenerStartTask
+        let requestID = UUID()
+        let task = Task {
+            if let pending { _ = await pending.result }
+            guard listenerLifecycle == lifecycle, !Task.isCancelled else {
+                throw CompanionPairingError.connectionClosed
+            }
+            try await startReplacementListener(identity: identity, address: address, preferredPort: preferredPort)
+        }
+        listenerStartTask = task
+        listenerStartID = requestID
+        defer {
+            if listenerStartID == requestID {
+                listenerStartTask = nil
+                listenerStartID = nil
+            }
+        }
+        try await task.value
+    }
+
+    private func startReplacementListener(
         identity: CompanionIdentity,
         address: CompanionNetworkAddress,
         preferredPort: UInt16?
@@ -253,8 +335,10 @@ final class CompanionPairingCoordinator {
             listenerErrorMessage = nil
             return
         }
+        if pairingSession != nil { endPairing(result: .denied) }
         server?.stop()
         server = nil
+        activeTransport = nil
         guard let service else { throw CompanionPairingError.listenerUnavailable }
         let generation = UUID()
         listenerGeneration = generation
@@ -303,12 +387,20 @@ final class CompanionPairingCoordinator {
                 } else {
                     self.resolveApproval(allowed: false)
                 }
+                self.server?.stop()
                 self.server = nil
                 self.activeTransport = nil
                 self.listenerErrorMessage = String(localized: "Companion is not listening. Open Settings and try pairing again.")
+                self.scheduleListenerRecovery()
+                self.stopListenerIfIdle()
             }
         )
-        try await newServer.start()
+        do {
+            try await newServer.start()
+        } catch {
+            newServer.stop()
+            throw error
+        }
         guard listenerGeneration == generation, !Task.isCancelled else {
             newServer.stop()
             throw CompanionPairingError.connectionClosed
@@ -405,7 +497,10 @@ final class CompanionPairingCoordinator {
     }
 
     private func stopListenerIfIdle() {
-        guard pairedPhones.isEmpty, pairingSession == nil else { return }
+        guard pairedPhones.isEmpty, pairingSession == nil, pairingGeneration == nil else { return }
+        stopWatchingNetwork()
+        listenerLifecycle = UUID()
+        listenerGeneration = UUID()
         server?.stop()
         server = nil
         activeTransport = nil
