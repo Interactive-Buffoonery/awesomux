@@ -62,3 +62,12 @@ Path 1 is recorded here as the rejected alternative and remains defensible — i
 
 - **Revert to `List(selection:)` with custom rows** — rejected on regression-surface grounds. The a11y win is real but identical to what Path 2 produces; the cost is ~150–250 lines of churn concentrated in the header and empty-state code, plus a visual QA pass across collapsed/filtered/empty modes. The "future features benefit" argument did not survive scrutiny — the three tickets it would help with don't actually use the infrastructure `List` provides for free.
 - **Hybrid — `List` for rows, custom group containers around it** — considered and rejected. Nesting `List`s or interleaving `List` with custom containers is exactly the SwiftUI shape that breaks across macOS revisions; we'd inherit `List`'s instability without the simplicity that motivates Path 1 in the first place.
+
+
+## 2026-10-17 update: native hierarchy and drag layout
+
+The normal expanded sidebar now hosts its existing SwiftUI headers, workspace tiles, and create rows in a single AppKit `NSOutlineView`, wrapped in an `NSScrollView`. AppKit owns native drag gaps and hierarchy layout; the existing store move funnels retain ordering and announcements. Group destinations use whole-group bounds captured in the clip coordinate space before the native gap opens, so feedback cannot move its own hit target.
+
+Filtering, the narrow sidebar rail, and pinned/attention sections retain their existing rendering paths. Hosted rows retain the shared visual components, context actions, live-title scopes, and focus bindings. Disclosure is hidden visually rather than disabling native expansion. Drag end restores temporarily hidden rows on the next main-loop turn, after AppKit finishes gap cleanup.
+
+The earlier decision explains why the sidebar used a custom SwiftUI stack; native outline hosting revisits that tradeoff after physical drag testing demonstrated substantially smoother movement. Preserve keyboard and accessibility contracts when changing this bridge.

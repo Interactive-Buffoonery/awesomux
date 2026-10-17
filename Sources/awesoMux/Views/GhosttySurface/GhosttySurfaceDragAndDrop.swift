@@ -64,8 +64,15 @@ extension GhosttySurfaceNSView {
         .URL
     ]
 
+    static func isInternalMoveSource(_ source: Any?) -> Bool {
+        source is SidebarWorkspaceDragSource.DragSourceView || source is SidebarNativeOutlineView.Outline
+            || source is PaneDragSource.DragSourceView
+    }
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard let types = sender.draggingPasteboard.types else { return [] }
+        guard !Self.isInternalMoveSource(sender.draggingSource),
+            let types = sender.draggingPasteboard.types
+        else { return [] }
 
         // AppKit should only offer us types we registered for, but check
         // anyway rather than trust that guarantee blindly.
@@ -82,7 +89,8 @@ extension GhosttySurfaceNSView {
         // gone (e.g. the pane closed in the same gesture as the drop), that
         // insert will no-op. Don't tell AppKit the drop succeeded (and play
         // its drop-accepted animation) when there's nothing left to receive it.
-        guard surface != nil else {
+        // A workspace move is internal app state, not text to insert into a shell.
+        guard !Self.isInternalMoveSource(sender.draggingSource), surface != nil else {
             return false
         }
 

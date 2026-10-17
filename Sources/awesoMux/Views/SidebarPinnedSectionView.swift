@@ -300,6 +300,7 @@ struct SidebarPinnedSectionView: View {
                 originGroupName: item.originGroup.name
             ),
             onDragStarted: { onWorkspaceDragStarted(session.id) },
+            onDragEnded: onDragEnded,
             focusedRowTarget: focusedRowTarget,
             isKeyboardNavigatingValue: isKeyboardNavigating,
             liveTitles: liveTitles,
