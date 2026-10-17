@@ -126,6 +126,12 @@ import PackageDescription
                 path: "Tests/awesoMuxTests/LocalAPIE2E"
             ),
             .executableTarget(
+                name: "companion-pairing-e2e",
+                dependencies: ["AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess"],
+                path: "script/companion-pairing-e2e",
+                linkerSettings: [.linkedFramework("Network"), .linkedFramework("Security")]
+            ),
+            .executableTarget(
                 name: "awesomux-agent",
                 dependencies: ["AwesoMuxLocalAPI", "AwesoMuxLocalAPICredentials"]
             ),

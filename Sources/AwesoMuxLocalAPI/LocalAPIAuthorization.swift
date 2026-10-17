@@ -5,6 +5,7 @@ public enum LocalAPIGrantAction: String, Codable, Sendable {
 }
 
 public enum LocalAPITargetScope: Codable, Equatable, Sendable {
+    case allWorkspaces
     case exactTarget(paneID: UUID, targetVersion: UUID)
     case persistentPanes([UUID])
     case persistentWorkspaces([UUID])
@@ -19,6 +20,8 @@ public enum LocalAPITargetScope: Codable, Equatable, Sendable {
 
     public var isValid: Bool {
         switch self {
+        case .allWorkspaces:
+            true
         case .exactTarget:
             true
         case .persistentPanes(let paneIDs):
@@ -30,6 +33,8 @@ public enum LocalAPITargetScope: Codable, Equatable, Sendable {
 
     public func allows(paneID: UUID, workspaceID: UUID, targetVersion: UUID) -> Bool {
         switch self {
+        case .allWorkspaces:
+            true
         case .exactTarget(let allowedPaneID, let allowedTargetVersion):
             paneID == allowedPaneID && targetVersion == allowedTargetVersion
         case .persistentPanes(let paneIDs):

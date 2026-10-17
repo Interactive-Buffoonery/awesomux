@@ -215,6 +215,7 @@ struct AwesoMuxApp: App {
     @State private var terminalAppearancePreferencesCache: TerminalAppearancePreferencesCache
     @State private var appSettingsStore: AppSettingsStore
     @State private var localAPIAccessStore: LocalAPIAccessStore
+    @State private var companionPairingCoordinator: CompanionPairingCoordinator
     @State private var customCommandStore = CustomCommandStore()
     @State private var agentSetupStore = AgentSetupStore()
     @State private var settingsSectionRequest = SettingsSectionRequest()
@@ -282,6 +283,10 @@ struct AwesoMuxApp: App {
         let localAPIAccessStore = LocalAPIAccessStore(
             profile: runtimeProfile.environmentValue,
             supportDirectoryURL: supportDirectoryURL
+        )
+        let companionPairingCoordinator = CompanionPairingCoordinator(
+            profile: runtimeProfile,
+            accessStore: localAPIAccessStore
         )
         // Detached so synchronous file removal does not inherit MainActor;
         // capture the actor-isolated static logger first because Logger is Sendable.
@@ -366,6 +371,7 @@ struct AwesoMuxApp: App {
         _appSettingsStore = State(initialValue: appSettingsStore)
         RemoteMarkdownReadRouting.appSettingsStore = appSettingsStore
         _localAPIAccessStore = State(initialValue: localAPIAccessStore)
+        _companionPairingCoordinator = State(initialValue: companionPairingCoordinator)
         _sessionStore = State(initialValue: loadResult.store)
         _remoteMarkdownRefreshCoordinator = State(initialValue: remoteMarkdownRefreshCoordinator)
         if let warning = loadResult.recoveryWarning {
@@ -407,7 +413,8 @@ struct AwesoMuxApp: App {
         appDelegate.startLocalAPI(
             store: loadResult.store,
             runtime: ghosttyRuntime,
-            accessStore: localAPIAccessStore
+            accessStore: localAPIAccessStore,
+            companionPairingCoordinator: companionPairingCoordinator
         )
     }
 
@@ -1684,6 +1691,7 @@ struct AwesoMuxApp: App {
             )
                 .environment(appSettingsStore)
             .environment(localAPIAccessStore)
+            .environment(companionPairingCoordinator)
             .environment(ghosttyRuntime)
                 .environment(settingsSectionRequest)
                 // Keys pane manages custom command shortcuts (INT-755).

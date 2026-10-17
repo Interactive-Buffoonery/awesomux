@@ -115,6 +115,8 @@ struct AwesoMuxSettingsView: View {
             TerminalSettingsPane()
         case .agents:
             AgentsSettingsPane()
+        case .companion:
+            CompanionSettingsPane()
         case .notifications:
             NotificationSettingsPane()
         case .workspaces:
@@ -134,6 +136,7 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
     case appearance
     case terminal
     case agents
+    case companion
     case notifications
     case workspaces
     case keys
@@ -148,6 +151,7 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
         case .appearance: "Appearance"
         case .terminal: "Terminal"
         case .agents: "Agents"
+        case .companion: String(localized: "awesoMux Companion", comment: "Companion settings sidebar title.")
         case .notifications: "Notifications"
         case .workspaces: "Workspaces"
         case .keys: "Keys"
@@ -162,6 +166,7 @@ enum SettingsSectionID: String, CaseIterable, Identifiable, Hashable {
         case .appearance: "paintpalette"
         case .terminal: "terminal"
         case .agents: "person.2"
+        case .companion: "iphone.gen3"
         case .notifications: "bell"
         case .workspaces: "sidebar.left"
         case .keys: "keyboard"

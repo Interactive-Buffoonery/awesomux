@@ -38,7 +38,7 @@ struct AgentsSettingsPane: View {
 
     private var showsOutsideAppAccess: Bool {
         keepsOutsideAppAccess || AppRuntimeProfile.current != .production
-            || !accessStore.state.connections.isEmpty
+            || accessStore.state.connections.contains { $0.kind == .outsideApp }
             || accessStore.persistenceFailureMessage != nil || accessStore.loadFailure != nil
     }
 
