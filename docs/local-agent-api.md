@@ -10,6 +10,11 @@ workspace scope, and separately enables global access. Each
 connection has an independent credential and can be edited or revoked without
 changing another connection.
 
+Outside app access is unreleased. Production-profile builds hide the Settings
+section unless a connection already exists, so existing users can still revoke
+it, and omit the Dot skill. The engine still runs and denies every request
+until a connection and global access exist.
+
 ## Components and ownership
 
 ```text

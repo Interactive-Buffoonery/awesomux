@@ -26,7 +26,8 @@ phone-triggered local task using the compatibility link described below.
 
 ## Prepare the local skill
 
-The app build already bundles the source skill at:
+Development builds bundle the source skill at the path below. Release (production
+profile) builds omit it until outside app access is released.
 
 ```text
 awesoMux.app/Contents/Resources/AgentIntegrations/openai/skills/awesomux-read-only/
