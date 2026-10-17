@@ -231,7 +231,60 @@ struct CompanionPairingE2E {
             }
             printJSON(label: "get_agent_context_denied", object: denied)
             guard profile == expectedProfile else { throw E2EFailure("the response profile did not match the staged build") }
-            print("PASS: pairing, certificate pinning, three read-only operations, and context denial")
+            func request(_ operation: String, id: String? = nil) -> sending [String: Any] {
+                [
+                    "schemaVersion": 1, "requestID": UUID().uuidString.lowercased(),
+                    "operation": operation, "connectionID": id ?? connectionID,
+                ]
+            }
+            for (operation, id, expected) in [
+                ("unpair", UUID().uuidString, "permission_denied"),
+                ("unknown_companion_operation", connectionID, "unsupported_operation"),
+            ] {
+                let response = try await call(request(operation, id: id), link: link, identity: identity)
+                guard response["error"] as? String == expected else {
+                    throw E2EFailure("\(operation) did not return \(expected)")
+                }
+                printJSON(label: "\(operation)_denied", object: response)
+            }
+            var invalidUnpair = request("unpair")
+            invalidUnpair["limit"] = 1
+            let invalid = try await call(invalidUnpair, link: link, identity: identity)
+            printJSON(label: "unpair_arguments", object: invalid)
+            guard invalid["error"] as? String == "invalid_request" else {
+                throw E2EFailure("unpair arguments did not return invalid_request")
+            }
+            let stillPaired = try await call(request("get_connection_status"), link: link, identity: identity)
+            guard stillPaired["connectionStatus"] as? String == "connected" else {
+                throw E2EFailure("denied requests revoked the phone")
+            }
+            // Keep a TLS session open across revocation to exercise stale authorization too.
+            let stale = try await CompanionClient.open(link: link, identity: identity).connection
+            defer { stale.cancel() }
+            let unpaired = try await call(request("unpair"), link: link, identity: identity)
+            guard unpaired["error"] == nil, unpaired["profile"] as? String == expectedProfile,
+                unpaired["appInstanceID"] != nil, unpaired["capturedAt"] != nil
+            else { throw E2EFailure("self-unpair was not acknowledged") }
+            printJSON(label: "self_unpair", object: unpaired)
+            do {
+                let response = try await CompanionClient.exchange(request("list_agents"), connection: stale)
+                guard response["error"] != nil else { throw E2EFailure("revoked connection returned data") }
+                printJSON(label: "revoked_connection", object: response)
+            } catch let error as E2EFailure where error.description == "revoked connection returned data" {
+                throw error
+            } catch {
+                print("revoked_connection=closed")
+            }
+            do {
+                let response = try await call(request("get_connection_status"), link: link, identity: identity)
+                guard response["error"] != nil else { throw E2EFailure("revoked phone reconnected") }
+            } catch let error as E2EFailure where error.description == "revoked phone reconnected" {
+                throw error
+            } catch {
+                print("revoked_reconnect=denied")
+            }
+            try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile, expectRevoked: true)
+            print("PASS: pairing, reads, context denial, invalid and unknown requests, self-unpair, and revoked access")
         } catch {
             FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
             Foundation.exit(1)
@@ -265,9 +318,9 @@ struct CompanionPairingE2E {
         )
     }
 
-    private static func writeCleanupResult(profile: String, connectionID: String, to path: String) throws {
+    private static func writeCleanupResult(profile: String, connectionID: String, to path: String, expectRevoked: Bool = false) throws {
         try JSONSerialization.data(
-            withJSONObject: ["profile": profile, "connectionID": connectionID],
+            withJSONObject: ["profile": profile, "connectionID": connectionID, "expectRevoked": String(expectRevoked)],
             options: [.sortedKeys]
         ).write(to: URL(fileURLWithPath: path), options: .atomic)
     }
@@ -292,10 +345,15 @@ struct CompanionPairingE2E {
             profile: profile,
             supportDirectoryURL: appSupport.appending(path: directoryName, directoryHint: .isDirectory)
         )
-        guard store.ownsAuthority,
-            store.state.connections.contains(where: { $0.id == connectionID && $0.kind == .companion && $0.label == "E2E iPhone" })
+        guard store.ownsAuthority else { throw E2EFailure("cleanup store is locked") }
+        guard store.state.connections.contains(where: { $0.id == connectionID }) else {
+            print("cleanup=already_revoked")
+            return
+        }
+        guard store.state.connections.contains(where: { $0.id == connectionID && $0.kind == .companion && $0.label == "E2E iPhone" })
         else { throw E2EFailure("refusing to clean an unexpected or locked connection") }
         try store.revoke(connectionID: connectionID)
+        guard object["expectRevoked"] != "true" else { throw E2EFailure("self-revocation was not persisted") }
     }
 
     private static func verifyWrongSecretIsDenied(link: PairingLink, identity: E2EClientIdentity) async throws {

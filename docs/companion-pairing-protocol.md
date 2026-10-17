@@ -1,6 +1,6 @@
 # awesoMux Companion pairing protocol
 
-This document is the complete Mac-to-iPhone pairing and read-only API contract.
+This document is the complete Mac-to-iPhone pairing, read-only API, and self-unpair contract.
 All integers are decimal unless a representation is stated explicitly.
 
 ## Cryptographic identities
@@ -126,6 +126,7 @@ own exact profile. If `profile` is present, it must match that profile.
 Only these operations are accepted:
 
 - `get_connection_status`, with no operation arguments.
+- `unpair`, with no operation arguments; revokes only the authenticated phone.
 - `list_agents`, with no operation arguments.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
   optional non-empty `cursor` of at most 2,048 UTF-8 bytes.
@@ -180,6 +181,41 @@ Success adds one field:
 
 `connected` means this exact app instance is reachable and the paired
 connection is still authorized.
+
+### `unpair`
+
+The phone asks to revoke its own grant with:
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"unpair","connectionID":"<paired-uuid>"}
+```
+
+The paired certificate must match this non-revoked connection ID, just as for
+`get_connection_status`. No target ID or operation arguments are accepted. A
+phone cannot revoke another phone, and this operation is not available on the
+local bearer-credential API.
+
+After revoking and saving the grant removal, success is the standard envelope
+with no additional fields:
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","profile":"<profile>","appInstanceID":"<uuid>","capturedAt":"<date>"}
+```
+
+The Mac's Companion settings update immediately. Other requests on that grant
+are denied or disconnected immediately; only this acknowledgement is allowed
+to finish on the requesting connection. The connection then closes. Subsequent
+connections fail TLS authentication (or are denied if a pairing window is open).
+A wrong connection ID returns `permission_denied`; operation arguments return
+`invalid_request`. Failure to save revocation returns `transport_failure` or
+closes the connection, and the Mac keeps the existing persistence warning.
+
+The phone waits at most three seconds for the entire attempt, including TLS.
+It always removes its local pairing and key afterwards. If no valid success
+arrives, it keeps a reminder to also choose Unpair in awesoMux Settings on the
+Mac. This includes an unreachable Mac, an interrupted reply, and an older Mac
+returning `unsupported_operation` or `permission_denied`. The older phone's
+local-only unpair still works; its Mac grant must be removed in Mac Settings.
 
 ### `list_agents`
 
