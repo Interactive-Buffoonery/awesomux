@@ -277,7 +277,7 @@ private struct CompanionPairingSheet: View {
             approvalTitle,
             isPresented: Binding(
                 get: { coordinator.approvalPrompt != nil },
-                set: { if !$0 { coordinator.denyPendingPhone() } }
+                set: { _ in }
             ),
             presenting: coordinator.approvalPrompt
         ) { _ in
