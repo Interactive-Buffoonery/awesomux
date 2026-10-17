@@ -128,7 +128,20 @@ dump_companion() {
         echo "== $1 =="
         echo "windows: $(window_names)"
         ax "get entire contents of window \"Terminal Companion\"" || echo "(no companion window)"
+        echo "-- terminal text tail --"
+        terminal_text | tail -c 600
     } >>"$ARTIFACT_DIR/ax-dump.txt"
+}
+
+terminal_text() { ax "get value of text area 1 of group 1 of group 1 of window \"Terminal Companion\"" || true; }
+
+wait_for_text() {
+    local pattern="$1" seconds="$2"
+    for _ in $(seq 1 $((seconds * 4))); do
+        terminal_text | grep -qE "$pattern" && return 0
+        sleep 0.25
+    done
+    return 1
 }
 
 type_line() {
@@ -182,12 +195,16 @@ done
 
 ax "click menu item \"Show Terminal Companion\" of menu \"View\" of menu bar 1" >/dev/null
 wait_for open 10 || { dump_companion "summon failed"; note "FAIL: companion never opened"; exit 1; }
-sleep 4  # let the shell reach its prompt before typing
+# Typing before the shell has drawn its first prompt can be dropped.
+wait_for_text '[^[:space:]]' 20 || { dump_companion "no prompt"; note "FAIL: shell never drew a prompt"; exit 1; }
+sleep 2
 dump_companion "after summon"
 note "companion open"
 
 type_line "Exit"
-sleep 2
+# Proves the keystrokes reached this shell, so a later non-close is real.
+wait_for_text 'command not found: Exit' 10 || { dump_companion "after Exit"; note "FAIL: 'Exit' never reached the companion shell"; exit 1; }
+sleep 1
 if ! companion_open; then
     dump_companion "after Exit"
     note "FAIL: typing 'Exit' (not a shell exit) closed the companion"
@@ -214,18 +231,37 @@ if sed -n '/== after re-summon ==/,$p' "$ARTIFACT_DIR/ax-dump.txt" | grep -q "Te
 fi
 note "re-summoned companion has a live session"
 
-osascript -e "tell application \"System Events\" to tell (first process whose unix id is $TARGET_PID)
-    repeat with e in (entire contents of window \"Terminal Companion\")
-        try
-            if class of e is button and description of e is \"Close Terminal Companion\" then
-                click e
-                exit repeat
-            end if
-        end try
+CLOSE_RESULT="$(osascript -e "tell application \"System Events\"
+tell (first process whose unix id is $TARGET_PID)
+    set out to {}
+    repeat with b in (buttons of group 1 of group 1 of window \"Terminal Companion\")
+        set p to properties of b
+        set d to (name of p as text) & \"|\" & (description of p as text) & \"|\" & (help of p as text)
+        set end of out to d
+        if help of p is \"Close\" then click b
     end repeat
-end tell" >/dev/null 2>&1 || true
+    return out
+end tell
+end tell" 2>&1 || true)"
+note "companion buttons (pressed the close one): $CLOSE_RESULT"
+# close() confirms first when the shell is not provably idle; that dialog is
+# existing behavior, so confirm it and record that it appeared.
+sleep 1
+CONFIRMED="$(osascript -e "tell application \"System Events\"
+tell (first process whose unix id is $TARGET_PID)
+    repeat with w in windows
+        if exists button \"Close Terminal\" of w then
+            click button \"Close Terminal\" of w
+            return \"yes\"
+        end if
+    end repeat
+    return \"no\"
+end tell
+end tell" 2>&1 || true)"
+note "close confirmation appeared and was confirmed: $CONFIRMED"
 if ! wait_for closed 5; then
     dump_companion "after close button"
+    ax "get entire contents of every window" >"$ARTIFACT_DIR/all-windows-after-close.txt" 2>&1 || true
     note "FAIL: close button did not close the re-summoned companion"
     exit 1
 fi
