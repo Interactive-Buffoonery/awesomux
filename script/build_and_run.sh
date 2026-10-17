@@ -702,6 +702,10 @@ done
 if [[ -d "$APP_AGENT_INTEGRATIONS" ]]; then
   mkdir -p "$APP_RESOURCES/AgentIntegrations"
   cp -R "$APP_AGENT_INTEGRATIONS/." "$APP_RESOURCES/AgentIntegrations/"
+  # The Dot skill ships only in development builds until outside app access is released.
+  if [[ "$RUNTIME_PROFILE" == "production" ]]; then
+    rm -rf "$APP_RESOURCES/AgentIntegrations/openai"
+  fi
 fi
 find "$APP_LOCALIZATIONS" -maxdepth 1 -type d -name '*.lproj' -exec cp -R {} "$APP_RESOURCES/" \;
 if ! xcrun --find xcstringstool >/dev/null 2>&1; then
