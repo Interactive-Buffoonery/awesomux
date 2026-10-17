@@ -63,6 +63,7 @@ struct SidebarSessionTile: View {
     /// separate origin to announce (INT-737).
     var originGroupPhrase: String? = nil
     let onDragStarted: () -> UUID
+    let onDragEnded: () -> Void
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
     /// Snapshot of the sidebar's keyboard-modality flag at construction —
     /// what `renderKey` compares and what the focus-ring gate below reads.
@@ -96,6 +97,8 @@ struct SidebarSessionTile: View {
     /// `SidebarPeekModel` so `ContentView` can draw the peek card aligned with
     /// the tile, above the split. See `SidebarPeekModel`.
     @State private var tileFrame: CGRect = .zero
+    @Environment(\.isNativeSidebarRow) private var isNativeSidebarRow
+    @Environment(\.sidebarWorkspaceRotorNamespace) private var rotorNamespace
     @Environment(SidebarPeekModel.self) private var peekModel
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -108,11 +111,8 @@ struct SidebarSessionTile: View {
     /// tracking. Split out of `body` so the type-checker can handle each half
     /// of the modifier chain on its own — the combined chain times out.
     ///
-    /// Plain View + `.onTapGesture` instead of `Button(action:)` — SwiftUI's
-    /// Button on macOS claims the press gesture before `.draggable` can start a
-    /// drag (skill `swiftui-macos-draggable-on-button-silent-fail`). `.draggable`
-    /// sits immediately after `.contentShape` and before `.onTapGesture` /
-    /// `.contextMenu` / accessibility actions so it wins gesture priority. The
+    /// A native drag source owns pointer activation and authoritative drag-end
+    /// callbacks; the SwiftUI tile retains keyboard and accessibility actions. The
     /// always-on below-tile jump digit is added via `.safeAreaInset` (in `body`)
     /// rather than wrapping the row — a wrapper changes the root view and broke
     /// the hover peek escape. `tileContent` stays the root.
@@ -130,6 +130,13 @@ struct SidebarSessionTile: View {
             .overlay(alignment: .leading) { activeRail }
             .awGlow(color: tint.hue.opacity(isActive ? 0.24 : 0), radius: 8)
             .contentShape(Rectangle())
+            .onTapGesture {
+                if isNativeSidebarRow {
+                    isKeyboardNavigating = false
+                    focusedRowTarget.wrappedValue = nil
+                    onSelect()
+                }
+            }
             // Plain `.focusable()` (all interactions) is load-bearing: with
             // interactions restricted to `.activate`, programmatic
             // `focusedRowTarget` writes are silently DROPPED whenever the
@@ -143,15 +150,14 @@ struct SidebarSessionTile: View {
             // on the selected/focused row); the accent `awFocusRing` below is our
             // keyboard-focus indicator and is gated to keyboard navigation.
             .focusEffectDisabled()
+            .sidebarRotorEntry(id: session.id, namespace: rotorNamespace)
             .awFocusRing(
                 showsSearchFocusCue || (isKeyboardFocused && isKeyboardNavigatingValue),
                 cornerRadius: AwRadius.panel
             )
-            // `.simultaneousGesture(TapGesture)` instead of `.onTapGesture`
-            // — see group header for rationale (tap-exclusive blocks drag
-            // activation on macOS).
-            .simultaneousGesture(
-                TapGesture().onEnded {
+            .overlay {
+                SidebarWorkspaceDragSource(
+                    activate: {
                     isKeyboardNavigating = false
                     // INT-652: the mouseDown parked focus on this row (click-to-
                     // focus). `onSelect` hands first responder to the terminal
@@ -161,16 +167,17 @@ struct SidebarSessionTile: View {
                     // selected). A click is a pointer-modality signal: clear it.
                     focusedRowTarget.wrappedValue = nil
                     onSelect()
-                }
-            )
-            .onDrag {
-                let dragID = onDragStarted()
-                let provider = NSItemProvider()
-                registerSidebarDragPayload(
-                    WorkspaceDragItem(sessionID: session.id, dragID: dragID),
-                    on: provider
+                    },
+                    begin: {
+                        let dragID = onDragStarted()
+                        guard let data = try? JSONEncoder().encode(WorkspaceDragItem(sessionID: session.id, dragID: dragID)) else {
+                            onDragEnded()
+                            return nil
+                        }
+                        return (data, onDragEnded)
+                    }
                 )
-                return provider
+                .accessibilityHidden(true)
             }
             // Sibling overlay — avoids nested Button hit-test ambiguity.
             .overlay(alignment: .trailing) { closeButton }
@@ -183,12 +190,7 @@ struct SidebarSessionTile: View {
             // `.global` resolve — pure waste, the inline row already shows all.
             .background {
                 if canPeek {
-                    Color.clear
-                        .onGeometryChange(for: CGRect.self) { proxy in
-                            proxy.frame(in: .global)
-                        } action: {
-                            tileFrame = $0
-                        }
+                    SidebarRowGeometry { tileFrame = $0 }
                 }
             }
             .onHover { hovering in
@@ -766,7 +768,7 @@ struct SidebarSessionTile: View {
         if isActive, displayMode != .collapsed {
             RoundedRectangle(cornerRadius: 2)
                 .fill(tint.hue)
-                .frame(width: isHighContrast ? 4 : 2)
+                .frame(width: isHighContrast ? 5 : 4)
                 .padding(.vertical, isHighContrast ? 6 : 8)
                 .offset(x: -1)
                 .awGlow(color: tint.hue.opacity(0.7), radius: 5)
@@ -877,7 +879,7 @@ struct SidebarSessionTile: View {
         let lineWidth: CGFloat = {
             if isActive {
                 if isHighContrast { return 2.0 }
-                return displayMode == .collapsed ? 1.5 : 0.75
+                return 1.5
             }
             return isHighContrast ? 1.0 : 0.5
         }()
@@ -893,7 +895,7 @@ struct SidebarSessionTile: View {
             ? StrokeStyle(lineWidth: lineWidth, dash: needsDash)
             : StrokeStyle(lineWidth: lineWidth)
         return RoundedRectangle(cornerRadius: AwRadius.panel)
-            .stroke(strokeColor, style: strokeStyle)
+            .strokeBorder(strokeColor, style: strokeStyle)
     }
 
     private var promotionPulseOverlay: some View {

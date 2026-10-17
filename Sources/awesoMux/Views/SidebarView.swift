@@ -61,6 +61,7 @@ struct SidebarView: View {
     @State private var searchText = ""
     @State private var collapsedGroupIDs = Set<SessionGroup.ID>()
     @State private var activeDragKind: SidebarDragKind?
+    @State private var nativeDragKind: SidebarDragKind?
     @State private var activeDragID: UUID?
     @State private var activeGroupDragSourceID: SessionGroup.ID?
     @State private var activeWorkspaceDragSourceID: TerminalSession.ID?
@@ -82,6 +83,7 @@ struct SidebarView: View {
     @State private var groupDropIndex: Int?
     @State private var isSearchFocused = false
     @State private var focusedSearchSessionID: TerminalSession.ID?
+    @Namespace private var workspaceRotorNamespace
     @FocusState private var focusedRowTarget: SidebarVisibleRowTarget?
     @State private var emptyFocusRequestID = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -215,50 +217,14 @@ struct SidebarView: View {
             uniquingKeysWith: { first, _ in first }
         )
 
-        return VStack(spacing: 0) {
-            searchHeader(
-                topMatchID: snapshot.topMatchID,
-                searchResultIDs: searchResultIDs,
-                displayedTitles: displayedTitles
-            )
+        let entryByGroupID = Dictionary(snapshot.entries.map { ($0.group.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let workspaceLocation = Dictionary(
+            snapshot.entries.flatMap { entry in
+                entry.sessions.enumerated().map { ($0.element.session.id, (entry.group.id, $0.offset)) }
+            }, uniquingKeysWith: { first, _ in first })
 
-            GeometryReader { scrollViewport in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: density.groupStackSpacing) {
-                        if !snapshot.attention.isEmpty {
-                            attentionSection(
-                                attention: snapshot.attention,
-                                density: density,
-                                isFiltering: isFiltering,
-                                jumpIndexBySessionID: jumpIndexBySessionID,
-                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID,
-                                displayedTitles: displayedTitles
-                            )
-                        }
-
-                        if !snapshot.pinned.isEmpty {
-                            pinnedSection(
-                                pinned: snapshot.pinned,
-                                density: density,
-                                isFiltering: isFiltering,
-                                jumpIndexBySessionID: jumpIndexBySessionID,
-                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID,
-                                displayedTitles: displayedTitles
-                            )
-                        }
-
-                        if sessionStore.groups.isEmpty,
-                            !isFiltering,
-                            displayMode == .collapsed
-                        {
-                            CollapsedEmptySidebarAction(
-                                onNewWorkspace: addWorkspaceInCurrentContext,
-                                focusRequestID: emptyFocusRequestID
-                            )
-                        }
-
-                        ForEach(snapshot.entries, id: \.group.id) { entry in
-                            SidebarGroupView(
+        let makeGroupView: @MainActor (SidebarGroupEntry) -> SidebarGroupView = { entry in
+            SidebarGroupView(
                                 group: entry.group,
                                 entries: entry.sessions,
                                 density: density,
@@ -324,7 +290,7 @@ struct SidebarView: View {
                                     )
                                 },
                                 onMoveGroup: moveGroup(fromIndex:toIndex:),
-                                activeDragKind: activeDragKind,
+                activeDragKind: activeDragKind ?? nativeDragKind,
                                 activeDragID: activeDragID,
                                 activeWorkspaceDragSourceID: activeWorkspaceDragSourceID,
                                 activeWorkspaceDragSourceGroupID: activeWorkspaceDragSourceGroupID,
@@ -373,6 +339,151 @@ struct SidebarView: View {
                                 focusedSearchSessionID: focusedSearchSessionID,
                                 isKeyboardNavigating: $isKeyboardNavigating
                             )
+        }
+
+        return VStack(spacing: 0) {
+            searchHeader(
+                topMatchID: snapshot.topMatchID,
+                searchResultIDs: searchResultIDs,
+                displayedTitles: displayedTitles
+            )
+
+            GeometryReader { scrollViewport in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: density.groupStackSpacing) {
+                        if !snapshot.attention.isEmpty {
+                            attentionSection(
+                                attention: snapshot.attention,
+                                density: density,
+                                isFiltering: isFiltering,
+                                jumpIndexBySessionID: jumpIndexBySessionID,
+                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID,
+                                displayedTitles: displayedTitles
+                            )
+                        }
+
+                        if !snapshot.pinned.isEmpty {
+                            pinnedSection(
+                                pinned: snapshot.pinned,
+                                density: density,
+                                isFiltering: isFiltering,
+                                jumpIndexBySessionID: jumpIndexBySessionID,
+                                duplicateDisambiguationBySessionID: duplicateDisambiguationBySessionID,
+                                displayedTitles: displayedTitles
+                            )
+                        }
+
+                        if sessionStore.groups.isEmpty,
+                            !isFiltering,
+                            displayMode == .collapsed
+                        {
+                            CollapsedEmptySidebarAction(
+                                onNewWorkspace: addWorkspaceInCurrentContext,
+                                focusRequestID: emptyFocusRequestID
+                            )
+                        }
+
+                        if !isFiltering, displayMode != .collapsed {
+                            SidebarNativeOutlineView(
+                                groups: sessionStore.groups.map { group in
+                                    SidebarNativeOutlineView.Group(
+                                        id: group.id,
+                                        name: group.name,
+                                        workspaces: (entryByGroupID[group.id]?.sessions ?? []).map {
+                                            entry in
+                                            SidebarNativeOutlineView.Workspace(
+                                                id: entry.session.id,
+                                                title: displayedTitles[entry.session.id] ?? entry.session.title,
+                                                path: entry.session.workingDirectory
+                                            )
+                                        }
+                                    )
+                                },
+                                collapsedIDs: collapsedGroupIDs,
+                                selectedID: sessionStore.selectedSessionID,
+                                select: { id in
+                                    isKeyboardNavigating = false
+                                    focusedRowTarget = nil
+                                    if let session = sessionStore.groups.flatMap(\.sessions).first(where: { $0.id == id }) {
+                                        selectSession(session)
+                                    }
+                                },
+                                collapse: { id, collapsed in
+                                    if collapsed { collapsedGroupIDs.insert(id) } else { collapsedGroupIDs.remove(id) }
+                                },
+                                moveWorkspace: { id, group, index in moveSession(id, toGroupID: group, atIndex: index) },
+                                moveGroup: { id, index in moveGroup(id: id, preRemovalIndex: index) },
+                                keyboardSelect: { id in
+                                    focusKeyboardTarget(.session(id), viaKeyboardNavigation: true)
+                                },
+                                keyboardFocusedKey: nativeKeyboardFocusedKey,
+                                incomingWorkspace: activeDragKind == .workspace && !activeWorkspaceDragSourceWasPinned
+                                    ? activeWorkspaceDragSourceID.flatMap { id in
+                                        activeDragID.map { WorkspaceDragItem(sessionID: id, dragID: $0) }
+                                    } : nil,
+                                dragActivityChanged: { kind in
+                                    nativeDragKind = kind
+                                    if kind != nil {
+                                        onSidebarHover(true)
+                                    } else if let inside = resampleSidebarPointer() {
+                                        onSidebarHover(inside)
+                                    }
+                                },
+                                activateGroup: { id in
+                                    isKeyboardNavigating = false
+                                    focusedRowTarget = .group(id)
+                                },
+                                createWorkspace: { id in
+                                    if let entry = snapshot.entries.first(where: { $0.group.id == id }) {
+                                        makeGroupView(entry).onNewSessionInGroup()
+                                    }
+                                },
+                                rowSpacing: density.sessionStackSpacing,
+                                content: { key in
+                                    let entry: SidebarGroupEntry?
+                                    switch key {
+                                    case let .group(id), let .newWorkspace(id): entry = entryByGroupID[id]
+                                    case let .workspace(id): entry = workspaceLocation[id].flatMap { entryByGroupID[$0.0] }
+                                    }
+                                    if let entry {
+                                        var view = makeGroupView(entry)
+                                        view.nativeRow = key
+                                        if case let .workspace(id) = key { view.nativeWorkspaceOffset = workspaceLocation[id]?.1 }
+                                        return AnyView(
+                                            view
+                                                .onMoveCommand { direction in
+                                                    switch direction {
+                                                    case .up: moveKeyboardFocus(offset: -1, visibleRows: visibleRows)
+                                                    case .down: moveKeyboardFocus(offset: 1, visibleRows: visibleRows)
+                                                    case .left:
+                                                        if case let .group(id) = key { collapsedGroupIDs.insert(id) }
+                                                    case .right:
+                                                        if case let .group(id) = key { collapsedGroupIDs.remove(id) }
+                                                    default: break
+                                                    }
+                                                }
+                                                .onKeyPress(.home) {
+                                                    focusKeyboardTarget(
+                                                        SidebarVisibleRows.firstTarget(in: visibleRows), viaKeyboardNavigation: true)
+                                                    return .handled
+                                                }
+                                                .onKeyPress(.end) {
+                                                    focusKeyboardTarget(
+                                                        SidebarVisibleRows.lastTarget(in: visibleRows), viaKeyboardNavigation: true)
+                                                    return .handled
+                                                }
+                                                .onKeyPress(keys: [.return, .space], phases: .down) { press in
+                                                    guard press.modifiers.subtracting(.capsLock).isEmpty else { return .ignored }
+                                                    return activateNativeKeyboardRow(key)
+                                                }
+                                        )
+                                    }
+                                    return AnyView(EmptyView())
+                                }
+                            )
+                        } else {
+                            ForEach(snapshot.entries, id: \.group.id) { entry in
+                                makeGroupView(entry)
                             .background(
                                 GeometryReader { proxy in
                                     Color.clear
@@ -393,6 +504,7 @@ struct SidebarView: View {
                             // per-section delegate here would be a redundant,
                             // separately-computed move owner — exactly the
                             // double-apply risk the review flagged.
+                        }
                         }
 
                         if SidebarSearchModePolicy.showsNoMatches(
@@ -532,18 +644,23 @@ struct SidebarView: View {
         .onHover { pointerInside in
             guard
                 let publication = SidebarDragPointerPolicy.hoverPublication(
-                    isDragActive: activeDragID != nil,
+                    isDragActive: activeDragID != nil || nativeDragKind != nil,
                     pointerInside: pointerInside
                 )
             else { return }
             onSidebarHover(publication)
         }
-        .accessibilityRotor(
-            "Workspaces",
-            entries: rotorEntries,
-            entryID: \.id,
-            entryLabel: \.label
-        )
+        .accessibilityRotor("Workspaces") {
+            ForEach(rotorEntries) { entry in
+                AccessibilityRotorEntry(Text(verbatim: entry.label), id: entry.id, in: workspaceRotorNamespace) {
+                    if !sessionStore.isPinned(entry.id), !sessionStore.liftedSessionIDs.contains(entry.id),
+                        let owner = sessionStore.groups.first(where: { $0.sessions.contains { $0.id == entry.id } })
+                    {
+                        collapsedGroupIDs.remove(owner.id)
+                    }
+                }
+            }
+        }
         .onMoveCommand { direction in
             switch direction {
             case .up:
@@ -780,7 +897,9 @@ struct SidebarView: View {
         }
         .environment(ghosttyRuntime)
         .environment(sessionStore)
+        .environment(\.sidebarWorkspaceRotorNamespace, workspaceRotorNamespace)
         .environment(\.isCommandKeyHeld, isCommandKeyHeld)
+        .environment(\.isSidebarWorkspaceDragActive, activeDragKind == .workspace || nativeDragKind == .workspace)
         .modifier(CollapsedCommandKeyTracking(isCollapsed: displayMode == .collapsed, isHeld: $isCommandKeyHeld))
     }
 
@@ -1037,6 +1156,29 @@ struct SidebarView: View {
         searchText = ""
     }
 
+    private var nativeKeyboardFocusedKey: SidebarNativeOutlineView.Key? {
+        guard isKeyboardNavigating, let focusedRowTarget else { return nil }
+        switch focusedRowTarget {
+        case let .group(id): return .group(id)
+        case let .session(id): return .workspace(id)
+        }
+    }
+
+    private func activateNativeKeyboardRow(_ key: SidebarNativeOutlineView.Key) -> KeyPress.Result {
+        switch key {
+        case let .group(id):
+            guard focusedRowTarget == .group(id) else { return .ignored }
+            toggleGroup(id)
+        case let .workspace(id):
+            guard focusedRowTarget == .session(id), let session = sessionStore.session(id: id) else { return .ignored }
+            focusedRowTarget = nil
+            isKeyboardNavigating = false
+            selectSession(session)
+        case .newWorkspace: return .ignored
+        }
+        return .handled
+    }
+
     private func focusKeyboardTarget(
         _ target: SidebarVisibleRowTarget?,
         viaKeyboardNavigation: Bool = false
@@ -1208,6 +1350,7 @@ struct SidebarView: View {
                 )
             },
             onWorkspaceDragStarted: beginWorkspaceDrag,
+            onDragEnded: clearSidebarDragState,
             focusedRowTarget: $focusedRowTarget,
             focusedSearchSessionID: focusedSearchSessionID,
             isKeyboardNavigating: $isKeyboardNavigating
@@ -1371,12 +1514,29 @@ struct SidebarView: View {
         toGroupID destinationGroupID: SessionGroup.ID,
         atIndex index: Int
     ) {
+        var storedIndex = index
+        if index != SessionStore.appendIndex {
+            // Resolve from the live store: equatable tiles can retain their action closures.
+            guard let group = sessionStore.groups.first(where: { $0.id == destinationGroupID }),
+                let entry = computedSnapshot(query: "", isFiltering: false, titles: [:]).entries.first(where: {
+                    $0.group.id == destinationGroupID
+                }),
+                let resolvedIndex = SidebarInsertionResolver.storedWorkspaceTargetIndex(
+                    sourceID: sessionID, visibleTargetIndex: index,
+                    visibleIDs: entry.sessions.map(\.session.id), storedIDs: group.sessions.map(\.id)
+                )
+            else { return }
+            storedIndex = resolvedIndex
+        }
+        let previousOrder = sessionStore.groups.map { $0.sessions.map(\.id) }
         sessionStore.moveSession(
             id: sessionID,
             toGroupID: destinationGroupID,
-            atIndex: index
+            atIndex: storedIndex
         )
-        announceWorkspaceReorder(sessionID)
+        if previousOrder != sessionStore.groups.map({ $0.sessions.map(\.id) }) {
+            announceWorkspaceReorder(sessionID)
+        }
     }
 
     /// Index-based group move (keyboard "Move Group Up/Down" a11y actions).
@@ -1529,6 +1689,7 @@ struct SidebarView: View {
         if activeDragKind != kind {
             activeDragKind = kind
         }
+        guard kind != .workspace else { return }
         let now = Date()
         let clearIsSoon =
             sidebarDragClearDeadline.map {
@@ -1579,6 +1740,11 @@ struct SidebarView: View {
     }
 
     private func scheduleSidebarDragStateClear(delay: TimeInterval) {
+        guard let delay = SidebarDragStateTiming.clearDelay(delay, for: activeDragKind) else {
+            dragClearScheduler.cancel()
+            sidebarDragClearDeadline = nil
+            return
+        }
         sidebarDragClearDeadline = Date().addingTimeInterval(delay)
         dragClearScheduler.schedule(after: delay) {
             resetActiveDragState()
@@ -1952,7 +2118,7 @@ private struct SidebarActivityPanelTitleScope: View {
     }
 }
 
-private enum SidebarDragStateTiming {
+enum SidebarDragStateTiming {
     // SwiftUI exposes no reliable drag-cancel callback for legacy .onDrag.
     // The active timeout exists ONLY to recover state if a drag is lost
     // (cancelled with no exit callback). It is refreshed on `dropUpdated`,
@@ -1962,6 +2128,12 @@ private enum SidebarDragStateTiming {
     // evidence of a lost drag, so erring large here is harmless.
     static let activeTimeout: TimeInterval = 120
     static let exitTimeout: TimeInterval = 0.18
+
+    static func clearDelay(_ requestedDelay: TimeInterval, for kind: SidebarDragKind?) -> TimeInterval? {
+        // Only the native end callback can distinguish a live workspace drag from a cancelled one.
+        kind == .workspace ? nil : requestedDelay
+    }
+
     static let watchdogRefreshInterval: TimeInterval = 0.75
 }
 

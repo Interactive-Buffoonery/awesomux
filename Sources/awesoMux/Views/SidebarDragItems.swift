@@ -1,3 +1,4 @@
+import AppKit
 import AwesoMuxCore
 import Foundation
 import UniformTypeIdentifiers
@@ -30,6 +31,13 @@ struct WorkspaceDragItem: Codable {
         self.kind = .workspace
         self.sessionID = sessionID
         self.dragID = dragID
+    }
+
+    init?(data: Data, expectedDragID: UUID) {
+        guard let item = try? JSONDecoder().decode(Self.self, from: data),
+            item.kind == .workspace, item.dragID == expectedDragID
+        else { return nil }
+        self = item
     }
 }
 
@@ -66,10 +74,21 @@ func registerSidebarDragPayload<T: Encodable>(
 /// Decode a `WorkspaceDragItem` from an NSItemProvider. Validates the
 /// payload's `kind` discriminator so a group drag can't be misinterpreted
 /// as a workspace drag (both ride the same UTType wire format).
+@MainActor
 func decodeWorkspaceDragItem(
     from provider: NSItemProvider,
+    expectedDragID: UUID?,
     completion: @MainActor @escaping (WorkspaceDragItem) -> Void
 ) {
+    // Native sidebar sources already wrote the payload: commit before clearing
+    // the preview, rather than restoring the old layout during an async load.
+    if let expectedDragID,
+        let data = NSPasteboard(name: .drag).data(forType: .init(UTType.utf8PlainText.identifier)),
+        let item = WorkspaceDragItem(data: data, expectedDragID: expectedDragID)
+    {
+        completion(item)
+        return
+    }
     provider.loadDataRepresentation(forTypeIdentifier: UTType.utf8PlainText.identifier) { data, _ in
         guard let data,
               let item = try? JSONDecoder().decode(WorkspaceDragItem.self, from: data),
