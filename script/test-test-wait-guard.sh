@@ -4,11 +4,24 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_FIXTURE="$ROOT_DIR/Tests/AwesoMuxCoreTests/TestWaitGuardFixture.swift"
 SYSTEM_FIXTURE="$ROOT_DIR/Tests/awesoMuxTests/TestWaitGuardFixture.swift"
+guard_fixture=""
+
+cleanup_guard_fixture() {
+    [[ -n "$guard_fixture" ]] || return 0
+    if command -v trash >/dev/null 2>&1 && trash "$guard_fixture"; then
+        guard_fixture=""
+        return
+    fi
+    # Linux CI has no trash command; this tree contains only disposable fixtures.
+    find "$guard_fixture" -depth -delete
+    guard_fixture=""
+}
 
 cleanup() {
     git -C "$ROOT_DIR" reset --quiet -- "$UNIT_FIXTURE" "$SYSTEM_FIXTURE" 2>/dev/null || true
     unlink "$UNIT_FIXTURE" 2>/dev/null || true
     unlink "$SYSTEM_FIXTURE" 2>/dev/null || true
+    cleanup_guard_fixture
 }
 trap cleanup EXIT
 
@@ -116,5 +129,31 @@ printf 'let a = ShellWait.untilExists(path: p)\nlet b = ShellWait.untilExists(va
     > "$SYSTEM_FIXTURE"
 git -C "$ROOT_DIR" add -N "$SYSTEM_FIXTURE"
 TEST_WAIT_BASE=HEAD "$ROOT_DIR/script/check_test_waits.sh" >/dev/null
+
+# Production pipe readiness has one sanctioned bounded syscall; the exception
+# must not admit unbounded polls, unrelated sleeps, or the same call elsewhere.
+guard_fixture=$(mktemp -d "${TMPDIR:-/tmp}/amx-wait-guard.XXXXXX")
+mkdir -p "$guard_fixture/script" "$guard_fixture/Sources/awesoMux/Services"
+cp "$ROOT_DIR/script/check_test_waits.sh" "$guard_fixture/script/"
+git -C "$guard_fixture" init --quiet
+git -C "$guard_fixture" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    commit --quiet --allow-empty -m fixture
+transport_fixture="$guard_fixture/Sources/awesoMux/Services/ProcessCodexAppServerTransport.swift"
+printf 'let ready = poll(&descriptorState, 1, 25)\n' > "$transport_fixture"
+TEST_WAIT_BASE=HEAD "$guard_fixture/script/check_test_waits.sh" >/dev/null
+for call in 'let ready = poll(&descriptorState, 1, -1)' 'try await Task.sleep(for: .seconds(1))'; do
+    printf '%s\n' "$call" > "$transport_fixture"
+    if TEST_WAIT_BASE=HEAD "$guard_fixture/script/check_test_waits.sh" >/dev/null 2>&1; then
+        echo "error: production pipe exception accepted an unrelated wait" >&2
+        exit 1
+    fi
+done
+printf 'let ready = poll(&descriptorState, 1, 25)\n' > "$transport_fixture"
+mv "$transport_fixture" "$guard_fixture/Sources/awesoMux/Services/Other.swift"
+if TEST_WAIT_BASE=HEAD "$guard_fixture/script/check_test_waits.sh" >/dev/null 2>&1; then
+    echo "error: production pipe exception accepted another file" >&2
+    exit 1
+fi
+cleanup_guard_fixture
 
 echo "Test wait guard tests passed"

@@ -121,16 +121,13 @@ actor ProcessCodexAppServerClient: CodexAppServerClient {
 
         let envelope = RequestEnvelope(id: id, method: method, params: params)
         let data = try encoder.encode(envelope)
-        try await transport.send(data)
 
-        // Bound the wait: a server that accepts the request but never replies and
-        // never closes its stdout would otherwise park the receive loop forever,
-        // and the single-in-flight actor would wedge the whole client. Racing the
-        // correlation loop against a deadline keeps the §4 version-skew contract
-        // ("no crash/hang") — the caller gets `requestTimedOut` and degrades.
+        // Bound transmission as well as the response wait: a server can stop
+        // reading stdin before the request fits in the pipe. Both operations
+        // must run inside the deadline and cancellation scope.
         // The losing child is cancelled on exit; the transport's own `close()`
         // unblocks any read still parked in the real stdio transport.
-        let timeout = requestTimeout
+        let deadline = ContinuousClock.now.advanced(by: requestTimeout)
         // Shared deadline flag: closing the transport to unblock a parked read
         // makes `correlate` observe EOF (`connectionClosed`) at almost the same
         // instant the deadline child throws. To keep the §4 contract surfacing
@@ -150,13 +147,15 @@ actor ProcessCodexAppServerClient: CodexAppServerClient {
             try await withThrowingTaskGroup(of: JSONValue.self) { group in
                 group.addTask { [transport] in
                     do {
+                        try Task.checkCancellation()
+                        try await transport.send(data)
                         return try await Self.correlate(id: id, method: method, transport: transport)
                     } catch CodexAppServerError.connectionClosed where timedOut.isSet {
                         throw CodexAppServerError.requestTimedOut(method: method)
                     }
                 }
                 group.addTask { [transport] in
-                    try await Task.sleep(for: timeout)
+                    try await ContinuousClock().sleep(until: deadline)
                     timedOut.set()
                     transport.close()
                     throw CodexAppServerError.requestTimedOut(method: method)
