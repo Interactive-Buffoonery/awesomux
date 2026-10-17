@@ -22,7 +22,8 @@ struct LocalAPICredentialBroker: Sendable {
     func register(
         in store: LocalAPIAccessStore,
         label: String,
-        statusScope: LocalAPITargetScope
+        statusScope: LocalAPITargetScope,
+        validateBeforeActivation: @MainActor () async throws -> Void
     ) async throws -> LocalAPIConnectionGrant {
         let profile = store.state.profile
         let pending = try store.prepareRegistration(label: label, statusScope: statusScope)
@@ -33,10 +34,12 @@ struct LocalAPICredentialBroker: Sendable {
             credential: pending.credential
         )
         do {
+            try await validateBeforeActivation()
+            try Task.checkCancellation()
             try store.activateRegistration(pending)
             return pending.connection
         } catch {
-            let activationError = error
+            let registrationError = error
             do {
                 try await runCredentialCommand(
                     "delete",
@@ -47,7 +50,7 @@ struct LocalAPICredentialBroker: Sendable {
                 Self.logger.error("Could not remove an unused credential after connection registration failed.")
                 throw LocalAPICredentialBrokerError.cleanupFailed
             }
-            throw activationError
+            throw registrationError
         }
     }
 
