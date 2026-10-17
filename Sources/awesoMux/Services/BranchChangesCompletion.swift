@@ -20,6 +20,9 @@ enum BranchChangesCompletion {
     ///   render lands, the bytes are still finalized but no tab opens — closing
     ///   a tab mid-refresh must not resurrect it. Nil (menu, palette, command
     ///   palette) always opens.
+    /// - Parameter refreshWasSuperseded: called when this run cancelled a tab's
+    ///   own Refresh and then opened somewhere other than that still-open tab,
+    ///   so the click the user made is visibly accounted for.
     static func apply(
         _ result: Result<OpenedBranchChanges, BranchChangesFailure>,
         paneID: TerminalPane.ID,
@@ -30,6 +33,7 @@ enum BranchChangesCompletion {
         completeWrite: (URL) -> Void,
         alert: (BranchChangesFailure) -> Void,
         comparisonDidChange: ((BranchChangesIdentity) -> Void)? = nil,
+        refreshWasSuperseded: ((BranchChangesIdentity) -> Void)? = nil,
         requestFocus: ((DocumentPane.ID, TerminalSession.ID) -> Void)? = nil
     ) {
         finalizeWrite(
@@ -100,7 +104,17 @@ enum BranchChangesCompletion {
                 return
             }
             requestFocus?(tabID, documentOwnerID)
-            if comparisonChanged {
+            let supersededTab = coordinator.supersededRefreshTab(for: paneID)
+            if let supersededTab, supersededTab != tabID, store.containsDocumentTab(supersededTab) {
+                refreshWasSuperseded?(opened.identity)
+                TerminalAccessibilityAnnouncer.announce(
+                    String(
+                        localized: "Branch changes opened in another tab. The earlier Refresh was replaced.",
+                        comment:
+                            "VoiceOver announcement when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
+                    )
+                )
+            } else if comparisonChanged {
                 comparisonDidChange?(opened.identity)
                 TerminalAccessibilityAnnouncer.announce(
                     String(
