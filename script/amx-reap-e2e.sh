@@ -4,7 +4,7 @@ set -u
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REAPER="${1:-$ROOT_DIR/script/amx-reap.sh}"
 FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/awesomux-amx-reap-e2e.XXXXXX")"
-trap 'trash "$FIXTURE_ROOT" >/dev/null 2>&1 || true' EXIT
+trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 
 FAKE_AMX="$FIXTURE_ROOT/amx"
 cat > "$FAKE_AMX" <<'EOF'
@@ -121,13 +121,17 @@ run_case \
   'could not read owned session ids' \
   ''
 
-run_case \
-  state-unreadable \
-  orphans \
-  UNREADABLE \
-  nonzero \
-  'could not read owned session ids' \
-  ''
+if [[ "$(id -u)" -eq 0 ]]; then
+  echo 'SKIP state-unreadable: root can read mode-000 files'
+else
+  run_case \
+    state-unreadable \
+    orphans \
+    UNREADABLE \
+    nonzero \
+    'could not read owned session ids' \
+    ''
+fi
 
 run_case \
   state-directory \
