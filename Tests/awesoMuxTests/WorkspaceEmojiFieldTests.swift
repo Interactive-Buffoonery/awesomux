@@ -76,6 +76,26 @@ struct WorkspaceEmojiFieldTests {
         #expect(presentations == 2)
     }
 
+    @Test("reattaching the editor starts a new picker presentation")
+    func pickerReattaches() async {
+        let field = WorkspaceEmojiTextView(frame: NSRect(x: 0, y: 0, width: 64, height: 36))
+        var presentations = 0
+        field.openCharacterPalette = { _ in presentations += 1 }
+        for expected in 1...2 {
+            let window = EmojiTestWindow(
+                contentRect: field.bounds, styleMask: [.borderless], backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.testIsKey = true
+            window.contentView = field
+            field.requestPicker(0)
+            await drainMainQueue()
+            #expect(presentations == expected)
+            window.contentView = nil
+            window.close()
+        }
+    }
+
     private func drainMainQueue() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }

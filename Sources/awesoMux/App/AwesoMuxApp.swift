@@ -1246,7 +1246,11 @@ struct AwesoMuxApp: App {
                 .keyboardShortcut(shortcut(KeyboardShortcutCatalog.renameWorkspace))
                 .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)
 
-                Button(String(localized: "Set Workspace Emoji…", comment: "Opens the emoji editor for a workspace.")) {
+                Button(
+                    sessionStore.selectedSession?.emoji == nil
+                        ? String(localized: "Set Emoji…", comment: "Opens the emoji editor for a workspace with no emoji.")
+                        : String(localized: "Replace Emoji…", comment: "Opens the emoji editor to replace the workspace emoji.")
+                ) {
                     if let session = sessionStore.selectedSession { requestSetWorkspaceEmoji(session) }
                 }
                 .disabled(sessionStore.selectedSession == nil || isAnySheetPresented)

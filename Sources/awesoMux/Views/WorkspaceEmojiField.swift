@@ -79,6 +79,7 @@ final class WorkspaceEmojiTextView: NSTextView, NSTextViewDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        fulfilledPickerID = nil
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
         if let window {
             NotificationCenter.default.addObserver(
@@ -106,6 +107,8 @@ final class WorkspaceEmojiTextView: NSTextView, NSTextViewDelegate {
             // Reopening from a button must restore the text input client as well as first responder.
             inputContext.activate()
             inputContext.invalidateCharacterCoordinates()
+            self.setAccessibilityFocused(true)
+            NSAccessibility.post(element: self, notification: .focusedUIElementChanged)
             self.fulfilledPickerID = requestID
             self.openCharacterPalette(self)
         }

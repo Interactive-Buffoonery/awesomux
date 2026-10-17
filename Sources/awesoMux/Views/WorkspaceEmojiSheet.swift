@@ -70,9 +70,12 @@ struct WorkspaceEmojiSheet: View {
                     Button(String(localized: "Remove Emoji", comment: "Clears the workspace emoji badge.")) { onSave(nil) }
                 }
                 Spacer()
-                Button("Cancel", role: .cancel, action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                Button("Save", action: save)
+                Button(
+                    String(localized: "Cancel", comment: "Dismisses the workspace emoji editor without saving."), role: .cancel,
+                    action: onCancel
+                )
+                .keyboardShortcut(.cancelAction)
+                Button(String(localized: "Save", comment: "Saves or removes the workspace emoji badge."), action: save)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
                     .accessibilityHint(

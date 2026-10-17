@@ -1108,7 +1108,7 @@
       "comment" : "Unavailable agent integration install state status"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste.\nDismisses the workspace emoji editor without saving."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -4471,7 +4471,7 @@
       "comment" : "Location summary for panes that all run on one declared SSH destination."
     },
     "Save" : {
-      "comment" : "Button title that saves a layout preset.\nButton to save a new annotation"
+      "comment" : "Button title that saves a layout preset.\nButton to save a new annotation\nSaves or removes the workspace emoji badge."
     },
     "Save Layout as Preset" : {
       "comment" : "Alert title for naming a new layout preset."
@@ -4678,9 +4678,6 @@
     },
     "Set Workspace Emoji" : {
       "comment" : "Accessible name of the workspace emoji editor."
-    },
-    "Set Workspace Emoji…" : {
-      "comment" : "Opens the emoji editor for a workspace."
     },
     "Set Workspace Group Color to %arg" : {
 
