@@ -12,20 +12,6 @@ enum AgentPluginOpKind: Sendable {
     case mutation
 }
 
-// MARK: - AgentPluginProbeState
-
-/// Lifecycle of a provider's status probe. `unprobed` means nothing has run yet
-/// (show a real status fallback); `probing` means a probe started but has not
-/// resolved (show neutral "Checking", even after cancellation); `probed` means at
-/// least one report has landed. A cancelled probe stays `probing`, which is what
-/// keeps the card on "Checking" instead of a wrong terminal state until the next
-/// probe resolves it.
-enum AgentPluginProbeState: Sendable {
-    case unprobed
-    case probing
-    case probed
-}
-
 // MARK: - AgentPluginTarget
 
 /// One provider config folder. `configHome` is the value passed to the runner
@@ -78,10 +64,10 @@ struct AgentPluginCardState: Equatable, Sendable {
     /// cancellation-aware — killing it orphans the process, §performPluginAction).
     var inflightOp: AgentPluginOpKind?
     /// True while the card should read as neutral "Checking" rather than a real
-    /// status: a probe has started but no report has landed yet. Distinct from
-    /// `isBusy` so it survives a cancelled probe (the flag is keyed off "probe
-    /// started, no report yet", which a cancelled probe still satisfies) — the card
-    /// shows Checking, not a stale `.notInstalled`, and the next probe resolves it.
+    /// status: the provider is enabled and no report has landed for this folder.
+    /// Keyed off the report, not the scheduler, so a folder still queued behind the
+    /// two-wide sweep, or skipped when the sweep was cancelled, reads as Checking
+    /// with its actions withheld instead of a guessed `.notInstalled`.
     var isCheckingInitialStatus: Bool
     /// True when a probe is in flight and can be cancelled from the card.
     var canCancel: Bool { inflightOp == .probe }
@@ -89,10 +75,15 @@ struct AgentPluginCardState: Equatable, Sendable {
     /// label while the first status check is running.
     var statusLabel: String
 
-    var allowsEnable: Bool { status.allowsEnable && !isBusy }
-    var allowsRepair: Bool { status.allowsRepair && !isBusy }
-    var allowsDisable: Bool { status.allowsDisable && !isBusy }
-    var allowsUninstall: Bool { status.allowsUninstall && !isBusy }
+    /// The status detail, empty while unresolved so no surface speaks the
+    /// `.notInstalled` fallback's install guidance under a Checking label.
+    var statusDetail: String { isCheckingInitialStatus ? "" : status.detail }
+
+    private var canMutate: Bool { !isBusy && !isCheckingInitialStatus }
+    var allowsEnable: Bool { status.allowsEnable && canMutate }
+    var allowsRepair: Bool { status.allowsRepair && canMutate }
+    var allowsDisable: Bool { status.allowsDisable && canMutate }
+    var allowsUninstall: Bool { status.allowsUninstall && canMutate }
 }
 
 // MARK: - AgentPluginSettingsViewModel
@@ -115,10 +106,6 @@ final class AgentPluginSettingsViewModel {
     /// The op kind in flight per folder, set on entry and cleared alongside
     /// `probing`/`mutating`. Absent ⇒ idle. Gates the card's Cancel affordance (#8).
     private(set) var inflightOp: [AgentPluginTarget: AgentPluginOpKind] = [:]
-    /// Probe lifecycle per folder (#9). Absent ⇒ `.unprobed`. Set to `.probing`
-    /// synchronously before the first probe `await`, `.probed` once a report is
-    /// assigned; a cancelled probe intentionally stays `.probing`.
-    private(set) var probeState: [AgentPluginTarget: AgentPluginProbeState] = [:]
     /// Transient guidance/failure surfaced by the last action, cleared on the next.
     private(set) var actionGuidance: [AgentPluginTarget: String] = [:]
     private(set) var actionFailures: [AgentPluginTarget: AgentPluginActionOutcome] = [:]
@@ -156,7 +143,6 @@ final class AgentPluginSettingsViewModel {
         reports = reports.filter { $0.key.provider != provider }
         actionFailures = actionFailures.filter { $0.key.provider != provider }
         actionGuidance = actionGuidance.filter { $0.key.provider != provider }
-        probeState = probeState.filter { $0.key.provider != provider }
         renderedSourcePaths[provider] = renderedSourcePathProvider(provider)
     }
 
@@ -219,13 +205,9 @@ final class AgentPluginSettingsViewModel {
         let status = setup.enabled
             ? (report?.status ?? .notInstalled)
             : .notConfigured
-        // Neutral "Checking" the moment a probe starts and until the first report
-        // lands — keyed off the probe *having started* (not `probing`), so a cancelled
-        // probe still reads as Checking rather than flashing the `.notInstalled`
-        // fallback, and the next probe resolves it (#9).
-        let isCheckingInitialStatus = setup.enabled
-            && reports[target] == nil
-            && (probeState[target] ?? .unprobed) != .unprobed
+        // Neutral "Checking" until this folder's first report lands, whether its
+        // probe is running, queued, cancelled, or skipped; the next probe resolves it (#9).
+        let isCheckingInitialStatus = setup.enabled && report == nil
 
         return AgentPluginCardState(
             target: target,
@@ -304,16 +286,11 @@ final class AgentPluginSettingsViewModel {
             renderedSourcePaths[provider] = renderedSourcePathProvider(provider)
             probing.remove(target)
             inflightOp[target] = nil
-            probeState[target] = .unprobed
             return
         }
         guard !mutating.contains(provider), !probing.contains(target) else { return }
         probing.insert(target)
         inflightOp[target] = .probe
-        // Set synchronously, before the first `await`: the card must read as
-        // Checking from the instant the probe starts, and this must persist through
-        // a cancellation (which returns below without ever reaching `.probed`).
-        probeState[target] = .probing
         defer {
             probing.remove(target)
             inflightOp[target] = nil
@@ -321,12 +298,10 @@ final class AgentPluginSettingsViewModel {
 
         renderedSourcePaths[provider] = renderedSourcePathProvider(provider)
         let report = await runner.status(provider: provider, setup: setup)
-        // A cancelled probe leaves `probeState` at `.probing` on purpose: the card
-        // keeps showing Checking (not a wrong terminal state) until a later probe
-        // resolves it, rather than stranding on a stale fallback.
+        // A cancelled probe leaves no report, so the card keeps showing Checking
+        // (not a wrong terminal state) until a later probe resolves it.
         guard !Task.isCancelled else { return }
         reports[target] = report
-        probeState[target] = .probed
         // A fresh probe supersedes a prior action's transient state: a stale red
         // failure or reload guidance must not linger over a newly healthy status.
         actionFailures[target] = nil
@@ -340,7 +315,9 @@ final class AgentPluginSettingsViewModel {
     ) async {
         let provider = target.provider
         let setup = self.setup(for: target, from: setup)
-        guard setup.enabled else { return }
+        // Every action is chosen from an observed status; an unresolved folder
+        // (queued, cancelled, or reset) must be checked first.
+        guard setup.enabled, reports[target] != nil else { return }
         guard !mutating.contains(provider), !probing.contains(where: { $0.provider == provider }) else { return }
         mutating.insert(provider)
         inflightOp[target] = .mutation
@@ -367,8 +344,6 @@ final class AgentPluginSettingsViewModel {
         guard !Task.isCancelled else { return }
         renderedSourcePaths[provider] = renderedSourcePathProvider(provider)
         reports[target] = AgentPluginStatusReport(status: outcome.status, diagnostics: outcome.diagnostics)
-        // A mutation resolves the status too, so the card leaves the Checking state.
-        probeState[target] = .probed
         if outcome.diagnostics != nil {
             actionFailures[target] = outcome
         } else if let guidance = outcome.guidance {

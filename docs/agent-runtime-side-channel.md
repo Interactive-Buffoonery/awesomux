@@ -576,9 +576,10 @@ version 1 manifest is read as-is and rewritten as version 2 on the next change.
 Status checks run up to two folders at a time per provider. Changes still run
 one at a time and wait for that provider's checks to finish. A check that
 starts while the canonical manifest is missing and a legacy manifest exists
-imports it under the install-state lock; a concurrent check that loses that
-lock reports "Another awesoMux instance is changing agent integrations" until
-the next check. When an install writes into a
+imports it under the install-state lock. A concurrent check that finds that
+lock busy does not import or warn: it reads the canonical manifest, or a valid
+legacy manifest when no canonical one exists, read-only. Importing and every
+change still take the lock. When an install writes into a
 provider directory, the manifest records the final installed path as
 `installedPath`. Automatic uninstall removes only manifest-owned files whose
 contents still match awesoMux's rendered template; modified installed files are
