@@ -43,7 +43,7 @@ key's fingerprint in `access.json`; no shared secret exists. Failed
 handshakes are rate-limited.
 
 **Pairing is a one-time exchange with confirmation.** The QR code holds the
-host, port, profile, the Mac key's fingerprint, and a single-use pairing
+host, port, the Mac key's fingerprint, and a single-use pairing
 secret that expires after five minutes or when the sheet closes, encoded as
 an `awesomuxcompanion://pair` link. The system Camera can open it, and
 **Copy Link** lets people paste it on the phone instead of scanning. The phone
