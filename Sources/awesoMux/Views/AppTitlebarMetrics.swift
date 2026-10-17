@@ -14,7 +14,6 @@ enum AppTitlebarMetrics {
         leadingInset + 28
     }
 
-    static let panelTitlebarHeight: CGFloat = 32
     /// Keeps the legacy compact band with a small bottom-only cushion below
     /// the native controls.
     static let layoutHeight: CGFloat = 44

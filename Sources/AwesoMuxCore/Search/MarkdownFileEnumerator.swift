@@ -267,7 +267,7 @@ public enum MarkdownDirectoryBrowser {
 
         return MarkdownDirectoryContents(
             relativePath: directory,
-            parentRelativePath: parentDirectory(directory),
+            parentRelativePath: parentRelativePath(for: directory),
             directories: childDirectories.values.sorted(by: compareDirectories),
             files: files.sorted(by: compareFiles)
         )
@@ -293,7 +293,7 @@ public enum MarkdownDirectoryBrowser {
         return relativeDirectory.split(separator: "/").map(String.init)
     }
 
-    private static func parentDirectory(_ relativeDirectory: String) -> String? {
+    public static func parentRelativePath(for relativeDirectory: String) -> String? {
         var components = directoryComponents(relativeDirectory)
         guard !components.isEmpty else { return nil }
         components.removeLast()

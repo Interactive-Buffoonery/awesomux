@@ -57,12 +57,12 @@ struct CommandPaletteView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(focusState.isKeyWindow ? Color.aw.border2 : Color.aw.border, lineWidth: 0.5)
+                .strokeBorder(focusState.isKeyWindow ? Color.aw.border2 : Color.aw.border, lineWidth: 0.5)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10)
                 // Snapshot-only: this bare NSHostingController panel root reads the live accent mailbox at each per-summon rebind.
-                .stroke(Color.aw.accent.opacity(focusState.isKeyWindow ? 0.18 : 0.06), lineWidth: 1)
+                .strokeBorder(Color.aw.accent.opacity(focusState.isKeyWindow ? 0.18 : 0.06), lineWidth: 1)
         }
         .background {
             RoundedRectangle(cornerRadius: 10)

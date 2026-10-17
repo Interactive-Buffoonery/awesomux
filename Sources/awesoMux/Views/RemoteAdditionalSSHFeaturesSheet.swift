@@ -5,6 +5,7 @@ import SwiftUI
 struct RemoteAdditionalSSHFeaturesSheet: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @State private var rememberChoice = false
+    @State private var rememberAllHosts = false
     @State private var saveError: String?
 
     let request: RemoteAdditionalSSHFeaturesSheetPresenter.Request
@@ -30,8 +31,17 @@ struct RemoteAdditionalSSHFeaturesSheet: View {
                 installPath: request.installPath
             )
 
-            Toggle("Remember this choice for all hosts", isOn: $rememberChoice)
-                .toggleStyle(.checkbox)
+            HStack {
+                Toggle("Remember this choice", isOn: $rememberChoice)
+                    .toggleStyle(.checkbox)
+                Picker("Remember choice for", selection: $rememberAllHosts) {
+                    Text("This Host").tag(false)
+                    Text("All Hosts").tag(true)
+                }
+                .labelsHidden()
+                .fixedSize()
+                .disabled(!rememberChoice)
+            }
 
             if let saveError {
                 Text(saveError)
@@ -77,7 +87,9 @@ struct RemoteAdditionalSSHFeaturesSheet: View {
     private func choose(install: Bool) {
         saveError = nil
         if rememberChoice {
-            saveError = Self.remember(install: install, store: appSettingsStore)
+            saveError = Self.remember(
+                install: install, destination: rememberAllHosts ? nil : request.destination, store: appSettingsStore
+            )
             if saveError != nil {
                 TerminalAccessibilityAnnouncer.announceSettingsError(saveError)
                 return
@@ -87,11 +99,17 @@ struct RemoteAdditionalSSHFeaturesSheet: View {
     }
 
     @MainActor
-    static func remember(install: Bool, store: AppSettingsStore) -> String? {
+    static func remember(install: Bool, destination: String? = nil, store: AppSettingsStore) -> String? {
         if let reason = ManagedSSHPreferenceWriteGuard.blockedReason(store: store) { return reason }
         let policy: WorkspaceConfig.RemoteHelperInstallPolicy = install ? .alwaysInstall : .neverAsk
-        store.workspaces.update { $0.remoteHelperInstallPolicy = policy }
-        guard store.workspaces.value.remoteHelperInstallPolicy == policy else {
+        store.workspaces.update {
+            $0.rememberHelperInstallPolicy(policy, for: destination)
+        }
+        let saved = store.workspaces.value
+        let persisted =
+            destination.map { saved.remoteHelperHostPolicies[$0] == policy }
+            ?? (saved.remoteHelperInstallPolicy == policy && saved.remoteHelperHostPolicies.isEmpty)
+        guard persisted else {
             return store.latestError?.displayText
                 ?? String(localized: "Couldn’t save the remote helper setting.", comment: "Remote helper preference save error")
         }

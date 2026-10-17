@@ -7,7 +7,7 @@ import Foundation
 import UnicodeHygiene
 
 enum RemoteHelperInstaller {
-    @MainActor static var installPolicy: () -> WorkspaceConfig.RemoteHelperInstallPolicy = { .ask }
+    @MainActor static var installPolicy: (RemoteTarget) -> WorkspaceConfig.RemoteHelperInstallPolicy = { _ in .ask }
 
     @MainActor
     static func approveInstallation(
@@ -752,7 +752,7 @@ enum RemoteHelperInstaller {
             if capability == .supported { return .readyToTransfer }
             throw Failure.helperProbeFailed
         }
-        guard installPolicy() != .neverAsk else { return .cancelled }
+        guard installPolicy(remote) != .neverAsk else { return .cancelled }
         let platform = try await platformProbe(remote, controlPath)
         try checkAuthority(authorityIsCurrent)
         let outcome = try await performApprovedInstallation(
@@ -791,7 +791,7 @@ enum RemoteHelperInstaller {
         helperPath: String,
         window: NSWindow?,
         authorityIsCurrent: @escaping @MainActor () -> Bool,
-        policy: @escaping @MainActor () -> WorkspaceConfig.RemoteHelperInstallPolicy = { installPolicy() },
+        policy: (@MainActor () -> WorkspaceConfig.RemoteHelperInstallPolicy)? = nil,
         confirmation: @escaping @MainActor (ApprovalAction, RemoteTarget, NSWindow?) async -> Bool = {
             action, remote, window in
             await presentConfirmation(action: action, remote: remote, window: window)
@@ -817,6 +817,7 @@ enum RemoteHelperInstaller {
             presentSuccess(window: window)
         }
     ) async throws -> WorkflowOutcome {
+        let policy = policy ?? { installPolicy(remote) }
         try checkAuthority(authorityIsCurrent)
         let approved = await approveInstallation(policy: policy) {
             await confirmation(action, remote, window)
@@ -854,7 +855,7 @@ enum RemoteHelperInstaller {
         authorityIsCurrent: @escaping @MainActor () -> Bool,
         includeBrowser: Bool = false
     ) async -> Bool {
-        guard installPolicy() != .neverAsk else { return false }
+        guard installPolicy(remote) != .neverAsk else { return false }
         guard let window,
             await waitForSheetAvailability(
                 authorityIsCurrent: authorityIsCurrent,
