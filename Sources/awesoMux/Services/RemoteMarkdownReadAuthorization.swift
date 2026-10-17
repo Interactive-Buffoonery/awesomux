@@ -15,6 +15,7 @@ struct RemoteMarkdownReadOrigin: Equatable, Sendable {
     let executionPlan: PaneExecutionPlan?
     let remoteFileContext: RemoteFileContext?
     let connectionHealth: RemoteConnectionHealth?
+    let remoteConnectivityEpoch: UUID?
     let observedRemoteHost: String?
     let observedSSHTarget: String?
     let pendingSSHTarget: String?
@@ -32,6 +33,7 @@ struct RemoteMarkdownReadOrigin: Equatable, Sendable {
         executionPlan = pane?.executionPlan
         remoteFileContext = pane?.remoteFileContext
         connectionHealth = pane?.remoteConnectionHealth
+        remoteConnectivityEpoch = pane?.remoteConnectivityEpoch
         let observesUnmanaged = pane?.executionPlan == .local
         observedRemoteHost = observesUnmanaged ? pane?.remoteHost : nil
         observedSSHTarget = observesUnmanaged ? pane?.remoteSSHTarget : nil
