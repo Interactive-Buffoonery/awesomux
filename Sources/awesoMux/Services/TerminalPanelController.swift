@@ -447,16 +447,37 @@ final class TerminalPanelController {
         initialWorkspace: TerminalSession?
     ) {
         if store == nil {
-            store = PopUpTerminalStoreFactory.makeStore(
+            let newStore = PopUpTerminalStoreFactory.makeStore(
                 selectedWorkspace: initialWorkspace,
                 fallbackHome: WorkingDirectoryValidator.canonicalHomeDirectory
             )
+            store = newStore
+            closeWhenSessionEnds(in: newStore)
         }
         ensureWindows()
         if next == .minimized {
             minimize()
         } else {
             restore()
+        }
+    }
+
+    /// The hosted shell exiting closes the companion's only session through the
+    /// same process-exit path that closes a workspace, which empties the store
+    /// and would strand the panel on its "unavailable" placeholder. Selection
+    /// goes nil exactly when the last session closes, and only then.
+    private func closeWhenSessionEnds(in store: SessionStore) {
+        withObservationTracking {
+            _ = store.selectedSessionID
+        } onChange: { [weak self, weak store] in
+            Task { @MainActor in
+                guard let self, let store, self.store === store else { return }
+                if store.selectedSession == nil {
+                    self.close(discardSurfaces: true)
+                } else {
+                    self.closeWhenSessionEnds(in: store)
+                }
+            }
         }
     }
 
