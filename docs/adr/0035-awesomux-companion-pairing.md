@@ -18,10 +18,9 @@ Unix socket. A phone needs a network listener, which is a new exposure.
 
 ## Decision
 
-Add an **awesoMux Companion** Settings pane with an **Alpha** capsule. Until the
-iPhone side is proven end to end, the implementation brief supersedes the
-original visibility decision: the pane is hidden in production. It links to the
-awesoMux Companion TestFlight, shows a pairing QR code, and lists paired phones.
+Add an **awesoMux Companion** Settings pane, visible in every build with an
+**Alpha** capsule. It links to the awesoMux Companion TestFlight, shows a
+pairing QR code, and lists paired phones.
 
 **A paired phone is a companion connection in the local agent API.** It is
 stored with other grants in `access.json` and uses the same leases and
@@ -50,10 +49,7 @@ an `awesomuxcompanion://pair` link. The system Camera can open it, and
 **Copy Link** lets people paste it on the phone instead of scanning. The phone
 connects, proves the secret, and presents its public key. Both devices then
 show three words derived from both keys, and the Mac asks the user to allow
-the named phone. A photographed QR code cannot pair without that click. The
-exact profile-free link and Companion request normalization are defined in
-`docs/companion-pairing-protocol.md`; that implementation contract supersedes
-the earlier profile-in-link proposal.
+the named phone. A photographed QR code cannot pair without that click.
 
 **The wire is the existing contract.** Inside TLS the listener accepts the
 same framed v1 requests, limited to `get_connection_status`, `list_agents`,
