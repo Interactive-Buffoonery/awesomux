@@ -689,13 +689,21 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteConnectionHealth(store, pid) == .active)
     }
 
-    @Test("markRemotePanesPossiblyStale only affects remote panes")
-    func markRemotePanesPossiblyStaleOnlyAffectsRemotePanes() {
-        let remotePane = TerminalPane(
+    @Test("connectivity invalidation revokes remote evidence without diagnosing health")
+    func connectivityInvalidationOnlyAffectsRemotePanes() {
+        var remotePane = TerminalPane(
             title: "ed@webserver: ~/app",
             workingDirectory: "/tmp",
             remoteHost: "webserver",
             executionPlan: .local
+        )
+        remotePane.remoteForegroundLivenessSnapshot = RemoteForegroundLivenessSnapshot(
+            workspaceID: UUID(),
+            paneID: remotePane.id,
+            terminalSessionID: remotePane.terminalSessionID,
+            connectionGeneration: "generation",
+            liveness: .liveCommand,
+            sampledAt: Date()
         )
         let localPane = TerminalPane(
             title: "ed@mymac: ~/local",
@@ -716,10 +724,37 @@ struct SessionStoreRemoteSessionTests {
         )
         let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
 
-        store.markRemotePanesPossiblyStale()
+        store.invalidateRemoteConnectivityEvidence()
 
         let layout = store.groups[0].sessions[0].layout
-        #expect(layout.pane(id: remotePane.id)?.remoteConnectionHealth == .possiblyStale)
+        #expect(layout.pane(id: remotePane.id)?.remoteConnectionHealth == .active)
+        #expect(layout.pane(id: remotePane.id)?.remoteHost == remotePane.remoteHost)
+        #expect(layout.pane(id: remotePane.id)?.executionPlan == remotePane.executionPlan)
+        #expect(layout.pane(id: remotePane.id)?.remoteForegroundLivenessSnapshot == nil)
+        let epoch = layout.pane(id: remotePane.id)?.remoteConnectivityEpoch
+        #expect(epoch != remotePane.remoteConnectivityEpoch)
+        #expect(
+            layout.pane(id: localPane.id)?.remoteConnectivityEpoch == localPane.remoteConnectivityEpoch
+        )
+        store.invalidateRemoteConnectivityEvidence()
+        #expect(
+            store.groups[0].sessions[0].layout.pane(id: remotePane.id)?.remoteConnectivityEpoch != epoch
+        )
+
+        var contextPane = localPane
+        contextPane.remoteFileContext = RemoteFileContext(
+            target: RemoteTarget(user: "alice", host: "files")!, baseDirectory: "/srv"
+        )
+        let contextSession = TerminalSession(
+            title: "files", workingDirectory: "/tmp", layout: .pane(contextPane),
+            activePaneID: contextPane.id
+        )
+        let contextStore = SessionStore(groups: [SessionGroup(name: "g", sessions: [contextSession])])
+        #expect(contextStore.index.remotePaneIDs.isEmpty)
+        contextStore.invalidateRemoteConnectivityEvidence()
+        let invalidatedContext = contextStore.groups[0].sessions[0].layout.pane(id: contextPane.id)
+        #expect(invalidatedContext?.remoteConnectivityEpoch != contextPane.remoteConnectivityEpoch)
+        #expect(invalidatedContext?.remoteFileContext == contextPane.remoteFileContext)
         #expect(layout.pane(id: localPane.id)?.remoteConnectionHealth == .active)
         #expect(layout.pane(id: localPane.id)?.remoteHost == nil)
     }
@@ -733,8 +768,8 @@ struct SessionStoreRemoteSessionTests {
         #expect(remoteHost(store, pid) == "webserver")  // not cleared by churn
     }
 
-    @Test("declared SSH panes are indexed and marked stale before host observation")
-    func declaredSSHPanesAreIndexedAndMarkedStaleBeforeObservation() {
+    @Test("declared SSH panes invalidate evidence before host observation")
+    func declaredSSHPanesInvalidateEvidenceBeforeObservation() {
         let target = RemoteTarget(user: "alice", host: "buildbox")!
         let remotePane = TerminalPane(
             title: "remote",
@@ -751,11 +786,15 @@ struct SessionStoreRemoteSessionTests {
 
         #expect(store.index.remotePaneIDs == Set([remotePane.id]))
 
-        store.markRemotePanesPossiblyStale()
+        store.invalidateRemoteConnectivityEvidence()
+        #expect(
+            store.groups[0].sessions[0].layout.pane(id: remotePane.id)?.remoteConnectivityEpoch
+                != remotePane.remoteConnectivityEpoch
+        )
 
         #expect(
             store.groups[0].sessions[0].layout.pane(id: remotePane.id)?.remoteConnectionHealth
-                == .possiblyStale
+                == .active
         )
     }
 
@@ -833,6 +872,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
         #expect(!json.contains("pendingRemoteSSHTarget"))
         #expect(!json.contains("hasObservedPendingRemoteSSHProcess"))
         #expect(!json.contains("remoteConnectionHealth"))
+        #expect(!json.contains("remoteConnectivityEpoch"))
         #expect(!json.contains("remoteWorkingDirectory"))
         #expect(!json.contains("possiblyStale"))
 
@@ -843,6 +883,7 @@ struct TerminalPaneRemoteHostPersistenceTests {
         #expect(restored.pendingRemoteSSHTarget == nil)
         #expect(!restored.hasObservedPendingRemoteSSHProcess)
         #expect(restored.remoteConnectionHealth == .active)
+        #expect(restored.remoteConnectivityEpoch != pane.remoteConnectivityEpoch)
         #expect(restored.remoteWorkingDirectory == nil)
         #expect(restored.title == pane.title)
         #expect(restored.workingDirectory == pane.workingDirectory)

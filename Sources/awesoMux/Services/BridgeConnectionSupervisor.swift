@@ -32,13 +32,15 @@ actor BridgeConnectionSupervisor {
     typealias FrameSink = @Sendable (BridgeEnvelope, BridgeConnectionActor.Generation) async -> Void
     /// See `FrameSink`'s doc comment — the same promptness contract applies.
     typealias ConnectionLostSink = @Sendable (BridgeConnectionActor.ConnectionID) async -> Void
+    typealias BrowserRequestSink = @Sendable (BridgeEnvelope, BridgeConnectionActor.Generation) async -> Void
+    typealias BrowserConnectionLostSink = @Sendable (BridgeConnectionActor.Generation) async -> Void
 
     /// Protocol strings this app build accepts in `hello.proto`. Mirrors
     /// `BridgeHelperCommand.supportedProtocols` on the helper side — declared
     /// independently because the app and the helper are different targets
     /// with no shared dependency between them; the wire is the contract, not
     /// shared Swift code, so the two lists must be kept in sync by hand.
-    static let supportedProtocols = ["awesomux-bridge-v1"]
+    static let supportedProtocols = ["awesomux-bridge-v1", "awesomux-browser-v1"]
 
     private let connectionActor: BridgeConnectionActor
     private let expectedToken: String
@@ -46,6 +48,8 @@ actor BridgeConnectionSupervisor {
     private let supportedProtocols: [String]
     private let frameSink: FrameSink
     private let connectionLostSink: ConnectionLostSink
+    private let browserRequestSink: BrowserRequestSink
+    private let browserConnectionLostSink: BrowserConnectionLostSink
     private let wallNow: @Sendable () -> Date
     private var consumeTask: Task<Void, Never>?
     /// The generation of whichever connection is currently active, per the
@@ -60,6 +64,7 @@ actor BridgeConnectionSupervisor {
     /// stale delivery instead of resurrecting pending state for a connection
     /// that no longer exists.
     private var activeGeneration: BridgeConnectionActor.Generation?
+    private var activeBrowserGeneration: BridgeConnectionActor.Generation?
 
     init(
         connectionActor: BridgeConnectionActor,
@@ -68,7 +73,9 @@ actor BridgeConnectionSupervisor {
         supportedProtocols: [String] = BridgeConnectionSupervisor.supportedProtocols,
         wallNow: @escaping @Sendable () -> Date = Date.init,
         frameSink: @escaping FrameSink,
-        connectionLostSink: @escaping ConnectionLostSink
+        connectionLostSink: @escaping ConnectionLostSink,
+        browserRequestSink: @escaping BrowserRequestSink = { _, _ in },
+        browserConnectionLostSink: @escaping BrowserConnectionLostSink = { _ in }
     ) {
         // An empty token/session would make `constantTimeEquals`'s
         // equal-length-empty-arrays case (and a plain `==` on two empty
@@ -86,6 +93,8 @@ actor BridgeConnectionSupervisor {
         self.wallNow = wallNow
         self.frameSink = frameSink
         self.connectionLostSink = connectionLostSink
+        self.browserRequestSink = browserRequestSink
+        self.browserConnectionLostSink = browserConnectionLostSink
     }
 
     /// Starts the underlying listener and begins draining its frame stream.
@@ -118,6 +127,9 @@ actor BridgeConnectionSupervisor {
         await connectionActor.setConnectionLostHandler { [weak self] connection, generation in
             await self?.handleUnexpectedConnectionLoss(connection, generation: generation)
         }
+        await connectionActor.setBrowserConnectionLostHandler { [weak self] generation in
+            await self?.handleUnexpectedBrowserConnectionLoss(generation: generation)
+        }
         consumeTask = Task { [weak self] in
             for await delivery in frameStream {
                 guard let self else { return }
@@ -146,6 +158,19 @@ actor BridgeConnectionSupervisor {
         generation: BridgeConnectionActor.Generation
     ) async -> Bool {
         await connectionActor.send(envelope, generation: generation)
+    }
+
+    func sendBrowserResult(
+        envelope: BridgeEnvelope,
+        generation: BridgeConnectionActor.Generation
+    ) async -> Bool {
+        guard generation == activeBrowserGeneration else { return false }
+        return await connectionActor.send(envelope, generation: generation)
+    }
+
+    func isBrowserGenerationActive(_ generation: BridgeConnectionActor.Generation) async -> Bool {
+        guard generation == activeBrowserGeneration else { return false }
+        return await connectionActor.isActive(generation, lane: .browser)
     }
 
     /// Awaits the consuming `Task`'s actual end, not just its cancellation
@@ -189,9 +214,20 @@ actor BridgeConnectionSupervisor {
             // frame. That check was made when the actor read the bytes,
             // though, not when this handler runs — see `activeGeneration`'s
             // doc comment for why a stale one must still be dropped here.
-            guard delivery.generation == activeGeneration else { return }
-            await frameSink(envelope, delivery.generation)
+            if delivery.generation == activeGeneration {
+                await frameSink(envelope, delivery.generation)
+            } else if delivery.generation == activeBrowserGeneration {
+                await browserRequestSink(envelope, delivery.generation)
+            }
         }
+    }
+
+    private func handleUnexpectedBrowserConnectionLoss(
+        generation: BridgeConnectionActor.Generation
+    ) async {
+        guard activeBrowserGeneration == generation else { return }
+        activeBrowserGeneration = nil
+        await browserConnectionLostSink(generation)
     }
 
     private func handleUnexpectedConnectionLoss(
@@ -236,15 +272,30 @@ actor BridgeConnectionSupervisor {
             return
         }
 
-        guard let promotion = await connectionActor.promoteToActive(connection) else {
+        let lane: BridgeConnectionActor.Lane = proto == "awesomux-browser-v1" ? .browser : .legacy
+        guard let lanePromotion = await connectionActor.promoteToActive(connection, lane: lane) else {
             // `promoteToActive` already closed `connection` itself (generation
             // counter exhausted, or the connection vanished between the frame
             // landing and this handler running) — nothing left to ack.
             return
         }
-        activeGeneration = promotion.generation
-        if let replaced = promotion.replacedConnection {
-            await connectionLostSink(replaced)
+        let promotion: BridgeConnectionActor.Promotion
+        switch lanePromotion {
+        case .busy:
+            _ = await connectionActor.send(.helloBusy(proto: proto), generation: generation)
+            await connectionActor.close(connection)
+            return
+        case .promoted(let value):
+            promotion = value
+        }
+        switch lane {
+        case .legacy:
+            activeGeneration = promotion.generation
+            if let replaced = promotion.replacedConnection {
+                await connectionLostSink(replaced)
+            }
+        case .browser:
+            activeBrowserGeneration = promotion.generation
         }
         _ = await connectionActor.send(
             .helloAck(session: expectedSession, proto: proto, ts: wallNow().timeIntervalSince1970),

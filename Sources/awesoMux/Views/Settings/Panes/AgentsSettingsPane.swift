@@ -1,10 +1,12 @@
 import AwesoMuxConfig
+import AwesoMuxLocalAPIAccess
 import DesignSystem
 import SwiftUI
 
 struct AgentsSettingsPane: View {
     @Environment(AgentSetupStore.self) private var agentSetupStore
     @Environment(AppSettingsStore.self) private var appSettingsStore
+    @Environment(LocalAPIAccessStore.self) private var accessStore
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var actionResults: [AgentIntegrationInstallProvider: AgentIntegrationSettingsActionResult] = [:]
     @State private var actionErrors: [AgentIntegrationInstallProvider: String] = [:]
@@ -27,6 +29,18 @@ struct AgentsSettingsPane: View {
     )
 
     private let integrationViewModel = AgentIntegrationSettingsViewModel()
+
+    // Outside app access is not released yet. Production builds keep it visible
+    // only for people who already added a connection, so they can still revoke it.
+    // Once shown it stays for the pane's lifetime, so revoking the last connection
+    // cannot hide a save or credential-cleanup error.
+    @State private var keepsOutsideAppAccess = false
+
+    private var showsOutsideAppAccess: Bool {
+        keepsOutsideAppAccess || AppRuntimeProfile.current != .production
+            || !accessStore.state.connections.isEmpty
+            || accessStore.persistenceFailureMessage != nil || accessStore.loadFailure != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -61,10 +75,13 @@ struct AgentsSettingsPane: View {
 
             AgentSetupsSettingsSection()
 
-            AssistantAccessSettingsSection()
+            if showsOutsideAppAccess {
+                AssistantAccessSettingsSection()
+                    .onAppear { keepsOutsideAppAccess = true }
+            }
 
             SettingsSection(
-                index: 4,
+                index: showsOutsideAppAccess ? 4 : 3,
                 title: String(localized: "Local status hooks", comment: "Agents settings title."),
                 subtitle: String(
                     localized: "Provider-owned files that report identity and coarse runtime state.", comment: "Agents settings subtitle.")

@@ -583,6 +583,9 @@
     "A previous scrollback read is still finishing. Choose Done, wait a moment, then try again." : {
       "comment" : "Explanation when Show Scrollback is retried before its previous native read finishes"
     },
+    "A program on %arg wants to open this page in your default browser." : {
+      "comment" : "Remote browser confirmation explanation; argument is the configured SSH destination"
+    },
     "About" : {
       "comment" : "Advanced settings title."
     },
@@ -817,6 +820,17 @@
     "Always Manage “%arg”" : {
       "comment" : "Remember-menu item naming the SSH destination that will be managed without asking"
     },
+    "Always allow %arg to open links to %arg" : {
+      "comment" : "Remember a browser permission; first argument is the SSH destination, second is the website hostname",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Always allow %1$arg to open links to %2$arg"
+          }
+        }
+      }
+    },
     "Always make SSH managed without asking" : {
       "comment" : "Workspace settings label."
     },
@@ -912,6 +926,9 @@
     },
     "Ask before ⌘⇧W, the sidebar close button, or ⌘W on a workspace's last pane closes a workspace with active agent or terminal activity. Skipped when nothing's at risk. App quit (⌘Q) has its own prompt; ⌘W on any other pane uses the toggle below." : {
       "comment" : "Workspace settings hint."
+    },
+    "Ask when a remote program requests your browser. Requires a supported helper in a managed SSH workspace. Turning this off stops new requests immediately; reconnect after turning it on." : {
+      "comment" : "Explains remote browser forwarding requirements and the effect of changing the switch"
     },
     "Asks before Command-Shift-W, the sidebar close button, or Command-W on a workspace's last pane closes a workspace whose agent or shell is active. Skipped when nothing is at risk. Command-Q (app quit) has its own prompt. Command-W on any other pane uses the pane-confirmation toggle below." : {
 
@@ -1091,7 +1108,7 @@
       "comment" : "Unavailable agent integration install state status"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
+      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -1227,6 +1244,9 @@
     "Choose an agent provider and an absolute executable path." : {
 
     },
+    "Choose how SSH connections become managed, approve helper installation, and control links opened on your Mac." : {
+      "comment" : "Managed SSH settings section description"
+    },
     "Choose or create the folder for the new worktree." : {
       "comment" : "Worktree target path picker guidance message."
     },
@@ -1238,9 +1258,6 @@
     },
     "Choose the destination for this read. Existing terminal SSH options and connections cannot be reused; configure an alias in OpenSSH." : {
       "comment" : "Help explaining independent SSH file-read configuration"
-    },
-    "Choose when awesoMux reconnects an SSH session as a managed workspace and how remote helper installation is approved. These settings never change existing connections." : {
-      "comment" : "Managed SSH settings section description"
     },
     "Choose when the awesoMux smile appears in the macOS menu bar." : {
       "comment" : "General settings menu bar section description"
@@ -1539,6 +1556,9 @@
     },
     "Copy Draft" : {
       "comment" : "Button to copy a document note draft after a save conflict\nButton to copy a document note editor draft after a save conflict\nButton to copy a new annotation draft after a save conflict\nButton to copy an annotation draft after a save conflict"
+    },
+    "Copy Link" : {
+      "comment" : "Copy the remote-requested URL without opening it"
     },
     "Copy Mode" : {
       "comment" : "Stable toggle title for copy-friendly document mode."
@@ -2042,6 +2062,9 @@
     },
     "Each field is one literal argument, including spaces. Leave an argument field empty to pass an empty argument." : {
 
+    },
+    "Each permission applies to one SSH host and one website address. Remove it to ask again." : {
+      "comment" : "Explains the scope and revocation of saved remote browser permissions"
     },
     "Earlier turns are omitted. This document holds the most recent history that fits." : {
       "comment" : "Notice in a rendered agent transcript when older turns exceeded the size budget"
@@ -2665,6 +2688,9 @@
     "License" : {
       "comment" : "About window link to the project's own MIT license\nAdvanced settings label.\nButton opening a bundled third-party license file"
     },
+    "Link opened, permission not saved" : {
+      "comment" : "Warning title after opening a website when saving its browser permission fails"
+    },
     "Link preview: %arg" : {
       "comment" : "VoiceOver announcement when a hovered hyperlink preview popover appears\nVoiceOver label for the hovered hyperlink preview popover"
     },
@@ -3209,11 +3235,17 @@
     "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
     },
+    "Only this website, HTTP or HTTPS, and port are allowed. Change it in Settings → Workspaces → Managed SSH." : {
+      "comment" : "Explanation that a saved browser permission covers only the exact website origin and where to revoke it"
+    },
     "Open" : {
       "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
     },
     "Open Agent Transcript" : {
       "comment" : "Workspace menu item that opens the active pane's agent session as a document"
+    },
+    "Open Link" : {
+      "comment" : "Open the remote-requested URL in the Mac browser"
     },
     "Open Markdown File…" : {
 
@@ -3278,6 +3310,9 @@
     "Open prefilled email?" : {
       "comment" : "OSC 8 confirmation dialog title segment when a mailto URL has prefill parameters."
     },
+    "Open remote web links on your Mac" : {
+      "comment" : "Managed SSH browser forwarding setting label"
+    },
     "Open session" : {
       "comment" : "Session Manager action to select an open session"
     },
@@ -3289,6 +3324,9 @@
     },
     "Open the searchable keyboard shortcuts overlay." : {
       "comment" : "Keys settings hint."
+    },
+    "Open this link on your Mac?" : {
+      "comment" : "Remote browser request confirmation title"
     },
     "Opened at the top of the document. Section jumps are not supported yet." : {
       "comment" : "VoiceOver announcement when a Markdown link with a section anchor opens at the document top"
@@ -4003,7 +4041,7 @@
 
     },
     "Remove" : {
-      "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command"
+      "comment" : "Button that deletes a custom command\nDestructive confirmation button that deletes a custom command\nRevoke a saved remote browser permission"
     },
     "Remove %@" : {
       "comment" : "Remove named outside app.\nRemove named setup"
@@ -4028,6 +4066,17 @@
     },
     "Remove argument %@" : {
       "comment" : "Remove argument at position"
+    },
+    "Remove browser permission for %arg and %arg" : {
+      "comment" : "Revoke permission accessibility label; arguments are the SSH destination and exact website origin",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Remove browser permission for %1$arg and %2$arg"
+          }
+        }
+      }
     },
     "Remove editor" : {
 
@@ -4411,6 +4460,9 @@
     },
     "Saved Workspace Data Replaced" : {
 
+    },
+    "Saved browser permissions are full. Remove a permission in Settings → Workspaces → Managed SSH to save another." : {
+      "comment" : "Remote browser prompt explanation when saved website permissions reach the configured limit"
     },
     "Saved layout preset %arg" : {
       "comment" : "VoiceOver announcement after saving a layout preset."
@@ -5672,6 +5724,9 @@
         }
       }
     },
+    "Websites allowed without asking" : {
+      "comment" : "Saved remote browser permissions section title"
+    },
     "Welcome to awesoMux" : {
       "comment" : "Announced to VoiceOver when the welcome tour panel presents"
     },
@@ -5764,6 +5819,9 @@
     },
     "Yes" : {
 
+    },
+    "You will be asked again next time. Check Settings → Advanced → Latest error for details." : {
+      "comment" : "Explanation after a browser permission could not be saved"
     },
     "Your Ghostty config controls the terminal background." : {
 

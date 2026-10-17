@@ -6,7 +6,8 @@ extension TerminalPane {
     // `hasConsumedManagedSSHWorkspaceOffer`, `pendingRemoteSSHTarget`,
     // `hasObservedPendingRemoteSSHProcess`, `hasObservedRemoteSSHLogin`,
     // `remoteConnectionHealth`, `remoteWorkingDirectory`,
-    // `liveTerminalTitle`, `remoteConnectionGeneration`, and the runtime-only agent fields
+    // `liveTerminalTitle`, `remoteConnectionGeneration`, `remoteConnectivityEpoch`,
+    // `remoteForegroundLivenessSnapshot`, and the runtime-only agent fields
     // `lastAgentStateChangeAt` / `shellActivity` / `needsTerminalQuitConfirmation` /
     // `terminalPromptObserved` / `foregroundProcessLiveness`, plus
     // `progressReport`, `remoteReconnect`, and `recentLinks`) so

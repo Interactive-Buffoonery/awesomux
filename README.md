@@ -29,6 +29,8 @@ native app.
 
 Full target diagram, persistence, and agent/notification model: [`docs/architecture.md`](docs/architecture.md). Keyboard reference: [`docs/shortcuts.md`](docs/shortcuts.md). Managed Linux SSH destinations offer to install a static helper for activity and file handoffs: [`docs/remote-linux-helper.md`](docs/remote-linux-helper.md). Named remote sessions need `amx` or `zmx` on the remote host: [`docs/remote-session-persistence.md`](docs/remote-session-persistence.md).
 
+Managed SSH programs that honor `BROWSER` can open web links in your Mac’s default browser after confirmation. Setup, permissions, and limits: [Remote browser forwarding](docs/remote-browser-forwarding.md).
+
 ## Named agent setups
 
 Settings > Agents lets you save multiple named launch setups for each provider.

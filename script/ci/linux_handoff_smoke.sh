@@ -52,7 +52,7 @@ done
 
 # --- acceptance: --version advertises each independent protocol -----------
 VERSION_OUT="$("${SSH[@]}" '~/.awesomux/bin/awesomux-bridge-helper --version')"
-[[ "$VERSION_OUT" == $'awesomux-bridge-v1\nawesomux-handoff-v1\nawesomux-liveness-v1' ]] \
+[[ "$VERSION_OUT" == $'awesomux-bridge-v1\nawesomux-browser-v1\nawesomux-handoff-v1\nawesomux-liveness-v1' ]] \
   || fail "unexpected --version output: $VERSION_OUT"
 
 # --- acceptance: live /proc liveness classification ----------------------

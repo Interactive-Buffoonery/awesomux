@@ -4,7 +4,7 @@ awesoMux pins its native Apple toolchain separately from the released Linux
 toolchain:
 
 - `.swift-version-macos` pins Apple Swift 6.4 for native builds.
-- `.xcode-version` pins Xcode 27.0, with the macOS 27 SDK.
+- `.xcode-version` pins Xcode 27.1, with the macOS 27 SDK.
 - `.swift-version` retains Swift 6.3.3 for Linux helpers and Linux formatting CI.
   Version managers that read this conventional file on macOS still select the
   OSS baseline; native work uses the selected Xcode toolchain instead.

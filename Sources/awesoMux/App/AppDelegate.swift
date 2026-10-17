@@ -976,6 +976,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ghosttyRuntime.configureCommandBridgeEnabledProvider {
             appSettingsStore.terminal.value.commandBridgeEnabled
         }
+        ghosttyRuntime.remoteBrowserSettingsStore = appSettingsStore
         ghosttyRuntime.configureAgentIntegrationsProvider {
             appSettingsStore.agentIntegrations.value
         }
@@ -999,7 +1000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dockBounceTracker.reset(groups: sessionStore.groups)
             workspaceAnnouncementTracker.reset(groups: sessionStore.groups)
             remoteConnectivityObserver = RemoteConnectivityObserver {
-                sessionStore.markRemotePanesPossiblyStale()
+                sessionStore.invalidateRemoteConnectivityEvidence()
             }
             remoteConnectivityObserver?.start()
             installFocusObservers()
