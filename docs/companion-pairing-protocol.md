@@ -28,7 +28,9 @@ awesomuxcompanion://pair?v=1&h=<host>&p=<port>&fp=<macFP>&s=<secret>&n=<macName>
 
 - `v` is `1`.
 - `h` is the IPv4 address of the one interface on which the Mac listener is
-  bound. It is never a wildcard address.
+  bound. It is never a wildcard address. For `lan` it is a private address
+  (10/8, 172.16/12, 192.168/16) on a non-tunnel interface; for `tailscale` it
+  is a 100.64/10 address on a `utun` interface.
 - `p` is the TCP port.
 - `fp` is unpadded base64url of the Mac SPKI SHA-256 fingerprint.
 - `s` is unpadded base64url of 32 random bytes. It is single use and expires

@@ -555,15 +555,16 @@ final class CompanionPairingCoordinator {
                 as: UTF8.self
             )
             let bits = UInt32(bigEndian: ipv4.s_addr)
-            if bits & 0xFFC0_0000 == 0x6440_0000 {
-                result.append(
-                    CompanionNetworkAddress(
-                        interfaceName: String(cString: entry.ifa_name), host: host, transport: .tailscale
-                    ))
-            } else if bits & 0xFFFF_0000 != 0xA9FE_0000 {
-                result.append(
-                    CompanionNetworkAddress(interfaceName: String(cString: entry.ifa_name), host: host, transport: .lan)
-                )
+            let interfaceName = String(cString: entry.ifa_name)
+            let isTunnel = ["utun", "ipsec", "ppp", "bridge"].contains { interfaceName.hasPrefix($0) }
+            // Carrier hotspots also hand out 100.64/10, so Tailscale must also be on a utun tunnel.
+            let isTailscale = bits & 0xFFC0_0000 == 0x6440_0000 && interfaceName.hasPrefix("utun")
+            let isPrivate =
+                bits & 0xFF00_0000 == 0x0A00_0000 || bits & 0xFFF0_0000 == 0xAC10_0000 || bits & 0xFFFF_0000 == 0xC0A8_0000
+            if isTailscale {
+                result.append(CompanionNetworkAddress(interfaceName: interfaceName, host: host, transport: .tailscale))
+            } else if isPrivate, !isTunnel {
+                result.append(CompanionNetworkAddress(interfaceName: interfaceName, host: host, transport: .lan))
             }
         }
         return result
