@@ -335,10 +335,10 @@ struct AgentPluginFolderSection: View {
             }
             if state.isCheckingInitialStatus {
                 HStack(spacing: 6) {
-                    // Only spin while a probe is actually running. A cancelled probe
-                    // keeps the neutral "Checking" *text* (the status is genuinely
-                    // unresolved until the next probe) but must not leave an animated
-                    // spinner with nothing behind it.
+                    // Only spin while a probe is actually running. A queued or
+                    // cancelled folder keeps the neutral "Checking" *text* (the status
+                    // is genuinely unresolved until the next probe) but must not show
+                    // an animated spinner with nothing behind it.
                     if state.inflightOp != nil {
                         ProgressView().controlSize(.small)
                     }
@@ -421,7 +421,7 @@ struct AgentPluginFolderSection: View {
                 // A status whose detail is empty (e.g. an opaque underlying error)
                 // would otherwise render a blank row under the badge; fall back to
                 // the status label so there is always a visible explanation.
-                let detail = state.status.detail
+                let detail = state.statusDetail
                 Text(detail.isEmpty ? state.statusLabel : detail)
                     .awFont(AwFont.UI.meta)
                     .foregroundStyle(Color.aw.text3)
@@ -552,7 +552,7 @@ struct AgentPluginFolderSection: View {
             priority = .high
         } else {
             priority = .medium
-            let detail = state.status.detail
+            let detail = state.statusDetail
             // Speak operator guidance for any status that carries distinct detail
             // (needs review/repair/unsupported), not only needsReview — otherwise
             // VoiceOver only hears the short badge label on status flips.
@@ -625,7 +625,7 @@ struct AgentPluginStatusBadge: View {
             label: state.statusLabel,
             color: Self.color(for: state.status),
             accessibilityLabel: "\(state.title) status",
-            accessibilityHint: state.status.detail
+            accessibilityHint: state.statusDetail
         )
     }
 
