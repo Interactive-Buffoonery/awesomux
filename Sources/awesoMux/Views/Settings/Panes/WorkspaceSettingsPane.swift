@@ -370,6 +370,14 @@ struct WorkspaceSettingsPane: View {
                                     appSettingsStore.workspaces.update {
                                         $0.remoteHelperHostPolicies.removeValue(forKey: host)
                                     }
+                                    guard appSettingsStore.workspaces.value.remoteHelperHostPolicies[host] == nil else { return }
+                                    TerminalAccessibilityAnnouncer.announce(
+                                        String(
+                                            localized: "Removed helper choice for \(host)",
+                                            comment:
+                                                "Announces successful removal of a remembered SSH helper choice; argument is the SSH destination"
+                                        )
+                                    )
                                 }
                                 .accessibilityLabel(
                                     String(

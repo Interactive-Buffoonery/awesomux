@@ -138,8 +138,7 @@ struct DocumentFileBrowserView: View {
     }
 
     private var browserToolbar: some View {
-        let breadcrumbs = MarkdownDirectoryBrowser.breadcrumbs(for: currentDirectory)
-        let parent: String? = breadcrumbs.isEmpty ? nil : breadcrumbs.dropLast().last?.relativePath ?? ""
+        let parent = MarkdownDirectoryBrowser.parentRelativePath(for: currentDirectory)
         let navigationLabel =
             parent == nil
             ? cancelLabel : String(localized: "Parent folder", comment: "Navigate to the parent folder in the Markdown browser")

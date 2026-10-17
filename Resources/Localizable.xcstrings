@@ -4207,6 +4207,9 @@
     "Removed %arg from the don’t-ask list" : {
       "comment" : "Announced after removing an SSH destination from the don’t-ask list"
     },
+    "Removed helper choice for %arg" : {
+      "comment" : "Announces successful removal of a remembered SSH helper choice; argument is the SSH destination"
+    },
     "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches." : {
       "comment" : "Terminal settings hint."
     },
