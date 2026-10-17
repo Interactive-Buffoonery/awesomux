@@ -11,16 +11,17 @@ import sys
 import tempfile
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--output', required=True, type=Path)
+parser.add_argument('--output', type=Path, help='Evidence directory (default: a temporary directory)')
 parser.add_argument('--expect-bugs', action='store_true')
 parser.add_argument('--defer-first-reap', action='store_true', help='Inject one not-yet-reapable exit notification')
 parser.add_argument('--source-ref', help='Compile unchanged production sources from this Git revision')
 parser.add_argument('--contracts', action='store_true', help='Run the existing, unmodified fake-transport suite in a standalone package')
-parser.add_argument('--cases', nargs='+', default=['close', 'timeout', 'cancel', 'echo', 'silent', 'closed-send', 'exit', 'deinit'])
+parser.add_argument('--cases', nargs='+', default=['close', 'timeout', 'cancel', 'echo', 'silent', 'closed-send', 'exit', 'deinit', 'descendant'])
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
-out = args.output.resolve()
+out = args.output.resolve() if args.output else Path(tempfile.mkdtemp(prefix='codex-transport-evidence-'))
 out.mkdir(parents=True, exist_ok=True)
+print(f'Evidence: {out}', flush=True)
 build = Path(tempfile.mkdtemp(prefix='codex-transport-e2e-'))
 services = root / 'Sources/awesoMux/Services'
 names = ['ProcessCodexAppServerTransport', 'ProcessCodexAppServerClient', 'CodexAppServerClient', 'CodexHookEntry', 'JSONValue', 'OneShotFlag', 'ProcessCommandRunner', 'CommandRunner']

@@ -3,7 +3,7 @@
 Run from the repository root on macOS with Swift 6 and Python 3:
 
 ```sh
-python3 script/codex-transport-e2e/run.py --output /tmp/codex-transport-results --contracts
+python3 script/codex-transport-e2e/run.py --contracts
 ```
 
 The driver compiles the actual production transport, client, wire models,
@@ -12,10 +12,15 @@ or build Ghostty. Each case gets a disposable CODEX_HOME and Python subprocess.
 The external runner applies a six-second watchdog; each fixture also has an
 independent ten-second alarm in case its process group differs from the driver.
 Temporary builds are retained and named in report.json for inspection.
+Evidence is written to a unique temporary directory by default, printed by
+the runner. Pass `--output /path/to/results` to choose a persistent location.
+The repository ignores `script/codex-transport-e2e/evidence/`.
 
 Failure surfaces covered by the harness:
 
 - Repeated close with a child that ignores TERM: child must exit and be reaped.
+- Repeated close with a forked helper holding the pipes: both processes must
+  exit, including the descendant that ignores TERM.
 - A completed initialize followed by a 4 MiB config write to a child that stops
   reading: the request deadline must include pipe transmission.
 - External cancellation during the same blocked write: the task must return,
@@ -36,10 +41,8 @@ python3 script/codex-transport-e2e/run.py --source-ref c96d09c2 \
 ```
 
 `--expect-bugs` requires close to exit 1, timeout/cancel to hit watchdog 124, and
-echo to succeed. The committed `before` evidence was recorded before any
-production edits; `before-recheck` uses the final harness against those same
-original sources. Reports include source and harness hashes because evidence
-can precede its owning commit.
+echo to succeed. Historical results are summarized in `REPORT.md`; generated
+logs are no longer committed. Reports include source and harness hashes.
 
 No new unit tests are added. The root integration run owns full preflight and
 application/UI verification.
