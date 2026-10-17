@@ -5381,6 +5381,9 @@
     "This pane" : {
 
     },
+    "This pane changed. Close this sheet and open it again to review access." : {
+
+    },
     "This pane has running activity. Closing the pane will stop it." : {
       "comment" : "Body of the close-pane confirmation dialog when generic activity is running.",
       "localizations" : {

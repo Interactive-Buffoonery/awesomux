@@ -15,6 +15,7 @@ struct AssistantAccessSettingsSection: View {
     @State private var contextErrorMessage: String?
     @State private var editor: ConnectionEditorRequest?
     @State private var editorErrorMessage: String?
+    @State private var staleEditorScope: LocalAPITargetScope?
     @State private var revoking: LocalAPIConnectionGrant?
     @State private var errorMessage: String?
     @State private var copyErrorMessage: String?
@@ -130,6 +131,7 @@ struct AssistantAccessSettingsSection: View {
                 panes: panes,
                 isWorking: isWorking,
                 errorMessage: editorErrorMessage,
+                staleScope: staleEditorScope,
                 save: save
             )
         }
@@ -195,6 +197,7 @@ struct AssistantAccessSettingsSection: View {
     private func presentEditor(_ connection: LocalAPIConnectionGrant? = nil) {
         isWorking = true
         editorErrorMessage = nil
+        staleEditorScope = nil
         Task { @MainActor in
             defer { isWorking = false }
             do {
@@ -499,27 +502,49 @@ struct AssistantAccessSettingsSection: View {
         Task { @MainActor in
             defer { isWorking = false }
             do {
+                try await validateEditor(request, scope: scope)
                 if let connectionID = request.connectionID {
                     try accessStore.updateStatusScope(connectionID: connectionID, statusScope: scope)
                 } else {
                     _ = try await LocalAPICredentialBroker().register(
                         in: accessStore,
                         label: request.label,
-                        statusScope: scope
+                        statusScope: scope,
+                        validateBeforeActivation: { try await validateEditor(request, scope: scope) }
                     )
                 }
                 editor = nil
                 errorMessage = nil
+            } catch LocalAPIError.staleTarget {
+                guard editor?.id == request.id else { return }
+                staleEditorScope = scope
+                editorErrorMessage = String(localized: "This pane changed. Close this sheet and open it again to review access.")
             } catch LocalAPICredentialBrokerError.cleanupFailed {
-                editorErrorMessage = String(
+                let message = String(
                     localized:
                         "The app wasn't added, and awesoMux couldn't remove its unused Keychain key."
                 )
+                if editor?.id == request.id {
+                    editorErrorMessage = message
+                } else {
+                    errorMessage = message
+                }
             } catch {
+                guard editor?.id == request.id else { return }
                 editorErrorMessage =
                     accessStore.persistenceFailureMessage
                     ?? String(localized: "awesoMux couldn't save this app's access.")
             }
+        }
+    }
+
+    private func validateEditor(_ request: ConnectionEditorRequest, scope: LocalAPITargetScope) async throws {
+        try Task.checkCancellation()
+        guard editor?.id == request.id else { throw CancellationError() }
+        if case .exactTarget(let paneID, let targetVersion) = scope {
+            let currentVersions = try await captureTargetVersions()
+            guard editor?.id == request.id else { throw CancellationError() }
+            guard currentVersions[paneID] == targetVersion else { throw LocalAPIError.staleTarget }
         }
     }
 
@@ -609,6 +634,7 @@ private struct AssistantConnectionEditor: View {
     let panes: [AssistantAccessPane]
     let isWorking: Bool
     let errorMessage: String?
+    let staleScope: LocalAPITargetScope?
     let save: (ConnectionEditorRequest, LocalAPITargetScope) -> Void
 
     init(
@@ -617,6 +643,7 @@ private struct AssistantConnectionEditor: View {
         panes: [AssistantAccessPane],
         isWorking: Bool,
         errorMessage: String?,
+        staleScope: LocalAPITargetScope?,
         save: @escaping (ConnectionEditorRequest, LocalAPITargetScope) -> Void
     ) {
         _draft = State(initialValue: request)
@@ -624,6 +651,7 @@ private struct AssistantConnectionEditor: View {
         self.panes = panes
         self.isWorking = isWorking
         self.errorMessage = errorMessage
+        self.staleScope = staleScope
         self.save = save
     }
 
@@ -750,7 +778,8 @@ private struct AssistantConnectionEditor: View {
         case .workspaces:
             hasSelection = !draft.selectedWorkspaceIDs.isEmpty
         }
-        return hasSelection && (draft.connectionID != nil || !draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        return hasSelection && selectedScope != staleScope
+            && (draft.connectionID != nil || !draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     private var exactTargetExpiryMessage: String? {
