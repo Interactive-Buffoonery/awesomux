@@ -136,6 +136,12 @@ restore_profile_state() {
 
 cleanup() {
     local comm
+    # LaunchServices may return before PID discovery finishes. The copied
+    # bundle path is exclusive to this run, so recover only that owned PID.
+    if [[ "$RUN_STARTED" == 1 && -z "$TARGET_PID" ]]; then
+        TARGET_PID="$(exact_path_pids)" || return 1
+        [[ "$TARGET_PID" != *$'\n'* ]] || return 1
+    fi
     if [[ -n "$TARGET_PID" ]]; then
         if kill -0 "$TARGET_PID" 2>/dev/null; then
             comm="$(ps -p "$TARGET_PID" -o comm=)" || return 1
@@ -151,7 +157,14 @@ cleanup() {
                 kill -KILL "$TARGET_PID" || return 1
             fi
         fi
-        wait "$TARGET_PID" 2>/dev/null || true
+        for _ in $(seq 1 20); do
+            kill -0 "$TARGET_PID" 2>/dev/null || break
+            sleep 0.25
+        done
+        if kill -0 "$TARGET_PID" 2>/dev/null; then
+            note "FAIL: owned app PID has not exited"
+            return 1
+        fi
         TARGET_PID=""
     fi
     if [[ "$RUN_STARTED" == 1 ]]; then
@@ -286,8 +299,13 @@ codesign --verify --deep --strict "$APP_BUNDLE"
 } >"$ARTIFACT_DIR/bundle-identity.txt"
 [[ -x "$APP_BUNDLE/Contents/MacOS/amx" ]] || { note "FAIL: bundled amx required for owned daemon cleanup"; exit 1; }
 RUN_STARTED=1
-env -u ZMX_SESSION_PREFIX -u ZMX_SESSION "$APP_BINARY" >"$ARTIFACT_DIR/app.log" 2>&1 &
-TARGET_PID="$!"
+env -u ZMX_SESSION_PREFIX -u ZMX_SESSION open -n "$APP_BUNDLE"
+for _ in $(seq 1 40); do
+    TARGET_PID="$(exact_path_pids)"
+    [[ -z "$TARGET_PID" ]] || break
+    sleep 0.25
+done
+[[ -n "$TARGET_PID" && "$TARGET_PID" != *$'\n'* ]] || { note "FAIL: expected exactly one owned app PID"; exit 1; }
 note "launched pid=$TARGET_PID executable=$APP_BINARY"
 
 for _ in $(seq 1 40); do
@@ -295,12 +313,18 @@ for _ in $(seq 1 40); do
     sleep 0.25
 done
 ax "set frontmost to true" >/dev/null
+for _ in $(seq 1 40); do
+    [[ "$(ax "get frontmost")" == true ]] && break
+    sleep 0.25
+done
+[[ "$(ax "get frontmost")" == true ]] || { note "FAIL: owned app did not become frontmost"; exit 1; }
 ax "click menu item \"New Workspace\" of menu \"File\" of menu bar 1" >/dev/null
 for _ in $(seq 1 40); do
     [[ "$(ax "count windows" || echo 0)" -gt 0 ]] && break
     sleep 0.25
 done
 
+[[ "$(ax "count windows")" -gt 0 ]] || { note "FAIL: New Workspace did not open a window"; exit 1; }
 ax "click menu item \"Show Terminal Companion\" of menu \"View\" of menu bar 1" >/dev/null
 wait_for open 10 || { dump_companion "summon failed"; note "FAIL: companion never opened"; exit 1; }
 # Typing before the shell has drawn its first prompt can be dropped.
