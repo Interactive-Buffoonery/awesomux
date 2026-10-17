@@ -682,14 +682,38 @@ private final class CompanionNetworkServer {
         do {
             let phoneSPKI = try Self.peerSPKI(connection)
             let fingerprint = Data(SHA256.hash(data: phoneSPKI))
-            if let paired = pairedConnections().first(where: {
+            let firstFrameDeadline = Task { [delay] in
+                try? await delay(.seconds(LocalAPIContract.timeout))
+                guard !Task.isCancelled else { return }
+                connection.cancel()
+            }
+            defer { firstFrameDeadline.cancel() }
+            let data: Data
+            do {
+                data = try await Self.readFrame(connection, maximum: LocalAPIContract.maximumRequestBytes)
+            } catch let error as LocalAPIError {
+                if pairedConnections().contains(where: {
+                    $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
+                }) {
+                    try? await Self.sendFrame(
+                        try LocalAPIContract.encoder().encode(LocalAPIResponse(error: error)), connection: connection
+                    )
+                }
+                return
+            }
+            firstFrameDeadline.cancel()
+            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if pairingIsOpen, object?["op"] as? String == "pair" {
+                try await servePairing(connection, data: data, remote: remote, phoneSPKI: phoneSPKI, fingerprint: fingerprint)
+            } else if let paired = pairedConnections().first(where: {
                 $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
             }) {
                 connections[id]?.connectionID = paired.id
-                try await serveAuthorized(connection, connectionID: paired.id, fingerprint: fingerprint)
+                try await serveAuthorized(connection, data: data, connectionID: paired.id, fingerprint: fingerprint)
             } else {
                 try await servePairing(
                     connection,
+                    data: data,
                     remote: remote,
                     phoneSPKI: phoneSPKI,
                     fingerprint: fingerprint
@@ -700,7 +724,7 @@ private final class CompanionNetworkServer {
         }
     }
 
-    private func serveAuthorized(_ connection: NWConnection, connectionID: UUID, fingerprint: Data) async throws {
+    private func serveAuthorized(_ connection: NWConnection, data: Data, connectionID: UUID, fingerprint: Data) async throws {
         let deadline = Task { [delay] in
             try? await delay(.seconds(LocalAPIContract.timeout))
             guard !Task.isCancelled else { return }
@@ -710,7 +734,6 @@ private final class CompanionNetworkServer {
         var requestID: UUID?
         let responseProgress = ResponseProgress()
         do {
-            let data = try await Self.readFrame(connection, maximum: LocalAPIContract.maximumRequestBytes)
             guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "paneID", "targetVersion", "limit", "source",
@@ -761,19 +784,12 @@ private final class CompanionNetworkServer {
 
     private func servePairing(
         _ connection: NWConnection,
+        data: Data,
         remote: String,
         phoneSPKI: Data,
         fingerprint: Data
     ) async throws {
         guard pairingIsOpen, limiter.allows(remote, kind: .pairing) else { throw CompanionPairingError.invalidRequest }
-        let firstFrameDeadline = Task { [delay] in
-            try? await delay(.seconds(LocalAPIContract.timeout))
-            guard !Task.isCancelled else { return }
-            connection.cancel()
-        }
-        defer { firstFrameDeadline.cancel() }
-        let data = try await Self.readFrame(connection, maximum: LocalAPIContract.maximumRequestBytes)
-        firstFrameDeadline.cancel()
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
             Set(object.keys) == ["v", "op", "secret", "phoneName"],
             object["v"] as? Int == 1,

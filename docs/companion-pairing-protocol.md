@@ -101,7 +101,9 @@ returns:
 ```
 
 The UUID is lowercase in the Mac implementation, but clients must accept any
-standard UUID case. `macName` is the decoded display name, not percent-encoded.
+standard UUID case. Re-pairing with the same phone key replaces its old grant
+with a new connection ID; the old connection ID is immediately revoked.
+`macName` is the decoded display name, not percent-encoded.
 
 If the person chooses **Don't Allow**, closes the sheet, or does not decide
 within two minutes, the Mac returns `denied` and closes. The phone reconnects

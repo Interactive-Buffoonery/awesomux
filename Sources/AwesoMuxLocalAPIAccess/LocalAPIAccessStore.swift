@@ -421,9 +421,7 @@ public final class LocalAPIAccessStore {
         try requireWritableAuthority()
         let phoneName = UnicodeHygiene.sanitize(rawPhoneName, maxLength: 80, stripInvisibleRoutingScalars: true)
         guard !phoneName.isEmpty else { throw LocalAPIAccessFailure.invalidLabel }
-        guard certificateFingerprint.count == SHA256.byteCount,
-            !state.connections.contains(where: { $0.companion?.certificateFingerprint == certificateFingerprint })
-        else { throw LocalAPIAccessFailure.persistenceFailed }
+        guard certificateFingerprint.count == SHA256.byteCount else { throw LocalAPIAccessFailure.persistenceFailed }
         let connection = LocalAPIConnectionGrant(
             id: UUID(),
             label: phoneName,
@@ -440,10 +438,12 @@ public final class LocalAPIAccessStore {
             )
         )
         var candidate = state
+        let replaced = candidate.connections.first { $0.companion?.certificateFingerprint == certificateFingerprint }
+        candidate.connections.removeAll { $0.companion?.certificateFingerprint == certificateFingerprint }
         candidate.connections.append(connection)
         candidate.connections.sort { $0.createdAt < $1.createdAt }
         let directorySynced = try persist(candidate)
-        publish(candidate)
+        publish(candidate, invalidating: replaced.map { .connection($0.id) } ?? .none)
         recordDurabilityWarningIfNeeded(directorySynced)
         return connection
     }
