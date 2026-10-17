@@ -93,6 +93,10 @@ enum PaletteSearch {
         var outputGroups: [PaletteResultGroup] = []
 
         if resolved.mode == .unified,
+            // Executables such as `view` must not hide matching app actions.
+            !commands.contains(where: {
+                $0.isEnabled && $0.title.range(of: query, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil
+            }),
             let quickRun = PaletteQuickRunDetector.quickRun(
                 for: rawQuery,
                 searchPath: quickRunSearchPath
