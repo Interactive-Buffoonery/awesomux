@@ -188,11 +188,32 @@ cleanup() {
 }
 
 finish() {
-    local status="$?"
+    local status="$?" cleanup_pid cleanup_status interrupted=0
+    trap '[[ "$status" != 0 ]] || status=130; interrupted=1' INT
+    trap '[[ "$status" != 0 ]] || status=143; interrupted=1' TERM
     trap - EXIT
-    if ! cleanup; then
+    # Shield cleanup children from process-group cancellation while the parent
+    # records it. A trapped signal interrupts wait, so keep waiting for cleanup.
+    (
+        trap '' INT TERM
+        if cleanup; then exit 0; else exit 1; fi
+    ) &
+    cleanup_pid=$!
+    while :; do
+        interrupted=0
+        if wait "$cleanup_pid"; then cleanup_status=0; else cleanup_status=$?; fi
+        [[ "$interrupted" != 1 ]] || continue
+        # Bash can return the initiating INT status again inside its EXIT
+        # trap even while the worker lives. Do not release cleanup early.
+        if [[ "$cleanup_status" -gt 128 ]] && builtin kill -0 "$cleanup_pid" 2>/dev/null; then
+            sleep 0.05 || true
+            continue
+        fi
+        break
+    done
+    if [[ "$cleanup_status" != 0 ]]; then
         note "FAIL: cleanup incomplete; inspect $RUN_BUNDLE_DIR / $STATE_BACKUP_DIR"
-        status=1
+        [[ "$status" != 0 ]] || status=1
     fi
     if [[ "$status" == 0 ]]; then note "PASS (including cleanup)"; fi
     exit "$status"
@@ -382,9 +403,10 @@ end tell")" || { note "FAIL: could not activate actual Close button"; exit 1; }
 [[ "$CLOSE_RESULT" == clicked ]] || { note "FAIL: no Close activation acknowledgement"; exit 1; }
 note "activated actual Close button"
 
-# Existing companion close behavior requires confirmation. Require observing
-# and activating it; an already-closed companion is never close-button proof.
+# Close confirms only when the refreshed risk policy finds running work or
+# uncertainty. The acknowledged button click may also close an idle shell.
 CONFIRMED=no
+CLOSE_OUTCOME=""
 for _ in $(seq 1 20); do
     CONFIRMED="$(osascript -e "tell application \"System Events\"
 tell (first process whose unix id is $TARGET_PID)
@@ -397,11 +419,26 @@ tell (first process whose unix id is $TARGET_PID)
     return \"no\"
 end tell
 end tell")" || { note "FAIL: AX close confirmation query failed"; exit 1; }
-    [[ "$CONFIRMED" != yes ]] || break
+    if [[ "$CONFIRMED" == yes ]]; then
+        CLOSE_OUTCOME=confirmed
+        break
+    fi
+    [[ "$CONFIRMED" == no ]] || { note "FAIL: invalid Close confirmation acknowledgement"; exit 1; }
+    CLOSE_STATUS=0
+    companion_open || CLOSE_STATUS="$?"
+    [[ "$CLOSE_STATUS" != 2 ]] || { note "FAIL: AX window query failed after Close"; exit 1; }
+    if [[ "$CLOSE_STATUS" == 1 ]]; then
+        CLOSE_OUTCOME=immediate
+        break
+    fi
     sleep 0.25
 done
-[[ "$CONFIRMED" == yes ]] || { note "FAIL: close confirmation never appeared"; exit 1; }
-note "close confirmation appeared and was confirmed"
+[[ -n "$CLOSE_OUTCOME" ]] || { note "FAIL: Close neither closed the companion nor offered confirmation"; exit 1; }
+if [[ "$CLOSE_OUTCOME" == confirmed ]]; then
+    note "close confirmation appeared and was confirmed"
+else
+    note "acknowledged Close closed the idle companion without confirmation"
+fi
 if ! wait_for closed 5; then
     dump_companion "after close button"
     ax "get entire contents of every window" >"$ARTIFACT_DIR/all-windows-after-close.txt" 2>&1 || true
