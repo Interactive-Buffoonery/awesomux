@@ -97,6 +97,7 @@ relative_swift_path() {
         "$ROOT_DIR/Package.swift") printf '%s\n' "Package.swift" ;;
         "$ROOT_DIR/Sources/"*.swift) printf '%s\n' "${absolute_path#"$ROOT_DIR/"}" ;;
         "$ROOT_DIR/Tests/"*.swift) printf '%s\n' "${absolute_path#"$ROOT_DIR/"}" ;;
+        "$ROOT_DIR/script/companion-pairing-e2e/"*.swift) printf '%s\n' "${absolute_path#"$ROOT_DIR/"}" ;;
         *) return 1 ;;
     esac
 }
@@ -142,6 +143,7 @@ changed_line_ranges() {
     git diff --src-prefix=a/ --dst-prefix=b/ --unified=0 --no-ext-diff \
         --diff-filter=ACMR --find-renames "$base_ref" -- \
         Package.swift ':(glob)Sources/**/*.swift' ':(glob)Tests/**/*.swift' \
+        ':(glob)script/companion-pairing-e2e/*.swift' \
         | awk '
             /^\+\+\+ b\// { file = substr($0, 7); next }
             /^@@ / {
@@ -255,7 +257,7 @@ format_explicit_files() {
             exit 2
         fi
         if ! relative_path="$(relative_swift_path "$supplied_path")"; then
-            echo "error: format only Package.swift or files under Sources/ and Tests/: $supplied_path" >&2
+            echo "error: format only Package.swift, Sources/, Tests/, or the Companion E2E target: $supplied_path" >&2
             exit 2
         fi
         paths+=("$relative_path")
@@ -353,6 +355,7 @@ lint_changed_lines() {
 
     git diff --unified=0 --no-ext-diff --diff-filter=ACMR "$base_ref" -- \
         Package.swift ':(glob)Sources/**/*.swift' ':(glob)Tests/**/*.swift' \
+        ':(glob)script/companion-pairing-e2e/*.swift' \
         | awk '
             /^\+\+\+ b\// { file = substr($0, 7); next }
             /^@@ / {
@@ -373,7 +376,8 @@ lint_changed_lines() {
             printf '%s\t1\t%s\n' "$untracked_path" "$line_count" >> "$ranges_file"
         fi
     done < <(git ls-files --others --exclude-standard -- \
-        Package.swift ':(glob)Sources/**/*.swift' ':(glob)Tests/**/*.swift')
+        Package.swift ':(glob)Sources/**/*.swift' ':(glob)Tests/**/*.swift' \
+        ':(glob)script/companion-pairing-e2e/*.swift')
 
     if [[ ! -s "$ranges_file" ]]; then
         echo "Swift format lint: no changed Swift lines"
