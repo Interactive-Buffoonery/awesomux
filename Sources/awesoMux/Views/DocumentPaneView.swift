@@ -1279,7 +1279,6 @@ struct DocumentPaneView: View {
     /// refreshed closures silently accepting a stale draft. Non-nil = shown.
     @State private var documentNoteSheetDoc: RenderedDocument? = nil
     @State private var documentNoteSheetSnapshot: MarkdownDocumentSnapshot? = nil
-    @State private var lastSelfWrittenSource: String? = nil
     @State private var reloadGeneration: Int = 0
     @State private var reloadSource: ReloadSource? = nil
     @State private var reloadCompletion = DocumentReloadCompletion()

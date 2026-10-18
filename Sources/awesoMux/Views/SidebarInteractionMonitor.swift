@@ -18,8 +18,6 @@ final class SidebarInteractionMonitor {
     private var lastActive = false
     private var isDetached = false
 
-    var observerCountForTesting: Int { observations.count }
-
     init(
         sidebarRoot: NSView,
         focusedAccessibilityElement: FocusedAccessibilityElement? = nil,

@@ -30,10 +30,6 @@ final class SidebarPresentationModel {
         !userWantsHidden || proximityState == .revealed
     }
 
-    var permitsWidthChanges: Bool {
-        !userWantsHidden
-    }
-
     /// The three sensors that can hold the sidebar revealed once it is up:
     /// pointer over the sidebar body, pointer over a peek card, or an active
     /// keyboard/AX interaction. They fan into one occupancy latch.
@@ -174,8 +170,6 @@ final class SidebarPresentationModel {
             ? .dormant
             : .cue
     }
-
-    var transientGenerationForTesting: Int { generation }
 
     private func transition(to next: ProximityState) {
         cancelDelayedHide()

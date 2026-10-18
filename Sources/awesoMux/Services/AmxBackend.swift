@@ -1153,25 +1153,6 @@ enum AmxBackend {
         )
     }
 
-    /// Raw-path variant of `bridgeReverseForwardCommand` for a throwaway probe
-    /// that has no `BridgeChannel` (the doctor's empirical reverse-forward
-    /// check, INT-698 F1). Mirrors the cancel/remove builders, which already
-    /// take loose socket paths rather than a channel.
-    static func bridgeReverseForwardCommand(
-        controlPath: String,
-        remote: RemoteTarget,
-        remoteSocketPath: String,
-        localSocketPath: String
-    ) -> String {
-        reverseForwardControlCommand(
-            controlPath: controlPath,
-            remote: remote,
-            operation: "forward",
-            remoteSocketPath: remoteSocketPath,
-            localSocketPath: localSocketPath
-        )
-    }
-
     private static func reverseForwardControlCommand(
         controlPath: String,
         remote: RemoteTarget,
@@ -1320,9 +1301,9 @@ enum AmxBackend {
     }
 
     /// Runs the installed remote helper's `--version` over the shared master so
-    /// the doctor can intersect its advertised proto set against the app's
-    /// (INT-698 F1, spec "Doctor integration"). `--version` needs no bridge env
-    /// — it only prints the protocols this helper build understands.
+    /// the app can intersect its advertised proto set against its own.
+    /// `--version` needs no bridge env — it only prints the protocols this
+    /// helper build understands.
     static func bridgeHelperVersionCommand(
         controlPath: String,
         remote: RemoteTarget,
@@ -1377,39 +1358,6 @@ enum AmxBackend {
         let tokens =
             ["ssh", "-S", shellQuote(controlPath)] + bridgeExecMasterOptionTokens + [
                 "--", shellQuote(remote.sshDestination), shellQuote(remoteScript),
-            ]
-        return tokens.joined(separator: " ")
-    }
-
-    /// Runs the remote helper's `--self-check` over the shared master (INT-698
-    /// F1). The helper reads the bridge state file under its custody rules and
-    /// attempts one handshake, so its exit code reports both the state-file
-    /// custody and the round-trip signals. The bridge env prefix (identical to
-    /// the attach path's, secrets NEVER included — only the creation-stable
-    /// path/session/helper values) points the helper at the published state
-    /// file; the exec channel discards stderr, so the app consumes only the
-    /// exit code, never the terse message contents.
-    static func bridgeHelperSelfCheckCommand(
-        controlPath: String,
-        remote: RemoteTarget,
-        helperPath: String,
-        stateFilePath: String,
-        session: TerminalSessionID
-    ) -> String {
-        let remoteScript = bridgeEnvironmentPrefixedRemoteCommand(
-            stateFilePath: stateFilePath,
-            session: session,
-            helperPath: helperPath,
-            remoteCommand: shellQuote(helperPath) + " --self-check"
-        )
-        let tokens =
-            [
-                "ssh",
-                "-S", shellQuote(controlPath),
-            ] + bridgeExecMasterOptionTokens + [
-                "--",
-                shellQuote(remote.sshDestination),
-                shellQuote(remoteScript),
             ]
         return tokens.joined(separator: " ")
     }
@@ -1728,10 +1676,6 @@ enum AmxBackend {
 
     static var establishedSessionMetadata: TerminalBackendMetadata {
         TerminalBackendMetadata(rawValue: establishedMetadataRawValue)
-    }
-
-    static var existingOnlySessionMetadata: TerminalBackendMetadata {
-        TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
     }
 
     /// Environment for spawned `amx list`/`kill`: scrub inherited zmx control

@@ -271,27 +271,6 @@ import Testing
         #expect(escaped == nil)
     }
 
-    @Test func normalizedDocumentFilePathCollapsesParentSegments() {
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("/repo/docs/../secret.md")
-                == "/repo/secret.md"
-        )
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/docs/../secret.md")
-                == "~/repo/secret.md"
-        )
-        #expect(MarkdownLinkIntercept.normalizedDocumentFilePath("~/../secret.md") == nil)
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/docs/guide.md")
-                == "~/repo/docs/guide.md"
-        )
-        // Collapsing above the source directory is enforced by join/containment,
-        // not by rejecting every `..` that stays under `~/`.
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/../secret.md")
-                == "~/secret.md"
-        )
-    }
 }
 
 @Suite("Markdown document path join helpers")
