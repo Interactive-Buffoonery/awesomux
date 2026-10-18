@@ -2,6 +2,7 @@
 """Verify generated SSH shell integration over disposable loopback OpenSSH PTYs."""
 import argparse
 import getpass
+import glob
 import os
 from pathlib import Path
 import pty
@@ -29,6 +30,11 @@ def read_until(fd, needle, timeout=12):
     return bytes(data)
 
 
+def config_path(path):
+    """OpenSSH config values use double quotes, not POSIX shell quoting."""
+    return '"' + str(path).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
 def control_terminal():
     os.setsid()
     fcntl.ioctl(0, termios.TIOCSCTTY, 0)
@@ -50,11 +56,13 @@ def main():
         listener.bind(('127.0.0.1', 0))
         port = listener.getsockname()[1]
     server_config = fixture / 'sshd.conf'
+    # AuthorizedKeysFile expands both globs and percent tokens after parsing.
+    authorized_key = glob.escape(str(fixture / 'key.pub')).replace('\\', '\\\\').replace('%', '%%')
     server_config.write_text(f'''Port {port}
 ListenAddress 127.0.0.1
-HostKey {key}
-PidFile {fixture}/pid
-AuthorizedKeysFile {key}.pub
+HostKey {config_path(key)}
+PidFile {config_path(fixture / 'pid')}
+AuthorizedKeysFile {config_path(authorized_key)}
 StrictModes no
 UsePAM no
 PasswordAuthentication no
@@ -66,7 +74,7 @@ PrintMotd no
   HostName 127.0.0.1
   User {getpass.getuser()}
   Port {port}
-  IdentityFile "{key}"
+  IdentityFile {config_path(str(key).replace('%', '%%'))}
   IdentitiesOnly yes
   BatchMode yes
   StrictHostKeyChecking no
