@@ -62,10 +62,6 @@ final class GhosttyEventLoopWatchdog {
         hasFiredForCurrentStall = false
     }
 
-    /// Testing seam only; exposes the tick generation so runtime wiring
-    /// can assert tick() reaches the watchdog without OSLogStore/timers.
-    var tickGenerationForTesting: UInt64 { generation }
-
     /// Exposed for deterministic policy tests. Production timer checks use the
     /// same begin/finish path without retaining the watchdog across a stalled
     /// OSLog query.

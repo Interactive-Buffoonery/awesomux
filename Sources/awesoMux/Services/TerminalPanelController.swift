@@ -171,7 +171,6 @@ final class TerminalPanelController {
 
     var isVisible: Bool { presentation != .closed }
     var isExpanded: Bool { presentation == .expanded }
-    var isMinimized: Bool { presentation == .minimized }
     var ownedWindow: NSWindow? { panel }
     /// Observable mirror of the expanded panel's key state, so menu titles can
     /// promise "Minimize" only when the toggle would actually minimize.
@@ -1814,86 +1813,3 @@ enum SummonAnnouncement {
     /// No announcement.
     case none
 }
-
-#if DEBUG
-extension TerminalPanelController {
-    func seedDismissConfirmationTestSlot(
-        workspaceID: TerminalSession.ID,
-        store: SessionStore,
-        isOpen: Bool = true,
-        isVisible: Bool = true
-    ) {
-        guard let slots else { return }
-        _ = slots.ensureStore(for: workspaceID, make: { store })
-        slots.setActive(workspaceID)
-        if isOpen {
-            slots.markOpen(workspaceID)
-        } else {
-            slots.markClosed(workspaceID)
-        }
-        presentation = isVisible ? .expanded : .closed
-        resetDismissConfirmation()
-    }
-
-    func seedRetainedPaneIDTestSlots(
-        _ seeds: [(workspaceID: TerminalSession.ID, store: SessionStore)]
-    ) {
-        guard let slots else { return }
-        for seed in seeds {
-            _ = slots.ensureStore(for: seed.workspaceID, make: { seed.store })
-        }
-        if slots.activeWorkspaceID == nil {
-            slots.setActive(seeds.first?.workspaceID)
-        }
-        resetDismissConfirmation()
-    }
-
-    func hasFloatingSlotForTesting(workspaceID: TerminalSession.ID) -> Bool {
-        slots?.store(for: workspaceID) != nil
-    }
-
-    var isDismissConfirmationPendingForTesting: Bool {
-        dismissConfirmation.isPending && focusState.discardConfirmationPending
-    }
-
-    static func shouldAnnounceExternalReKeyForTesting(
-        wasKey: Bool,
-        isKey: Bool,
-        isVisible: Bool,
-        isPresentingShow: Bool
-    ) -> Bool {
-        shouldAnnounceExternalReKey(
-            wasKey: wasKey,
-            isKey: isKey,
-            isVisible: isVisible,
-            isPresentingShow: isPresentingShow
-        )
-    }
-
-    /// Seeds a post-insert, pre-detach promotion so a test can drive
-    /// `cancelPromotion` without AppKit windows (detach is nil-panel safe). Set
-    /// `activeWorkspaceID` to a different workspace to simulate a switch-away.
-    func seedInFlightPromotionTestSlot(
-        workspaceID: TerminalSession.ID,
-        session: TerminalSession,
-        mainStore: SessionStore,
-        activeWorkspaceID: TerminalSession.ID?
-    ) {
-        guard let slots else { return }
-        _ = slots.ensureStore(for: workspaceID, make: { SessionStore(groups: []) })
-        slots.markOpen(workspaceID)
-        slots.setActive(activeWorkspaceID)
-        promotionInFlight = InFlightPromotion(
-            workspaceID: workspaceID,
-            session: session,
-            sessionStore: mainStore,
-            didInsert: true,
-            didDetach: false
-        )
-    }
-
-    func cancelPromotionForTesting() {
-        cancelPromotion()
-    }
-}
-#endif

@@ -156,10 +156,6 @@ final class FirstRunTourController {
         ).post()
     }
 
-    /// Every part of `show()` that isn't the window. `showForTesting()` routes
-    /// through this rather than duplicating the transition, so a regression
-    /// that reset `currentBeat` on present would be caught by a test that can
-    /// only run headless.
     private func beginPresentation() {
         presentationToken += 1
         isVisible = true
@@ -330,31 +326,6 @@ final class FirstRunTourController {
             guard let self else { return }
             panel?.level = isKeyWindow ? .floating : .normal
         }
-    }
-
-    // MARK: - Test seams
-
-    /// Flips `isVisible` without constructing a real `NSWindow` — swift-testing
-    /// runs unbundled, and `FloatingSwiftUIPanelWindow` sizing/chrome assumes a
-    /// live `NSScreen`/window server that isn't available there.
-    func showForTesting() {
-        beginPresentation()
-    }
-
-    /// Routes through the same `handleKeyStateChanged` the real panel's
-    /// `becomeKey()`/`resignKey()` overrides call, without constructing one.
-    func handleKeyStateChangedForTesting(_ isKey: Bool) {
-        handleKeyStateChanged(isKey)
-    }
-
-    /// Headless counterpart to `resumeAfterAgentSettingsClose()`. The real
-    /// method must create/focus an NSWindow, which the Swift test runner cannot
-    /// do reliably without an app bundle and window server.
-    @discardableResult
-    func resumeAfterAgentSettingsCloseForTesting() -> Bool {
-        guard consumeAgentSettingsHandoff() else { return false }
-        showForTesting()
-        return true
     }
 
     private func consumeAgentSettingsHandoff() -> Bool {

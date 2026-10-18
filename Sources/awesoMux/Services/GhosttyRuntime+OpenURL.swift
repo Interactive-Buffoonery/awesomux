@@ -600,14 +600,6 @@ extension GhosttyRuntime {
     }
 
     @MainActor
-    static func resetURLOpenConfirmationProviderForTesting() {
-        urlOpenConfirmationProvider = {
-            await confirmBlockedURL($0, reason: $1, displayHost: $2, punycodeHost: $3)
-        }
-        isURLConfirmAlertPresented = false
-    }
-
-    @MainActor
     static func alertBodyForBlockedURL(
         _ url: URL,
         reason: URLClassifier.BlockReason,

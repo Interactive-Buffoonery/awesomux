@@ -126,12 +126,6 @@ final class GhosttyRuntime {
     private lazy var eventLoopFaultSource: any GhosttyFaultLogSource =
         OSLogGhosttyFaultSource()
 
-    /// Testing seam only - exposes the watchdog's tick generation so
-    /// wiring can be asserted without reaching into OSLogStore or timers.
-    var eventLoopTickGenerationForTesting: UInt64 {
-        eventLoopWatchdog?.tickGenerationForTesting ?? 0
-    }
-
     @ObservationIgnored
     private var applicationInputObserverTokens: [NSObjectProtocol] = []
 
@@ -319,14 +313,6 @@ final class GhosttyRuntime {
     /// ticks deterministically).
     @ObservationIgnored
     var visibleSurfaceSamplingClock: any Clock<Duration> = ContinuousClock()
-
-    var visibleSurfaceSamplingPaneIDsForTesting: Set<TerminalPane.ID> {
-        visibleSurfaceSamplingPaneIDs
-    }
-
-    var hasVisibleSurfaceSamplingTaskForTesting: Bool {
-        visibleSurfaceSamplingTask != nil
-    }
 
     @ObservationIgnored
     private let terminalAppearanceProvider: @MainActor () -> TerminalAppearancePreferences
@@ -1223,8 +1209,7 @@ final class GhosttyRuntime {
     }
 
     /// Live agent-integrations settings, read off the SwiftUI store the same way
-    /// `commandBridgeEnabledProvider` reads the command-bridge toggle. Feeds both
-    /// the bridge enable gate (`isBridgeChromeEnabled`) and the per-event consent
+    /// `commandBridgeEnabledProvider` reads the command-bridge toggle. Feeds per-event consent
     /// the read-model adapter evaluates at apply time (never a spawn-time snapshot).
     func configureAgentIntegrationsProvider(
         _ provider: @escaping @MainActor () -> AgentIntegrationsConfig
@@ -1235,13 +1220,6 @@ final class GhosttyRuntime {
     @MainActor
     var agentIntegrations: AgentIntegrationsConfig {
         agentIntegrationsProvider()
-    }
-
-    /// The bridge enable gate's agent-chrome half (contributor ruling): the master
-    /// agent-integrations switch is on — any provider enabled.
-    @MainActor
-    var isBridgeChromeEnabled: Bool {
-        agentIntegrations.anyProviderEnabled
     }
 
     /// The long-lived attach preflight for a remote bridge session, created on

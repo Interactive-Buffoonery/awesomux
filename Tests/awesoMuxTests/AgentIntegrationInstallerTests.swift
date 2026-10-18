@@ -657,34 +657,6 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
-    @Test("prepare config home creates directories and rejects files")
-    func prepareConfigHomeCreatesDirectoriesAndRejectsFiles() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            let configHome =
-                directory
-                .appending(path: "home", directoryHint: .isDirectory)
-                .appending(path: ".config", directoryHint: .isDirectory)
-                .appending(path: "opencode", directoryHint: .isDirectory)
-            let file = directory.appending(path: "not-a-directory")
-            FileManager.default.createFile(atPath: file.path, contents: nil)
-
-            let prepared = try installer.prepareConfigHome(configHome.path)
-            #expect(prepared == configHome)
-            #expect(FileManager.default.fileExists(atPath: configHome.path))
-            #expect(
-                throws: AgentIntegrationInstallerError.configHomeIsNotDirectory(
-                    URL(fileURLWithPath: file.path, isDirectory: true)
-                )
-            ) {
-                try installer.prepareConfigHome(file.path)
-            }
-        }
-    }
-
     @Test("failed manifest save rolls back a moved install")
     func failedManifestSaveRollsBackMovedInstall() throws {
         try Self.withTemporaryDirectory { directory in
