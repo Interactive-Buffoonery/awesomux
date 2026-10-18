@@ -27,6 +27,10 @@ Use current code, ADRs, and docs as the source of truth. Use GitHub Issues for
 decisions not recorded there; do not treat old issue or PR prose as current
 architecture without checking.
 
+When working on issues, also check the shared plan using
+[read-awesomux-plan](.agents/skills/read-awesomux-plan/SKILL.md).
+Reconcile it with current code, ADRs, and GitHub; flag conflicts.
+
 ## Hard guardrails
 
 ### Licensing and dependencies
