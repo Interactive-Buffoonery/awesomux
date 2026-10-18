@@ -49,6 +49,19 @@ build, signing, and launch verification. Run focused native groups with:
 ./script/test.sh all
 ```
 
+## Local menu gate
+
+For menu-touching changes, also run the opt-in [launched-app menu check](../script/menu-e2e/README.md).
+It captures the running app's real `NSApp.mainMenu` and compares titles, order,
+separators, enablement and key equivalents against a reviewed observed baseline.
+Capture-only mode does not assert a regression pass. The harness uses a fresh
+bundle/profile and verifies its owned staging/app groups have exited before
+cleanup; it requires no Accessibility grant.
+Workspace and compact-surface transitions remain separate manual/E2E coverage.
+The existing `script/smoke-floating-rebind.sh` covers one floating-panel rebind
+journey and needs existing Accessibility authorization. Neither check runs in
+preflight or hosted CI by default; no paid macOS runner is added.
+
 ## Advisory native CI
 
 On an open, non-draft, same-repository pull request, a login listed in the
