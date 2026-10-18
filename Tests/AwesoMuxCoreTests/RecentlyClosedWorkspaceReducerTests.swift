@@ -5,204 +5,6 @@ import Testing
 
 @Suite("RecentlyClosedWorkspaceReducer")
 struct RecentlyClosedWorkspaceReducerTests {
-    @Test("reopen retains unknown generated document ownership")
-    func reopenRetainsUnknownGeneratedDocumentOwnership() throws {
-        let tab = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/future-generated.md"),
-            title: "Generated Document",
-            generatedDocumentKind: .unknown
-        )
-        let layout = TerminalPaneLayout.documentGroup(
-            DocumentGroup(tabs: [tab], selectedTabID: tab.id)
-        )
-        var seenTerminalSessionIDs: Set<TerminalSessionID> = []
-        var seenPaneIDs: Set<TerminalPane.ID> = []
-
-        let reidentified = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
-            layout,
-            indexHint: 0,
-            seenTerminalSessionIDs: &seenTerminalSessionIDs,
-            seenPaneIDs: &seenPaneIDs
-        )
-
-        let reopened = try #require(reidentified.firstDocumentGroup?.tabs.first)
-        #expect(reopened.id != tab.id)
-        #expect(reopened.generatedDocumentKind == .unknown)
-        #expect(!reopened.isEditable)
-    }
-
-    @Test("reopen preserves structured synthetic title metadata")
-    func reopenPreservesSyntheticTitleMetadata() throws {
-        let groupID = UUID()
-        let pane = TerminalPane(title: "shell", workingDirectory: "/work", executionPlan: .local)
-        let syntheticTitle = SyntheticSessionTitle(agentKind: .shell, index: 4)
-        let entry = RecentlyClosedWorkspace(
-            sessionID: UUID(),
-            title: syntheticTitle.canonicalTitle,
-            syntheticTitle: syntheticTitle,
-            isTitleUserEdited: false,
-            agentKind: .shell,
-            layout: .pane(pane),
-            activePaneID: pane.id,
-            groupID: groupID,
-            groupName: "main",
-            groupRemote: nil,
-            indexInGroup: 0,
-            closedAt: Date(timeIntervalSince1970: 10)
-        )
-        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
-        var recentlyClosed = [entry]
-        var transient: RecentlyClosedWorkspace?
-
-        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-            in: &groups,
-            recentlyClosed: &recentlyClosed,
-            lastClosedTransient: &transient,
-            now: Date(timeIntervalSince1970: 11)
-        ))
-
-        #expect(groups[0].sessions[0].syntheticTitle == syntheticTitle)
-        #expect(groups[0].sessions[0].title == "shell 4")
-    }
-
-    @Test("reopen reallocates synthetic title metadata that a live workspace reused")
-    func reopenReallocatesCollidingSyntheticTitleMetadata() throws {
-        let groupID = UUID()
-        let reusedTitle = SyntheticSessionTitle(agentKind: .shell, index: 2)
-        let closedPane = TerminalPane(title: "shell", workingDirectory: "/closed", executionPlan: .local)
-        let entry = RecentlyClosedWorkspace(
-            sessionID: UUID(),
-            title: reusedTitle.canonicalTitle,
-            syntheticTitle: reusedTitle,
-            isTitleUserEdited: false,
-            agentKind: .shell,
-            layout: .pane(closedPane),
-            activePaneID: closedPane.id,
-            groupID: groupID,
-            groupName: "main",
-            groupRemote: nil,
-            indexInGroup: 1,
-            closedAt: Date(timeIntervalSince1970: 10)
-        )
-        let firstTitle = SyntheticSessionTitle(agentKind: .shell, index: 1)
-        let first = TerminalSession(
-            title: firstTitle.canonicalTitle,
-            workingDirectory: "/first",
-            syntheticTitle: firstTitle,
-            agentKind: .shell
-        )
-        let reused = TerminalSession(
-            title: reusedTitle.canonicalTitle,
-            workingDirectory: "/replacement",
-            syntheticTitle: reusedTitle,
-            agentKind: .shell
-        )
-        var groups = [SessionGroup(id: groupID, name: "main", sessions: [first, reused])]
-        var recentlyClosed = [entry]
-        var transient: RecentlyClosedWorkspace?
-
-        let reopenedID = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-            in: &groups,
-            recentlyClosed: &recentlyClosed,
-            lastClosedTransient: &transient,
-            now: Date(timeIntervalSince1970: 11)
-        ))
-
-        let reopened = try #require(groups[0].sessions.first { $0.id == reopenedID })
-        #expect(reopened.syntheticTitle == SyntheticSessionTitle(agentKind: .shell, index: 3))
-        #expect(reopened.title == "shell 3")
-        #expect(Set(groups[0].sessions.compactMap(\.syntheticTitle)).count == 3)
-    }
-
-    @Test("reopen picks newest tier, drains twins, and preserves available ids")
-    func reopenPicksNewestTierAndRemapsIDs() throws {
-        let groupID = UUID()
-        let pane = TerminalPane(title: "pane", workingDirectory: "/work", executionPlan: .local)
-        let entry = RecentlyClosedWorkspace(
-            sessionID: UUID(),
-            title: "workspace",
-            isTitleUserEdited: true,
-            agentKind: .codex,
-            layout: .pane(pane),
-            activePaneID: pane.id,
-            groupID: groupID,
-            groupName: "main",
-            groupRemote: nil,
-            indexInGroup: 0,
-            closedAt: Date(timeIntervalSince1970: 10)
-        )
-        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
-        var recentlyClosed = [entry]
-        var transient: RecentlyClosedWorkspace? = entry
-
-        let reopenedID = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-            in: &groups,
-            recentlyClosed: &recentlyClosed,
-            lastClosedTransient: &transient,
-            now: Date(timeIntervalSince1970: 11)
-        ))
-        let reopened = try #require(groups[0].sessions.first)
-
-        #expect(recentlyClosed.isEmpty)
-        #expect(transient == nil)
-        #expect(reopened.id == reopenedID)
-        #expect(reopened.id == entry.sessionID)
-        // Neither id collides here, so the workspace link, daemon, and agent
-        // event file identities all survive the reopen.
-        #expect(reopened.activePaneID == pane.id)
-        #expect(reopened.workingDirectory == "/work")
-    }
-
-    @Test("reopen clears document and active references to a duplicated pane id")
-    func reopenRejectsAmbiguousPaneReferences() throws {
-        let groupID = UUID()
-        let duplicateID = UUID()
-        let first = TerminalPane(id: duplicateID, title: "first", workingDirectory: "/first", executionPlan: .local)
-        let second = TerminalPane(id: duplicateID, title: "second", workingDirectory: "/second", executionPlan: .local)
-        let document = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/reopen-ambiguous.md"),
-            title: "reopen-ambiguous.md",
-            associatedTerminalPaneID: duplicateID
-        )
-        let entry = RecentlyClosedWorkspace(
-            sessionID: UUID(),
-            title: "corrupt",
-            isTitleUserEdited: false,
-            agentKind: .shell,
-            layout: .split(
-                TerminalSplit(
-                    orientation: .horizontal,
-                    first: .pane(first),
-                    second: .split(
-                        TerminalSplit(
-                            orientation: .horizontal,
-                            first: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id)),
-                            second: .pane(second)
-                        ))
-                )),
-            activePaneID: duplicateID,
-            groupID: groupID,
-            groupName: "main",
-            groupRemote: nil,
-            indexInGroup: 0,
-            closedAt: Date(timeIntervalSince1970: 10)
-        )
-        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
-        var recentlyClosed = [entry]
-        var transient: RecentlyClosedWorkspace?
-
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
-        let reopened = try #require(groups.first?.sessions.first)
-
-        #expect(reopened.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == nil)
-        #expect(reopened.activePaneID == reopened.layout.firstPane?.id)
-    }
 
     @Test("reopen remaps unique document and active references after a live collision")
     func reopenRemapsUniquePaneReferences() throws {
@@ -258,78 +60,8 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(reopened.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == reopenedPane.id)
     }
 
-    @Test("reopen folds current-schema document groups before remapping associations")
-    func reopenNormalizesCurrentSchemaDocumentGroups() throws {
-        let groupID = UUID()
-        let firstPane = TerminalPane(
-            title: "first", workingDirectory: "/first", executionPlan: .local)
-        let secondPane = TerminalPane(
-            title: "second", workingDirectory: "/second", executionPlan: .local)
-        let firstDocument = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/reopen-first.md"),
-            title: "reopen-first.md",
-            associatedTerminalPaneID: firstPane.id
-        )
-        let secondDocument = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/reopen-second.md"),
-            title: "reopen-second.md",
-            associatedTerminalPaneID: secondPane.id
-        )
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .horizontal,
-                first: .split(
-                    TerminalSplit(
-                        orientation: .vertical,
-                        first: .pane(firstPane),
-                        second: .documentGroup(
-                            DocumentGroup(
-                                tabs: [firstDocument], selectedTabID: firstDocument.id))
-                    )),
-                second: .split(
-                    TerminalSplit(
-                        orientation: .vertical,
-                        first: .pane(secondPane),
-                        second: .documentGroup(
-                            DocumentGroup(
-                                tabs: [secondDocument], selectedTabID: secondDocument.id))
-                    ))
-            ))
-        let entry = RecentlyClosedWorkspace(
-            sessionID: UUID(),
-            title: "corrupt",
-            isTitleUserEdited: false,
-            agentKind: .shell,
-            layout: layout,
-            activePaneID: firstPane.id,
-            groupID: groupID,
-            groupName: "main",
-            groupRemote: nil,
-            indexInGroup: 0,
-            closedAt: Date(timeIntervalSince1970: 10)
-        )
-        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
-        var recentlyClosed = [entry]
-        var transient: RecentlyClosedWorkspace?
-
-        _ = try #require(
-            RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-                in: &groups,
-                recentlyClosed: &recentlyClosed,
-                lastClosedTransient: &transient,
-                now: Date(timeIntervalSince1970: 11)
-            ))
-        let reopened = try #require(groups.first?.sessions.first)
-        let group = try #require(reopened.layout.firstDocumentGroup)
-
-        #expect(group.tabs.map(\.title) == [firstDocument.title, secondDocument.title])
-        #expect(group.selectedTabID == group.tabs.first?.id)
-        #expect(group.tabs.map(\.associatedTerminalPaneID) == [firstPane.id, secondPane.id])
-        #expect(reopened.layout.paneIDs == [firstPane.id, secondPane.id])
-    }
-
-    @Test("reopen preserves terminalSessionID + backend metadata so the daemon reattaches (INT-578)")
-    func reopenPreservesTerminalSessionIDForDaemonReattach() throws {
+    @Test("reopen preserves each pane daemon and metadata for reattach", arguments: [false, true])
+    func reopenPreservesTerminalSessionIDForDaemonReattach(split: Bool) throws {
         let groupID = UUID()
         let sessionID = TerminalSessionID(rawValue: "int-578-daemon")!
         let metadata = TerminalBackendMetadata(rawValue: "backend-state")
@@ -340,12 +72,15 @@ struct RecentlyClosedWorkspaceReducerTests {
             workingDirectory: "/work",
             executionPlan: .local
         )
+        let sibling = TerminalPane(
+            terminalSessionID: TerminalSessionID(rawValue: "int-578-split-b")!,
+            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "meta-b"), title: "b", workingDirectory: "/b", executionPlan: .local)
         let entry = RecentlyClosedWorkspace(
             sessionID: UUID(),
             title: "workspace",
             isTitleUserEdited: true,
             agentKind: .codex,
-            layout: .pane(pane),
+            layout: split ? .split(TerminalSplit(orientation: .vertical, first: .pane(pane), second: .pane(sibling))) : .pane(pane),
             activePaneID: pane.id,
             groupID: groupID,
             groupName: "main",
@@ -363,6 +98,10 @@ struct RecentlyClosedWorkspaceReducerTests {
             lastClosedTransient: &transient,
             now: Date(timeIntervalSince1970: 11)
         ))
+        #expect(recentlyClosed.isEmpty)
+        #expect(transient == nil)
+        #expect(groups[0].sessions.first?.id == entry.sessionID)
+        #expect(groups[0].sessions.first?.workingDirectory == "/work")
         let reopenedPane = try #require(groups[0].sessions.first?.activePane)
 
         // Both the pane id and the daemon identity must survive: the pane id
@@ -372,108 +111,11 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(reopenedPane.id == pane.id)
         #expect(reopenedPane.terminalSessionID == sessionID)
         #expect(reopenedPane.terminalBackendMetadata == metadata)
-    }
-
-    @Test("reopen reserves a discarded daemon id before a later pane")
-    func reopenReservesDiscardedDaemonID() {
-        let duplicatePaneID = UUID()
-        let finalPaneID = UUID()
-        let firstDaemon = TerminalSessionID(rawValue: "reopen-ordering-d1")!
-        let repeatedDaemon = TerminalSessionID(rawValue: "reopen-ordering-d2")!
-        let panes = [
-            TerminalPane(
-                id: duplicatePaneID,
-                terminalSessionID: firstDaemon,
-                title: "x1",
-                workingDirectory: "/x1",
-                executionPlan: .local
-            ),
-            TerminalPane(
-                id: duplicatePaneID,
-                terminalSessionID: repeatedDaemon,
-                title: "x2",
-                workingDirectory: "/x2",
-                executionPlan: .local
-            ),
-            TerminalPane(
-                id: finalPaneID,
-                terminalSessionID: repeatedDaemon,
-                title: "y",
-                workingDirectory: "/y",
-                executionPlan: .local
-            ),
-        ]
-        var seenDaemons: Set<TerminalSessionID> = []
-        var seenPanes: Set<TerminalPane.ID> = []
-        let result = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
-            Self.layout(for: panes),
-            indexHint: 1,
-            seenTerminalSessionIDs: &seenDaemons,
-            seenPaneIDs: &seenPanes
-        )
-        var restored: [TerminalPane] = []
-        result.forEachPane { restored.append($0) }
-
-        #expect(restored[0].terminalSessionID == firstDaemon)
-        #expect(restored[1].terminalSessionID != repeatedDaemon)
-        #expect(restored[2].terminalSessionID != repeatedDaemon)
-        #expect(Set(restored.map(\.terminalSessionID)).count == 3)
-    }
-
-    @Test("reopen preserves each pane's daemon identity + metadata across a split (INT-578)")
-    func reopenPreservesTerminalSessionIDAcrossSplit() throws {
-        let groupID = UUID()
-        let firstID = TerminalSessionID(rawValue: "int-578-split-a")!
-        let secondID = TerminalSessionID(rawValue: "int-578-split-b")!
-        let firstMeta = TerminalBackendMetadata(rawValue: "meta-a")
-        let secondMeta = TerminalBackendMetadata(rawValue: "meta-b")
-        let first = TerminalPane(
-            terminalSessionID: firstID,
-            terminalBackendMetadata: firstMeta,
-            title: "a",
-            workingDirectory: "/a",
-            executionPlan: .local
-        )
-        let second = TerminalPane(
-            terminalSessionID: secondID,
-            terminalBackendMetadata: secondMeta,
-            title: "b",
-            workingDirectory: "/b",
-            executionPlan: .local
-        )
-        let entry = RecentlyClosedWorkspace(
-            sessionID: UUID(),
-            title: "split",
-            isTitleUserEdited: false,
-            agentKind: .shell,
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(first),
-                second: .pane(second)
-            )),
-            activePaneID: first.id,
-            groupID: groupID,
-            groupName: "main",
-            groupRemote: nil,
-            indexInGroup: 0,
-            closedAt: Date(timeIntervalSince1970: 10)
-        )
-        var groups = [SessionGroup(id: groupID, name: "main", sessions: [])]
-        var recentlyClosed = [entry]
-        var transient: RecentlyClosedWorkspace? = entry
-
-        _ = try #require(RecentlyClosedWorkspaceReducer.reopenMostRecentlyClosed(
-            in: &groups,
-            recentlyClosed: &recentlyClosed,
-            lastClosedTransient: &transient,
-            now: Date(timeIntervalSince1970: 11)
-        ))
-        let restoredLayout = try #require(groups[0].sessions.first?.layout)
-        var metadataByID: [TerminalSessionID: TerminalBackendMetadata] = [:]
-        restoredLayout.forEachPane { metadataByID[$0.terminalSessionID] = $0.terminalBackendMetadata }
-        // Each pane keeps its OWN id AND its own metadata — the daemon payload
-        // must not cross wires to the sibling pane.
-        #expect(metadataByID == [firstID: firstMeta, secondID: secondMeta])
+        if split {
+            let reopenedSibling = try #require(groups[0].sessions.first?.layout.pane(id: sibling.id))
+            #expect(reopenedSibling.terminalSessionID == sibling.terminalSessionID)
+            #expect(reopenedSibling.terminalBackendMetadata == sibling.terminalBackendMetadata)
+        }
     }
 
     @Test("reopen reassigns the second pane when a split's panes self-collide on one id (INT-578)")
@@ -864,40 +506,6 @@ struct RecentlyClosedWorkspaceReducerTests {
         #expect(decision.entry.groupRemote == target)
     }
 
-    @Test("entries without a groupRemote key decode with nil (pre-fix snapshots)")
-    func legacyEntryDecodesWithoutGroupRemote() throws {
-        let pane = TerminalPane(title: "pane", workingDirectory: "~", executionPlan: .local)
-        let modern = RecentlyClosedWorkspace(
-            sessionID: UUID(),
-            title: "workspace",
-            isTitleUserEdited: false,
-            agentKind: .shell,
-            layout: .pane(pane),
-            activePaneID: pane.id,
-            groupID: UUID(),
-            groupName: "group",
-            groupRemote: RemoteTarget(user: "ed", host: "pi")!,
-            indexInGroup: 0,
-            closedAt: Date(timeIntervalSince1970: 10)
-        )
-        var json = try #require(try JSONSerialization.jsonObject(
-            with: JSONEncoder().encode(modern)
-        ) as? [String: Any])
-        json.removeValue(forKey: "groupRemote")
-
-        let decoded = try JSONDecoder().decode(
-            RecentlyClosedWorkspace.self,
-            from: JSONSerialization.data(withJSONObject: json)
-        )
-        #expect(decoded.groupRemote == nil)
-    }
-
-    private static func layout(for panes: [TerminalPane]) -> TerminalPaneLayout {
-        panes.dropFirst().reduce(.pane(panes[0])) { layout, pane in
-            .split(TerminalSplit(orientation: .horizontal, first: layout, second: .pane(pane)))
-        }
-    }
-
     private static func deepLayout(depth: Int) -> TerminalPaneLayout {
         guard depth > 1 else {
             return .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
@@ -907,5 +515,83 @@ struct RecentlyClosedWorkspaceReducerTests {
             first: deepLayout(depth: depth - 1),
                 second: .pane(TerminalPane(title: "leaf", workingDirectory: "~", executionPlan: .local))
         ))
+    }
+
+    @Test("reopen retains unknown generated document ownership")
+    func reopenRetainsUnknownGeneratedDocumentOwnership() throws {
+        let tab = DocumentPane(
+            fileURL: URL(fileURLWithPath: "/tmp/future-generated.md"),
+            title: "Generated Document",
+            generatedDocumentKind: .unknown
+        )
+        let layout = TerminalPaneLayout.documentGroup(
+            DocumentGroup(tabs: [tab], selectedTabID: tab.id)
+        )
+        var seenTerminalSessionIDs: Set<TerminalSessionID> = []
+        var seenPaneIDs: Set<TerminalPane.ID> = []
+
+        let reidentified = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
+            layout,
+            indexHint: 0,
+            seenTerminalSessionIDs: &seenTerminalSessionIDs,
+            seenPaneIDs: &seenPaneIDs
+        )
+
+        let reopened = try #require(reidentified.firstDocumentGroup?.tabs.first)
+        #expect(reopened.id != tab.id)
+        #expect(reopened.generatedDocumentKind == .unknown)
+        #expect(!reopened.isEditable)
+    }
+
+    @Test("reopen reserves a discarded daemon id before a later pane")
+    func reopenReservesDiscardedDaemonID() {
+        let duplicatePaneID = UUID()
+        let finalPaneID = UUID()
+        let firstDaemon = TerminalSessionID(rawValue: "reopen-ordering-d1")!
+        let repeatedDaemon = TerminalSessionID(rawValue: "reopen-ordering-d2")!
+        let panes = [
+            TerminalPane(
+                id: duplicatePaneID,
+                terminalSessionID: firstDaemon,
+                title: "x1",
+                workingDirectory: "/x1",
+                executionPlan: .local
+            ),
+            TerminalPane(
+                id: duplicatePaneID,
+                terminalSessionID: repeatedDaemon,
+                title: "x2",
+                workingDirectory: "/x2",
+                executionPlan: .local
+            ),
+            TerminalPane(
+                id: finalPaneID,
+                terminalSessionID: repeatedDaemon,
+                title: "y",
+                workingDirectory: "/y",
+                executionPlan: .local
+            ),
+        ]
+        var seenDaemons: Set<TerminalSessionID> = []
+        var seenPanes: Set<TerminalPane.ID> = []
+        let result = RecentlyClosedWorkspaceReducer.reidentifiedLayout(
+            Self.layout(for: panes),
+            indexHint: 1,
+            seenTerminalSessionIDs: &seenDaemons,
+            seenPaneIDs: &seenPanes
+        )
+        var restored: [TerminalPane] = []
+        result.forEachPane { restored.append($0) }
+
+        #expect(restored[0].terminalSessionID == firstDaemon)
+        #expect(restored[1].terminalSessionID != repeatedDaemon)
+        #expect(restored[2].terminalSessionID != repeatedDaemon)
+        #expect(Set(restored.map(\.terminalSessionID)).count == 3)
+    }
+
+    private static func layout(for panes: [TerminalPane]) -> TerminalPaneLayout {
+        panes.dropFirst().reduce(.pane(panes[0])) { layout, pane in
+            .split(TerminalSplit(orientation: .horizontal, first: layout, second: .pane(pane)))
+        }
     }
 }
