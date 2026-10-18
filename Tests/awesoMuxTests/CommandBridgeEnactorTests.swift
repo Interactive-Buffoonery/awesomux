@@ -31,531 +31,447 @@ struct CommandBridgeEnactorTests {
 
     private let establishedMetadata = TerminalBackendMetadata(rawValue: "amx:v1:established")
 
-    @Test("daemon-death respawns drain the budget and latch error at the cap")
-    func crashLoopDrainsBudgetToErrorLatch() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        var announcements: [Announcement] = []
-        enactor.announceErrorEntered = { announcements.append(.errorEntered) }
-
-        // Each daemon-death session-end under the cap spends one budget unit and
-        // heals; the ledger climbs. The final one exceeds the cap and latches.
-        for attempt in 1...CommandBridgeEnactor.maxRespawnAttempts {
-            try driveSessionEnd(fixture: fixture, reason: .daemonDied)
-            #expect(enactor.respawnLedger.respawnAttempts == attempt)
-            #expect(!enactor.errorLatched)
-        }
-
-        try driveSessionEnd(fixture: fixture, reason: .daemonDied)
-        #expect(enactor.errorLatched)
-        #expect(announcements == [.errorEntered])
-    }
-
-    @Test("a detach reconnect spends no budget and does not reset chrome")
-    func reconnectSpendsNoBudgetAndKeepsChrome() throws {
-        let fixture = try makeAgentFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        var announcements: [Announcement] = []
-        enactor.announceSessionRespawnedFresh = { _, _ in announcements.append(.freshRespawn) }
-        enactor.announceErrorEntered = { announcements.append(.errorEntered) }
-
-        // Live-daemon reconnect: `.detached` maps to `.reconnect`, which
-        // re-attaches without metering the crash budget. A detach-happy user
-        // repeats this many times; the budget must stay pinned at zero across
-        // every hop, not just the first.
-        for _ in 1...3 {
-            try driveSessionEnd(fixture: fixture, reason: .detached)
-            #expect(enactor.respawnLedger.respawnAttempts == 0)
-            #expect(!enactor.errorLatched)
-            // Chrome is only reset on a fresh incarnation, not on a reconnect.
-            let pane = try #require(fixture.livePane)
-            #expect(pane.agentKind == AgentKind.codex)
-        }
-        #expect(announcements.isEmpty)
-    }
-
-    @Test("a fresh daemon incarnation clears transient per-pane agent chrome")
-    func freshIncarnationClearsTransientState() async throws {
-        let fixture = try makeAgentFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        var announcements: [Announcement] = []
-        enactor.announceSessionRespawnedFresh = { _, _ in announcements.append(.freshRespawn) }
-        enactor.sessionID = fixture.sessionID
-        fixture.view.shellCommandFinishedIdleLatched = true
-
-        // First attach establishes the incarnation baseline; a second attach with
-        // a different daemon pid/createdAt classifies as `.fresh`.
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
-        enactor.handleStatusEvents([try attachedEvent(pid: 200, createdAt: 1_700_000_100, sessionID: fixture.sessionID)])
-
-        let pane = try #require(fixture.livePane)
-        #expect(pane.agentKind == AgentKind.shell)
-        #expect(pane.attentionReason == nil)
-        #expect(announcements == [.freshRespawn])
-        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] != nil)
-        fixture.runtime.clearSessionRestartNotice(for: fixture.paneID)
-        let changes = Mutex(0)
-        withObservationTracking {
-            _ = fixture.runtime.restartedSessionNotices
-        } onChange: {
-            changes.withLock { $0 += 1 }
-        }
-        fixture.runtime.clearSessionRestartNotice(for: fixture.paneID)
-        #expect(changes.withLock { $0 } == 0)
-        enactor.handleStatusEvents([
-            try attachedEvent(
-                pid: 250, createdAt: 1_700_000_150, sessionID: fixture.sessionID, created: false
-            )
-        ])
-        #expect(announcements == [.freshRespawn, .freshRespawn])
-        #expect(fixture.runtime.restartedSessionNotices[fixture.paneID] != nil)
-
-        // The pre-spawn breadcrumb, not the post-spawn established write,
-        // distinguishes a saved pane from its very first creation. Established
-        // also includes a previous surface spawn whose attach never completed;
-        // the notice describes the fresh shell without claiming lost processes.
-        for established in [false, true] {
-            for created in [false, true] {
-                let pane = TerminalPane(
-                    terminalBackendMetadata: established ? establishedMetadata : .empty,
-                    title: "restart notice",
-                    workingDirectory: "/tmp", executionPlan: .local
-                )
-                let candidate = try makeFixture(sessionID: pane.terminalSessionID, pane: pane)
-                let bridge = candidate.view.commandBridgeEnactor
-                bridge.attachCommandProvider = { _, _, _, _ in "amx attach" }
-                var notices = 0
-                bridge.announceSessionRespawnedFresh = { _, _ in notices += 1 }
-                let launch = bridge.prepareAttach(for: pane, bridgeEnabled: true)
-                candidate.view.applyPostSpawnPaneState(for: launch)
-                // A failed first attach may prepare again after the spawn stamp.
-                // It must keep the original saved-pane classification.
-                _ = bridge.prepareAttach(for: try #require(candidate.livePane), bridgeEnabled: true)
-                let event = try attachedEvent(
-                    pid: 300, createdAt: 1_700_000_200,
-                    sessionID: pane.terminalSessionID, created: created
-                )
-                bridge.handleStatusEvents([event, event])
-                #expect(notices == (established && created ? 1 : 0))
-                #expect((candidate.runtime.restartedSessionNotices[pane.id] != nil) == (established && created))
-                candidate.runtime.discardSurface(for: pane.id, preservingRestartNotice: true)
-                #expect((candidate.runtime.restartedSessionNotices[pane.id] != nil) == (established && created))
-                candidate.runtime.discardSurface(for: pane.id)
-                await withCheckedContinuation { continuation in
-                    DispatchQueue.main.async { continuation.resume() }
-                }
-                #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
-                candidate.runtime.restartedSessionNotices[pane.id] = UUID()
-                bridge.markError()
-                #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
-            }
-        }
-    }
-
-    @Test("a clean shell exit clears bridge state and closes without recursing")
-    func cleanExitClearsStateAndCloses() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-
-        // `.shellExit` maps to `.markExited`, whose arm clears bridge state
-        // (nilling `sessionID`) BEFORE re-entering `closeAfterProcessExit`. The
-        // re-entry hits the `sessionID != nil` recursion floor and falls through
-        // to the normal close instead of looping back into supervision. This
-        // asserts the floor holds: the drive returns (no unbounded recursion),
-        // the bridge state is cleared, and the pane is gone from the store.
-        try driveSessionEnd(fixture: fixture, reason: .shellExit)
-
-        #expect(enactor.sessionID == nil)
-        #expect(!enactor.errorLatched)
-        #expect(!enactor.exitProbeInFlight)
-        #expect(fixture.livePane == nil)
-    }
-
-    @Test("a remote clean exit (code 0) closes the pane like a local shell (INT-769)")
-    func remoteCleanShellExitClosesPane() throws {
-        let fixture = try makeRemoteFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-
-        // ssh returns 0 when the user (or remote shell) exits cleanly. That should
-        // close the pane like a local shell, not leave a corpse in an error state.
-        try driveSessionEnd(fixture: fixture, reason: .shellExit, code: 0)
-
-        #expect(enactor.sessionID == nil)
-        #expect(!enactor.errorLatched)
-        #expect(!enactor.exitProbeInFlight)
-        #expect(fixture.livePane == nil)
-    }
-
-    @Test(
-        "a remote abnormal exit (dropped connection, non-zero code) latches error without closing")
-    func remoteAbnormalShellExitLatchesErrorWithoutClosing() throws {
-        let fixture = try makeRemoteFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-
-        // ssh returns 255 on a dropped connection: keep the persistent workgroup
-        // and surface an error to recover from, never silently close.
-        try driveSessionEnd(fixture: fixture, reason: .shellExit, code: 255)
-
-        #expect(enactor.sessionID == fixture.sessionID)
-        #expect(enactor.errorLatched)
-        #expect(!enactor.exitProbeInFlight)
-        let pane = try #require(fixture.livePane)
-        #expect(pane.agentExecutionState == .error)
-    }
-
-    @Test("a no-status attach clears the previous status watcher")
-    func noStatusAttachClearsPreviousStatusWatcher() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-
-        enactor.beginStatusWatch(channel: channel)
-        let previousWatcher = try #require(enactor.statusWatcher)
-        #expect(previousWatcher.isArmed)
-        #expect(enactor.statusChannel != nil)
-
-        enactor.beginStatusWatch(channel: nil)
-
-        #expect(!previousWatcher.isArmed)
-        #expect(enactor.statusWatcher == nil)
-        #expect(enactor.statusChannel == nil)
-    }
-
-    @Test("a bridge attach whose command can't carry the status channel arms no watcher")
-    func bridgeAttachWithoutChannelBearingCommandArmsNoWatcher() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        // The availability probe (`status == nil`) succeeds while the
-        // channel-bearing rebuild fails. Arming off the mint alone would leave a
-        // watcher on a file the spawned command never names, and the exit path
-        // would then trust that permanently empty feed.
-        enactor.attachCommandProvider = { sessionID, status, _, _ in
-            status == nil ? "amx attach \(sessionID.rawValue)" : nil
-        }
-
-        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
-
-        #expect(launch == .bridgeAttach("amx attach \(fixture.sessionID.rawValue)"))
-        #expect(enactor.statusWatcher == nil)
-        #expect(enactor.statusChannel == nil)
-        #expect(statusFileNames(for: fixture.sessionID).isEmpty)
-    }
-
-    @Test("existing-only attach fails closed without a channel-bearing command")
-    func existingOnlyAttachRequiresStatusChannel() throws {
-        let sessionID = try #require(
-            TerminalSessionID(rawValue: "dddddddd-dddd-4ddd-8ddd-dddddddddddd"))
+    @Test(arguments: [false, true], [false, true])
+    func freshIncarnationClearsTransientState(established: Bool, created: Bool) async throws {
         let pane = TerminalPane(
-            terminalSessionID: sessionID,
-            terminalBackendMetadata: TerminalBackendMetadata(rawValue: "amx:v1:existing-only"),
-            title: "recover",
-            workingDirectory: "/tmp/recover",
-            executionPlan: .local
+            terminalBackendMetadata: established ? establishedMetadata : .empty,
+            title: "restart notice",
+            workingDirectory: "/tmp", executionPlan: .local
         )
-        let fixture = try makeFixture(sessionID: sessionID, pane: pane)
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.attachCommandProvider = { id, status, _, _ in
-            status == nil ? "amx attach --existing \(id.rawValue)" : nil
-        }
-
-        let launch = enactor.prepareAttach(for: pane, bridgeEnabled: true)
-
-        #expect(launch == .localShell)
-        #expect(enactor.errorLatched)
-        #expect(enactor.statusWatcher == nil)
-        #expect(enactor.statusChannel == nil)
-        #expect(statusFileNames(for: sessionID).isEmpty)
-    }
-
-    @Test("foreground comm probe uses only the current daemon")
-    func foregroundCommUsesCurrentDaemon() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        #expect(enactor.foregroundComm() == nil)
-
-        enactor.sessionID = fixture.sessionID
-        enactor.respawnLedger.recordAttach(AmxDaemonIncarnation(pid: 42, createdAt: 1))
-        var probedDaemonPID: pid_t?
-        let observed = enactor.foregroundComm { daemonPID in
-            probedDaemonPID = daemonPID
-            return "2.1.214"
-        }
-        #expect(observed == "2.1.214")
-        #expect(probedDaemonPID == 42)
-
-        enactor.errorLatched = true
-        #expect(
-            enactor.foregroundComm { _ in
-                Issue.record("latched panes must not probe")
-                return "zsh"
-            } == nil
+        let candidate = try makeFixture(sessionID: pane.terminalSessionID, pane: pane)
+        let bridge = candidate.view.commandBridgeEnactor
+        bridge.attachCommandProvider = { _, _, _, _ in "amx attach" }
+        var notices = 0
+        bridge.announceSessionRespawnedFresh = { _, _ in notices += 1 }
+        let launch = bridge.prepareAttach(for: pane, bridgeEnabled: true)
+        candidate.view.applyPostSpawnPaneState(for: launch)
+        // A failed first attach may prepare again after the spawn stamp.
+        // It must keep the original saved-pane classification.
+        _ = bridge.prepareAttach(for: try #require(candidate.livePane), bridgeEnabled: true)
+        let event = try attachedEvent(
+            pid: 300, createdAt: 1_700_000_200,
+            sessionID: pane.terminalSessionID, created: created
         )
-    }
-
-    @Test("nudge foreground comm fails closed for both bridge states without evidence")
-    func nudgeForegroundCommFailsClosed() throws {
-        let fixture = try makeFixture()
-
-        // Non-bridged pane with no live surface: the quit-gate sampler has no
-        // pid to read, so the nudge evidence must be nil (deny), never a guess.
-        #expect(fixture.view.commandBridgeEnactor.sessionID == nil)
-        #expect(fixture.view.documentNudgeForegroundComm() == nil)
-
-        // Bridged pane with no recorded daemon incarnation: same deny.
-        fixture.view.commandBridgeEnactor.sessionID = fixture.sessionID
-        #expect(fixture.view.documentNudgeForegroundComm() == nil)
-    }
-
-    @Test("status events for another session are ignored")
-    func mismatchedSessionStatusIsIgnored() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        let event = try #require(
-            Self.attachedStatusEvent(
-                pid: 42,
-                createdAt: 1,
-                session: "00000000-0000-4000-8000-000000000002"
-            )
-        )
-
-        enactor.handleStatusEvents([event])
-
-        #expect(enactor.respawnLedger.lastIncarnation == nil)
-    }
-
-    @Test(
-        "a remote-tagged pane whose attach command is unavailable never falls back to a local shell"
-    )
-    func remoteUnavailableNeverSpawnsLocalShell() async throws {
-        let fixture = try makeRemoteFixture()
-
-        // The bundled `amx` executable never sits beside the test binary, so
-        // `AmxBackend.attachCommand` genuinely returns nil here — this drives
-        // the real `.remoteUnavailable` branch of `BridgeSurfaceCommandPolicy`,
-        // not a mock of it.
-        fixture.view.createSurfaceIfNeeded()
-
-        // CRITICAL regression (ADR-0022 trust boundary): before the fix,
-        // `createSurfaceIfNeeded` read past the error latch `prepareAttach`
-        // had just set and fell through to `runtime.createSurface(command:
-        // nil)`, spawning a silent, typable LOCAL shell that looked like the
-        // remote host. It must instead leave the pane surfaceless and latched.
-        // The latch is set SYNCHRONOUSLY (the trust boundary can't wait a tick).
-        #expect(fixture.view.surface == nil)
-        #expect(fixture.view.commandBridgeErrorLatched)
-
-        // The user-visible error chrome (`recordPaneProcessError`) is deferred
-        // one runloop hop so it lands outside the layout pass — mutating it
-        // in-pass crashed AppKit's constraint engine. Pump the main queue, then
-        // assert the chrome caught up.
-        await pumpMainQueue()
-        let pane = try #require(fixture.livePane)
-        #expect(pane.agentExecutionState == .error)
-    }
-
-    @Test(
-        "a remote-tagged pane never falls back to a local shell when the bridge is globally disabled"
-    )
-    func remoteWithBridgeDisabledNeverSpawnsLocalShell() async throws {
-        let fixture = try makeRemoteFixture(bridgeEnabled: false)
-
-        // Global command bridge OFF: `createSurfaceIfNeeded` runs its
-        // bridge-disabled pre-guard (clearing bridge state) but does NOT
-        // short-circuit — it still reaches `prepareAttach(bridgeEnabled:
-        // false)`, whose policy now routes a remote group to `.remoteUnavailable`
-        // regardless of the toggle rather than `.localShell`.
-        fixture.view.createSurfaceIfNeeded()
-
-        // Same trust-boundary guarantee as the amx-missing case, reached
-        // through the disabled-bridge gate instead (ADR-0022). Latch synchronous;
-        // error chrome deferred (see the amx-missing case above).
-        #expect(fixture.view.surface == nil)
-        #expect(fixture.view.commandBridgeErrorLatched)
-        await pumpMainQueue()
-        let pane = try #require(fixture.livePane)
-        #expect(pane.agentExecutionState == .error)
-    }
-
-    // MARK: - Remote-owned (`.remoteZmx`) panes
-
-    @Test("a remote-owned pane attaches over ssh without minting a status channel")
-    func remoteOwnedPrepareAttachMintsNoStatusChannel() throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        var providedSessionName: RemoteSessionName?
-        enactor.remoteOwnedAttachCommandProvider = { target, sessionName, _ in
-            providedSessionName = sessionName
-            return "ssh \(target.sshDestination) zmx attach \(sessionName.rawValue)"
+        bridge.handleStatusEvents([event, event])
+        #expect(notices == (established && created ? 1 : 0))
+        #expect((candidate.runtime.restartedSessionNotices[pane.id] != nil) == (established && created))
+        candidate.runtime.discardSurface(for: pane.id, preservingRestartNotice: true)
+        #expect((candidate.runtime.restartedSessionNotices[pane.id] != nil) == (established && created))
+        candidate.runtime.discardSurface(for: pane.id)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
         }
-
-        let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
-
-        #expect(launch == .remoteOwnedAttach("ssh ed@example.invalid zmx attach work"))
-        #expect(providedSessionName?.rawValue == "work")
-        // Without the session id, `handleProcessExit` bails at its `sessionID
-        // != nil` guard and the host silently closes a pane whose ssh died.
-        #expect(enactor.sessionID == fixture.sessionID)
-        // The far host reports into no local file: an armed watcher would sit on
-        // a feed nothing ever writes, and the exit path must stay statusless.
-        #expect(enactor.statusChannel == nil)
-        #expect(enactor.statusWatcher == nil)
-        #expect(statusFileNames(for: fixture.sessionID).isEmpty)
-
-        // Control: prove the listing above can actually see a status file, so
-        // the emptiness assertion isn't passing for the wrong reason.
-        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-        #expect(statusFileNames(for: fixture.sessionID).count == 1)
+        #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
+        candidate.runtime.restartedSessionNotices[pane.id] = UUID()
+        bridge.markError()
+        #expect(!(candidate.runtime.restartedSessionNotices[pane.id] != nil))
     }
 
-    @Test("a remote-owned attach drops a status watcher a previous bridge attach armed")
-    func remoteOwnedAttachDropsStaleStatusWatcher() throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-
-        // Models a pane re-pointed from a bridge session to a remote-owned one
-        // without `handleSessionRepoint` having run first: the far host writes
-        // nothing to this feed, so the arm must not survive the attach.
-        enactor.beginStatusWatch(channel: channel)
-        let staleWatcher = try #require(enactor.statusWatcher)
-        #expect(staleWatcher.isArmed)
-
-        _ = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
-
-        #expect(!staleWatcher.isArmed)
-        #expect(enactor.statusWatcher == nil)
-        #expect(enactor.statusChannel == nil)
+    enum ExitOutcomesCase: String, CaseIterable {
+        case cleanExitClearsStateAndCloses
+        case remoteCleanShellExitClosesPane
+        case remoteAbnormalShellExitLatchesErrorWithoutClosing
+        case remoteOwnedCleanExitClosesPane
+        case remoteOwnedAbnormalExitLatchesDisconnected
+        case remoteOwnedExitIgnoresStaleCommandExitCache
+        case remoteOwnedExitWithBridgeDisabledDoesNotLoop
+        case reconnectSpendsNoBudgetAndKeepsChrome
     }
 
-    @Test("a bridge-disabled remote-owned pane keeps its session across surface re-entry")
-    func remoteOwnedKeepsSessionAcrossReentryWithBridgeDisabled() throws {
-        let fixture = try makeRemoteOwnedFixture(bridgeEnabled: false)
-        let enactor = fixture.view.commandBridgeEnactor
-        let spawned = SpawnedCommandBox()
-        fixture.runtime.createSurfaceOverride = { _, _, _, command in
-            spawned.record(command)
-            return nil
-        }
-        enactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
-            "remote-owned-\(sessionName.rawValue)"
-        }
+    @Test(arguments: ExitOutcomesCase.allCases)
+    func exitOutcomes(_ scenario: ExitOutcomesCase) async throws {
+        switch scenario {
+        case .cleanExitClearsStateAndCloses:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
 
-        fixture.view.createSurfaceIfNeeded()
-        #expect(enactor.sessionID == fixture.sessionID)
-        let record = try #require(enactor.recoveryRecord)
+            // `.shellExit` maps to `.markExited`, whose arm clears bridge state
+            // (nilling `sessionID`) BEFORE re-entering `closeAfterProcessExit`. The
+            // re-entry hits the `sessionID != nil` recursion floor and falls through
+            // to the normal close instead of looping back into supervision. This
+            // asserts the floor holds: the drive returns (no unbounded recursion),
+            // the bridge state is cleared, and the pane is gone from the store.
+            try driveSessionEnd(fixture: fixture, reason: .shellExit)
 
-        // `surface` stays nil here, exactly as it does while a real spawn is
-        // pending, so later layout passes re-enter. The bridge-disabled
-        // pre-clear says nothing about a pane whose session lives on the far
-        // host and must leave it alone. The identity check is the assertion that
-        // bites: a clear discards the record and mints a replacement.
-        fixture.view.createSurfaceIfNeeded()
+            #expect(enactor.sessionID == nil)
+            #expect(!enactor.errorLatched)
+            #expect(!enactor.exitProbeInFlight)
+            #expect(fixture.livePane == nil)
+        case .remoteCleanShellExitClosesPane:
+            let fixture = try makeRemoteFixture()
+            let enactor = fixture.view.commandBridgeEnactor
 
-        #expect(enactor.sessionID == fixture.sessionID)
-        #expect(enactor.recoveryRecord === record)
-        #expect(spawned.commands == ["remote-owned-work", "remote-owned-work"])
-    }
+            // ssh returns 0 when the user (or remote shell) exits cleanly. That should
+            // close the pane like a local shell, not leave a corpse in an error state.
+            try driveSessionEnd(fixture: fixture, reason: .shellExit, code: 0)
 
-    @Test("a remote-owned clean exit (code 0) closes the pane like a local shell")
-    func remoteOwnedCleanExitClosesPane() throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionExistsProvider = { _ in
-            Issue.record("a remote-owned pane must never probe the local amx daemon")
-            return true
-        }
-        enactor.sessionID = fixture.sessionID
-        // ssh forwards the remote shell's own status, so 0 is a deliberate
-        // `exit` on the far side — INT-769 parity with a local shell.
-        stubRemoteOwnedExitStatus(0, on: enactor)
+            #expect(enactor.sessionID == nil)
+            #expect(!enactor.errorLatched)
+            #expect(!enactor.exitProbeInFlight)
+            #expect(fixture.livePane == nil)
+        case .remoteAbnormalShellExitLatchesErrorWithoutClosing:
+            let fixture = try makeRemoteFixture()
+            let enactor = fixture.view.commandBridgeEnactor
 
-        enactor.beginExitSupervision(exitCode: nil)
+            // ssh returns 255 on a dropped connection: keep the persistent workgroup
+            // and surface an error to recover from, never silently close.
+            try driveSessionEnd(fixture: fixture, reason: .shellExit, code: 255)
 
-        #expect(enactor.sessionID == nil)
-        #expect(!enactor.errorLatched)
-        #expect(!enactor.exitProbeInFlight)
-        #expect(fixture.livePane == nil)
-    }
-
-    /// `nil` is the wrapper never having written a status — killed by a signal,
-    /// or no file minted at attach. It must read as a failure, not a clean exit:
-    /// a pane that vanishes on a dropped connection is unrecoverable.
-    @Test("a remote-owned abnormal exit latches the disconnected reconnect state")
-    func remoteOwnedAbnormalExitLatchesDisconnected() async throws {
-        for status in [Int16(255), Int16(127), nil] {
+            #expect(enactor.sessionID == fixture.sessionID)
+            #expect(enactor.errorLatched)
+            #expect(!enactor.exitProbeInFlight)
+            let pane = try #require(fixture.livePane)
+            #expect(pane.agentExecutionState == .error)
+        case .remoteOwnedCleanExitClosesPane:
             let fixture = try makeRemoteOwnedFixture()
-            // Failures: read-after-dispose, oversized/control text, nil recapture
-            // erasing diagnostics, duplicate exits wedging retry, and persistence.
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionExistsProvider = { _ in
+                Issue.record("a remote-owned pane must never probe the local amx daemon")
+                return true
+            }
+            enactor.sessionID = fixture.sessionID
+            // ssh forwards the remote shell's own status, so 0 is a deliberate
+            // `exit` on the far side — INT-769 parity with a local shell.
+            stubRemoteOwnedExitStatus(0, on: enactor)
+
+            enactor.beginExitSupervision(exitCode: nil)
+
+            #expect(enactor.sessionID == nil)
+            #expect(!enactor.errorLatched)
+            #expect(!enactor.exitProbeInFlight)
+            #expect(fixture.livePane == nil)
+        case .remoteOwnedAbnormalExitLatchesDisconnected:
+            for status in [Int16(255), Int16(127), nil] {
+                let fixture = try makeRemoteOwnedFixture()
+                // Failures: read-after-dispose, oversized/control text, nil recapture
+                // erasing diagnostics, duplicate exits wedging retry, and persistence.
+                let host = TestHost(fixture: fixture)
+                host.hasNativeSurface = true
+                host.terminalText = String(repeating: "α", count: 5000) + "\rError marker Ｆ\u{202E}\u{001B}\n\n"
+                let enactor = CommandBridgeEnactor(host: host)
+                enactor.sessionExistsProvider = { _ in
+                    Issue.record("a remote-owned pane must never probe the local amx daemon")
+                    return true
+                }
+                enactor.sessionID = fixture.sessionID
+                stubRemoteOwnedExitStatus(status, on: enactor)
+
+                enactor.beginExitSupervision(exitCode: nil)
+
+                #expect(enactor.errorLatched)
+                #expect(!enactor.exitProbeInFlight)
+                let pane = try #require(fixture.livePane)
+                #expect(pane.agentExecutionState == .error)
+                let diagnostic = try #require(pane.remoteReconnect?.context.diagnosticText)
+                #expect(diagnostic.utf8.count <= 4096)
+                #expect(diagnostic.contains("Error marker Ｆ"))
+                #expect(!diagnostic.contains("\r") && !diagnostic.contains("\u{202E}") && !diagnostic.contains("\u{001B}"))
+                #expect(host.exitEvents == ["read", "dispose"])
+                #expect(!host.hasNativeSurface)
+                #expect(!String(decoding: try JSONEncoder().encode(pane), as: UTF8.self).contains("Error marker"))
+                #expect(enactor.handleChildExited())
+                await Task.yield()
+                #expect(!enactor.exitResolutionPending)
+                #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == diagnostic)
+                #expect(fixture.livePane?.remoteReconnect?.context.displacedNonErrorState == true)
+                enactor.beginManualReconnect()
+                #expect(!enactor.errorLatched)
+                enactor.markError()
+                #expect(fixture.livePane?.remoteReconnect?.context.displacedNonErrorState == true)
+                #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == nil)
+                enactor.beginManualReconnect()
+                #expect(!enactor.errorLatched)
+                #expect(fixture.store.confirmPaneRemoteReconnected(sessionID: fixture.hostSessionID, paneID: fixture.paneID))
+                #expect(fixture.livePane?.agentExecutionState == .idle)
+                #expect(fixture.livePane?.remoteReconnect == nil)
+                host.hasNativeSurface = true
+                enactor.beginExitSupervision(exitCode: nil)
+                #expect(enactor.errorLatched)
+                #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == nil)
+            }
+        case .remoteOwnedExitIgnoresStaleCommandExitCache:
+            let fixture = try makeRemoteOwnedFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            // What a remote `grep` with no match leaves behind.
+            fixture.view.handleCommandFinished(exitCode: 1)
+            stubRemoteOwnedExitStatus(0, on: enactor)
+
+            enactor.beginExitSupervision(exitCode: 1)
+
+            #expect(!enactor.errorLatched)
+            #expect(fixture.livePane == nil)
+        case .remoteOwnedExitWithBridgeDisabledDoesNotLoop:
+            // The legacy exit path answers a bridge-disabled clean exit by clearing
+            // state and re-driving surface creation — for a remote-owned pane the
+            // policy would answer that with another remote-owned attach, forever.
+            let fixture = try makeRemoteOwnedFixture(bridgeEnabled: false)
             let host = TestHost(fixture: fixture)
-            host.hasNativeSurface = true
-            host.terminalText = String(repeating: "α", count: 5000) + "\rError marker Ｆ\u{202E}\u{001B}\n\n"
             let enactor = CommandBridgeEnactor(host: host)
             enactor.sessionExistsProvider = { _ in
                 Issue.record("a remote-owned pane must never probe the local amx daemon")
                 return true
             }
             enactor.sessionID = fixture.sessionID
-            stubRemoteOwnedExitStatus(status, on: enactor)
+            stubRemoteOwnedExitStatus(0, on: enactor)
 
             enactor.beginExitSupervision(exitCode: nil)
 
-            #expect(enactor.errorLatched)
-            #expect(!enactor.exitProbeInFlight)
-            let pane = try #require(fixture.livePane)
-            #expect(pane.agentExecutionState == .error)
-            let diagnostic = try #require(pane.remoteReconnect?.context.diagnosticText)
-            #expect(diagnostic.utf8.count <= 4096)
-            #expect(diagnostic.contains("Error marker Ｆ"))
-            #expect(!diagnostic.contains("\r") && !diagnostic.contains("\u{202E}") && !diagnostic.contains("\u{001B}"))
-            #expect(host.exitEvents == ["read", "dispose"])
-            #expect(!host.hasNativeSurface && host.disposeCount == 1)
-            #expect(!String(decoding: try JSONEncoder().encode(pane), as: UTF8.self).contains("Error marker"))
-            #expect(enactor.handleChildExited())
-            await Task.yield()
-            #expect(!enactor.exitResolutionPending)
-            #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == diagnostic)
-            #expect(host.disposeCount == 1)
-            #expect(fixture.livePane?.remoteReconnect?.context.displacedNonErrorState == true)
-            enactor.beginManualReconnect()
-            #expect(!enactor.errorLatched && host.scheduleSurfaceCreationCount == 1)
-            enactor.markError()
-            #expect(fixture.livePane?.remoteReconnect?.context.displacedNonErrorState == true)
-            #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == nil)
-            enactor.beginManualReconnect()
-            #expect(!enactor.errorLatched && host.scheduleSurfaceCreationCount == 2)
-            #expect(fixture.store.confirmPaneRemoteReconnected(sessionID: fixture.hostSessionID, paneID: fixture.paneID))
-            #expect(fixture.livePane?.agentExecutionState == .idle)
-            #expect(fixture.livePane?.remoteReconnect == nil)
-            host.hasNativeSurface = true
-            enactor.beginExitSupervision(exitCode: nil)
-            #expect(enactor.errorLatched && host.disposeCount == 2)
-            #expect(fixture.livePane?.remoteReconnect?.context.diagnosticText == nil)
+            #expect(host.closeAfterProcessExitCount == 1)
+            #expect(host.scheduleSurfaceCreationCount == 0)
+            #expect(enactor.sessionID == nil)
+            #expect(!enactor.errorLatched)
+        case .reconnectSpendsNoBudgetAndKeepsChrome:
+            let fixture = try makeAgentFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            var announcements: [Announcement] = []
+            enactor.announceSessionRespawnedFresh = { _, _ in announcements.append(.freshRespawn) }
+            enactor.announceErrorEntered = { announcements.append(.errorEntered) }
+
+            // Live-daemon reconnect: `.detached` maps to `.reconnect`, which
+            // re-attaches without metering the crash budget. A detach-happy user
+            // repeats this many times; the budget must stay pinned at zero across
+            // every hop, not just the first.
+            for _ in 1...3 {
+                try driveSessionEnd(fixture: fixture, reason: .detached)
+                #expect(enactor.respawnLedger.respawnAttempts == 0)
+                #expect(!enactor.errorLatched)
+                // Chrome is only reset on a fresh incarnation, not on a reconnect.
+                let pane = try #require(fixture.livePane)
+                #expect(pane.agentKind == AgentKind.codex)
+            }
+            #expect(announcements.isEmpty)
         }
     }
 
-    /// The decision must come from the attach's OWN status file, never from
-    /// libghostty's `command_finished` cache — that cache holds whatever OSC 133
-    /// the pane last saw, including ones the far host's shell integration
-    /// emitted, with no correlation to this attach. A stale non-zero there used
-    /// to be enough to paint "Remote session unavailable" over a clean `exit`.
-    @Test("a stale cached command exit code cannot decide a remote-owned exit")
-    func remoteOwnedExitIgnoresStaleCommandExitCache() throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        // What a remote `grep` with no match leaves behind.
-        fixture.view.handleCommandFinished(exitCode: 1)
-        stubRemoteOwnedExitStatus(0, on: enactor)
-
-        enactor.beginExitSupervision(exitCode: 1)
-
-        #expect(!enactor.errorLatched)
-        #expect(fixture.livePane == nil)
+    enum NoStatusWatcherCase: String, CaseIterable {
+        case noStatusAttachClearsPreviousStatusWatcher
+        case bridgeAttachWithoutChannelBearingCommandArmsNoWatcher
+        case remoteOwnedPrepareAttachMintsNoStatusChannel
+        case remoteOwnedAttachDropsStaleStatusWatcher
     }
+
+    @Test(arguments: NoStatusWatcherCase.allCases)
+    func noStatusWatcher(_ scenario: NoStatusWatcherCase) throws {
+        switch scenario {
+        case .noStatusAttachClearsPreviousStatusWatcher:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+            defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+
+            enactor.beginStatusWatch(channel: channel)
+            let previousWatcher = try #require(enactor.statusWatcher)
+            #expect(previousWatcher.isArmed)
+            #expect(enactor.statusChannel != nil)
+
+            enactor.beginStatusWatch(channel: nil)
+
+            #expect(!previousWatcher.isArmed)
+            #expect(enactor.statusWatcher == nil)
+            #expect(enactor.statusChannel == nil)
+        case .bridgeAttachWithoutChannelBearingCommandArmsNoWatcher:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            // The availability probe (`status == nil`) succeeds while the
+            // channel-bearing rebuild fails. Arming off the mint alone would leave a
+            // watcher on a file the spawned command never names, and the exit path
+            // would then trust that permanently empty feed.
+            enactor.attachCommandProvider = { sessionID, status, _, _ in
+                status == nil ? "amx attach \(sessionID.rawValue)" : nil
+            }
+
+            let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+            #expect(launch == .bridgeAttach("amx attach \(fixture.sessionID.rawValue)"))
+            #expect(enactor.statusWatcher == nil)
+            #expect(enactor.statusChannel == nil)
+            #expect(statusFileNames(for: fixture.sessionID).isEmpty)
+        case .remoteOwnedPrepareAttachMintsNoStatusChannel:
+            let fixture = try makeRemoteOwnedFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            var providedSessionName: RemoteSessionName?
+            enactor.remoteOwnedAttachCommandProvider = { target, sessionName, _ in
+                providedSessionName = sessionName
+                return "ssh \(target.sshDestination) zmx attach \(sessionName.rawValue)"
+            }
+
+            let launch = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+            #expect(launch == .remoteOwnedAttach("ssh ed@example.invalid zmx attach work"))
+            #expect(providedSessionName?.rawValue == "work")
+            // Without the session id, `handleProcessExit` bails at its `sessionID
+            // != nil` guard and the host silently closes a pane whose ssh died.
+            #expect(enactor.sessionID == fixture.sessionID)
+            // The far host reports into no local file: an armed watcher would sit on
+            // a feed nothing ever writes, and the exit path must stay statusless.
+            #expect(enactor.statusChannel == nil)
+            #expect(enactor.statusWatcher == nil)
+            #expect(statusFileNames(for: fixture.sessionID).isEmpty)
+
+            // Control: prove the listing above can actually see a status file, so
+            // the emptiness assertion isn't passing for the wrong reason.
+            let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+            defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+            #expect(statusFileNames(for: fixture.sessionID).count == 1)
+        case .remoteOwnedAttachDropsStaleStatusWatcher:
+            let fixture = try makeRemoteOwnedFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+            defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+
+            // Models a pane re-pointed from a bridge session to a remote-owned one
+            // without `handleSessionRepoint` having run first: the far host writes
+            // nothing to this feed, so the arm must not survive the attach.
+            enactor.beginStatusWatch(channel: channel)
+            let staleWatcher = try #require(enactor.statusWatcher)
+            #expect(staleWatcher.isArmed)
+
+            _ = enactor.prepareAttach(for: fixture.view.pane, bridgeEnabled: true)
+
+            #expect(!staleWatcher.isArmed)
+            #expect(enactor.statusWatcher == nil)
+            #expect(enactor.statusChannel == nil)
+        }
+    }
+
+    enum ForegroundEvidenceCase: String, CaseIterable {
+        case foregroundCommUsesCurrentDaemon
+        case nudgeForegroundCommFailsClosed
+    }
+
+    @Test(arguments: ForegroundEvidenceCase.allCases)
+    func foregroundEvidence(_ scenario: ForegroundEvidenceCase) throws {
+        switch scenario {
+        case .foregroundCommUsesCurrentDaemon:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            #expect(enactor.foregroundComm() == nil)
+
+            enactor.sessionID = fixture.sessionID
+            enactor.respawnLedger.recordAttach(AmxDaemonIncarnation(pid: 42, createdAt: 1))
+            var probedDaemonPID: pid_t?
+            let observed = enactor.foregroundComm { daemonPID in
+                probedDaemonPID = daemonPID
+                return "2.1.214"
+            }
+            #expect(observed == "2.1.214")
+            #expect(probedDaemonPID == 42)
+
+            enactor.errorLatched = true
+            #expect(
+                enactor.foregroundComm { _ in
+                    Issue.record("latched panes must not probe")
+                    return "zsh"
+                } == nil
+            )
+        case .nudgeForegroundCommFailsClosed:
+            let fixture = try makeFixture()
+
+            // Non-bridged pane with no live surface: the quit-gate sampler has no
+            // pid to read, so the nudge evidence must be nil (deny), never a guess.
+            #expect(fixture.view.commandBridgeEnactor.sessionID == nil)
+            #expect(fixture.view.documentNudgeForegroundComm() == nil)
+
+            // Bridged pane with no recorded daemon incarnation: same deny.
+            fixture.view.commandBridgeEnactor.sessionID = fixture.sessionID
+            #expect(fixture.view.documentNudgeForegroundComm() == nil)
+        }
+    }
+
+    enum StrayStatusEventsCase: String, CaseIterable {
+        case mismatchedSessionStatusIsIgnored
+        case latchedPaneIgnoresStrayAttached
+    }
+
+    @Test(arguments: StrayStatusEventsCase.allCases)
+    func strayStatusEvents(_ scenario: StrayStatusEventsCase) throws {
+        switch scenario {
+        case .mismatchedSessionStatusIsIgnored:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            let event = try #require(
+                Self.attachedStatusEvent(
+                    pid: 42,
+                    createdAt: 1,
+                    session: "00000000-0000-4000-8000-000000000002"
+                )
+            )
+
+            enactor.handleStatusEvents([event])
+
+            #expect(enactor.respawnLedger.lastIncarnation == nil)
+        case .latchedPaneIgnoresStrayAttached:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            enactor.errorLatched = true
+
+            // A stray `attached` line must not un-latch the pane or record an
+            // incarnation while the user is looking at the error state.
+            enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
+
+            #expect(enactor.errorLatched)
+            #expect(enactor.respawnLedger.lastIncarnation == nil)
+        }
+    }
+
+    enum RemoteNeverSpawnsLocalShellCase: String, CaseIterable {
+        case remoteUnavailableNeverSpawnsLocalShell
+        case remoteWithBridgeDisabledNeverSpawnsLocalShell
+    }
+
+    @Test(arguments: RemoteNeverSpawnsLocalShellCase.allCases)
+    func remoteNeverSpawnsLocalShell(_ scenario: RemoteNeverSpawnsLocalShellCase) async throws {
+        switch scenario {
+        case .remoteUnavailableNeverSpawnsLocalShell:
+            let fixture = try makeRemoteFixture()
+
+            // The bundled `amx` executable never sits beside the test binary, so
+            // `AmxBackend.attachCommand` genuinely returns nil here — this drives
+            // the real `.remoteUnavailable` branch of `BridgeSurfaceCommandPolicy`,
+            // not a mock of it.
+            fixture.view.createSurfaceIfNeeded()
+
+            // CRITICAL regression (ADR-0022 trust boundary): before the fix,
+            // `createSurfaceIfNeeded` read past the error latch `prepareAttach`
+            // had just set and fell through to `runtime.createSurface(command:
+            // nil)`, spawning a silent, typable LOCAL shell that looked like the
+            // remote host. It must instead leave the pane surfaceless and latched.
+            // The latch is set SYNCHRONOUSLY (the trust boundary can't wait a tick).
+            #expect(fixture.view.surface == nil)
+            #expect(fixture.view.commandBridgeErrorLatched)
+
+            // The user-visible error chrome (`recordPaneProcessError`) is deferred
+            // one runloop hop so it lands outside the layout pass — mutating it
+            // in-pass crashed AppKit's constraint engine. Pump the main queue, then
+            // assert the chrome caught up.
+            await pumpMainQueue()
+            let pane = try #require(fixture.livePane)
+            #expect(pane.agentExecutionState == .error)
+        case .remoteWithBridgeDisabledNeverSpawnsLocalShell:
+            let fixture = try makeRemoteFixture(bridgeEnabled: false)
+
+            // Global command bridge OFF: `createSurfaceIfNeeded` runs its
+            // bridge-disabled pre-guard (clearing bridge state) but does NOT
+            // short-circuit — it still reaches `prepareAttach(bridgeEnabled:
+            // false)`, whose policy now routes a remote group to `.remoteUnavailable`
+            // regardless of the toggle rather than `.localShell`.
+            fixture.view.createSurfaceIfNeeded()
+
+            // Same trust-boundary guarantee as the amx-missing case, reached
+            // through the disabled-bridge gate instead (ADR-0022). Latch synchronous;
+            // error chrome deferred (see the amx-missing case above).
+            #expect(fixture.view.surface == nil)
+            #expect(fixture.view.commandBridgeErrorLatched)
+            await pumpMainQueue()
+            let pane = try #require(fixture.livePane)
+            #expect(pane.agentExecutionState == .error)
+        }
+    }
+
+    // MARK: - Remote-owned (`.remoteZmx`) panes
 
     /// The pane's exit used to sit behind libghostty's "Press any key to close
     /// the terminal." screen: setting a surface command forces
@@ -566,105 +482,160 @@ struct CommandBridgeEnactorTests {
     /// before the action returns: `Surface.childExited` keeps using the surface
     /// afterward and supervision frees it. Asserting the pane is still alive at
     /// return is what fails if anyone re-inlines the teardown.
-    @Test("a remote-owned pane claims its child's exit but tears down a turn later")
-    func remoteOwnedChildExitDefersSupervision() async throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionExistsProvider = { _ in
-            Issue.record("a remote-owned pane must never probe the local amx daemon")
-            return true
-        }
-        enactor.sessionID = fixture.sessionID
-        stubRemoteOwnedExitStatus(0, on: enactor)
-
-        #expect(fixture.view.handleChildExited())
-
-        // Nothing freed yet — this is the invariant the C boundary depends on.
-        #expect(enactor.sessionID == fixture.sessionID)
-        #expect(fixture.livePane != nil)
-
-        await Task.yield()
-
-        #expect(enactor.sessionID == nil)
-        #expect(!enactor.errorLatched)
-        #expect(fixture.livePane == nil)
+    enum ChildExitCase: String, CaseIterable {
+        case remoteOwnedChildExitDefersSupervision
+        case remoteOwnedChildExitFailureLatchesOverlay
+        case remoteOwnedRepeatedChildExitEnactsOnce
+        case ordinaryBridgeChildExitDefersSupervision
+        case statuslessBridgeChildExitUsesLegacyFallback
+        case localShellChildExitIsNotClaimed
     }
 
-    /// The dropped-connection direction through the same new entry point: the
-    /// keypress goes away for failures too, and the overlay must still latch.
-    @Test("a remote-owned child exit that failed still latches the overlay")
-    func remoteOwnedChildExitFailureLatchesOverlay() async throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        stubRemoteOwnedExitStatus(255, on: enactor)
+    @Test(arguments: ChildExitCase.allCases)
+    func childExit(_ scenario: ChildExitCase) async throws {
+        switch scenario {
+        case .remoteOwnedChildExitDefersSupervision:
+            let fixture = try makeRemoteOwnedFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionExistsProvider = { _ in
+                Issue.record("a remote-owned pane must never probe the local amx daemon")
+                return true
+            }
+            enactor.sessionID = fixture.sessionID
+            stubRemoteOwnedExitStatus(0, on: enactor)
 
-        #expect(fixture.view.handleChildExited())
-        await Task.yield()
+            #expect(fixture.view.handleChildExited())
 
-        #expect(enactor.errorLatched)
-        let pane = try #require(fixture.livePane)
-        #expect(pane.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget())))
-    }
+            // Nothing freed yet — this is the invariant the C boundary depends on.
+            #expect(enactor.sessionID == fixture.sessionID)
+            #expect(fixture.livePane != nil)
 
-    /// A second child-exited before the deferred teardown lands must still be
-    /// claimed (suppressing libghostty's screen) without queueing a second one.
-    @Test("a repeated child-exited action is claimed but enacted once")
-    func remoteOwnedRepeatedChildExitEnactsOnce() async throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        var consumed = 0
-        enactor.remoteOwnedExitStatusFile = URL(fileURLWithPath: "/tmp/unused.exit")
-        enactor.remoteOwnedExitStatusConsumer = { _ in
-            consumed += 1
-            return 0
+            await Task.yield()
+
+            #expect(enactor.sessionID == nil)
+            #expect(!enactor.errorLatched)
+            #expect(fixture.livePane == nil)
+        case .remoteOwnedChildExitFailureLatchesOverlay:
+            let fixture = try makeRemoteOwnedFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            stubRemoteOwnedExitStatus(255, on: enactor)
+
+            #expect(fixture.view.handleChildExited())
+            await Task.yield()
+
+            #expect(enactor.errorLatched)
+            let pane = try #require(fixture.livePane)
+            #expect(pane.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget())))
+        case .remoteOwnedRepeatedChildExitEnactsOnce:
+            let fixture = try makeRemoteOwnedFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            var consumed = 0
+            enactor.remoteOwnedExitStatusFile = URL(fileURLWithPath: "/tmp/unused.exit")
+            enactor.remoteOwnedExitStatusConsumer = { _ in
+                consumed += 1
+                return 0
+            }
+
+            #expect(fixture.view.handleChildExited())
+            #expect(fixture.view.handleChildExited())
+            await Task.yield()
+
+            #expect(consumed == 1)
+        case .ordinaryBridgeChildExitDefersSupervision:
+            let sessionID = try #require(
+                TerminalSessionID(rawValue: "99999999-9999-4999-8999-999999999999"))
+            let fixture = try makeFixture(
+                sessionID: sessionID,
+                pane: TerminalPane(
+                    terminalSessionID: sessionID,
+                    terminalBackendMetadata: establishedMetadata,
+                    title: "silent bridge",
+                    workingDirectory: "/tmp/silent-bridge",
+                    executionPlan: .local
+                )
+            )
+            let enactor = fixture.view.commandBridgeEnactor
+            let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+            defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+
+            enactor.sessionID = fixture.sessionID
+            enactor.beginStatusWatch(channel: channel)
+            #expect(enactor.statusWatcher?.isArmed == true)
+
+            // No session-end was written: this is the killed/crashed attach-client
+            // shape, not a direct beginExitSupervision shortcut.
+            #expect(fixture.view.handleChildExited())
+            #expect(enactor.sessionID == fixture.sessionID)
+            #expect(!enactor.exitProbeInFlight)
+            #expect(fixture.livePane != nil)
+
+            await Task.yield()
+
+            #expect(!enactor.errorLatched)
+            #expect(enactor.respawnLedger.respawnAttempts == 1)
+            #expect(fixture.livePane != nil)
+        case .statuslessBridgeChildExitUsesLegacyFallback:
+            let sessionID = try #require(
+                TerminalSessionID(rawValue: "88888888-8888-4888-8888-888888888888"))
+            let fixture = try makeFixture(
+                sessionID: sessionID,
+                pane: TerminalPane(
+                    terminalSessionID: sessionID,
+                    terminalBackendMetadata: establishedMetadata,
+                    title: "statusless bridge",
+                    workingDirectory: "/tmp/statusless-bridge",
+                    executionPlan: .local
+                )
+            )
+            let enactor = fixture.view.commandBridgeEnactor
+            var sessionExistenceProbes = 0
+            enactor.sessionExistsProvider = { sessionID in
+                #expect(sessionID == fixture.sessionID)
+                sessionExistenceProbes += 1
+                return true
+            }
+
+            enactor.sessionID = fixture.sessionID
+            #expect(enactor.statusWatcher == nil)
+
+            #expect(fixture.view.handleChildExited())
+            // libghostty can deliver COMMAND_FINISHED on its queued main-actor hop
+            // after the synchronous child-exited decision.
+            fixture.view.commandExitCache.record(
+                exitCode: 0,
+                at: Date().timeIntervalSinceReferenceDate
+            )
+            #expect(enactor.sessionID == fixture.sessionID)
+            #expect(!enactor.exitProbeInFlight)
+
+            await Task.yield()
+            await waitForLegacyProbeToSettle(enactor)
+
+            #expect(sessionExistenceProbes == 1)
+            #expect(!enactor.errorLatched)
+            #expect(fixture.livePane != nil)
+        case .localShellChildExitIsNotClaimed:
+            let sessionID = try #require(
+                TerminalSessionID(rawValue: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
+            let fixture = try makeFixture(
+                sessionID: sessionID,
+                pane: TerminalPane(
+                    terminalSessionID: sessionID,
+                    title: "local",
+                    workingDirectory: "/tmp",
+                    executionPlan: .local
+                )
+            )
+
+            #expect(!fixture.view.handleChildExited())
+            #expect(fixture.livePane != nil)
         }
-
-        #expect(fixture.view.handleChildExited())
-        #expect(fixture.view.handleChildExited())
-        await Task.yield()
-
-        #expect(consumed == 1)
     }
 
     /// An ordinary bridge attach has the same wait-after-command hazard as a
     /// remote-owned attach when its client dies before writing session-end.
-    @Test("an ordinary bridge child exit claims the action and defers supervision")
-    func ordinaryBridgeChildExitDefersSupervision() async throws {
-        let sessionID = try #require(
-            TerminalSessionID(rawValue: "99999999-9999-4999-8999-999999999999"))
-        let fixture = try makeFixture(
-            sessionID: sessionID,
-            pane: TerminalPane(
-                terminalSessionID: sessionID,
-                terminalBackendMetadata: establishedMetadata,
-                title: "silent bridge",
-                workingDirectory: "/tmp/silent-bridge",
-                executionPlan: .local
-            )
-        )
-        let enactor = fixture.view.commandBridgeEnactor
-        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-
-        enactor.sessionID = fixture.sessionID
-        enactor.beginStatusWatch(channel: channel)
-        #expect(enactor.statusWatcher?.isArmed == true)
-
-        // No session-end was written: this is the killed/crashed attach-client
-        // shape, not a direct beginExitSupervision shortcut.
-        #expect(fixture.view.handleChildExited())
-        #expect(enactor.sessionID == fixture.sessionID)
-        #expect(!enactor.exitProbeInFlight)
-        #expect(fixture.livePane != nil)
-
-        await Task.yield()
-
-        #expect(!enactor.errorLatched)
-        #expect(enactor.respawnLedger.respawnAttempts == 1)
-        #expect(fixture.livePane != nil)
-    }
 
     @Test(
         "pre-attach recovery failures preserve existing-only metadata after deferred error chrome",
@@ -713,260 +684,160 @@ struct CommandBridgeEnactorTests {
         #expect(enactor.respawnLedger.respawnAttempts == 0)
     }
 
-    @Test("a failed existing-only attach never enters the daemon creation heal path")
-    func failedExistingOnlyAttachDoesNotRespawn() async throws {
-        let sessionID = try #require(
-            TerminalSessionID(rawValue: "77777777-7777-4777-8777-777777777777"))
-        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
-        let fixture = try makeFixture(
-            sessionID: sessionID,
-            pane: TerminalPane(
-                terminalSessionID: sessionID,
-                terminalBackendMetadata: existingOnly,
-                title: "recover",
-                workingDirectory: "/tmp/recover",
-                executionPlan: .local
-            )
-        )
-        let enactor = fixture.view.commandBridgeEnactor
-        let channel = try #require(AmxBackend.makeStatusChannel(for: sessionID))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-        SessionRecoveryConfirmationCenter.shared.begin(
-            sessionID, daemonPID: 42, createdEpoch: 100
-        )
-        let expectationToken = try #require(
-            SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
-        )
-        enactor.sessionID = sessionID
-        enactor.beginStatusWatch(
-            channel: channel, recoveryExpectationToken: expectationToken
-        )
-        SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
-
-        fixture.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach --existing …"))
-        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
-
-        #expect(fixture.view.handleChildExited())
-        await Task.yield()
-
-        #expect(enactor.errorLatched)
-        #expect(enactor.respawnLedger.respawnAttempts == 0)
-        #expect(
-            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
-        )
-        #expect(
-            await SessionRecoveryConfirmationCenter.shared.wait(
-                for: sessionID, timeout: .milliseconds(10)
-            ) == false
-        )
+    enum ExistingOnlyFailsClosedCase: String, CaseIterable {
+        case failedExistingOnlyAttachDoesNotRespawn
+        case rejectedRecoveryIdentityDoesNotEstablish
+        case existingOnlyWithoutArmedStatusFailsClosed
     }
 
-    @Test("a rejected recovery identity never establishes or heals the pane")
-    func rejectedRecoveryIdentityDoesNotEstablish() async throws {
-        let sessionID = try #require(
-            TerminalSessionID(rawValue: "66666666-6666-4666-8666-666666666666"))
-        let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
-        let fixture = try makeFixture(
-            sessionID: sessionID,
-            pane: TerminalPane(
-                terminalSessionID: sessionID,
-                terminalBackendMetadata: existingOnly,
-                title: "recover",
-                workingDirectory: "/tmp/recover",
-                executionPlan: .local
+    @Test(arguments: ExistingOnlyFailsClosedCase.allCases)
+    func existingOnlyFailsClosed(_ scenario: ExistingOnlyFailsClosedCase) async throws {
+        switch scenario {
+        case .failedExistingOnlyAttachDoesNotRespawn:
+            let sessionID = try #require(
+                TerminalSessionID(rawValue: "77777777-7777-4777-8777-777777777777"))
+            let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+            let fixture = try makeFixture(
+                sessionID: sessionID,
+                pane: TerminalPane(
+                    terminalSessionID: sessionID,
+                    terminalBackendMetadata: existingOnly,
+                    title: "recover",
+                    workingDirectory: "/tmp/recover",
+                    executionPlan: .local
+                )
             )
-        )
-        let enactor = fixture.view.commandBridgeEnactor
-        SessionRecoveryConfirmationCenter.shared.begin(
-            sessionID, daemonPID: 42, createdEpoch: 100
-        )
-        let token = try #require(
-            SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
-        )
-        enactor.sessionID = sessionID
-
-        enactor.handleStatusEvents(
-            [try attachedEvent(pid: 99, createdAt: 101, sessionID: sessionID)],
-            recoveryExpectationToken: token
-        )
-
-        #expect(enactor.errorLatched)
-        #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
-        #expect(enactor.respawnLedger.respawnAttempts == 0)
-
-        enactor.sessionExistsProvider = { _ in
-            Issue.record("rejected recovery must not enter the legacy probe")
-            return true
-        }
-        enactor.beginExitSupervision(exitCode: 0)
-        await Task.yield()
-
-        #expect(enactor.errorLatched)
-        #expect(enactor.respawnLedger.respawnAttempts == 0)
-        #expect(
-            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
-        )
-        #expect(
-            await SessionRecoveryConfirmationCenter.shared.wait(
-                for: sessionID, timeout: .milliseconds(10)
-            ) == false
-        )
-    }
-
-    @Test("an existing-only attach without an armed status feed never probes or heals")
-    func existingOnlyWithoutArmedStatusFailsClosed() async throws {
-        let sessionID = try #require(
-            TerminalSessionID(rawValue: "55555555-5555-4555-8555-555555555555"))
-        let fixture = try makeFixture(
-            sessionID: sessionID,
-            pane: TerminalPane(
-                terminalSessionID: sessionID,
-                terminalBackendMetadata: TerminalBackendMetadata(
-                    rawValue: "amx:v1:existing-only"
-                ),
-                title: "recover",
-                workingDirectory: "/tmp/recover",
-                executionPlan: .local
+            let enactor = fixture.view.commandBridgeEnactor
+            let channel = try #require(AmxBackend.makeStatusChannel(for: sessionID))
+            defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+            SessionRecoveryConfirmationCenter.shared.begin(
+                sessionID, daemonPID: 42, createdEpoch: 100
             )
-        )
-        let host = TestHost(fixture: fixture)
-        host.hasNativeSurface = true
-        let enactor = CommandBridgeEnactor(host: host)
-        enactor.errorLatched = true
-        SessionRecoveryConfirmationCenter.shared.begin(
-            sessionID, daemonPID: 42, createdEpoch: 100
-        )
-        SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
-        enactor.sessionID = sessionID
-        enactor.sessionExistsProvider = { _ in
-            Issue.record("existing-only failure must not enter the legacy probe")
-            return true
-        }
-
-        enactor.beginExitSupervision(exitCode: 0)
-        await Task.yield()
-
-        #expect(enactor.errorLatched)
-        #expect(host.disposeCount == 1 && !host.hasNativeSurface)
-        #expect(enactor.respawnLedger.respawnAttempts == 0)
-        #expect(
-            fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
-        )
-        #expect(
-            await SessionRecoveryConfirmationCenter.shared.wait(
-                for: sessionID, timeout: .milliseconds(10)
-            ) == false
-        )
-    }
-
-    @Test("a statusless bridge child exit uses the legacy supervision fallback")
-    func statuslessBridgeChildExitUsesLegacyFallback() async throws {
-        let sessionID = try #require(
-            TerminalSessionID(rawValue: "88888888-8888-4888-8888-888888888888"))
-        let fixture = try makeFixture(
-            sessionID: sessionID,
-            pane: TerminalPane(
-                terminalSessionID: sessionID,
-                terminalBackendMetadata: establishedMetadata,
-                title: "statusless bridge",
-                workingDirectory: "/tmp/statusless-bridge",
-                executionPlan: .local
+            let expectationToken = try #require(
+                SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
             )
-        )
-        let enactor = fixture.view.commandBridgeEnactor
-        var sessionExistenceProbes = 0
-        enactor.sessionExistsProvider = { sessionID in
-            #expect(sessionID == fixture.sessionID)
-            sessionExistenceProbes += 1
-            return true
+            enactor.sessionID = sessionID
+            enactor.beginStatusWatch(
+                channel: channel, recoveryExpectationToken: expectationToken
+            )
+            SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
+
+            fixture.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach --existing …"))
+            #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+
+            #expect(fixture.view.handleChildExited())
+            await Task.yield()
+
+            #expect(enactor.errorLatched)
+            #expect(enactor.respawnLedger.respawnAttempts == 0)
+            #expect(
+                fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+            )
+            #expect(
+                await SessionRecoveryConfirmationCenter.shared.wait(
+                    for: sessionID, timeout: .milliseconds(10)
+                ) == false
+            )
+        case .rejectedRecoveryIdentityDoesNotEstablish:
+            let sessionID = try #require(
+                TerminalSessionID(rawValue: "66666666-6666-4666-8666-666666666666"))
+            let existingOnly = TerminalBackendMetadata(rawValue: "amx:v1:existing-only")
+            let fixture = try makeFixture(
+                sessionID: sessionID,
+                pane: TerminalPane(
+                    terminalSessionID: sessionID,
+                    terminalBackendMetadata: existingOnly,
+                    title: "recover",
+                    workingDirectory: "/tmp/recover",
+                    executionPlan: .local
+                )
+            )
+            let enactor = fixture.view.commandBridgeEnactor
+            SessionRecoveryConfirmationCenter.shared.begin(
+                sessionID, daemonPID: 42, createdEpoch: 100
+            )
+            let token = try #require(
+                SessionRecoveryConfirmationCenter.shared.expectationToken(for: sessionID)
+            )
+            enactor.sessionID = sessionID
+
+            enactor.handleStatusEvents(
+                [try attachedEvent(pid: 99, createdAt: 101, sessionID: sessionID)],
+                recoveryExpectationToken: token
+            )
+
+            #expect(enactor.errorLatched)
+            #expect(fixture.livePane?.terminalBackendMetadata == existingOnly)
+            #expect(enactor.respawnLedger.respawnAttempts == 0)
+
+            enactor.sessionExistsProvider = { _ in
+                Issue.record("rejected recovery must not enter the legacy probe")
+                return true
+            }
+            enactor.beginExitSupervision(exitCode: 0)
+            await Task.yield()
+
+            #expect(enactor.errorLatched)
+            #expect(enactor.respawnLedger.respawnAttempts == 0)
+            #expect(
+                fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+            )
+            #expect(
+                await SessionRecoveryConfirmationCenter.shared.wait(
+                    for: sessionID, timeout: .milliseconds(10)
+                ) == false
+            )
+        case .existingOnlyWithoutArmedStatusFailsClosed:
+            let sessionID = try #require(
+                TerminalSessionID(rawValue: "55555555-5555-4555-8555-555555555555"))
+            let fixture = try makeFixture(
+                sessionID: sessionID,
+                pane: TerminalPane(
+                    terminalSessionID: sessionID,
+                    terminalBackendMetadata: TerminalBackendMetadata(
+                        rawValue: "amx:v1:existing-only"
+                    ),
+                    title: "recover",
+                    workingDirectory: "/tmp/recover",
+                    executionPlan: .local
+                )
+            )
+            let host = TestHost(fixture: fixture)
+            host.hasNativeSurface = true
+            let enactor = CommandBridgeEnactor(host: host)
+            enactor.errorLatched = true
+            SessionRecoveryConfirmationCenter.shared.begin(
+                sessionID, daemonPID: 42, createdEpoch: 100
+            )
+            SessionRecoveryConfirmationCenter.shared.didStartAttach(sessionID)
+            enactor.sessionID = sessionID
+            enactor.sessionExistsProvider = { _ in
+                Issue.record("existing-only failure must not enter the legacy probe")
+                return true
+            }
+
+            enactor.beginExitSupervision(exitCode: 0)
+            await Task.yield()
+
+            #expect(enactor.errorLatched)
+            #expect(host.disposeCount == 1 && !host.hasNativeSurface)
+            #expect(enactor.respawnLedger.respawnAttempts == 0)
+            #expect(
+                fixture.livePane?.terminalBackendMetadata.amxAttachDisposition == .existingOnly
+            )
+            #expect(
+                await SessionRecoveryConfirmationCenter.shared.wait(
+                    for: sessionID, timeout: .milliseconds(10)
+                ) == false
+            )
         }
-
-        enactor.sessionID = fixture.sessionID
-        #expect(enactor.statusWatcher == nil)
-
-        #expect(fixture.view.handleChildExited())
-        // libghostty can deliver COMMAND_FINISHED on its queued main-actor hop
-        // after the synchronous child-exited decision.
-        fixture.view.commandExitCache.record(
-            exitCode: 0,
-            at: Date().timeIntervalSinceReferenceDate
-        )
-        #expect(enactor.sessionID == fixture.sessionID)
-        #expect(!enactor.exitProbeInFlight)
-
-        await Task.yield()
-        await waitForLegacyProbeToSettle(enactor)
-
-        #expect(sessionExistenceProbes == 1)
-        #expect(!enactor.errorLatched)
-        #expect(fixture.livePane != nil)
     }
 
     /// A plain local shell has no managed bridge identity, so libghostty keeps
     /// its normal child-exit handling and press-any-key behavior.
-    @Test("a local shell pane leaves the child-exited action alone")
-    func localShellChildExitIsNotClaimed() throws {
-        let sessionID = try #require(
-            TerminalSessionID(rawValue: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
-        let fixture = try makeFixture(
-            sessionID: sessionID,
-            pane: TerminalPane(
-                terminalSessionID: sessionID,
-                title: "local",
-                workingDirectory: "/tmp",
-                executionPlan: .local
-            )
-        )
 
-        #expect(!fixture.view.handleChildExited())
-        #expect(fixture.livePane != nil)
-    }
-
-    @Test("a remote-owned exit with the bridge disabled never re-creates the surface")
-    func remoteOwnedExitWithBridgeDisabledDoesNotLoop() throws {
-        // The legacy exit path answers a bridge-disabled clean exit by clearing
-        // state and re-driving surface creation — for a remote-owned pane the
-        // policy would answer that with another remote-owned attach, forever.
-        let fixture = try makeRemoteOwnedFixture(bridgeEnabled: false)
-        let host = TestHost(fixture: fixture)
-        let enactor = CommandBridgeEnactor(host: host)
-        enactor.sessionExistsProvider = { _ in
-            Issue.record("a remote-owned pane must never probe the local amx daemon")
-            return true
-        }
-        enactor.sessionID = fixture.sessionID
-        stubRemoteOwnedExitStatus(0, on: enactor)
-
-        enactor.beginExitSupervision(exitCode: nil)
-
-        #expect(host.closeAfterProcessExitCount == 1)
-        #expect(host.scheduleSurfaceCreationCount == 0)
-        #expect(enactor.sessionID == nil)
-        #expect(!enactor.errorLatched)
-    }
-
-    @Test("a remote-owned spawn confirms a pending manual reconnect without a status event")
-    func remoteOwnedSpawnConfirmsManualReconnect() throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        enactor.markError()
-        let target = try remoteOwnedTarget()
-        #expect(fixture.livePane?.remoteReconnect == .disconnected(.init(target: target)))
-
-        enactor.beginManualReconnect()
-        #expect(fixture.livePane?.remoteReconnect == .reconnecting(.init(target: target)))
-
-        // The re-spawn's only confirmation signal: there is no `attached` event
-        // to wait for, so the overlay would otherwise stay painted forever.
-        fixture.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
-
-        #expect(fixture.livePane?.remoteReconnect == nil)
-        #expect(!enactor.errorLatched)
-    }
-
-    @Test("a remote-owned respawn announces the attempt, never a confirmed reconnect")
-    func remoteOwnedSpawnNeverAnnouncesUnprovenSuccess() throws {
+    @Test("manual reconnect announces its attempt and relatches on failure")
+    func manualReconnectSequence() throws {
         let fixture = try makeRemoteOwnedFixture()
         let enactor = fixture.view.commandBridgeEnactor
         var announcements: [Announcement] = []
@@ -978,7 +849,9 @@ struct CommandBridgeEnactorTests {
         }
         enactor.sessionID = fixture.sessionID
         enactor.markError()
+        #expect(fixture.livePane?.remoteReconnect == .disconnected(.init(target: try remoteOwnedTarget())))
         enactor.beginManualReconnect()
+        #expect(fixture.livePane?.remoteReconnect == .reconnecting(.init(target: try remoteOwnedTarget())))
 
         // The spawn succeeds — libghostty forked a local ssh child. That says
         // nothing about `example.invalid`, which by RFC 2606 can never resolve,
@@ -992,6 +865,7 @@ struct CommandBridgeEnactorTests {
         // VoiceOver user and a false "you're back" — assert the overlay
         // behaviour is unchanged so this can't silently pass by regressing it.
         #expect(fixture.livePane?.remoteReconnect == nil)
+        #expect(!enactor.errorLatched)
 
         // ssh then reports the failure it was always going to report. The pane
         // re-latches and the disconnected overlay owns the failure voice; what
@@ -1002,251 +876,215 @@ struct CommandBridgeEnactorTests {
         #expect(announcements == [.remoteReconnectStarted(host: "example.invalid")])
     }
 
-    @Test("only a local-amx attach stamps established backend metadata")
-    func onlyBridgeAttachStampsEstablishedMetadata() throws {
-        let remoteOwned = try makeRemoteOwnedFixture()
-        // `established` names a LOCAL amx session; stamping it for a remote-owned
-        // pane points the Path Bar's `amx cwd` poll at an id no local daemon has.
-        remoteOwned.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
-        #expect(remoteOwned.livePane?.terminalBackendMetadata == .empty)
-
-        let bridge = try makeFixture()
-        bridge.store.updateTerminalBackendMetadata(
-            sessionID: bridge.hostSessionID,
-            paneID: bridge.paneID,
-            metadata: .empty
-        )
-        bridge.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach …"))
-        #expect(bridge.livePane?.terminalBackendMetadata == establishedMetadata)
+    enum PostSpawnStateCase: String, CaseIterable {
+        case onlyBridgeAttachStampsEstablishedMetadata
+        case remoteOwnedSpawnKeepsAgentChrome
     }
 
-    @Test("a remote-owned pane keeps its agent chrome; a plain local shell resets it")
-    func remoteOwnedSpawnKeepsAgentChrome() throws {
-        // A remote-owned attach re-joins a session that survives on the far
-        // host, so a live agent's identity must survive with it — unlike a fresh
-        // local shell, whose restored chrome is definitionally dead.
-        let remoteOwned = try makeRemoteOwnedFixture(agentKind: .codex)
-        remoteOwned.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
-        #expect(remoteOwned.livePane?.agentKind == AgentKind.codex)
+    @Test(arguments: PostSpawnStateCase.allCases)
+    func postSpawnState(_ scenario: PostSpawnStateCase) throws {
+        switch scenario {
+        case .onlyBridgeAttachStampsEstablishedMetadata:
+            let remoteOwned = try makeRemoteOwnedFixture()
+            // `established` names a LOCAL amx session; stamping it for a remote-owned
+            // pane points the Path Bar's `amx cwd` poll at an id no local daemon has.
+            remoteOwned.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
+            #expect(remoteOwned.livePane?.terminalBackendMetadata == .empty)
 
-        let local = try makeAgentFixture()
-        local.view.applyPostSpawnPaneState(for: .localShell)
-        #expect(local.livePane?.agentKind == AgentKind.shell)
-    }
+            let bridge = try makeFixture()
+            bridge.store.updateTerminalBackendMetadata(
+                sessionID: bridge.hostSessionID,
+                paneID: bridge.paneID,
+                metadata: .empty
+            )
+            bridge.view.applyPostSpawnPaneState(for: .bridgeAttach("amx attach …"))
+            #expect(bridge.livePane?.terminalBackendMetadata == establishedMetadata)
+        case .remoteOwnedSpawnKeepsAgentChrome:
+            // A remote-owned attach re-joins a session that survives on the far
+            // host, so a live agent's identity must survive with it — unlike a fresh
+            // local shell, whose restored chrome is definitionally dead.
+            let remoteOwned = try makeRemoteOwnedFixture(agentKind: .codex)
+            remoteOwned.view.applyPostSpawnPaneState(for: .remoteOwnedAttach("ssh …"))
+            #expect(remoteOwned.livePane?.agentKind == AgentKind.codex)
 
-    @Test("a remote-owned surface spawns the assembled ssh command, never a local shell")
-    func remoteOwnedSurfaceSpawnsSSHCommand() throws {
-        let fixture = try makeRemoteOwnedFixture()
-        let spawned = SpawnedCommandBox()
-        fixture.runtime.createSurfaceOverride = { _, _, _, command in
-            spawned.record(command)
-            return nil
+            let local = try makeAgentFixture()
+            local.view.applyPostSpawnPaneState(for: .localShell)
+            #expect(local.livePane?.agentKind == AgentKind.shell)
         }
-        fixture.view.commandBridgeEnactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
-            "remote-owned-\(sessionName.rawValue)"
-        }
-
-        fixture.view.createSurfaceIfNeeded()
-
-        #expect(spawned.commands == ["remote-owned-work"])
-        #expect(!fixture.view.commandBridgeErrorLatched)
-        #expect(fixture.view.commandBridgeEnactor.statusChannel == nil)
-        #expect(statusFileNames(for: fixture.sessionID).isEmpty)
     }
 
-    @Test("a latched-error pane is inert to a stray attached event")
-    func latchedPaneIgnoresStrayAttached() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        enactor.errorLatched = true
-
-        // A stray `attached` line must not un-latch the pane or record an
-        // incarnation while the user is looking at the error state.
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
-
-        #expect(enactor.errorLatched)
-        #expect(enactor.respawnLedger.lastIncarnation == nil)
+    enum RemoteOwnedSpawnCase: String, CaseIterable {
+        case remoteOwnedSurfaceSpawnsSSHCommand
+        case remoteOwnedKeepsSessionAcrossReentryWithBridgeDisabled
     }
 
-    @Test("legacy heal synchronizes the host before remounting")
-    func legacyHealSynchronizesHostBeforeRemounting() async throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionExistsProvider = { _ in true }
-        enactor.sessionID = fixture.sessionID
-
-        // Model a stale view payload while the store remains authoritative. The
-        // degraded no-status path must install the heal result on the host just
-        // like the status-driven path does before it remounts.
-        fixture.view.pane.title = "stale host pane"
-        #expect(fixture.view.pane != fixture.livePane)
-
-        enactor.beginExitSupervision(exitCode: 0)
-        await waitForLegacyProbeToSettle(enactor)
-
-        let livePane = try #require(fixture.livePane)
-        #expect(fixture.view.pane == livePane)
-        #expect(fixture.view.paneID == livePane.id)
-        #expect(enactor.sessionID == livePane.terminalSessionID)
-    }
-
-    @Test("status heal synchronizes the host before remounting")
-    func statusHealSynchronizesHostBeforeRemounting() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        fixture.view.pane.title = "stale host pane"
-        #expect(fixture.view.pane != fixture.livePane)
-
-        try driveSessionEnd(fixture: fixture, reason: .daemonDied)
-
-        let livePane = try #require(fixture.livePane)
-        #expect(fixture.view.pane == livePane)
-        #expect(fixture.view.paneID == livePane.id)
-        #expect(enactor.sessionID == livePane.terminalSessionID)
-    }
-
-    @Test("legacy non-zero exit announces error entry")
-    func legacyNonzeroExitAnnouncesError() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        var announcements: [Announcement] = []
-        enactor.announceErrorEntered = { announcements.append(.errorEntered) }
-
-        enactor.sessionID = fixture.sessionID
-        enactor.beginExitSupervision(exitCode: 1)
-
-        #expect(enactor.errorLatched)
-        #expect(announcements == [.errorEntered])
-    }
-
-    @Test("legacy missing session announces error entry")
-    func legacyMissingSessionAnnouncesError() async throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        var announcements: [Announcement] = []
-        enactor.announceErrorEntered = { announcements.append(.errorEntered) }
-
-        enactor.sessionExistsProvider = { _ in false }
-        enactor.sessionID = fixture.sessionID
-        enactor.beginExitSupervision(exitCode: 0)
-        await waitForLegacyProbeToSettle(enactor)
-
-        #expect(enactor.errorLatched)
-        #expect(announcements == [.errorEntered])
-    }
-
-    @Test("session repoint cancels pending budget refill and stale work")
-    func sessionRepointCancelsBudgetRefill() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        enactor.respawnLedger.recordRespawnAttempt()
-        let recoveryRecord = try #require(enactor.recoveryRecord)
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
-        let pendingRefill = try #require(enactor.budgetRefillWorkItem)
-
-        enactor.handleSessionRepoint()
-        enactor.handleSessionRepoint()
-        pendingRefill.perform()
-
-        #expect(pendingRefill.isCancelled)
-        #expect(enactor.budgetRefillWorkItem == nil)
-        #expect(recoveryRecord.respawnLedger.respawnAttempts == 1)
-    }
-
-    @Test("surface teardown cancels pending budget refill and stale work")
-    func surfaceTeardownCancelsBudgetRefill() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
-        enactor.respawnLedger.recordRespawnAttempt()
-        let recoveryRecord = try #require(enactor.recoveryRecord)
-        let pendingRefill = try #require(enactor.budgetRefillWorkItem)
-
-        enactor.notifyNativeSurfaceDisposed()
-        enactor.notifyNativeSurfaceDisposed()
-        pendingRefill.perform()
-
-        #expect(pendingRefill.isCancelled)
-        #expect(enactor.budgetRefillWorkItem == nil)
-        #expect(recoveryRecord.respawnLedger.respawnAttempts == 1)
-    }
-
-    @Test("new incarnation replaces pending budget refill and stale work cannot win")
-    func newIncarnationReplacesBudgetRefill() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
-        let staleRefill = try #require(enactor.budgetRefillWorkItem)
-        enactor.respawnLedger.recordRespawnAttempt()
-        let recoveryRecord = try #require(enactor.recoveryRecord)
-
-        enactor.handleStatusEvents([try attachedEvent(pid: 200, createdAt: 1_700_000_100, sessionID: fixture.sessionID)])
-        let currentRefill = try #require(enactor.budgetRefillWorkItem)
-        staleRefill.perform()
-
-        #expect(staleRefill.isCancelled)
-        #expect(staleRefill !== currentRefill)
-        #expect(recoveryRecord.respawnLedger.respawnAttempts == 1)
-
-        currentRefill.perform()
-        #expect(recoveryRecord.respawnLedger.respawnAttempts == 0)
-        #expect(enactor.budgetRefillWorkItem == nil)
-    }
-
-    @Test("session end cancels pending budget refill")
-    func sessionEndCancelsBudgetRefill() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        enactor.sessionID = fixture.sessionID
-        enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
-        let pendingRefill = try #require(enactor.budgetRefillWorkItem)
-        let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-        enactor.beginStatusWatch(channel: channel)
-        let event = try #require(
-            Self.sessionEndEvent(
-            token: channel.token,
-            terminalSessionID: fixture.sessionID,
-            reason: .detached
-        ))
-
-        enactor.handleStatusEvents([event])
-
-        #expect(pendingRefill.isCancelled)
-        #expect(enactor.budgetRefillWorkItem == nil)
-    }
-
-    @Test("suspended legacy probe does not retain enactor past host teardown")
-    func suspendedLegacyProbeDoesNotRetainEnactor() async throws {
-        let fixture = try makeFixture()
-        var host: TestHost? = TestHost(fixture: fixture)
-        var enactor: CommandBridgeEnactor? = CommandBridgeEnactor(host: try #require(host))
-        var resumeProbe: (() -> Void)?
-        enactor?.sessionExistsProvider = { _ in
-            await withCheckedContinuation { continuation in
-                resumeProbe = { continuation.resume(returning: false) }
+    @Test(arguments: RemoteOwnedSpawnCase.allCases)
+    func remoteOwnedSpawn(_ scenario: RemoteOwnedSpawnCase) throws {
+        switch scenario {
+        case .remoteOwnedSurfaceSpawnsSSHCommand:
+            let fixture = try makeRemoteOwnedFixture()
+            let spawned = SpawnedCommandBox()
+            fixture.runtime.createSurfaceOverride = { _, _, _, command in
+                spawned.record(command)
+                return nil
             }
-        }
-        enactor?.sessionID = fixture.sessionID
-        enactor?.beginExitSupervision(exitCode: 0)
-        for _ in 0..<1_000 where resumeProbe == nil {
-            await Task.yield()
-        }
-        #expect(resumeProbe != nil)
+            fixture.view.commandBridgeEnactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
+                "remote-owned-\(sessionName.rawValue)"
+            }
 
-        weak let weakHost = host
-        weak let weakEnactor = enactor
-        enactor = nil
-        host = nil
+            fixture.view.createSurfaceIfNeeded()
 
-        #expect(weakHost == nil)
-        #expect(weakEnactor == nil)
-        resumeProbe?()
-        await Task.yield()
+            #expect(spawned.commands == ["remote-owned-work"])
+            #expect(!fixture.view.commandBridgeErrorLatched)
+            #expect(fixture.view.commandBridgeEnactor.statusChannel == nil)
+            #expect(statusFileNames(for: fixture.sessionID).isEmpty)
+        case .remoteOwnedKeepsSessionAcrossReentryWithBridgeDisabled:
+            let fixture = try makeRemoteOwnedFixture(bridgeEnabled: false)
+            let enactor = fixture.view.commandBridgeEnactor
+            let spawned = SpawnedCommandBox()
+            fixture.runtime.createSurfaceOverride = { _, _, _, command in
+                spawned.record(command)
+                return nil
+            }
+            enactor.remoteOwnedAttachCommandProvider = { _, sessionName, _ in
+                "remote-owned-\(sessionName.rawValue)"
+            }
+
+            fixture.view.createSurfaceIfNeeded()
+            #expect(enactor.sessionID == fixture.sessionID)
+            let record = try #require(enactor.recoveryRecord)
+
+            // `surface` stays nil here, exactly as it does while a real spawn is
+            // pending, so later layout passes re-enter. The bridge-disabled
+            // pre-clear says nothing about a pane whose session lives on the far
+            // host and must leave it alone. The identity check is the assertion that
+            // bites: a clear discards the record and mints a replacement.
+            fixture.view.createSurfaceIfNeeded()
+
+            #expect(enactor.sessionID == fixture.sessionID)
+            #expect(enactor.recoveryRecord === record)
+            #expect(spawned.commands == ["remote-owned-work", "remote-owned-work"])
+        }
+    }
+
+    enum LegacyErrorAnnouncementsCase: String, CaseIterable {
+        case legacyNonzeroExitAnnouncesError
+        case legacyMissingSessionAnnouncesError
+    }
+
+    @Test(arguments: LegacyErrorAnnouncementsCase.allCases)
+    func legacyErrorAnnouncements(_ scenario: LegacyErrorAnnouncementsCase) async throws {
+        switch scenario {
+        case .legacyNonzeroExitAnnouncesError:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            var announcements: [Announcement] = []
+            enactor.announceErrorEntered = { announcements.append(.errorEntered) }
+
+            enactor.sessionID = fixture.sessionID
+            enactor.beginExitSupervision(exitCode: 1)
+
+            #expect(enactor.errorLatched)
+            #expect(announcements == [.errorEntered])
+        case .legacyMissingSessionAnnouncesError:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            var announcements: [Announcement] = []
+            enactor.announceErrorEntered = { announcements.append(.errorEntered) }
+
+            enactor.sessionExistsProvider = { _ in false }
+            enactor.sessionID = fixture.sessionID
+            enactor.beginExitSupervision(exitCode: 0)
+            await waitForLegacyProbeToSettle(enactor)
+
+            #expect(enactor.errorLatched)
+            #expect(announcements == [.errorEntered])
+        }
+    }
+
+    enum BudgetRefillCancellationCase: String, CaseIterable {
+        case sessionRepointCancelsBudgetRefill
+        case surfaceTeardownCancelsBudgetRefill
+        case newIncarnationReplacesBudgetRefill
+        case sessionEndCancelsBudgetRefill
+    }
+
+    @Test(arguments: BudgetRefillCancellationCase.allCases)
+    func budgetRefillCancellation(_ scenario: BudgetRefillCancellationCase) throws {
+        switch scenario {
+        case .sessionRepointCancelsBudgetRefill:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            enactor.respawnLedger.recordRespawnAttempt()
+            let recoveryRecord = try #require(enactor.recoveryRecord)
+            enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
+            let pendingRefill = try #require(enactor.budgetRefillWorkItem)
+
+            enactor.handleSessionRepoint()
+            enactor.handleSessionRepoint()
+            pendingRefill.perform()
+
+            #expect(pendingRefill.isCancelled)
+            #expect(enactor.budgetRefillWorkItem == nil)
+            #expect(recoveryRecord.respawnLedger.respawnAttempts == 1)
+        case .surfaceTeardownCancelsBudgetRefill:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
+            enactor.respawnLedger.recordRespawnAttempt()
+            let recoveryRecord = try #require(enactor.recoveryRecord)
+            let pendingRefill = try #require(enactor.budgetRefillWorkItem)
+
+            enactor.notifyNativeSurfaceDisposed()
+            enactor.notifyNativeSurfaceDisposed()
+            pendingRefill.perform()
+
+            #expect(pendingRefill.isCancelled)
+            #expect(enactor.budgetRefillWorkItem == nil)
+            #expect(recoveryRecord.respawnLedger.respawnAttempts == 1)
+        case .newIncarnationReplacesBudgetRefill:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
+            let staleRefill = try #require(enactor.budgetRefillWorkItem)
+            enactor.respawnLedger.recordRespawnAttempt()
+            let recoveryRecord = try #require(enactor.recoveryRecord)
+
+            enactor.handleStatusEvents([try attachedEvent(pid: 200, createdAt: 1_700_000_100, sessionID: fixture.sessionID)])
+            let currentRefill = try #require(enactor.budgetRefillWorkItem)
+            staleRefill.perform()
+
+            #expect(staleRefill.isCancelled)
+            #expect(staleRefill !== currentRefill)
+            #expect(recoveryRecord.respawnLedger.respawnAttempts == 1)
+
+            currentRefill.perform()
+            #expect(recoveryRecord.respawnLedger.respawnAttempts == 0)
+            #expect(enactor.budgetRefillWorkItem == nil)
+        case .sessionEndCancelsBudgetRefill:
+            let fixture = try makeFixture()
+            let enactor = fixture.view.commandBridgeEnactor
+            enactor.sessionID = fixture.sessionID
+            enactor.handleStatusEvents([try attachedEvent(pid: 100, createdAt: 1_700_000_000, sessionID: fixture.sessionID)])
+            let pendingRefill = try #require(enactor.budgetRefillWorkItem)
+            let channel = try #require(AmxBackend.makeStatusChannel(for: fixture.sessionID))
+            defer { try? FileManager.default.removeItem(at: channel.fileURL) }
+            enactor.beginStatusWatch(channel: channel)
+            let event = try #require(
+                Self.sessionEndEvent(
+                    token: channel.token,
+                    terminalSessionID: fixture.sessionID,
+                    reason: .detached
+                ))
+
+            enactor.handleStatusEvents([event])
+
+            #expect(pendingRefill.isCancelled)
+            #expect(enactor.budgetRefillWorkItem == nil)
+        }
     }
 
     @Test("stale legacy probe cannot win after same-identity repoint")
@@ -1311,7 +1149,9 @@ struct CommandBridgeEnactorTests {
     /// layout pass). Suspending the MainActor via `Task.sleep` hands control
     /// back to the main run loop so those blocks execute before we assert.
     private func pumpMainQueue() async {
-        try? await Task.sleep(for: .milliseconds(20))
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private func waitForLegacyProbeToSettle(_ enactor: CommandBridgeEnactor) async {

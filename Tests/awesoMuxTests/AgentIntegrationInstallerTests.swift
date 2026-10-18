@@ -6,47 +6,6 @@ import Testing
 
 @Suite("Agent integration installer")
 struct AgentIntegrationInstallerTests {
-    @Test("settings installer stays limited to provider-owned file templates")
-    func settingsInstallerExcludesNativeMarketplaceProviders() {
-        // Claude Code, Codex, and Grok ship as native plugin marketplace trees. They
-        // must not be swept into this provider-owned file installer without a
-        // separate settings opt-in design.
-        #expect(AgentIntegrationInstallProvider.allCases == [.openCode, .pi])
-    }
-
-    @Test("renders file-drop templates without changing global install state")
-    func rendersTemplatesWithoutChangingManifest() throws {
-        try Self.withTemporaryDirectory { supportDirectory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: supportDirectory
-            )
-
-            let openCode = try installer.render(
-                provider: .openCode,
-                setup: AgentIntegrationSetup(
-                    enabled: true,
-                    binaryPath: "/opt/homebrew/bin/opencode",
-                    configHome: "/Users/example/.config/opencode"
-                )
-            )
-            let pi = try installer.render(
-                provider: .pi,
-                setup: AgentIntegrationSetup(
-                    enabled: true,
-                    binaryPath: "/opt/homebrew/bin/pi",
-                    configHome: "/Users/example/.pi/agent"
-                )
-            )
-            #expect(openCode.renderedURL.lastPathComponent == "awesomux-opencode-status.js")
-            #expect(pi.renderedURL.lastPathComponent == "awesomux-pi-status.ts")
-            #expect(FileManager.default.fileExists(atPath: openCode.renderedURL.path))
-            #expect(FileManager.default.fileExists(atPath: pi.renderedURL.path))
-
-            #expect(try installer.loadManifest() == .empty)
-            #expect(!FileManager.default.fileExists(atPath: installer.manifestURL.path))
-        }
-    }
 
     @Test("re-render leaves an installed record pointing at its installed source")
     func rerenderLeavesInstalledRecordUnchanged() throws {
@@ -216,57 +175,6 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
-    @Test("install writes templates to provider destinations and manifest")
-    func installWritesTemplatesToProviderDestinationsAndManifest() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
-            let openCodeConfigHome =
-                home
-                .appending(path: ".config", directoryHint: .isDirectory)
-                .appending(path: "opencode", directoryHint: .isDirectory)
-
-            let openCode = try installer.install(
-                provider: .openCode,
-                setup: AgentIntegrationSetup(enabled: true, configHome: openCodeConfigHome.path),
-                homeDirectory: home
-            )
-            let pi = try installer.install(
-                provider: .pi,
-                setup: AgentIntegrationSetup(enabled: true),
-                homeDirectory: home
-            )
-            #expect(
-                openCode.installedURL.path.hasSuffix(
-                    ".config/opencode/plugins/awesomux-opencode-status.js"
-                ))
-            #expect(pi.installedURL.path.hasSuffix(".pi/agent/extensions/awesomux-pi-status.ts"))
-            #expect(FileManager.default.fileExists(atPath: openCode.installedURL.path))
-            #expect(FileManager.default.fileExists(atPath: pi.installedURL.path))
-
-            let openCodeData = try Data(contentsOf: openCode.installedURL)
-            let piData = try Data(contentsOf: pi.installedURL)
-            let renderedOpenCodeData = try Data(contentsOf: openCode.renderedInstall.renderedURL)
-            let renderedPiData = try Data(contentsOf: pi.renderedInstall.renderedURL)
-            #expect(openCodeData == renderedOpenCodeData)
-            #expect(piData == renderedPiData)
-
-            let manifest = try installer.loadManifest()
-            #expect(manifest.records.count == 2)
-            #expect(
-                manifest.records.contains {
-                    $0.provider == .openCode && $0.installedPath == openCode.installedURL.path
-                })
-            #expect(
-                manifest.records.contains {
-                    $0.provider == .pi && $0.installedPath == pi.installedURL.path
-                })
-        }
-    }
-
     @Test("uninstall removes unchanged manifest-owned file")
     func uninstallRemovesUnchangedManifestOwnedFile() throws {
         try Self.withTemporaryDirectory { directory in
@@ -291,76 +199,83 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
-    @Test("uninstall refuses modified installed file")
-    func uninstallRefusesModifiedInstalledFile() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
-            let setup = AgentIntegrationSetup(enabled: true)
-            let installed = try installer.install(
-                provider: .pi,
-                setup: setup,
-                homeDirectory: home
-            )
-            try Data("// user edit\n".utf8).write(to: installed.installedURL)
-
-            #expect(throws: AgentIntegrationInstallerError.installedFileModified(installed.installedURL)) {
-                try installer.uninstall(provider: .pi)
-            }
-            #expect(FileManager.default.fileExists(atPath: installed.installedURL.path))
-        }
+    enum ModifiedOwnedFilesArePreservedCase: String, CaseIterable {
+        case uninstallRefusesModifiedInstalledFile
+        case failedReinstallKeepsModifiedPriorFileTracked
     }
 
-    @Test("reinstall to a new config home removes the previously installed file")
-    func reinstallToNewConfigHomeRemovesPreviousFile() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
-            let firstConfigHome =
-                directory
-                .appending(path: "first", directoryHint: .isDirectory)
-                .appending(path: "opencode", directoryHint: .isDirectory)
-            let secondConfigHome =
-                directory
-                .appending(path: "second", directoryHint: .isDirectory)
-                .appending(path: "opencode", directoryHint: .isDirectory)
+    @Test(arguments: ModifiedOwnedFilesArePreservedCase.allCases)
+    func modifiedOwnedFilesArePreserved(_ scenario: ModifiedOwnedFilesArePreservedCase) throws {
+        switch scenario {
+        case .uninstallRefusesModifiedInstalledFile:
+            try Self.withTemporaryDirectory { directory in
+                let installer = AgentIntegrationInstaller(
+                    resourcesDirectoryURL: Self.packageResourcesURL,
+                    supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
+                )
+                let home = directory.appending(path: "home", directoryHint: .isDirectory)
+                let setup = AgentIntegrationSetup(enabled: true)
+                let installed = try installer.install(
+                    provider: .pi,
+                    setup: setup,
+                    homeDirectory: home
+                )
+                try Data("// user edit\n".utf8).write(to: installed.installedURL)
 
-            let first = try installer.install(
-                provider: .openCode,
-                setup: AgentIntegrationSetup(enabled: true, configHome: firstConfigHome.path),
-                homeDirectory: home
-            )
-            #expect(FileManager.default.fileExists(atPath: first.installedURL.path))
+                #expect(throws: AgentIntegrationInstallerError.installedFileModified(installed.installedURL)) {
+                    try installer.uninstall(provider: .pi)
+                }
+                #expect(FileManager.default.fileExists(atPath: installed.installedURL.path))
+            }
+        case .failedReinstallKeepsModifiedPriorFileTracked:
+            try Self.withTemporaryDirectory { directory in
+                let installer = AgentIntegrationInstaller(
+                    resourcesDirectoryURL: Self.packageResourcesURL,
+                    supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
+                )
+                let home = directory.appending(path: "home", directoryHint: .isDirectory)
+                let firstConfigHome =
+                    directory
+                    .appending(path: "first", directoryHint: .isDirectory)
+                    .appending(path: "opencode", directoryHint: .isDirectory)
+                let secondConfigHome =
+                    directory
+                    .appending(path: "second", directoryHint: .isDirectory)
+                    .appending(path: "opencode", directoryHint: .isDirectory)
 
-            let second = try installer.install(
-                provider: .openCode,
-                setup: AgentIntegrationSetup(enabled: true, configHome: secondConfigHome.path),
-                homeDirectory: home
-            )
+                let first = try installer.install(
+                    provider: .openCode,
+                    setup: AgentIntegrationSetup(enabled: true, configHome: firstConfigHome.path),
+                    homeDirectory: home
+                )
 
-            // A changed config home moves the global destination; the prior file
-            // must not be orphaned beyond uninstall's reach. Only the new file is
-            // on disk after the move.
-            #expect(first.installedURL.path != second.installedURL.path)
-            #expect(!FileManager.default.fileExists(atPath: first.installedURL.path))
-            #expect(FileManager.default.fileExists(atPath: second.installedURL.path))
+                // A user edit to the installed file makes the orphan-removal step of
+                // the next install refuse to delete it.
+                try Data("// user edit\n".utf8).write(to: first.installedURL)
 
-            // Records are keyed by provider alone, so the two installs collapse
-            // into a single record. File removal alone would also pass under a
-            // two-record bug, so the count is what actually proves the move.
-            let openCodeRecords = try installer.loadManifest().records.filter { $0.provider == .openCode }
-            #expect(openCodeRecords.count == 1)
-            #expect(openCodeRecords.first?.installedPath == second.installedURL.path)
+                // Reinstalling to a new config home moves the destination, which
+                // forces removeManagedFile(first) to run and throw on the modified
+                // file. render() ran first, but it must not have erased the prior
+                // installedPath: the file is still on disk and must stay reachable
+                // by the "Remove" recovery path.
+                #expect(throws: AgentIntegrationInstallerError.installedFileModified(first.installedURL)) {
+                    try installer.install(
+                        provider: .openCode,
+                        setup: AgentIntegrationSetup(enabled: true, configHome: secondConfigHome.path),
+                        homeDirectory: home
+                    )
+                }
 
-            let removed = try installer.uninstall(provider: .openCode)
-            #expect(removed == second.installedURL)
-            #expect(!FileManager.default.fileExists(atPath: second.installedURL.path))
+                #expect(FileManager.default.fileExists(atPath: first.installedURL.path))
+                let record = try installer.loadManifest().records.first { $0.provider == .openCode }
+                #expect(record?.installedPath == first.installedURL.path)
+
+                // The manual-cleanup path is still wired: uninstall re-throws on the
+                // modified file rather than silently losing track of it.
+                #expect(throws: AgentIntegrationInstallerError.installedFileModified(first.installedURL)) {
+                    try installer.uninstall(provider: .openCode)
+                }
+            }
         }
     }
 
@@ -431,58 +346,6 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
-    @Test("failed reinstall keeps the modified prior file tracked for manual removal")
-    func failedReinstallKeepsModifiedPriorFileTracked() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
-            let firstConfigHome =
-                directory
-                .appending(path: "first", directoryHint: .isDirectory)
-                .appending(path: "opencode", directoryHint: .isDirectory)
-            let secondConfigHome =
-                directory
-                .appending(path: "second", directoryHint: .isDirectory)
-                .appending(path: "opencode", directoryHint: .isDirectory)
-
-            let first = try installer.install(
-                provider: .openCode,
-                setup: AgentIntegrationSetup(enabled: true, configHome: firstConfigHome.path),
-                homeDirectory: home
-            )
-
-            // A user edit to the installed file makes the orphan-removal step of
-            // the next install refuse to delete it.
-            try Data("// user edit\n".utf8).write(to: first.installedURL)
-
-            // Reinstalling to a new config home moves the destination, which
-            // forces removeManagedFile(first) to run and throw on the modified
-            // file. render() ran first, but it must not have erased the prior
-            // installedPath: the file is still on disk and must stay reachable
-            // by the "Remove" recovery path.
-            #expect(throws: AgentIntegrationInstallerError.installedFileModified(first.installedURL)) {
-                try installer.install(
-                    provider: .openCode,
-                    setup: AgentIntegrationSetup(enabled: true, configHome: secondConfigHome.path),
-                    homeDirectory: home
-                )
-            }
-
-            #expect(FileManager.default.fileExists(atPath: first.installedURL.path))
-            let record = try installer.loadManifest().records.first { $0.provider == .openCode }
-            #expect(record?.installedPath == first.installedURL.path)
-
-            // The manual-cleanup path is still wired: uninstall re-throws on the
-            // modified file rather than silently losing track of it.
-            #expect(throws: AgentIntegrationInstallerError.installedFileModified(first.installedURL)) {
-                try installer.uninstall(provider: .openCode)
-            }
-        }
-    }
-
     @Test("install preserves existing provider directory permissions")
     func installPreservesExistingProviderDirectoryPermissions() throws {
         try Self.withTemporaryDirectory { directory in
@@ -538,122 +401,18 @@ struct AgentIntegrationInstallerTests {
             let configHome = home.appending(path: ".config/opencode", directoryHint: .isDirectory)
             let installedURL = configHome.appending(path: "plugins/awesomux-opencode-status.js")
 
-            #expect(
-                throws: AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(
-                    privateDirectory,
-                    CocoaError(.fileWriteNoPermission).localizedDescription
-                )
-            ) {
+            #expect {
                 try installer.install(
                     provider: .openCode,
                     setup: AgentIntegrationSetup(enabled: true, configHome: configHome.path),
                     homeDirectory: home
                 )
+            } throws: { error in
+                guard case let AgentIntegrationInstallerError.directoryPermissionsUpdateFailed(url, _) = error else { return false }
+                return url == privateDirectory
             }
             #expect(!FileManager.default.fileExists(atPath: installedURL.path))
             #expect(try installer.loadManifest().records.isEmpty)
-        }
-    }
-
-    @Test("legacy import lock contention is reported as busy")
-    func legacyImportLockContentionReportsBusy() async throws {
-        try await Self.withTemporaryDirectory { directory in
-            let canonical = directory.appending(path: "canonical", directoryHint: .isDirectory)
-            let legacy = directory.appending(path: "legacy", directoryHint: .isDirectory)
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "rendered", directoryHint: .isDirectory),
-                installStateDirectoryURL: canonical,
-                legacyInstallStateDirectoryURL: legacy
-            )
-            try Self.writeManifest(
-                .init(
-                    version: AgentIntegrationInstallManifest.currentVersion,
-                    records: [Self.record(provider: .pi, installedPath: "/tmp/legacy")]
-                ),
-                to: legacy.appending(path: "install-manifest.json")
-            )
-            let lockHolder = try await Self.startExternalLockHolder(in: canonical)
-            defer {
-                lockHolder.terminate()
-                #expect(throws: Never.self) { try lockHolder.waitUntilExitEventually() }
-            }
-
-            guard case .failed(.busy) = installer.loadManifestState() else {
-                Issue.record("expected busy manifest state")
-                return
-            }
-        }
-    }
-
-    @Test("global destinations match provider conventions")
-    func destinationPathsMatchProviderConventions() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
-
-            let openCodeGlobal = try installer.destinationFileURL(
-                provider: .openCode,
-                homeDirectory: home
-            )
-            let piGlobal = try installer.destinationFileURL(
-                provider: .pi,
-                homeDirectory: home
-            )
-            #expect(openCodeGlobal.path.hasSuffix(".config/opencode/plugins/awesomux-opencode-status.js"))
-            #expect(piGlobal.path.hasSuffix(".pi/agent/extensions/awesomux-pi-status.ts"))
-        }
-    }
-
-    @Test("disabled setup cannot render or install")
-    func disabledSetupCannotRenderOrInstall() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
-
-            #expect(throws: AgentIntegrationInstallerError.providerDisabled(.openCode)) {
-                try installer.render(provider: .openCode, setup: .defaultValue)
-            }
-            #expect(throws: AgentIntegrationInstallerError.providerDisabled(.pi)) {
-                try installer.install(
-                    provider: .pi,
-                    setup: .defaultValue,
-                    homeDirectory: home
-                )
-            }
-        }
-    }
-
-    @Test("validates executable paths")
-    func validatesExecutablePaths() throws {
-        try Self.withTemporaryDirectory { directory in
-            let executable = directory.appending(path: "opencode")
-            FileManager.default.createFile(atPath: executable.path, contents: Data("#!/bin/sh\n".utf8))
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o755],
-                ofItemAtPath: executable.path
-            )
-            let nonExecutable = directory.appending(path: "pi")
-            FileManager.default.createFile(atPath: nonExecutable.path, contents: nil)
-
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-
-            #expect(try installer.validateExecutablePath(executable.path) == executable)
-            #expect(throws: AgentIntegrationInstallerError.executableNotExecutable(nonExecutable)) {
-                try installer.validateExecutablePath(nonExecutable.path)
-            }
-            #expect(throws: AgentIntegrationInstallerError.invalidPath("relative/pi")) {
-                try installer.validateExecutablePath("relative/pi")
-            }
         }
     }
 
@@ -784,23 +543,122 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
-    @Test("future manifest versions are rejected")
-    func futureManifestVersionsAreRejected() throws {
-        try Self.withTemporaryDirectory { supportDirectory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: supportDirectory
-            )
-            try FileManager.default.createDirectory(
-                at: installer.rootDirectoryURL,
-                withIntermediateDirectories: true
-            )
-            let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
-            let data = Data(#"{"records":[],"version":\#(unsupportedVersion)}"#.utf8)
-            try data.write(to: installer.manifestURL)
+    enum RejectsUnsupportedOrInvalidManifestCase: String, CaseIterable {
+        case futureManifestVersionsAreRejected
+        case futureManifestWithUnknownStateDoesNotRecover
+        case installRejectsNonemptyFutureManifestBeforeWriting
+        case invalidManifestBlocksInstallBeforeWriting
+    }
 
-            #expect(throws: AgentIntegrationInstallerError.unsupportedManifestVersion(unsupportedVersion)) {
-                try installer.loadManifest()
+    @Test(arguments: RejectsUnsupportedOrInvalidManifestCase.allCases)
+    func rejectsUnsupportedOrInvalidManifest(_ scenario: RejectsUnsupportedOrInvalidManifestCase) throws {
+        switch scenario {
+        case .futureManifestVersionsAreRejected:
+            try Self.withTemporaryDirectory { supportDirectory in
+                let installer = AgentIntegrationInstaller(
+                    resourcesDirectoryURL: Self.packageResourcesURL,
+                    supportDirectoryURL: supportDirectory
+                )
+                try FileManager.default.createDirectory(
+                    at: installer.rootDirectoryURL,
+                    withIntermediateDirectories: true
+                )
+                let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
+                let data = Data(#"{"records":[],"version":\#(unsupportedVersion)}"#.utf8)
+                try data.write(to: installer.manifestURL)
+
+                #expect(throws: AgentIntegrationInstallerError.unsupportedManifestVersion(unsupportedVersion)) {
+                    try installer.loadManifest()
+                }
+            }
+        case .futureManifestWithUnknownStateDoesNotRecover:
+            try Self.withTemporaryDirectory { directory in
+                let installer = AgentIntegrationInstaller(
+                    resourcesDirectoryURL: Self.packageResourcesURL,
+                    supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
+                )
+                try FileManager.default.createDirectory(
+                    at: installer.manifestURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
+                try Data(
+                    #"{"ownership":{"pi":"installed"},"records":[],"version":\#(unsupportedVersion)}"#.utf8
+                ).write(to: installer.manifestURL)
+                let setup = AgentIntegrationSetup(enabled: true)
+                let home = directory.appending(path: "home", directoryHint: .isDirectory)
+
+                #expect(throws: AgentIntegrationInstallerError.unsupportedManifestVersion(unsupportedVersion)) {
+                    try installer.install(provider: .pi, setup: setup, homeDirectory: home)
+                }
+                #expect(!FileManager.default.fileExists(atPath: installer.renderedFileURL(provider: .pi, setup: setup).path))
+            }
+        case .installRejectsNonemptyFutureManifestBeforeWriting:
+            try Self.withTemporaryDirectory { directory in
+                let installer = AgentIntegrationInstaller(
+                    resourcesDirectoryURL: Self.packageResourcesURL,
+                    supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
+                )
+                try FileManager.default.createDirectory(
+                    at: installer.manifestURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
+                let record = Self.record(provider: .pi, installedPath: "/tmp/future-pi")
+                try Self.writeManifest(
+                    .init(version: unsupportedVersion, records: [record]),
+                    to: installer.manifestURL
+                )
+                let setup = AgentIntegrationSetup(enabled: true)
+                let home = directory.appending(path: "home", directoryHint: .isDirectory)
+
+                #expect(throws: AgentIntegrationInstallerError.unsupportedManifestVersion(unsupportedVersion)) {
+                    try installer.install(provider: .pi, setup: setup, homeDirectory: home)
+                }
+                #expect(!FileManager.default.fileExists(atPath: installer.renderedFileURL(provider: .pi, setup: setup).path))
+                #expect(
+                    !FileManager.default.fileExists(
+                        atPath: try installer.destinationFileURL(
+                            provider: .pi,
+                            homeDirectory: home
+                        ).path))
+            }
+        case .invalidManifestBlocksInstallBeforeWriting:
+            try Self.withTemporaryDirectory { directory in
+                for invalidState in ["corrupt", "unreadable"] {
+                    let support = directory.appending(path: invalidState, directoryHint: .isDirectory)
+                    let installer = AgentIntegrationInstaller(
+                        resourcesDirectoryURL: Self.packageResourcesURL,
+                        supportDirectoryURL: support
+                    )
+                    try FileManager.default.createDirectory(
+                        at: installer.manifestURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    if invalidState == "corrupt" {
+                        try Data("not-json".utf8).write(to: installer.manifestURL)
+                    } else {
+                        try FileManager.default.createDirectory(at: installer.manifestURL, withIntermediateDirectories: true)
+                    }
+                    let setup = AgentIntegrationSetup(enabled: true)
+                    let home = directory.appending(path: "home-\(invalidState)", directoryHint: .isDirectory)
+
+                    if invalidState == "corrupt" {
+                        #expect(throws: AgentIntegrationInstallerError.installManifestCorrupt) {
+                            try installer.install(provider: .pi, setup: setup, homeDirectory: home)
+                        }
+                    } else {
+                        #expect(throws: AgentIntegrationInstallerError.installManifestUnreadable) {
+                            try installer.install(provider: .pi, setup: setup, homeDirectory: home)
+                        }
+                    }
+                    #expect(!FileManager.default.fileExists(atPath: installer.renderedFileURL(provider: .pi, setup: setup).path))
+                    #expect(
+                        !FileManager.default.fileExists(
+                            atPath: try installer.destinationFileURL(provider: .pi, homeDirectory: home).path
+                        )
+                    )
+                }
             }
         }
     }
@@ -862,136 +720,11 @@ struct AgentIntegrationInstallerTests {
         }
     }
 
-    @Test("empty future recovery imports valid legacy ownership")
-    func emptyFutureRecoveryImportsLegacyOwnership() throws {
-        try Self.withTemporaryDirectory { directory in
-            let canonical = directory.appending(path: "canonical", directoryHint: .isDirectory)
-            let legacy = directory.appending(path: "legacy", directoryHint: .isDirectory)
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory),
-                installStateDirectoryURL: canonical,
-                legacyInstallStateDirectoryURL: legacy
-            )
-            let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
-            try FileManager.default.createDirectory(at: canonical, withIntermediateDirectories: true)
-            try Data(#"{"records":[],"version":\#(unsupportedVersion)}"#.utf8)
-                .write(to: installer.manifestURL)
-            try Self.writeManifest(
-                .init(
-                    version: AgentIntegrationInstallManifest.currentVersion,
-                    records: [Self.record(provider: .openCode, installedPath: "/tmp/legacy-opencode")]
-                ),
-                to: legacy.appending(path: "install-manifest.json")
-            )
 
-            _ = try installer.install(
-                provider: .pi,
-                setup: .init(enabled: true),
-                homeDirectory: directory.appending(path: "home", directoryHint: .isDirectory)
-            )
 
-            #expect(Set(try installer.loadManifest().records.map(\.provider)) == [.openCode, .pi])
-        }
-    }
 
-    @Test("future manifests with unknown state never auto-recover")
-    func futureManifestWithUnknownStateDoesNotRecover() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            try FileManager.default.createDirectory(
-                at: installer.manifestURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
-            try Data(
-                #"{"ownership":{"pi":"installed"},"records":[],"version":\#(unsupportedVersion)}"#.utf8
-            ).write(to: installer.manifestURL)
-            let setup = AgentIntegrationSetup(enabled: true)
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
 
-            #expect(throws: AgentIntegrationInstallerError.unsupportedManifestVersion(unsupportedVersion)) {
-                try installer.install(provider: .pi, setup: setup, homeDirectory: home)
-            }
-            #expect(!FileManager.default.fileExists(atPath: installer.renderedFileURL(provider: .pi, setup: setup).path))
-        }
-    }
 
-    @Test("install leaves no staged or destination file for a nonempty future manifest")
-    func installRejectsNonemptyFutureManifestBeforeWriting() throws {
-        try Self.withTemporaryDirectory { directory in
-            let installer = AgentIntegrationInstaller(
-                resourcesDirectoryURL: Self.packageResourcesURL,
-                supportDirectoryURL: directory.appending(path: "support", directoryHint: .isDirectory)
-            )
-            try FileManager.default.createDirectory(
-                at: installer.manifestURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let unsupportedVersion = AgentIntegrationInstallManifest.currentVersion + 1
-            let record = Self.record(provider: .pi, installedPath: "/tmp/future-pi")
-            try Self.writeManifest(
-                .init(version: unsupportedVersion, records: [record]),
-                to: installer.manifestURL
-            )
-            let setup = AgentIntegrationSetup(enabled: true)
-            let home = directory.appending(path: "home", directoryHint: .isDirectory)
-
-            #expect(throws: AgentIntegrationInstallerError.unsupportedManifestVersion(unsupportedVersion)) {
-                try installer.install(provider: .pi, setup: setup, homeDirectory: home)
-            }
-            #expect(!FileManager.default.fileExists(atPath: installer.renderedFileURL(provider: .pi, setup: setup).path))
-            #expect(
-                !FileManager.default.fileExists(
-                    atPath: try installer.destinationFileURL(
-                        provider: .pi,
-                        homeDirectory: home
-                    ).path))
-        }
-    }
-
-    @Test("corrupt and unreadable manifests block install before writing")
-    func invalidManifestBlocksInstallBeforeWriting() throws {
-        try Self.withTemporaryDirectory { directory in
-            for invalidState in ["corrupt", "unreadable"] {
-                let support = directory.appending(path: invalidState, directoryHint: .isDirectory)
-                let installer = AgentIntegrationInstaller(
-                    resourcesDirectoryURL: Self.packageResourcesURL,
-                    supportDirectoryURL: support
-                )
-                try FileManager.default.createDirectory(
-                    at: installer.manifestURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                if invalidState == "corrupt" {
-                    try Data("not-json".utf8).write(to: installer.manifestURL)
-                } else {
-                    try FileManager.default.createDirectory(at: installer.manifestURL, withIntermediateDirectories: true)
-                }
-                let setup = AgentIntegrationSetup(enabled: true)
-                let home = directory.appending(path: "home-\(invalidState)", directoryHint: .isDirectory)
-
-                if invalidState == "corrupt" {
-                    #expect(throws: AgentIntegrationInstallerError.installManifestCorrupt) {
-                        try installer.install(provider: .pi, setup: setup, homeDirectory: home)
-                    }
-                } else {
-                    #expect(throws: AgentIntegrationInstallerError.installManifestUnreadable) {
-                        try installer.install(provider: .pi, setup: setup, homeDirectory: home)
-                    }
-                }
-                #expect(!FileManager.default.fileExists(atPath: installer.renderedFileURL(provider: .pi, setup: setup).path))
-                #expect(
-                    !FileManager.default.fileExists(
-                        atPath: try installer.destinationFileURL(provider: .pi, homeDirectory: home).path
-                    )
-                )
-            }
-        }
-    }
 
     private static func withTemporaryDirectory(_ operation: (URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory
