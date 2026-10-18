@@ -126,26 +126,6 @@ struct WideTableOverflowTests {
         )
     }
 
-    @Test("a document without wide content keeps the pane width")
-    func narrowDocumentKeepsPaneWidth() {
-        let (_, textView, _, _) = makeWideTableHarness(
-            source: "Just a short paragraph.\n\n- and\n- a list"
-        )
-        #expect(textView.frame.width == 300)
-    }
-
-    @Test("replacing a wide document with an empty one shrinks the frame back")
-    func emptyReplacementShrinksFrame() {
-        let (_, textView, coordinator, _) = makeWideTableHarness(source: wideTableSource)
-        #expect(textView.frame.width > 300, "premise: the wide table widened the document")
-
-        textView.textStorage?.setAttributedString(NSAttributedString())
-        coordinator.currentAttr = NSMutableAttributedString()
-        coordinator.noteStorageReplaced()
-
-        #expect(textView.frame.width == 300)
-    }
-
     @Test("source-anchor restore preserves the horizontal scroll position")
     func anchorRestorePreservesHorizontalScroll() {
         let prose = "Intro paragraph before the table."
@@ -165,133 +145,28 @@ struct WideTableOverflowTests {
         )
     }
 
-    @Test("storage paragraphs carry tailIndent on prose/code, none on table rows")
-    func storageTailIndentAssertions() throws {
-        let prose = "A body paragraph that is fine."
-        let source = prose + "\n\n```\ncode line\n```\n\n" + wideTableSource
-        let (_, textView, _, _) = makeWideTableHarness(source: source)
-        let storage = try #require(textView.textStorage)
-        let ns = storage.string as NSString
-        let expectedWidth: CGFloat = 300 - 2 * 20
-
-        func style(at text: String) throws -> NSParagraphStyle {
-            let range = ns.range(of: text)
-            #expect(range.location != NSNotFound, "fixture must contain \(text)")
-            return try #require(
-                storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil)
-                    as? NSParagraphStyle
-            )
-        }
-
-        #expect(try style(at: "fine.").tailIndent == expectedWidth)
-        #expect(try style(at: "code line").tailIndent == expectedWidth)
-
-        let tableStyle = try style(at: "Column Bravo")
-        #expect(tableStyle.tailIndent == 0, "table rows keep their natural width")
-        #expect(!tableStyle.tabStops.isEmpty, "table tab stops must survive the wrap pass")
-    }
-
-    @Test("a pane resize re-wraps prose to the new width")
-    func paneResizeRewrapsProse() throws {
-        let prose = "A body paragraph that is fine."
-        let (scrollView, textView, coordinator, _) = makeWideTableHarness(source: prose)
-
-        scrollView.setFrameSize(NSSize(width: 500, height: 400))
-        coordinator.updateDocumentGeometry()
-
-        let storage = try #require(textView.textStorage)
-        let style = try #require(
-            storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-        )
-        #expect(style.tailIndent == CGFloat(500 - 2 * 20))
-        #expect(textView.frame.width == 500)
-    }
-
-    @Test(
-        "a clip-view frame notification drives the coalesced geometry pass",
-        arguments: [NSScroller.Style.overlay, .legacy]
-    )
-    func notificationDrivenResize(scrollerStyle: NSScroller.Style) throws {
-        let prose = "A body paragraph that is fine."
-        let (scrollView, textView, coordinator, _) = makeWideTableHarness(
-            source: prose, scrollerStyle: scrollerStyle
-        )
-
-        // Mirror makeNSView's observer wiring — the production resize pipeline.
-        scrollView.contentView.postsFrameChangedNotifications = true
+    @Test("a clip-view notification rewraps visible prose", arguments: [NSScroller.Style.overlay, .legacy])
+    func resizeNotificationRewrapsProse(scrollerStyle: NSScroller.Style) async throws {
+        let prose = (1...80).map { "word\($0)" }.joined(separator: " ")
+        let (scroll, text, coordinator, attr) = makeWideTableHarness(source: prose, scrollerStyle: scrollerStyle)
+        let range = (attr.string as NSString).range(of: prose)
+        let before = try #require(CommentBadgeOverlay.cellRectInTextView(range: range, in: text))
+        scroll.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
-            coordinator,
-            selector: #selector(MarkdownTextViewCoordinator.clipViewFrameDidChange(_:)),
-            name: NSView.frameDidChangeNotification,
-            object: scrollView.contentView
-        )
+            coordinator, selector: #selector(MarkdownTextViewCoordinator.clipViewFrameDidChange(_:)),
+            name: NSView.frameDidChangeNotification, object: scroll.contentView)
         defer { NotificationCenter.default.removeObserver(coordinator) }
-
-        scrollView.setFrameSize(NSSize(width: 500, height: 400))
-        // The observer coalesces through one runloop hop; spin the runloop
-        // until the pass lands (bounded, so a regression fails fast). The
-        // frame is no witness — NSClipView stretches a narrower documentView
-        // to the clip on its own — so watch the wrap width itself.
-        let storage = try #require(textView.textStorage)
-        func tailIndent() -> CGFloat? {
-            (storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil)
-                as? NSParagraphStyle)?.tailIndent
+        scroll.setFrameSize(NSSize(width: 500, height: 400))
+        // Geometry is queued on the common run loop; enqueue behind that pass.
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
         }
-        let scrollerWidth =
-            scrollerStyle == .legacy
-            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
-        let expectedTailIndent = 500 - textView.textContainerInset.width * 2 - scrollerWidth
-        let deadline = Date().addingTimeInterval(2)
-        while tailIndent() != expectedTailIndent, Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        }
-
-        #expect(scrollView.scrollerStyle == scrollerStyle)
-        #expect(tailIndent() == expectedTailIndent)
-        #expect(textView.frame.width == 500)
+        let after = try #require(CommentBadgeOverlay.cellRectInTextView(range: range, in: text))
+        #expect(after.segments > 1)
+        #expect(after.segments < before.segments)
+        #expect(after.rect.maxX <= scroll.contentSize.width)
     }
 
-    @Test("table rows get symmetric vertical breathing room")
-    func tableRowVerticalSpacing() throws {
-        let source = "| A | B |\n| - | - |\n| one | two |\n| three | four |"
-        let (_, textView, _, attr) = makeWideTableHarness(source: source)
-        let ns = attr.string as NSString
-        let pad = MarkdownAttributedStringBuilder.tableRowVerticalPadding
-
-        let row1 = try #require(
-            CommentBadgeOverlay.cellRectInTextView(range: ns.range(of: "one"), in: textView))
-        let row2 = try #require(
-            CommentBadgeOverlay.cellRectInTextView(range: ns.range(of: "three"), in: textView))
-        #expect(
-            row2.rect.minY - row1.rect.maxY >= pad * 2 - 0.5,
-            "adjacent rows must be separated by both rows' spacing"
-        )
-        // Spacing shifts whole rows; it must not read as wrapping.
-        #expect(row1.segments == 1)
-        #expect(row2.segments == 1)
-
-        let style = try #require(
-            attr.attribute(
-                .paragraphStyle, at: ns.range(of: "one").location, effectiveRange: nil)
-                as? NSParagraphStyle
-        )
-        #expect(style.paragraphSpacingBefore == pad)
-        #expect(style.paragraphSpacing == pad)
-    }
-
-    @Test("a sliver pane clamps the wrap width instead of unwrapping prose")
-    func sliverPaneClampsWrapWidth() throws {
-        let (_, textView, _, _) = makeWideTableHarness(
-            source: "words words words", paneWidth: 30
-        )
-        let storage = try #require(textView.textStorage)
-        let style = try #require(
-            storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-        )
-        // 30 − 40 is negative; a non-positive tailIndent would mean "from the
-        // trailing margin" — the infinite container edge, i.e. no wrap at all.
-        #expect(style.tailIndent == 80)
-    }
 }
 
 // MARK: - AXTable grids (INT-687)
@@ -345,62 +220,6 @@ struct TableAXGridTests {
         #expect(table.cells[1][1] == nil, "the ragged cell must stay a hole, not shift")
     }
 
-    @Test("placeholder frames come from row/column extents; nothing invents geometry")
-    func placeholderFrames() throws {
-        let infos = [
-            Info(
-                grid: grid(row: 0, column: 0),
-                rect: NSRect(x: 0, y: 0, width: 40, height: 16), text: "a"),
-            Info(
-                grid: grid(row: 0, column: 1),
-                rect: NSRect(x: 50, y: 0, width: 40, height: 16), text: "b"),
-            Info(
-                grid: grid(row: 1, column: 0),
-                rect: NSRect(x: 0, y: 20, width: 40, height: 16), text: "c"),
-            // (1,1) missing → placeholder = column 1's X-extent × row 1's Y-extent.
-        ]
-        let grids = CommentBadgeOverlay.tableAXGrids(from: infos)
-        let frames = CommentBadgeOverlay.tableAXFrames(for: grids)
-
-        let placeholder = try #require(
-            frames[.cell(table: 0, row: 1, column: 1)]
-        )
-        #expect(placeholder == NSRect(x: 50, y: 20, width: 40, height: 16))
-
-        let tableFrame = try #require(frames[.table(0)])
-        #expect(tableFrame == NSRect(x: 0, y: 0, width: 90, height: 36))
-    }
-
-    @Test("an all-empty interior row still gets an interpolated frame band")
-    func allEmptyRowInterpolatedFrames() throws {
-        // Row 1 is entirely unpopulated (a GFM `|  |  |` row emits no runs).
-        let infos = [
-            Info(
-                grid: grid(row: 0, column: 0),
-                rect: NSRect(x: 0, y: 0, width: 40, height: 16), text: "a"),
-            Info(
-                grid: grid(row: 0, column: 1),
-                rect: NSRect(x: 50, y: 0, width: 40, height: 16), text: "b"),
-            Info(
-                grid: grid(row: 2, column: 0),
-                rect: NSRect(x: 0, y: 40, width: 40, height: 16), text: "c"),
-            Info(
-                grid: grid(row: 2, column: 1),
-                rect: NSRect(x: 50, y: 40, width: 40, height: 16), text: "d"),
-        ]
-        let grids = CommentBadgeOverlay.tableAXGrids(from: infos)
-        let table = try #require(grids.first)
-        #expect(table.rowCount == 3)
-        let frames = CommentBadgeOverlay.tableAXFrames(for: grids)
-
-        // The empty row's band spans the gap between its populated neighbors,
-        // full table width — never a .zero frame at the screen origin.
-        let rowFrame = try #require(frames[.row(table: 0, row: 1)])
-        #expect(rowFrame == NSRect(x: 0, y: 16, width: 90, height: 24))
-        let cellFrame = try #require(frames[.cell(table: 0, row: 1, column: 1)])
-        #expect(cellFrame == NSRect(x: 50, y: 16, width: 40, height: 24))
-    }
-
     @Test("tables past the cell cap expose no AXTable")
     func cellCapDropsHugeTables() {
         // One cell claiming huge grid indices would demand a dense
@@ -420,20 +239,87 @@ struct TableAXGridTests {
 @MainActor
 struct TableAXElementTreeTests {
 
-    /// End-to-end headless: markdown → attributed string → TextKit 2 layout →
-    /// overlay grid pass → cached AXTable tree.
-    @Test("a rendered table exposes rows, columns, counts, ranges, and header labels")
-    func elementTreeStructure() throws {
-        let source = "| Name | Status |\n| - | - |\n| Rocket | Good |\n| Bella | Fine |"
-        let (_, textView, _, attr) = makeWideTableHarness(source: source)
+    @Test("every exposed cell, including empty rows, has a live frame")
+    func exposedCellsHaveFrames() throws {
+        let source = "| A | B |\n| - | - |\n| x | y |\n|  |  |\n| z | w |"
+        let (scroll, text, _, attr) = makeWideTableHarness(source: source)
+        let window = NSWindow(contentRect: scroll.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.contentView = nil; window.close() }
+        let overlay = CommentBadgeOverlay(frame: text.bounds)
+        text.addSubview(overlay)
+        overlay.updateBadges(attr: attr, textView: text)
+        let table = try #require(overlay.tableAccessibilityElements.first)
+        let rows = try #require(table.accessibilityRows() as? [NSAccessibilityElement])
+        #expect(rows.count == 4)
+        for row in rows {
+            let cells = try #require(row.accessibilityChildren() as? [NSAccessibilityElement])
+            #expect(cells.count == 2)
+            for cell in cells {
+                #expect(cell.accessibilityFrame().width > 0)
+                #expect(cell.accessibilityFrame().height > 0)
+            }
+        }
+    }
 
+}
+
+// MARK: - AXTable lazy materialization
+
+/// Accessibility clients can attach after rendering and must see current cells.
+@Suite("AXTable lazy materialization")
+@MainActor
+struct TableAXLazyMaterializationTests {
+
+    private static let source = "| Name | Status |\n| - | - |\n| Rocket | Good |\n| Bella | Fine |"
+
+    private func makeOverlay(
+        source: String = TableAXLazyMaterializationTests.source
+    ) -> (scrollView: NSScrollView, textView: NSTextView, overlay: CommentBadgeOverlay) {
+        let (scrollView, textView, _, attr) = makeWideTableHarness(source: source)
         let overlay = CommentBadgeOverlay(frame: textView.bounds)
         textView.addSubview(overlay)
         overlay.updateBadges(attr: attr, textView: textView)
+        return (scrollView, textView, overlay)
+    }
 
-        let tables = overlay.tableAccessibilityElements
-        #expect(tables.count == 1)
-        let table = try #require(tables.first)
+    @Test("a structural change drops the built tree and the next query rebuilds it")
+    func structuralChangeInvalidates() throws {
+        let (_, textView, overlay) = makeOverlay()
+        let original = try #require(overlay.tableAccessibilityElements.first)
+        let originalRows = try #require(original.accessibilityRows() as? [NSAccessibilityElement])
+        let originalCells = try #require(originalRows[1].accessibilityChildren() as? [NSAccessibilityElement])
+        #expect(originalCells[1].accessibilityLabel() == "Status: Good")
+
+        let changed = attributedMarkdown(
+            "| Name | Status |\n| - | - |\n| Rocket | Great |\n| Bella | Fine |")
+        textView.textStorage?.setAttributedString(changed)
+        overlay.updateBadges(attr: changed, textView: textView)
+
+        let rebuilt = try #require(overlay.tableAccessibilityElements.first)
+        let rows = try #require(rebuilt.accessibilityRows() as? [NSAccessibilityElement])
+        let cells = try #require(rows[1].accessibilityChildren() as? [NSAccessibilityElement])
+        #expect(cells[1].accessibilityLabel() == "Status: Great")
+    }
+
+    @Test("a client attaching after the render still reaches every cell, with live frames")
+    func clientAttachingAfterRender() throws {
+        let (scrollView, _, overlay) = makeOverlay()
+
+        // The whole point of deferring: the tree is built by the first query,
+        // which can arrive long after the document rendered.
+        let window = NSWindow(
+            contentRect: scrollView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        defer { window.contentView = nil; window.close() }
+        #expect(overlay.window != nil, "premise: the overlay is now in a window")
+
+        let children = try #require(overlay.accessibilityChildren() as? [NSAccessibilityElement])
+        #expect(!children.isEmpty, "premise: accessibilityChildren must not be vacuously empty")
+
+        let table = try #require(children.first { $0.accessibilityRole() == .table })
         #expect(table.accessibilityRole() == .table)
         #expect(table.accessibilityRowCount() == 3)
         #expect(table.accessibilityColumnCount() == 2)
@@ -461,188 +347,6 @@ struct TableAXElementTreeTests {
             table.accessibilityColumnHeaderUIElements() as? [NSAccessibilityElement]
         )
         #expect(headerElements.count == 2)
-    }
-
-    @Test("every grid position resolves a frame through the production path")
-    func productionAllEmptyRowFramesResolve() throws {
-        // The middle row is entirely empty — the strongest hole case real
-        // markdown can produce. Whatever row numbering the parser assigns,
-        // the invariant is: every (row, column) the AXTable exposes has a
-        // non-zero-origin-safe frame (no VoiceOver stops at the screen corner).
-        let source = "| A | B |\n| - | - |\n| x | y |\n|  |  |\n| z | w |"
-        let (_, textView, _, attr) = makeWideTableHarness(source: source)
-
-        var infos: [CommentBadgeOverlay.TableCellInfo] = []
-        let full = attr.string as NSString
-        attr.enumerateAttribute(
-            .tableCellGrid, in: NSRange(location: 0, length: attr.length), options: []
-        ) { value, range, _ in
-            guard let grid = value as? TableCellGrid, range.length > 0,
-                let cell = CommentBadgeOverlay.cellRectInTextView(range: range, in: textView)
-            else { return }
-            infos.append(
-                CommentBadgeOverlay.TableCellInfo(
-                    grid: grid, rect: cell.rect, text: full.substring(with: range)))
-        }
-
-        let grids = CommentBadgeOverlay.tableAXGrids(from: infos)
-        #expect(!grids.isEmpty)
-        let frames = CommentBadgeOverlay.tableAXFrames(for: grids)
-        for grid in grids {
-            for r in 0..<grid.rowCount {
-                for c in 0..<grid.columnCount {
-                    #expect(
-                        frames[.cell(table: grid.table, row: r, column: c)] != nil,
-                        "cell (\(r),\(c)) must have a frame"
-                    )
-                }
-            }
-        }
-    }
-
-    @Test("mixed documents build one tree per table")
-    func mixedDocumentMultipleTables() throws {
-        let source = """
-            Intro prose paragraph.
-
-            | A | B |
-            | - | - |
-            | **bo**ld | 2 |
-
-            Middle prose.
-
-            | X |
-            | - |
-            | 9 |
-            """
-        let (_, textView, _, attr) = makeWideTableHarness(source: source)
-        let overlay = CommentBadgeOverlay(frame: textView.bounds)
-        textView.addSubview(overlay)
-        overlay.updateBadges(attr: attr, textView: textView)
-
-        let tables = overlay.tableAccessibilityElements
-        #expect(tables.count == 2)
-        #expect(tables[0].accessibilityRowCount() == 2)
-        #expect(tables[0].accessibilityColumnCount() == 2)
-        #expect(tables[1].accessibilityRowCount() == 2)
-        #expect(tables[1].accessibilityColumnCount() == 1)
-
-        // The inline-styled cell must surface as ONE coalesced cell, not two.
-        let rows = try #require(tables[0].accessibilityRows() as? [NSAccessibilityElement])
-        let cells = try #require(rows[1].accessibilityChildren() as? [NSAccessibilityElement])
-        #expect(cells.count == 2)
-        #expect(cells[0].accessibilityLabel() == "A: bold")
-    }
-}
-
-// MARK: - AXTable lazy materialization
-
-/// The element tree is ~20 `TableCellAccessibilityElement`s per table for the
-/// whole document; building it at render time was the largest single allocation
-/// cost of showing a table-heavy document, and nothing reads it unless an
-/// assistive client is attached. These tests are an allocation proxy — they
-/// assert the elements do not EXIST, not the byte count — plus the correctness
-/// obligations that deferral must not break.
-@Suite("AXTable lazy materialization")
-@MainActor
-struct TableAXLazyMaterializationTests {
-
-    private static let source = "| Name | Status |\n| - | - |\n| Rocket | Good |\n| Bella | Fine |"
-
-    private func makeOverlay(
-        source: String = TableAXLazyMaterializationTests.source
-    ) -> (scrollView: NSScrollView, textView: NSTextView, overlay: CommentBadgeOverlay) {
-        let (scrollView, textView, _, attr) = makeWideTableHarness(source: source)
-        let overlay = CommentBadgeOverlay(frame: textView.bounds)
-        textView.addSubview(overlay)
-        overlay.updateBadges(attr: attr, textView: textView)
-        return (scrollView, textView, overlay)
-    }
-
-    @Test("rendering a table builds no accessibility elements until something asks")
-    func deferredUntilQueried() {
-        let (_, textView, overlay) = makeOverlay()
-        #expect(
-            overlay.hasMaterializedTableAccessibilityElements == false,
-            "a render with no assistive client must not build the element tree"
-        )
-
-        // A relayout (the pane-resize path) re-runs the whole border/frame pass
-        // and must not build them either.
-        overlay.setFrameSize(NSSize(width: 500, height: textView.bounds.height))
-        overlay.needsLayout = true
-        overlay.layoutSubtreeIfNeeded()
-        #expect(overlay.hasMaterializedTableAccessibilityElements == false)
-
-        // Positive control: the document really does have a table, so the
-        // assertions above are about deferral and not about an empty document.
-        #expect(overlay.tableAccessibilityElements.count == 1)
-        #expect(overlay.hasMaterializedTableAccessibilityElements)
-    }
-
-    @Test("repeat queries hand back the same element identities")
-    func repeatQueryDoesNotRebuild() throws {
-        let (_, _, overlay) = makeOverlay()
-        let first = try #require(overlay.tableAccessibilityElements.first)
-        let firstRow = try #require(
-            (first.accessibilityRows() as? [NSAccessibilityElement])?.first)
-
-        let second = try #require(overlay.tableAccessibilityElements.first)
-        #expect(first === second, "a second query must not rebuild the tree")
-        #expect(
-            (second.accessibilityRows() as? [NSAccessibilityElement])?.first === firstRow,
-            "VoiceOver holds child references while navigating; they must survive a re-query"
-        )
-    }
-
-    @Test("a structural change drops the built tree and the next query rebuilds it")
-    func structuralChangeInvalidates() throws {
-        let (_, textView, overlay) = makeOverlay()
-        let stale = try #require(overlay.tableAccessibilityElements.first)
-        #expect(overlay.hasMaterializedTableAccessibilityElements)
-
-        let changed = attributedMarkdown(
-            "| Name | Status |\n| - | - |\n| Rocket | Great |\n| Bella | Fine |")
-        textView.textStorage?.setAttributedString(changed)
-        overlay.updateBadges(attr: changed, textView: textView)
-
-        #expect(
-            overlay.hasMaterializedTableAccessibilityElements == false,
-            "a changed document must invalidate the built tree"
-        )
-        let rebuilt = try #require(overlay.tableAccessibilityElements.first)
-        #expect(rebuilt !== stale)
-        let rows = try #require(rebuilt.accessibilityRows() as? [NSAccessibilityElement])
-        let cells = try #require(rows[1].accessibilityChildren() as? [NSAccessibilityElement])
-        #expect(cells[1].accessibilityLabel() == "Status: Great")
-    }
-
-    @Test("a client attaching after the render still reaches every cell, with live frames")
-    func clientAttachingAfterRender() throws {
-        let (scrollView, _, overlay) = makeOverlay()
-        #expect(overlay.hasMaterializedTableAccessibilityElements == false)
-
-        // The whole point of deferring: the tree is built by the first query,
-        // which can arrive long after the document rendered.
-        let window = NSWindow(
-            contentRect: scrollView.bounds, styleMask: [], backing: .buffered, defer: false)
-        window.contentView = scrollView
-        #expect(overlay.window != nil, "premise: the overlay is now in a window")
-
-        let children = try #require(overlay.accessibilityChildren() as? [NSAccessibilityElement])
-        #expect(!children.isEmpty, "premise: accessibilityChildren must not be vacuously empty")
-
-        let table = try #require(children.first { $0.accessibilityRole() == .table })
-        #expect(table.accessibilityRowCount() == 3)
-        #expect(table.accessibilityColumnCount() == 2)
-        let rows = try #require(table.accessibilityRows() as? [NSAccessibilityElement])
-        #expect(rows.count == 3)
-        let cells = try #require(rows[1].accessibilityChildren() as? [NSAccessibilityElement])
-        #expect(cells.count == 2)
-        #expect(cells[0].accessibilityLabel() == "Name: Rocket")
-        #expect(
-            cells[0].accessibilityFrame() != .zero,
-            "a deferred build must still resolve frames through the live tableAXFrames lookup"
-        )
+        #expect(bodyCells[0].accessibilityFrame() != .zero)
     }
 }

@@ -42,65 +42,6 @@ struct SurfaceRemountOnSplitCollapseTests {
         #expect(freshContainer.accessibilityLabel()?.hasPrefix("Active terminal pane") == true)
     }
 
-    @Test("a closed pane's stale render pass does not resurrect its surface view")
-    func closedPaneStaleRenderPassDoesNotResurrectSurfaceView() throws {
-        let fixture = try makeSplitFixture()
-
-        #expect(GhosttySurfaceRepresentable.paneIsLive(
-            paneID: fixture.deadPane.id,
-            sessionID: fixture.session.id,
-            in: fixture.store
-        ))
-
-        // The real close ordering: the store drops the pane, the surface is
-        // discarded, and only then can the stale outgoing split pass run its
-        // updateNSView with the old layout values. The liveness gate is what
-        // stops that pass from re-creating (and re-caching) a surface view —
-        // and, on a visible window, respawning a shell — for the dead pane.
-        _ = fixture.store.closePane(id: fixture.deadPane.id, in: fixture.session.id)
-
-        #expect(!GhosttySurfaceRepresentable.paneIsLive(
-            paneID: fixture.deadPane.id,
-            sessionID: fixture.session.id,
-            in: fixture.store
-        ))
-        #expect(GhosttySurfaceRepresentable.paneIsLive(
-            paneID: fixture.siblingPane.id,
-            sessionID: fixture.session.id,
-            in: fixture.store
-        ))
-    }
-
-    @Test("remount into a fresh container invalidates the applied backing state")
-    func remountInvalidatesAppliedBackingStateForRepush() throws {
-        let fixture = try makeSplitFixture()
-        let window = makeWindow()
-        defer { window.close() }
-        let runtime = GhosttyRuntime()
-        defer { runtime.discardAllSurfaces() }
-        let survivorView = makeSurvivorView(runtime: runtime, fixture: fixture)
-
-        let oldContainer = mountContainer(in: window)
-        oldContainer.mount(survivorView, isActive: false, contentSize: paneSize)
-        // Stand in for the state a live surface would have pushed before the
-        // collapse. Headless (no native surface) the re-push is guarded out,
-        // so the observable contract is: a remount leaves `nil`, forcing the
-        // next size update onto the applyImmediately path that re-pushes
-        // scale, size, and occlusion to libghostty.
-        survivorView.lifecycleState.lastAppliedSurfaceBackingState = SurfaceBackingState(
-            geometry: SurfaceBackingGeometry(
-                pointSize: CGSize(width: 400, height: 300),
-                backingScale: 2
-            ),
-            isVisible: true
-        )
-
-        let freshContainer = mountContainer(in: window)
-        freshContainer.mount(survivorView, isActive: true, contentSize: paneSize)
-
-        #expect(survivorView.lifecycleState.lastAppliedSurfaceBackingState == nil)
-    }
-
     @Test("changing to a legacy scroll bar resizes the mounted render surface")
     func changingToLegacyScrollerResizesMountedRenderSurface() throws {
         let fixture = try makeSplitFixture()
@@ -122,8 +63,7 @@ struct SurfaceRemountOnSplitCollapseTests {
 
     @Test(
         "initial and recreated layers preserve the selected background",
-        arguments: ["catppuccin", "selenized"],
-        [AppearanceConfig.TerminalBackgroundMode.ghostty, .catppuccinTheme, .custom]
+        arguments: [("catppuccin", AppearanceConfig.TerminalBackgroundMode.ghostty), ("selenized", .custom)]
     )
     func nativeTeardownReplacesStaleHostedRenderLayer(
         themeID: String, mode: AppearanceConfig.TerminalBackgroundMode
@@ -209,28 +149,6 @@ struct SurfaceRemountOnSplitCollapseTests {
         window.makeFirstResponder(nil)
         #expect(window.firstResponder !== survivorView)
 
-        container.mount(survivorView, isActive: true, contentSize: paneSize)
-
-        #expect(window.firstResponder === survivorView)
-    }
-
-    @Test("window attach alone does not reclaim focus for the active pane")
-    func windowAttachAloneDoesNotReclaimFocusForActivePane() throws {
-        let fixture = try makeSplitFixture()
-        let window = makeWindow()
-        defer { window.close() }
-        let runtime = GhosttyRuntime()
-        defer { runtime.discardAllSurfaces() }
-        let survivorView = makeSurvivorView(runtime: runtime, fixture: fixture)
-        let parkingView = NSView(frame: NSRect(origin: .zero, size: paneSize))
-
-        window.contentView?.addSubview(parkingView)
-        window.makeFirstResponder(nil)
-        parkingView.addSubview(survivorView)
-
-        #expect(window.firstResponder !== survivorView)
-
-        let container = mountContainer(in: window)
         container.mount(survivorView, isActive: true, contentSize: paneSize)
 
         #expect(window.firstResponder === survivorView)

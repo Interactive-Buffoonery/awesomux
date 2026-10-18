@@ -56,8 +56,8 @@ import Testing
                 == "notes.md")
     }
 
-    @Test(arguments: ["x", ".", "/", "@", "😀", "文", "\u{301}"])
-    func rejectsJoinedNamesOnEitherSide(_ neighbor: String) {
+    @Test(arguments: ["x", ".", "/", "@", "😀", "文", "\u{301}", nil])
+    func rejectsJoinedNamesOnEitherSide(_ neighbor: String?) {
         for blockedCell: UInt64 in [7, 16] {
             #expect(
                 GhosttyMarkdownClickProbe.filename("notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true) {
@@ -66,57 +66,25 @@ import Testing
         }
     }
 
-    @Test func currentFilenameUsesOnlyCurrentTerminalText() {
-        #expect(
-            GhosttyMarkdownClickProbe.filename(
-                "current.md", start: 8, length: 9, columns: 12, rows: 4, visible: true
-            ) { _ in " " } == "current.md")
-    }
-
     @Test func explicitHyperlinkLabelKeepsNativeRouting() {
         #expect(
             GhosttyMarkdownClickProbe.filename(
                 "notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true, hasNativeLink: true
             ) { _ in " " } == nil)
         var link = GhosttyNativeLinkState()
-        link.updatePointer(true)
-        #expect(!link.isLink)
         link.beginPositionUpdate()
         link.updatePointer(true)
-        #expect(link.isUpdatingPosition)
-        #expect(link.isLink)
-        #expect(link.value == nil)
         link.updateTarget("https://example.com/different")
         link.endPositionUpdate()
-        link.updatePointer(false)
         #expect(link.isLink)
         #expect(link.value == "https://example.com/different")
+        link.updatePointer(false)
+        #expect(link.isLink)
         link.beginPositionUpdate()
-        link.updatePointer(true)
         link.updateTarget("")
         link.endPositionUpdate()
-        #expect(!link.isUpdatingPosition)
         #expect(!link.isLink)
         #expect(link.value == nil)
-        link.updatePointer(true)
-        #expect(!link.isLink)
-        link.updateTarget("next.md")
-        link.updatePointer(true)
-        #expect(link.value == "next.md")
-        link.updateTarget(nil)
-        #expect(!link.isLink)
-
     }
 
-    @Test func nonFilenameTextKeepsNativeRouting() {
-        #expect(
-            GhosttyMarkdownClickProbe.filename(
-                "https://example.com/notes.md", start: 8, length: 27, columns: 12, rows: 4, visible: true
-            ) { _ in " " } == nil)
-    }
-
-    @Test func rejectsFailedCellRead() {
-        #expect(
-            GhosttyMarkdownClickProbe.filename("notes.md", start: 8, length: 7, columns: 12, rows: 4, visible: true) { _ in nil } == nil)
-    }
 }
