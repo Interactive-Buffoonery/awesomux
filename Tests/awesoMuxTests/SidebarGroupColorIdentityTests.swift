@@ -11,71 +11,66 @@ struct SidebarGroupColorIdentityTests {
         ProjectTint(group: group, index: index).accent
     }
 
-    @Test func movingGroupsKeepsTheirExistingAutomaticColors() throws {
+    @Test(arguments: ["move", "override", "remove", "undo"])
+    func rememberedColors(scenario: String) throws {
         let store = SessionStore(groups: [
             SessionGroup(name: "First", sessions: []),
-            SessionGroup(name: "Second", sessions: []),
+            SessionGroup(name: scenario == "override" ? "awesoMux" : "Second", sessions: []),
             SessionGroup(name: "Third", sessions: []),
         ])
-        let original = store.groups.map { $0.id }
-        store.moveGroup(from: 2, to: 0)
-        #expect(store.groups.map(\.id) == [original[2], original[0], original[1]])
-        #expect(accent(store.groups[0], at: 0) == .blue)
-        #expect(accent(store.groups[1], at: 1) == .teal)
-        #expect(accent(store.groups[2], at: 2) == .green)
-        let data = try JSONEncoder().encode(store.snapshot())
-        let restored = SessionStore(restoring: try SessionSnapshot.decode(from: data))
-        #expect(accent(restored.groups[0], at: 0) == .blue)
-        #expect(accent(restored.groups[1], at: 1) == .teal)
-        #expect(accent(restored.groups[2], at: 2) == .green)
-    }
-    @Test func overridesAndDefaultSurviveMoves() {
-        let first = SessionGroup(name: "First", sessions: [])
-        let special = SessionGroup(name: "awesoMux", color: .yellow, sessions: [])
-        let store = SessionStore(groups: [first, special])
-        store.moveGroup(from: 1, to: 0)
-        #expect(accent(store.groups[0], at: 0) == .yellow)
-        #expect(store.setGroupColor(id: special.id, color: nil))
-        #expect(accent(store.groups[0], at: 0) == .mauve)
-        #expect(store.renameGroup(id: special.id, to: "Renamed"))
-        #expect(accent(store.groups[0], at: 0) == .mauve)
-        #expect(store.setGroupColor(id: first.id, color: .red))
-        #expect(accent(store.groups[1], at: 1) == .red)
-        #expect(store.setGroupColor(id: first.id, color: nil))
-        #expect(accent(store.groups[1], at: 1) == .teal)
-    }
-
-    @Test func removingAnotherGroupKeepsColorsAndNewGroupsRememberTheirDefault() {
-        let first = SessionGroup(name: "First", sessions: [])
-        let store = SessionStore(groups: [first, SessionGroup(name: "Second", sessions: [])])
-        #expect(store.removeGroup(id: first.id))
-        #expect(accent(store.groups[0], at: 0) == .green)
-        store.addSession(groupName: "New")
-        store.moveGroup(from: 1, to: 0)
-        #expect(accent(store.groups[0], at: 0) == .green)
-        #expect(accent(store.groups[1], at: 1) == .green)
-    }
-    @Test func undoAndBulkRestoreKeepRememberedColors() {
-        let store = SessionStore(groups: [
-            SessionGroup(name: "First", sessions: []),
-            SessionGroup(name: "Second", sessions: []),
-        ])
-        let undo = UndoManager()
-        undo.groupsByEvent = false
-        store.undoManager = undo
-        undo.beginUndoGrouping()
-        store.moveGroup(from: 1, to: 0)
-        undo.endUndoGrouping()
-        #expect(accent(store.groups[0], at: 0) == .green)
-        let snapshot = store.snapshot()
-        undo.undo()
-        #expect(accent(store.groups[0], at: 0) == .teal)
-        undo.redo()
-        #expect(accent(store.groups[0], at: 0) == .green)
-        let replacement = SessionStore()
-        replacement.replaceState(restoring: snapshot)
-        #expect(accent(replacement.groups[0], at: 0) == .green)
-        #expect(accent(replacement.groups[1], at: 1) == .teal)
+        if scenario != "move" { _ = store.removeGroup(id: store.groups[2].id) }
+        let ids = store.groups.map(\.id)
+        let original = Dictionary(
+            uniqueKeysWithValues: store.groups.enumerated().map { ($0.element.id, accent($0.element, at: $0.offset)) })
+        func assertRemembered(_ candidate: SessionStore) {
+            for (index, group) in candidate.groups.enumerated() { #expect(accent(group, at: index) == original[group.id]) }
+        }
+        switch scenario {
+        case "move":
+            store.moveGroup(from: 2, to: 0)
+            #expect(store.groups.map(\.id) == [ids[2], ids[0], ids[1]])
+            assertRemembered(store)
+            let restored = SessionStore(restoring: try SessionSnapshot.decode(from: JSONEncoder().encode(store.snapshot())))
+            assertRemembered(restored)
+        case "override":
+            #expect(store.setGroupColor(id: ids[1], color: .yellow))
+            store.moveGroup(from: 1, to: 0)
+            #expect(accent(store.groups[0], at: 0) == .yellow)
+            #expect(store.setGroupColor(id: ids[1], color: nil))
+            #expect(store.renameGroup(id: ids[1], to: "Renamed"))
+            assertRemembered(store)
+            #expect(store.setGroupColor(id: ids[0], color: .red))
+            #expect(accent(store.groups[1], at: 1) == .red)
+            #expect(store.setGroupColor(id: ids[0], color: nil))
+            assertRemembered(store)
+        case "remove":
+            #expect(store.removeGroup(id: ids[0]))
+            assertRemembered(store)
+            store.addSession(groupName: "New")
+            let added = accent(store.groups[1], at: 1)
+            store.moveGroup(from: 1, to: 0)
+            #expect(accent(store.groups[0], at: 0) == added)
+            #expect(accent(store.groups[1], at: 1) == original[ids[1]])
+        default:
+            let undo = UndoManager()
+            undo.groupsByEvent = false
+            store.undoManager = undo
+            undo.beginUndoGrouping()
+            store.moveGroup(from: 1, to: 0)
+            undo.endUndoGrouping()
+            #expect(store.groups[0].id == ids[1])
+            assertRemembered(store)
+            let snapshot = store.snapshot()
+            undo.undo()
+            #expect(store.groups[0].id == ids[0])
+            assertRemembered(store)
+            undo.redo()
+            #expect(store.groups[0].id == ids[1])
+            assertRemembered(store)
+            let restored = SessionStore()
+            restored.replaceState(restoring: snapshot)
+            assertRemembered(restored)
+        }
     }
 
     @Test(arguments: [#""unknown""#, "42", #"{"bad":"shape"}"#, "null"])
@@ -90,7 +85,8 @@ struct SidebarGroupColorIdentityTests {
         #expect(store.groups[0].id == group.id)
         #expect(accent(store.groups[0], at: 0) == .red)
         #expect(store.setGroupColor(id: group.id, color: nil))
-        #expect(accent(store.groups[0], at: 0) == .teal)
+        let automatic = SessionStore(groups: [SessionGroup(name: "First", sessions: [])])
+        #expect(accent(store.groups[0], at: 0) == accent(automatic.groups[0], at: 0))
     }
 
 }
