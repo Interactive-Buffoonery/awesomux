@@ -1119,6 +1119,30 @@ extension SessionStore {
         return PaneLayoutReducer.paneChangeKind(from: old, to: new)
     }
 
+    /// Native OSC 7 is suggestion-only, never a local cwd or file-read grant.
+    @discardableResult
+    public func updateNativeRemoteWorkingDirectory(
+        sessionID: TerminalSession.ID, originatingPane: TerminalPane, report: String?
+    ) -> Bool {
+        guard let pane = session(id: sessionID)?.layout.pane(id: originatingPane.id),
+            pane.terminalSessionID == originatingPane.terminalSessionID,
+            pane.executionPlan == originatingPane.executionPlan,
+            pane.remoteHost == originatingPane.remoteHost,
+            pane.remoteConnectivityEpoch == originatingPane.remoteConnectivityEpoch
+        else { return false }
+        let expectedHost = pane.remoteHost ?? pane.executionPlan.remoteTarget?.host
+        let directory = expectedHost.flatMap { host in
+            report.flatMap {
+                RemoteWorkingDirectoryValidator.validatedNativeReport(
+                    $0, expectedHost: host, localHostnames: localHostnames)?.directory
+            }
+        }
+        guard pane.remoteWorkingDirectory != directory else { return true }
+        return mutatePane(sessionID: sessionID, paneID: pane.id) {
+            $0.remoteWorkingDirectory = directory
+        }
+    }
+
     /// Applies display-only OSC 7 metadata from a hand-opened SSH terminal.
     /// Returns whether the report was accepted, including an unchanged path.
     @discardableResult

@@ -8,19 +8,43 @@ public enum RemoteWorkingDirectoryValidator {
         _ rawValue: String, expectedHost: String, localHostnames: Set<String>
     ) -> String? {
         // zmx ipc.MAX_CWD_LEN silently truncates the raw URI at 256 bytes.
-        guard rawValue.utf8.count < 256,
-            let uri = URLComponents(string: rawValue), uri.scheme == "file",
-            let host = uri.host, !host.isEmpty,
-            !hostsMatch(host, "localhost"),
-            !localHostnames.contains(where: { hostsMatch(host, $0) }),
-            hostsMatch(host, expectedHost),
-            uri.user == nil, uri.password == nil, uri.port == nil,
-            uri.query == nil, uri.fragment == nil
-        else { return nil }
-        return validatedReportedDirectory(rawValue)
+        guard rawValue.utf8.count < 256 else { return nil }
+        return validatedNativeReport(
+            rawValue, expectedHost: expectedHost, localHostnames: localHostnames)?.directory
     }
 
-    private static func hostsMatch(_ lhs: String, _ rhs: String) -> Bool {
+    /// Direct native reports are complete (unlike the daemon's 256-byte field).
+    public static func validatedNativeReport(
+        _ rawValue: String, expectedHost: String?, localHostnames: Set<String>
+    ) -> (host: String, directory: String)? {
+        guard rawValue.utf8.count <= 2048, rawValue.hasPrefix("file://"),
+            !UnicodeHygiene.containsUnsafePathScalars(rawValue),
+            !rawValue.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }),
+            let decoded = rawValue.removingPercentEncoding,
+            !UnicodeHygiene.containsUnsafePathScalars(decoded),
+            let uri = URLComponents(string: rawValue), uri.scheme == "file",
+            let host = uri.host, !host.isEmpty,
+            rawValue.dropFirst(7).prefix(while: { $0 != "/" }) == host,
+            !RemoteSessionDetector.isLoopback(host.lowercased()), host != "0.0.0.0",
+            host.lowercased() != "localhost.",
+            host.unicodeScalars.allSatisfy({
+                CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-").contains($0)
+            }),
+            !hostsMatch(host, "localhost"),
+            !localHostnames.contains(where: { hostsMatch(host, $0) }),
+            expectedHost.map({ hostsMatch(host, $0) }) ?? true,
+            uri.user == nil, uri.password == nil, uri.port == nil,
+            uri.query == nil, uri.fragment == nil,
+            uri.percentEncodedPath.hasPrefix("/"),
+            let path = uri.percentEncodedPath.removingPercentEncoding,
+            path.hasPrefix("/"), !UnicodeHygiene.containsUnsafePathScalars(path),
+            // Foundation may repair malformed URLs. Accept only the original encoding.
+            uri.string == rawValue
+        else { return nil }
+        return (host, path)
+    }
+
+    public static func hostsMatch(_ lhs: String, _ rhs: String) -> Bool {
         let lhs = lhs.lowercased()
         let rhs = rhs.lowercased()
         if lhs == rhs { return true }

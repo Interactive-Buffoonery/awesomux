@@ -19,7 +19,42 @@ INPUTS = (
     ROOT / "native/ghostty/link-paths.zig",
     ROOT / "native/shell-integration/ssh-compat.zsh",
     ROOT / "native/shell-integration/ssh-compat.fish",
+    ROOT / "native/ghostty/remote-pwd.zig",
+    ROOT / "native/ghostty/remote-pwd-tests.zig.inc",
+    ROOT / "native/ghostty/remote-pwd-message.zig.inc",
+    ROOT / "native/ghostty/remote-pwd-stream.zig.inc",
+    ROOT / "native/ghostty/remote-pwd-surface.zig.inc",
+    ROOT / "native/ghostty/remote-pwd-generation.zig.inc",
+    ROOT / "native/ghostty/remote-pwd-capi.zig.inc",
 )
+
+
+REMOTE_PWD_INSERTIONS = (
+    ("src/renderer/State.zig", "const renderer = @import(\"../renderer.zig\");\n",
+     ROOT / "native/ghostty/remote-pwd-generation.zig.inc"),
+    ("src/apprt/embedded.zig", "pub const CAPI = struct {\n",
+     ROOT / "native/ghostty/remote-pwd-capi.zig.inc"),
+    ("src/apprt/surface.zig", "    pwd_change: WriteReq,\n",
+     ROOT / "native/ghostty/remote-pwd-message.zig.inc"),
+    ("src/termio/stream_handler.zig", "    fn reportPwd(self: *StreamHandler, url: []const u8) !void {\n",
+     ROOT / "native/ghostty/remote-pwd-stream.zig.inc"),
+    ("src/Surface.zig", "        .close => self.close(),\n",
+     ROOT / "native/ghostty/remote-pwd-surface.zig.inc"),
+)
+
+
+def inject_remote_pwd(staging):
+    # Check every anchor before writing any generated source.
+    for relative, marker, _ in REMOTE_PWD_INSERTIONS:
+        if (staging / relative).read_text().count(marker) != 1:
+            raise RuntimeError("Ghostty remote PWD insertion changed: " + relative)
+    for relative, marker, fragment in REMOTE_PWD_INSERTIONS:
+        path = staging / relative
+        path.write_text(path.read_text().replace(marker, marker + fragment.read_text(), 1))
+    module = staging / "src/terminal/awesomux_remote_pwd.zig"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text((ROOT / "native/ghostty/remote-pwd.zig").read_text()
+                      + (ROOT / "native/ghostty/remote-pwd-tests.zig.inc").read_text())
 
 
 def fingerprint():
@@ -40,6 +75,7 @@ def prepare(vendor, destination):
     try:
         subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(vendor), str(staging)], check=True)
         subprocess.run(["git", "-C", str(staging), "checkout", "--quiet", "--detach", sha], check=True)
+        inject_remote_pwd(staging)
         embedded = staging / "src/apprt/embedded.zig"
         source = embedded.read_text()
         marker = "pub const CAPI = struct {\n"
@@ -51,6 +87,8 @@ def prepare(vendor, destination):
         terminal = staging / "src/terminal/main.zig"
         with terminal.open("a") as file:
             file.write('\n// awesoMux native safety regression tests.\ntest { _ = @import("awesomux_scrollback.zig"); }\n')
+        with terminal.open("a") as file:
+            file.write('\ntest { _ = @import("awesomux_remote_pwd.zig"); }\n')
         config = staging / "src/config/Config.zig"
         source = config.read_text()
         marker = ".regex = url.regex,"

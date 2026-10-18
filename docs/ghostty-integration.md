@@ -108,6 +108,50 @@ matching and hovering grant no file access. User-configured link rules retain
 their existing behavior.
 
 
+## Direct SSH directory suggestions
+
+The generated source adds `awesomux_remote_pwd` to the application surface
+mailbox before `termio/stream_handler.zig` rejects a nonlocal OSC 7 URI. A fixed
+2,048-byte report rejects overflow, invalid UTF-8 and embedded NUL in full. The
+normal Ghostty parser, local-host check and stored terminal pwd are unchanged.
+
+The main-thread surface handler delivers this advisory event through the existing
+PWD action with the reserved `awesomux:remote-osc7:` prefix. Absolute local PWD
+paths cannot collide. awesoMux consumes the envelope synchronously before normal
+cwd updates. A narrow C setter publishes a per-surface atomic generation, copied
+by the reader into each report before enqueueing and carried in the envelope.
+Swift advances it on observed connection/origin invalidation and checks it before
+acceptance, including when the store changes ahead of the view update. Fresh
+reports on a surviving surface use the new generation; queued old reports cannot
+cross the barrier. Counter exhaustion permanently disables this view's reports
+instead of reusing a generation. No reader-thread Swift callback is introduced.
+Managed panes use
+qualified raw metadata or daemon metadata for remote cwd; ordinary native PWD
+still updates local panes through the existing path.
+
+Strict file URI validation rejects local hosts, credentials, ports, query,
+fragment, malformed escapes and unsafe characters. The host must match the
+observed title host or, when absent, the declared target, with only short-name
+and `.local` equivalence. This is a runtime-only editable directory suggestion,
+not authorization, an execution-plan change or Remote File Context.
+
+One report may await initial title recognition for at most one second. It is
+bound to the session, pane, terminal, native surface incarnation, execution plan
+and connectivity epoch. Initial title recognition preserves pending evidence;
+a managed first title confirming the declared host also preserves accepted cwd.
+Local reports, established title/host transitions, connection changes,
+recycle, exit and disposal discard pending evidence. No alias/DNS guessing is
+performed; hosts that do not match need an explicit user-selected base directory.
+Native and daemon reports use the same URI and host qualification. Spaces in
+reported file URIs must be percent-encoded; malformed or repaired encodings are
+rejected by both sources. The daemon inventory keeps its separate below-256-byte
+admission limit.
+
+All native fragments and regression cases participate in the source fingerprint.
+`script/verify_remote_pwd_injection.py --vendor /path/to/pinned/ghostty` verifies
+exact insertion counts and preservation of upstream source without compiling.
+The native build also runs the `awesomux-remote-pwd` bounded-copy regressions.
+
 ## Bounded Show Scrollback read
 
 Show Scrollback uses the awesoMux-only `awesomux_surface_read_scrollback`
