@@ -154,8 +154,7 @@ struct SidebarAttentionSectionView: View {
             session: session,
             match: item.entry.match,
             tint: ProjectTint(
-                groupName: item.originGroup.name,
-                color: item.originGroup.color,
+                group: item.originGroup,
                 index: item.originGroupUnfilteredIndex
             ),
             isActive: session.id == selectedSessionID,
