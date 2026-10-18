@@ -50,6 +50,9 @@ jobs:
           - name: Plural localization guards
             run: ./script/check_plural_guards.sh
 
+          - name: AppleScript smoke targeting
+            run: ./script/check_applescript_targets.sh
+
           - name: Ghostty license pin guardrail tests
             run: ./script/test-ghostty-license-pins.sh
 

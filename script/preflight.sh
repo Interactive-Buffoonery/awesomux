@@ -19,6 +19,7 @@ cd "$ROOT_DIR"
 "$ROOT_DIR/script/check_public_wording.sh"
 "$ROOT_DIR/script/check_public_seed_source.sh"
 "$ROOT_DIR/script/check_plural_guards.sh"
+"$ROOT_DIR/script/check_applescript_targets.sh"
 "$ROOT_DIR/script/update_string_catalog.sh" --check
 "$ROOT_DIR/script/test-test-wait-guard.sh"
 python3 -B "$ROOT_DIR/script/test_swift_test_report.py"
