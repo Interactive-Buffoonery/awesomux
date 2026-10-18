@@ -9,12 +9,6 @@ import OSLog
 /// a fact cannot be resolved so the caller classifies it as indeterminate rather
 /// than silently idle.
 enum ProcessLivenessProbe {
-    enum ForegroundExecutableMatch: Equatable, Sendable {
-        case matching
-        case notMatching
-        case unknown
-    }
-
     /// The process name (`p_comm`) for `pid`, or nil if it cannot be read
     /// (dead/reaped pid, or a permission error).
     static func foregroundComm(pid: pid_t) -> String? {
@@ -153,17 +147,6 @@ enum ProcessLivenessProbe {
             return nil
         }
         return foregroundGroup(roots[0])
-    }
-
-    static func terminalForegroundExecutableMatch(
-        _ executable: String,
-        daemonPID: pid_t,
-        foregroundComm: (pid_t) -> String? = {
-            ProcessLivenessProbe.terminalForegroundComm(daemonPID: $0)
-        }
-    ) -> ForegroundExecutableMatch {
-        guard let observed = foregroundComm(daemonPID) else { return .unknown }
-        return observed == executable ? .matching : .notMatching
     }
 
     /// Background prompt workers do not keep an ordinary SSH session remote.

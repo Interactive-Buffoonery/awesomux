@@ -268,35 +268,7 @@ struct CommandBridgeEnactorTests {
         #expect(statusFileNames(for: sessionID).isEmpty)
     }
 
-    @Test("foreground executable probe uses only the current daemon")
-    func foregroundExecutableProbeUsesCurrentDaemon() throws {
-        let fixture = try makeFixture()
-        let enactor = fixture.view.commandBridgeEnactor
-        #expect(enactor.foregroundExecutableMatch("ssh") == .unknown)
-
-        enactor.sessionID = fixture.sessionID
-        enactor.respawnLedger.recordAttach(AmxDaemonIncarnation(pid: 42, createdAt: 1))
-        var probedExecutable: String?
-        var probedDaemonPID: pid_t?
-        let result = enactor.foregroundExecutableMatch("ssh") { executable, daemonPID in
-            probedExecutable = executable
-            probedDaemonPID = daemonPID
-            return .matching
-        }
-        #expect(result == .matching)
-        #expect(probedExecutable == "ssh")
-        #expect(probedDaemonPID == 42)
-
-        enactor.errorLatched = true
-        #expect(
-            enactor.foregroundExecutableMatch("ssh") { _, _ in
-                Issue.record("latched panes must not probe")
-                return .matching
-            } == .unknown
-        )
-    }
-
-    @Test("foreground comm probe shares the executable probe's evidence guards")
+    @Test("foreground comm probe uses only the current daemon")
     func foregroundCommUsesCurrentDaemon() throws {
         let fixture = try makeFixture()
         let enactor = fixture.view.commandBridgeEnactor
