@@ -34,7 +34,6 @@ struct DaemonStateResolverTests {
         #expect(rows.first?.lifecycle == .owned)
         #expect(rows.first?.activity == .busy)
         #expect(rows.first?.owner == "proj · zsh")
-        #expect(rows.first?.isReapable == true)
     }
 
     @Test("restorable-only id classified detachedRestorable")
@@ -55,7 +54,6 @@ struct DaemonStateResolverTests {
     func inUseElsewhere() {
         let rows = resolve(live: [daemon(a, clients: 1)])
         #expect(rows.first?.lifecycle == .inUseElsewhere)
-        #expect(rows.first?.isReapable == false)
     }
 
     @Test("abandoned + idle + over cap + unpinned escalates to expired")

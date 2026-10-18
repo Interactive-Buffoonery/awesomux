@@ -6,8 +6,9 @@ import Testing
 struct SessionStoreFocusedCommandTests {
     @Test("renameSession sanitizes title and marks it user-edited")
     func renameSessionSanitizesTitleAndMarksUserEdited() {
-        let store = SessionStore(groups: SessionStore.previewGroups)
-        let sessionID = SessionStore.previewGroups[0].sessions[0].id
+        let session = makeSession()
+        let store = makeStore(session)
+        let sessionID = session.id
         let longTitle = String(repeating: "a", count: SessionStore.maxTitleLength + 10)
 
         store.renameSession(

@@ -578,10 +578,10 @@ struct DaemonGCPlanTests {
             argv0: "/Applications/awesoMux.app/Contents/MacOS/amx", subcommand: "attach",
             sessionArgument: uuidA)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [sample], daemonPIDs: daemonPIDs, executableName: "amx",
                 localSessionSockets: [uuidA]
-            ).isEmpty)
+            ).map(\.pid).isEmpty)
     }
 
     @Test("regression guard: widening the exclusion set still reaps a genuine orphan attach client")
@@ -602,10 +602,10 @@ struct DaemonGCPlanTests {
             pid: 800, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach",
             sessionArgument: uuidB)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [orphan], daemonPIDs: daemonPIDs, executableName: "amx",
                 localSessionSockets: [uuidB]
-            ) == [800])
+            ).map(\.pid) == [800])
     }
 
     @Test("regression INT-914: a sister profile's reattached daemon is never a confirmed orphan, even orphaned and UUID-shaped")
@@ -626,11 +626,11 @@ struct DaemonGCPlanTests {
             argv0: "/Users/x/dist/awesoMux.app/Contents/MacOS/amx", subcommand: "attach",
             sessionArgument: uuidB)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [inheritedForeignDaemon, orphanedForeignClient],
                 daemonPIDs: [], executableName: "amx",
                 localSessionSockets: []
-            ).isEmpty)
+            ).map(\.pid).isEmpty)
     }
 
     @Test("regression guard INT-914: an own-profile orphan keeps being confirmed when its session socket is local")
@@ -645,10 +645,10 @@ struct DaemonGCPlanTests {
             pid: 900, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach",
             sessionArgument: uuidB)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [ownOrphan, foreignOrphan], daemonPIDs: [], executableName: "amx",
                 localSessionSockets: [uuidA]
-            ) == [800])
+            ).map(\.pid) == [800])
     }
 
     @Test("candidate shortlist: orphaned amx process detected, basename-normalized")
@@ -741,8 +741,9 @@ struct DaemonGCPlanTests {
             pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "/opt/amx", subcommand: "attach",
             sessionArgument: uuidA)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
-                samples: [old], daemonPIDs: [], executableName: "amx", localSessionSockets: [uuidA]) == [500])
+            DaemonGCPlan.confirmedOrphanAttachSamples(
+                samples: [old], daemonPIDs: [], executableName: "amx", localSessionSockets: [uuidA]
+            ).map(\.pid) == [500])
     }
 
     @Test("confirmed orphans: list/kill/send/history one-shots never match, regardless of age")
@@ -750,9 +751,9 @@ struct DaemonGCPlanTests {
         let oneShot = DaemonGCPlan.AttachProcessSample(
             pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "list", sessionArgument: nil)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [oneShot], daemonPIDs: [], executableName: "amx", localSessionSockets: []
-            )
+            ).map(\.pid)
                 .isEmpty)
     }
 
@@ -761,9 +762,9 @@ struct DaemonGCPlanTests {
         let justStarted = DaemonGCPlan.AttachProcessSample(
             pid: 500, ppid: 1, etimeSeconds: 1, argv0: "amx", subcommand: "attach", sessionArgument: uuidA)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [justStarted], daemonPIDs: [], executableName: "amx", localSessionSockets: [uuidA]
-            )
+            ).map(\.pid)
                 .isEmpty)
     }
 
@@ -772,9 +773,9 @@ struct DaemonGCPlanTests {
         let sample = DaemonGCPlan.AttachProcessSample(
             pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: uuidA)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [sample], daemonPIDs: [500], executableName: "amx", localSessionSockets: [uuidA]
-            )
+            ).map(\.pid)
                 .isEmpty)
     }
 
@@ -783,9 +784,9 @@ struct DaemonGCPlanTests {
         let sample = DaemonGCPlan.AttachProcessSample(
             pid: 500, ppid: 42, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: uuidA)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [sample], daemonPIDs: [], executableName: "amx", localSessionSockets: [uuidA]
-            )
+            ).map(\.pid)
                 .isEmpty)
     }
 
@@ -794,9 +795,9 @@ struct DaemonGCPlanTests {
         let sample = DaemonGCPlan.AttachProcessSample(
             pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: "dev")
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [sample], daemonPIDs: [], executableName: "amx", localSessionSockets: ["dev"]
-            )
+            ).map(\.pid)
                 .isEmpty)
     }
 
@@ -805,9 +806,9 @@ struct DaemonGCPlanTests {
         let sample = DaemonGCPlan.AttachProcessSample(
             pid: 500, ppid: 1, etimeSeconds: 3600, argv0: "amx", subcommand: "attach", sessionArgument: nil)
         #expect(
-            DaemonGCPlan.confirmedOrphanAttachPIDs(
+            DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [sample], daemonPIDs: [], executableName: "amx", localSessionSockets: [uuidA]
-            )
+            ).map(\.pid)
                 .isEmpty)
     }
 

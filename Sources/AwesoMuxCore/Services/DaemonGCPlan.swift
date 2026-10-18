@@ -622,22 +622,6 @@ public enum DaemonGCPlan {
     /// built from THIS profile's `amx list` only. Where the session's socket
     /// file lives is the one ground truth that cannot cross profiles, so a
     /// session with no local socket is never this pass's to kill.
-    public static func confirmedOrphanAttachPIDs(
-        samples: [AttachProcessSample],
-        daemonPIDs: Set<Int32>,
-        executableName: String,
-        localSessionSockets: Set<String>,
-        minAgeSeconds: Int = orphanAttachMinAgeSeconds
-    ) -> [Int32] {
-        confirmedOrphanAttachSamples(
-            samples: samples,
-            daemonPIDs: daemonPIDs,
-            executableName: executableName,
-            localSessionSockets: localSessionSockets,
-            minAgeSeconds: minAgeSeconds
-        ).map(\.pid)
-    }
-
     public static func confirmedOrphanAttachSamples(
         samples: [AttachProcessSample],
         daemonPIDs: Set<Int32>,

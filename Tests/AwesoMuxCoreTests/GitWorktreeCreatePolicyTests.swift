@@ -6,21 +6,6 @@ import Testing
 struct GitWorktreeCreatePolicyTests {
     private let policy = GitWorktreeCreatePolicy()
 
-    @Test("suggestion is available only when the .worktrees container exists")
-    func suggestionRequiresExistingContainer() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let repo = root.appendingPathComponent("repo", isDirectory: true)
-        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        let context = GitRepositoryContext(
-            invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
-
-        #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "feature/foo") == nil)
-        try FileManager.default.createDirectory(at: repo.appendingPathComponent(".worktrees"), withIntermediateDirectories: true)
-        let expected = repo.appendingPathComponent(".worktrees", isDirectory: true).appendingPathComponent("feature-foo", isDirectory: true)
-        #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "feature/foo")?.path == expected.path)
-    }
-
     @Test("candidate target path is available even without the .worktrees container, pinned for a named branch")
     func candidateIgnoresContainerExistence() throws {
         let root = temporaryDirectory()
@@ -30,12 +15,10 @@ struct GitWorktreeCreatePolicyTests {
         let context = GitRepositoryContext(
             invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
 
-        // No ".worktrees" container exists yet — the gated suggestion is nil,
-        // but the candidate (used as the form's placeholder hint) still
+        // No ".worktrees" container exists yet, but the candidate still
         // resolves, pinned to the exact path (round-4 smoke: "I still don't
         // get what the pre-filled text is" — it must read as an obvious,
         // full, real path, not just "hasSuffix" close-enough).
-        #expect(policy.suggestedTargetPath(repositoryContext: context, branchName: "test-branch") == nil)
         let expected = repo.appendingPathComponent(".worktrees", isDirectory: true).appendingPathComponent("test-branch", isDirectory: true)
         #expect(policy.candidateTargetPath(repositoryContext: context, branchName: "test-branch")?.path == expected.path)
     }
@@ -49,13 +32,7 @@ struct GitWorktreeCreatePolicyTests {
         let context = GitRepositoryContext(
             invocationRoot: repo, canonicalCommonGitDirectory: repo.appendingPathComponent(".git"), displayName: "repo")
 
-        // No ".worktrees" container yet — the gated `suggestedTargetPath` is
-        // nil, but the form's bound value must still match what it DISPLAYS
-        // (the candidate), not fall back to "" — an empty bound value reads
-        // as absent to `submit()`'s `hasPrefix("/")` check even while a
-        // full, absolute-looking path sits in the field (INT-857 round-7
-        // smoke: "Target path must be absolute" despite a visibly absolute
-        // path).
+        // The bound value must match the displayed candidate before its container exists.
         let prefill = policy.formTargetPathPrefill(repositoryContext: context, branchName: "newest-branch")
         let candidate = policy.candidateTargetPath(repositoryContext: context, branchName: "newest-branch")?.path
         #expect(prefill == candidate)
