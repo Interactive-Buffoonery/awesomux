@@ -14,7 +14,7 @@ import Foundation
 ///   valid-but-unmounted leaf is "hidden". Not modeled here because it is not a
 ///   property of the leaf, and a `Bool` needs no enum.
 /// - **Close phase** — `closing`/`closed` are transient states the close
-///   pipeline drives (see `PaneCloseConsequence`); they have no stored
+///   pipeline drives; they have no stored
 ///   representation, so no classifier branch fabricates them.
 ///
 /// See `docs/architecture.md` — "Typed workspace-pane model" for the mapping.
@@ -78,11 +78,5 @@ public extension PaneAvailability {
             return .awaitingHydration
         }
         return .attached
-    }
-}
-
-public extension WorkspaceLeaf {
-    var availability: PaneAvailability {
-        .of(self)
     }
 }

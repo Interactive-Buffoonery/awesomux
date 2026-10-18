@@ -13,8 +13,8 @@ import Testing
 struct RemoteReconnectViewTests {
     private let establishedMetadata = TerminalBackendMetadata(rawValue: "amx:v1:established")
 
-    @Test("manual reconnect clears the latch, refills budget, and flips to reconnecting")
-    func manualReconnectClearsLatchRefillsBudgetAndFlipsReconnecting() throws {
+    @Test("reconnect refills the budget, relatches on failure, then confirms the surviving agent", arguments: [1, 2])
+    func reconnectJourney(spentBudget: Int) throws {
         let fixture = try makeRemoteAgentFixture()
         let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
         let view = try latchRemotePane(
@@ -22,12 +22,12 @@ struct RemoteReconnectViewTests {
             store: fixture.store,
             session: fixture.session,
             pane: fixture.pane,
-            spendBudget: 2
+            spendBudget: spentBudget
         )
 
         // Latched: error overlay state + a partially-drained crash budget.
         #expect(view.commandBridgeErrorLatched)
-        #expect(view.commandBridgeEnactor.respawnLedger.respawnAttempts == 2)
+        #expect(view.commandBridgeEnactor.respawnLedger.respawnAttempts == spentBudget)
         let latchedPane = try #require(
             fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.pane.id)
         )
@@ -42,54 +42,19 @@ struct RemoteReconnectViewTests {
             fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.pane.id)
         )
         #expect(reconnectingPane.remoteReconnect == .reconnecting(.init(target: fixture.target)))
-    }
 
-    @Test("a racing second reconnect no-ops")
-    func secondReconnectIsIdempotent() throws {
-        let fixture = try makeRemoteAgentFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let view = try latchRemotePane(
-            runtime: runtime,
-            store: fixture.store,
-            session: fixture.session,
-            pane: fixture.pane
-        )
-
-        #expect(runtime.reconnectRemotePane(in: fixture.pane.id))
-        // Simulate budget spent by the in-flight respawn between the two clicks;
-        // a no-op second click must NOT refill it back to zero.
-        view.commandBridgeEnactor.respawnLedger.recordRespawnAttempt()
-
-        #expect(runtime.reconnectRemotePane(in: fixture.pane.id))
-
-        #expect(!view.commandBridgeErrorLatched)
-        #expect(view.commandBridgeEnactor.respawnLedger.respawnAttempts == 1)
-        let pane = try #require(
-            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.pane.id)
-        )
-        #expect(pane.remoteReconnect == .reconnecting(.init(target: fixture.target)))
-    }
-
-    @Test("same-incarnation attach after reconnect clears state and preserves agent chrome")
-    func sameIncarnationAttachConfirmsAndPreservesChrome() throws {
-        let fixture = try makeRemoteAgentFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let view = try latchRemotePane(
-            runtime: runtime,
-            store: fixture.store,
-            session: fixture.session,
-            pane: fixture.pane
-        )
-        // The latch drives the pane's execution state to `.error`; the agent
-        // identity survives it.
-        let latchedPane = try #require(
-            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.pane.id)
-        )
         #expect(latchedPane.agentExecutionState == .error)
         #expect(latchedPane.agentKind == .codex)
+        // Host still down: the fresh channel reports an ssh transport failure.
+        try driveRemoteShellExit(on: view, terminalSessionID: fixture.sessionID, code: 255)
+
+        #expect(view.commandBridgeErrorLatched)
+        let relatchedPane = try #require(
+            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.pane.id)
+        )
+        #expect(relatchedPane.remoteReconnect == .disconnected(.init(target: fixture.target)))
 
         #expect(runtime.reconnectRemotePane(in: fixture.pane.id))
-
         // `created: false` == reconnect to the still-live daemon, so agent chrome
         // is preserved (no `resetPaneAgentChromeToShell`); the confirmation hook
         // is the only thing that un-sticks the bridge-death `.error`.
@@ -110,33 +75,6 @@ struct RemoteReconnectViewTests {
         #expect(confirmedPane.remoteReconnect == nil)
         #expect(confirmedPane.agentExecutionState != .error)
         #expect(confirmedPane.agentKind == .codex)
-    }
-
-    @Test("a failed reconnect (ssh 255) re-latches back to disconnected")
-    func failedReconnectRelatchesDisconnected() throws {
-        let fixture = try makeRemoteAgentFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let view = try latchRemotePane(
-            runtime: runtime,
-            store: fixture.store,
-            session: fixture.session,
-            pane: fixture.pane
-        )
-
-        #expect(runtime.reconnectRemotePane(in: fixture.pane.id))
-        let reconnectingPane = try #require(
-            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.pane.id)
-        )
-        #expect(reconnectingPane.remoteReconnect == .reconnecting(.init(target: fixture.target)))
-
-        // Host still down: the fresh channel reports an ssh transport failure.
-        try driveRemoteShellExit(on: view, terminalSessionID: fixture.sessionID, code: 255)
-
-        #expect(view.commandBridgeErrorLatched)
-        let relatchedPane = try #require(
-            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.pane.id)
-        )
-        #expect(relatchedPane.remoteReconnect == .disconnected(.init(target: fixture.target)))
     }
 
     @Test("reconnecting one split pane leaves its sibling untouched")

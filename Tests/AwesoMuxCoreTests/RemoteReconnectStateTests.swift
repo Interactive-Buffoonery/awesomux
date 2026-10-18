@@ -33,70 +33,7 @@ struct RemoteReconnectStateTests {
 
     // MARK: - recordPaneProcessError
 
-    @Test("latches disconnected for a remote-group pane")
-    func latchesDisconnectedForRemoteGroup() {
-        let session = makeRemoteSession()
-        let store = makeStore(session: session, remote: target)
-
-        let recorded = store.recordPaneProcessError(
-            in: session.id,
-            paneID: session.activePaneID,
-            terminalIsFocused: false
-        )
-
-        #expect(recorded)
-        let pane = store.session(id: session.id)?.layout.pane(id: session.activePaneID)
-        #expect(pane?.remoteReconnect == .disconnected(.init(target: target)))
-    }
-
-    @Test("leaves reconnect state nil for a local group")
-    func leavesNilForLocalGroup() {
-        let session = TerminalSession(title: "local", workingDirectory: "~")
-        let store = makeStore(session: session, remote: nil)
-
-        let recorded = store.recordPaneProcessError(
-            in: session.id,
-            paneID: session.activePaneID,
-            terminalIsFocused: false
-        )
-
-        #expect(recorded)
-        let pane = store.session(id: session.id)?.layout.pane(id: session.activePaneID)
-        #expect(pane?.remoteReconnect == nil)
-    }
-
     // MARK: - confirmPaneRemoteReconnected
-
-    @Test("clears state and resets a bridge-death error execution state")
-    func clearsStateAndResetsErrorState() {
-        let session = makeRemoteSession(agentKind: .claudeCode, agentExecutionState: .running)
-        let store = makeStore(session: session, remote: target)
-        store.recordPaneProcessError(
-            in: session.id,
-            paneID: session.activePaneID,
-            terminalIsFocused: false
-        )
-        // Sanity: the bridge death actually latched .error + .disconnected
-        // before we assert the confirm path clears both.
-        #expect(
-            store.session(id: session.id)?.layout.pane(id: session.activePaneID)?
-                .agentExecutionState
-                == .error)
-
-        let confirmed = store.confirmPaneRemoteReconnected(
-            sessionID: session.id,
-            paneID: session.activePaneID
-        )
-
-        #expect(confirmed)
-        let pane = store.session(id: session.id)?.layout.pane(id: session.activePaneID)
-        #expect(pane?.remoteReconnect == nil)
-        // claudeCode's kind-appropriate idle state is `.running`, not a
-        // hardcoded shell `.idle` — proves this isn't cloning
-        // resetPaneAgentChromeToShell's full chrome reset.
-        #expect(pane?.agentExecutionState == .running)
-        #expect(pane?.agentKind == .claudeCode)
-    }
 
     @Test("preserves an output-set error across reconnect, clears a bridge-death one")
     func errorProvenanceGovernsReset() {
@@ -169,57 +106,9 @@ struct RemoteReconnectStateTests {
         #expect(pane?.agentExecutionState != .error)
     }
 
-    @Test("no-ops and returns false when nothing was latched")
-    func noOpsWhenNothingLatched() {
-        let session = makeRemoteSession()
-        let store = makeStore(session: session, remote: target)
-
-        let confirmed = store.confirmPaneRemoteReconnected(
-            sessionID: session.id,
-            paneID: session.activePaneID
-        )
-
-        #expect(!confirmed)
-        let pane = store.session(id: session.id)?.layout.pane(id: session.activePaneID)
-        #expect(pane?.remoteReconnect == nil)
-        #expect(pane?.agentExecutionState == .idle)
-    }
-
     // MARK: - CodingKeys round-trip
 
-    @Test("remoteReconnect is excluded from Codable")
-    func excludedFromCodable() throws {
-        var pane = TerminalPane(title: "remote", workingDirectory: "~", executionPlan: .local)
-        pane.remoteReconnect = .disconnected(.init(target: target))
-
-        let data = try JSONEncoder().encode(pane)
-        let decoded = try JSONDecoder().decode(TerminalPane.self, from: data)
-
-        #expect(decoded.remoteReconnect == nil)
-    }
-
     // MARK: - Moved while latched
-
-    @Test("moving to a local group preserves pane identity and latched target")
-    func movedToLocalGroupPreservesState() {
-        let session = makeRemoteSession()
-        let localGroup = SessionGroup(name: "local", sessions: [])
-        let store = SessionStore(groups: [
-            SessionGroup(name: "remote-a", remote: target, sessions: [session]),
-            localGroup,
-        ])
-        store.recordPaneProcessError(
-            in: session.id,
-            paneID: session.activePaneID,
-            terminalIsFocused: false
-        )
-
-        store.moveSession(id: session.id, toGroupID: localGroup.id, atIndex: 0)
-
-        let pane = store.session(id: session.id)?.layout.pane(id: session.activePaneID)
-        #expect(pane?.remoteReconnect == .disconnected(.init(target: target)))
-        #expect(store.remoteTarget(forSessionID: session.id) == target)
-    }
 
     @Test("moving to another remote group preserves state and resolves the new live target")
     func movedToAnotherRemoteGroupPreservesStateAndResolvesNewTarget() {

@@ -333,10 +333,6 @@ struct WorkspaceTreeReducer: Sendable {
         groups.lazy.flatMap(\.sessions).first?.id
     }
 
-    static func nextSessionTitle(in groups: [SessionGroup], for agentKind: AgentKind) -> String {
-        nextSyntheticSessionTitle(in: groups, for: agentKind).localizedTitle()
-    }
-
     static func nextSyntheticSessionTitle(
         in groups: [SessionGroup],
         for agentKind: AgentKind

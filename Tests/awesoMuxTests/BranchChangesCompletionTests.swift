@@ -38,103 +38,226 @@ struct BranchChangesCompletionTests {
 
     // MARK: - Self-write registration
 
-    @Test("a superseded run still registers the bytes it put on disk")
-    func supersededRunRegistersItsWrite() throws {
-        let terminal = pane("zsh")
-        let session = TerminalSession(
-            title: "s",
-            workingDirectory: "/tmp",
-            layout: .pane(terminal),
-            activePaneID: terminal.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        let coordinator = BranchChangesCoordinator()
-        // Two presses on one pane. The first is no longer the pane's current
-        // invocation, but a branch switch between them means it rendered into a
-        // DIFFERENT cache slot — so its claim succeeded and its bytes landed.
-        let stale = coordinator.begin(paneID: terminal.id)
-        _ = coordinator.begin(paneID: terminal.id)
-
-        let result = try render(markdown: "# stale\n")
-        var alerts: [BranchChangesFailure] = []
-        var completedWrites: [URL] = []
-        BranchChangesCompletion.apply(
-            .success(result),
-            paneID: terminal.id,
-            ticket: stale,
-            store: store,
-            coordinator: coordinator,
-            completeWrite: { completedWrites.append($0) },
-            alert: { alerts.append($0) }
-        )
-
-        // Everything user-facing stays suppressed...
-        #expect(alerts.isEmpty)
-        #expect(completedWrites == [result.fileURL])
-        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
-        // ...but an already-open tab on that file must see the rewrite as ours,
-        // not as somebody else's edit.
-        let context = DocumentPaneView.selfWriteRegistry.context(
-            fileURL: result.fileURL,
-            onDiskSource: try #require(result.markdown)
-        )
-        #expect(context?.isSelfWrite == true)
+    enum ObsoleteCompletionCase: String, CaseIterable {
+        case supersededRunRegistersItsWrite
+        case cancelledCompletionFinalizesItsWrite
+        case closedPaneRunRegistersItsWrite
+        case supersededFailureRegistersNothing
+        case closedOriginatingTabDoesNotReopen
+        case closedOriginatingTabDoesNotShowFailure
     }
 
-    @Test("a cancelled completion still finalizes bytes that reached disk")
-    func cancelledCompletionFinalizesItsWrite() throws {
-        let paneID = UUID()
-        let coordinator = BranchChangesCoordinator()
-        let cancelled = coordinator.begin(paneID: paneID)
-        _ = coordinator.begin(paneID: paneID)
-        let result = try render(markdown: "# cancelled\n")
-        var completedWrites: [URL] = []
+    @Test(arguments: ObsoleteCompletionCase.allCases)
+    func obsoleteCompletion(_ scenario: ObsoleteCompletionCase) throws {
+        switch scenario {
+        case .supersededRunRegistersItsWrite:
+            let terminal = pane("zsh")
+            let session = TerminalSession(
+                title: "s",
+                workingDirectory: "/tmp",
+                layout: .pane(terminal),
+                activePaneID: terminal.id
+            )
+            let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+            let coordinator = BranchChangesCoordinator()
+            // Two presses on one pane. The first is no longer the pane's current
+            // invocation, but a branch switch between them means it rendered into a
+            // DIFFERENT cache slot — so its claim succeeded and its bytes landed.
+            let stale = coordinator.begin(paneID: terminal.id)
+            _ = coordinator.begin(paneID: terminal.id)
 
-        BranchChangesCompletion.finalizeWrite(
-            .success(result),
-            ticket: cancelled,
-            coordinator: coordinator,
-            completeWrite: { completedWrites.append($0) }
-        )
+            let result = try render(markdown: "# stale\n")
+            var alerts: [BranchChangesFailure] = []
+            var completedWrites: [URL] = []
+            BranchChangesCompletion.apply(
+                .success(result),
+                paneID: terminal.id,
+                ticket: stale,
+                store: store,
+                coordinator: coordinator,
+                completeWrite: { completedWrites.append($0) },
+                alert: { alerts.append($0) }
+            )
 
-        #expect(completedWrites == [result.fileURL])
-        let context = DocumentPaneView.selfWriteRegistry.context(
-            fileURL: result.fileURL,
-            onDiskSource: try #require(result.markdown)
-        )
-        #expect(context?.isSelfWrite == true)
-    }
+            // Everything user-facing stays suppressed...
+            #expect(alerts.isEmpty)
+            #expect(completedWrites == [result.fileURL])
+            #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+            // ...but an already-open tab on that file must see the rewrite as ours,
+            // not as somebody else's edit.
+            let context = DocumentPaneView.selfWriteRegistry.context(
+                fileURL: result.fileURL,
+                onDiskSource: try #require(result.markdown)
+            )
+            #expect(context?.isSelfWrite == true)
+        case .cancelledCompletionFinalizesItsWrite:
+            let paneID = UUID()
+            let coordinator = BranchChangesCoordinator()
+            let cancelled = coordinator.begin(paneID: paneID)
+            _ = coordinator.begin(paneID: paneID)
+            let result = try render(markdown: "# cancelled\n")
+            var completedWrites: [URL] = []
 
-    @Test("a run whose pane is gone still registers the bytes it put on disk")
-    func closedPaneRunRegistersItsWrite() throws {
-        // A live workspace that never held the pane, so the scan finds no owner.
-        let store = SessionStore(groups: [
-            SessionGroup(
-                name: "work",
-                sessions: [TerminalSession(title: "other", workingDirectory: "/tmp")])
-        ])
-        let gonePaneID = UUID()
-        let coordinator = BranchChangesCoordinator()
-        let ticket = coordinator.begin(paneID: gonePaneID)
+            BranchChangesCompletion.finalizeWrite(
+                .success(result),
+                ticket: cancelled,
+                coordinator: coordinator,
+                completeWrite: { completedWrites.append($0) }
+            )
 
-        let result = try render(markdown: "# orphaned\n")
-        var alerts: [BranchChangesFailure] = []
-        BranchChangesCompletion.apply(
-            .success(result),
-            paneID: gonePaneID,
-            ticket: ticket,
-            store: store,
-            coordinator: coordinator,
-            completeWrite: { _ in },
-            alert: { alerts.append($0) }
-        )
+            #expect(completedWrites == [result.fileURL])
+            let context = DocumentPaneView.selfWriteRegistry.context(
+                fileURL: result.fileURL,
+                onDiskSource: try #require(result.markdown)
+            )
+            #expect(context?.isSelfWrite == true)
+        case .closedPaneRunRegistersItsWrite:
+            // A live workspace that never held the pane, so the scan finds no owner.
+            let store = SessionStore(groups: [
+                SessionGroup(
+                    name: "work",
+                    sessions: [TerminalSession(title: "other", workingDirectory: "/tmp")])
+            ])
+            let gonePaneID = UUID()
+            let coordinator = BranchChangesCoordinator()
+            let ticket = coordinator.begin(paneID: gonePaneID)
 
-        #expect(alerts == [.paneClosed])
-        let context = DocumentPaneView.selfWriteRegistry.context(
-            fileURL: result.fileURL,
-            onDiskSource: try #require(result.markdown)
-        )
-        #expect(context?.isSelfWrite == true)
+            let result = try render(markdown: "# orphaned\n")
+            var alerts: [BranchChangesFailure] = []
+            BranchChangesCompletion.apply(
+                .success(result),
+                paneID: gonePaneID,
+                ticket: ticket,
+                store: store,
+                coordinator: coordinator,
+                completeWrite: { _ in },
+                alert: { alerts.append($0) }
+            )
+
+            #expect(alerts == [.paneClosed])
+            let context = DocumentPaneView.selfWriteRegistry.context(
+                fileURL: result.fileURL,
+                onDiskSource: try #require(result.markdown)
+            )
+            #expect(context?.isSelfWrite == true)
+        case .supersededFailureRegistersNothing:
+            let terminal = pane("zsh")
+            let store = SessionStore(groups: [
+                SessionGroup(
+                    name: "work",
+                    sessions: [
+                        TerminalSession(
+                            title: "s",
+                            workingDirectory: "/tmp",
+                            layout: .pane(terminal),
+                            activePaneID: terminal.id
+                        )
+                    ])
+            ])
+            let coordinator = BranchChangesCoordinator()
+            let ticket = coordinator.begin(paneID: terminal.id)
+            let unwritten = try render(markdown: "# never written\n")
+
+            var alerts: [BranchChangesFailure] = []
+            BranchChangesCompletion.apply(
+                .failure(.superseded),
+                paneID: terminal.id,
+                ticket: ticket,
+                store: store,
+                coordinator: coordinator,
+                completeWrite: { _ in },
+                alert: { alerts.append($0) }
+            )
+
+            #expect(alerts.isEmpty, "the run the user is waiting for is the other one")
+            #expect(
+                DocumentPaneView.selfWriteRegistry.context(
+                    fileURL: unwritten.fileURL,
+                    onDiskSource: try #require(unwritten.markdown)
+                ) == nil
+            )
+        case .closedOriginatingTabDoesNotReopen:
+            let terminal = pane("zsh")
+            let session = TerminalSession(
+                title: "s",
+                workingDirectory: "/tmp",
+                layout: .pane(terminal),
+                activePaneID: terminal.id
+            )
+            let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+            // The tab existed when the refresh started; the user closed it while git ran.
+            let closed = try #require(
+                store.openDocumentPane(
+                    fileURL: FileManager.default.temporaryDirectory
+                        .appending(path: "awesomux-closed-\(UUID().uuidString).branch-changes.md"),
+                    in: session.id,
+                    associatedWith: terminal.id
+                )
+            )
+            store.closeDocumentPane(documentID: closed, in: session.id)
+            #expect(!store.containsDocumentTab(closed))
+            let coordinator = BranchChangesCoordinator()
+            let ticket = coordinator.begin(paneID: terminal.id)
+            let result = try render(markdown: "# closed\n")
+
+            var alerts: [BranchChangesFailure] = []
+            var completedWrites: [URL] = []
+            BranchChangesCompletion.apply(
+                .success(result),
+                paneID: terminal.id,
+                originatingDocumentID: closed,
+                ticket: ticket,
+                store: store,
+                coordinator: coordinator,
+                completeWrite: { completedWrites.append($0) },
+                alert: { alerts.append($0) }
+            )
+
+            #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+            #expect(alerts.isEmpty, "the user closed the tab; there is nothing to report")
+            // The bytes still reached disk, so they still have to be claimed as ours.
+            #expect(completedWrites == [result.fileURL])
+            let context = DocumentPaneView.selfWriteRegistry.context(
+                fileURL: result.fileURL,
+                onDiskSource: try #require(result.markdown)
+            )
+            #expect(context?.isSelfWrite == true)
+        case .closedOriginatingTabDoesNotShowFailure:
+            let terminal = pane("zsh")
+            let session = TerminalSession(
+                title: "s",
+                workingDirectory: "/tmp",
+                layout: .pane(terminal),
+                activePaneID: terminal.id
+            )
+            let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+            let closed = try #require(
+                store.openDocumentPane(
+                    fileURL: FileManager.default.temporaryDirectory
+                        .appending(path: "awesomux-closed-\(UUID().uuidString).branch-changes.md"),
+                    in: session.id,
+                    associatedWith: terminal.id
+                )
+            )
+            store.closeDocumentPane(documentID: closed, in: session.id)
+            let coordinator = BranchChangesCoordinator()
+            let ticket = coordinator.begin(paneID: terminal.id)
+            var alerts: [BranchChangesFailure] = []
+
+            BranchChangesCompletion.apply(
+                .failure(.gitUnavailable),
+                paneID: terminal.id,
+                originatingDocumentID: closed,
+                ticket: ticket,
+                store: store,
+                coordinator: coordinator,
+                completeWrite: { _ in },
+                alert: { alerts.append($0) }
+            )
+
+            #expect(alerts.isEmpty)
+            #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
+        }
     }
 
     @Test("a stale completion arriving after the current one cannot roll the registry back")
@@ -194,162 +317,7 @@ struct BranchChangesCompletionTests {
         #expect(staleContext?.isSelfWrite != true)
     }
 
-    @Test("a superseded render registers nothing, because it wrote nothing")
-    func supersededFailureRegistersNothing() throws {
-        let terminal = pane("zsh")
-        let store = SessionStore(groups: [
-            SessionGroup(
-                name: "work",
-                sessions: [
-                    TerminalSession(
-                        title: "s",
-                        workingDirectory: "/tmp",
-                        layout: .pane(terminal),
-                        activePaneID: terminal.id
-                    )
-                ])
-        ])
-        let coordinator = BranchChangesCoordinator()
-        let ticket = coordinator.begin(paneID: terminal.id)
-        let unwritten = try render(markdown: "# never written\n")
-
-        var alerts: [BranchChangesFailure] = []
-        BranchChangesCompletion.apply(
-            .failure(.superseded),
-            paneID: terminal.id,
-            ticket: ticket,
-            store: store,
-            coordinator: coordinator,
-            completeWrite: { _ in },
-            alert: { alerts.append($0) }
-        )
-
-        #expect(alerts.isEmpty, "the run the user is waiting for is the other one")
-        #expect(
-            DocumentPaneView.selfWriteRegistry.context(
-                fileURL: unwritten.fileURL,
-                onDiskSource: try #require(unwritten.markdown)
-            ) == nil
-        )
-    }
-
     // MARK: - The tab that asked
-
-    @Test("a refresh whose tab was closed mid-run finalizes its write but opens nothing")
-    func closedOriginatingTabDoesNotReopen() throws {
-        let terminal = pane("zsh")
-        let session = TerminalSession(
-            title: "s",
-            workingDirectory: "/tmp",
-            layout: .pane(terminal),
-            activePaneID: terminal.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        // The tab existed when the refresh started; the user closed it while git ran.
-        let closed = try #require(
-            store.openDocumentPane(
-                fileURL: FileManager.default.temporaryDirectory
-                    .appending(path: "awesomux-closed-\(UUID().uuidString).branch-changes.md"),
-                in: session.id,
-                associatedWith: terminal.id
-            )
-        )
-        store.closeDocumentPane(documentID: closed, in: session.id)
-        #expect(!store.containsDocumentTab(closed))
-        let coordinator = BranchChangesCoordinator()
-        let ticket = coordinator.begin(paneID: terminal.id)
-        let result = try render(markdown: "# closed\n")
-
-        var alerts: [BranchChangesFailure] = []
-        var completedWrites: [URL] = []
-        BranchChangesCompletion.apply(
-            .success(result),
-            paneID: terminal.id,
-            originatingDocumentID: closed,
-            ticket: ticket,
-            store: store,
-            coordinator: coordinator,
-            completeWrite: { completedWrites.append($0) },
-            alert: { alerts.append($0) }
-        )
-
-        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
-        #expect(alerts.isEmpty, "the user closed the tab; there is nothing to report")
-        // The bytes still reached disk, so they still have to be claimed as ours.
-        #expect(completedWrites == [result.fileURL])
-        let context = DocumentPaneView.selfWriteRegistry.context(
-            fileURL: result.fileURL,
-            onDiskSource: try #require(result.markdown)
-        )
-        #expect(context?.isSelfWrite == true)
-    }
-
-    @Test("a refresh failure stays silent after its originating tab closes")
-    func closedOriginatingTabDoesNotShowFailure() throws {
-        let terminal = pane("zsh")
-        let session = TerminalSession(
-            title: "s",
-            workingDirectory: "/tmp",
-            layout: .pane(terminal),
-            activePaneID: terminal.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        let closed = try #require(
-            store.openDocumentPane(
-                fileURL: FileManager.default.temporaryDirectory
-                    .appending(path: "awesomux-closed-\(UUID().uuidString).branch-changes.md"),
-                in: session.id,
-                associatedWith: terminal.id
-            )
-        )
-        store.closeDocumentPane(documentID: closed, in: session.id)
-        let coordinator = BranchChangesCoordinator()
-        let ticket = coordinator.begin(paneID: terminal.id)
-        var alerts: [BranchChangesFailure] = []
-
-        BranchChangesCompletion.apply(
-            .failure(.gitUnavailable),
-            paneID: terminal.id,
-            originatingDocumentID: closed,
-            ticket: ticket,
-            store: store,
-            coordinator: coordinator,
-            completeWrite: { _ in },
-            alert: { alerts.append($0) }
-        )
-
-        #expect(alerts.isEmpty)
-        #expect(store.session(id: session.id)?.layout.firstDocumentGroup == nil)
-    }
-
-    @Test("a menu-started run carries no originating tab and always opens one")
-    func nilOriginatingDocumentStillOpensATab() throws {
-        let terminal = pane("zsh")
-        let session = TerminalSession(
-            title: "s",
-            workingDirectory: "/tmp",
-            layout: .pane(terminal),
-            activePaneID: terminal.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        let coordinator = BranchChangesCoordinator()
-        let ticket = coordinator.begin(paneID: terminal.id)
-        let result = try render(markdown: "# menu\n")
-
-        BranchChangesCompletion.apply(
-            .success(result),
-            paneID: terminal.id,
-            originatingDocumentID: nil,
-            ticket: ticket,
-            store: store,
-            coordinator: coordinator,
-            completeWrite: { _ in },
-            alert: { _ in }
-        )
-
-        let group = try #require(store.session(id: session.id)?.layout.firstDocumentGroup)
-        #expect(group.tabs.count == 1)
-    }
 
     @Test("a refresh after a branch switch replaces its originating tab")
     func branchSwitchRefreshReplacesOriginatingTab() throws {
@@ -417,6 +385,112 @@ struct BranchChangesCompletionTests {
         #expect(focusRequests.first?.1 == session.id)
     }
 
+    // MARK: - Superseded tab Refresh
+
+    @Test("a menu run that replaces a tab's Refresh says so when it lands elsewhere")
+    func supersededTabRefreshIsDisclosed() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let refreshingTab = try #require(
+            store.openDocumentPane(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appending(path: "awesomux-old-\(UUID().uuidString).branch-changes.md"),
+                in: session.id,
+                associatedWith: terminal.id
+            )
+        )
+        let coordinator = BranchChangesCoordinator()
+        _ = coordinator.begin(paneID: terminal.id, originatingDocumentID: refreshingTab)
+        // Two menu presses: the disclosure must survive the middle run being
+        // superseded in turn.
+        _ = coordinator.begin(paneID: terminal.id)
+        let menu = coordinator.begin(paneID: terminal.id)
+        let result = try render(markdown: "# switched\n", branch: "feature/new")
+        var interrupted: [BranchChangesIdentity] = []
+
+        BranchChangesCompletion.apply(
+            .success(result),
+            paneID: terminal.id,
+            ticket: menu,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { interrupted.append($0) }
+        )
+
+        #expect(interrupted == [result.identity])
+        coordinator.finish(menu, paneID: terminal.id)
+
+        // A later, unrelated menu run has nothing to disclose.
+        let later = coordinator.begin(paneID: terminal.id)
+        BranchChangesCompletion.apply(
+            .success(try render(markdown: "# later\n", branch: "feature/later")),
+            paneID: terminal.id,
+            ticket: later,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { _ in Issue.record("no Refresh was in flight") }
+        )
+    }
+
+    @Test("no supersede notice when the menu run lands in that tab or the tab closed")
+    func supersededTabRefreshStaysQuietWhenNothingWasLost() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let result = try render(markdown: "# same slot\n")
+        let sameSlotTab = try #require(
+            store.openDocumentPane(
+                fileURL: result.fileURL,
+                in: session.id,
+                associatedWith: terminal.id,
+                branchChangesIdentity: result.identity
+            )
+        )
+        let coordinator = BranchChangesCoordinator()
+        _ = coordinator.begin(paneID: terminal.id, originatingDocumentID: sameSlotTab)
+        let sameSlot = coordinator.begin(paneID: terminal.id)
+        BranchChangesCompletion.apply(
+            .success(result),
+            paneID: terminal.id,
+            ticket: sameSlot,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { _ in Issue.record("the tab itself was refreshed") }
+        )
+        coordinator.finish(sameSlot, paneID: terminal.id)
+
+        store.closeDocumentPane(documentID: sameSlotTab, in: session.id)
+        _ = coordinator.begin(paneID: terminal.id, originatingDocumentID: sameSlotTab)
+        let afterClose = coordinator.begin(paneID: terminal.id)
+        BranchChangesCompletion.apply(
+            .success(try render(markdown: "# closed\n", branch: "feature/new")),
+            paneID: terminal.id,
+            ticket: afterClose,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { _ in Issue.record("the interrupted tab is gone") }
+        )
+    }
+
     // MARK: - Following the pane
 
     @Test("the tab follows a pane that moved to another workspace")
@@ -465,31 +539,4 @@ struct BranchChangesCompletionTests {
         #expect(tab.branchChangesIdentity == result.identity)
     }
 
-    @Test("the tab opens in the pane's own workspace when it never moved")
-    func openLandsInTheOwningWorkspace() throws {
-        let terminal = pane("zsh")
-        let session = TerminalSession(
-            title: "s",
-            workingDirectory: "/tmp",
-            layout: .pane(terminal),
-            activePaneID: terminal.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
-        let coordinator = BranchChangesCoordinator()
-        let ticket = coordinator.begin(paneID: terminal.id)
-
-        let result = try render(markdown: "# here\n")
-        BranchChangesCompletion.apply(
-            .success(result),
-            paneID: terminal.id,
-            ticket: ticket,
-            store: store,
-            coordinator: coordinator,
-            completeWrite: { _ in },
-            alert: { Issue.record("unexpected failure alert: \($0)") }
-        )
-
-        let group = try #require(store.session(id: session.id)?.layout.firstDocumentGroup)
-        #expect(group.tabs.map(\.fileURL) == [result.fileURL])
-    }
 }

@@ -265,13 +265,6 @@ public final class HelperConnection {
         return frame
     }
 
-    /// Test seam: seed `queuedFrames` without a socket read so drain complexity
-    /// can be measured directly (role of `ingest` in the Codex transport seam
-    /// suite).
-    func enqueueFramesForTesting(_ frames: [BridgeFrameReader.Frame]) {
-        queuedFrames.append(contentsOf: frames)
-    }
-
     private func write(_ line: String) throws {
         var data = Data(line.utf8)
         data.append(0x0A)

@@ -108,8 +108,7 @@ exactly `/ci`, `/ci all`, `/ci unit`, `/ci adapter`, or `/ci system`. Each
 request captures the current head SHA, so a new commit requires a fresh command.
 See [`ci.md`](ci.md) for the hosted trust boundary, artifacts, and cache policy.
 
-`AwesoMuxTestSupportTests` belongs to the unit group. The shared support target
-is test-only; production targets must not depend on it.
+The shared support target is test-only; production targets must not depend on it.
 
 ### Current CI group map
 
@@ -118,7 +117,7 @@ contract; the W0 counts above are historical.
 
 | Group | Who runs it | Selected targets / filters |
 | --- | --- | --- |
-| `unit` | `./script/test.sh unit`, `/ci unit` | `AwesoMuxCoreTests`, `AwesoMuxConfigTests`, `AwesoMuxTestSupportTests`, `DesignSystemTests`, `UnicodeHygieneTests`, `SecureFileIOTests` |
+| `unit` | `./script/test.sh unit`, `/ci unit` | `AwesoMuxCoreTests`, `AwesoMuxConfigTests`, `DesignSystemTests`, `UnicodeHygieneTests`, `SecureFileIOTests` |
 | `adapter` | `./script/test.sh adapter`, `/ci adapter` | `AwesoMuxAgentHookSupportTests`, `AwesoMuxBridgeHelperSupportTests` |
 | `system` | `./script/test.sh system`, `/ci system` | `awesoMuxTests` |
 | `timing` | local `all`, hosted `all`, `release.yml` | named suites in `timing_pattern` / `timing_test_pattern` |

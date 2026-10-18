@@ -16,67 +16,71 @@ struct RuntimeProfileScriptTests {
         #expect(first.output != second.output)
     }
 
-    @Test("worktree profile resolves bundle support config and socket names")
-    func worktreeProfilePaths() throws {
-        let result = try run("awesomux_resolve_profile development:0123456789ab; awesomux_print_profile")
-
-        #expect(result.status == 0)
-        let expectedOutput = [
-            "profile=development:0123456789ab",
-            "bundle=com.interactivebuffoonery.awesomux.dev.0123456789ab",
-            "display=awesoMux (dev 0123456)",
-            "support=awesoMux-dev-0123456789ab",
-            "config=awesomux-dev-0123456789ab",
-            "socket=051u7i0"
-        ].joined(separator: "\n")
-        #expect(result.output == expectedOutput)
+    enum ProfilePathsCase: String, CaseIterable {
+        case worktreeProfilePaths
+        case checkoutProfiles
+        case stableProfilePaths
     }
 
-    @Test("primary and linked checkouts select legacy and isolated development profiles")
-    func checkoutProfiles() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-profile-checkouts-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let primary = directory.appending(path: "primary", directoryHint: .isDirectory)
-        let linked = directory.appending(path: "linked", directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    @Test(arguments: ProfilePathsCase.allCases)
+    func profilePaths(_ scenario: ProfilePathsCase) throws {
+        switch scenario {
+        case .worktreeProfilePaths:
+            let result = try run("awesomux_resolve_profile development:0123456789ab; awesomux_print_profile")
 
-        let result = try run(
-            """
-            set -e
-            git init -q -b main "$2"
-            git -C "$2" config user.name test
-            git -C "$2" config user.email test@example.com
-            touch "$2/seed"
-            git -C "$2" add seed
-            git -C "$2" commit -q -m seed
-            git -C "$2" worktree add -q -b linked "$3"
-            awesomux_checkout_profile "$2"
-            awesomux_checkout_profile "$3"
-            """,
-            arguments: [primary.path, linked.path]
-        )
+            #expect(result.status == 0)
+            let expectedOutput = [
+                "profile=development:0123456789ab",
+                "bundle=com.interactivebuffoonery.awesomux.dev.0123456789ab",
+                "display=awesoMux (dev 0123456)",
+                "support=awesoMux-dev-0123456789ab",
+                "config=awesomux-dev-0123456789ab",
+                "socket=051u7i0",
+            ].joined(separator: "\n")
+            #expect(result.output == expectedOutput)
+        case .checkoutProfiles:
+            let directory = FileManager.default.temporaryDirectory
+                .appending(path: "awesomux-profile-checkouts-\(UUID().uuidString)", directoryHint: .isDirectory)
+            let primary = directory.appending(path: "primary", directoryHint: .isDirectory)
+            let linked = directory.appending(path: "linked", directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let profiles = result.output.split(separator: "\n").map(String.init)
-        #expect(result.status == 0)
-        #expect(profiles.first == "development")
-        #expect(profiles.last?.range(
-            of: #"^development:[0-9a-f]{12}$"#,
-            options: .regularExpression
-        ) != nil)
-    }
+            let result = try run(
+                """
+                set -e
+                git init -q -b main "$2"
+                git -C "$2" config user.name test
+                git -C "$2" config user.email test@example.com
+                touch "$2/seed"
+                git -C "$2" add seed
+                git -C "$2" commit -q -m seed
+                git -C "$2" worktree add -q -b linked "$3"
+                awesomux_checkout_profile "$2"
+                awesomux_checkout_profile "$3"
+                """,
+                arguments: [primary.path, linked.path]
+            )
 
-    @Test("production and legacy development profiles keep their paths")
-    func stableProfilePaths() throws {
-        let production = try run("awesomux_resolve_profile production; awesomux_print_profile")
-        let development = try run("awesomux_resolve_profile development; awesomux_print_profile")
+            let profiles = result.output.split(separator: "\n").map(String.init)
+            #expect(result.status == 0)
+            #expect(profiles.first == "development")
+            #expect(
+                profiles.last?.range(
+                    of: #"^development:[0-9a-f]{12}$"#,
+                    options: .regularExpression
+                ) != nil)
+        case .stableProfilePaths:
+            let production = try run("awesomux_resolve_profile production; awesomux_print_profile")
+            let development = try run("awesomux_resolve_profile development; awesomux_print_profile")
 
-        #expect(production.output.contains("bundle=com.interactivebuffoonery.awesomux\n"))
-        #expect(production.output.contains("support=awesoMux\n"))
-        #expect(production.output.hasSuffix("socket=amx"))
-        #expect(development.output.contains("bundle=com.interactivebuffoonery.awesomux.dev\n"))
-        #expect(development.output.contains("support=awesoMux-dev\n"))
-        #expect(development.output.hasSuffix("socket=amx-dev"))
+            #expect(production.output.contains("bundle=com.interactivebuffoonery.awesomux\n"))
+            #expect(production.output.contains("support=awesoMux\n"))
+            #expect(production.output.hasSuffix("socket=amx"))
+            #expect(development.output.contains("bundle=com.interactivebuffoonery.awesomux.dev\n"))
+            #expect(development.output.contains("support=awesoMux-dev\n"))
+            #expect(development.output.hasSuffix("socket=amx-dev"))
+        }
     }
 
     @Test("malformed worktree profiles fail closed")
@@ -87,54 +91,55 @@ struct RuntimeProfileScriptTests {
         #expect(result.error.contains("invalid awesoMux runtime profile"))
     }
 
-    @Test("reaper accepts exact worktree profiles in either argument order")
-    func reaperSelectsWorktreeProfile() throws {
-        let first = try runReaper(["--profile", "development:0123456789ab", "list"])
-        let second = try runReaper(["list", "--profile", "development:0123456789ab"])
-
-        #expect(first.status == 0)
-        #expect(first.output.contains("profile: development:0123456789ab"))
-        #expect(first.output.contains("/051u7i0"))
-        #expect(first.output.contains("--profile development:0123456789ab orphans"))
-        #expect(second.output == first.output)
+    enum ReaperSelectionCase: String, CaseIterable {
+        case reaperSelectsWorktreeProfile
+        case reaperSelectsLegacyDevelopmentProfile
+        case reaperUsesInjectedPaneProfile
+        case reaperDefaultsAndValidation
     }
 
-    @Test("reaper accepts legacy flags in either order")
-    func reaperSelectsLegacyDevelopmentProfile() throws {
-        let first = try runReaper(["--dev", "list"])
-        let second = try runReaper(["list", "--dev"])
-        let production = try runReaper(["list", "--prod"])
+    @Test(arguments: ReaperSelectionCase.allCases)
+    func reaperSelection(_ scenario: ReaperSelectionCase) throws {
+        switch scenario {
+        case .reaperSelectsWorktreeProfile:
+            let first = try runReaper(["--profile", "development:0123456789ab", "list"])
+            let second = try runReaper(["list", "--profile", "development:0123456789ab"])
 
-        #expect(first.status == 0)
-        #expect(first.output.contains("profile: development"))
-        #expect(first.output.contains("/amx-dev"))
-        #expect(first.output.contains("--dev orphans"))
-        #expect(second.output == first.output)
-        #expect(production.output.contains("profile: production"))
-    }
+            #expect(first.status == 0)
+            #expect(first.output.contains("profile: development:0123456789ab"))
+            #expect(first.output.contains("/051u7i0"))
+            #expect(first.output.contains("--profile development:0123456789ab orphans"))
+            #expect(second.output == first.output)
+        case .reaperSelectsLegacyDevelopmentProfile:
+            let first = try runReaper(["--dev", "list"])
+            let second = try runReaper(["list", "--dev"])
+            let production = try runReaper(["list", "--prod"])
 
-    @Test("reaper inherits a profile only inside an awesoMux pane")
-    func reaperUsesInjectedPaneProfile() throws {
-        let profile = "development:0123456789ab"
-        let insidePane = try runReaper([], inheritedProfile: profile, insidePane: true)
-        let outsidePane = try runReaper([], inheritedProfile: profile, insidePane: false)
+            #expect(first.status == 0)
+            #expect(first.output.contains("profile: development"))
+            #expect(first.output.contains("/amx-dev"))
+            #expect(first.output.contains("--dev orphans"))
+            #expect(second.output == first.output)
+            #expect(production.output.contains("profile: production"))
+        case .reaperUsesInjectedPaneProfile:
+            let profile = "development:0123456789ab"
+            let insidePane = try runReaper([], inheritedProfile: profile, insidePane: true)
+            let outsidePane = try runReaper([], inheritedProfile: profile, insidePane: false)
 
-        #expect(insidePane.output.contains("profile: \(profile)"))
-        #expect(insidePane.output.contains("/051u7i0"))
-        #expect(outsidePane.output.contains("profile: production"))
-        #expect(outsidePane.output.contains("/amx"))
-    }
+            #expect(insidePane.output.contains("profile: \(profile)"))
+            #expect(insidePane.output.contains("/051u7i0"))
+            #expect(outsidePane.output.contains("profile: production"))
+            #expect(outsidePane.output.contains("/amx"))
+        case .reaperDefaultsAndValidation:
+            let production = try runReaper(["list"])
+            let malformed = try runReaper(["--profile", "development:bad", "all"])
 
-    @Test("reaper defaults to production and rejects malformed profile ids")
-    func reaperDefaultsAndValidation() throws {
-        let production = try runReaper(["list"])
-        let malformed = try runReaper(["--profile", "development:bad", "all"])
-
-        #expect(production.status == 0)
-        #expect(production.output.contains("profile: production"))
-        #expect(production.output.contains("--prod orphans"))
-        #expect(malformed.status == 2)
-        #expect(malformed.error.contains("invalid awesoMux runtime profile"))
+            #expect(production.status == 0)
+            #expect(production.output.contains("profile: production"))
+            #expect(production.output.contains("--prod orphans"))
+            #expect(malformed.status == 2)
+            #expect(malformed.error.contains("invalid awesoMux runtime profile"))
+        }
     }
 
     private func run(_ command: String, arguments: [String] = []) throws -> ShellResult {

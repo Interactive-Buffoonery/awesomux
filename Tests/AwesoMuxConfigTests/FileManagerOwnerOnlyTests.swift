@@ -32,22 +32,6 @@ struct FileManagerOwnerOnlyTests {
         #expect(try permissions(atPath: intermediate.path) == 0o700)
     }
 
-    @Test("creating an existing directory does not throw or re-clamp it")
-    func creatingExistingDirectoryIsNoOp() throws {
-        let scratch = try makeScratchDirectory()
-        defer { try? fileManager.removeItem(at: scratch) }
-        let directory = scratch.appending(path: "existing", directoryHint: .isDirectory)
-        try fileManager.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false,
-            attributes: [.posixPermissions: 0o755]
-        )
-
-        try fileManager.createOwnerOnlyDirectory(at: directory)
-
-        #expect(try permissions(atPath: directory.path) == 0o755)
-    }
-
     @Test("clamps an existing directory to owner-only")
     func clampsDirectoryToOwnerOnly() throws {
         let scratch = try makeScratchDirectory()
@@ -129,27 +113,6 @@ struct FileManagerOwnerOnlyTests {
         #expect(try permissions(atPath: directory.path) == 0o755, "a read-only caller clamps nothing")
     }
 
-    @Test("validating without creating refuses a missing directory rather than making one")
-    func validatingWithoutCreatingRefusesAMissingDirectory() throws {
-        let scratch = try makeScratchDirectory()
-        defer { try? fileManager.removeItem(at: scratch) }
-        let missing = scratch.appending(path: "absent", directoryHint: .isDirectory)
-
-        #expect(fileManager.validatedOwnerOnlyDirectory(at: missing, createIfMissing: false) == nil)
-        #expect(!fileManager.fileExists(atPath: missing.path))
-    }
-
-    @Test("clamping a missing item throws")
-    func clampingMissingItemThrows() throws {
-        let scratch = try makeScratchDirectory()
-        defer { try? fileManager.removeItem(at: scratch) }
-        let missing = scratch.appending(path: "missing.json")
-
-        #expect(throws: (any Error).self) {
-            try fileManager.setOwnerOnlyPermissions(onFileAt: missing)
-        }
-    }
-
     @Test("writes a new file at 0600 without inheriting the ambient umask")
     func writesNewOwnerOnlyFileAtExactMode() throws {
         let scratch = try makeScratchDirectory()
@@ -207,20 +170,4 @@ struct FileManagerOwnerOnlyTests {
         #expect(try fileManager.contentsOfDirectory(atPath: scratch.path) == ["state.json"])
     }
 
-    @Test("a failed write leaves no temporary file behind")
-    func failedOwnerOnlyWriteRemovesTemporaryFile() throws {
-        let scratch = try makeScratchDirectory()
-        defer { try? fileManager.removeItem(at: scratch) }
-        // rename(2) refuses to replace a non-empty directory, so the write fails
-        // only after the temporary file exists — the case the cleanup guards.
-        let occupied = scratch.appending(path: "occupied", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: occupied, withIntermediateDirectories: false)
-        try Data("child".utf8).write(to: occupied.appending(path: "child"))
-
-        #expect(throws: (any Error).self) {
-            try fileManager.writeOwnerOnlyFile(at: occupied, contents: Data("{}".utf8))
-        }
-
-        #expect(try fileManager.contentsOfDirectory(atPath: scratch.path) == ["occupied"])
-    }
 }

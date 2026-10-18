@@ -45,27 +45,11 @@ enum SessionStoreText: Sendable {
     }
 
     /// Composes a synthetic fallback session title (e.g. "shell 1"). The only
-    /// place `restoredTitle`, `defaultGroups`, and `WorkspaceTreeReducer.nextSessionTitle`
+    /// place `restoredTitle`, `defaultGroups`, and `WorkspaceTreeReducer.nextSyntheticSessionTitle`
     /// assemble a fallback title, so the prefix+index shape and its translator
     /// comment exist in one spot instead of drifting across three copies.
     static func syntheticSessionTitle(for agentKind: AgentKind, index: Int) -> String {
         SyntheticSessionTitle(agentKind: agentKind, index: index).localizedTitle()
-    }
-
-    /// Prefix for a synthetic fallback session title (e.g. "shell 1"). Only the
-    /// generic "shell" noun is localized — other agent kinds fall back to their
-    /// brand name (`AgentKind.shortName`), which stays untranslated like the
-    /// "awesoMux" default group name above.
-    static func syntheticSessionTitlePrefix(for agentKind: AgentKind) -> String {
-        guard agentKind == .shell else {
-            return agentKind.shortName
-        }
-        return String(
-            localized: "shell",
-            bundle: .main,
-            locale: .current,
-            comment: "Fallback session title prefix for an unnamed shell session, e.g. \"shell 1\""
-        )
     }
 
     /// True when `rawTitle` sanitizes to empty — i.e. `restoredTitle` would
@@ -110,36 +94,4 @@ public extension SessionStore {
             index: index
         )
     }
-
-    nonisolated static let previewGroups: [SessionGroup] = [
-        SessionGroup(
-            name: "awesoMux",
-            sessions: [
-                TerminalSession(
-                    title: "app shell",
-                    workingDirectory: "~/Development/awesomux",
-                    agentKind: .claudeCode,
-                    agentState: .running
-                ),
-                TerminalSession(
-                    title: "libghostty spike",
-                    workingDirectory: "~/Development/awesomux/vendor",
-                    agentKind: .shell,
-                    agentState: .idle
-                )
-            ]
-        ),
-        SessionGroup(
-            name: "scratch",
-            sessions: [
-                TerminalSession(
-                    title: "agent follow-up",
-                    workingDirectory: "~/Desktop",
-                    agentKind: .codex,
-                    agentState: .needsAttention,
-                    unreadNotificationCount: 2
-                )
-            ]
-        )
-    ]
 }

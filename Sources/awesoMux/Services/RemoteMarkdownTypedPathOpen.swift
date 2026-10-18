@@ -300,31 +300,6 @@ enum RemoteMarkdownTypedPathOpen {
         }
         return RemoteMarkdownReadRouting.origin(sessionID: sessionID, paneID: paneID ?? session.activePaneID, store: store)
     }
-
-    /// After a fetch, refuse apply when the originating session/pane is gone or
-    /// the associated SSH pane now names a different host than the one we
-    /// fetched from. A local associated pane is not a conflicting host.
-    @MainActor
-    static func associatedContextStillMatches(
-        capturedTarget: RemoteTarget,
-        in sessionID: TerminalSession.ID,
-        associatedWith paneID: TerminalPane.ID?,
-        sessionStore: SessionStore
-    ) -> Bool {
-        guard let session = sessionStore.session(id: sessionID) else {
-            return false
-        }
-        guard let paneID else {
-            return true
-        }
-        guard let pane = session.layout.pane(id: paneID) else {
-            return false
-        }
-        if let liveTarget = pane.executionPlan.remoteTarget {
-            return liveTarget == capturedTarget
-        }
-        return true
-    }
 }
 
 /// Remembers the last submitted typed path per SSH destination so a reopened

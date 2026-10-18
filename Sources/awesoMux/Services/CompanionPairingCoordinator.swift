@@ -378,6 +378,11 @@ final class CompanionPairingCoordinator {
                 self.finishPairing(id: pairingID)
                 return grant
             },
+            revoke: { [weak self] connectionID in
+                guard let self else { throw CompanionPairingError.connectionClosed }
+                defer { self.lastSeen.removeValue(forKey: connectionID) }
+                try self.accessStore.revoke(connectionID: connectionID)
+            },
             capture: { request, lease in
                 await service.companionResponse(request: request, lease: lease)
             },
@@ -500,7 +505,9 @@ final class CompanionPairingCoordinator {
     }
 
     private func stopListenerIfIdle() {
-        guard pairedPhones.isEmpty, pairingSession == nil, pairingGeneration == nil else { return }
+        guard pairedPhones.isEmpty, pairingSession == nil, pairingGeneration == nil,
+            server?.hasPendingRevocationReplies != true
+        else { return }
         stopWatchingNetwork()
         listenerLifecycle = UUID()
         listenerGeneration = UUID()
@@ -605,6 +612,7 @@ private final class CompanionNetworkServer {
     private let cancelApproval: @MainActor (UUID) -> Void
     private let abortPairing: @MainActor (UUID) -> Void
     private let register: @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant
+    private let revoke: @MainActor (UUID) throws -> Void
     private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse
     private let markSeen: @MainActor (UUID) -> Void
     private let connectionFinished: @MainActor () -> Void
@@ -614,6 +622,9 @@ private final class CompanionNetworkServer {
     private let queue = DispatchQueue(label: "awesomux.companion.listener", qos: .utility)
     private var listener: NWListener?
     private var connections: [UUID: ActiveCompanionConnection] = [:]
+    private var pendingRevocationReplies: Set<UUID> = []
+
+    var hasPendingRevocationReplies: Bool { !pendingRevocationReplies.isEmpty }
 
     init(
         identity: CompanionIdentity,
@@ -629,6 +640,7 @@ private final class CompanionNetworkServer {
         cancelApproval: @escaping @MainActor (UUID) -> Void,
         abortPairing: @escaping @MainActor (UUID) -> Void,
         register: @escaping @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant,
+        revoke: @escaping @MainActor (UUID) throws -> Void,
         capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse,
         markSeen: @escaping @MainActor (UUID) -> Void,
         connectionFinished: @escaping @MainActor () -> Void,
@@ -647,6 +659,7 @@ private final class CompanionNetworkServer {
         self.cancelApproval = cancelApproval
         self.abortPairing = abortPairing
         self.register = register
+        self.revoke = revoke
         self.capture = capture
         self.markSeen = markSeen
         self.connectionFinished = connectionFinished
@@ -721,6 +734,7 @@ private final class CompanionNetworkServer {
 
     func invalidate(connectionID: UUID?) {
         for (id, active) in connections where connectionID == nil || active.connectionID == connectionID {
+            if connectionID != nil, pendingRevocationReplies.contains(id) { continue }
             active.worker?.cancel()
             active.connection.cancel()
             connections.removeValue(forKey: id)
@@ -786,9 +800,11 @@ private final class CompanionNetworkServer {
         do {
             let phoneSPKI = try Self.peerSPKI(connection)
             let fingerprint = Data(SHA256.hash(data: phoneSPKI))
-            let isPaired = pairedConnections().contains {
+            let pairedAtHandshake = pairedConnections().first {
                 $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
             }
+            connections[id]?.connectionID = pairedAtHandshake?.id
+            let isPaired = pairedAtHandshake != nil
             guard isPaired || (pairingIsOpen && limiter.allows(remote, kind: .pairing)) else { return }
             let firstFrameDeadline = Task { [delay] in
                 try? await delay(.seconds(LocalAPIContract.timeout))
@@ -815,7 +831,7 @@ private final class CompanionNetworkServer {
                 $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
             }) {
                 connections[id]?.connectionID = paired.id
-                try await serveAuthorized(connection, data: data, connectionID: paired.id, fingerprint: fingerprint)
+                try await serveAuthorized(connection, id: id, data: data, connectionID: paired.id, fingerprint: fingerprint)
             } else {
                 try await servePairing(
                     connection,
@@ -830,7 +846,7 @@ private final class CompanionNetworkServer {
         }
     }
 
-    private func serveAuthorized(_ connection: NWConnection, data: Data, connectionID: UUID, fingerprint: Data) async throws {
+    private func serveAuthorized(_ connection: NWConnection, id: UUID, data: Data, connectionID: UUID, fingerprint: Data) async throws {
         let deadline = Task { [delay] in
             try? await delay(.seconds(LocalAPIContract.timeout))
             guard !Task.isCancelled else { return }
@@ -855,7 +871,10 @@ private final class CompanionNetworkServer {
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == profile else { throw LocalAPIError.profileMismatch }
             guard request.connectionID == connectionID else { throw LocalAPIError.permissionDenied }
-            guard let operation = LocalAPIOperation(rawValue: request.operation) else {
+            // Self-unpair uses the same paired-certificate grant as status, but is
+            // deliberately absent from the local bearer API's operation catalog.
+            let isUnpair = request.operation == "unpair"
+            guard let operation = isUnpair ? .connectionStatus : LocalAPIOperation(rawValue: request.operation) else {
                 throw LocalAPIError.unsupportedOperation
             }
             guard operation == .connectionStatus || operation == .listAgents || operation == .attentionEvents else {
@@ -867,6 +886,28 @@ private final class CompanionNetworkServer {
                 certificateFingerprint: fingerprint,
                 operation: operation
             ).get()
+            if isUnpair {
+                pendingRevocationReplies.insert(id)
+                defer { pendingRevocationReplies.remove(id) }
+                var revocationError: LocalAPIError?
+                do {
+                    try revoke(lease.connectionID)
+                } catch {
+                    revocationError = .transportFailure
+                }
+                invalidate(connectionID: lease.connectionID)
+                // Revocation invalidates the lease. Only this payload-free receipt
+                // may finish; other connections and future requests stay revoked.
+                let response =
+                    if let revocationError {
+                        LocalAPIResponse(requestID: request.requestID, error: revocationError)
+                    } else {
+                        LocalAPIResponse(requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date())
+                    }
+                responseProgress.markStarted()
+                try await Self.sendFrame(try LocalAPIContract.encoder().encode(response), connection: connection)
+                return
+            }
             let response = await capture(request, lease)
             let encoded = try LocalAPIContract.encoder().encode(response)
             guard encoded.count <= LocalAPIContract.maximumResponseBytes else { throw LocalAPIError.responseTooLarge }

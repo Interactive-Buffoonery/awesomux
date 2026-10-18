@@ -30,7 +30,7 @@ struct WorkspaceEmojiSidebarTests {
         return SidebarSessionTile(
             session: session,
             match: nil,
-            tint: ProjectTint(groupName: "Test", color: nil, index: 0),
+            tint: ProjectTint(group: SessionGroup(name: "Test", sessions: []), index: 0),
             isActive: false,
             displayMode: .expanded,
             isKeyboardFocused: false,

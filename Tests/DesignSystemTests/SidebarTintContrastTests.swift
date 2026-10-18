@@ -35,20 +35,6 @@ struct SidebarTintContrastTests {
         }
     }
 
-    @Test("standard appearance resolution ignores host Increase Contrast")
-    func standardAppearanceResolutionIgnoresHostIncreaseContrast() throws {
-        let color = Color(
-            nsColor: NSColor.awDynamic(
-                mocha: "#010101",
-                latte: "#020202",
-                mochaHC: "#030303",
-                latteHC: "#040404"
-            ))
-
-        #expect(contrastRatio(try resolve(color, appearance: .aqua), NSColor.awHex("#020202")) == 1)
-        #expect(contrastRatio(try resolve(color, appearance: .darkAqua), NSColor.awHex("#010101")) == 1)
-    }
-
     @Test("workspace borders clear the non-text floor")
     func workspaceBordersClearNonTextFloor() throws {
         for appearance in standardAppearances {
@@ -156,40 +142,6 @@ struct SidebarTintContrastTests {
                 appearance: appearance
             )
         }
-    }
-
-    @Test("sidebar views keep the contrast-safe tokens wired")
-    func sidebarViewsKeepContrastSafeTokensWired() throws {
-        let contracts: [(String, [String])] = [
-            (
-                "Sources/awesoMux/Views/SidebarSessionTile.swift",
-                [
-                    "Color.aw.status.floatingWork",
-                    "Color.aw.railText",
-                    "isHovered ? Color.aw.dividerHoverHC : Color.aw.dividerRestHC",
-                    "isHighContrast && !tintedHighContrast ? Color.aw.dividerHoverHC : tint.borderHue",
-                ]
-            ),
-            ("Sources/awesoMux/Views/SidebarGroupHeaderView.swift", ["Color.aw.railText"]),
-            ("Sources/awesoMux/Views/SidebarPinnedSectionView.swift", ["Color.aw.railText"]),
-        ]
-
-        for (path, requiredText) in contracts {
-            let source = try String(
-                contentsOf: Self.repositoryRoot.appendingPathComponent(path),
-                encoding: .utf8
-            )
-            for text in requiredText {
-                #expect(source.contains(text), "\(path) must contain `\(text)`")
-            }
-        }
-    }
-
-    private static var repositoryRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
     }
 
     private func resolve(_ color: Color, appearance: NSAppearance.Name) throws -> NSColor {

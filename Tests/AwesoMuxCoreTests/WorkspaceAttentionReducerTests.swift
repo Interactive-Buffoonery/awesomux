@@ -5,85 +5,34 @@ import Testing
 
 @Suite("WorkspaceAttentionReducer")
 struct WorkspaceAttentionReducerTests {
-    @Test("renaming a generated workspace clears its synthetic title metadata")
-    func renameClearsSyntheticTitleMetadata() {
-        var session = TerminalSession(
-            title: "shell 1",
-            workingDirectory: "~",
-            syntheticTitle: SyntheticSessionTitle(agentKind: .shell, index: 1),
-            agentKind: .shell
-        )
-
+    @Test(arguments: [
+        (AttentionReason.permissionPrompt, AttentionReason?.some(.permissionPrompt)),
+        (.userInputRequired, .some(.userInputRequired)),
+        (.bell, nil), (.desktopNotification, nil), (.processError, nil), (.unknown, nil),
+    ])
+    func inferredClear(reason: AttentionReason, expected: AttentionReason?) {
+        var session = TerminalSession(title: "codex", workingDirectory: "~", agentKind: .codex, attentionReason: reason)
         _ = WorkspaceAttentionReducer.updatePane(
-            &session,
-            paneID: session.activePaneID,
-            update: .init(title: "release"),
-            now: Date()
-        )
-
-        #expect(session.title == "release")
-        #expect(session.syntheticTitle == nil)
-    }
-
-    @Test("updatePane sanitizes titles, clamps unread, and clears attention explicitly")
-    func updatePaneAppliesAttentionRules() throws {
-        var session = TerminalSession(
-            title: "old",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .needsAttention,
-            unreadNotificationCount: 2
-        )
-
-        let outcome = WorkspaceAttentionReducer.updatePane(
-            &session,
-            paneID: session.activePaneID,
-            update: .init(
-                title: "\u{202E}",
-                agentExecutionState: .running,
-                clearsAttention: true,
-                unreadNotificationDelta: -99
-            ),
+            &session, paneID: session.activePaneID,
+            update: .init(agentExecutionState: .running, clearsAttention: true),
             now: Date(timeIntervalSince1970: 1)
         )
-
-        #expect(session.title == "old")
-        #expect(session.agentExecutionState == .running)
-        #expect(session.attentionReason == nil)
-        #expect(session.unreadNotificationCount == 0)
-        #expect(outcome.didMutate == true)
-        #expect(outcome.unreadChange?.oldCount == 2)
-        #expect(outcome.unreadChange?.newCount == 0)
+        #expect(session.attentionReason == expected)
+        #expect(session.needsUserInput == (expected != nil))
     }
 
-    @Test("execution-state events refresh the activity clock across the coarsening window (quit-risk liveness)")
-    func executionStateEventRefreshesActivityClock() throws {
-        var session = TerminalSession(
-            title: "web",
-            workingDirectory: "~",
-            agentKind: .claudeCode,
-            lastAgentStateChangeAt: Date(timeIntervalSince1970: 0)
-        )
-        let paneID = session.activePaneID
-
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session, paneID: paneID,
-            update: .init(agentExecutionState: .running),
-            now: Date(timeIntervalSince1970: 100)
-        )
-        #expect(session.layout.pane(id: paneID)?.lastAgentStateChangeAt == Date(timeIntervalSince1970: 100))
-
-        // A repeated identical state PAST the coarsening window (perf/main-thread-churn:
-        // this 100s gap is well beyond the 10s coarsening grain) is still a liveness
-        // heartbeat: it refreshes the clock so `isQuitRisk()` keeps treating the agent
-        // as live. A repeat WITHIN the window intentionally does NOT refresh anymore —
-        // see `WorkspaceAttentionReducerHeartbeatTests` for that gate.
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session, paneID: paneID,
-            update: .init(agentExecutionState: .running),
-            now: Date(timeIntervalSince1970: 200)
-        )
-        #expect(session.layout.pane(id: paneID)?.lastAgentStateChangeAt == Date(timeIntervalSince1970: 200))
+    @Test(arguments: [
+        (AttentionReason.permissionPrompt, AgentState.running, true, AttentionReason?.some(.permissionPrompt)),
+        (.userInputRequired, .running, true, .some(.userInputRequired)),
+        (.bell, .running, true, nil), (.processError, .running, true, nil),
+        (.permissionPrompt, .needsAttention, false, .some(.permissionPrompt)),
+        (.userInputRequired, .needsAttention, false, .some(.userInputRequired)),
+    ])
+    func legacyAttention(reason: AttentionReason, state: AgentState, clears: Bool, expected: AttentionReason?) {
+        var pane = TerminalPane(title: "codex", workingDirectory: "~", agentKind: .codex, attentionReason: reason, executionPlan: .local)
+        pane.applyLegacyAgentState(state, clearsAttentionForExecutionState: clears)
+        #expect(pane.attentionReason == expected)
+        if state == .running { #expect(pane.agentExecutionState == .running) } else { #expect(pane.agentState == .needsAttention) }
     }
 
     @Test("permission queue mirrors count and clears only its own reason")
@@ -102,16 +51,33 @@ struct WorkspaceAttentionReducerTests {
         )
         #expect(session.layout.pane(id: paneID)?.attentionReason == nil)
         #expect(session.layout.pane(id: paneID)?.unreadNotificationCount == 0)
+        _ = WorkspaceAttentionReducer.updatePermissionPromptAttention(
+            &session, paneID: paneID, countDelta: 0, hasPending: true
+        )
+        _ = WorkspaceAttentionReducer.updatePermissionPromptAttention(
+            &session, paneID: paneID, countDelta: 0, hasPending: false
+        )
+        #expect(session.attentionReason == nil)
     }
 
-    @Test("a lower-priority attentionReason cannot clobber a higher-priority pending one")
-    func updatePaneDoesNotDowngradeHigherPriorityAttention() throws {
+    @Test(
+        "a lower-priority attentionReason cannot clobber a higher-priority pending one",
+        arguments: [AttentionReason.permissionPrompt, .unknown])
+    func updatePaneDoesNotDowngradeHigherPriorityAttention(initialReason: AttentionReason) throws {
         var session = TerminalSession(
             title: "shell",
             workingDirectory: "~",
             agentKind: .shell,
-            attentionReason: .permissionPrompt
+            attentionReason: initialReason
         )
+
+        if initialReason == .unknown {
+            _ = WorkspaceAttentionReducer.updatePane(
+                &session, paneID: session.activePaneID,
+                update: .init(attentionReason: .permissionPrompt), now: Date(timeIntervalSince1970: 0)
+            )
+            #expect(session.attentionReason == .permissionPrompt)
+        }
 
         // A `.bell` arriving while a permission prompt is still pending must
         // not overwrite it (INT-506).
@@ -152,179 +118,6 @@ struct WorkspaceAttentionReducerTests {
         #expect(session.attentionReason == nil)
     }
 
-    @Test(
-        "an inferred clear cannot retract a pending prompt",
-        arguments: [AttentionReason.permissionPrompt, .userInputRequired]
-    )
-    func inferredClearKeepsPendingPrompt(reason: AttentionReason) {
-        var session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: reason
-        )
-
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session,
-            paneID: session.activePaneID,
-            update: .init(agentExecutionState: .running, clearsAttention: true),
-            now: Date(timeIntervalSince1970: 1)
-        )
-
-        #expect(session.attentionReason == reason)
-        #expect(session.needsUserInput)
-    }
-
-    @Test(
-        "an inferred clear still retracts a low-priority reason",
-        arguments: [AttentionReason.bell, .desktopNotification, .processError, .unknown]
-    )
-    func inferredClearRetractsLowPriorityAttention(reason: AttentionReason) {
-        var session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: reason
-        )
-
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session,
-            paneID: session.activePaneID,
-            update: .init(agentExecutionState: .running, clearsAttention: true),
-            now: Date(timeIntervalSince1970: 1)
-        )
-
-        #expect(session.attentionReason == nil)
-    }
-
-    @Test("an explicit clear retracts a pending prompt")
-    func explicitClearRetractsPendingPrompt() {
-        var session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .permissionPrompt
-        )
-
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session,
-            paneID: session.activePaneID,
-            update: .init(
-                agentExecutionState: .thinking,
-                clearsAttention: true,
-                attentionClearIsAuthoritative: true
-            ),
-            now: Date(timeIntervalSince1970: 1)
-        )
-
-        #expect(session.attentionReason == nil)
-    }
-
-    @Test(
-        "applyLegacyAgentState keeps a pending prompt but drops a low-priority reason",
-        arguments: [
-            (AttentionReason.permissionPrompt, AttentionReason?.some(.permissionPrompt)),
-            (.userInputRequired, .some(.userInputRequired)),
-            (.bell, nil),
-            (.processError, nil),
-        ]
-    )
-    func legacyAgentStateRespectsPendingPrompt(
-        reason: AttentionReason,
-        expected: AttentionReason?
-    ) {
-        var pane = TerminalPane(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: reason,
-            executionPlan: .local
-        )
-
-        pane.applyLegacyAgentState(.running, clearsAttentionForExecutionState: true)
-
-        #expect(pane.attentionReason == expected)
-        #expect(pane.agentExecutionState == .running)
-    }
-
-    @Test("applyLegacyAgentState honors an explicit clear of a pending prompt")
-    func legacyAgentStateExplicitClear() {
-        var pane = TerminalPane(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .permissionPrompt,
-            executionPlan: .local
-        )
-
-        pane.applyLegacyAgentState(
-            .thinking,
-            clearsAttentionForExecutionState: true,
-            attentionClearIsAuthoritative: true
-        )
-
-        #expect(pane.attentionReason == nil)
-    }
-
-    @Test(
-        "a legacy .needsAttention update cannot downgrade a pending prompt to .unknown",
-        arguments: [AttentionReason.permissionPrompt, .userInputRequired]
-    )
-    func legacyNeedsAttentionCannotDowngradePendingPrompt(reason: AttentionReason) {
-        var pane = TerminalPane(
-            title: "claude",
-            workingDirectory: "~",
-            agentKind: .claudeCode,
-            attentionReason: reason,
-            executionPlan: .local
-        )
-
-        // `.needsAttention` has no execution state, so it lands in the attention
-        // branch carrying `AgentState.attentionReason == .unknown` (priority 0).
-        // Generic background output re-asserting "this pane is loud" must not
-        // demote a prompt the user still has to answer out of Needs Input.
-        pane.applyLegacyAgentState(.needsAttention, clearsAttentionForExecutionState: false)
-
-        #expect(pane.attentionReason == reason)
-        #expect(pane.agentState == .needsAttention)
-    }
-
-    @Test("a legacy .needsAttention update overwrites an equal-priority reason")
-    func legacyNeedsAttentionOverwritesEqualPriorityReason() {
-        var pane = TerminalPane(
-            title: "shell",
-            workingDirectory: "~",
-            agentKind: .shell,
-            attentionReason: .bell,
-            executionPlan: .local
-        )
-
-        // `.bell` and `.unknown` are both priority 0. The rule is strictly
-        // "no DOWNGRADE", so equal priority still writes — same as `updatePane`.
-        pane.applyLegacyAgentState(.needsAttention, clearsAttentionForExecutionState: false)
-
-        #expect(pane.attentionReason == .unknown)
-    }
-
-    @Test("a real permission prompt still upgrades a pane holding .unknown")
-    func realPromptUpgradesUnknownAttention() {
-        var session = TerminalSession(
-            title: "claude",
-            workingDirectory: "~",
-            agentKind: .claudeCode,
-            attentionReason: .unknown
-        )
-
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session,
-            paneID: session.activePaneID,
-            update: .init(attentionReason: .permissionPrompt),
-            now: Date(timeIntervalSince1970: 1)
-        )
-
-        #expect(session.attentionReason == .permissionPrompt)
-    }
-
     @Test("markSessionNeedsAttention's update keeps a pending prompt lifted")
     func markSessionNeedsAttentionKeepsPendingPrompt() {
         var session = TerminalSession(
@@ -348,65 +141,6 @@ struct WorkspaceAttentionReducerTests {
         #expect(session.unreadNotificationCount == 1)
     }
 
-    @Test("acknowledgePane clears a pending permission prompt")
-    func acknowledgePaneClearsPendingPrompt() {
-        var session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .permissionPrompt
-        )
-
-        _ = WorkspaceAttentionReducer.acknowledgePane(
-            &session,
-            paneID: session.activePaneID
-        )
-
-        #expect(session.attentionReason == nil)
-        #expect(session.needsUserInput == false)
-    }
-
-    @Test("acknowledgeAllPanes and acknowledgeAllSessions clear pending prompts")
-    func explicitSweepsClearPendingPrompts() {
-        var session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .permissionPrompt
-        )
-        _ = WorkspaceAttentionReducer.acknowledgeAllPanes(in: &session)
-        #expect(session.attentionReason == nil)
-
-        let pending = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .userInputRequired
-        )
-        var groups = [SessionGroup(name: "main", sessions: [pending])]
-        WorkspaceAttentionReducer.acknowledgeAllSessions(in: &groups)
-        #expect(groups[0].sessions[0].attentionReason == nil)
-    }
-
-    @Test("updatePermissionPromptAttention still clears its own resolved prompt")
-    func bridgeResolutionClearsPendingPrompt() {
-        var session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .permissionPrompt
-        )
-
-        _ = WorkspaceAttentionReducer.updatePermissionPromptAttention(
-            &session,
-            paneID: session.activePaneID,
-            countDelta: 0,
-            hasPending: false
-        )
-
-        #expect(session.attentionReason == nil)
-    }
-
     @Test("one pane's waiting clears only its own attention; a sibling stays loud")
     func updatePaneIsScopedToOnePane() throws {
         // The regression PR #149 faked with the `isSinglePane` gate: in a split,
@@ -414,7 +148,7 @@ struct WorkspaceAttentionReducerTests {
         // `.bell` rather than `.permissionPrompt`: this test is about pane
         // SCOPING, and only a retractable (low-priority) reason clears through
         // an inferred update at all — the pending-prompt case is covered by
-        // `inferredClearKeepsPendingPrompt`.
+        // `inferredClear`.
         let needy = TerminalPane(
             title: "codex",
             workingDirectory: "~",
@@ -526,14 +260,14 @@ struct WorkspaceAttentionReducerTests {
         #expect(change == nil)
     }
 
-    @Test("acknowledgePane clears unread and attention")
-    func acknowledgePaneClearsBoth() {
+    @Test("acknowledgePane clears unread and pending attention", arguments: [3, 0])
+    func acknowledgePaneClearsBoth(unread: Int) {
         var session = TerminalSession(
             title: "codex",
             workingDirectory: "~",
             agentKind: .codex,
-            agentState: .needsAttention,
-            unreadNotificationCount: 3
+            attentionReason: .permissionPrompt,
+            unreadNotificationCount: unread
         )
 
         let change = WorkspaceAttentionReducer.acknowledgePane(
@@ -542,62 +276,17 @@ struct WorkspaceAttentionReducerTests {
         )
         #expect(session.unreadNotificationCount == 0)
         #expect(session.attentionReason == nil)
-        #expect(change?.oldCount == 3)
-        #expect(change?.newCount == 0)
+        #expect(!session.needsUserInput)
+        if unread == 0 {
+            #expect(change == nil)
+        } else {
+            #expect(change?.oldCount == unread)
+            #expect(change?.newCount == 0)
+        }
     }
 
-    @Test("acknowledgePane clears attention-only without unread change")
-    func acknowledgePaneAttentionOnly() {
-        var session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .needsAttention,
-            unreadNotificationCount: 0
-        )
-
-        let change = WorkspaceAttentionReducer.acknowledgePane(
-            &session,
-            paneID: session.activePaneID
-        )
-        #expect(session.attentionReason == nil)
-        #expect(change == nil)
-    }
-
-    @Test("acknowledgeAllSessions clears every pane in a split")
-    func acknowledgeAllClearsEveryPane() {
-        let a = TerminalPane(
-            title: "a", workingDirectory: "~", agentKind: .codex,
-            attentionReason: .permissionPrompt, unreadNotificationCount: 2,
-            executionPlan: .local
-        )
-        let b = TerminalPane(
-            title: "b", workingDirectory: "~", agentKind: .claudeCode,
-            attentionReason: .userInputRequired, unreadNotificationCount: 1,
-            executionPlan: .local
-        )
-        var groups = [SessionGroup(name: "main", sessions: [
-            TerminalSession(
-                title: "split",
-                workingDirectory: "~",
-                layout: .split(TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(a),
-                    second: .pane(b)
-                )),
-                activePaneID: a.id
-            )
-        ])]
-
-        WorkspaceAttentionReducer.acknowledgeAllSessions(in: &groups)
-
-        let session = groups[0].sessions[0]
-        #expect(session.unreadNotificationCount == 0)
-        #expect(session.needsAcknowledgement == false)
-    }
-
-    @Test("acknowledgeAllPanes clears every pane in one session only")
-    func acknowledgeAllPanesClearsEveryPaneInSession() {
+    @Test("acknowledgement sweeps clear every pending pane", arguments: [false, true])
+    func acknowledgeAllPanesClearsEveryPaneInSession(allSessions: Bool) {
         let a = TerminalPane(
             title: "a", workingDirectory: "~", agentKind: .codex,
             attentionReason: .permissionPrompt, unreadNotificationCount: 2,
@@ -619,63 +308,25 @@ struct WorkspaceAttentionReducerTests {
             activePaneID: a.id
         )
 
-        let change = WorkspaceAttentionReducer.acknowledgeAllPanes(in: &session)
+        let change: WorkspaceAttentionReducer.UnreadChange?
+        if allSessions {
+            var groups = [SessionGroup(name: "main", sessions: [session])]
+            WorkspaceAttentionReducer.acknowledgeAllSessions(in: &groups)
+            session = groups[0].sessions[0]
+            change = nil
+        } else {
+            change = WorkspaceAttentionReducer.acknowledgeAllPanes(in: &session)
+        }
 
         // ⌘⇧K clears the WHOLE workspace — every pane, not just the active one.
         #expect(session.layout.pane(id: a.id)?.attentionReason == nil)
         #expect(session.layout.pane(id: b.id)?.attentionReason == nil)
         #expect(session.unreadNotificationCount == 0)
         #expect(session.needsAcknowledgement == false)
-        #expect(change?.oldCount == 3)
-        #expect(change?.newCount == 0)
+        if !allSessions {
+            #expect(change?.oldCount == 3)
+            #expect(change?.newCount == 0)
+        }
     }
 
-    @Test("acknowledgeAllPanes returns nil when nothing to clear")
-    func acknowledgeAllPanesNoop() {
-        var session = TerminalSession(
-            title: "shell",
-            workingDirectory: "~",
-            agentKind: .shell
-        )
-
-        let change = WorkspaceAttentionReducer.acknowledgeAllPanes(in: &session)
-        #expect(change == nil)
-    }
-
-    @Test("clearStaleErrorIfPresent transitions error to idle on the pane")
-    func clearStaleErrorTransitionsToIdle() {
-        var session = TerminalSession(
-            title: "shell",
-            workingDirectory: "~",
-            agentKind: .shell,
-            agentExecutionState: .error
-        )
-
-        let result = WorkspaceAttentionReducer.clearStaleErrorIfPresent(
-            &session,
-            paneID: session.activePaneID,
-            now: Date(timeIntervalSince1970: 42)
-        )
-        #expect(result == true)
-        #expect(session.agentExecutionState == .idle)
-        #expect(session.lastAgentStateChangeAt == Date(timeIntervalSince1970: 42))
-    }
-
-    @Test("clearStaleErrorIfPresent no-ops for non-error state")
-    func clearStaleErrorNoopsForNonError() {
-        var session = TerminalSession(
-            title: "shell",
-            workingDirectory: "~",
-            agentKind: .shell,
-            agentExecutionState: .running
-        )
-
-        let result = WorkspaceAttentionReducer.clearStaleErrorIfPresent(
-            &session,
-            paneID: session.activePaneID,
-            now: Date()
-        )
-        #expect(result == false)
-        #expect(session.agentExecutionState == .running)
-    }
 }

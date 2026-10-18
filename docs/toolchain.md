@@ -103,7 +103,7 @@ Treat a toolchain update as a deliberate maintenance change:
    raise it only when new manifest APIs require it.
 4. Update each platform entry in `.swift-format-version` to the
    `swift format --version` shipped with that platform's toolchain.
-5. Run `./script/check-toolchain.sh` and `./script/test-toolchain.sh` locally.
+5. Run `./script/check-toolchain.sh` locally.
 6. Run `./script/test-format.sh` and `./script/format.sh --lint` without applying
    a repository-wide reformat.
 7. When changing the Linux pin, update the Static Linux SDK (URL + checksum) in

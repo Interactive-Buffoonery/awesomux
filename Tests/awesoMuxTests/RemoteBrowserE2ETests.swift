@@ -80,7 +80,9 @@ struct RemoteBrowserE2ETests {
         defer { Task { await supervisor.shutdown() } }
 
         var report: [String] = []
+        var completed = false
         defer {
+            if !completed { report.append("FAIL journey stopped before completion") }
             try? (report.joined(separator: "\n") + "\n").write(
                 to: artifact.appending(path: "browser-e2e-report.txt"), atomically: true, encoding: .utf8
             )
@@ -102,16 +104,16 @@ struct RemoteBrowserE2ETests {
                 return try await BridgeExecChannel.run(command: configured, stdin: stdin)
             }
         )
-        #expect(wrapperCapability == .incompatible)
+        try #require(wrapperCapability == .incompatible)
         record("Missing browser wrapper capability: \(wrapperCapability)")
 
         let invalid = try await fixture.runBrowser(url: "file:///tmp/not-web", timeout: 5)
-        #expect(invalid.status == 1 && invalid.stderr.contains("browser open invalid"))
+        try #require(invalid.status == 1 && invalid.stderr.contains("browser open invalid"))
         record("PASS non-web scheme rejected")
 
         settings.workspaces.update { $0.remoteBrowserEnabled = false }
         let disabled = try await fixture.runBrowser(url: "https://example.invalid/disabled", timeout: 5)
-        #expect(disabled.status == 1 && disabled.stderr.contains("browser open disabled"))
+        try #require(disabled.status == 1 && disabled.stderr.contains("browser open disabled"))
         settings.workspaces.update { $0.remoteBrowserEnabled = true }
         record("PASS disabled setting rejects a new request")
 
@@ -121,14 +123,14 @@ struct RemoteBrowserE2ETests {
         try saveScreenshot(of: sheet, to: artifact.appending(path: "browser-prompt.png"))
 
         let busy = try await fixture.runBrowser(url: "https://example.invalid/busy", timeout: 5)
-        #expect(busy.status == 1 && busy.stderr.contains("browser open busy"))
+        try #require(busy.status == 1 && busy.stderr.contains("browser open busy"))
         record("PASS second browser lane receives busy while a prompt is pending")
 
         try fixture.writeStatusFixture()
         let status = try await fixture.runStatusFixture()
-        #expect(status.status == 0)
-        #expect(await frames.waitForCount(1, deadline: .seconds(5)))
-        #expect(
+        try #require(status.status == 0)
+        try #require(await frames.waitForCount(1, deadline: .seconds(5)))
+        try #require(
             await frames.values.contains { envelope in
                 if case .agentStatus(let value) = envelope.message { return value.eventID == "browser-e2e-status" }
                 return false
@@ -137,7 +139,7 @@ struct RemoteBrowserE2ETests {
 
         try clickButton("Cancel", in: sheet)
         let cancelled = try await pending.value
-        #expect(cancelled.status == 1 && cancelled.stderr.contains("browser open cancelled"))
+        try #require(cancelled.status == 1 && cancelled.stderr.contains("browser open cancelled"))
         try await requireSheetDismissal(sheet, on: window)
         record("PASS Cancel returns cancelled")
 
@@ -146,16 +148,15 @@ struct RemoteBrowserE2ETests {
         let copySheet = try await requireSheet(on: window)
         try clickButton("Copy Link", in: copySheet)
         let copied = try await copy.value
-        #expect(
+        try #require(
             copied.status == 1
                 && copied.stderr.contains("browser open copied")
                 && copied.stderr.contains(copyURL)
         )
-        #expect(NSPasteboard.general.string(forType: .string) == copyURL)
+        try #require(NSPasteboard.general.string(forType: .string) == copyURL)
         try await requireSheetDismissal(copySheet, on: window)
         record("PASS Copy Link copies the exact URL and returns copied")
 
-        try await Task.sleep(for: .seconds(10.2))
         let receiver = try BrowserHitReceiver(artifact: artifact)
         defer { receiver.stop() }
         let openURL = "http://127.0.0.1:\(try await receiver.port())/opened?source=ssh"
@@ -163,20 +164,20 @@ struct RemoteBrowserE2ETests {
         let openSheet = try await requireSheet(on: window)
         try clickButton("Open Link", in: openSheet)
         let opened = try await open.value
-        #expect(opened.status == 0)
-        #expect(try await receiver.waitForHit(expected: "/opened?source=ssh"))
+        try #require(opened.status == 0)
+        try #require(try await receiver.waitForHit(expected: "/opened?source=ssh"))
         try await requireSheetDismissal(openSheet, on: window)
         let openOrigin = "http://127.0.0.1:\(receiver.resolvedPort)"
         settings.workspaces.update {
             $0.remoteBrowserAllowedOrigins[fixture.destination] = [openOrigin]
         }
-        #expect(
+        try #require(
             settings.workspaces.value.remoteBrowserAllowedOrigins[fixture.destination]?.contains(
                 openOrigin) == true)
         record("PASS Open Link reaches the local browser receiver")
 
         let remembered = try await fixture.runBrowser(url: openURL, timeout: 30)
-        #expect(remembered.status == 0)
+        try #require(remembered.status == 0)
         record("PASS an origin saved through the real settings store opens without a second prompt")
 
         settings.workspaces.update { $0.remoteBrowserAllowedOrigins.removeAll() }
@@ -184,15 +185,14 @@ struct RemoteBrowserE2ETests {
         let revokedSheet = try await requireSheet(on: window)
         try clickButton("Cancel", in: revokedSheet)
         let revokedResult = try await revoked.value
-        #expect(revokedResult.stderr.contains("browser open cancelled"))
+        try #require(revokedResult.stderr.contains("browser open cancelled"))
         try await requireSheetDismissal(revokedSheet, on: window)
         record("PASS revoking the remembered origin restores the prompt")
 
-        try await Task.sleep(for: .seconds(10.2))
         let expiring = fixture.runBrowserTask(url: "https://example.invalid/expiry", timeout: 1)
         let expiringSheet = try await requireSheet(on: window)
         let expired = try await expiring.value
-        #expect(expired.status == 1 && expired.stderr.contains("browser open expired"))
+        try #require(expired.status == 1 && expired.stderr.contains("browser open expired"))
         try await requireSheetDismissal(expiringSheet, on: window)
         record("PASS request expiry closes the prompt and returns expired")
 
@@ -200,7 +200,7 @@ struct RemoteBrowserE2ETests {
         let disconnectingSheet = try await requireSheet(on: window)
         fixture.stopForward()
         let disconnected = try await disconnecting.value
-        #expect(disconnected.status == 1 && disconnected.stderr.contains("browser open disconnected"))
+        try #require(disconnected.status == 1 && disconnected.stderr.contains("browser open disconnected"))
         try await requireSheetDismissal(disconnectingSheet, on: window)
         record("PASS tunnel loss closes the prompt and returns disconnected")
 
@@ -212,7 +212,6 @@ struct RemoteBrowserE2ETests {
         try #require(reconnectedResult.stderr.contains("browser open cancelled"))
         record("PASS a fresh tunnel reconnect serves a new browser request")
 
-        try await Task.sleep(for: .seconds(10.2))
         let cancelledCopyURL = "https://example.invalid/cancelled-during-connection-check"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString("browser-e2e-cancellation-sentinel", forType: .string)
@@ -221,28 +220,40 @@ struct RemoteBrowserE2ETests {
         sink.cancelAfterNextConnectionCheck = true
         try clickButton("Copy Link", in: cancelledCopySheet)
         _ = try await cancelledCopy.value
-        #expect(NSPasteboard.general.string(forType: .string) == "browser-e2e-cancellation-sentinel")
+        try await requireSheetDismissal(cancelledCopySheet, on: window)
+        try #require(NSPasteboard.general.string(forType: .string) == "browser-e2e-cancellation-sentinel")
         record("Clipboard after cancellation: \(NSPasteboard.general.string(forType: .string) ?? "empty")")
 
         let skewed = Task.detached {
-            BridgeHelperCommand.run(
-                arguments: ["browser-open", "https://example.invalid/clock-skew", "--timeout", "5"],
-                environment: [
-                    "AWESOMUX_BRIDGE_STATE": fixture.stateFile.path,
-                    "AWESOMUX_BRIDGE_SESSION": fixture.session,
-                ],
-                now: { Date().addingTimeInterval(-300) }
-            )
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(15))
+            while true {
+                var errors: [String] = []
+                let status = BridgeHelperCommand.run(
+                    arguments: ["browser-open", "https://example.invalid/clock-skew", "--timeout", "5"],
+                    environment: [
+                        "AWESOMUX_BRIDGE_STATE": fixture.stateFile.path,
+                        "AWESOMUX_BRIDGE_SESSION": fixture.session,
+                    ],
+                    now: { Date().addingTimeInterval(-300) },
+                    errorOutput: { errors.append($0) }
+                )
+                guard errors.contains(where: { $0.contains("browser open rate-limited") }), clock.now < deadline else {
+                    return status
+                }
+                try await clock.sleep(for: .milliseconds(100))
+            }
         }
-        let skewedPromptAppeared = await waitUntilEventually(deadline: .seconds(3)) {
+        let skewedPromptAppeared = await waitUntilEventually(deadline: .seconds(18)) {
             window.attachedSheet != nil
         }
-        #expect(skewedPromptAppeared)
+        try #require(skewedPromptAppeared)
         if let skewedSheet = window.attachedSheet {
             try clickButton("Cancel", in: skewedSheet)
             try await requireSheetDismissal(skewedSheet, on: window)
         }
-        _ = await skewed.value
+        let skewedResult = try await skewed.value
+        try #require(skewedResult == 1)
         record("Prompt with remote clock five minutes behind: \(skewedPromptAppeared)")
 
         sink.ignoreNextRequest = true
@@ -267,7 +278,7 @@ struct RemoteBrowserE2ETests {
             return response.outcome
         }
         let actorExpiry = try await expiryWithoutCoordinator.value
-        #expect(actorExpiry == .expired)
+        try #require(actorExpiry == .expired)
         record("PASS actor returns correlated expiry when the UI consumer cannot reply")
 
         try saveEnlargedTextPrompt(
@@ -276,6 +287,7 @@ struct RemoteBrowserE2ETests {
             to: artifact.appending(path: "browser-prompt-enlarged-text.png")
         )
         record("PASS the prompt view rendered at 135 percent interface text scale")
+        completed = true
 
     }
 
@@ -317,7 +329,7 @@ struct RemoteBrowserE2ETests {
         for title in ["Cancel", "Open Link", "Copy Link"] {
             let button = try #require(findButton(in: content, matching: { $0.title == title }))
             let frame = button.convert(button.bounds, to: content)
-            #expect(!button.isHidden && button.alphaValue > 0 && content.bounds.contains(frame))
+            try #require(!button.isHidden && button.alphaValue > 0 && content.bounds.contains(frame))
         }
     }
 
@@ -510,7 +522,17 @@ private final class BrowserSSHFixture: @unchecked Sendable {
     }
 
     func runBrowserTask(url: String, timeout: Int) -> Task<Result, Error> {
-        Task.detached { try self.runRemote(["browser-open", url, "--timeout", String(timeout)]) }
+        Task.detached {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(15))
+            while true {
+                let result = try self.runRemote(["browser-open", url, "--timeout", String(timeout)])
+                guard result.status == 1, result.stderr.contains("browser open rate-limited"), clock.now < deadline else {
+                    return result
+                }
+                try await clock.sleep(for: .milliseconds(100))
+            }
+        }
     }
 
     func runBrowser(url: String, timeout: Int) async throws -> Result {

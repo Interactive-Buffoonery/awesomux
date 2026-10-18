@@ -4228,7 +4228,7 @@ struct AwesoMuxApp: App {
         // whatever order git finishes; without this the slower one's result
         // lands last, and the tab shows — or reloads from disk — the older diff.
         let coordinator = branchChangesCoordinator
-        let ticket = coordinator.begin(paneID: paneID)
+        let ticket = coordinator.begin(paneID: paneID, originatingDocumentID: originatingDocumentID)
         let opener = BranchChangesOpener()
         let chrome = BranchChangesOpener.localizedChrome()
 
@@ -4271,6 +4271,7 @@ struct AwesoMuxApp: App {
                 completeWrite: { opener.completeWrite(at: $0) },
                 alert: showBranchChangesFailureAlert,
                 comparisonDidChange: showBranchChangesComparisonChangedNotice,
+                refreshWasSuperseded: showBranchChangesRefreshSupersededNotice,
                 requestFocus: { tabID, sessionID in
                     guard let intent = focusIntent else { return }
                     if documentTabActions.requestFocus(
@@ -4302,6 +4303,27 @@ struct AwesoMuxApp: App {
                     localized: "Comparison changed",
                     comment:
                         "Notice heading after refreshing a branch changes tab when its branch, base, or repository comparison changed"
+                )
+            )
+        )
+        scheduleQuickRunToastDismissal(id: toastID)
+    }
+
+    private func showBranchChangesRefreshSupersededNotice(_ identity: BranchChangesIdentity) {
+        let toastID = UUID()
+        quickRunToast = QuickRunToast(
+            id: toastID,
+            command: identity.displayRepositoryName,
+            output: String(
+                localized: "Changes for \(identity.displayBranch) opened in another tab.",
+                comment:
+                    "Notice text when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
+            ),
+            state: .notice(
+                kicker: String(
+                    localized: "Refresh canceled",
+                    comment:
+                        "Notice heading when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
                 )
             )
         )

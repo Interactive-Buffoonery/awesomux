@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
 # Canonical Ghostty archive list for the artifact scripts. Package.swift cannot
-# source shell files, so script/check_ghostty_archive_drift.sh fails preflight
-# when its linker flags drift from this list.
+# source shell files; keep these paths in sync with Package.swift.
 
 GHOSTTY_LINK_ARCHIVES=(
   libghostty-fat.a

@@ -140,10 +140,6 @@ struct KeyboardShortcutEntry: Identifiable {
         )
     }
 
-    var primaryBinding: KeyBinding? {
-        bindings.first
-    }
-
     func matches(query: String, in sectionTitle: String) -> Bool {
         let foldedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)

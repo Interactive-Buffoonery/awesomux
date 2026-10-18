@@ -353,6 +353,13 @@ ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test-lib-
   -Demit-lib-vt=true \
   -Dtest-filter=awesomux-scrollback --summary all
 
+# The raw OSC 7 mailbox copy must reject overflow and malformed UTF-8 in full.
+ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test-lib-vt \
+  --cache-dir "$AWESOMUX_ZIG_CACHE_DIR" \
+  -Doptimize="$AWESOMUX_GHOSTTY_OPTIMIZE" \
+  -Demit-lib-vt=true \
+  -Dtest-filter=awesomux-remote-pwd --summary all
+
 # Link detection belongs to the full config module, outside libghostty-vt.
 ZIG_GLOBAL_CACHE_DIR="$AWESOMUX_ZIG_GLOBAL_CACHE_DIR" "$ZIG_BIN" build test \
   --cache-dir "$AWESOMUX_ZIG_CACHE_DIR" \

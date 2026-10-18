@@ -62,7 +62,7 @@ public struct TerminalPane: Identifiable, Codable, Hashable, Sendable {
     public var remoteConnectionHealth: RemoteConnectionHealth
     /// Runtime-only directory explicitly reported by the remote terminal through
     /// OSC 7 / Ghostty's PWD action. Title-derived paths must never populate this
-    /// field because it authorizes relative remote Markdown resolution.
+    /// field. It suggests an editable Markdown base, never read authorization.
     public var remoteWorkingDirectory: String?
     /// Runtime-only cache of the most recent live OSC 0/2 terminal title, kept
     /// even while `isTitleUserEdited` freezes the displayed `title`. Reset reads

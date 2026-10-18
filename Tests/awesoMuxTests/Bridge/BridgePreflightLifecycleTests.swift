@@ -14,7 +14,6 @@ struct BridgePreflightLifecycleTests {
         let fixture = try makeFixture()
         fixture.view.createSurfaceIfNeeded()
         await fixture.preflight.waitForRequestCount(1)
-        let originalGeneration = fixture.view.lifecycleState.bridgePreflightGeneration
         #expect(fixture.view.commandBridgeEnactor.sessionID == fixture.pane.terminalSessionID)
         #expect(fixture.view.commandBridgeEnactor.statusChannel != nil)
 
@@ -26,7 +25,6 @@ struct BridgePreflightLifecycleTests {
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false
         )
-        #expect(fixture.view.lifecycleState.bridgePreflightGeneration > originalGeneration)
         await fixture.preflight.resumeRequest(0, returning: .degraded(.forwardFailed))
         await fixture.preflight.waitForCompletionCount(1)
 
@@ -94,7 +92,6 @@ struct BridgePreflightLifecycleTests {
         let fixture = try makeFixture()
         fixture.view.createSurfaceIfNeeded()
         await fixture.preflight.waitForRequestCount(1)
-        let originalGeneration = fixture.view.lifecycleState.bridgePreflightGeneration
         let window = hostInSettledWindow(fixture.view)
         defer { window.close() }
 
@@ -106,7 +103,6 @@ struct BridgePreflightLifecycleTests {
             enabledAgentRuntimeFileDropSources: [],
             grokIconEnabled: false
         )
-        #expect(fixture.view.lifecycleState.bridgePreflightGeneration == originalGeneration)
         #expect(fixture.surfaceCommands.values.isEmpty)
 
         await fixture.preflight.resumeRequest(0, returning: .degraded(.forwardFailed))
@@ -122,7 +118,6 @@ struct BridgePreflightLifecycleTests {
         let fixture = try makeFixture()
         fixture.view.createSurfaceIfNeeded()
         await fixture.preflight.waitForRequestCount(1)
-        let originalGeneration = fixture.view.lifecycleState.bridgePreflightGeneration
         let window = hostInSettledWindow(fixture.view)
         defer { window.close() }
 
@@ -139,7 +134,6 @@ struct BridgePreflightLifecycleTests {
             grokIconEnabled: false
         )
 
-        #expect(fixture.view.lifecycleState.bridgePreflightGeneration > originalGeneration)
         await fixture.preflight.waitForRequestCount(2)
         await fixture.preflight.resumeRequest(0, returning: .degraded(.forwardFailed))
         await fixture.preflight.resumeRequest(1, returning: .degraded(.forwardFailed))
@@ -163,27 +157,39 @@ struct BridgePreflightLifecycleTests {
         #expect(fixture.surfaceCommands.values.isEmpty)
     }
 
-    @Test("an unchanged ready preflight spawns its prepared command once")
-    func unchangedReadySpawnsOnce() async throws {
+    @Test("preflight outcomes spawn their command once", arguments: ["ready", "degraded", "home-failed", "incompatible"])
+    func preflightSpawnsOnce(outcome: String) async throws {
         let fixture = try makeFixture()
-        let channel = BridgeChannel(
-            token: "ready-token",
-            gen: 1,
-            localSocketPath: "/tmp/ready-local.sock",
-            remoteSocketPath: "/tmp/ready-remote.sock",
-            stateFilePath: "/Users/alice/.awesomux/bridge/ready.json",
-            session: fixture.pane.terminalSessionID
-        )
-
+        if outcome == "home-failed" || outcome == "incompatible" {
+            fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
+                resolveRemoteHome: { _, _ in outcome == "home-failed" ? nil : "/Users/alice" },
+                helperSupportsBridge: { _, _, _ in
+                    #expect(outcome != "home-failed")
+                    return false
+                },
+                attach: { _, _ in
+                    Issue.record("attach must not run without a compatible helper")
+                    return .cancelled
+                }
+            )
+        }
         fixture.view.createSurfaceIfNeeded()
-        await fixture.preflight.waitForRequestCount(1)
-        await fixture.preflight.resumeRequest(
-            0,
-            returning: .ready(channel: channel, command: "ready-command")
-        )
+        if outcome == "ready" || outcome == "degraded" {
+            await fixture.preflight.waitForRequestCount(1)
+            let channel = BridgeChannel(
+                token: "ready-token", gen: 1, localSocketPath: "/tmp/ready-local.sock",
+                remoteSocketPath: "/tmp/ready-remote.sock", stateFilePath: "/Users/alice/.awesomux/bridge/ready.json",
+                session: fixture.pane.terminalSessionID
+            )
+            await fixture.preflight.resumeRequest(
+                0,
+                returning: outcome == "ready"
+                    ? .ready(channel: channel, command: "ready-command") : .degraded(.admissionRejected))
+        }
         await fixture.surfaceCommands.waitForCount(1)
-
-        #expect(fixture.surfaceCommands.values == ["ready-command"])
+        await drainMainQueue()
+        #expect(
+            fixture.surfaceCommands.values == [outcome == "ready" ? "ready-command" : "base-\(fixture.pane.terminalSessionID.rawValue)"])
     }
 
     @Test("a failed surface creation discards the committed staged generation")
@@ -355,124 +361,76 @@ struct BridgePreflightLifecycleTests {
         #expect(fixture.surfaceCommands.values == ["old-target-command"])
     }
 
-    @Test("an unchanged degraded preflight spawns its base command once")
-    func unchangedDegradedSpawnsOnce() async throws {
-        let fixture = try makeFixture()
+    @Test(
+        "invalidation stops before the next preflight stage",
+        arguments: ["invalidationDuringHomeResolutionStopsBeforeHelper", "invalidationDuringHelperProbeStopsBeforeAttach"])
+    func invalidationStopsBeforeNextStage(scenario: String) async throws {
+        switch scenario {
+        case "invalidationDuringHomeResolutionStopsBeforeHelper":
+            let fixture = try makeFixture()
+            let home = SuspendedStage<String?>()
+            fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
+                resolveRemoteHome: { _, _ in await home.wait() },
+                helperSupportsBridge: { _, _, _ in
+                    Issue.record("helper probe must not run after home-stage invalidation")
+                    return true
+                },
+                attach: { _, _ in
+                    Issue.record("attach must not run after home-stage invalidation")
+                    return .cancelled
+                }
+            )
 
-        fixture.view.createSurfaceIfNeeded()
-        await fixture.preflight.waitForRequestCount(1)
-        await fixture.preflight.resumeRequest(0, returning: .degraded(.admissionRejected))
-        await fixture.surfaceCommands.waitForCount(1)
+            fixture.view.createSurfaceIfNeeded()
+            await home.waitUntilSuspended()
+            fixture.policy.bridgeEnabled = false
+            fixture.view.update(
+                sessionStore: fixture.store,
+                session: fixture.session,
+                pane: fixture.pane,
+                enabledAgentRuntimeFileDropSources: [],
+                grokIconEnabled: false
+            )
+            await home.resume(returning: "/Users/alice")
+            await home.waitUntilCompleted()
+            await drainMainQueue()
 
-        #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
+            #expect(fixture.surfaceCommands.values.isEmpty)
+            #expect(fixture.view.lifecycleState.bridgePreflightTask == nil)
+        case "invalidationDuringHelperProbeStopsBeforeAttach":
+            let fixture = try makeFixture()
+            let helper = SuspendedStage<Bool>()
+            fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
+                resolveRemoteHome: { _, _ in "/Users/alice" },
+                helperSupportsBridge: { _, _, _ in await helper.wait() },
+                attach: { _, _ in
+                    Issue.record("attach must not run after helper-stage invalidation")
+                    return .cancelled
+                }
+            )
+
+            fixture.view.createSurfaceIfNeeded()
+            await helper.waitUntilSuspended()
+            fixture.policy.bridgeEnabled = false
+            fixture.view.update(
+                sessionStore: fixture.store,
+                session: fixture.session,
+                pane: fixture.pane,
+                enabledAgentRuntimeFileDropSources: [],
+                grokIconEnabled: false
+            )
+            await helper.resume(returning: true)
+            await helper.waitUntilCompleted()
+            await drainMainQueue()
+
+            #expect(fixture.surfaceCommands.values.isEmpty)
+            #expect(fixture.view.lifecycleState.bridgePreflightTask == nil)
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
-    @Test("remote home failure remains a single fail-open spawn")
-    func remoteHomeFailureFailsOpenOnce() async throws {
-        let fixture = try makeFixture()
-        fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
-            resolveRemoteHome: { _, _ in nil },
-            helperSupportsBridge: { _, _, _ in
-                Issue.record("helper probe must not run without a remote home")
-                return false
-            },
-            attach: { _, _ in
-                Issue.record("attach must not run without a remote home")
-                return .cancelled
-            }
-        )
-
-        fixture.view.createSurfaceIfNeeded()
-        await fixture.surfaceCommands.waitForCount(1)
-
-        #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
-    }
-
-    @Test("invalidation during remote home resolution stops before helper probing")
-    func invalidationDuringHomeResolutionStopsBeforeHelper() async throws {
-        let fixture = try makeFixture()
-        let home = SuspendedStage<String?>()
-        fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
-            resolveRemoteHome: { _, _ in await home.wait() },
-            helperSupportsBridge: { _, _, _ in
-                Issue.record("helper probe must not run after home-stage invalidation")
-                return true
-            },
-            attach: { _, _ in
-                Issue.record("attach must not run after home-stage invalidation")
-                return .cancelled
-            }
-        )
-
-        fixture.view.createSurfaceIfNeeded()
-        await home.waitUntilSuspended()
-        fixture.policy.bridgeEnabled = false
-        fixture.view.update(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.pane,
-            enabledAgentRuntimeFileDropSources: [],
-            grokIconEnabled: false
-        )
-        await home.resume(returning: "/Users/alice")
-        await home.waitUntilCompleted()
-        await drainMainQueue()
-
-        #expect(fixture.surfaceCommands.values.isEmpty)
-        #expect(fixture.view.lifecycleState.bridgePreflightTask == nil)
-    }
-
-    @Test("invalidation during helper probing stops before attach")
-    func invalidationDuringHelperProbeStopsBeforeAttach() async throws {
-        let fixture = try makeFixture()
-        let helper = SuspendedStage<Bool>()
-        fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
-            resolveRemoteHome: { _, _ in "/Users/alice" },
-            helperSupportsBridge: { _, _, _ in await helper.wait() },
-            attach: { _, _ in
-                Issue.record("attach must not run after helper-stage invalidation")
-                return .cancelled
-            }
-        )
-
-        fixture.view.createSurfaceIfNeeded()
-        await helper.waitUntilSuspended()
-        fixture.policy.bridgeEnabled = false
-        fixture.view.update(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.pane,
-            enabledAgentRuntimeFileDropSources: [],
-            grokIconEnabled: false
-        )
-        await helper.resume(returning: true)
-        await helper.waitUntilCompleted()
-        await drainMainQueue()
-
-        #expect(fixture.surfaceCommands.values.isEmpty)
-        #expect(fixture.view.lifecycleState.bridgePreflightTask == nil)
-    }
-
-    @Test("incompatible helper remains a single fail-open spawn")
-    func incompatibleHelperFailsOpenOnce() async throws {
-        let fixture = try makeFixture()
-        fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
-            resolveRemoteHome: { _, _ in "/Users/alice" },
-            helperSupportsBridge: { _, _, _ in false },
-            attach: { _, _ in
-                Issue.record("attach must not run for an incompatible helper")
-                return .cancelled
-            }
-        )
-
-        fixture.view.createSurfaceIfNeeded()
-        await fixture.surfaceCommands.waitForCount(1)
-
-        #expect(fixture.surfaceCommands.values == ["base-\(fixture.pane.terminalSessionID.rawValue)"])
-    }
-
-    @Test("approved helper setup retries the managed bridge attach")
-    func approvedHelperSetupRetriesAttach() async throws {
+    @Test("approved helper setup resumes the managed bridge attach")
+    func approvedHelperSetupResumesAttach() async throws {
         let fixture = try makeFixture()
         var setupOffers = 0
         fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(

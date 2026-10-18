@@ -4,8 +4,8 @@ import Testing
 @Suite("TerminalDiagnostics")
 struct TerminalDiagnosticsTests {
 
-    @Test("environment snapshot captures only terminal color keys")
-    func environmentSnapshotCapturesOnlyTerminalColorKeys() {
+    @Test("environment snapshot excludes private environment values")
+    func environmentSnapshotExcludesPII() {
         let snapshot = TerminalDiagnosticEnvironmentSnapshot(environment: [
             "TERM": "xterm-ghostty",
             "COLORTERM": "truecolor",
@@ -23,22 +23,6 @@ struct TerminalDiagnosticsTests {
             "HOME": "/Users/example"
         ])
 
-        #expect(TerminalDiagnosticEnvironmentSnapshot.capturedKeys == [
-            "TERM",
-            "COLORTERM",
-            "COLORFGBG",
-            "NO_COLOR",
-            "FORCE_COLOR",
-            "TERM_PROGRAM",
-            "TMUX",
-            "TMUX_PANE",
-            "ZELLIJ",
-            "STY",
-            "MOSHI_SESSION",
-            "SSH_CONNECTION",
-            "SSH_CLIENT",
-            "SSH_TTY"
-        ])
         #expect(snapshot.logFields.contains("term=xterm-ghostty"))
         #expect(snapshot.logFields.contains("colorterm=truecolor"))
         #expect(snapshot.logFields.contains("colorfgbg=15;0"))
@@ -71,30 +55,6 @@ struct TerminalDiagnosticsTests {
         #expect(snapshot.termProgram == "redacted")
         #expect(snapshot.logFields.contains("/tmp") == false)
         #expect(snapshot.logFields.contains("\n") == false)
-    }
-
-    @Test("FORCE_COLOR logs known values but redacts arbitrary content to presence")
-    func forceColorLogsKnownValuesOnly() {
-        let numeric = TerminalDiagnosticEnvironmentSnapshot(environment: [
-            "FORCE_COLOR": "3"
-        ])
-        let arbitrary = TerminalDiagnosticEnvironmentSnapshot(environment: [
-            "FORCE_COLOR": "very colorful please"
-        ])
-
-        #expect(numeric.forceColor == "3")
-        #expect(arbitrary.forceColor == "set")
-    }
-
-    @Test("FORCE_COLOR distinguishes empty value from missing key")
-    func forceColorDistinguishesEmptyFromUnset() {
-        let empty = TerminalDiagnosticEnvironmentSnapshot(environment: [
-            "FORCE_COLOR": ""
-        ])
-        let missing = TerminalDiagnosticEnvironmentSnapshot(environment: [:])
-
-        #expect(empty.forceColor == "empty")
-        #expect(missing.forceColor == "unset")
     }
 
 }

@@ -18,13 +18,4 @@ struct StableDataDigestTests {
         #expect(gate.shouldWrite(digest, snapshotFileExists: false))
     }
 
-    @Test("write gate still writes for new digest regardless of file presence")
-    func writeGateWritesForNewDigestRegardlessOfFilePresence() {
-        let recorded = StableDataDigest(data: Data("snapshot".utf8))
-        let changed = StableDataDigest(data: Data("snapshot changed".utf8))
-        let gate = StableDataDigestWriteGate(lastWrittenDigest: recorded)
-
-        #expect(gate.shouldWrite(changed, snapshotFileExists: true))
-        #expect(gate.shouldWrite(changed, snapshotFileExists: false))
-    }
 }

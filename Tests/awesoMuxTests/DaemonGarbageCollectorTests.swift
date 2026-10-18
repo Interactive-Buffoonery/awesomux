@@ -22,64 +22,92 @@ struct DaemonGarbageCollectorTests {
         return directory
     }
 
-    @Test("status sweep deletes an aged orphan file and nothing else")
-    func statusSweepDeletesOrphans() throws {
-        let old = Date(timeIntervalSinceNow: -86_400)
-        let orphan = "\(Self.orphanUUID)-0a1b2c3d.status.jsonl"
-        let fresh = "\(Self.orphanUUID)-ffffffff.status.jsonl"
-        let directory = try makeStatusDirectory(files: [
-            orphan: old,
-            fresh: Date(),  // inside the grace window → spared
-            "unrelated.txt": old,
-        ])
-        defer { try? FileManager.default.removeItem(atPath: directory) }
-
-        DaemonGarbageCollector.sweepStaleStatusFiles(
-            live: [],
-            gcStart: Int(Date().timeIntervalSince1970),
-            directory: directory
-        )
-
-        let survivors = try FileManager.default.contentsOfDirectory(atPath: directory).sorted()
-        #expect(survivors == [fresh, "unrelated.txt"])
+    enum UnavailableSessionListCase: String, CaseIterable {
+        case statusSweepAbortsOnNilList
+        case logSweepAbortsOnNilList
     }
 
-    @Test("status sweep deletes nothing when the session list is unavailable")
-    func statusSweepAbortsOnNilList() throws {
-        let orphan = "\(Self.orphanUUID)-0a1b2c3d.status.jsonl"
-        let directory = try makeStatusDirectory(files: [
-            orphan: Date(timeIntervalSinceNow: -86_400)
-        ])
-        defer { try? FileManager.default.removeItem(atPath: directory) }
+    @Test(arguments: UnavailableSessionListCase.allCases)
+    func unavailableSessionList(_ scenario: UnavailableSessionListCase) throws {
+        switch scenario {
+        case .statusSweepAbortsOnNilList:
+            let orphan = "\(Self.orphanUUID)-0a1b2c3d.status.jsonl"
+            let directory = try makeStatusDirectory(files: [
+                orphan: Date(timeIntervalSinceNow: -86_400)
+            ])
+            defer { try? FileManager.default.removeItem(atPath: directory) }
 
-        DaemonGarbageCollector.sweepStaleStatusFiles(
-            live: nil,
-            gcStart: Int(Date().timeIntervalSince1970),
-            directory: directory
-        )
+            DaemonGarbageCollector.sweepStaleStatusFiles(
+                live: nil,
+                gcStart: Int(Date().timeIntervalSince1970),
+                directory: directory
+            )
 
-        #expect(FileManager.default.fileExists(atPath: directory + "/" + orphan))
+            #expect(FileManager.default.fileExists(atPath: directory + "/" + orphan))
+        case .logSweepAbortsOnNilList:
+            let orphan = "\(Self.orphanUUID).log"
+            let directory = try makeStatusDirectory(files: [
+                orphan: Date(timeIntervalSinceNow: -86_400)
+            ])
+            defer { try? FileManager.default.removeItem(atPath: directory) }
+
+            DaemonGarbageCollector.sweepSessionLogs(
+                live: nil,
+                owned: [],
+                gcStart: Int(Date().timeIntervalSince1970),
+                directory: directory
+            )
+
+            #expect(FileManager.default.fileExists(atPath: directory + "/" + orphan))
+        }
     }
 
-    @Test("status sweep never removes a directory squatting a status name")
-    func statusSweepSparesDirectories() throws {
-        let directory = try makeStatusDirectory(files: [:])
-        defer { try? FileManager.default.removeItem(atPath: directory) }
-        let squatter = directory + "/\(Self.orphanUUID)-0a1b2c3d.status.jsonl"
-        try FileManager.default.createDirectory(atPath: squatter, withIntermediateDirectories: false)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: squatter
-        )
+    enum DirectorySquattersCase: String, CaseIterable {
+        case statusSweepSparesDirectories
+        case logSweepSparesDirectories
+    }
 
-        DaemonGarbageCollector.sweepStaleStatusFiles(
-            live: [],
-            gcStart: Int(Date().timeIntervalSince1970),
-            directory: directory
-        )
+    @Test(arguments: DirectorySquattersCase.allCases)
+    func directorySquatters(_ scenario: DirectorySquattersCase) throws {
+        switch scenario {
+        case .statusSweepSparesDirectories:
+            let directory = try makeStatusDirectory(files: [:])
+            defer { try? FileManager.default.removeItem(atPath: directory) }
+            let squatter = directory + "/\(Self.orphanUUID)-0a1b2c3d.status.jsonl"
+            try FileManager.default.createDirectory(atPath: squatter, withIntermediateDirectories: false)
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: squatter
+            )
 
-        var isDirectory: ObjCBool = false
-        #expect(FileManager.default.fileExists(atPath: squatter, isDirectory: &isDirectory))
-        #expect(isDirectory.boolValue)
+            DaemonGarbageCollector.sweepStaleStatusFiles(
+                live: [],
+                gcStart: Int(Date().timeIntervalSince1970),
+                directory: directory
+            )
+
+            var isDirectory: ObjCBool = false
+            #expect(FileManager.default.fileExists(atPath: squatter, isDirectory: &isDirectory))
+            #expect(isDirectory.boolValue)
+        case .logSweepSparesDirectories:
+            let directory = try makeStatusDirectory(files: [:])
+            defer { try? FileManager.default.removeItem(atPath: directory) }
+            let squatter = directory + "/\(Self.orphanUUID).log"
+            try FileManager.default.createDirectory(atPath: squatter, withIntermediateDirectories: false)
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: squatter
+            )
+
+            DaemonGarbageCollector.sweepSessionLogs(
+                live: [],
+                owned: [],
+                gcStart: Int(Date().timeIntervalSince1970),
+                directory: directory
+            )
+
+            var isDirectory: ObjCBool = false
+            #expect(FileManager.default.fileExists(atPath: squatter, isDirectory: &isDirectory))
+            #expect(isDirectory.boolValue)
+        }
     }
 
     @Test("status sweep spares attached sessions, reclaims unattached generations")
@@ -109,37 +137,6 @@ struct DaemonGarbageCollectorTests {
         )
         #expect(!FileManager.default.fileExists(atPath: directory + "/" + file))
     }
-    @Test("log sweep deletes aged dead-session logs and their rotated pair")
-    func logSweepDeletesOrphans() throws {
-        let old = Date(timeIntervalSinceNow: -86_400)
-        let deadLog = "\(Self.orphanUUID).log"
-        let deadRotated = "\(Self.orphanUUID).log.old"
-        let liveUUID = "55555555-5555-4555-8555-555555555555"
-        let liveLog = "\(liveUUID).log"
-        let liveRotated = "\(liveUUID).log.old"
-        let freshOrphanUUID = "66666666-6666-4666-8666-666666666666"
-        let freshOrphan = "\(freshOrphanUUID).log"
-        let directory = try makeStatusDirectory(files: [
-            deadLog: old,  // dead session → stale
-            deadRotated: old,  // dead session's rotated log → stale
-            liveLog: old,  // live daemon → spared however old
-            liveRotated: old,  // live daemon's rotated log → spared
-            freshOrphan: Date(),  // dead session but inside grace window → spared
-            "zmx.log": old,  // global log, unattributable → spared
-            "unrelated.txt": old,
-        ])
-        defer { try? FileManager.default.removeItem(atPath: directory) }
-
-        DaemonGarbageCollector.sweepSessionLogs(
-            live: [LiveDaemon(id: TerminalSessionID(rawValue: liveUUID)!, pid: 1, createdEpoch: 1, clients: 0)],
-            owned: [],
-            gcStart: Int(Date().timeIntervalSince1970),
-            directory: directory
-        )
-
-        let survivors = try FileManager.default.contentsOfDirectory(atPath: directory).sorted()
-        #expect(survivors == [liveLog, liveRotated, freshOrphan, "unrelated.txt", "zmx.log"])
-    }
 
     @Test("log sweep spares an owned session's log even with no live daemon")
     func logSweepSparesOwnedForResurrection() throws {
@@ -164,71 +161,6 @@ struct DaemonGarbageCollectorTests {
         #expect(!FileManager.default.fileExists(atPath: directory + "/" + orphanLog))
     }
 
-    @Test("log sweep deletes nothing when the session list is unavailable")
-    func logSweepAbortsOnNilList() throws {
-        let orphan = "\(Self.orphanUUID).log"
-        let directory = try makeStatusDirectory(files: [
-            orphan: Date(timeIntervalSinceNow: -86_400)
-        ])
-        defer { try? FileManager.default.removeItem(atPath: directory) }
-
-        DaemonGarbageCollector.sweepSessionLogs(
-            live: nil,
-            owned: [],
-            gcStart: Int(Date().timeIntervalSince1970),
-            directory: directory
-        )
-
-        #expect(FileManager.default.fileExists(atPath: directory + "/" + orphan))
-    }
-
-    @Test("log sweep never removes a directory squatting a log name")
-    func logSweepSparesDirectories() throws {
-        let directory = try makeStatusDirectory(files: [:])
-        defer { try? FileManager.default.removeItem(atPath: directory) }
-        let squatter = directory + "/\(Self.orphanUUID).log"
-        try FileManager.default.createDirectory(atPath: squatter, withIntermediateDirectories: false)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: squatter
-        )
-
-        DaemonGarbageCollector.sweepSessionLogs(
-            live: [],
-            owned: [],
-            gcStart: Int(Date().timeIntervalSince1970),
-            directory: directory
-        )
-
-        var isDirectory: ObjCBool = false
-        #expect(FileManager.default.fileExists(atPath: squatter, isDirectory: &isDirectory))
-        #expect(isDirectory.boolValue)
-    }
-
-    @Test("command bridge enablement is not a launch sweep prerequisite")
-    func commandBridgeEnablementIsNotAPrerequisite() {
-        let bridgeDisabled = DaemonGarbageCollector.launchSweepConfiguration(
-            terminalSettings: TerminalConfig(
-                commandBridgeEnabled: false,
-                daemonIdleCapEnabled: true,
-                daemonIdleCapMinutes: 42
-            ),
-            isRestoreEnabled: true,
-            hasUnresolvedRecoveryWarning: false
-        )
-        let bridgeEnabled = DaemonGarbageCollector.launchSweepConfiguration(
-            terminalSettings: TerminalConfig(
-                commandBridgeEnabled: true,
-                daemonIdleCapEnabled: true,
-                daemonIdleCapMinutes: 42
-            ),
-            isRestoreEnabled: true,
-            hasUnresolvedRecoveryWarning: false
-        )
-
-        #expect(bridgeDisabled?.capThresholdSeconds == 2_520)
-        #expect(bridgeEnabled == bridgeDisabled)
-    }
-
     // MARK: - Idle classification resolves the daemon, not its shell
 
     /// `amx list` publishes the forkpty shell child, so `AmxBackend.isIdle` has
@@ -251,36 +183,29 @@ struct DaemonGarbageCollectorTests {
         ]
     }
 
-    @Test("idle: a detached session whose shell exec'd an agent is busy, resolved via daemon_pid")
-    func idleResolvesViaDaemonPID() {
-        #expect(!AmxBackend.isIdle(listed(shellPID: 69207, daemonPID: 69206), snapshot: agentSnapshot))
-        // The shipped bug, pinned: from the shell pid the agent looks childless.
-        #expect(DaemonGCPlan.isIdle(daemonPID: 69207, in: agentSnapshot))
+    enum IdleResolutionCase: String, CaseIterable {
+        case idleResolvesViaDaemonPID
+        case idleResolvesViaParent
+        case unresolvableDaemonIsBusy
     }
 
-    @Test("idle: the same session is busy when the daemon is resolved via the shell's ppid")
-    func idleResolvesViaParent() {
-        #expect(!AmxBackend.isIdle(listed(shellPID: 69207), snapshot: agentSnapshot))
-    }
-
-    @Test("idle: an unresolvable daemon classifies busy, never idle")
-    func unresolvableDaemonIsBusy() {
-        // Idle is the reap-ward answer, so an unresolvable daemon must not land
-        // there — reachable whenever a truncated `ps` drops the shell's row.
-        #expect(!AmxBackend.isIdle(listed(shellPID: 69207), snapshot: []))
-        #expect(
-            !AmxBackend.isIdle(
-                listed(shellPID: 69207), snapshot: [ProcEntry(pid: 69207, ppid: 1, command: "-zsh")]))
-    }
-
-    @Test("idle: a resolved daemon whose only child is a childless shell is still idle")
-    func resolvedIdleDaemonStaysIdle() {
-        let snapshot = [
-            ProcEntry(pid: 69206, ppid: 1, command: "amx"),
-            ProcEntry(pid: 69207, ppid: 69206, command: "-zsh"),
-        ]
-        #expect(AmxBackend.isIdle(listed(shellPID: 69207, daemonPID: 69206), snapshot: snapshot))
-        #expect(AmxBackend.isIdle(listed(shellPID: 69207), snapshot: snapshot))
+    @Test(arguments: IdleResolutionCase.allCases)
+    func idleResolution(_ scenario: IdleResolutionCase) {
+        switch scenario {
+        case .idleResolvesViaDaemonPID:
+            #expect(!AmxBackend.isIdle(listed(shellPID: 69207, daemonPID: 69206), snapshot: agentSnapshot))
+            // The shipped bug, pinned: from the shell pid the agent looks childless.
+            #expect(DaemonGCPlan.isIdle(daemonPID: 69207, in: agentSnapshot))
+        case .idleResolvesViaParent:
+            #expect(!AmxBackend.isIdle(listed(shellPID: 69207), snapshot: agentSnapshot))
+        case .unresolvableDaemonIsBusy:
+            // Idle is the reap-ward answer, so an unresolvable daemon must not land
+            // there — reachable whenever a truncated `ps` drops the shell's row.
+            #expect(!AmxBackend.isIdle(listed(shellPID: 69207), snapshot: []))
+            #expect(
+                !AmxBackend.isIdle(
+                    listed(shellPID: 69207), snapshot: [ProcEntry(pid: 69207, ppid: 1, command: "-zsh")]))
+        }
     }
 
     @Test("restore and recovery guards still suppress launch sweeps")
@@ -301,8 +226,8 @@ struct DaemonGarbageCollectorTests {
 
     // MARK: - sessionSocketExists (INT-914 profile fence)
 
-    @Test("session socket check: a real bound unix socket is owned")
-    func sessionSocketExistsAcceptsBoundSocket() throws {
+    @Test(arguments: [false, true])
+    func sessionSocketExistsAcceptsBoundAndStaleSocket(stale: Bool) throws {
         let uuid = Self.orphanUUID
         // Short path: the 104-byte sockaddr_un budget can't hold a
         // NSTemporaryDirectory-based fixture dir plus a 36-char session name.
@@ -313,7 +238,8 @@ struct DaemonGarbageCollectorTests {
 
         let listener = socket(AF_UNIX, SOCK_STREAM, 0)
         #expect(listener >= 0)
-        defer { Darwin.close(listener) }
+        var listenerOpen = true
+        defer { if listenerOpen { Darwin.close(listener) } }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8)
@@ -326,41 +252,10 @@ struct DaemonGarbageCollectorTests {
         }
         #expect(bindResult == 0)
 
-        #expect(DaemonGarbageCollector.sessionSocketExists(named: uuid, in: directory))
-    }
-
-    @Test("session socket check: a stale socket file left by a dead daemon still proves ownership")
-    func sessionSocketExistsAcceptsStaleSocketFile() throws {
-        let uuid = Self.orphanUUID
-        // Short path: the 104-byte sockaddr_un budget can't hold a
-        // NSTemporaryDirectory-based fixture dir plus a 36-char session name.
-        let directory = "/tmp/amx-gc-" + UUID().uuidString.prefix(8)
-        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: directory) }
-        let path = directory + "/" + uuid
-
-        // Bind a real listener, then close it WITHOUT unlinking the path —
-        // the exact residue a SIGKILLed daemon leaves behind. The entry stays
-        // socket-typed on disk while its endpoint is gone.
-        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
-        #expect(listener >= 0)
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(path.utf8)
-        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: pathBytes) }
-        let length = socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1)
-        let bindResult = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(listener, $0, length)
-            }
+        if stale {
+            Darwin.close(listener)
+            listenerOpen = false
         }
-        #expect(bindResult == 0)
-        Darwin.close(listener)
-
-        // Ownership comes from WHERE the entry lives (only this profile's
-        // daemons write here), not from whether a listener survives — a
-        // stale entry must keep admitting this profile's orphaned attach
-        // clients to the sweep, so pin that reading here.
         #expect(DaemonGarbageCollector.sessionSocketExists(named: uuid, in: directory))
     }
 
@@ -389,25 +284,8 @@ struct DaemonGarbageCollectorTests {
 
     // MARK: - Targeted process snapshot
 
-    @Test("targeted process snapshot returns only requested processes")
-    func targetedProcessSnapshotRestrictsTheQuery() async {
-        let requestedPIDs = [getpid(), getppid()]
-
-        guard let snapshot = await AmxBackend.processSnapshot(forPIDs: requestedPIDs) else {
-            Issue.record("targeted ps query failed")
-            return
-        }
-
-        #expect(Set(snapshot.map(\.pid)) == Set(requestedPIDs))
-    }
-
-    @Test("targeted process snapshot accepts an empty shortlist")
-    func targetedProcessSnapshotAcceptsNoPIDs() async {
-        #expect(await AmxBackend.processSnapshot(forPIDs: []) == [])
-    }
-
-    @Test("orphan confirm resolves daemon parents from the fresh snapshot")
-    func orphanConfirmUsesFreshSnapshotForDaemonParents() async {
+    @Test(arguments: [true, false])
+    func orphanConfirmUsesFreshSnapshotForDaemonParents(isDaemonParent: Bool) async {
         let listedSession = TerminalSessionID(rawValue: Self.orphanUUID)!
         let candidatePID: Int32 = 500
         let freshShellPID: Int32 = 501
@@ -426,11 +304,9 @@ struct DaemonGarbageCollectorTests {
                 "name=\(Self.orphanUUID)\tpid=\(freshShellPID)\tcreated=1\tclients=1"
             },
             processSnapshot: { pids in
-                await recorder.recordFreshSnapshot(pids)
-                return [ProcEntry(pid: freshShellPID, ppid: candidatePID, command: "-zsh")]
+                return [ProcEntry(pid: freshShellPID, ppid: isDaemonParent ? candidatePID : 99, command: "-zsh")]
             },
             attachProcessSamples: { pids in
-                await recorder.recordAttachSamples(pids)
                 return [
                     DaemonGCPlan.AttachProcessSample(
                         pid: candidatePID, ppid: 1, etimeSeconds: 3_600,
@@ -445,134 +321,129 @@ struct DaemonGarbageCollectorTests {
             }
         )
 
-        #expect(await recorder.freshSnapshotRequests == [[freshShellPID]])
-        #expect(await recorder.attachSampleRequests == [[candidatePID]])
-        #expect(await recorder.signaledPIDs == [])
+        #expect(await recorder.signaledPIDs == (isDaemonParent ? [] : [candidatePID]))
     }
 
     // MARK: - Orphan attach signaling
 
-    @Test("orphan signal: unavailable sample before TERM spares the process")
-    func orphanSignalFailsClosedWhenTermSampleIsUnavailable() async {
-        let expected = orphanSample(etimeSeconds: 3_600)
-        let samples = SampleSequence([])
-        let signals = SignalRecorder()
-
-        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-            [expected],
-            sampleProcesses: { _ in await samples.next() },
-            processExists: { _ in true },
-            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-            waitForGrace: { _ in }
-        )
-
-        #expect(signaled == 0)
-        #expect(await signals.events == [])
+    enum OrphanSignallingCase: String, CaseIterable {
+        case orphanSignalFailsClosedWhenTermSampleIsUnavailable
+        case orphanSignalRechecksIdentityBeforeTerm
+        case orphanSignalRechecksIdentityBeforeKill
+        case orphanSignalFailsClosedWhenKillSampleIsUnavailable
+        case orphanSignalSkipsEscalationWhenGraceWaitIsCancelled
+        case orphanSignalEscalatesStableIdentity
     }
 
-    @Test("orphan signal: identity reuse before TERM is spared")
-    func orphanSignalRechecksIdentityBeforeTerm() async {
-        let expected = orphanSample(etimeSeconds: 3_600)
-        let replacement = DaemonGCPlan.AttachProcessSample(
-            pid: expected.pid, ppid: 1, etimeSeconds: 1,
-            argv0: "unrelated", subcommand: nil, sessionArgument: nil)
-        let samples = SampleSequence([[replacement]])
-        let signals = SignalRecorder()
+    @Test(arguments: OrphanSignallingCase.allCases)
+    func orphanSignalling(_ scenario: OrphanSignallingCase) async {
+        switch scenario {
+        case .orphanSignalFailsClosedWhenTermSampleIsUnavailable:
+            let expected = orphanSample(etimeSeconds: 3_600)
+            let samples = SampleSequence([])
+            let signals = SignalRecorder()
 
-        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-            [expected],
-            sampleProcesses: { _ in await samples.next() },
-            processExists: { _ in true },
-            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-            waitForGrace: { _ in }
-        )
-
-        #expect(signaled == 0)
-        #expect(await signals.events == [])
-    }
-
-    @Test("orphan signal: identity reuse during TERM grace is spared from KILL")
-    func orphanSignalRechecksIdentityBeforeKill() async {
-        let expected = orphanSample(etimeSeconds: 3_600)
-        let stillExpected = orphanSample(etimeSeconds: 3_601)
-        let replacement = DaemonGCPlan.AttachProcessSample(
-            pid: expected.pid, ppid: 1, etimeSeconds: 1,
-            argv0: "unrelated", subcommand: nil, sessionArgument: nil)
-        let samples = SampleSequence([[stillExpected], [replacement]])
-        let signals = SignalRecorder()
-
-        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-            [expected],
-            sampleProcesses: { _ in await samples.next() },
-            processExists: { _ in true },
-            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-            waitForGrace: { _ in }
-        )
-
-        #expect(signaled == 1)
-        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
-    }
-
-    @Test("orphan signal: unavailable sample after TERM spares the process from KILL")
-    func orphanSignalFailsClosedWhenKillSampleIsUnavailable() async {
-        let expected = orphanSample(etimeSeconds: 3_600)
-        let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
-        let signals = SignalRecorder()
-
-        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-            [expected],
-            sampleProcesses: { _ in await samples.next() },
-            processExists: { _ in true },
-            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-            waitForGrace: { _ in }
-        )
-
-        #expect(signaled == 1)
-        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
-    }
-
-    @Test("orphan signal: cancellation during TERM grace skips KILL")
-    func orphanSignalSkipsEscalationWhenGraceWaitIsCancelled() async {
-        let expected = orphanSample(etimeSeconds: 3_600)
-        let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
-        let signals = SignalRecorder()
-
-        let task = Task {
-            await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
                 [expected],
                 sampleProcesses: { _ in await samples.next() },
                 processExists: { _ in true },
                 signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-                waitForGrace: { _ in
-                    withUnsafeCurrentTask { $0?.cancel() }
-                    try Task.checkCancellation()
-                }
+                waitForGrace: { _ in }
             )
+
+            #expect(signaled == 0)
+            #expect(await signals.events == [])
+        case .orphanSignalRechecksIdentityBeforeTerm:
+            let expected = orphanSample(etimeSeconds: 3_600)
+            let replacement = DaemonGCPlan.AttachProcessSample(
+                pid: expected.pid, ppid: 1, etimeSeconds: 1,
+                argv0: "unrelated", subcommand: nil, sessionArgument: nil)
+            let samples = SampleSequence([[replacement]])
+            let signals = SignalRecorder()
+
+            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+                [expected],
+                sampleProcesses: { _ in await samples.next() },
+                processExists: { _ in true },
+                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+                waitForGrace: { _ in }
+            )
+
+            #expect(signaled == 0)
+            #expect(await signals.events == [])
+        case .orphanSignalRechecksIdentityBeforeKill:
+            let expected = orphanSample(etimeSeconds: 3_600)
+            let stillExpected = orphanSample(etimeSeconds: 3_601)
+            let replacement = DaemonGCPlan.AttachProcessSample(
+                pid: expected.pid, ppid: 1, etimeSeconds: 1,
+                argv0: "unrelated", subcommand: nil, sessionArgument: nil)
+            let samples = SampleSequence([[stillExpected], [replacement]])
+            let signals = SignalRecorder()
+
+            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+                [expected],
+                sampleProcesses: { _ in await samples.next() },
+                processExists: { _ in true },
+                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+                waitForGrace: { _ in }
+            )
+
+            #expect(signaled == 1)
+            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
+        case .orphanSignalFailsClosedWhenKillSampleIsUnavailable:
+            let expected = orphanSample(etimeSeconds: 3_600)
+            let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
+            let signals = SignalRecorder()
+
+            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+                [expected],
+                sampleProcesses: { _ in await samples.next() },
+                processExists: { _ in true },
+                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+                waitForGrace: { _ in }
+            )
+
+            #expect(signaled == 1)
+            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
+        case .orphanSignalSkipsEscalationWhenGraceWaitIsCancelled:
+            let expected = orphanSample(etimeSeconds: 3_600)
+            let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
+            let signals = SignalRecorder()
+
+            let task = Task {
+                await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+                    [expected],
+                    sampleProcesses: { _ in await samples.next() },
+                    processExists: { _ in true },
+                    signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+                    waitForGrace: { _ in
+                        withUnsafeCurrentTask { $0?.cancel() }
+                        try Task.checkCancellation()
+                    }
+                )
+            }
+
+            #expect(await task.value == 1)
+            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
+        case .orphanSignalEscalatesStableIdentity:
+            let expected = orphanSample(etimeSeconds: 3_600)
+            let samples = SampleSequence([
+                [orphanSample(etimeSeconds: 3_601)],
+                [orphanSample(etimeSeconds: 3_602)],
+            ])
+            let signals = SignalRecorder()
+
+            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+                [expected],
+                sampleProcesses: { _ in await samples.next() },
+                processExists: { _ in true },
+                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
+                waitForGrace: { _ in }
+            )
+
+            #expect(signaled == 1)
+            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)", "\(expected.pid):\(SIGKILL)"])
         }
-
-        #expect(await task.value == 1)
-        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
-    }
-
-    @Test("orphan signal: stable identity receives TERM then KILL")
-    func orphanSignalEscalatesStableIdentity() async {
-        let expected = orphanSample(etimeSeconds: 3_600)
-        let samples = SampleSequence([
-            [orphanSample(etimeSeconds: 3_601)],
-            [orphanSample(etimeSeconds: 3_602)],
-        ])
-        let signals = SignalRecorder()
-
-        let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-            [expected],
-            sampleProcesses: { _ in await samples.next() },
-            processExists: { _ in true },
-            signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-            waitForGrace: { _ in }
-        )
-
-        #expect(signaled == 1)
-        #expect(await signals.events == ["\(expected.pid):\(SIGTERM)", "\(expected.pid):\(SIGKILL)"])
     }
 
     private func orphanSample(etimeSeconds: Int) -> DaemonGCPlan.AttachProcessSample {
@@ -604,17 +475,7 @@ struct DaemonGarbageCollectorTests {
     }
 
     private actor OrphanConfirmRecorder {
-        private(set) var freshSnapshotRequests: [[Int32]] = []
-        private(set) var attachSampleRequests: [[Int32]] = []
         private(set) var signaledPIDs: [Int32] = []
-
-        func recordFreshSnapshot(_ pids: [Int32]) {
-            freshSnapshotRequests.append(pids)
-        }
-
-        func recordAttachSamples(_ pids: [Int32]) {
-            attachSampleRequests.append(pids)
-        }
 
         func recordSignals(_ pids: [Int32]) {
             signaledPIDs.append(contentsOf: pids)

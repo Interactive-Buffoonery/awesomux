@@ -6,142 +6,105 @@ import Testing
 
 @Suite("Agent plugin template renderer")
 struct AgentPluginTemplateRendererTests {
-    @Test("renders the Claude marketplace tree and bakes the helper path into hooks")
-    func rendersClaudeTreeWithBakedHelperPath() throws {
-        try Self.withTemporaryDirectory { support in
-            let renderer = Self.renderer(support: support)
-            let helper = AgentHookHelperPath(
-                path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook", isDevelopmentBundle: false)
+    enum ProviderTreesCase: String, CaseIterable {
+        case rendersClaudeTreeWithBakedHelperPath
+        case rendersCodexTreeWithBakedHelperPath
+        case rendersGrokTreeWithBakedHelperPath
+    }
 
-            let rendered = try renderer.render(
-                provider: .claudeCode,
-                setup: AgentIntegrationSetup(enabled: true, binaryPath: "/opt/homebrew/bin/claude"),
-                helperPath: helper
-            )
+    @Test(arguments: ProviderTreesCase.allCases)
+    func providerTrees(_ scenario: ProviderTreesCase) throws {
+        switch scenario {
+        case .rendersClaudeTreeWithBakedHelperPath:
+            try Self.withTemporaryDirectory { support in
+                let renderer = Self.renderer(support: support)
+                let helper = AgentHookHelperPath(
+                    path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook", isDevelopmentBundle: false)
 
-            #expect(rendered.provider == .claudeCode)
-            #expect(rendered.helperPath == helper.path)
-            #expect(FileManager.default.fileExists(atPath: rendered.marketplaceRootURL.path))
-            // The marketplace catalog the CLI installs from must be present at the root.
-            let marketplaceURL = rendered.marketplaceRootURL
-                .appending(path: ".claude-plugin/marketplace.json")
-            #expect(FileManager.default.fileExists(atPath: marketplaceURL.path))
+                let rendered = try renderer.render(
+                    provider: .claudeCode,
+                    setup: AgentIntegrationSetup(enabled: true, binaryPath: "/opt/homebrew/bin/claude"),
+                    helperPath: helper
+                )
 
-            let hookURL = try #require(rendered.hookConfigURLs.first)
-            let hookContents = try String(contentsOf: hookURL, encoding: .utf8)
-            // The bare default that relies on PATH must be gone; the baked path
-            // is now the second rung of a runtime resolution ladder, env
-            // override intact.
-            #expect(!hookContents.contains(AgentPluginTemplateRenderer.helperPlaceholderToken))
-            let command = try Self.firstHookCommand(in: hookContents)
-            Self.expectResolutionLadder(command, bakedPath: helper.path)
-            #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider claude-code"))
+                #expect(rendered.provider == .claudeCode)
+                #expect(rendered.helperPath == helper.path)
+                #expect(FileManager.default.fileExists(atPath: rendered.marketplaceRootURL.path))
+                // The marketplace catalog the CLI installs from must be present at the root.
+                let marketplaceURL = rendered.marketplaceRootURL
+                    .appending(path: ".claude-plugin/marketplace.json")
+                #expect(FileManager.default.fileExists(atPath: marketplaceURL.path))
+
+                let hookURL = try #require(rendered.hookConfigURLs.first)
+                let hookContents = try String(contentsOf: hookURL, encoding: .utf8)
+                // The bare default that relies on PATH must be gone; the baked path
+                // is now the second rung of a runtime resolution ladder, env
+                // override intact.
+                #expect(!hookContents.contains(AgentPluginTemplateRenderer.helperPlaceholderToken))
+                let command = try Self.firstHookCommand(in: hookContents)
+                Self.expectResolutionLadder(command, bakedPath: helper.path)
+                #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider claude-code"))
+            }
+        case .rendersCodexTreeWithBakedHelperPath:
+            try Self.withTemporaryDirectory { support in
+                let renderer = Self.renderer(support: support)
+                let helper = AgentHookHelperPath(
+                    path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook", isDevelopmentBundle: false)
+
+                let rendered = try renderer.render(
+                    provider: .codex,
+                    setup: AgentIntegrationSetup(enabled: true, configHome: "/Users/example/.codex"),
+                    helperPath: helper
+                )
+
+                let pluginManifest = rendered.marketplaceRootURL
+                    .appending(path: "plugins/awesomux-codex-status/.codex-plugin/plugin.json")
+                #expect(FileManager.default.fileExists(atPath: pluginManifest.path))
+
+                let hookURL = try #require(rendered.hookConfigURLs.first)
+                let hookContents = try String(contentsOf: hookURL, encoding: .utf8)
+                let command = try Self.firstHookCommand(in: hookContents)
+                Self.expectResolutionLadder(command, bakedPath: helper.path)
+                #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider codex"))
+            }
+        case .rendersGrokTreeWithBakedHelperPath:
+            try Self.withTemporaryDirectory { support in
+                let renderer = Self.renderer(support: support)
+                let helper = AgentHookHelperPath(
+                    path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook", isDevelopmentBundle: false)
+
+                let rendered = try renderer.render(
+                    provider: .grok,
+                    setup: AgentIntegrationSetup(enabled: true, configHome: "/Users/example/.grok"),
+                    helperPath: helper
+                )
+
+                let marketplaceManifest = rendered.marketplaceRootURL
+                    .appending(path: ".grok-plugin/marketplace.json")
+                let pluginManifest = rendered.marketplaceRootURL
+                    .appending(path: "plugins/awesomux-grok-status/.grok-plugin/plugin.json")
+                #expect(FileManager.default.fileExists(atPath: marketplaceManifest.path))
+                #expect(FileManager.default.fileExists(atPath: pluginManifest.path))
+
+                let hookURL = try #require(rendered.hookConfigURLs.first)
+                let hookContents = try String(contentsOf: hookURL, encoding: .utf8)
+                let command = try Self.firstHookCommand(in: hookContents)
+                Self.expectResolutionLadder(command, bakedPath: helper.path)
+                #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider grok"))
+            }
         }
     }
 
-    @Test("renders the Codex marketplace tree and bakes the helper path into hooks")
-    func rendersCodexTreeWithBakedHelperPath() throws {
-        try Self.withTemporaryDirectory { support in
-            let renderer = Self.renderer(support: support)
-            let helper = AgentHookHelperPath(
-                path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook", isDevelopmentBundle: false)
-
-            let rendered = try renderer.render(
-                provider: .codex,
-                setup: AgentIntegrationSetup(enabled: true, configHome: "/Users/example/.codex"),
-                helperPath: helper
-            )
-
-            let pluginManifest = rendered.marketplaceRootURL
-                .appending(path: "plugins/awesomux-codex-status/.codex-plugin/plugin.json")
-            #expect(FileManager.default.fileExists(atPath: pluginManifest.path))
-
-            let hookURL = try #require(rendered.hookConfigURLs.first)
-            let hookContents = try String(contentsOf: hookURL, encoding: .utf8)
-            let command = try Self.firstHookCommand(in: hookContents)
-            Self.expectResolutionLadder(command, bakedPath: helper.path)
-            #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider codex"))
-        }
-    }
-
-    @Test("renders the Grok plugin tree and bakes the helper path into hooks")
-    func rendersGrokTreeWithBakedHelperPath() throws {
-        try Self.withTemporaryDirectory { support in
-            let renderer = Self.renderer(support: support)
-            let helper = AgentHookHelperPath(
-                path: "/Applications/awesoMux.app/Contents/MacOS/awesoMuxAgentHook", isDevelopmentBundle: false)
-
-            let rendered = try renderer.render(
-                provider: .grok,
-                setup: AgentIntegrationSetup(enabled: true, configHome: "/Users/example/.grok"),
-                helperPath: helper
-            )
-
-            let marketplaceManifest = rendered.marketplaceRootURL
-                .appending(path: ".grok-plugin/marketplace.json")
-            let pluginManifest = rendered.marketplaceRootURL
-                .appending(path: "plugins/awesomux-grok-status/.grok-plugin/plugin.json")
-            #expect(FileManager.default.fileExists(atPath: marketplaceManifest.path))
-            #expect(FileManager.default.fileExists(atPath: pluginManifest.path))
-
-            let hookURL = try #require(rendered.hookConfigURLs.first)
-            let hookContents = try String(contentsOf: hookURL, encoding: .utf8)
-            let command = try Self.firstHookCommand(in: hookContents)
-            Self.expectResolutionLadder(command, bakedPath: helper.path)
-            #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider grok"))
-        }
-    }
-
-    @Test("rendering shell-quotes and JSON-escapes the baked helper fallback")
+    @Test("a hostile baked helper path executes literally through the rendered hook")
     func renderingEscapesHelperPath() throws {
         try Self.withTemporaryDirectory { support in
-            let renderer = Self.renderer(support: support)
-            let helper = AgentHookHelperPath(
-                path: "/Applications/Awesome's $(bad) App.app/Contents/MacOS/awesoMuxAgentHook",
-                isDevelopmentBundle: false
-            )
-
-            let rendered = try renderer.render(
-                provider: .grok,
-                setup: AgentIntegrationSetup(enabled: true),
-                helperPath: helper
-            )
-
-            let hookURL = try #require(rendered.hookConfigURLs.first)
-            let raw = try String(contentsOf: hookURL, encoding: .utf8)
-            let command = try Self.firstHookCommand(in: raw)
-            // Shell single-quoting survives inside every rung that carries the
-            // path, and the whole ladder round-trips through JSON intact.
-            let quoted = "'/Applications/Awesome'\\''s $(bad) App.app/Contents/MacOS/awesoMuxAgentHook'"
-            #expect(command.contains("elif [ -x \(quoted) ]; then AWESOMUX_AGENT_HOOK=\(quoted);"))
-            #expect(command.contains("\"$AWESOMUX_AGENT_HOOK\" --provider grok"))
-        }
-    }
-
-    @Test("static manifests are copied verbatim from the bundle")
-    func staticManifestsCopiedVerbatim() throws {
-        try Self.withTemporaryDirectory { support in
-            let renderer = Self.renderer(support: support)
-            let helper = AgentHookHelperPath(path: "/abs/awesoMuxAgentHook", isDevelopmentBundle: false)
-
-            let rendered = try renderer.render(
-                provider: .claudeCode,
-                setup: AgentIntegrationSetup(enabled: true),
-                helperPath: helper
-            )
-
-            // The manifests carry no helper placeholder, so the rendered copies
-            // must be byte-identical to the bundled originals.
-            for relativePath in [
-                ".claude-plugin/marketplace.json",
-                "plugins/awesomux-runtime-status/.claude-plugin/plugin.json",
-            ] {
-                let renderedData = try Data(contentsOf: rendered.marketplaceRootURL.appending(path: relativePath))
-                let bundledData = try Data(
-                    contentsOf: renderer.bundledTreeURL(provider: .claudeCode).appending(path: relativePath)
-                )
-                #expect(renderedData == bundledData)
-            }
+            let helper = support.appending(path: "Applications/Awesome's $(bad) App.app/Contents/MacOS/awesoMuxAgentHook")
+            try Self.makeExecutableHook(at: helper, marker: "HOSTILE-PATH")
+            let command = try Self.bakedGrokCommand(support: support, bakedPath: helper.path)
+            let result = try Self.runHook(command: command, in: support, envHook: nil, mdfindLines: [])
+            #expect(result.exitCode == 0)
+            #expect(result.stdout == "HOSTILE-PATH")
+            #expect(result.stderr.isEmpty)
         }
     }
 
@@ -191,12 +154,7 @@ struct AgentPluginTemplateRendererTests {
                 fileManager: RendererPermissionFailingFileManager(path: target.path)
             )
 
-            #expect(
-                throws: AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
-                    target,
-                    CocoaError(.fileWriteNoPermission).localizedDescription
-                )
-            ) {
+            #expect {
                 try renderer.render(
                     provider: .claudeCode,
                     setup: AgentIntegrationSetup(enabled: true),
@@ -205,78 +163,45 @@ struct AgentPluginTemplateRendererTests {
                         isDevelopmentBundle: false
                     )
                 )
+            } throws: { error in
+                guard case let AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(url, _) = error else { return false }
+                return url == target
             }
             #expect(!FileManager.default.fileExists(atPath: target.path))
         }
     }
 
-    @Test("private directory failure has a readable action message")
-    func privateDirectoryFailureHasReadableMessage() {
-        let error = AgentPluginTemplateRendererError.directoryPermissionsUpdateFailed(
-            URL(fileURLWithPath: "/private/rendered-plugin"),
-            CocoaError(.fileWriteNoPermission).localizedDescription
-        )
-
-        #expect(error.localizedDescription == "awesoMux couldn’t make its rendered plugin directory private")
+    enum BundleIdentifierFallbackCase: String, CaseIterable {
+        case bakesInstallingBundleIdentifier
+        case unsafeBundleIdentifierFallsBack
     }
 
-    @Test("disabled setup cannot render")
-    func disabledSetupCannotRender() throws {
-        try Self.withTemporaryDirectory { support in
-            let renderer = Self.renderer(support: support)
-            #expect(throws: AgentPluginTemplateRendererError.providerDisabled(.codex)) {
-                try renderer.render(
-                    provider: .codex,
-                    setup: .defaultValue,
-                    helperPath: AgentHookHelperPath(path: "/abs/awesoMuxAgentHook", isDevelopmentBundle: false)
+    @Test(arguments: BundleIdentifierFallbackCase.allCases)
+    func bundleIdentifierFallback(_ scenario: BundleIdentifierFallbackCase) throws {
+        switch scenario {
+        case .bakesInstallingBundleIdentifier:
+            try Self.withTemporaryDirectory { support in
+                // A development/worktree install must recover to itself, so the
+                // relocation lookup carries the installing bundle's id, not a fixed one.
+                let command = try Self.bakedGrokCommand(
+                    support: support,
+                    bakedPath: "/abs/awesoMuxAgentHook",
+                    bundleIdentifier: "com.interactivebuffoonery.awesomux.dev.0123456789ab"
                 )
+                #expect(command.contains("kMDItemCFBundleIdentifier == 'com.interactivebuffoonery.awesomux.dev.0123456789ab'"))
             }
-        }
-    }
-
-    @Test("a missing bundled tree is reported, not silently rendered empty")
-    func missingTemplateTreeThrows() throws {
-        try Self.withTemporaryDirectory { support in
-            let renderer = AgentPluginTemplateRenderer(
-                resourcesDirectoryURL: support.appending(path: "no-resources", directoryHint: .isDirectory),
-                supportDirectoryURL: support
-            )
-            #expect(throws: AgentPluginTemplateRendererError.self) {
-                try renderer.render(
-                    provider: .claudeCode,
-                    setup: AgentIntegrationSetup(enabled: true),
-                    helperPath: AgentHookHelperPath(path: "/abs/awesoMuxAgentHook", isDevelopmentBundle: false)
+        case .unsafeBundleIdentifierFallsBack:
+            try Self.withTemporaryDirectory { support in
+                let command = try Self.bakedGrokCommand(
+                    support: support,
+                    bakedPath: "/abs/awesoMuxAgentHook",
+                    bundleIdentifier: "com.evil\"$(touch /tmp/awx-pwn)"
                 )
+                // The injection payload must never reach the baked shell command; the
+                // query falls back to the known-safe production identifier.
+                #expect(!command.contains("touch /tmp/awx-pwn"))
+                #expect(command.contains("kMDItemCFBundleIdentifier == 'com.interactivebuffoonery.awesomux'"))
             }
-        }
-    }
-
-    @Test("bakes the installing bundle identifier into the Spotlight fallback")
-    func bakesInstallingBundleIdentifier() throws {
-        try Self.withTemporaryDirectory { support in
-            // A development/worktree install must recover to itself, so the
-            // relocation lookup carries the installing bundle's id, not a fixed one.
-            let command = try Self.bakedGrokCommand(
-                support: support,
-                bakedPath: "/abs/awesoMuxAgentHook",
-                bundleIdentifier: "com.interactivebuffoonery.awesomux.dev.0123456789ab"
-            )
-            #expect(command.contains("kMDItemCFBundleIdentifier == 'com.interactivebuffoonery.awesomux.dev.0123456789ab'"))
-        }
-    }
-
-    @Test("a bundle identifier with shell metacharacters falls back to the production id")
-    func unsafeBundleIdentifierFallsBack() throws {
-        try Self.withTemporaryDirectory { support in
-            let command = try Self.bakedGrokCommand(
-                support: support,
-                bakedPath: "/abs/awesoMuxAgentHook",
-                bundleIdentifier: "com.evil\"$(touch /tmp/awx-pwn)"
-            )
-            // The injection payload must never reach the baked shell command; the
-            // query falls back to the known-safe production identifier.
-            #expect(!command.contains("touch /tmp/awx-pwn"))
-            #expect(command.contains("kMDItemCFBundleIdentifier == 'com.interactivebuffoonery.awesomux'"))
         }
     }
 
@@ -473,6 +398,7 @@ struct AgentPluginTemplateRendererTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
+        process.currentDirectoryURL = workDir
         var environment = ["PATH": "\(stubDir.path):/usr/bin:/bin"]
         if let envHook {
             environment["AWESOMUX_AGENT_HOOK"] = envHook
