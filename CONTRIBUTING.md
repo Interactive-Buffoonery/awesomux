@@ -70,6 +70,11 @@ For app changes, the normal local gate is:
 ./script/preflight.sh
 ```
 
+In a headless session, run `./script/preflight.sh --checks-only` for all guards
+and tests. It omits only the final staged-app build, signing, and launch
+verification. Report that result separately; the full native gate remains
+pending until `./script/preflight.sh` can run.
+
 For docs-only changes, a lighter check such as `git diff --check` is usually
 enough. If you cannot run the expected validation, say what blocked you in the
 pull request.

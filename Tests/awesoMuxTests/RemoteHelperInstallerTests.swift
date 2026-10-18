@@ -82,6 +82,38 @@ struct RemoteHelperInstallerTests {
         }
     }
 
+    @Test("the default installation policy resolves the declared destination")
+    @MainActor
+    func destinationPolicyGatesInstallation() async throws {
+        let previous = RemoteHelperInstaller.installPolicy
+        defer { RemoteHelperInstaller.installPolicy = previous }
+        let config = WorkspaceConfig(
+            remoteHelperInstallPolicy: .ask,
+            remoteHelperHostPolicies: ["alice@sandbox": .neverAsk]
+        )
+        RemoteHelperInstaller.installPolicy = { config.helperInstallPolicy(for: $0.sshDestination) }
+        for destination in ["alice@sandbox", "bob@sandbox"] {
+            let remote = try #require(RemoteTarget(parsing: destination))
+            var confirmations = 0
+            let result = try await RemoteHelperInstaller.performApprovedInstallation(
+                acquisition: { throw CancellationError() },
+                action: .install,
+                remote: remote,
+                controlPath: "/tmp/unused-control",
+                remoteHome: "/home/unused",
+                helperPath: "/home/unused/helper",
+                window: nil,
+                authorityIsCurrent: { true },
+                confirmation: { _, _, _ in
+                    confirmations += 1
+                    return false
+                }
+            )
+            #expect(result == .cancelled)
+            #expect(confirmations == (destination == "alice@sandbox" ? 0 : 1))
+        }
+    }
+
     @Test("helper setup waits for the workspace creation sheet to dismiss")
     @MainActor
     func helperSetupWaitsForSheetDismissal() async {

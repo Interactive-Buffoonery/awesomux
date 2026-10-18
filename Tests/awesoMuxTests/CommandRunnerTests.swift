@@ -472,34 +472,58 @@ struct ProcessCommandRunnerTests {
         #expect(FileManager.default.fileExists(atPath: cleaned.path), "closing readers early interrupts TERM cleanup with SIGPIPE")
     }
 
-    @Test("withheld exit notification does not time out an already drained command")
-    func withheldExitNotificationPreservesSuccess() async throws {
-        let exited = EventRecorder<Void>()
+    @Test("withheld exit notification preserves a drained command's output and status", arguments: [0, 7])
+    func withheldExitNotificationPreservesSuccess(exitCode: Int32) async throws {
+        let notification = WithheldTerminationNotification()
+        let delays = ProcessDelayGate()
+        defer {
+            notification.deliver()
+            delays.advanceOneCycle()
+        }
         let drained = EventRecorder<Void>()
+        let completed = EventRecorder<Result<CommandResult, Error>>()
         let runner = ProcessCommandRunner(
-            timeout: .milliseconds(500),
-            delay: { duration in
-                #expect(duration == .milliseconds(500))
-                #expect(await exited.waitForCount(1, deadline: .seconds(10)))
-                #expect(await drained.waitForCount(2, deadline: .seconds(10)))
-            },
-            spawn: { process in
-                // Withhold the runner's callback so only its deadline fallback
-                // can complete the command after the readers have drained.
-                process.terminationHandler = { _ in
-                    Task { await exited.record(()) }
-                }
-                try process.run()
-            },
+            timeout: .seconds(1),
+            delay: { try await delays.wait(for: $0) },
+            spawn: { try notification.spawn($0) },
             readOutput: { reader in
                 let output = await reader.readToEnd()
                 await drained.record(())
                 return output
             }
         )
-        let result = try await runner.run(executable: "/bin/echo", args: ["done"], env: [:], cwd: nil)
-        #expect(result.exitCode == 0)
-        #expect(result.stdout == "done\n")
+        let run = Task.detached {
+            do {
+                let result = try await runner.run(
+                    executable: "/bin/sh",
+                    args: ["-c", "printf output; printf error >&2; exit \(exitCode)"],
+                    env: [:], cwd: nil
+                )
+                await completed.record(.success(result))
+            } catch {
+                await completed.record(.failure(error))
+            }
+        }
+
+        #expect(await waitUntilEventually { notification.hasExited })
+        #expect(await drained.waitForCount(2, deadline: .seconds(10)))
+        #expect(await waitUntil { !delays.requestedDurations.isEmpty })
+        #expect(delays.requestedDurations == [.seconds(1)])
+        #expect(await completed.values.isEmpty)
+        delays.advanceOneCycle()
+        #expect(
+            await completed.waitForCount(1, deadline: .seconds(5)),
+            "the deadline must release a drained command without its callback"
+        )
+
+        // Failure cleanup releases the real callback and joins the task.
+        notification.deliver()
+        delays.advanceOneCycle()
+        await run.value
+        let result = try #require(await completed.values.first).get()
+        #expect(result.exitCode == exitCode)
+        #expect(result.stdout == "output")
+        #expect(result.stderr == "error")
     }
 
     @Test("output arriving after parent exit is collected before the deadline")

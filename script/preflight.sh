@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+checks_only=false
+if [[ "$#" -eq 1 && "$1" == --checks-only ]]; then
+    checks_only=true
+elif [[ "$#" -ne 0 ]]; then
+    echo "Usage: ./script/preflight.sh [--checks-only]" >&2
+    exit 2
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$ROOT_DIR"
@@ -28,4 +36,8 @@ python3 "$ROOT_DIR/script/test_prepare_ghostty_source.py"
 python3 "$ROOT_DIR/script/test-agent-plugin-inspection.py"
 python3 -B "$ROOT_DIR/script/test-dot-skill-package.py"
 "$ROOT_DIR/script/test.sh" all
-"$ROOT_DIR/script/build_and_run.sh" --verify
+if [[ "$checks_only" == true ]]; then
+    echo "Preflight checks passed (checks-only); staged-app build, signing, and launch verification were not run."
+else
+    "$ROOT_DIR/script/build_and_run.sh" --verify
+fi

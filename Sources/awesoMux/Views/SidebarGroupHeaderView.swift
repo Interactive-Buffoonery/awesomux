@@ -141,6 +141,9 @@ struct SidebarGroupHeaderRow: View {
     /// `SidebarPeekModel` so `ContentView` can draw the peek card aligned
     /// with the header, above the split. Mirrors `SidebarSessionTile.tileFrame`.
     @State private var headerFrame: CGRect = .zero
+    @Environment(\.isNativeSidebarRow) private var isNativeSidebarRow
+    @Environment(SidebarNativeDragActivity.self) private var nativeDragActivity: SidebarNativeDragActivity?
+    private var effectiveDragActive: Bool { isDragActive || nativeDragActivity?.kind != nil }
     @Environment(SidebarPeekModel.self) private var peekModel
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Environment(\.colorSchemeContrast) private var contrast
@@ -238,7 +241,7 @@ struct SidebarGroupHeaderRow: View {
             // store then refuses to remove.
             isGroupEmpty: group.sessions.isEmpty,
             isGroupCollapsed: isCollapsed,
-            isDragActive: isDragActive
+            isDragActive: effectiveDragActive
         )
     }
 
@@ -300,7 +303,7 @@ struct SidebarGroupHeaderRow: View {
             focusedRowTarget.wrappedValue == .group(group.id) && isKeyboardNavigating,
             cornerRadius: 6
         )
-        .onDrag {
+        .sidebarDrag(enabled: !isNativeSidebarRow) {
             let dragID = onGroupDragStarted(group.id)
             let provider = NSItemProvider()
             registerSidebarDragPayload(
@@ -323,12 +326,7 @@ struct SidebarGroupHeaderRow: View {
         .overlay(alignment: .trailing) { groupCloseButton }
         .background {
             if canPeek {
-                Color.clear
-                    .onGeometryChange(for: CGRect.self) { proxy in
-                        proxy.frame(in: .global)
-                    } action: {
-                        headerFrame = $0
-                    }
+                SidebarRowGeometry { headerFrame = $0 }
             }
         }
         // .onHover must sit ABOVE the overlay (mirrors the session tile's
@@ -404,7 +402,7 @@ struct SidebarGroupHeaderRow: View {
             // state.) The resting X is covered by the policy's own
             // `isDragActive` term instead — nothing to reset, since it never
             // read hover in the first place.
-            .onChange(of: isDragActive) { _, active in
+            .onChange(of: effectiveDragActive) { _, active in
                 if active {
                     isHeaderHovered = false
                     cancelPeek()

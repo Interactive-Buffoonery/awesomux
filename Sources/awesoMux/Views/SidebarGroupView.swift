@@ -102,7 +102,67 @@ struct SidebarGroupView: View {
         return allGroups[resolvedGroupIndex + 1]
     }
 
+    var nativeRow: SidebarNativeOutlineView.Key? = nil
+    var nativeWorkspaceOffset: Int? = nil
+
+    @ViewBuilder
     var body: some View {
+        if let nativeRow {
+            switch nativeRow {
+            case .group:
+                headerRow.padding(.top, 10)
+            case .newWorkspace:
+                NewWorkspaceInGroupRow(
+                    isFiltering: false, groupName: group.name, ownsDropDelegate: false,
+                    activeDragKind: nil, activeDragID: nil, activeDragSourceIsPinned: false,
+                    verticalPadding: density.emptyGroupVerticalPadding,
+                    onNewSessionInGroup: onNewSessionInGroup,
+                    onDragRefreshed: onDragRefreshed, onDragEnded: onDragEnded,
+                    onDragExited: onDragExited,
+                    onAcceptDrop: { _ in }
+                )
+            case let .workspace(id):
+                if let offset = nativeWorkspaceOffset, entries.indices.contains(offset), entries[offset].session.id == id {
+                    LiveTitleScope(sessionID: id, reads: .everything) { titles in
+                        sessionRow(entry: entries[offset], offset: offset, rowOtherGroups: otherGroups, liveTitles: titles)
+                    }
+                }
+            }
+        } else {
+            groupedBody
+        }
+    }
+
+    private var headerRow: some View {
+        SidebarGroupHeaderRow(
+            group: group,
+            entries: entries,
+            density: density,
+            tint: tint,
+            isCollapsed: isCollapsed,
+            isFiltering: isFiltering,
+            displayMode: displayMode,
+            selectedSessionID: selectedSessionID,
+            displayedTitles: displayedTitles,
+            currentGroupIndex: currentGroupIndex,
+            totalGroupCount: totalGroupCount,
+            isDragActive: activeDragKind != nil,
+            onToggle: onToggle,
+            onNewSessionInGroup: onNewSessionInGroup,
+            onConnectViaSSH: onConnectViaSSH,
+            onNewGroup: onNewGroup,
+            onRenameGroup: onRenameGroup,
+            onSetGroupColor: onSetGroupColor,
+            onCloseGroup: onCloseGroup,
+            onMoveGroup: onMoveGroup,
+            onGroupDragStarted: onGroupDragStarted,
+            focusedRowTarget: focusedRowTarget,
+            isKeyboardNavigating: $isKeyboardNavigating
+        )
+    }
+
+    @ViewBuilder
+    private var groupedBody: some View {
         let sessionIDs = entries.map(\.session.id)
         // Hoisted out of the tile loop below: every row passes the same value,
         // so evaluating the computed property per row rebuilt one array per
@@ -120,6 +180,19 @@ struct SidebarGroupView: View {
             reduceMotion || isFiltering
             ? nil
             : .easeOut(duration: 0.14)
+        let reorderPreview: SidebarWorkspaceReorderPreview<TerminalSession.ID>? =
+            activeDragKind == .workspace && activeDragID != nil
+                && activeWorkspaceDragSourceGroupID == group.id && !activeDragSourceIsPinned
+                && !isFiltering && !isCurrentWorkspaceDragSuppressed
+            ? activeWorkspaceDragSourceID.flatMap {
+                SidebarWorkspaceReorderPreview(
+                    sourceID: $0,
+                    insertionIndex: headerWorkspaceDropTargeted ? 0 : workspaceDropIndex,
+                    orderedIDs: sessionIDs,
+                    frames: dragRowFrames,
+                    spacing: density.sessionStackSpacing
+                )
+            } : nil
 
         VStack(alignment: .leading, spacing: density.sessionStackSpacing) {
             // The header lives in its own view so a hover enter/exit invalidates
@@ -130,48 +203,21 @@ struct SidebarGroupView: View {
             // mutate this view's shared drop state (`headerWorkspaceDropTargeted`,
             // `workspaceDropIndex`) and don't read hover — moving them would only
             // buy binding churn, not fewer invalidations.
-            SidebarGroupHeaderRow(
-                group: group,
-                entries: entries,
-                density: density,
-                tint: tint,
-                isCollapsed: isCollapsed,
-                isFiltering: isFiltering,
-                displayMode: displayMode,
-                selectedSessionID: selectedSessionID,
-                displayedTitles: displayedTitles,
-                currentGroupIndex: currentGroupIndex,
-                totalGroupCount: totalGroupCount,
-                isDragActive: activeDragKind != nil,
-                onToggle: onToggle,
-                onNewSessionInGroup: onNewSessionInGroup,
-                onConnectViaSSH: onConnectViaSSH,
-                onNewGroup: onNewGroup,
-                onRenameGroup: onRenameGroup,
-                onSetGroupColor: onSetGroupColor,
-                onCloseGroup: onCloseGroup,
-                onMoveGroup: onMoveGroup,
-                onGroupDragStarted: onGroupDragStarted,
-                focusedRowTarget: focusedRowTarget,
-                isKeyboardNavigating: $isKeyboardNavigating
-            )
+            headerRow
             // The header accepts workspace drops as a broad target: expanded
             // groups insert at the top where the indicator appears, while
             // collapsed groups append then auto-expand. Group reorders are
             // owned by the sidebar stack-level delegate so header and stack
             // drops cannot double-apply one move.
             //
-            // Legacy .onDrop is used because the drag source is legacy
-            // `.onDrag { NSItemProvider }` — SwiftUI's Transferable
-            // .dropDestination does not consistently bridge from raw
-            // NSItemProvider on macOS 15.
+                // Legacy .onDrop bridges the native source's UTF8 payload on macOS 15.
             // Indicator above the bracket so it anchors to the header's real
             // bottom edge. BETWEEN the two paddings it would anchor to the
             // padded bottom and draw `sessionStackSpacing` too low; after
             // the reclaim it would also be correct, but this placement makes
             // the intent unambiguous without depending on reclaim order.
             .overlay(alignment: .bottom) {
-                if activeDragKind == .workspace && !isFiltering && headerWorkspaceDropTargeted {
+                    if activeDragKind == .workspace && !isFiltering && headerWorkspaceDropTargeted && reorderPreview == nil {
                     SidebarInsertionIndicator(tint: tint.hue)
                         .offset(y: SidebarInsertionIndicator.height / 2)
                         .allowsHitTesting(false)
@@ -194,16 +240,19 @@ struct SidebarGroupView: View {
                     activeDragSourceIsPinned: activeDragSourceIsPinned,
                     setIsTargeted: setHeaderWorkspaceDropTargeted,
                     onUncollapse: onUncollapse,
-                    onMoveSession: onMoveSession,
+                        onMoveSession: { sessionID, destinationGroupID, index in
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = activeWorkspaceDragSourceGroupID == destinationGroupID
+                            withTransaction(transaction) {
+                                onMoveSession(sessionID, destinationGroupID, index)
+                            }
+                        },
                     onDragRefreshed: onDragRefreshed,
                     onDropEnded: {
                         clearWorkspaceHoverState()
                         onDragEnded()
                     },
-                    onDropExited: {
-                        clearWorkspaceHoverState()
-                        onDragExited()
-                    }
+                        onDropExited: onDragExited
                 )
             )
             .padding(.bottom, -density.sessionStackSpacing)
@@ -223,9 +272,13 @@ struct SidebarGroupView: View {
                             )
                         }
                         .id(session.id)
+                        .opacity(reorderPreview != nil && session.id == activeWorkspaceDragSourceID ? 0 : 1)
+                        .offset(y: reorderPreview?.offsets[session.id] ?? 0)
+                        .animation(structuralAnimation, value: reorderPreview?.offsets[session.id] ?? 0)
                         // Per-tile frame cache for y-hit-test. One coordinate
                         // space scoped to the group avoids cross-group
-                        // ambiguity when rows are lazy-evicted.
+                        // ambiguity when rows are lazy-evicted. Measure outside
+                        // the visual offset so preview motion cannot move hit targets.
                         .background(
                             GeometryReader { proxy in
                                 Color.clear
@@ -295,7 +348,15 @@ struct SidebarGroupView: View {
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    if activeDragKind == .workspace,
+                    if let reorderPreview {
+                        RoundedRectangle(cornerRadius: AwRadius.panel)
+                            .strokeBorder(tint.hue.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                            .frame(height: reorderPreview.gapFrame.height)
+                            .offset(y: reorderPreview.gapFrame.minY)
+                            .animation(structuralAnimation, value: reorderPreview.gapFrame)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    } else if activeDragKind == .workspace,
                         !isFiltering,
                         let workspaceDropIndex,
                         let y = SidebarInsertionResolver.insertionY(
@@ -319,12 +380,16 @@ struct SidebarGroupView: View {
                 // shared top-left origin untouched — so no hit-test math moves.
                 // `.padding(.top,)` here would offset every drop by half a gap.
                 .padding(.bottom, density.groupStackSpacing)
+                // AppKit must still hit a painted destination when the source row becomes an empty gap.
+                .background(Color.aw.surface.sidebar)
+                .contentShape(Rectangle())
                 .sidebarDrop(
                     enabled: activeDragKind == .workspace && !isFiltering,
                     delegate: SidebarWorkspaceListDropDelegate(
                         groupID: group.id,
                         sessionIDs: sessionIDs,
                         rowFrames: dragRowFrames,
+                        currentInsertionIndex: workspaceDropIndex,
                         isFiltering: isFiltering,
                         activeDragKind: activeDragKind,
                         activeDragID: activeDragID,
@@ -339,10 +404,7 @@ struct SidebarGroupView: View {
                             clearWorkspaceHoverState(suppressingCurrentDrag: true)
                             onDragEnded()
                         },
-                        onDropExited: {
-                            clearWorkspaceHoverState()
-                            onDragExited()
-                        }
+                        onDropExited: onDragExited
                     )
                 )
                 // Reclaim the space: keeping the reported frame identical means
@@ -510,6 +572,7 @@ struct SidebarGroupView: View {
             onDragStarted: {
                 onWorkspaceDragStarted(session.id)
             },
+            onDragEnded: onDragEnded,
             focusedRowTarget: focusedRowTarget,
             isKeyboardNavigatingValue: isKeyboardNavigating,
             liveTitles: liveTitles,

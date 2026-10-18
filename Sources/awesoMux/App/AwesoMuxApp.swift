@@ -329,8 +329,8 @@ struct AwesoMuxApp: App {
             }
         )
         appSettingsStore.bootstrap()
-        RemoteHelperInstaller.installPolicy = { [weak appSettingsStore] in
-            appSettingsStore?.workspaces.value.remoteHelperInstallPolicy ?? .ask
+        RemoteHelperInstaller.installPolicy = { [weak appSettingsStore] remote in
+            appSettingsStore?.workspaces.value.helperInstallPolicy(for: remote.sshDestination) ?? .ask
         }
         // Seeded here for two reasons, both of which are the same bug class.
         // `loadSource` is only this launch's answer in the window between

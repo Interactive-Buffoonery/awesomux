@@ -190,14 +190,24 @@ extension AgentKind {
 
 extension View {
     @ViewBuilder
+    func sidebarRotorEntry(id: UUID, namespace: Namespace.ID?) -> some View {
+        if let namespace { accessibilityRotorEntry(id: id, in: namespace) } else { self }
+    }
+
+    @ViewBuilder
+    func sidebarDrag<Preview: View>(
+        enabled: Bool,
+        data: @escaping () -> NSItemProvider,
+        @ViewBuilder preview: () -> Preview
+    ) -> some View {
+        if enabled { onDrag(data, preview: preview) } else { self }
+    }
+
     func sidebarDrop<Delegate: DropDelegate>(
         enabled: Bool,
         delegate: Delegate
     ) -> some View {
-        if enabled {
-            onDrop(of: [.utf8PlainText], delegate: delegate)
-        } else {
-            self
-        }
+        // Keep the native source mounted when its drag enables the destinations.
+        onDrop(of: enabled ? [.utf8PlainText] : [], delegate: delegate)
     }
 }

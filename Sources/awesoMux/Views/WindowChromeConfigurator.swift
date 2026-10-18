@@ -231,10 +231,13 @@ private final class WindowChromeConfigView: NSView {
                 NativeTitlebarChrome.apply(to: window)
                 corrected = true
             }
-            corrected = removeContentSafeAreaReservation(from: window) || corrected
         } else if window.toolbarStyle != .unifiedCompact {
             window.toolbarStyle = .unifiedCompact
             corrected = true
+        }
+
+        if windowRole == .primaryContent || windowRole == .settings {
+            corrected = removeContentSafeAreaReservation(from: window) || corrected
         }
 
         // awesoMux is single-window with a sidebar of sessions; native window
