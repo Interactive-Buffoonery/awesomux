@@ -1337,16 +1337,6 @@ final class MarkdownTextViewCoordinator: NSObject, NSTextViewDelegate {
         return true
     }
 
-    /// Adopts attributes installed outside `replaceTextStorage`, primarily for
-    /// focused TextKit tests. Production updates use the replacement method so
-    /// storage ownership can be checked in constant time during layout.
-    func adoptCurrentAttributes(_ attributes: NSMutableAttributedString, in textView: NSTextView) -> Bool {
-        guard attributes.length == textView.textStorage?.length else { return false }
-        currentAttr = attributes
-        adoptedAttributeRevision = textStorageRevision
-        return true
-    }
-
     private func hasAdoptedCurrentAttributes(in textView: NSTextView) -> Bool {
         guard let currentAttr else { return false }
         return adoptedAttributeRevision == textStorageRevision

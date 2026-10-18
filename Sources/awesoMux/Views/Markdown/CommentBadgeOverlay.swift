@@ -635,13 +635,6 @@ final class CommentBadgeOverlay: NSView {
         return displayNumber.map { "Comment \($0)" } ?? "Comment"
     }
 
-    /// Test seam: the section buttons an accessibility query would return
-    /// (headless tests have no window, so `accessibilityChildren()` is
-    /// unreachable to them).
-    func sectionAccessibilityChildrenForTesting() -> [NSAccessibilityElement] {
-        sectionAccessibilityChildren()
-    }
-
     /// The built section buttons, or nil when a structural change has retired
     /// them. Same contract as the AXTable tree above: VoiceOver holds these
     /// while the user navigates, so a fold — which changes only value and
@@ -1077,17 +1070,9 @@ final class CommentBadgeOverlay: NSView {
         diffRows(intersecting: rect, in: textView, width: width).tints
     }
 
-    /// A 1pt rule at the top of every hunk-header row intersecting `rect`,
-    /// separating one hunk from the lines above it.
-    static func diffHunkRuleRows(
-        intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
-    ) -> [NSRect] {
-        diffRows(intersecting: rect, in: textView, width: width).rules
-    }
-
     /// Both diff row sets from ONE fragment walk. `draw(_:)` needs the washes
     /// and the hunk rules together, and each set costs a full walk of the
-    /// visible fragments — the two public accessors above exist for tests, which
+    /// visible fragments — the tint accessor above exists for tests, which
     /// can afford the second walk; the draw path cannot (review).
     static func diffRows(
         intersecting rect: NSRect, in textView: NSTextView, width: CGFloat
@@ -1412,22 +1397,6 @@ final class CommentBadgeOverlay: NSView {
             y: headingMinY + (sectionHeadingLineHeight - size.height) / 2 - 1,
             width: size.width + countsBadgePadding * 2,
             height: size.height + 2)
-    }
-
-    /// Test seam: the counts-badge rects the current draw pass would use, in
-    /// overlay space, paired with their section keys.
-    var sectionBadgeRects: [(key: String, rect: NSRect)] {
-        guard let textView = superview as? NSTextView else { return [] }
-        let inset = textView.textContainerInset
-        let clipRect = countsBadgeClipRect
-        return sectionChrome.map {
-            (
-                $0.key,
-                Self.countsBadgeRect(
-                    added: $0.added, removed: $0.removed, headingMinY: $0.headingRect.minY,
-                    clipRect: clipRect, inset: inset)
-            )
-        }
     }
 
     private func drawCounts(for chrome: SectionChrome, clipRect: NSRect, inset: NSSize) {
