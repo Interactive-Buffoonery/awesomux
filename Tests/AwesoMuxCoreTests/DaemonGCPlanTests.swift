@@ -434,7 +434,8 @@ struct DaemonGCPlanTests {
         #expect(
             DaemonGCPlan.confirmedOrphanAttachSamples(
                 samples: [sample],
-                daemonPIDs: knownDaemon ? [500] : [], executableName: "amx", localSessionSockets: sockets).map(\.pid)
+                daemonPIDs: knownDaemon ? [500] : [], executableName: "amx", localSessionSockets: sockets
+            ).map(\.pid)
                 == (expected ? [500] : []))
     }
 
