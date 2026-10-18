@@ -40,7 +40,15 @@ inspectable evidence. Add a scenario for new user-facing behavior only when
 this flow misses a distinct meaningful failure; avoid permutation growth.
 
 Reports record exact source HEAD, dirty diff SHA-256, and hashes of all harness
-files and relevant source/docs. `--check-freshness REPORT` compares those values
+files and relevant source/docs. The existing `source.files` mapping retains
+vendor HEADs; `source.submodules` maps each vendor path to `head`,
+`stagedDiffSHA256`, `unstagedDiffSHA256`, and `untrackedSHA256`. These capture
+tracked staged/unstaged binary diffs and a sorted list of nonignored untracked
+paths, file kinds, and content hashes. Symlinks hash their link text without
+reading targets; ignored build outputs are excluded. Neither current vendor has
+nested Git submodules; adding one requires extending capture before the runner
+will accept it. Older reports without this fingerprint are stale.
+`--check-freshness REPORT` compares those values
 against the current checkout without launching the app. A mismatch makes the
 old evidence stale, not a new lifecycle failure. Binary hashes identify what
 actually ran; staging provenance must be reviewed separately if the bundle was

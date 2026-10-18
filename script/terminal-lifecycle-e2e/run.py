@@ -11,6 +11,7 @@ import secrets
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -59,11 +60,40 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def submodule_source(path):
+    def git(*arguments):
+        return subprocess.check_output(["git", *arguments], cwd=path)
+
+    if any(entry.startswith(b"160000 ") for entry in git("ls-files", "--stage", "-z").split(b"\0")):
+        raise RuntimeError("Nested submodules need explicit freshness capture: " + str(path))
+    untracked = []
+    for name in sorted(filter(None, git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0"))):
+        relative = Path(os.fsdecode(name))
+        if any((path / parent).is_symlink() for parent in relative.parents):
+            raise RuntimeError("Untracked path has a symlink parent: " + str(relative))
+        file = path / relative
+        if file.is_symlink():
+            kind, content = "symlink", os.fsencode(os.readlink(file))
+        else:
+            with os.fdopen(os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise RuntimeError("Unsupported untracked file: " + str(relative))
+                kind, content = "file", stream.read()
+        untracked.append([os.fsdecode(name), kind, hashlib.sha256(content).hexdigest()])
+    return {"head": git("rev-parse", "HEAD").decode().strip(),
+            "stagedDiffSHA256": hashlib.sha256(git("diff", "--cached", "--binary", "--no-ext-diff",
+                                                   "--no-textconv", "--ignore-submodules=none", "HEAD")).hexdigest(),
+            "unstagedDiffSHA256": hashlib.sha256(git("diff", "--binary", "--no-ext-diff",
+                                                     "--no-textconv", "--ignore-submodules=none")).hexdigest(),
+            "untrackedSHA256": hashlib.sha256(json.dumps(untracked, ensure_ascii=True).encode()).hexdigest()}
+
+
 def source():
     paths = sorted(set(PRODUCTION + [str(p.relative_to(ROOT)) for p in HERE.iterdir() if p.is_file()]))
     return {"head": run(["git", "rev-parse", "HEAD"], cwd=ROOT),
             "dirtyDiffSHA256": hashlib.sha256(subprocess.check_output(
                 ["git", "diff", "HEAD", "--binary"], cwd=ROOT)).hexdigest(),
+            "submodules": {p: submodule_source(ROOT / p) for p in paths if not (ROOT / p).is_file()},
             "files": {p: (digest(ROOT / p) if (ROOT / p).is_file() else
                           run(["git", "rev-parse", "HEAD"], cwd=ROOT / p)) for p in paths}}
 
