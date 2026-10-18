@@ -22,15 +22,15 @@ unsafe_stored_ref=$'osascript -e \'tell application "System Events"\n    tell fi
 unsafe_ref_loop=$'osascript -e \'tell application "System Events"\n    tell first process whose unix id is appPID\n        repeat with\n            candidateButton in buttons of window 1\n        end repeat\n    end tell\nend tell\''
 valid_pid_query=$'osascript -e \'tell application "System Events"\n    tell first process whose unix id is appPID\n        click button 1 of window 1\n    end tell\nend tell\''
 
-if ! rg -qU -e "$pattern" <<<"$unsafe_stored_ref"; then
+if ! rg -qU -e "$pattern" - <<<"$unsafe_stored_ref"; then
     echo "check_applescript_targets: multiline stored-reference self-check failed" >&2
     exit 1
 fi
-if ! rg -qU -e "$pattern" <<<"$unsafe_ref_loop"; then
+if ! rg -qU -e "$pattern" - <<<"$unsafe_ref_loop"; then
     echo "check_applescript_targets: multiline reference-loop self-check failed" >&2
     exit 1
 fi
-if rg -qU -e "$pattern" <<<"$valid_pid_query"; then
+if rg -qU -e "$pattern" - <<<"$valid_pid_query"; then
     echo "check_applescript_targets: valid PID-targeted query self-check failed" >&2
     exit 1
 fi
