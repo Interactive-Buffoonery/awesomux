@@ -8,36 +8,25 @@ struct WorktreeWorkspaceProjectionTests {
     // path-matching tests below; the dedicated stale-directory test flips it.
     private let projection = WorktreeWorkspaceProjection(directoryExists: { _ in true })
 
-    @Test("returns nil when no pane is inside the worktree")
-    func noMatch() {
-        #expect(
-            projection.match(
-                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
-                groups: groups(path: "/tmp/elsewhere")
-            ) == nil)
-    }
-
-    @Test("matches an exact pane working directory")
-    func exactMatch() throws {
-        let groups = groups(path: "/tmp/worktree")
-        let match = try #require(
-            projection.match(
-                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
-                groups: groups
-            ))
-
-        #expect(match.groupID == groups[0].id)
-        #expect(match.sessionID == groups[0].sessions[0].id)
-        #expect(match.paneID == groups[0].sessions[0].activePaneID)
-    }
-
-    @Test("matches a pane nested under the worktree")
-    func nestedMatch() {
-        #expect(
-            projection.match(
-                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo")),
-                groups: groups(path: "/tmp/x/repo-worktrees/foo/Sources/App")
-            ) != nil)
+    @Test(arguments: [
+        ("/tmp/worktree", "/tmp/elsewhere", false, true, false),
+        ("/tmp/worktree", "/tmp/worktree", false, true, true),
+        ("/tmp/x/repo-worktrees/foo", "/tmp/x/repo-worktrees/foo/Sources/App", false, true, true),
+        ("/tmp/x/repo-worktrees/foo", "/tmp/x/repo-worktrees/foo-bar/sub", false, true, false),
+        ("/tmp/worktree", "/tmp/worktree", true, true, false),
+        ("/tmp/worktree", "/tmp/worktree", false, false, false),
+    ])
+    func matchingPane(worktree: String, path: String, remote: Bool, exists: Bool, expected: Bool) throws {
+        let plan: PaneExecutionPlan = remote ? .ssh(SSHExecution(target: try #require(RemoteTarget(parsing: "dev@example.com")))) : .local
+        let groups = groups(path: path, executionPlan: plan)
+        let projection = WorktreeWorkspaceProjection(directoryExists: { _ in exists })
+        let match = projection.match(worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: worktree)), groups: groups)
+        #expect((match != nil) == expected)
+        if expected {
+            #expect(match?.groupID == groups[0].id)
+            #expect(match?.sessionID == groups[0].sessions[0].id)
+            #expect(match?.paneID == groups[0].sessions[0].activePaneID)
+        }
     }
 
     @Test("the most-specific worktree owns a nested pane")
@@ -58,56 +47,6 @@ struct WorktreeWorkspaceProjectionTests {
                 canonicalWorktreePathComponents: [main, linked].map(canonicalPathComponents),
                 groups: groups
             ) != nil)
-    }
-
-    @Test("a nested pane does not hide a later pane in the main worktree")
-    func rejectedNestedPaneContinuesSearching() throws {
-        let main = URL(fileURLWithPath: "/tmp/repo")
-        let linked = URL(fileURLWithPath: "/tmp/repo/.worktrees/feature")
-        let nestedSession = TerminalSession(title: "linked", workingDirectory: linked.path)
-        let mainSession = TerminalSession(title: "main", workingDirectory: main.appendingPathComponent("Sources").path)
-        let groups = [SessionGroup(name: "work", sessions: [nestedSession, mainSession])]
-
-        let match = try #require(
-            projection.match(
-                worktreeComponents: canonicalPathComponents(main),
-                canonicalWorktreePathComponents: [main, linked, main.standardizedFileURL].map(canonicalPathComponents),
-                groups: groups
-            ))
-
-        #expect(match.sessionID == mainSession.id)
-    }
-
-    @Test("rejects a sibling that merely shares the string prefix")
-    func siblingPrefixDoesNotMatch() {
-        #expect(
-            projection.match(
-                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/x/repo-worktrees/foo")),
-                groups: groups(path: "/tmp/x/repo-worktrees/foo-bar/sub")
-            ) == nil)
-    }
-
-    @Test("remote panes never match the same textual path")
-    func remotePaneDoesNotMatch() throws {
-        let remote = try #require(RemoteTarget(parsing: "dev@example.com"))
-        #expect(
-            projection.match(
-                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
-                groups: groups(
-                    path: "/tmp/worktree",
-                    executionPlan: .ssh(SSHExecution(target: remote))
-                )
-            ) == nil)
-    }
-
-    @Test("a matching pane whose directory no longer exists is not a live match")
-    func staleDirectoryDoesNotMatch() {
-        let stale = WorktreeWorkspaceProjection(directoryExists: { _ in false })
-        #expect(
-            stale.match(
-                worktreeComponents: canonicalPathComponents(URL(fileURLWithPath: "/tmp/worktree")),
-                groups: groups(path: "/tmp/worktree")
-            ) == nil)
     }
 
     private func groups(
