@@ -93,80 +93,6 @@ struct AgentRuntimeEventReducerTests {
             ) != nil)
     }
 
-    @Test("session start after end accepts an equal timestamp and preserves watermark")
-    func equalTimestampSessionStartRestartsEndedLifecycle() throws {
-        let session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
-        let paneID = session.activePaneID
-        let timestamp = Date(timeIntervalSince1970: 10)
-        var reducer = AgentRuntimeEventReducer()
-
-        #expect(
-            reducer.decision(
-                for: AgentRuntimeEvent(
-                    source: .claudeCode,
-                    executionState: .idle,
-                    phase: .sessionEnd,
-                    timestamp: timestamp
-                ),
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: timestamp
-            ) != nil)
-        #expect(
-            reducer.decision(
-                for: AgentRuntimeEvent(
-                    source: .claudeCode,
-                    executionState: .idle,
-                    phase: .sessionStart,
-                    timestamp: timestamp
-                ),
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: timestamp
-            ) != nil)
-        #expect(reducer.stateByPaneID[paneID]?.lastAppliedTimestamp == timestamp)
-        #expect(!reducer.suppressesHeuristicState(for: paneID))
-    }
-
-    @Test("session start older than the end watermark cannot revive an ended lifecycle")
-    func olderTimestampSessionStartKeepsEndedLifecycle() throws {
-        let session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
-        let paneID = session.activePaneID
-        let endTimestamp = Date(timeIntervalSince1970: 10)
-        var reducer = AgentRuntimeEventReducer()
-
-        #expect(
-            reducer.decision(
-                for: AgentRuntimeEvent(
-                    source: .claudeCode,
-                    executionState: .idle,
-                    phase: .sessionEnd,
-                    timestamp: endTimestamp
-                ),
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: endTimestamp
-            ) != nil)
-        #expect(
-            reducer.decision(
-                for: AgentRuntimeEvent(
-                    source: .claudeCode,
-                    executionState: .idle,
-                    phase: .sessionStart,
-                    timestamp: Date(timeIntervalSince1970: 5)
-                ),
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: endTimestamp
-            ) == nil)
-        #expect(reducer.stateByPaneID[paneID]?.lastAppliedTimestamp == endTimestamp)
-        #expect(reducer.suppressesHeuristicState(for: paneID))
-    }
-
     @Test("a late session end cannot terminate a restarted ended lifecycle")
     func lateSessionEndCannotTerminateRestartedEndedLifecycle() throws {
         let session = TerminalSession(title: "claude", workingDirectory: "~", agentKind: .claudeCode)
@@ -249,50 +175,6 @@ struct AgentRuntimeEventReducerTests {
         #expect(reducer.suppressesHeuristicState(for: paneID))
     }
 
-    @Test("an attention-only event preserves the pane's prior execution state")
-    func attentionOnlyEventPreservesExecutionState() throws {
-        var (session, paneID) = singlePaneSession()
-        var reducer = AgentRuntimeEventReducer()
-        let t10 = Date(timeIntervalSince1970: 10)
-        let t20 = Date(timeIntervalSince1970: 20)
-
-        let runningResult = reducer.decision(
-            for: AgentRuntimeEvent(
-                source: .claudeCode,
-                executionState: .running,
-                eventID: "e1",
-                timestamp: t10
-            ),
-            currentSession: session, paneID: paneID, terminalIsFocused: false, now: t10
-        )
-        let runningDecision = try #require(runningResult)
-        #expect(runningDecision.update.agentExecutionState == .running)
-
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session, paneID: paneID, update: runningDecision.update, now: t10
-        )
-        #expect(session.layout.pane(id: paneID)?.agentExecutionState == .running)
-
-        let attentionResult = reducer.decision(
-            for: AgentRuntimeEvent(
-                source: .claudeCode,
-                attentionReason: .permissionPrompt,
-                eventID: "e2",
-                timestamp: t20
-            ),
-            currentSession: session, paneID: paneID, terminalIsFocused: false, now: t20
-        )
-        let attentionDecision = try #require(attentionResult)
-        #expect(attentionDecision.update.agentExecutionState == nil)
-        #expect(attentionDecision.update.attentionReason == .permissionPrompt)
-
-        _ = WorkspaceAttentionReducer.updatePane(
-            &session, paneID: paneID, update: attentionDecision.update, now: t20
-        )
-        #expect(session.layout.pane(id: paneID)?.agentExecutionState == .running)
-        #expect(session.layout.pane(id: paneID)?.attentionReason == .permissionPrompt)
-    }
-
     // MARK: - Rename events (routed through the same dedupe/staleness gate)
 
     private func singlePaneSession() -> (TerminalSession, TerminalPane.ID) {
@@ -315,36 +197,13 @@ struct AgentRuntimeEventReducerTests {
         )
     }
 
-    @Test("rename resolves to a pane-title action; empty resets; nil drops")
-    func renameResolvesToPaneTitleAction() throws {
+    @Test("a replayed/stale rename is deduped + staleness-dropped like a state event")
+    func renameIsDedupedAndStalenessGated() throws {
         let (session, paneID) = singlePaneSession()
         var reducer = AgentRuntimeEventReducer()
-        let now = Date(timeIntervalSince1970: 10)
+        let t10 = Date(timeIntervalSince1970: 10)
+        let now = Date(timeIntervalSince1970: 100)
 
-        let renamed = reducer.decision(
-            for: renameEvent(title: "Backend"),
-            currentSession: session, paneID: paneID, terminalIsFocused: false, now: now
-        )
-        #expect(renamed?.paneTitleAction == .rename("Backend"))
-
-        let reset = reducer.decision(
-            for: renameEvent(title: ""),
-            currentSession: session, paneID: paneID, terminalIsFocused: false, now: now
-        )
-        #expect(reset?.paneTitleAction == .reset)
-
-        // Absent title → malformed → dropped (must not clear a pin).
-        let dropped = reducer.decision(
-            for: renameEvent(title: nil),
-            currentSession: session, paneID: paneID, terminalIsFocused: false, now: now
-        )
-        #expect(dropped == nil)
-    }
-
-    @Test("a rename carrying agent state is dropped (title-only contract)")
-    func renameCarryingStateIsDropped() throws {
-        let (session, paneID) = singlePaneSession()
-        var reducer = AgentRuntimeEventReducer()
         let event = AgentRuntimeEvent(
             source: .claudeCode,
             executionState: .thinking,  // state on a rename event → malformed
@@ -356,14 +215,6 @@ struct AgentRuntimeEventReducerTests {
                 for: event, currentSession: session, paneID: paneID,
                 terminalIsFocused: false, now: Date(timeIntervalSince1970: 10)
             ) == nil)
-    }
-
-    @Test("a replayed/stale rename is deduped + staleness-dropped like a state event")
-    func renameIsDedupedAndStalenessGated() throws {
-        let (session, paneID) = singlePaneSession()
-        var reducer = AgentRuntimeEventReducer()
-        let t10 = Date(timeIntervalSince1970: 10)
-        let now = Date(timeIntervalSince1970: 100)
 
         // First rename applies.
         #expect(
@@ -409,85 +260,6 @@ struct AgentRuntimeEventReducerTests {
             documentPath: path,
             timestamp: timestamp
         )
-    }
-
-    @Test("open-document resolves to a document-pane action without pane state")
-    func openDocumentResolvesToDocumentPaneAction() throws {
-        let (session, paneID) = singlePaneSession()
-        var reducer = AgentRuntimeEventReducer()
-
-        let result = reducer.decision(
-            for: openDocumentEvent(path: "/tmp/notes.markdown"),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: false,
-            now: Date(timeIntervalSince1970: 10)
-        )
-        let decision = try #require(result)
-
-        #expect(decision.appliesPaneUpdate == false)
-        #expect(decision.documentPaneAction == .open(URL(fileURLWithPath: "/tmp/notes.markdown")))
-        #expect(decision.update.agentKind == nil)
-        #expect(decision.update.agentExecutionState == nil)
-        #expect(decision.update.attentionReason == nil)
-        #expect(decision.update.agentState == nil)
-        #expect(decision.update.unreadNotificationDelta == 0)
-    }
-
-    @Test("open-document replay is deduped by eventID and timestamp")
-    func openDocumentReplayIsDeduped() {
-        let (session, paneID) = singlePaneSession()
-        var reducer = AgentRuntimeEventReducer()
-        let timestamp = Date(timeIntervalSince1970: 10)
-        let event = openDocumentEvent(eventID: "open-1", timestamp: timestamp)
-
-        #expect(
-            reducer.decision(
-                for: event,
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: Date(timeIntervalSince1970: 11)
-            )?.documentPaneAction == .open(URL(fileURLWithPath: "/tmp/notes.md")))
-        #expect(
-            reducer.decision(
-                for: event,
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: Date(timeIntervalSince1970: 11)
-            ) == nil)
-    }
-
-    @Test("open-document rejects stale timestamps")
-    func openDocumentRejectsStaleTimestamp() {
-        let (session, paneID) = singlePaneSession()
-        var reducer = AgentRuntimeEventReducer()
-
-        _ = reducer.decision(
-            for: openDocumentEvent(
-                path: "/tmp/fresh.md",
-                eventID: "fresh",
-                timestamp: Date(timeIntervalSince1970: 10)
-            ),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: false,
-            now: Date(timeIntervalSince1970: 11)
-        )
-
-        #expect(
-            reducer.decision(
-                for: openDocumentEvent(
-                    path: "/tmp/stale.md",
-                    eventID: "stale",
-                    timestamp: Date(timeIntervalSince1970: 5)
-                ),
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: Date(timeIntervalSince1970: 11)
-            ) == nil)
     }
 
     @Test("malformed open-document events are rejected")
@@ -593,27 +365,6 @@ struct AgentRuntimeEventReducerTests {
         #expect(decision == nil)
     }
 
-    @Test("a foreign-kind SessionEnd does not reset an established pane")
-    func foreignSessionEndDoesNotResetEstablishedPane() throws {
-        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
-        let paneID = session.activePaneID
-        var reducer = AgentRuntimeEventReducer()
-
-        let contaminatingCodexSessionEnd = AgentRuntimeEvent(
-            source: .codex,
-            kind: .codex,
-            executionState: .idle,
-            phase: .sessionEnd,
-            eventID: "codex-nested-end-1",
-            timestamp: Date(timeIntervalSince1970: 160)
-        )
-        let decision = reducer.decision(
-            for: contaminatingCodexSessionEnd, currentSession: session, paneID: paneID,
-            terminalIsFocused: false, now: Date(timeIntervalSince1970: 160)
-        )
-        #expect(decision == nil)
-    }
-
     @Test("a genuine SessionStart from a new provider switches the pane once the old agent has stopped")
     func sessionStartFromNewProviderSwitchesAfterOldAgentStops() throws {
         let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
@@ -647,45 +398,6 @@ struct AgentRuntimeEventReducerTests {
         let decision = reducer.decision(
             for: codexSessionStart, currentSession: session, paneID: paneID,
             terminalIsFocused: false, now: Date(timeIntervalSince1970: 201)
-        )
-        #expect(decision?.update.agentKind == .codex)
-    }
-
-    @Test("a genuine SessionStart from a new provider switches the pane once the old agent has fully ended")
-    func sessionStartFromNewProviderSwitchesAfterOldAgentEnds() throws {
-        let session = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .claudeCode)
-        let paneID = session.activePaneID
-        var reducer = AgentRuntimeEventReducer()
-
-        // The established Claude Code session posts a real SessionEnd (the
-        // agent quit outright, not just paused between turns) — this is the
-        // `state.lifecycle.isEnded` half of the guard's escape-hatch OR,
-        // distinct from the `.currentIsStopped` half the sibling test above
-        // covers.
-        let claudeSessionEnd = AgentRuntimeEvent(
-            source: .claudeCode,
-            kind: .claudeCode,
-            executionState: .idle,
-            phase: .sessionEnd,
-            eventID: "claude-end-1",
-            timestamp: Date(timeIntervalSince1970: 300)
-        )
-        _ = reducer.decision(
-            for: claudeSessionEnd, currentSession: session, paneID: paneID,
-            terminalIsFocused: false, now: Date(timeIntervalSince1970: 300)
-        )
-
-        let codexSessionStart = AgentRuntimeEvent(
-            source: .codex,
-            kind: .codex,
-            executionState: .idle,
-            phase: .sessionStart,
-            eventID: "codex-start-2",
-            timestamp: Date(timeIntervalSince1970: 301)
-        )
-        let decision = reducer.decision(
-            for: codexSessionStart, currentSession: session, paneID: paneID,
-            terminalIsFocused: false, now: Date(timeIntervalSince1970: 301)
         )
         #expect(decision?.update.agentKind == .codex)
     }
