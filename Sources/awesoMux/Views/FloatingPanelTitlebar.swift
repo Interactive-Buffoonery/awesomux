@@ -13,11 +13,6 @@ import SwiftUI
 /// Settings and the main window, and repeating it on an auxiliary panel would
 /// claim more than the panel is.
 ///
-/// The gradient and hairline below are a small deliberate copy of Settings'
-/// rather than a shared primitive — two consumers do not need one. They are not
-/// contractually bound to stay identical; if these surfaces are ever meant to
-/// move together, extract the modifier at that point rather than assuming it.
-///
 /// ponytail: no `WindowDragGesture` here, unlike Settings. These panels are
 /// summoned at a fixed anchor and dismiss on resign-key, so dragging one is a
 /// rare gesture, and `isMovableByWindowBackground` is deliberately false on
@@ -31,29 +26,18 @@ struct FloatingPanelTitlebar: View {
     var hint: String?
 
     var body: some View {
-        HStack(spacing: 0) {
-            Text(title)
-                .awFont(AwFont.Mono.meta)
-                // Not `text3`: it lands at 2.42:1 on this gradient in Latte.
-                // `titlebarText` keeps that quiet weight everywhere it already
-                // cleared AA and steps only Latte down.
-                .foregroundStyle(Color.aw.titlebarText)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, AppTitlebarMetrics.trafficLightClearance)
-        .padding(.trailing, 10)
-        .frame(maxWidth: .infinity)
-        // `panelTitlebarHeight`, not `AwSpacing.titlebar` — see the metric's own
-        // note. Matching the native title bar is what puts this title on the
-        // traffic lights' centre line instead of 3pt under it.
-        .frame(height: AppTitlebarMetrics.panelTitlebarHeight)
-        .background {
-            LinearGradient(
-                colors: [Color.aw.surface.chrome2, Color.aw.surface.chrome],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+        NativeTitlebar { native in
+            HStack(spacing: 0) {
+                Text(title)
+                    .awFont(AwFont.Mono.meta)
+                    // `text3` falls below AA on the Latte titlebar gradient.
+                    .foregroundStyle(Color.aw.titlebarText)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, native.leadingInset)
+            .padding(.trailing, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay(alignment: .bottom) {
             Rectangle()

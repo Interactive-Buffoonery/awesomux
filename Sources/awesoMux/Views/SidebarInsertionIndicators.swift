@@ -42,6 +42,25 @@ final class SidebarDragFrameCache<ID: Hashable> {
 }
 
 enum SidebarInsertionResolver {
+    static func storedWorkspaceTargetIndex<ID: Equatable>(
+        sourceID: ID,
+        visibleTargetIndex: Int,
+        visibleIDs: [ID],
+        storedIDs: [ID]
+    ) -> Int? {
+        let remainingVisible = visibleIDs.filter { $0 != sourceID }
+        let target = max(0, min(visibleTargetIndex, remainingVisible.count))
+        if visibleIDs.firstIndex(of: sourceID) == target {
+            return storedIDs.firstIndex(of: sourceID)
+        }
+        let remainingStored = storedIDs.filter { $0 != sourceID }
+        if target < remainingVisible.count {
+            return remainingStored.firstIndex(of: remainingVisible[target])
+        }
+        guard let last = remainingVisible.last else { return remainingStored.count }
+        return remainingStored.firstIndex(of: last).map { $0 + 1 }
+    }
+
     static func insertionIndex<ID: Hashable>(
         forDropY y: CGFloat,
         orderedIDs: [ID],

@@ -105,6 +105,7 @@ struct SidebarWorkspaceListDropDelegate: DropDelegate {
     let groupID: SessionGroup.ID
     let sessionIDs: [TerminalSession.ID]
     let rowFrames: [TerminalSession.ID: CGRect]
+    let currentInsertionIndex: Int?
     let isFiltering: Bool
     let activeDragKind: SidebarDragKind?
     let activeDragID: UUID?
@@ -163,20 +164,38 @@ struct SidebarWorkspaceListDropDelegate: DropDelegate {
         let capturedSessionIDs = sessionIDs
         let capturedRowFrames = rowFrames
         let expectedDragID = activeDragID
-        decodeWorkspaceDragItem(from: provider) { item in
+        decodeWorkspaceDragItem(from: provider, expectedDragID: expectedDragID) { item in
             guard item.dragID == expectedDragID else {
                 return
             }
-            guard let targetIndex = SidebarInsertionResolver.workspacePostRemovalTargetIndex(
-                sourceID: item.sessionID,
-                dropPoint: dropPoint,
-                preRemovalIndex: preRemovalIndex,
-                orderedIDs: capturedSessionIDs,
-                frames: capturedRowFrames
-            ) else {
-                return
+            let targetIndex: Int
+            if let sourceIndex = capturedSessionIDs.firstIndex(of: item.sessionID),
+                SidebarWorkspaceReorderPreview(
+                    sourceID: item.sessionID, insertionIndex: currentInsertionIndex,
+                    orderedIDs: capturedSessionIDs, frames: capturedRowFrames, spacing: 0
+                ) != nil
+            {
+                targetIndex = SidebarInsertionResolver.postRemovalTargetIndex(
+                    sourceIndex: sourceIndex, preRemovalIndex: preRemovalIndex
+                )
+                guard targetIndex != sourceIndex else { return }
+            } else {
+                guard
+                    let resolved = SidebarInsertionResolver.workspacePostRemovalTargetIndex(
+                        sourceID: item.sessionID,
+                        dropPoint: dropPoint,
+                        preRemovalIndex: preRemovalIndex,
+                        orderedIDs: capturedSessionIDs,
+                        frames: capturedRowFrames
+                    )
+                else { return }
+                targetIndex = resolved
             }
-            onMoveSession(item.sessionID, groupID, targetIndex)
+            var transaction = Transaction()
+            transaction.disablesAnimations = capturedSessionIDs.contains(item.sessionID)
+            withTransaction(transaction) {
+                onMoveSession(item.sessionID, groupID, targetIndex)
+            }
         }
         return true
     }
@@ -193,32 +212,36 @@ struct SidebarWorkspaceListDropDelegate: DropDelegate {
         // shows a move cursor and the drop is then silently rejected. Gated on
         // the RAW index: a nil visible index only means "no indicator to draw"
         // for a no-op self-move, which `performDrop` still accepts.
-        guard insertionIndex(for: info.location.y) != nil else {
+        guard let candidate = insertionIndex(for: info.location.y) else {
             setInsertionIndex(nil)
             return false
         }
-        setInsertionIndex(visibleInsertionIndex(for: info.location.y))
+        setInsertionIndex(
+            SidebarInsertionResolver.visibleReorderInsertionIndex(
+                candidateIndex: candidate,
+                sourceID: activeWorkspaceDragSourceID,
+                orderedIDs: sessionIDs
+            ))
         return true
     }
 
     private func insertionIndex(for y: CGFloat) -> Int? {
-        SidebarInsertionResolver.insertionIndex(
+        if activeWorkspaceDragSourceGroupID == groupID,
+            let sourceID = activeWorkspaceDragSourceID,
+            let index = SidebarWorkspaceReorderPreview.insertionIndex(
+                forDropY: y, sourceID: sourceID, currentInsertionIndex: currentInsertionIndex,
+                orderedIDs: sessionIDs, frames: rowFrames
+            )
+        {
+            return index
+        }
+        return SidebarInsertionResolver.insertionIndex(
             forDropY: y,
             orderedIDs: sessionIDs,
             frames: rowFrames
         )
     }
 
-    private func visibleInsertionIndex(for y: CGFloat) -> Int? {
-        guard let candidate = insertionIndex(for: y) else {
-            return nil
-        }
-        return SidebarInsertionResolver.visibleReorderInsertionIndex(
-            candidateIndex: candidate,
-            sourceID: activeWorkspaceDragSourceID,
-            orderedIDs: sessionIDs
-        )
-    }
 }
 
 struct SidebarWorkspaceHeaderDropDelegate: DropDelegate {
@@ -274,7 +297,7 @@ struct SidebarWorkspaceHeaderDropDelegate: DropDelegate {
         // groups expand first; previously they appended to the bottom,
         // contradicting the indicator.
         let expectedDragID = activeDragID
-        decodeWorkspaceDragItem(from: provider) { item in
+        decodeWorkspaceDragItem(from: provider, expectedDragID: expectedDragID) { item in
             guard item.dragID == expectedDragID else {
                 return
             }
@@ -341,7 +364,7 @@ struct SidebarEmptyWorkspaceDropDelegate: DropDelegate {
         }
 
         let expectedDragID = activeDragID
-        decodeWorkspaceDragItem(from: provider) { item in
+        decodeWorkspaceDragItem(from: provider, expectedDragID: expectedDragID) { item in
             guard item.dragID == expectedDragID else {
                 return
             }
@@ -434,7 +457,7 @@ struct SidebarPinnedReorderDropDelegate: DropDelegate {
         let capturedPinnedIDs = pinnedSessionIDs
         let capturedRowFrames = rowFrames
         let expectedDragID = activeDragID
-        decodeWorkspaceDragItem(from: provider) { item in
+        decodeWorkspaceDragItem(from: provider, expectedDragID: expectedDragID) { item in
             guard item.dragID == expectedDragID else {
                 return
             }

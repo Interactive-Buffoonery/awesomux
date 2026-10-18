@@ -766,6 +766,9 @@
     "Alias from ~/.ssh/config" : {
       "comment" : "Placeholder requesting an OpenSSH config alias, not SSH command flags"
     },
+    "All Hosts" : {
+
+    },
     "All categories" : {
 
     },
@@ -2539,6 +2542,9 @@
     "Host" : {
 
     },
+    "Host helper choices" : {
+      "comment" : "Remembered SSH helper choices section title"
+    },
     "Host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated host of a URL flagged for path-content issues."
     },
@@ -3538,7 +3544,7 @@
       "comment" : "Close-confirmation line for panes whose zmx session the remote host owns. The argument is a list of SSH destinations."
     },
     "Parent folder" : {
-
+      "comment" : "Navigate to the parent folder in the Markdown browser"
     },
     "Paste" : {
       "comment" : "Terminal context menu item that pastes the clipboard into the terminal"
@@ -4003,7 +4009,10 @@
     "Remember approvals per workspace" : {
 
     },
-    "Remember this choice for all hosts" : {
+    "Remember choice for" : {
+
+    },
+    "Remember this choice" : {
 
     },
     "Remember…" : {
@@ -4186,6 +4195,9 @@
     "Remove group %arg?" : {
       "comment" : "Title of the confirmation dialog shown when removing an empty workspace group with an SSH creation default. Argument is the bidi-isolated group name."
     },
+    "Remove helper choice for %arg" : {
+      "comment" : "Revoke a saved SSH helper choice; argument is the SSH destination"
+    },
     "Remove “%arg”?" : {
       "comment" : "Title of the confirmation dialog before deleting a custom command"
     },
@@ -4194,6 +4206,9 @@
     },
     "Removed %arg from the don’t-ask list" : {
       "comment" : "Announced after removing an SSH destination from the don’t-ask list"
+    },
+    "Removed helper choice for %arg" : {
+      "comment" : "Announces successful removal of a remembered SSH helper choice; argument is the SSH destination"
     },
     "Removes background sessions that have been idle longer than the threshold. Runs once each time awesoMux launches." : {
       "comment" : "Terminal settings hint."
@@ -5415,6 +5430,9 @@
     "Theme" : {
       "comment" : "Appearance settings section title\nSettings field label for the theme picker"
     },
+    "These hosts have their own choice. Remove one to use the setting above. Changing the setting above replaces all host choices." : {
+      "comment" : "Explains how per-host helper preferences override and reset to the global preference"
+    },
     "Thinking" : {
       "comment" : "Agent state label",
       "localizations" : {
@@ -5431,6 +5449,9 @@
     },
     "This Git repository has no healthy worktrees to show." : {
       "comment" : "Worktree Manager empty-state detail."
+    },
+    "This Host" : {
+
     },
     "This Mac" : {
 

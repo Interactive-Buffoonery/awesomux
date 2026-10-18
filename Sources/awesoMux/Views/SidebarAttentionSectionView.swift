@@ -32,6 +32,7 @@ struct SidebarAttentionSectionView: View {
     let onNewSessionHere: (TerminalSession) -> Void
     let onMoveToGroup: (TerminalSession.ID, SessionGroup.ID) -> Void
     let onWorkspaceDragStarted: (TerminalSession.ID) -> UUID
+    let onDragEnded: () -> Void
     let focusedRowTarget: FocusState<SidebarVisibleRowTarget?>.Binding
     let focusedSearchSessionID: TerminalSession.ID?
     @Binding var isKeyboardNavigating: Bool
@@ -201,6 +202,7 @@ struct SidebarAttentionSectionView: View {
             // dragging it into another group must work. Passing an inert stub
             // would leave a draggable tile whose drag can never land.
             onDragStarted: { onWorkspaceDragStarted(session.id) },
+            onDragEnded: onDragEnded,
             focusedRowTarget: focusedRowTarget,
             isKeyboardNavigatingValue: isKeyboardNavigating,
             liveTitles: liveTitles,

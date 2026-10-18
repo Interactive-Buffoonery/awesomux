@@ -108,7 +108,7 @@ public struct AgentTile: View, Equatable {
             .fill(tileFill)
             .overlay {
                 RoundedRectangle(cornerRadius: size * 0.22)
-                    .stroke(Color.black.opacity(0.15), lineWidth: 0.5)
+                    .strokeBorder(Color.aw.text.opacity(0.22), lineWidth: 1)
             }
             .frame(width: size, height: size)
             .overlay {

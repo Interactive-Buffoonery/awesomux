@@ -67,6 +67,7 @@ struct WorkspaceEmojiSidebarTests {
             onTogglePin: {},
             originGroupPhrase: nil,
             onDragStarted: { UUID() },
+            onDragEnded: {},
             focusedRowTarget: focusState.projectedValue,
             isKeyboardNavigatingValue: false,
             liveTitles: .unavailable,
