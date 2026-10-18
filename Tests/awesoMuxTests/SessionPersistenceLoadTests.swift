@@ -1604,7 +1604,10 @@ extension SessionPersistenceSerializationDomainTests {
                             warning: warning,
                             snapshotWriter: { _ in
                                 writerStarted.signal()
-                                permitWriterToFinish.wait()
+                                guard permitWriterToFinish.wait(timeout: .now() + 5) == .success else {
+                                    Issue.record("flush did not return before the stalled-writer watchdog expired")
+                                    return .failure(.writeFailed)
+                                }
                                 return .success(())
                             }
                         )
