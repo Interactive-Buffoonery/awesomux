@@ -16,6 +16,7 @@ cd "$ROOT_DIR"
 "$ROOT_DIR/script/check_public_wording.sh"
 "$ROOT_DIR/script/check_public_seed_source.sh"
 "$ROOT_DIR/script/check_plural_guards.sh"
+"$ROOT_DIR/script/check_applescript_targets.sh"
 "$ROOT_DIR/script/update_string_catalog.sh" --check
 "$ROOT_DIR/script/check_test_waits.sh"
 "$ROOT_DIR/script/test-format.sh"

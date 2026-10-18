@@ -373,7 +373,7 @@ final class TerminalPanelController {
     }
 
     func close() {
-        guard let store else { return }
+        guard !isConfirmingClose, let store else { return }
         runtime?.refreshTerminalQuitConfirmationRisks(in: store)
         // Close-scoped risk, not quit-scoped: companion panes are bridged, and
         // the quit policy calls bridged authoritatively safe (daemon survives a
@@ -385,7 +385,10 @@ final class TerminalPanelController {
             isConfirmingClose = true
             let confirmed = confirmClose()
             isConfirmingClose = false
-            guard confirmed else { return }
+            guard self.store === store else { return }
+            // Shell exit defers its teardown while the alert is running. An
+            // empty companion must still close if the user cancels the alert.
+            guard confirmed || store.selectedSession == nil else { return }
         }
         close(discardSurfaces: true)
     }
@@ -446,16 +449,39 @@ final class TerminalPanelController {
         initialWorkspace: TerminalSession?
     ) {
         if store == nil {
-            store = PopUpTerminalStoreFactory.makeStore(
+            let newStore = PopUpTerminalStoreFactory.makeStore(
                 selectedWorkspace: initialWorkspace,
                 fallbackHome: WorkingDirectoryValidator.canonicalHomeDirectory
             )
+            store = newStore
+            closeWhenSessionEnds(in: newStore)
         }
         ensureWindows()
         if next == .minimized {
             minimize()
         } else {
             restore()
+        }
+    }
+
+    /// The hosted shell exiting closes the companion's only session through the
+    /// same process-exit path that closes a workspace, which empties the store
+    /// and would strand the panel on its "unavailable" placeholder. Selection
+    /// goes nil exactly when the last session closes, and only then.
+    private func closeWhenSessionEnds(in store: SessionStore) {
+        withObservationTracking {
+            _ = store.selectedSessionID
+        } onChange: { [weak self, weak store] in
+            Task { @MainActor in
+                guard let self, let store, self.store === store else { return }
+                // Read the latest selection after willSet completes. Changes
+                // coalesce while this task is queued; reading and re-arming
+                // cannot interleave with another main-actor store mutation.
+                self.closeWhenSessionEnds(in: store)
+                if store.selectedSession == nil, !self.isConfirmingClose {
+                    self.close(discardSurfaces: true)
+                }
+            }
         }
     }
 
