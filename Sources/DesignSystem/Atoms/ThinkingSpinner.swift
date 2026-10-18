@@ -11,13 +11,14 @@ import SwiftUI
 /// the rotation costs zero main-thread per-frame work.
 struct ThinkingSpinner: NSViewRepresentable {
     let color: Color
+    var isAnimating = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> SpinnerView {
         let view = SpinnerView()
         view.lastColor = color
         view.strokeColor = NSColor(color)
-        view.setSpinning(!reduceMotion)
+        view.setSpinning(isAnimating && !reduceMotion)
         return view
     }
 
@@ -31,7 +32,7 @@ struct ThinkingSpinner: NSViewRepresentable {
         }
         // Live-reactive to RM toggling, matching the SwiftUI original's
         // `.onChange(of: reduceMotion)`.
-        nsView.setSpinning(!reduceMotion)
+        nsView.setSpinning(isAnimating && !reduceMotion)
     }
 
     // Load-bearing: the whole issue #146 bug family is fitting-size constraint
