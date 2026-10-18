@@ -2352,6 +2352,9 @@
     "Files" : {
 
     },
+    "Filled in from the terminal's reported directory. Check it, or replace the path with a full /… or ~/… path." : {
+      "comment" : "Help for a remote relative link whose base directory was prefilled from the terminal's reported cwd"
+    },
     "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
       "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
     },

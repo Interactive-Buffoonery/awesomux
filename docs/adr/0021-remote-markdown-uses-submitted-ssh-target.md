@@ -100,3 +100,12 @@ clear, edit, closure, replacement, or observed SSH lifecycle changes revoke
 pending reads. Restoration and pane creation do not copy the binding. Unknown
 remote directory changes and nested connections cannot be detected reliably;
 the persistent path-bar label and each-read preview expose the fixed destination.
+
+## Amendment: reported cwd prefills the base directory
+
+For a managed SSH pane without a Remote File Context, a terminal-relative link
+prefills the editable base directory with the pane's validated reported remote
+working directory. Like an observed alias, this is a suggestion only: the user
+still sees the resolved path and confirms the read, and the confirmed value is
+the chosen base. A missing or stale report leaves the field empty or wrong,
+never authorizes a read on its own, and never changes the declared target.
