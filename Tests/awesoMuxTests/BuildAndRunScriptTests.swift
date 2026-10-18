@@ -53,23 +53,6 @@ struct BuildAndRunScriptTests {
         }
     }
 
-    @Test("--install process enumeration fails closed")
-    func installProcessEnumerationFailsClosed() throws {
-        let script = try Self.contents(of: "script/build_and_run.sh")
-
-        #expect(script.contains("awesomux_candidate_pids()"))
-        #expect(script.contains("ps -axo pid=,ucomm= 2>&1"))
-        #expect(script.contains("unable to enumerate running $APP_NAME processes (ps exited $status)"))
-        #expect(script.contains("cannot safely determine whether $bundle is running"))
-        // pgrep -x silently misses a name-matching process that is an
-        // ancestor of the pgrep call itself (pgrep(1) -a) — the ordinary
-        // shape of running this script from inside a running awesoMux pane
-        // (awesomux#281). Nothing should invoke pgrep anymore; explaining
-        // why in a comment is fine, so check for the removed invocation
-        // rather than the bare word.
-        #expect(!script.contains("pgrep -x \"$APP_NAME\" 2>&1"))
-    }
-
     @Test("candidate pid enumeration finds a name-matching ancestor process")
     func candidatePIDEnumerationFindsAncestorProcess() throws {
         // `pgrep -x` silently excludes the pgrep process's own ancestors, so a

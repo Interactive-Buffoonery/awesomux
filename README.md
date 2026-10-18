@@ -186,6 +186,11 @@ awesoMux uses a local preflight before merging. Run it before pushing or merging
 ./script/preflight.sh
 ```
 
+For a headless session, `./script/preflight.sh --checks-only` runs every guard
+and test while omitting the final staged-app build, signing, and launch
+verification. Report it as checks-only validation, with native verification
+still pending. The full gate remains `./script/preflight.sh`.
+
 If you do not run this before opening a PR, **please note that in your PR.**
 
 To run the tests without the rest of the preflight:

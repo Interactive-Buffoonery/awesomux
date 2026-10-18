@@ -96,6 +96,11 @@ and `nontiming` explicitly with distinct output paths when collecting full-suite
 Swift xUnit results.
 `./script/preflight.sh` remains the complete local check, including non-Swift
 guards and app launch verification.
+`./script/preflight.sh --checks-only` runs all guards and the same complete test
+suite, omitting only the final staged-app build, signing, and launch verification.
+Use it in headless sessions and report its result as checks-only; full native
+verification remains pending. The no-argument full gate is unchanged, and
+unknown arguments fail before any checks run.
 
 The same scopes are available through advisory native CI on an open,
 same-repository, non-draft pull request. An allowlisted maintainer may comment
