@@ -66,7 +66,10 @@ fastlane/test_output
 .DS_Store
 
 # Local agent / tool state
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/read-awesomux-plan/
 .claude/*
 !.claude/skills/
 .codex/*
