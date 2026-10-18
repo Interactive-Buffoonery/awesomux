@@ -1,0 +1,65 @@
+{
+  "groups" : [
+    {
+      "id" : "60000000-0000-0000-0000-000000000001",
+      "name" : "main",
+      "sessions" : [
+        {
+          "activePaneID" : "20080E9B-0F3E-46DC-A74B-C19A9555A47C",
+          "agentExecutionState" : "idle",
+          "agentKind" : "shell",
+          "id" : "0E3F4559-0D17-4E76-9AF2-062684BF5EC8",
+          "isTitleUserEdited" : false,
+          "layout" : {
+            "split" : {
+              "_0" : {
+                "first" : {
+                  "pane" : {
+                    "_0" : {
+                      "agentExecutionState" : "thinking",
+                      "agentKind" : "Codex",
+                      "agentKindIsRuntimeEstablished" : false,
+                      "executionPlan" : {
+                        "kind" : "local"
+                      },
+                      "id" : "20080E9B-0F3E-46DC-A74B-C19A9555A47C",
+                      "isTitleUserEdited" : false,
+                      "terminalSessionID" : "8d2a476a-060c-473d-80ee-ffde2341d27e",
+                      "title" : "codex",
+                      "unreadNotificationCount" : 3,
+                      "workingDirectory" : "~"
+                    }
+                  }
+                },
+                "firstFraction" : 0.5,
+                "id" : "C2C4DE1E-0BBF-43C2-A7B3-1769F9283E09",
+                "orientation" : "vertical",
+                "second" : {
+                  "pane" : {
+                    "_0" : {
+                      "agentExecutionState" : "waiting",
+                      "agentKind" : "Claude Code",
+                      "agentKindIsRuntimeEstablished" : false,
+                      "executionPlan" : {
+                        "kind" : "local"
+                      },
+                      "id" : "195A192A-EE55-42FD-A798-C1EE8E5986F5",
+                      "isTitleUserEdited" : false,
+                      "terminalSessionID" : "053d711a-340d-413b-8bfa-65862ac04129",
+                      "title" : "claude",
+                      "unreadNotificationCount" : 1,
+                      "workingDirectory" : "~"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "title" : "split",
+          "workingDirectory" : "~"
+        }
+      ]
+    }
+  ],
+  "schemaVersion" : 2
+}

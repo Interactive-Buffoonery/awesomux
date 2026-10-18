@@ -1,216 +1,100 @@
 import AwesoMuxBridgeProtocol
-// Tests/AwesoMuxCoreTests/QuitRiskPolicyTests.swift
-import Testing
 import Foundation
+import Testing
 @testable import AwesoMuxCore
 
 @Suite("QuitRiskPolicy")
 struct QuitRiskPolicyTests {
-    private let now = Date()
-    private func fresh() -> Date { now.addingTimeInterval(-1) }
-    private func stale() -> Date { now.addingTimeInterval(-(TerminalPane.staleAgentActivityThreshold + 1)) }
+    enum Scope: Sendable { case quit, close }
 
-    private func decide(
-        _ kind: AgentKind = .shell,
-        exec: AgentExecutionState = .idle,
-        changed: Date? = nil,
-        away: Bool = false,
-        liveness: ForegroundProcessLiveness
-    ) -> QuitRiskDecision {
-        QuitRiskPolicy.decision(
-            QuitRiskInputs(
-                agentKind: kind,
-                agentExecutionState: exec,
-                lastAgentStateChangeAt: changed ?? now,
-                awayFromPrompt: away,
-                liveness: liveness
-            ),
-            at: now
-        )
+    struct Scenario: Sendable {
+        let scope: Scope
+        var kind: AgentKind = .shell
+        var exec: AgentExecutionState = .idle
+        var fresh = true
+        var away = false
+        var promptObserved = true
+        let liveness: ForegroundProcessLiveness
+        let isRisk: Bool
+        let reason: QuitRiskReason
     }
 
-    @Test("bridged and exited are authoritatively safe, even when away from prompt")
-    func authoritativeSafe() {
-        #expect(!decide(away: true, liveness: .bridged).isRisk)
-        #expect(decide(liveness: .bridged).reason == .daemonBacked)
-        #expect(!decide(liveness: .bridgedBusy).isRisk)
-        #expect(!decide(away: true, liveness: .exited).isRisk)
-        #expect(decide(liveness: .exited).reason == .processExited)
-    }
-
-    @Test("background job on an otherwise-idle shell is a risk")
-    func backgroundJob() {
-        let d = decide(liveness: .busyShell)
-        #expect(d.isRisk)
-        #expect(d.reason == .backgroundJob)
-    }
-
-    @Test("live foreground command is a risk (shell vs agent reason)")
-    func liveCommand() {
-        #expect(decide(.shell, liveness: .liveCommand).reason == .liveForegroundProcess)
-        #expect(decide(.claudeCode, liveness: .liveCommand).reason == .liveAgentProcess)
-    }
-
-    @Test("idle shell at prompt is safe; away-from-prompt overrides to risk")
-    func idleShell() {
-        #expect(!decide(liveness: .idleShell).isRisk)
-        #expect(decide(liveness: .idleShell).reason == .shellAtPrompt)
-        #expect(decide(away: true, liveness: .idleShell).reason == .terminalAwayFromPrompt)
-    }
-
-    @Test("indeterminate warns")
-    func indeterminate() {
-        #expect(decide(liveness: .indeterminate).isRisk)
-        #expect(decide(liveness: .indeterminate).reason == .indeterminate)
-    }
-
-    @Test("agent freshness is the fallback when no live foreground is sampled")
-    func agentFreshnessFallback() {
-        // unsampled (no surface) + fresh agent run = risk; stale = safe.
-        #expect(decide(.codex, exec: .thinking, changed: fresh(), liveness: .unsampled).reason == .activeAgentExecution)
-        #expect(!decide(.codex, exec: .thinking, changed: stale(), liveness: .unsampled).isRisk)
-        // idleShell foreground (agent exited to its shell) + fresh exec still warns.
-        #expect(decide(.codex, exec: .running, changed: fresh(), liveness: .idleShell).reason == .activeAgentExecution)
-    }
-
-    @Test("liveness/display divergence: attention without a live process is safe; a live process with idle exec is a risk")
-    func divergence() {
-        // Agent flagged needsAttention but no live process sampled, idle exec → safe.
-        #expect(!decide(.claudeCode, exec: .idle, liveness: .unsampled).isRisk)
-        // Live agent process but execution state reads idle → still a risk.
-        #expect(decide(.claudeCode, exec: .idle, liveness: .liveCommand).isRisk)
-    }
-
-    @Test("shells never take the agent-execution path")
-    func shellsIgnoreExecution() {
-        #expect(!decide(.shell, exec: .running, changed: fresh(), liveness: .unsampled).isRisk)
-        #expect(!decide(.shell, exec: .running, changed: fresh(), liveness: .idleShell).isRisk)
-    }
-
-    @Test("all non-shell agent kinds follow the agent liveness/freshness paths")
-    func nonShellAgentKindsCoverage() {
-        // Every non-shell kind (incl. pi/openCode) gets .liveAgentProcess for a
-        // live foreground and the agent-execution fallback when unsampled.
-        for kind in [AgentKind.pi, .openCode, .claudeCode, .codex, .generic] {
-            #expect(decide(kind, liveness: .liveCommand).reason == .liveAgentProcess)
-            #expect(decide(kind, exec: .running, changed: fresh(), liveness: .unsampled).reason == .activeAgentExecution)
+    static let scenarios: [Scenario] =
+        [
+            Scenario(scope: .quit, away: true, liveness: .bridged, isRisk: false, reason: .daemonBacked),
+            Scenario(scope: .quit, liveness: .bridgedBusy, isRisk: false, reason: .daemonBacked),
+            Scenario(scope: .quit, away: true, liveness: .bridgedIndeterminate, isRisk: false, reason: .daemonBacked),
+            Scenario(scope: .quit, kind: .codex, exec: .thinking, liveness: .unsampled, isRisk: true, reason: .activeAgentExecution),
+            Scenario(
+                scope: .quit, kind: .codex, exec: .thinking, fresh: false, liveness: .unsampled, isRisk: false, reason: .noLiveProcess),
+            Scenario(scope: .quit, kind: .codex, exec: .running, liveness: .idleShell, isRisk: true, reason: .activeAgentExecution),
+            Scenario(scope: .quit, kind: .claudeCode, liveness: .unsampled, isRisk: false, reason: .noLiveProcess),
+            Scenario(scope: .quit, exec: .running, liveness: .unsampled, isRisk: false, reason: .noLiveProcess),
+            Scenario(scope: .quit, exec: .running, liveness: .idleShell, isRisk: false, reason: .shellAtPrompt),
+            Scenario(scope: .close, away: true, liveness: .bridged, isRisk: true, reason: .terminalAwayFromPrompt),
+            Scenario(scope: .close, liveness: .bridged, isRisk: false, reason: .shellAtPrompt),
+            Scenario(scope: .close, liveness: .bridgedBusy, isRisk: true, reason: .liveForegroundProcess),
+            Scenario(
+                scope: .close, away: true, promptObserved: false, liveness: .bridgedIndeterminate, isRisk: true, reason: .indeterminate),
+            Scenario(
+                scope: .close, kind: .codex, exec: .running, away: true, promptObserved: false, liveness: .bridgedIndeterminate,
+                isRisk: true, reason: .activeAgentExecution),
+            // #190: verified idle tree evidence is sufficient before the first prompt marker.
+            Scenario(scope: .close, away: true, promptObserved: false, liveness: .bridged, isRisk: false, reason: .shellAtPrompt),
+            Scenario(scope: .close, liveness: .bridgedIndeterminate, isRisk: false, reason: .shellAtPrompt),
+            Scenario(scope: .close, away: true, liveness: .bridgedIndeterminate, isRisk: true, reason: .terminalAwayFromPrompt),
+            Scenario(scope: .close, kind: .claudeCode, exec: .running, liveness: .bridged, isRisk: true, reason: .activeAgentExecution),
+            Scenario(
+                scope: .close, kind: .claudeCode, exec: .running, fresh: false, liveness: .bridged, isRisk: false, reason: .shellAtPrompt),
+        ]
+        + [AgentKind.pi, .openCode, .claudeCode, .codex, .generic].flatMap { kind in
+            [
+                Scenario(scope: .quit, kind: kind, liveness: .liveCommand, isRisk: true, reason: .liveAgentProcess),
+                Scenario(scope: .quit, kind: kind, exec: .running, liveness: .unsampled, isRisk: true, reason: .activeAgentExecution),
+            ]
+        }
+        + [Scope.quit, .close].flatMap { scope in
+            [false, true].flatMap { away in
+                [
+                    Scenario(scope: scope, away: away, liveness: .exited, isRisk: false, reason: .processExited),
+                    Scenario(
+                        scope: scope, away: away, liveness: .liveCommand, isRisk: true,
+                        reason: away ? .terminalAwayFromPrompt : .liveForegroundProcess),
+                    Scenario(
+                        scope: scope, away: away, liveness: .busyShell, isRisk: true,
+                        reason: away ? .terminalAwayFromPrompt : .backgroundJob),
+                    Scenario(
+                        scope: scope, away: away, liveness: .idleShell, isRisk: away,
+                        reason: away ? .terminalAwayFromPrompt : .shellAtPrompt),
+                    Scenario(
+                        scope: scope, away: away, liveness: .unsampled, isRisk: away,
+                        reason: away ? .terminalAwayFromPrompt : .noLiveProcess),
+                    Scenario(
+                        scope: scope, away: away, liveness: .indeterminate, isRisk: true,
+                        reason: away ? .terminalAwayFromPrompt : .indeterminate),
+                ]
         }
     }
 
-    // MARK: - closeDecision (destroy semantics)
-
-    private func decideClose(
-        _ kind: AgentKind = .shell,
-        exec: AgentExecutionState = .idle,
-        changed: Date? = nil,
-        away: Bool = false,
-        promptObserved: Bool = true,
-        liveness: ForegroundProcessLiveness
-    ) -> QuitRiskDecision {
-        QuitRiskPolicy.closeDecision(
-            QuitRiskInputs(
-                agentKind: kind,
-                agentExecutionState: exec,
-                lastAgentStateChangeAt: changed ?? now,
-                awayFromPrompt: away,
-                promptObserved: promptObserved,
-                liveness: liveness
-            ),
-            at: now
-        )
-    }
-
-    @Test("close: a bridged pane away from its prompt is a risk — the close kills the daemon")
-    func closeBridgedAwayFromPrompt() {
-        let d = decideClose(away: true, liveness: .bridged)
-        #expect(d.isRisk)
-        #expect(d.reason == .terminalAwayFromPrompt)
-    }
-
-    @Test("close: a bridged pane at its prompt is safe")
-    func closeBridgedAtPrompt() {
-        let d = decideClose(liveness: .bridged)
-        #expect(!d.isRisk)
-        #expect(d.reason == .shellAtPrompt)
-    }
-
-    @Test("close: a bridged pane with live child work is a risk")
-    func closeBridgedBusy() {
-        let d = decideClose(liveness: .bridgedBusy)
-        #expect(d.isRisk)
-        #expect(d.reason == .liveForegroundProcess)
-    }
-
-    @Test("close: an unverified bridged pane stays risky until a prompt marker is observed")
-    func closeBridgedIndeterminateWithoutObservedPrompt() {
-        let d = decideClose(away: true, promptObserved: false, liveness: .bridgedIndeterminate)
-        #expect(d.isRisk)
-        #expect(d.reason == .indeterminate)
-        #expect(
-            decideClose(
-                .codex,
-                exec: .running,
-                changed: fresh(),
-                away: true,
-                promptObserved: false,
-                liveness: .bridgedIndeterminate
-            ).reason == .activeAgentExecution
-        )
-    }
-
-    @Test("close: a verified-idle bridged pane is safe before any prompt marker is observed (#190)")
-    func closeVerifiedBridgedWithoutObservedPrompt() {
-        // The reattach-after-relaunch repro: probe walked the daemon tree and
-        // found an idle shell (`.bridged`), but `terminalPromptObserved` reset
-        // with the app. Tree evidence alone must be enough to close quietly.
-        let d = decideClose(away: true, promptObserved: false, liveness: .bridged)
-        #expect(!d.isRisk)
-        #expect(d.reason == .shellAtPrompt)
-    }
-
-    @Test("close: an unverified bridged pane with an observed at-prompt marker is safe")
-    func closeBridgedIndeterminateAtObservedPrompt() {
-        let d = decideClose(promptObserved: true, liveness: .bridgedIndeterminate)
-        #expect(!d.isRisk)
-        #expect(d.reason == .shellAtPrompt)
-        #expect(
-            decideClose(away: true, promptObserved: true, liveness: .bridgedIndeterminate)
-                .reason == .terminalAwayFromPrompt
-        )
-    }
-
-    @Test("quit: an unverified bridged pane is authoritatively safe like any bridged pane")
-    func quitBridgedIndeterminateIsDaemonBacked() {
-        #expect(!decide(away: true, liveness: .bridgedIndeterminate).isRisk)
-        #expect(decide(liveness: .bridgedIndeterminate).reason == .daemonBacked)
-    }
-
-    @Test("close: a bridged agent with fresh execution is a risk even at the prompt")
-    func closeBridgedFreshAgent() {
-        #expect(decideClose(.claudeCode, exec: .running, changed: fresh(), liveness: .bridged).reason == .activeAgentExecution)
-        #expect(!decideClose(.claudeCode, exec: .running, changed: stale(), liveness: .bridged).isRisk)
-    }
-
-    @Test("close: non-bridged panes match the quit decision exactly")
-    func closeNonBridgedPassthrough() {
-        for liveness in [ForegroundProcessLiveness.exited, .liveCommand, .busyShell, .idleShell, .unsampled, .indeterminate] {
-            for away in [false, true] {
-                #expect(decideClose(away: away, liveness: liveness) == decide(away: away, liveness: liveness))
-            }
-        }
-    }
-
-    @Test("a bridged pane away from prompt is quit-safe but close-risky")
-    func bridgedAwayFromPromptDivergesByScope() {
-        let now = Date()
+    @Test("quit and destructive close preserve their safety boundaries", arguments: scenarios)
+    func riskDecision(scenario: Scenario) {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let age = scenario.fresh ? 1 : TerminalPane.staleAgentActivityThreshold + 1
         let inputs = QuitRiskInputs(
-            agentKind: .shell,
-            agentExecutionState: .idle,
-            lastAgentStateChangeAt: now,
-            awayFromPrompt: true,
-            liveness: .bridged
+            agentKind: scenario.kind,
+            agentExecutionState: scenario.exec,
+            lastAgentStateChangeAt: now.addingTimeInterval(-age),
+            awayFromPrompt: scenario.away,
+            promptObserved: scenario.promptObserved,
+            liveness: scenario.liveness
         )
-        #expect(QuitRiskPolicy.decision(inputs, at: now).isRisk == false)
-        #expect(QuitRiskPolicy.closeDecision(inputs, at: now).isRisk == true)
+        let quit = QuitRiskPolicy.decision(inputs, at: now)
+        let close = QuitRiskPolicy.closeDecision(inputs, at: now)
+        let decision = scenario.scope == .quit ? quit : close
+        #expect(decision.isRisk == scenario.isRisk)
+        #expect(decision.reason == scenario.reason)
+        if [.exited, .liveCommand, .busyShell, .idleShell, .unsampled, .indeterminate].contains(scenario.liveness) {
+            #expect(close == quit)
+        }
     }
 }

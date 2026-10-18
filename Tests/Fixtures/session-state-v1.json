@@ -1,0 +1,37 @@
+{
+  "groups" : [
+    {
+      "id" : "60000000-0000-0000-0000-000000000001",
+      "name" : "main",
+      "sessions" : [
+        {
+          "activePaneID" : "072E494F-BE78-457A-AA03-7316E265A866",
+          "agentExecutionState" : "thinking",
+          "agentKind" : "Codex",
+          "attentionReason" : "permissionPrompt",
+          "id" : "4FE6E0E8-1770-4C8F-967E-2EB76D6F5456",
+          "isTitleUserEdited" : false,
+          "layout" : {
+            "pane" : {
+              "_0" : {
+                "agentKindIsRuntimeEstablished" : false,
+                "executionPlan" : {
+                  "kind" : "local"
+                },
+                "id" : "072E494F-BE78-457A-AA03-7316E265A866",
+                "isTitleUserEdited" : false,
+                "terminalSessionID" : "905dcc0d-0117-4110-a61c-932835a9da08",
+                "title" : "codex",
+                "workingDirectory" : "~"
+              }
+            }
+          },
+          "title" : "codex",
+          "unreadNotificationCount" : 2,
+          "workingDirectory" : "~"
+        }
+      ]
+    }
+  ],
+  "schemaVersion" : 1
+}
