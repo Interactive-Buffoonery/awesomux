@@ -6,12 +6,13 @@ import Testing
 @Suite("Remote foreground close risk")
 struct RemoteForegroundCloseRiskTests {
     @Test(arguments: [
-        (RemoteForegroundLiveness.busyShell, false, false),
-        (.liveCommand, false, false),
-        (.indeterminate, false, false), (.sessionNotFound, false, false),
-        (.idleShell, true, false), (.idleShell, false, true),
+        (RemoteForegroundLiveness.busyShell, false, false, true),
+        (.liveCommand, false, false, true),
+        (.indeterminate, false, false, true), (.sessionNotFound, false, false, true),
+        (.idleShell, true, false, true), (.idleShell, false, true, true),
+        (.idleShell, false, false, false),
     ])
-    func remoteEvidenceRemainsConservative(liveness: RemoteForegroundLiveness, stale: Bool, agentActive: Bool) throws {
+    func remoteEvidenceRemainsConservative(liveness: RemoteForegroundLiveness, stale: Bool, agentActive: Bool, expectedRisk: Bool) throws {
         let now = Date()
         let sampleTime = stale ? now.addingTimeInterval(-(TerminalPane.remoteLivenessFreshnessThreshold + 1)) : now
         var pane = try remotePane(now: sampleTime, liveness: liveness)
@@ -20,12 +21,17 @@ struct RemoteForegroundCloseRiskTests {
             pane.terminalPromptObserved = true
             pane.needsTerminalQuitConfirmation = false
         }
+        if liveness == .idleShell {
+            pane.foregroundProcessLiveness = .liveCommand
+            pane.terminalPromptObserved = true
+            pane.needsTerminalQuitConfirmation = true
+        }
         if agentActive {
             pane.agentKind = .claudeCode
             pane.agentExecutionState = .thinking
             pane.lastAgentStateChangeAt = now
         }
-        #expect(pane.isCloseRisk(at: now))
+        #expect(pane.isCloseRisk(at: now) == expectedRisk)
     }
 
     private func remotePane(

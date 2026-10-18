@@ -176,8 +176,12 @@ struct BranchChangesRendererTests {
         let text = render(diff, budgetBytes: 1400)
         #expect(text.utf8.count <= 1400)
         #expect(text.contains(Self.truncationNotice))
+        let renderedSections = sections(of: text)
+        let firstSection = try #require(renderedSections.first)
+        #expect(firstSection.heading == "f1.txt")
+        #expect(firstSection.body.split(separator: "\n").contains { $0.hasPrefix("+f1 line ") })
         let originalLines = Set(diff.split(separator: "\n").map(String.init))
-        for section in sections(of: text) {
+        for section in renderedSections {
             #expect(section.body.hasSuffix("\n"))
             for line in section.body.split(separator: "\n") { #expect(originalLines.contains(String(line))) }
         }

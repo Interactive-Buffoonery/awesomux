@@ -81,8 +81,22 @@ import Testing
                     orientation: .horizontal, firstFraction: 0.3,
                     first: terminalNode(title: "Build"), second: terminalNode()
                 )))
-        let first = TerminalSession(title: "preset", workingDirectory: "/tmp", layout: intent.materialize(workingDirectory: "/tmp")).panes
-        let again = TerminalSession(title: "preset", workingDirectory: "/tmp", layout: intent.materialize(workingDirectory: "/tmp")).panes
+        let firstLayout = intent.materialize(workingDirectory: "/tmp")
+        let againLayout = intent.materialize(workingDirectory: "/tmp")
+        for layout in [firstLayout, againLayout] {
+            guard case let .split(split) = layout else {
+                Issue.record("expected split")
+                return
+            }
+            #expect(split.orientation == .horizontal)
+            #expect(split.firstFraction == 0.3)
+            guard case .pane = split.first, case .pane = split.second else {
+                Issue.record("expected two direct pane children")
+                return
+            }
+        }
+        let first = TerminalSession(title: "preset", workingDirectory: "/tmp", layout: firstLayout).panes
+        let again = TerminalSession(title: "preset", workingDirectory: "/tmp", layout: againLayout).panes
         #expect(Set(first.map(\.id)).isDisjoint(with: again.map(\.id)))
         #expect(Set(first.map(\.terminalSessionID)).isDisjoint(with: again.map(\.terminalSessionID)))
         for pane in first + again { #expect(pane.executionPlan == .local) }
