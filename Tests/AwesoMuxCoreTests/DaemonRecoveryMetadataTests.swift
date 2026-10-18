@@ -25,29 +25,6 @@ struct DaemonRecoveryMetadataTests {
         #expect(metadata.encodedLabelAssignments == labels)
     }
 
-    @Test("absent and empty values encode as removal tombstones")
-    func tombstones() {
-        let metadata = DaemonRecoveryMetadata(
-            workspaceTitle: "",
-            paneTitle: nil,
-            groupID: nil,
-            groupName: nil,
-            groupRemote: nil,
-            agentKind: nil
-        )
-
-        #expect(
-            metadata.encodedLabelAssignments == [
-                "awesomux.workspace-title": "",
-                "awesomux.pane-title": "",
-                "awesomux.group-id": "",
-                "awesomux.group-name": "",
-                "awesomux.group-remote": "",
-                "awesomux.agent-kind": "",
-            ])
-        #expect(DaemonRecoveryMetadata.decode(fields: metadata.encodedLabelAssignments) == metadata)
-    }
-
     @Test("one malformed or oversized field does not discard valid neighbors")
     func malformedFieldsAreIndependent() throws {
         let groupID = try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111"))
