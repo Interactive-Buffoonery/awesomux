@@ -292,8 +292,12 @@ def main():
         return "TL-" + report["runID"] + "-" + session
 
     def type_into(session, text):
-        poll("exact focused terminal", lambda: (s := snapshot())["frontmost"]
-             and s["focusedTerminal"] and s["focusedDescription"] == "Terminal output, " + title(session))
+        def ready():
+            state = native("input-ready", window_id, title(session))
+            report.setdefault("inputReadiness", []).append(state)
+            save()
+            return state["ready"]
+        poll("exact focused terminal", ready)
         native("type", window_id, title(session), text + "\r")
 
     def response_for(nonce, session):

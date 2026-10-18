@@ -328,6 +328,52 @@ let windowID = cgID(window)
 if args.count > 3, command != "snapshot", let expected = UInt32(args[3]), expected != windowID {
     fail("Owned window ID changed")
 }
+func inputAdmission(_ expectedTitle: String) -> [String: Any] {
+    var result: [String: Any] = [
+        "ready": false, "windowID": windowID,
+        "frontmost": NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+    ]
+    var focused: CFTypeRef?
+    let focusedError = AXUIElementCopyAttributeValue(ax, kAXFocusedUIElementAttribute as CFString, &focused)
+    result["focusedError"] = focusedError.rawValue
+    guard focusedError == .success, let focused else { return result }
+    result["focusedCFTypeID"] = CFGetTypeID(focused)
+    guard CFGetTypeID(focused) == AXUIElementGetTypeID() else { return result }
+    let target = focused as! AXUIElement
+    var owner: pid_t = 0
+    let ownerError = AXUIElementGetPid(target, &owner)
+    result["pid"] = owner
+    result["pidError"] = ownerError.rawValue
+    guard ownerError == .success, owner == pid else { return result }
+    let isTerminal = terminal(target)
+    let description = string(target, kAXDescriptionAttribute)
+    result["terminal"] = isTerminal
+    result["description"] = description
+    var targetWindow: CFTypeRef?
+    let windowError = AXUIElementCopyAttributeValue(target, kAXWindowAttribute as CFString, &targetWindow)
+    var relationship: [String: Any] = ["error": windowError.rawValue, "equalsOwnedWindow": false]
+    if let targetWindow {
+        relationship["cfTypeID"] = CFGetTypeID(targetWindow)
+        if CFGetTypeID(targetWindow) == AXUIElementGetTypeID() {
+            let related = targetWindow as! AXUIElement
+            var relatedOwner: pid_t = 0
+            let relatedError = AXUIElementGetPid(related, &relatedOwner)
+            relationship["pid"] = relatedOwner
+            relationship["pidError"] = relatedError.rawValue
+            if relatedError == .success, relatedOwner == pid {
+                relationship["equalsOwnedWindow"] = CFEqual(related, window)
+                relationship["equalsApplicationRoot"] = CFEqual(related, ax)
+                relationship["role"] = string(related, kAXRoleAttribute)
+                relationship["subrole"] = string(related, kAXSubroleAttribute)
+            }
+        }
+    }
+    result["targetWindow"] = relationship
+    result["ready"] = result["frontmost"] as? Bool == true && isTerminal
+        && description == "Terminal output, " + expectedTitle
+        && windowError == .success && relationship["equalsOwnedWindow"] as? Bool == true
+    return result
+}
 let elements = windows.flatMap { tree($0) }
 if command == "snapshot" {
     let focused = attr(ax, kAXFocusedUIElementAttribute)
@@ -407,15 +453,15 @@ if command == "snapshot" {
     requireConsole()
     guard AXUIElementPerformAction(buttons[0], kAXPressAction as CFString) == .success else { fail("Cancel press failed") }
     emit(["cancelled": true])
+} else if command == "input-ready" {
+    guard args.count == 5 else { fail("input-ready requires window ID and terminal title") }
+    emit(inputAdmission(args[4]))
 } else if command == "type" {
-    guard args.count == 6, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-        let focused = attr(ax, kAXFocusedUIElementAttribute)
-    else { fail("Owned app not frontmost/focused") }
-    let target = focused as! AXUIElement
-    guard terminal(target), string(target, kAXDescriptionAttribute) == "Terminal output, " + args[4],
-        let targetWindow = attr(target, kAXWindowAttribute), CFEqual(targetWindow, window)
-    else {
-        fail("Exact owned focused terminal identity mismatch")
+    guard args.count == 6 else { fail("type requires window ID, terminal title and text") }
+    let admission = inputAdmission(args[4])
+    guard admission["ready"] as? Bool == true else {
+        let data = try? JSONSerialization.data(withJSONObject: admission, options: [.sortedKeys])
+        fail("Exact owned focused terminal identity mismatch: " + String(decoding: data ?? Data(), as: UTF8.self))
     }
     // postToPid avoids arbitrary global keystrokes. No clipboard or paste pathway.
     for unit in args[5].utf16 {
