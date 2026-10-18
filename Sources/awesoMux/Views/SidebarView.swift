@@ -229,8 +229,7 @@ struct SidebarView: View {
                                 entries: entry.sessions,
                                 density: density,
                                 tint: ProjectTint(
-                                    groupName: entry.group.name,
-                                    color: entry.group.color,
+                    group: entry.group,
                                     index: entry.unfilteredIndex
                                 ),
                                 workspacesWithBackgroundedFloatingWork: workspacesWithBackgroundedFloatingWork,
