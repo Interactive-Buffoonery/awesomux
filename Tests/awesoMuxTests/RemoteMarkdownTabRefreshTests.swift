@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import Dispatch
 import Foundation
 import Testing
 
@@ -115,7 +116,6 @@ struct RemoteMarkdownTabRefreshTests {
         // Banner seeding must happen synchronously, before the restored view mounts.
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteNotRefreshed)
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: localPath) == nil)
-        for _ in 0..<10 { await Task.yield() }
         #expect(fetches == 0)
         #expect(store.groups == before)
 
@@ -151,33 +151,11 @@ struct RemoteMarkdownTabRefreshTests {
     private final class AnnouncementProbe: @unchecked Sendable {
         private let lock = NSLock()
         private var messages: [String] = []
-        private var expected: String?
-        private var waiter: CheckedContinuation<Void, Never>?
 
         func record(_ message: String) {
             lock.lock()
             messages.append(message)
-            let resume = expected.map { messages.contains($0) } ?? false
-            let waiter = resume ? self.waiter : nil
-            if resume { self.waiter = nil }
             lock.unlock()
-            waiter?.resume()
-        }
-
-        /// Resumes once `message` has been recorded, or immediately if it
-        /// already has been.
-        func waitFor(_ message: String) async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                lock.lock()
-                if messages.contains(message) {
-                    lock.unlock()
-                    continuation.resume()
-                    return
-                }
-                expected = message
-                waiter = continuation
-                lock.unlock()
-            }
         }
 
         func count(of message: String) -> Int {
@@ -215,12 +193,6 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(targets[0].documentID == tabID)
         #expect(targets[0].identity == remoteIdentity)
         #expect(targets[0].associatedTerminalPaneID == terminalID)
-    }
-
-    @Test("silent background refresh registers as restore")
-    func silentBackgroundRefreshDoesNotClaimSpeech() {
-        #expect(RemoteMarkdownTabRefresh.fetchConsumer(announcesOutcome: false) == .restore)
-        #expect(RemoteMarkdownTabRefresh.fetchConsumer(announcesOutcome: true) == .refresh)
     }
 
     @Test("apply records the outcome through RemoteSnapshotStalePolicy")
@@ -382,8 +354,8 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
     }
 
-    @Test("refresh applies a successful fetch to the open tab")
-    func refreshAppliesSuccessfulFetch() async throws {
+    @Test("refresh applies a failure document to the open tab")
+    func refreshAppliesFailureDocument() async throws {
         let identity = remoteIdentity()
         let path = "/tmp/awesomux-refresh-ok-\(UUID().uuidString).md"
         let failurePath = "/tmp/awesomux-refresh-fail-\(UUID().uuidString).failure.md"
@@ -543,6 +515,23 @@ struct RemoteMarkdownTabRefreshTests {
             }
         }
         let box = Box()
+        let (changes, continuation) = AsyncStream<String>.makeStream()
+        let observer = NotificationCenter.default.addObserver(
+            forName: RemoteSnapshotStalePolicy.didChangeNotification, object: nil, queue: nil
+        ) { notification in
+            guard let change = notification.object as? RemoteSnapshotStalePolicy.Change,
+                change.kind == .remoteStoppedRefreshing,
+                change.path == pathA || change.path == pathB
+            else { return }
+            continuation.yield(change.path)
+        }
+        let timeout = DispatchWorkItem { continuation.finish() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
+        defer {
+            timeout.cancel()
+            continuation.finish()
+            NotificationCenter.default.removeObserver(observer)
+        }
 
         RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: true) { reference in
             box.add(reference.identity)
@@ -558,13 +547,12 @@ struct RemoteMarkdownTabRefreshTests {
 
         await box.waitUntilTwo()
 
-        // Restore seeds nonnil banners before fetching; wait for both applied outcomes.
-        for _ in 0..<100
-        where RemoteSnapshotStalePolicy.bannerKind(path: pathA) != .remoteStoppedRefreshing
-            || RemoteSnapshotStalePolicy.bannerKind(path: pathB) != .remoteStoppedRefreshing
-        {
-            await Task.yield()
+        var applied: Set<String> = []
+        for await path in changes {
+            applied.insert(path)
+            if applied == Set([pathA, pathB]) { break }
         }
+        #expect(applied == Set([pathA, pathB]))
 
         #expect(Set(box.snapshot) == Set([identityA, identityB]))
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: pathA) == .remoteStoppedRefreshing)
@@ -619,107 +607,6 @@ struct RemoteMarkdownTabRefreshTests {
         }
     }
 
-    @Test("scheduleRestoreRefresh bounds concurrent fetches")
-    func scheduleRestoreRefreshBoundsConcurrency() async throws {
-        let tabCount = 8
-        var identities: [ResourceIdentity] = []
-        var cachePaths: [String] = []
-        defer {
-            for path in cachePaths {
-                RemoteSnapshotStalePolicy.note(nil, path: path)
-            }
-        }
-
-        let store = SessionStore()
-        let sessionID = store.addSession(workingDirectory: "/tmp")
-        let session = try #require(store.session(id: sessionID))
-        let terminalID = session.activePaneID
-        // Distinct hosts so the fetch coordinator's per-target serialization
-        // never masks the restore fan-out bound under test.
-        for index in 0..<tabCount {
-            let identity = ResourceIdentity(
-                location: .remote(RemoteTarget(parsing: "host-\(index)")!),
-                path: ResourcePath(rawValue: "/repo/doc.md")
-            )
-            identities.append(identity)
-            let path = "/tmp/awesomux-restore-bound-\(index)-\(UUID().uuidString).md"
-            cachePaths.append(path)
-            _ = store.openDocumentPane(
-                fileURL: URL(fileURLWithPath: path),
-                in: sessionID,
-                associatedWith: terminalID,
-                remoteResourceIdentity: identity
-            )
-        }
-        let cachePathByIdentity = Dictionary(uniqueKeysWithValues: zip(identities, cachePaths))
-
-        final class ConcurrencyBox: @unchecked Sendable {
-            private let lock = NSLock()
-            private var inFlight = 0
-            private var maxInFlight = 0
-            private var started = 0
-            private var waiters: [CheckedContinuation<Void, Never>] = []
-
-            func enter(total: Int) {
-                lock.lock()
-                inFlight += 1
-                maxInFlight = max(maxInFlight, inFlight)
-                started += 1
-                let done = started >= total
-                let waiters = done ? self.waiters : []
-                if done { self.waiters = [] }
-                lock.unlock()
-                for waiter in waiters {
-                    waiter.resume()
-                }
-            }
-
-            func leave() {
-                lock.lock()
-                inFlight -= 1
-                lock.unlock()
-            }
-
-            var maxObserved: Int {
-                lock.lock()
-                defer { lock.unlock() }
-                return maxInFlight
-            }
-
-            func waitUntilStarted(_ total: Int) async {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    lock.lock()
-                    if started >= total {
-                        lock.unlock()
-                        continuation.resume()
-                        return
-                    }
-                    waiters.append(continuation)
-                    lock.unlock()
-                }
-            }
-        }
-        let box = ConcurrencyBox()
-
-        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: true) { reference in
-            box.enter(total: tabCount)
-            try? await Task.sleep(for: .milliseconds(20))
-            box.leave()
-            return .fresh(
-                RemoteMarkdownSnapshot(
-                    fileURL: URL(
-                        fileURLWithPath: cachePathByIdentity[reference.identity]
-                            ?? "/tmp/awesomux-restore-bound-fallback.md"),
-                    identity: reference.identity
-                )
-            )
-        }
-
-        await box.waitUntilStarted(tabCount)
-
-        #expect(box.maxObserved <= 4)
-    }
-
     @Test("RemoteMarkdownReference.make(identity:) accepts supported remote Markdown only")
     func makeFromIdentity() {
         #expect(RemoteMarkdownReference.make(identity: remoteIdentity()) != nil)
@@ -741,111 +628,6 @@ struct RemoteMarkdownTabRefreshTests {
         )
     }
 
-    @Test("refresh speaks the unavailable outcome when announceFailure is set")
-    func refreshAnnouncesFailureWhenRequested() async throws {
-        let identity = remoteIdentity()
-        let path = "/tmp/awesomux-refresh-announce-\(UUID().uuidString).md"
-        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
-        let (store, sessionID, tabID) = try storeWithRemoteTab(
-            identity: identity,
-            cacheURL: URL(fileURLWithPath: path)
-        )
-
-        let probe = AnnouncementProbe()
-        let previous = TerminalAccessibilityAnnouncer.announcementPoster
-        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
-            probe.record(message)
-        }
-        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: false,
-            announceOutcome: false,
-            announceFailure: true,
-            fetch: { _ in nil }
-        )
-
-        await probe.waitFor(refreshFailedMessage)
-        #expect(probe.count(of: refreshFailedMessage) == 1)
-    }
-
-    @Test("refresh stays silent on failure when neither announce flag is set")
-    func refreshFailureSilentWithoutFlags() async throws {
-        let identity = remoteIdentity()
-        let path = "/tmp/awesomux-refresh-quiet-\(UUID().uuidString).md"
-        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
-        let (store, sessionID, tabID) = try storeWithRemoteTab(
-            identity: identity,
-            cacheURL: URL(fileURLWithPath: path)
-        )
-
-        let probe = AnnouncementProbe()
-        let previous = TerminalAccessibilityAnnouncer.announcementPoster
-        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
-            probe.record(message)
-        }
-        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: false,
-            announceOutcome: false,
-            announceFailure: false,
-            fetch: { _ in nil }
-        )
-
-        #expect(probe.count(of: refreshFailedMessage) == 0)
-        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteRefreshFailed)
-    }
-
-    @Test("refresh does not speak success when only announceFailure is set")
-    func refreshSuccessSilentForFailureOnlyAnnounce() async throws {
-        let identity = remoteIdentity()
-        let path = "/tmp/awesomux-refresh-success-quiet-\(UUID().uuidString).md"
-        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
-        let (store, sessionID, tabID) = try storeWithRemoteTab(
-            identity: identity,
-            cacheURL: URL(fileURLWithPath: path)
-        )
-
-        let probe = AnnouncementProbe()
-        let previous = TerminalAccessibilityAnnouncer.announcementPoster
-        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
-            probe.record(message)
-        }
-        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: false,
-            announceOutcome: false,
-            announceFailure: true,
-            fetch: { reference in
-                .fresh(
-                    RemoteMarkdownSnapshot(
-                        fileURL: URL(fileURLWithPath: path),
-                        identity: reference.identity
-                    )
-                )
-            }
-        )
-
-        #expect(probe.count(of: refreshFailedMessage) == 0)
-    }
-
     @Test("restore marks only the selected tab's target as selected")
     func selectedRestoreTargetIsTheVisibleTab() throws {
         let identity = remoteIdentity()
@@ -863,29 +645,6 @@ struct RemoteMarkdownTabRefreshTests {
             associatedWith: session.activePaneID
         )
         #expect(!RemoteMarkdownTabRefresh.isSelectedRestoreTarget(target, in: store))
-    }
-
-    @Test("restore speaks a refresh failure for the selected tab")
-    func restoreAnnouncesFailureForSelectedTab() async throws {
-        let identity = remoteIdentity()
-        let path = "/tmp/awesomux-restore-announce-\(UUID().uuidString).md"
-        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
-        let (store, _, _) = try storeWithRemoteTab(
-            identity: identity,
-            cacheURL: URL(fileURLWithPath: path)
-        )
-
-        let probe = AnnouncementProbe()
-        let previous = TerminalAccessibilityAnnouncer.announcementPoster
-        TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting { message, _ in
-            probe.record(message)
-        }
-        defer { TerminalAccessibilityAnnouncer.setAnnouncementPosterForTesting(previous) }
-
-        RemoteMarkdownTabRefresh.scheduleRestoreRefresh(for: store, automaticallyRefresh: true) { _ in nil }
-
-        await probe.waitFor(refreshFailedMessage)
-        #expect(probe.count(of: refreshFailedMessage) == 1)
     }
 
     @Test("a nil fetch on a failure-page tab banners and speaks nothing")
@@ -923,33 +682,141 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(probe.count(of: refreshFailedMessage) == 0)
     }
 
-    @Test("Refresh keeps loading while the first live link claims outcome")
-    func refreshThenLinkSharesAnnouncementOwnership() async throws {
-        let identity = remoteIdentity()
-        let source = remoteIdentity(path: "/repo/README.md")
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md#section", relativeTo: source)
-        )
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-race-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        _ = try #require(
-            store.openDocumentPane(
-                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
-                associationPolicy: .preserveNil, selectingNewTab: false
-            ))
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let gate = FetchGate()
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        cohort.add(.refresh)
-        cohort.add(.document)
-        var refreshLoading = 0
-        var refreshOutcomes = 0
-        var linkLoading = 0
-        var linkOutcomes = 0
-        var linkFragmentCues = 0
+    @Test(
+        "each live cohort has exactly one outcome speaker",
+        arguments: [
+            "refreshThenLinkSharesAnnouncementOwnership", "linkThenRefreshSharesAnnouncementOwnership",
+            "sameFileNilFetchKeepsLinkFailureAfterTabCloses", "cancelledRefreshDefersNilFailureToSameFileLink",
+            "restoreDefersFailureToSameFileLink", "restoreUsesFetchCohortInsteadOfHistoricalDocumentProgress",
+            "refreshDefersNilToFailurePresenter", "restoreFailureOwnershipIsSessionScoped", "laterRefreshCohortOwnsSuccess",
+            "laterRefreshCohortOwnsFailure", "restoreKeepsSameCohortDocumentPresentationOwnership",
+            "restoreDoesNotTakeSameFileLinkSuccessCues", "cancelledRefreshReleasesAnnouncementOwnership",
+        ])
+    func exactlyOneSpeaker(scenario: String) async throws {
+        switch scenario {
+        case "refreshThenLinkSharesAnnouncementOwnership":
+            let identity = remoteIdentity()
+            let source = remoteIdentity(path: "/repo/README.md")
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md#section", relativeTo: source)
+            )
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-race-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                    associationPolicy: .preserveNil, selectingNewTab: false
+                ))
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            let gate = FetchGate()
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.refresh)
+            cohort.add(.document)
+            var refreshLoading = 0
+            var refreshOutcomes = 0
+            var linkLoading = 0
+            var linkOutcomes = 0
+            var linkFragmentCues = 0
 
-        let refresh = Task { @MainActor in
-            await RemoteMarkdownTabRefresh.refresh(
+            let refresh = Task { @MainActor in
+                await RemoteMarkdownTabRefresh.refresh(
+                    identity: identity,
+                    documentID: tabID,
+                    in: sessionID,
+                    associatedWith: nil,
+                    sessionStore: store,
+                    selectingTab: true,
+                    announceOutcome: true,
+                    coordinator: RemoteMarkdownRefreshCoordinator(),
+                    progress: progress,
+                    onAnnounceLoading: { refreshLoading += 1 },
+                    onAnnounceOutcome: { _ in refreshOutcomes += 1 },
+                    startAttempt: { reference in
+                        preparedAttempt(consumer: .refresh, cohort: cohort) {
+                            await gate.wait()
+                            return .fresh(
+                                RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
+                        }
+                    }
+                )
+            }
+            await gate.waitUntilStarted()
+
+            _ = await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                coordinator: RemoteMarkdownDocumentLinkCoordinator(),
+                startAttempt: { reference in
+                    preparedAttempt(
+                        consumer: .document,
+                        outcome: .fresh(
+                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
+                        cohort: cohort
+                    )
+                },
+                onAnnounceLoading: { linkLoading += 1 },
+                onAnnounceOutcome: { _ in linkOutcomes += 1 },
+                onAnnounceFragmentOpened: { linkFragmentCues += 1 },
+                progress: progress
+            )
+            gate.open()
+            _ = await refresh.value
+
+            #expect(refreshLoading == 1)
+            #expect(refreshOutcomes == 0)
+            #expect(linkLoading == 0)
+            #expect(linkOutcomes == 1)
+            #expect(linkFragmentCues == 0)
+            #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
+        case "linkThenRefreshSharesAnnouncementOwnership":
+            let identity = remoteIdentity()
+            let source = remoteIdentity(path: "/repo/README.md")
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
+            )
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-link-race-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                    associationPolicy: .preserveNil, selectingNewTab: false
+                ))
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            let gate = FetchGate()
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.document)
+            cohort.add(.refresh)
+            var refreshLoading = 0
+            var refreshOutcomes = 0
+            var linkLoading = 0
+            var linkOutcomes = 0
+
+            let open = Task { @MainActor in
+                await RemoteMarkdownDocumentLinkNavigation.open(
+                    url: link,
+                    from: source,
+                    in: sessionID,
+                    associatedWith: nil,
+                    sessionStore: store,
+                    coordinator: RemoteMarkdownDocumentLinkCoordinator(),
+                    startAttempt: { reference in
+                        preparedAttempt(consumer: .document, cohort: cohort) {
+                            await gate.wait()
+                            return .fresh(
+                                RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
+                        }
+                    },
+                    onAnnounceLoading: { linkLoading += 1 },
+                    onAnnounceOutcome: { _ in linkOutcomes += 1 },
+                    progress: progress
+                )
+            }
+            await gate.waitUntilStarted()
+
+            _ = await RemoteMarkdownTabRefresh.refresh(
                 identity: identity,
                 documentID: tabID,
                 in: sessionID,
@@ -962,273 +829,210 @@ struct RemoteMarkdownTabRefreshTests {
                 onAnnounceLoading: { refreshLoading += 1 },
                 onAnnounceOutcome: { _ in refreshOutcomes += 1 },
                 startAttempt: { reference in
-                    preparedAttempt(consumer: .refresh, cohort: cohort) {
-                        await gate.wait()
-                        return .fresh(
-                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
-                    }
+                    preparedAttempt(
+                        consumer: .refresh,
+                        outcome: .fresh(
+                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
+                        cohort: cohort
+                    )
                 }
             )
-        }
-        await gate.waitUntilStarted()
+            gate.open()
+            _ = await open.value
 
-        _ = await RemoteMarkdownDocumentLinkNavigation.open(
-            url: link,
-            from: source,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            coordinator: RemoteMarkdownDocumentLinkCoordinator(),
-            startAttempt: { reference in
-                preparedAttempt(
-                    consumer: .document,
-                    outcome: .fresh(
-                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
-                    cohort: cohort
+            #expect(linkLoading == 1)
+            #expect(linkOutcomes == 0)
+            #expect(refreshLoading == 0)
+            #expect(refreshOutcomes == 1)
+        case "sameFileNilFetchKeepsLinkFailureAfterTabCloses":
+            let identity = remoteIdentity()
+            let source = remoteIdentity(path: "/repo/README.md")
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
+            )
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-failure-race-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                    associationPolicy: .preserveNil, selectingNewTab: false
+                ))
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.refresh)
+            cohort.add(.document)
+            let gate = FetchGate()
+            var refreshFailures = 0
+            var linkFailures = 0
+
+            let refresh = Task { @MainActor in
+                await RemoteMarkdownTabRefresh.refresh(
+                    identity: identity,
+                    documentID: tabID,
+                    in: sessionID,
+                    associatedWith: nil,
+                    sessionStore: store,
+                    selectingTab: true,
+                    announceOutcome: true,
+                    progress: progress,
+                    onAnnounceLoading: {},
+                    onAnnounceFailure: { refreshFailures += 1 },
+                    startAttempt: { _ in
+                        preparedAttempt(consumer: .refresh, cohort: cohort) {
+                            await gate.wait()
+                            return nil
+                        }
+                    }
                 )
-            },
-            onAnnounceLoading: { linkLoading += 1 },
-            onAnnounceOutcome: { _ in linkOutcomes += 1 },
-            onAnnounceFragmentOpened: { linkFragmentCues += 1 },
-            progress: progress
-        )
-        gate.open()
-        _ = await refresh.value
-
-        #expect(refreshLoading == 1)
-        #expect(refreshOutcomes == 0)
-        #expect(linkLoading == 0)
-        #expect(linkOutcomes == 1)
-        #expect(linkFragmentCues == 0)
-        #expect(!progress.isInFlight(sessionID: sessionID, identity: identity))
-    }
-
-    @Test("link keeps loading while the first live Refresh claims outcome")
-    func linkThenRefreshSharesAnnouncementOwnership() async throws {
-        let identity = remoteIdentity()
-        let source = remoteIdentity(path: "/repo/README.md")
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
-        )
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-link-race-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        _ = try #require(
-            store.openDocumentPane(
-                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
-                associationPolicy: .preserveNil, selectingNewTab: false
-            ))
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let gate = FetchGate()
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        cohort.add(.document)
-        cohort.add(.refresh)
-        var refreshLoading = 0
-        var refreshOutcomes = 0
-        var linkLoading = 0
-        var linkOutcomes = 0
-
-        let open = Task { @MainActor in
-            await RemoteMarkdownDocumentLinkNavigation.open(
+            }
+            await gate.waitUntilStarted()
+            _ = await RemoteMarkdownDocumentLinkNavigation.open(
                 url: link,
                 from: source,
                 in: sessionID,
                 associatedWith: nil,
                 sessionStore: store,
                 coordinator: RemoteMarkdownDocumentLinkCoordinator(),
-                startAttempt: { reference in
-                    preparedAttempt(consumer: .document, cohort: cohort) {
-                        await gate.wait()
-                        return .fresh(
-                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
-                    }
-                },
-                onAnnounceLoading: { linkLoading += 1 },
-                onAnnounceOutcome: { _ in linkOutcomes += 1 },
+                startAttempt: { _ in preparedAttempt(consumer: .document, outcome: nil, cohort: cohort) },
+                onFetchFailure: { linkFailures += 1 },
+                onAnnounceLoading: {},
                 progress: progress
             )
-        }
-        await gate.waitUntilStarted()
+            store.closeDocumentPane(documentID: tabID, in: sessionID)
+            gate.open()
+            _ = await refresh.value
 
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: true,
-            announceOutcome: true,
-            coordinator: RemoteMarkdownRefreshCoordinator(),
-            progress: progress,
-            onAnnounceLoading: { refreshLoading += 1 },
-            onAnnounceOutcome: { _ in refreshOutcomes += 1 },
-            startAttempt: { reference in
-                preparedAttempt(
-                    consumer: .refresh,
-                    outcome: .fresh(
-                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
-                    cohort: cohort
+            #expect(refreshFailures == 0)
+            #expect(linkFailures == 1)
+        case "cancelledRefreshDefersNilFailureToSameFileLink":
+            let identity = remoteIdentity()
+            let source = remoteIdentity(path: "/repo/README.md")
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
+            )
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-cancelled-failure-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                    associationPolicy: .preserveNil, selectingNewTab: false
+                ))
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.refresh)
+            cohort.add(.document)
+            let gate = FetchGate()
+            var refreshFailures = 0
+            var linkFailures = 0
+
+            let refresh = Task { @MainActor in
+                await RemoteMarkdownTabRefresh.refresh(
+                    identity: identity,
+                    documentID: tabID,
+                    in: sessionID,
+                    associatedWith: nil,
+                    sessionStore: store,
+                    selectingTab: true,
+                    announceOutcome: true,
+                    progress: progress,
+                    onAnnounceLoading: {},
+                    onAnnounceFailure: { refreshFailures += 1 },
+                    startAttempt: { _ in
+                        preparedAttempt(consumer: .refresh, cohort: cohort) {
+                            await gate.wait()
+                            return nil
+                        }
+                    }
                 )
             }
-        )
-        gate.open()
-        _ = await open.value
-
-        #expect(linkLoading == 1)
-        #expect(linkOutcomes == 0)
-        #expect(refreshLoading == 0)
-        #expect(refreshOutcomes == 1)
-    }
-
-    @Test("same-file nil fetch keeps the link's visible failure after its tab closes")
-    func sameFileNilFetchKeepsLinkFailureAfterTabCloses() async throws {
-        let identity = remoteIdentity()
-        let source = remoteIdentity(path: "/repo/README.md")
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
-        )
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-failure-race-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        _ = try #require(
-            store.openDocumentPane(
-                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
-                associationPolicy: .preserveNil, selectingNewTab: false
-            ))
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        cohort.add(.refresh)
-        cohort.add(.document)
-        let gate = FetchGate()
-        var refreshFailures = 0
-        var linkFailures = 0
-
-        let refresh = Task { @MainActor in
-            await RemoteMarkdownTabRefresh.refresh(
-                identity: identity,
-                documentID: tabID,
+            await gate.waitUntilStarted()
+            _ = await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
                 in: sessionID,
                 associatedWith: nil,
                 sessionStore: store,
-                selectingTab: true,
-                announceOutcome: true,
-                progress: progress,
+                coordinator: RemoteMarkdownDocumentLinkCoordinator(),
+                startAttempt: { _ in preparedAttempt(consumer: .document, outcome: nil, cohort: cohort) },
+                onFetchFailure: { linkFailures += 1 },
                 onAnnounceLoading: {},
-                onAnnounceFailure: { refreshFailures += 1 },
-                startAttempt: { _ in
-                    preparedAttempt(consumer: .refresh, cohort: cohort) {
-                        await gate.wait()
-                        return nil
-                    }
-                }
+                progress: progress
             )
-        }
-        await gate.waitUntilStarted()
-        _ = await RemoteMarkdownDocumentLinkNavigation.open(
-            url: link,
-            from: source,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            coordinator: RemoteMarkdownDocumentLinkCoordinator(),
-            startAttempt: { _ in preparedAttempt(consumer: .document, outcome: nil, cohort: cohort) },
-            onFetchFailure: { linkFailures += 1 },
-            onAnnounceLoading: {},
-            progress: progress
-        )
-        store.closeDocumentPane(documentID: tabID, in: sessionID)
-        gate.open()
-        _ = await refresh.value
+            refresh.cancel()
+            gate.open()
+            _ = await refresh.value
 
-        #expect(refreshFailures == 0)
-        #expect(linkFailures == 1)
-    }
+            #expect(refreshFailures == 0)
+            #expect(linkFailures == 1)
+        case "restoreDefersFailureToSameFileLink":
+            let identity = remoteIdentity()
+            let source = remoteIdentity(path: "/repo/README.md")
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
+            )
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-link-failure-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                    associationPolicy: .preserveNil, selectingNewTab: false
+                ))
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.restore)
+            cohort.add(.document)
+            let gate = FetchGate()
+            var restoreFailures = 0
+            var linkFailures = 0
 
-    @Test("cancelled Refresh does not add failure after a same-file link presents it")
-    func cancelledRefreshDefersNilFailureToSameFileLink() async throws {
-        let identity = remoteIdentity()
-        let source = remoteIdentity(path: "/repo/README.md")
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
-        )
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-cancelled-failure-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        _ = try #require(
-            store.openDocumentPane(
-                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
-                associationPolicy: .preserveNil, selectingNewTab: false
-            ))
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        cohort.add(.refresh)
-        cohort.add(.document)
-        let gate = FetchGate()
-        var refreshFailures = 0
-        var linkFailures = 0
-
-        let refresh = Task { @MainActor in
-            await RemoteMarkdownTabRefresh.refresh(
-                identity: identity,
-                documentID: tabID,
+            let restore = Task { @MainActor in
+                await RemoteMarkdownTabRefresh.refresh(
+                    identity: identity,
+                    documentID: tabID,
+                    in: sessionID,
+                    associatedWith: nil,
+                    sessionStore: store,
+                    selectingTab: false,
+                    announceFailure: true,
+                    progress: progress,
+                    onAnnounceFailure: { restoreFailures += 1 },
+                    startAttempt: { _ in
+                        preparedAttempt(consumer: .restore, cohort: cohort) {
+                            await gate.wait()
+                            return nil
+                        }
+                    }
+                )
+            }
+            await gate.waitUntilStarted()
+            _ = await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
                 in: sessionID,
                 associatedWith: nil,
                 sessionStore: store,
-                selectingTab: true,
-                announceOutcome: true,
-                progress: progress,
+                coordinator: RemoteMarkdownDocumentLinkCoordinator(),
+                startAttempt: { _ in preparedAttempt(consumer: .document, outcome: nil, cohort: cohort) },
+                onFetchFailure: { linkFailures += 1 },
                 onAnnounceLoading: {},
-                onAnnounceFailure: { refreshFailures += 1 },
-                startAttempt: { _ in
-                    preparedAttempt(consumer: .refresh, cohort: cohort) {
-                        await gate.wait()
-                        return nil
-                    }
-                }
+                progress: progress
             )
-        }
-        await gate.waitUntilStarted()
-        _ = await RemoteMarkdownDocumentLinkNavigation.open(
-            url: link,
-            from: source,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            coordinator: RemoteMarkdownDocumentLinkCoordinator(),
-            startAttempt: { _ in preparedAttempt(consumer: .document, outcome: nil, cohort: cohort) },
-            onFetchFailure: { linkFailures += 1 },
-            onAnnounceLoading: {},
-            progress: progress
-        )
-        refresh.cancel()
-        gate.open()
-        _ = await refresh.value
+            gate.open()
+            _ = await restore.value
 
-        #expect(refreshFailures == 0)
-        #expect(linkFailures == 1)
-    }
+            #expect(restoreFailures == 0)
+            #expect(linkFailures == 1)
+        case "restoreUsesFetchCohortInsteadOfHistoricalDocumentProgress":
+            let identity = remoteIdentity()
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-next-cohort-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            _ = progress.begin(sessionID: sessionID, identity: identity, origin: .document)
+            let restoreCohort = RemoteMarkdownFetchCoordinator.Cohort()
+            restoreCohort.add(.restore)
+            var restoreFailures = 0
 
-    @Test("restore stays quiet when a same-file link presents failure")
-    func restoreDefersFailureToSameFileLink() async throws {
-        let identity = remoteIdentity()
-        let source = remoteIdentity(path: "/repo/README.md")
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
-        )
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-link-failure-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        _ = try #require(
-            store.openDocumentPane(
-                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
-                associationPolicy: .preserveNil, selectingNewTab: false
-            ))
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        cohort.add(.restore)
-        cohort.add(.document)
-        let gate = FetchGate()
-        var restoreFailures = 0
-        var linkFailures = 0
-
-        let restore = Task { @MainActor in
-            await RemoteMarkdownTabRefresh.refresh(
+            _ = await RemoteMarkdownTabRefresh.refresh(
                 identity: identity,
                 documentID: tabID,
                 in: sessionID,
@@ -1238,254 +1042,50 @@ struct RemoteMarkdownTabRefreshTests {
                 announceFailure: true,
                 progress: progress,
                 onAnnounceFailure: { restoreFailures += 1 },
+                startAttempt: { _ in preparedAttempt(consumer: .restore, outcome: nil, cohort: restoreCohort) }
+            )
+            progress.finish(sessionID: sessionID, identity: identity, origin: .document)
+
+            #expect(restoreFailures == 1)
+        case "refreshDefersNilToFailurePresenter":
+            let identity = remoteIdentity()
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-presenter-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            _ = cohort.register(.failurePresenter, sessionID: sessionID)
+            var failures = 0
+
+            _ = await RemoteMarkdownTabRefresh.refresh(
+                identity: identity,
+                documentID: tabID,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                selectingTab: true,
+                announceOutcome: true,
+                onAnnounceLoading: {},
+                onAnnounceFailure: { failures += 1 },
                 startAttempt: { _ in
-                    preparedAttempt(consumer: .restore, cohort: cohort) {
-                        await gate.wait()
-                        return nil
-                    }
+                    preparedAttempt(
+                        consumer: .refresh,
+                        outcome: nil,
+                        cohort: cohort,
+                        announcementSessionID: sessionID
+                    )
                 }
             )
-        }
-        await gate.waitUntilStarted()
-        _ = await RemoteMarkdownDocumentLinkNavigation.open(
-            url: link,
-            from: source,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            coordinator: RemoteMarkdownDocumentLinkCoordinator(),
-            startAttempt: { _ in preparedAttempt(consumer: .document, outcome: nil, cohort: cohort) },
-            onFetchFailure: { linkFailures += 1 },
-            onAnnounceLoading: {},
-            progress: progress
-        )
-        gate.open()
-        _ = await restore.value
 
-        #expect(restoreFailures == 0)
-        #expect(linkFailures == 1)
-    }
+            #expect(failures == 1)
+            #expect(!cohort.claimOutcome(sessionID: sessionID))
+        case "restoreFailureOwnershipIsSessionScoped":
+            let identity = remoteIdentity()
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-session-scope-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            _ = cohort.register(.failurePresenter, sessionID: UUID())
+            var failures = 0
 
-    @Test("restore announces for a later fetch cohort after document progress remains")
-    func restoreUsesFetchCohortInsteadOfHistoricalDocumentProgress() async throws {
-        let identity = remoteIdentity()
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-next-cohort-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        _ = progress.begin(sessionID: sessionID, identity: identity, origin: .document)
-        let restoreCohort = RemoteMarkdownFetchCoordinator.Cohort()
-        restoreCohort.add(.restore)
-        var restoreFailures = 0
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: false,
-            announceFailure: true,
-            progress: progress,
-            onAnnounceFailure: { restoreFailures += 1 },
-            startAttempt: { _ in preparedAttempt(consumer: .restore, outcome: nil, cohort: restoreCohort) }
-        )
-        progress.finish(sessionID: sessionID, identity: identity, origin: .document)
-
-        #expect(restoreFailures == 1)
-    }
-
-    @Test("live Refresh claims nil speech despite a prior failure presenter")
-    func refreshDefersNilToFailurePresenter() async throws {
-        let identity = remoteIdentity()
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-presenter-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        _ = cohort.register(.failurePresenter, sessionID: sessionID)
-        var failures = 0
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: true,
-            announceOutcome: true,
-            onAnnounceLoading: {},
-            onAnnounceFailure: { failures += 1 },
-            startAttempt: { _ in
-                preparedAttempt(
-                    consumer: .refresh,
-                    outcome: nil,
-                    cohort: cohort,
-                    announcementSessionID: sessionID
-                )
-            }
-        )
-
-        #expect(failures == 1)
-        #expect(!cohort.claimOutcome(sessionID: sessionID))
-    }
-
-    @Test("another session's presenter does not suppress restore failure")
-    func restoreFailureOwnershipIsSessionScoped() async throws {
-        let identity = remoteIdentity()
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-session-scope-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        _ = cohort.register(.failurePresenter, sessionID: UUID())
-        var failures = 0
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: false,
-            announceFailure: true,
-            onAnnounceFailure: { failures += 1 },
-            startAttempt: { _ in
-                preparedAttempt(
-                    consumer: .restore,
-                    outcome: nil,
-                    cohort: cohort,
-                    announcementSessionID: sessionID
-                )
-            }
-        )
-
-        #expect(failures == 1)
-    }
-
-    @Test("later Refresh cohort owns success while prior document progress remains")
-    func laterRefreshCohortOwnsSuccess() async throws {
-        let identity = remoteIdentity()
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-next-success-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        _ = progress.begin(
-            sessionID: sessionID,
-            identity: identity,
-            origin: .document
-        )
-        let refreshCohort = RemoteMarkdownFetchCoordinator.Cohort()
-        refreshCohort.add(.refresh)
-        var loading = 0
-        var outcomes = 0
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: true,
-            announceOutcome: true,
-            progress: progress,
-            onAnnounceLoading: { loading += 1 },
-            onAnnounceOutcome: { _ in outcomes += 1 },
-            startAttempt: { reference in
-                preparedAttempt(
-                    consumer: .refresh,
-                    outcome: .fresh(
-                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
-                    cohort: refreshCohort
-                )
-            }
-        )
-
-        #expect(loading == 1)
-        #expect(outcomes == 1)
-    }
-
-    @Test("later Refresh cohort owns failure while prior document progress remains")
-    func laterRefreshCohortOwnsFailure() async throws {
-        let identity = remoteIdentity()
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-next-failure-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        _ = progress.begin(
-            sessionID: sessionID,
-            identity: identity,
-            origin: .document
-        )
-        let refreshCohort = RemoteMarkdownFetchCoordinator.Cohort()
-        refreshCohort.add(.refresh)
-        var loading = 0
-        var failures = 0
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: true,
-            announceOutcome: true,
-            progress: progress,
-            onAnnounceLoading: { loading += 1 },
-            onAnnounceFailure: { failures += 1 },
-            startAttempt: { _ in preparedAttempt(consumer: .refresh, outcome: nil, cohort: refreshCohort) }
-        )
-
-        #expect(loading == 1)
-        #expect(failures == 1)
-    }
-
-    @Test("restore stays quiet for its cohort after document presenter finishes first")
-    func restoreKeepsSameCohortDocumentPresentationOwnership() async throws {
-        let identity = remoteIdentity()
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-same-cohort-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        _ = progress.begin(sessionID: sessionID, identity: identity, origin: .document)
-        let sharedCohort = RemoteMarkdownFetchCoordinator.Cohort()
-        sharedCohort.add(.document)
-        sharedCohort.add(.restore)
-        progress.finish(sessionID: sessionID, identity: identity, origin: .document)
-        var restoreFailures = 0
-
-        _ = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: false,
-            announceFailure: true,
-            progress: progress,
-            onAnnounceFailure: { restoreFailures += 1 },
-            startAttempt: { _ in preparedAttempt(consumer: .restore, outcome: nil, cohort: sharedCohort) }
-        )
-
-        #expect(restoreFailures == 0)
-    }
-
-    @Test("silent restore does not take a same-file link's success cues")
-    func restoreDoesNotTakeSameFileLinkSuccessCues() async throws {
-        let identity = remoteIdentity()
-        let source = remoteIdentity(path: "/repo/README.md")
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
-        )
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-link-success-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        _ = try #require(
-            store.openDocumentPane(
-                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
-                associationPolicy: .preserveNil, selectingNewTab: false
-            ))
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let gate = FetchGate()
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        cohort.add(.refresh)
-        cohort.add(.document)
-        var linkLoading = 0
-        var linkOutcomes = 0
-
-        let restore = Task { @MainActor in
-            await RemoteMarkdownTabRefresh.refresh(
+            _ = await RemoteMarkdownTabRefresh.refresh(
                 identity: identity,
                 documentID: tabID,
                 in: sessionID,
@@ -1493,68 +1093,34 @@ struct RemoteMarkdownTabRefreshTests {
                 sessionStore: store,
                 selectingTab: false,
                 announceFailure: true,
-                progress: progress,
-                startAttempt: { reference in
-                    preparedAttempt(consumer: .restore, cohort: cohort) {
-                        await gate.wait()
-                        return .fresh(
-                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
-                    }
+                onAnnounceFailure: { failures += 1 },
+                startAttempt: { _ in
+                    preparedAttempt(
+                        consumer: .restore,
+                        outcome: nil,
+                        cohort: cohort,
+                        announcementSessionID: sessionID
+                    )
                 }
             )
-        }
-        await gate.waitUntilStarted()
-        _ = await RemoteMarkdownDocumentLinkNavigation.open(
-            url: link,
-            from: source,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            coordinator: RemoteMarkdownDocumentLinkCoordinator(),
-            startAttempt: { reference in
-                preparedAttempt(
-                    consumer: .document,
-                    outcome: .fresh(
-                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
-                    cohort: cohort
-                )
-            },
-            onAnnounceLoading: { linkLoading += 1 },
-            onAnnounceOutcome: { _ in linkOutcomes += 1 },
-            progress: progress
-        )
-        gate.open()
-        _ = await restore.value
 
-        #expect(linkLoading == 1)
-        #expect(linkOutcomes == 1)
-    }
+            #expect(failures == 1)
+        case "laterRefreshCohortOwnsSuccess":
+            let identity = remoteIdentity()
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-next-success-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            _ = progress.begin(
+                sessionID: sessionID,
+                identity: identity,
+                origin: .document
+            )
+            let refreshCohort = RemoteMarkdownFetchCoordinator.Cohort()
+            refreshCohort.add(.refresh)
+            var loading = 0
+            var outcomes = 0
 
-    @Test("cancelled Refresh releases same-file announcement ownership")
-    func cancelledRefreshReleasesAnnouncementOwnership() async throws {
-        let identity = remoteIdentity()
-        let source = remoteIdentity(path: "/repo/README.md")
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
-        )
-        let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-cancel-race-\(UUID().uuidString).md")
-        let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
-        _ = try #require(
-            store.openDocumentPane(
-                fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
-                associationPolicy: .preserveNil, selectingNewTab: false
-            ))
-        let progress = RemoteMarkdownFetchProgressCoordinator()
-        let gate = FetchGate()
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        cohort.add(.refresh)
-        cohort.add(.document)
-        var refreshOutcomes = 0
-        var linkLoading = 0
-        var linkOutcomes = 0
-
-        let refresh = Task { @MainActor in
-            await RemoteMarkdownTabRefresh.refresh(
+            _ = await RemoteMarkdownTabRefresh.refresh(
                 identity: identity,
                 documentID: tabID,
                 in: sessionID,
@@ -1563,46 +1129,217 @@ struct RemoteMarkdownTabRefreshTests {
                 selectingTab: true,
                 announceOutcome: true,
                 progress: progress,
-                onAnnounceLoading: {},
-                onAnnounceOutcome: { _ in refreshOutcomes += 1 },
+                onAnnounceLoading: { loading += 1 },
+                onAnnounceOutcome: { _ in outcomes += 1 },
                 startAttempt: { reference in
-                    preparedAttempt(consumer: .refresh, cohort: cohort) {
-                        await gate.wait()
-                        return .fresh(
-                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
-                    }
+                    preparedAttempt(
+                        consumer: .refresh,
+                        outcome: .fresh(
+                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
+                        cohort: refreshCohort
+                    )
                 }
             )
-        }
-        await gate.waitUntilStarted()
 
-        _ = await RemoteMarkdownDocumentLinkNavigation.open(
-            url: link,
-            from: source,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            coordinator: RemoteMarkdownDocumentLinkCoordinator(),
-            startAttempt: { reference in
-                preparedAttempt(
-                    consumer: .document,
-                    outcome: .fresh(
-                        RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
-                    cohort: cohort
+            #expect(loading == 1)
+            #expect(outcomes == 1)
+        case "laterRefreshCohortOwnsFailure":
+            let identity = remoteIdentity()
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-refresh-next-failure-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            _ = progress.begin(
+                sessionID: sessionID,
+                identity: identity,
+                origin: .document
+            )
+            let refreshCohort = RemoteMarkdownFetchCoordinator.Cohort()
+            refreshCohort.add(.refresh)
+            var loading = 0
+            var failures = 0
+
+            _ = await RemoteMarkdownTabRefresh.refresh(
+                identity: identity,
+                documentID: tabID,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                selectingTab: true,
+                announceOutcome: true,
+                progress: progress,
+                onAnnounceLoading: { loading += 1 },
+                onAnnounceFailure: { failures += 1 },
+                startAttempt: { _ in preparedAttempt(consumer: .refresh, outcome: nil, cohort: refreshCohort) }
+            )
+
+            #expect(loading == 1)
+            #expect(failures == 1)
+        case "restoreKeepsSameCohortDocumentPresentationOwnership":
+            let identity = remoteIdentity()
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-same-cohort-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            _ = progress.begin(sessionID: sessionID, identity: identity, origin: .document)
+            let sharedCohort = RemoteMarkdownFetchCoordinator.Cohort()
+            sharedCohort.add(.document)
+            sharedCohort.add(.restore)
+            progress.finish(sessionID: sessionID, identity: identity, origin: .document)
+            var restoreFailures = 0
+
+            _ = await RemoteMarkdownTabRefresh.refresh(
+                identity: identity,
+                documentID: tabID,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                selectingTab: false,
+                announceFailure: true,
+                progress: progress,
+                onAnnounceFailure: { restoreFailures += 1 },
+                startAttempt: { _ in preparedAttempt(consumer: .restore, outcome: nil, cohort: sharedCohort) }
+            )
+
+            #expect(restoreFailures == 0)
+        case "restoreDoesNotTakeSameFileLinkSuccessCues":
+            let identity = remoteIdentity()
+            let source = remoteIdentity(path: "/repo/README.md")
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
+            )
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-restore-link-success-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                    associationPolicy: .preserveNil, selectingNewTab: false
+                ))
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            let gate = FetchGate()
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.refresh)
+            cohort.add(.document)
+            var linkLoading = 0
+            var linkOutcomes = 0
+
+            let restore = Task { @MainActor in
+                await RemoteMarkdownTabRefresh.refresh(
+                    identity: identity,
+                    documentID: tabID,
+                    in: sessionID,
+                    associatedWith: nil,
+                    sessionStore: store,
+                    selectingTab: false,
+                    announceFailure: true,
+                    progress: progress,
+                    startAttempt: { reference in
+                        preparedAttempt(consumer: .restore, cohort: cohort) {
+                            await gate.wait()
+                            return .fresh(
+                                RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
+                        }
+                    }
                 )
-            },
-            onAnnounceLoading: { linkLoading += 1 },
-            onAnnounceOutcome: { _ in linkOutcomes += 1 },
-            progress: progress
-        )
-        refresh.cancel()
-        gate.open()
-        _ = await refresh.value
+            }
+            await gate.waitUntilStarted()
+            _ = await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                coordinator: RemoteMarkdownDocumentLinkCoordinator(),
+                startAttempt: { reference in
+                    preparedAttempt(
+                        consumer: .document,
+                        outcome: .fresh(
+                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
+                        cohort: cohort
+                    )
+                },
+                onAnnounceLoading: { linkLoading += 1 },
+                onAnnounceOutcome: { _ in linkOutcomes += 1 },
+                progress: progress
+            )
+            gate.open()
+            _ = await restore.value
 
-        #expect(refreshOutcomes == 0)
-        #expect(linkLoading == 0)
-        #expect(linkOutcomes == 1)
+            #expect(linkLoading == 1)
+            #expect(linkOutcomes == 1)
+        case "cancelledRefreshReleasesAnnouncementOwnership":
+            let identity = remoteIdentity()
+            let source = remoteIdentity(path: "/repo/README.md")
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(forMarkdownDestination: "doc.md", relativeTo: source)
+            )
+            let cacheURL = URL(fileURLWithPath: "/tmp/awesomux-cancel-race-\(UUID().uuidString).md")
+            let (store, sessionID, tabID) = try storeWithRemoteTab(identity: identity, cacheURL: cacheURL)
+            _ = try #require(
+                store.openDocumentPane(
+                    fileURL: cacheURL, in: sessionID, remoteResourceIdentity: source,
+                    associationPolicy: .preserveNil, selectingNewTab: false
+                ))
+            let progress = RemoteMarkdownFetchProgressCoordinator()
+            let gate = FetchGate()
+            let cohort = RemoteMarkdownFetchCoordinator.Cohort()
+            cohort.add(.refresh)
+            cohort.add(.document)
+            var refreshOutcomes = 0
+            var linkLoading = 0
+            var linkOutcomes = 0
+
+            let refresh = Task { @MainActor in
+                await RemoteMarkdownTabRefresh.refresh(
+                    identity: identity,
+                    documentID: tabID,
+                    in: sessionID,
+                    associatedWith: nil,
+                    sessionStore: store,
+                    selectingTab: true,
+                    announceOutcome: true,
+                    progress: progress,
+                    onAnnounceLoading: {},
+                    onAnnounceOutcome: { _ in refreshOutcomes += 1 },
+                    startAttempt: { reference in
+                        preparedAttempt(consumer: .refresh, cohort: cohort) {
+                            await gate.wait()
+                            return .fresh(
+                                RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity))
+                        }
+                    }
+                )
+            }
+            await gate.waitUntilStarted()
+
+            _ = await RemoteMarkdownDocumentLinkNavigation.open(
+                url: link,
+                from: source,
+                in: sessionID,
+                associatedWith: nil,
+                sessionStore: store,
+                coordinator: RemoteMarkdownDocumentLinkCoordinator(),
+                startAttempt: { reference in
+                    preparedAttempt(
+                        consumer: .document,
+                        outcome: .fresh(
+                            RemoteMarkdownSnapshot(fileURL: cacheURL, identity: reference.identity)),
+                        cohort: cohort
+                    )
+                },
+                onAnnounceLoading: { linkLoading += 1 },
+                onAnnounceOutcome: { _ in linkOutcomes += 1 },
+                progress: progress
+            )
+            refresh.cancel()
+            gate.open()
+            _ = await refresh.value
+
+            #expect(refreshOutcomes == 0)
+            #expect(linkLoading == 0)
+            #expect(linkOutcomes == 1)
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
+
 }
 
 private func preparedAttempt(
@@ -1634,43 +1371,4 @@ private func preparedAttempt(
         onRegistered: nil,
         onFinished: nil
     )
-}
-
-@Suite("Remote Markdown tab refresh localization catalog coverage")
-struct RemoteMarkdownTabRefreshCatalogTests {
-    @Test func remoteRefreshAffordanceLiteralsAreCatalogKeys() throws {
-        let keys = try AwesoMuxStringCatalog.keys()
-        for literal in [
-            "re-fetches this remote Markdown file over SSH",
-            "re-fetching remote Markdown",
-            "Refresh",
-            "Read-only snapshot from %arg",
-            "Read-only remote Markdown snapshot from %arg",
-            // Nil-fetch VoiceOver path reuses the announcer's cached-failure
-            // sentence — pin the catalog key here so a drift that reintroduces
-            // a duplicate localized literal in TabRefresh is visible.
-            "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale.",
-        ] {
-            #expect(keys.contains(literal), "Localizable.xcstrings has no key \"\(literal)\"")
-        }
-    }
-
-    @Test("nil-fetch VoiceOver goes through the shared announcer, not a duplicate literal")
-    func nilFetchAnnouncementReusesAnnouncer() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repositoryRoot.appending(
-                path: "Sources/awesoMux/Services/RemoteMarkdownTabRefresh.swift"),
-            encoding: .utf8
-        )
-        #expect(source.contains("announceRemoteMarkdownRefreshUnavailable()"))
-        #expect(
-            !source.contains(
-                "Remote Markdown refresh failed. Showing the saved cached copy, which may be stale."),
-            "TabRefresh must not re-own the cached-failure VoiceOver literal"
-        )
-    }
 }

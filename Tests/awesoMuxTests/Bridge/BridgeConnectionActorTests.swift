@@ -42,43 +42,20 @@ struct BridgeConnectionActorTests {
         #expect((try FileManager.default.contentsOfDirectory(atPath: parent.path)).isEmpty)
     }
 
-    @Test("accept-to-hello deadline closes a squatter and frees its slot")
-    func helloDeadlineClosesAndFreesSlot() async throws {
-        let actor = try BridgeConnectionActor(
-            expectedToken: "token", expectedSession: "session", helloDeadline: 0.05
-        )
+    @Test("hello deadline frees a silent or unauthenticated slot", arguments: [false, true])
+    func helloDeadlineFreesSlot(bogusHello: Bool) async throws {
+        let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session", helloDeadline: 0.05)
         await actor.start()
         defer { Task { await actor.shutdown() } }
         let squatter = try UnixSocketClient(path: actor.socketPath)
-        #expect(await squatter.waitForEOF(timeoutMilliseconds: 10_000))
-
-        let replacement = try UnixSocketClient(path: actor.socketPath)
-        try replacement.write(helloLine)
-        let delivery = try await nextFrame(from: actor.frames, timeout: .seconds(10))
-        #expect(
-            delivery.frame
-                == .handshake(
-                    .hello(
-                        proto: "awesomux-bridge-v1", token: "token", session: "session", ts: 1, helper: "test"
-                    )))
-    }
-
-    @Test("bogus hello is closed at the deadline and frees its slot")
-    func bogusHelloDeadlineClosesAndFreesSlot() async throws {
-        let actor = try BridgeConnectionActor(
-            expectedToken: "token", expectedSession: "session", helloDeadline: 0.05
-        )
-        await actor.start()
-        defer { Task { await actor.shutdown() } }
-        let squatter = try UnixSocketClient(path: actor.socketPath)
-        try squatter.write(
-            try BridgeHandshake.hello(
+        if bogusHello {
+            try squatter.write(
+                try BridgeHandshake.hello(
                 proto: "awesomux-bridge-v1", token: "bogus", session: "session", ts: 1, helper: "test"
             ).encodedLine())
-        _ = try await nextFrame(from: actor.frames)
-
+            _ = try await nextFrame(from: actor.frames)
+        }
         #expect(await squatter.waitForEOF(timeoutMilliseconds: 10_000))
-
         let replacement = try UnixSocketClient(path: actor.socketPath)
         try replacement.write(helloLine)
         let delivery = try await nextFrame(from: actor.frames, timeout: .seconds(10))
@@ -90,43 +67,23 @@ struct BridgeConnectionActorTests {
                     )))
     }
 
-    @Test("second handshake frame closes the connection")
-    func secondHandshakeFrameClosesConnection() async throws {
+    @Test("protocol violations close the connection", arguments: ["second-hello", "inbound-ack", "envelope-first"])
+    func protocolViolationClosesConnection(violation: String) async throws {
         let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
         await actor.start()
         defer { Task { await actor.shutdown() } }
         let client = try UnixSocketClient(path: actor.socketPath)
-        try client.write(helloLine)
-        _ = try await nextFrame(from: actor.frames)
-
-        try client.write(helloLine)
-
-        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
-    }
-
-    @Test("inbound hello ack closes the connection")
-    func inboundHelloAckClosesConnection() async throws {
-        let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
-        await actor.start()
-        defer { Task { await actor.shutdown() } }
-        let client = try UnixSocketClient(path: actor.socketPath)
-
-        try client.write(
-            try BridgeHandshake.helloAck(
-                session: "session", proto: "awesomux-bridge-v1", ts: 1
-            ).encodedLine())
-
-        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
-    }
-
-    @Test("a non-hello first frame closes the connection")
-    func nonHelloFirstFrameClosesConnection() async throws {
-        let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
-        await actor.start()
-        defer { Task { await actor.shutdown() } }
-        let client = try UnixSocketClient(path: actor.socketPath)
-        try client.write(try envelope(.paneRename(title: "premature"), id: "before-hello").encodedLine())
-
+        switch violation {
+        case "second-hello":
+            try client.write(helloLine)
+            _ = try await nextFrame(from: actor.frames)
+            try client.write(helloLine)
+        case "inbound-ack":
+            try client.write(try BridgeHandshake.helloAck(session: "session", proto: "awesomux-bridge-v1", ts: 1).encodedLine())
+        case "envelope-first":
+            try client.write(try envelope(.paneRename(title: "premature"), id: "before-hello").encodedLine())
+        default: Issue.record("Unknown violation")
+        }
         #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
