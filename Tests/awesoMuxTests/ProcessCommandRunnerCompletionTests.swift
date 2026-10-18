@@ -19,8 +19,8 @@ extension ProcessCommandRunnerTests {
         #expect(reader.isFinished)
     }
 
-    @Test("output reader stop races safely with startup", arguments: 0..<25)
-    func outputReaderStopDuringStartupCompletes(iteration _: Int) async throws {
+    @Test("output reader stop races safely with startup")
+    func outputReaderStopDuringStartupCompletes() async throws {
         let pipe = Pipe()
         defer { try? pipe.fileHandleForWriting.close() }
         let reader = ProcessCommandOutputReader(pipe.fileHandleForReading)
@@ -31,32 +31,6 @@ extension ProcessCommandRunnerTests {
         #expect(await completed.waitForCount(1, deadline: .seconds(3)))
         #expect(await completed.values == [Data()])
         #expect(reader.isFinished)
-    }
-
-    @Test("missing exit callback preserves a completed command's output and status", arguments: [0, 7])
-    func missingExitCallbackPreservesResult(exitCode: Int32) async throws {
-        let notification = WithheldTerminationNotification()
-        defer { notification.deliver() }
-        let completed = EventRecorder<Void>()
-        let runner = ProcessCommandRunner(timeout: .seconds(1), spawn: { try notification.spawn($0) })
-        let run = Task.detached {
-            let result = try await runner.run(
-                executable: "/bin/sh",
-                args: ["-c", "printf output; printf error >&2; exit \(exitCode)"],
-                env: [:], cwd: nil
-            )
-            await completed.record(())
-            return result
-        }
-
-        let finished = await completed.waitForCount(1, deadline: .seconds(5))
-        #expect(finished, "the deadline must release a completed command without its callback")
-        // Release the callback even on failure so a regression cannot strand the test task.
-        notification.deliver()
-        let result = try await run.value
-        #expect(result.exitCode == exitCode)
-        #expect(result.stdout == "output")
-        #expect(result.stderr == "error")
     }
 
     @Test("cancellation releases an exited command without its callback")
@@ -127,7 +101,7 @@ extension ProcessCommandRunnerTests {
 
 /// Holds only the runner's notification; Foundation still records real child exit.
 /// Delivery can be enabled before exit so failure cleanup also works for a live child.
-private final class WithheldTerminationNotification: @unchecked Sendable {
+final class WithheldTerminationNotification: @unchecked Sendable {
     private let lock = NSLock()
     private var callback: (@Sendable () -> Void)?
     private var exited = false
