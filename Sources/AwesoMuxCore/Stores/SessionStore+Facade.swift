@@ -937,7 +937,7 @@ extension SessionStore {
         // because an idle prompt usually changes NOTHING about the pane — it
         // re-asserts the `.waiting` a Stop already set — so `didMutate` is false
         // and no commit follows. Membership must therefore reconcile itself.
-        updateUnansweredTurn(paneID: paneID, event: event)
+        updateUnansweredTurn(paneID: paneID, event: event, nativeTurnCompleted: decision.nativeTurnCompleted)
         defer { recordLocalAPIAttentionChanges(at: now) }
         // Two commits are intentional: unread must land before a nested
         // openDocumentPane full rebuild (so rebuild sees the tree's new badges),

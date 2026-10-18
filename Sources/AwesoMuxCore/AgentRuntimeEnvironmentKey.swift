@@ -4,6 +4,7 @@ public enum AgentRuntimeEnvironmentKey {
     public static let paneID = "AWESOMUX_PANE_ID"
     public static let eventFile = "AWESOMUX_AGENT_EVENT_FILE"
     public static let agentHook = "AWESOMUX_AGENT_HOOK"
+    public static let codexClientEventCommand = "CODEX_CLIENT_EVENT_COMMAND"
     public static let enabledSources = "AWESOMUX_AGENT_ENABLED_SOURCES"
     public static let amx = "AWESOMUX_AMX"
     public static let profile = "AWESOMUX_PROFILE"
@@ -14,6 +15,7 @@ public enum AgentRuntimeEnvironmentKey {
         paneID,
         eventFile,
         agentHook,
+        codexClientEventCommand,
         enabledSources,
         amx,
         profile

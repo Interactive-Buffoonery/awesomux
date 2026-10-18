@@ -31,6 +31,8 @@ final class GhosttySurfaceTerminalEventState {
     /// window where a fresh process gets recognized/scraped into `.waiting`
     /// before its own first real hook ever fires (INT-569 follow-up).
     var verifiedWaitingForegroundIncarnation: AgentForegroundIncarnation?
+    var clientStatusTracker = AgentClientStatusTracker()
+    var clientReportedProviderSessionID: String?
 
     /// Auto-clears a `progressReport` that never receives its OSC 9;4
     /// `remove` state — e.g. the emitting process is killed or crashes

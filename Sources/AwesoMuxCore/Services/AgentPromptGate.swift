@@ -70,6 +70,24 @@ public enum AgentPromptGate {
         case unavailable(DocumentNudgeUnavailableReason)
     }
 
+    /// Codex requires native readiness from startup; other providers retain legacy trust.
+    public static func verifiedWaitingForegroundGeneration(
+        agentKind: AgentKind,
+        stamped: AgentForegroundIncarnation?,
+        clientStatusTracker: AgentClientStatusTracker,
+        now: TimeInterval
+    ) -> AgentForegroundIncarnation? {
+        guard let stamped else { return nil }
+        if agentKind == .codex || clientStatusTracker.current != nil,
+            !clientStatusTracker.isReady(
+                observedPID: stamped.pid, observedStartedAt: stamped.startedAt, now: now
+            )
+        {
+            return nil
+        }
+        return stamped
+    }
+
     /// Providers whose runtime status events are consent-gated by
     /// `agent_integrations.<provider>.enabled` (the file-drop allowlist).
     /// Claude Code and Codex hook events are provider-managed and trusted

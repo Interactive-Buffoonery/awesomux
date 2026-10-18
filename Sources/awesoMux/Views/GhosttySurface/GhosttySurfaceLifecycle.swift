@@ -246,6 +246,9 @@ extension GhosttySurfaceNSView {
             sessionID: sessionID,
             paneID: paneID,
             enabledFileDropSources: enabledAgentRuntimeFileDropSources,
+            observationStarted: { [weak self] startedAt in
+                self?.invalidateClientObservation(startedAt: startedAt)
+            },
             applyEvent: { [weak self] event in
                 self?.applyAgentRuntimeEvent(event)
             }

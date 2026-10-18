@@ -591,12 +591,49 @@ final class GhosttyRuntime {
         return observed
     }
 
+    func drainAgentRuntimeEvents(in paneID: TerminalPane.ID) {
+        agentRuntimeEventBridge.drainRuntimeEvents(for: paneID)
+    }
+
+    private var clientReadinessRevision: UInt64 = 0
+    @ObservationIgnored
+    private var clientReadinessExpiryWorkItems: [TerminalPane.ID: DispatchWorkItem] = [:]
+
+    func noteClientReadinessChanged(in paneID: TerminalPane.ID) {
+        clientReadinessRevision &+= 1
+        clientReadinessExpiryWorkItems.removeValue(forKey: paneID)?.cancel()
+        guard let tracker = surfaceViews[paneID]?.terminalEventState.clientStatusTracker,
+            tracker.inputReady, let evidence = tracker.current
+        else { return }
+        let delay = max(0, evidence.capturedAt + 10.01 - Date().timeIntervalSince1970)
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self,
+                    self.surfaceViews[paneID]?.terminalEventState.clientStatusTracker.current == evidence
+                else { return }
+                self.clientReadinessExpiryWorkItems[paneID] = nil
+                self.clientReadinessRevision &+= 1
+            }
+        }
+        clientReadinessExpiryWorkItems[paneID] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
     /// The foreground-process incarnation observed the last time a genuine
     /// provider hook confirmed `.waiting` on this pane, or nil if none has.
     /// See `terminalEventState.verifiedWaitingForegroundIncarnation` on
     /// `GhosttySurfaceNSView`.
     func verifiedWaitingForegroundGeneration(in paneID: TerminalPane.ID) -> AgentForegroundIncarnation? {
-        surfaceViews[paneID]?.terminalEventState.verifiedWaitingForegroundIncarnation
+        _ = clientReadinessRevision
+        guard let surface = surfaceViews[paneID],
+            let pane = surface.sessionStore.session(id: surface.sessionID)?.layout.pane(id: paneID)
+        else { return nil }
+        return AgentPromptGate.verifiedWaitingForegroundGeneration(
+            agentKind: pane.agentKind,
+            stamped: surface.terminalEventState.verifiedWaitingForegroundIncarnation,
+            clientStatusTracker: surface.terminalEventState.clientStatusTracker,
+            now: Date().timeIntervalSince1970
+        )
     }
 
     /// INT-569 field diagnostics for the document-nudge evidence chain.
@@ -773,6 +810,7 @@ final class GhosttyRuntime {
     }
 
     func discardSurface(for paneID: TerminalPane.ID, preservingRestartNotice: Bool = false) {
+        clientReadinessExpiryWorkItems.removeValue(forKey: paneID)?.cancel()
         if !preservingRestartNotice {
             clearSessionRestartNotice(for: paneID, afterLayout: true)
         }
@@ -873,6 +911,8 @@ final class GhosttyRuntime {
     }
 
     func discardAllSurfaces() {
+        for item in clientReadinessExpiryWorkItems.values { item.cancel() }
+        clientReadinessExpiryWorkItems.removeAll()
         for task in commandRetryTasks.values { task.cancel() }
         commandRetryTasks.removeAll()
         #if DEBUG
@@ -1491,12 +1531,14 @@ final class GhosttyRuntime {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         enabledFileDropSources: Set<AgentRuntimeSource>,
+        observationStarted: @escaping (TimeInterval) -> Void = { _ in },
         applyEvent: @escaping (AgentRuntimeEvent) -> Void
     ) -> AgentRuntimeEnvironment {
         agentRuntimeEventBridge.environment(
             sessionID: sessionID,
             paneID: paneID,
             enabledFileDropSources: enabledFileDropSources,
+            observationStarted: observationStarted,
             applyEvent: applyEvent
         )
     }

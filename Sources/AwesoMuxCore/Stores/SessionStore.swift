@@ -597,9 +597,20 @@ public final class SessionStore {
     /// `.toolStart` landing after turn-end at 11 of 32 turn-ends in a real trace.
     /// Clearing on those would drop the row out of Needs Input a third of the
     /// time while the agent is still genuinely waiting.
-    func updateUnansweredTurn(paneID: TerminalPane.ID, event: AgentRuntimeEvent) {
+    func updateUnansweredTurn(
+        paneID: TerminalPane.ID, event: AgentRuntimeEvent, nativeTurnCompleted: Bool = false
+    ) {
         let before = unansweredTurns
         switch event.phase {
+        case _ where event.clientStatus != nil:
+            if nativeTurnCompleted {
+                unansweredTurns[paneID] = event.providerSessionID
+            } else if event.executionState == .thinking || event.phase == .sessionStart {
+                unansweredTurns.removeValue(forKey: paneID)
+            } else {
+                // Periodic ready snapshots refresh trust, not unanswered work.
+                return
+            }
         case .notification where event.assertsWaitingExecutionState:
             // The only mapping that asserts `.waiting` on a notification is
             // Claude Code's `idle_prompt`. Every other provider's notification

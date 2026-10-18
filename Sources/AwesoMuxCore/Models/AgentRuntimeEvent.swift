@@ -33,6 +33,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
     /// boundary, not just by the helper that happens to emit it.
     public var touchedPath: String?
     public var timestamp: Date?
+    public var clientStatus: AgentClientStatusEvidence?
 
     /// Whether this event itself asserts the fully receptive `.waiting`
     /// execution state — a narrower check than `AgentRuntimeEventReducer`'s
@@ -68,7 +69,8 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         title: String? = nil,
         documentPath: String? = nil,
         touchedPath: String? = nil,
-        timestamp: Date? = nil
+        timestamp: Date? = nil,
+        clientStatus: AgentClientStatusEvidence? = nil
     ) {
         self.version = version
         self.source = source
@@ -83,6 +85,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         self.documentPath = documentPath
         self.touchedPath = touchedPath
         self.timestamp = timestamp
+        self.clientStatus = clientStatus
     }
 
     public static func parse(line: String) -> AgentRuntimeEvent? {
@@ -101,6 +104,14 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
             let payload = try decoder.decode(Payload.self, from: data)
             guard payload.v == supportedVersion else {
                 return nil
+            }
+            // Present malformed evidence must never degrade into a legacy ready event.
+            if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                object.keys.contains("clientStatus")
+            {
+                guard payload.source == .codex, let evidence = payload.clientStatus, evidence.isValid else {
+                    return nil
+                }
             }
             let documentPath: String?
             if payload.phase == .openDocument {
@@ -151,7 +162,8 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
                 title: payload.title,
                 documentPath: documentPath,
                 touchedPath: touchedPath,
-                timestamp: payload.timestamp?.date
+                timestamp: payload.timestamp?.date,
+                clientStatus: payload.clientStatus
             )
         } catch {
             #if DEBUG
@@ -225,6 +237,7 @@ public struct AgentRuntimeEvent: Equatable, Sendable {
         // decodes to a `LenientString` whose `value` is nil rather than throwing.
         var touchedPath: LenientString?
         var timestamp: RuntimeTimestamp?
+        var clientStatus: AgentClientStatusEvidence?
     }
 
     /// Decodes a JSON string field without letting a wrong-typed value sink the

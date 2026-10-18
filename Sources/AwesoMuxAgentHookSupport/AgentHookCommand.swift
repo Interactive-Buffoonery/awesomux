@@ -35,6 +35,10 @@ public enum AgentHookCommand {
             )
         }
 
+        if arguments == ["--codex-client-event"] {
+            return CodexClientEventCommand.run(environment: environment, stdin: stdin)
+        }
+
         guard let invocation = parseInvocation(arguments: arguments) else {
             log(provider: nil, eventName: nil, category: "invalid-arguments")
             return 0
@@ -111,6 +115,8 @@ public enum AgentHookCommand {
                 kind: provider.kind,
                 phase: .openDocument,
                 eventID: UUID().uuidString,
+                providerSessionID: provider == .codex
+                    ? provider.source.validatedProviderSessionID(environment["CODEX_THREAD_ID"]) : nil,
                 documentPath: eventDocumentPath,
                 timestamp: Date()
             )

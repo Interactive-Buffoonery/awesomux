@@ -985,6 +985,9 @@ struct DocumentGroupView: View {
             TerminalAccessibilityAnnouncer.announce(reason)
             return .failed(reason)
         }
+        if case .available(let candidate) = session.layout.documentNudgeTarget(for: context.documentID) {
+            runtime.drainAgentRuntimeEvents(in: candidate.id)
+        }
         let resolution = resolveSendTarget(for: context.documentID)
         guard case .available(let target) = resolution, target.id == context.targetPaneID else {
             let reason: String

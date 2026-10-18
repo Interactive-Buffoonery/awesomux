@@ -44,6 +44,18 @@ extension AgentRuntimeEvent {
             payload["providerSessionID"] = providerSessionID
         }
 
+        if let clientStatus {
+            payload["clientStatus"] = [
+                "clientID": clientStatus.clientID,
+                "sequence": clientStatus.sequence,
+                "completedTurns": clientStatus.completedTurns,
+                "threadEpoch": clientStatus.threadEpoch,
+                "pid": clientStatus.pid,
+                "startedAt": clientStatus.startedAt,
+                "capturedAt": clientStatus.capturedAt,
+            ]
+        }
+
         if let timestamp {
             payload["timestamp"] = timestamp.timeIntervalSince1970
         }

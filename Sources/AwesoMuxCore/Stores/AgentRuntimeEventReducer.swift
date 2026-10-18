@@ -90,6 +90,8 @@ struct AgentRuntimeEventReducer: Sendable {
         // blocked tool rather than older background or subagent work.
         var activeToolEventIDs: Set<String> = []
         var pendingPermissionToolEventID: String?
+        var nativeCompletionBaseline: AgentClientStatusEvidence?
+        var nativeCompletionThreadID: String?
     }
 
     /// How long a permission-answer attempt remains evidence against a late
@@ -122,19 +124,22 @@ struct AgentRuntimeEventReducer: Sendable {
         var paneTitleAction: PaneTitleAction?
         var documentPaneAction: DocumentPaneAction?
         var recentLinkAction: RecentLinkAction?
+        var nativeTurnCompleted: Bool
 
         init(
             update: WorkspaceAttentionReducer.SessionUpdate,
             appliesPaneUpdate: Bool = true,
             paneTitleAction: PaneTitleAction? = nil,
             documentPaneAction: DocumentPaneAction? = nil,
-            recentLinkAction: RecentLinkAction? = nil
+            recentLinkAction: RecentLinkAction? = nil,
+            nativeTurnCompleted: Bool = false
         ) {
             self.update = update
             self.appliesPaneUpdate = appliesPaneUpdate
             self.paneTitleAction = paneTitleAction
             self.documentPaneAction = documentPaneAction
             self.recentLinkAction = recentLinkAction
+            self.nativeTurnCompleted = nativeTurnCompleted
         }
     }
 
@@ -339,6 +344,8 @@ struct AgentRuntimeEventReducer: Sendable {
             state.identityEpoch = UUID()
             state.statusObservedAt = now
             state.lifecycle = .ended
+            state.nativeCompletionBaseline = nil
+            state.nativeCompletionThreadID = nil
             state.suppressesHeuristicState =
                 state.suppressesHeuristicState
                 || event.source.hasTrustworthySessionRestartBoundary
@@ -399,6 +406,24 @@ struct AgentRuntimeEventReducer: Sendable {
             }
         }
 
+        var nativeTurnCompleted = false
+        if let client = event.clientStatus, let threadID = event.providerSessionID {
+            let prior = state.nativeCompletionBaseline
+            let sameClientAndThread =
+                prior?.clientID == client.clientID && prior?.pid == client.pid
+                && prior?.startedAt == client.startedAt && prior?.threadEpoch == client.threadEpoch
+                && state.nativeCompletionThreadID == threadID
+            if !sameClientAndThread {
+                state.nativeCompletionBaseline = client
+            } else if let prior, event.executionState == .waiting {
+                // Full snapshots retain completion counts across coalesced
+                // callbacks; consume a count advance only once input is ready.
+                nativeTurnCompleted = client.completedTurns > prior.completedTurns
+                state.nativeCompletionBaseline = client
+            }
+            state.nativeCompletionThreadID = threadID
+        }
+
         // A rename event is title-only: it carries a pane title, never agent
         // state. It has now cleared the same dedupe + staleness guards as a state
         // event. Record it (so a replay is deduped) and emit a pane-title action;
@@ -453,7 +478,9 @@ struct AgentRuntimeEventReducer: Sendable {
             let wasLifecycleStopped = state.lifecycle.currentIsStopped
             state.lifecycle.start()
             state.suppressesHeuristicState = false
-            if !state.hasAppliedEvent || wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns {
+            if !state.hasAppliedEvent || wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns
+                || event.clientStatus != nil
+            {
                 if !state.hasAppliedEvent || wasSessionEnded
                     || normalizedProviderSessionID(event.providerSessionID) != state.providerSessionID
                     || event.providerSessionID == nil
@@ -462,6 +489,7 @@ struct AgentRuntimeEventReducer: Sendable {
                 }
                 state.activeToolEventIDs.removeAll()
                 state.pendingPermissionToolEventID = nil
+                state.lastPermissionAnswerAttemptAt = nil
             }
             // Drop the old id BEFORE latching: a proven new lifecycle whose
             // SessionStart carries no id must report "unknown session", never
@@ -493,7 +521,7 @@ struct AgentRuntimeEventReducer: Sendable {
             // unproven, and neither signal here fires, so the dead id survives
             // until the next clean lifecycle. Revisit if the app ever hands the
             // reducer a liveness signal it can trust on its own.
-            if wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns {
+            if wasSessionEnded || wasLifecycleStopped || state.isBetweenTurns || event.clientStatus != nil {
                 state.providerSessionID = nil
                 state.lastEndedTranscriptIdentity = nil
                 state.lastEndedAgentKind = nil
@@ -618,10 +646,14 @@ struct AgentRuntimeEventReducer: Sendable {
         // An ignored event must not CLEAR attention either — its execution claim
         // is what a legacy full-`state` event would clear on, and that claim is
         // precisely what the suppression rejects.
+        // Native client snapshots replace their own attention state; legacy
+        // lifecycle hooks are suppressed once this client owns reporting.
+        let clientClearsAttention =
+            event.clientStatus != nil && event.executionState != nil && event.attentionReason == nil
         let clearsAttention =
             !ignoresTrailingToolEnd
             && event.attentionReason == nil
-            && event.state?.executionState != nil
+            && (event.state?.executionState != nil || clientClearsAttention)
         // A fresh attention episode is either entering attention from none, or
         // a priority UPGRADE of a pending reason (.bell → .permissionPrompt):
         // the more urgent block deserves its own unread bump + banner even
@@ -643,7 +675,7 @@ struct AgentRuntimeEventReducer: Sendable {
         // terminal, so background completions keep producing badges/banners
         // without borrowing the peach `!` reserved for blocking decisions.
         let enteringUnseenTurnCompletion =
-            event.phase == .stop
+            (event.phase == .stop || nativeTurnCompleted)
             && eventExecutionState == .waiting
             && effectiveAttentionReason == nil
         let unreadDelta =
@@ -776,14 +808,17 @@ struct AgentRuntimeEventReducer: Sendable {
                     || answersPendingNotifications
                     || resolvesPendingPermissionPrompt,
                 attentionClearIsAuthoritative:
-                    answersPendingNotifications
+                    clientClearsAttention
+                    || answersPendingNotifications
                     || resolvesPendingPermissionPrompt,
                 clearsUnreadNotifications:
-                    answersPendingNotifications
+                (event.clientStatus != nil && event.executionState == .thinking)
+                    || answersPendingNotifications
                     || resolvesPendingPermissionPrompt,
                 unreadNotificationDelta: unreadDelta
             ),
-            recentLinkAction: recentLinkAction)
+            recentLinkAction: recentLinkAction,
+            nativeTurnCompleted: nativeTurnCompleted)
     }
 
     /// Records an applied event into the per-pane state: appends its dedupe key

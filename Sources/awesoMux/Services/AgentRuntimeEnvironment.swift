@@ -104,6 +104,9 @@ struct AgentRuntimeEnvironment {
         ]
         if let agentHookURL {
             values[AgentRuntimeEnvironmentKey.agentHook] = agentHookURL.path
+            if let command = try? JSONEncoder().encode([agentHookURL.path, "--codex-client-event"]) {
+                values[AgentRuntimeEnvironmentKey.codexClientEventCommand] = String(decoding: command, as: UTF8.self)
+            }
         }
         if let amxURL {
             values[AgentRuntimeEnvironmentKey.amx] = amxURL.path

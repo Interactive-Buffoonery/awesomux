@@ -775,6 +775,9 @@ struct DocumentPaneSendBar: View {
     /// composer that can't send. The composer replaces the old one-shot send: the
     /// user revises or extends the review nudge before staging it.
     private func requestCompose() {
+        if case .available(let target) = session.layout.documentNudgeTarget(for: pane.id) {
+            runtime.drainAgentRuntimeEvents(in: target.id)
+        }
         let resolution = nudgeResolution
         guard case .available = resolution else {
             reportNudgeUnavailable(resolution)

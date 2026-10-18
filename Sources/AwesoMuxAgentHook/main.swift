@@ -5,7 +5,8 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 let input = AgentHookCommand.shouldReadStandardInput(arguments: arguments)
     ? AgentHookInputReader.read(
         fileDescriptor: STDIN_FILENO,
-        maximumByteCount: AgentHookCommand.maximumInputByteCount,
+        maximumByteCount: arguments == ["--codex-client-event"]
+            ? CodexClientEventCommand.maximumInputByteCount : AgentHookCommand.maximumInputByteCount,
         idleTimeoutMilliseconds: 500
     )
     : Data()

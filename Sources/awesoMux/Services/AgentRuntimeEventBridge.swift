@@ -24,6 +24,8 @@ final class AgentRuntimeEventBridge {
 
         let fileURL: URL
         let applyEvent: (AgentRuntimeEvent) -> Void
+        let observationStarted: (TimeInterval) -> Void
+        var pollDepth = 0
         var offset: UInt64
         var trailingFragment: Data
         var source: DispatchSourceFileSystemObject?
@@ -32,9 +34,14 @@ final class AgentRuntimeEventBridge {
         var inode: ino_t
         var initialSnapshotState: InitialSnapshotState
 
-        init(fileURL: URL, applyEvent: @escaping (AgentRuntimeEvent) -> Void) {
+        init(
+            fileURL: URL,
+            observationStarted: @escaping (TimeInterval) -> Void,
+            applyEvent: @escaping (AgentRuntimeEvent) -> Void
+        ) {
             self.fileURL = fileURL
             self.applyEvent = applyEvent
+            self.observationStarted = observationStarted
             self.offset = 0
             self.trailingFragment = Data()
             self.source = nil
@@ -89,6 +96,7 @@ final class AgentRuntimeEventBridge {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         enabledFileDropSources: Set<AgentRuntimeSource>,
+        observationStarted: @escaping (TimeInterval) -> Void = { _ in },
         applyEvent: @escaping (AgentRuntimeEvent) -> Void
     ) -> AgentRuntimeEnvironment {
         // Guard against double-installation: replacing a watch without
@@ -103,6 +111,7 @@ final class AgentRuntimeEventBridge {
 
         let watch = Watch(
             fileURL: fileURL,
+            observationStarted: observationStarted,
             applyEvent: applyEvent
         )
         watches[paneID] = watch
@@ -142,8 +151,14 @@ final class AgentRuntimeEventBridge {
         cancelSourceRetryIfUnneeded()
     }
 
-    func drainRuntimeEventsForTesting(paneID: TerminalPane.ID) {
+    /// Consume already-appended revocations before a user action stages input.
+    func drainRuntimeEvents(for paneID: TerminalPane.ID) {
+        guard let watch = watches[paneID], watch.pollDepth == 0 else { return }
         poll(paneID: paneID)
+    }
+
+    func drainRuntimeEventsForTesting(paneID: TerminalPane.ID) {
+        drainRuntimeEvents(for: paneID)
     }
 
     func retrySourceForTesting(paneID: TerminalPane.ID) {
@@ -168,6 +183,7 @@ final class AgentRuntimeEventBridge {
         guard let watch = watches[paneID] else {
             return false
         }
+        watch.observationStarted(Date().timeIntervalSince1970)
         // Defensive: never stack two sources on the same watch.
         if watch.source != nil {
             tearDownSource(for: watch)
@@ -455,14 +471,16 @@ final class AgentRuntimeEventBridge {
             return
         }
 
+        watch.pollDepth += 1
+        defer { watch.pollDepth -= 1 }
         guard let readHandle = AgentRuntimeEventFile.openForReading(at: watch.fileURL) else {
+            watch.observationStarted(Date().timeIntervalSince1970)
             diagnosticEventHandler(.runtimeEventFileUnavailable)
             watch.needsDrainRetry = true
             scheduleSourceRetry(for: paneID)
             return
         }
         watch.needsDrainRetry = false
-        cancelSourceRetryIfUnneeded()
 
         guard readHandle.inode == watch.inode else {
             rebuildSource(for: paneID, resetOffset: true)
@@ -487,6 +505,7 @@ final class AgentRuntimeEventBridge {
                 "agent runtime event file exceeded cap (\(currentSize, privacy: .public) bytes); truncating"
             )
             diagnosticEventHandler(.runtimeEventsDropped)
+            watch.observationStarted(Date().timeIntervalSince1970)
             let inodeChanged = recreateEventFile(at: watch.fileURL)
             watch.offset = 0
             watch.trailingFragment = Data()
@@ -499,16 +518,26 @@ final class AgentRuntimeEventBridge {
         }
 
         if currentSize < watch.offset {
+            watch.observationStarted(Date().timeIntervalSince1970)
             watch.offset = 0
             watch.trailingFragment = Data()
         }
 
-        guard currentSize > watch.offset,
-            let data = readHandle.readData(from: watch.offset)
+        guard currentSize > watch.offset else {
+            cancelSourceRetryIfUnneeded()
+            return
+        }
+        guard let data = readHandle.readData(from: watch.offset),
+            UInt64(data.count) == currentSize - watch.offset
         else {
+            watch.observationStarted(Date().timeIntervalSince1970)
+            diagnosticEventHandler(.runtimeEventFileUnavailable)
+            watch.needsDrainRetry = true
+            scheduleSourceRetry(for: paneID)
             return
         }
 
+        cancelSourceRetryIfUnneeded()
         watch.offset += UInt64(data.count)
         let (lines, remainder) = AgentRuntimeEventLineSplitter.extractCompleteLines(
             from: data,

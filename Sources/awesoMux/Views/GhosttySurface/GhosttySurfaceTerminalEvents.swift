@@ -344,12 +344,7 @@ extension GhosttySurfaceNSView {
         // provider input — and routing through the shared wrapper keeps
         // detector suppression and VoiceOver announcements consistent with
         // real hook-delivered session-end events.
-        applyAgentRuntimeEvent(
-            AgentRuntimeEvent(
-                source: .unknown,
-                executionState: .idle,
-                phase: .sessionEnd
-            ))
+        applyProvenAgentExit()
     }
 
     /// A titleless SSH connection gives no remote signal that login finished,
@@ -394,12 +389,7 @@ extension GhosttySurfaceNSView {
         else {
             return
         }
-        applyAgentRuntimeEvent(
-            AgentRuntimeEvent(
-                source: .unknown,
-                executionState: .idle,
-                phase: .sessionEnd
-            ))
+        applyProvenAgentExit()
     }
 
     /// Refills the bounded libproc probe budget while a pending SSH target
@@ -1138,7 +1128,103 @@ extension GhosttySurfaceNSView {
         return title.isEmpty ? "pane \(index + 1)" : "pane \(index + 1), \(title)"
     }
 
-    func applyAgentRuntimeEvent(_ event: AgentRuntimeEvent) {
+    /// Called only after the app's liveness probes prove a shell/SSH boundary.
+    private func applyProvenAgentExit() {
+        terminalEventState.verifiedWaitingForegroundIncarnation = nil
+        terminalEventState.clientStatusTracker = AgentClientStatusTracker()
+        terminalEventState.clientReportedProviderSessionID = nil
+        runtime.noteClientReadinessChanged(in: paneID)
+        applyAgentRuntimeEvent(
+            AgentRuntimeEvent(
+                source: .unknown,
+                executionState: .idle,
+                phase: .sessionEnd,
+                providerSessionID: sessionStore.agentProviderSessionID(for: paneID)
+            ))
+    }
+
+    func invalidateClientObservation(startedAt: TimeInterval) {
+        let hadClient = terminalEventState.clientStatusTracker.current != nil
+        terminalEventState.clientStatusTracker.invalidateObservation(now: startedAt)
+        if hadClient {
+            terminalEventState.verifiedWaitingForegroundIncarnation = nil
+            runtime.noteClientReadinessChanged(in: paneID)
+        }
+    }
+
+    func applyAgentRuntimeEvent(_ incomingEvent: AgentRuntimeEvent) {
+        func matchesProvider(_ kind: AgentKind, command: String) -> Bool {
+            AgentPromptGate.foregroundCommandMatches(
+                kind, observedCommand: command,
+                configuredBinaryCandidate: {
+                    guard let path = AgentConfigHome.setup(for: kind, in: runtime.agentIntegrations).binaryPath,
+                        !path.isEmpty
+                    else { return nil }
+                    return URL(fileURLWithPath: path).resolvingSymlinksInPath().lastPathComponent
+                }
+            )
+        }
+        var event = incomingEvent
+        var acceptedClientForeground: AgentForegroundIncarnation?
+        if let client = event.clientStatus {
+            guard let foreground = documentNudgeForegroundGeneration(),
+                terminalEventState.clientStatusTracker.accept(
+                    client,
+                    inputReady: event.assertsWaitingExecutionState,
+                    observedPID: foreground.pid,
+                    observedStartedAt: foreground.startedAt,
+                    foregroundMatchesProvider: documentNudgeForegroundComm().map {
+                        matchesProvider(.codex, command: $0)
+                    } ?? false,
+                    now: Date().timeIntervalSince1970
+                )
+            else { return }
+            acceptedClientForeground = foreground
+            terminalEventState.verifiedWaitingForegroundIncarnation = nil
+            terminalEventState.clientReportedProviderSessionID = event.providerSessionID
+            runtime.noteClientReadinessChanged(in: paneID)
+            // Missing input ownership revokes send trust without claiming a
+            // selected thread finished or the client process exited.
+            guard event.providerSessionID != nil,
+                event.executionState != nil || event.attentionReason != nil
+            else { return }
+            let selectedID = sessionStore.agentProviderSessionID(for: paneID)
+            if event.providerSessionID != selectedID {
+                event.phase = .sessionStart
+            }
+        } else if let client = terminalEventState.clientStatusTracker.current {
+            let foreground = documentNudgeForegroundGeneration()
+            let matchesClient = foreground?.pid == client.pid && foreground?.startedAt == client.startedAt
+            if event.source == .codex {
+                // A missing/replaced foreground cannot restore authority to
+                // shared-server hooks or certify a newly launched client.
+                guard matchesClient,
+                    event.phase == .rename || event.phase == .openDocument,
+                    event.providerSessionID != nil,
+                    event.providerSessionID == terminalEventState.clientReportedProviderSessionID,
+                    event.providerSessionID == sessionStore.agentProviderSessionID(for: paneID)
+                else {
+                    if !matchesClient {
+                        terminalEventState.verifiedWaitingForegroundIncarnation = nil
+                        runtime.noteClientReadinessChanged(in: paneID)
+                    }
+                    return
+                }
+            } else {
+                // Only fresh positive evidence for another provider ends the
+                // native-client authority latch; an unavailable probe cannot.
+                guard let kind = event.source.inferredAgentKind,
+                    kind != .codex,
+                    let comm = documentNudgeForegroundComm(),
+                    foreground != nil,
+                    matchesProvider(kind, command: comm)
+                else { return }
+                terminalEventState.verifiedWaitingForegroundIncarnation = nil
+                terminalEventState.clientStatusTracker = AgentClientStatusTracker()
+                terminalEventState.clientReportedProviderSessionID = nil
+                runtime.noteClientReadinessChanged(in: paneID)
+            }
+        }
         guard AgentRuntimeConsent(enabledFileDropSources: enabledAgentRuntimeFileDropSources).allows(event) else {
             return
         }
@@ -1221,7 +1307,10 @@ extension GhosttySurfaceNSView {
         // trusted generation untouched — `verdict` re-checks it against the
         // CURRENT foreground process at click time regardless.
         if event.assertsWaitingExecutionState, newState == .waiting {
-            terminalEventState.verifiedWaitingForegroundIncarnation = documentNudgeForegroundGeneration()
+            // Native evidence certifies only the foreground accepted with that snapshot.
+            terminalEventState.verifiedWaitingForegroundIncarnation =
+                event.clientStatus != nil
+                ? acceptedClientForeground : documentNudgeForegroundGeneration()
         } else if newState != .waiting {
             terminalEventState.verifiedWaitingForegroundIncarnation = nil
         }
