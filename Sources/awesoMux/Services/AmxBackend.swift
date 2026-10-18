@@ -1153,25 +1153,6 @@ enum AmxBackend {
         )
     }
 
-    /// Raw-path variant of `bridgeReverseForwardCommand` for a throwaway probe
-    /// that has no `BridgeChannel` (the doctor's empirical reverse-forward
-    /// check, INT-698 F1). Mirrors the cancel/remove builders, which already
-    /// take loose socket paths rather than a channel.
-    static func bridgeReverseForwardCommand(
-        controlPath: String,
-        remote: RemoteTarget,
-        remoteSocketPath: String,
-        localSocketPath: String
-    ) -> String {
-        reverseForwardControlCommand(
-            controlPath: controlPath,
-            remote: remote,
-            operation: "forward",
-            remoteSocketPath: remoteSocketPath,
-            localSocketPath: localSocketPath
-        )
-    }
-
     private static func reverseForwardControlCommand(
         controlPath: String,
         remote: RemoteTarget,
@@ -1320,9 +1301,9 @@ enum AmxBackend {
     }
 
     /// Runs the installed remote helper's `--version` over the shared master so
-    /// the doctor can intersect its advertised proto set against the app's
-    /// (INT-698 F1, spec "Doctor integration"). `--version` needs no bridge env
-    /// — it only prints the protocols this helper build understands.
+    /// the app can intersect its advertised proto set against its own.
+    /// `--version` needs no bridge env — it only prints the protocols this
+    /// helper build understands.
     static func bridgeHelperVersionCommand(
         controlPath: String,
         remote: RemoteTarget,

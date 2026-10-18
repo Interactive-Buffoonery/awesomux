@@ -7,12 +7,9 @@ public extension Color {
 
 public struct AwColors: Sendable {
     let mocha = AwPalette(
-        rosewater: "#f5e0dc",
-        flamingo: "#f2cdcd",
         pink: "#f5c2e7",
         mauve: "#cba6f7",
         red: "#f38ba8",
-        maroon: "#eba0ac",
         peach: "#fab387",
         yellow: "#f9e2af",
         green: "#a6e3a1",
@@ -36,12 +33,9 @@ public struct AwColors: Sendable {
     )
 
     let latte = AwPalette(
-        rosewater: "#dc8a78",
-        flamingo: "#dd7878",
         pink: "#ea76cb",
         mauve: "#8839ef",
         red: "#d20f39",
-        maroon: "#e64553",
         peach: "#fe640b",
         yellow: "#df8e1d",
         green: "#40a02b",
@@ -68,12 +62,9 @@ public struct AwColors: Sendable {
     // ramp but kept stepped: each clears AA 4.5:1 against every same-theme
     // surface (tightest floor: `surface2 #585b70`). Locked by `AwColorTests`.
     let mochaHC = AwPalette(
-        rosewater: "#fff0ed",
-        flamingo: "#ffe0e0",
         pink: "#ffd6f0",
         mauve: "#dcc2ff",
         red: "#ffb3c4",
-        maroon: "#ffc0c8",
         peach: "#ffc8a3",
         yellow: "#fff0c2",
         green: "#c2f5bd",
@@ -102,12 +93,9 @@ public struct AwColors: Sendable {
     // little luminance span fits between the AA floor and black). Locked by
     // `AwColorTests`.
     let latteHC = AwPalette(
-        rosewater: "#963b31",
-        flamingo: "#963737",
         pink: "#9a2d82",
         mauve: "#6f20d1",
         red: "#b00030",
-        maroon: "#a82d37",
         peach: "#9b3d07",
         yellow: "#835100",
         green: "#29661c",
@@ -632,12 +620,9 @@ public enum AwTintAccent: Sendable, CaseIterable, Hashable {
 }
 
 struct AwPalette: Sendable {
-    let rosewater: String
-    let flamingo: String
     let pink: String
     let mauve: String
     let red: String
-    let maroon: String
     let peach: String
     let yellow: String
     let green: String
