@@ -30,18 +30,44 @@ struct ForegroundProcessLivenessTests {
 
 @Suite("AgentLivenessPolicy.shouldResetAgentChrome (INT-552)")
 struct AgentLivenessPolicyTests {
+    enum Observation {
+        case local(ForegroundProcessLiveness)
+        case remote(RemoteForegroundLiveness)
+        case sshEntry(Bool)
+    }
+
     @Test(
         arguments: [AgentKind.claudeCode, .codex, .openCode, .pi, .grok, .hermes, .generic].map {
-            ($0, ForegroundProcessLiveness.idleShell, true)
+            ($0, Observation.local(.idleShell), true)
         }
             + [
                 ForegroundProcessLiveness.unsampled, .bridgedBusy, .bridgedIndeterminate,
                 .exited, .busyShell, .liveCommand, .indeterminate,
             ].map {
-                (AgentKind.openCode, $0, false)
-        }
+                (AgentKind.openCode, Observation.local($0), false)
+            }
+            + [
+                (.codex, .local(.bridged), true),
+                (.shell, .local(.idleShell), false),
+                (.claudeCode, .remote(.idleShell), true),
+                (.claudeCode, .remote(.liveCommand), false),
+                (.shell, .remote(.idleShell), false),
+                (.claudeCode, .sshEntry(true), true),
+                (.claudeCode, .sshEntry(false), false),
+                (.shell, .sshEntry(true), false),
+            ]
     )
-    func resetsOnlyIdleAgent(kind: AgentKind, liveness: ForegroundProcessLiveness, expected: Bool) {
-        #expect(AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, liveness: liveness) == expected)
+    func resetsOnlyIdleAgent(kind: AgentKind, observation: Observation, expected: Bool) {
+        let actual: Bool
+        switch observation {
+        case .local(let liveness):
+            actual = AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, liveness: liveness)
+        case .remote(let liveness):
+            actual = AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, remoteLiveness: liveness)
+        case .sshEntry(let justObserved):
+            actual = AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
+                agentKind: kind, justObservedSSHClient: justObserved)
+        }
+        #expect(actual == expected)
     }
 }

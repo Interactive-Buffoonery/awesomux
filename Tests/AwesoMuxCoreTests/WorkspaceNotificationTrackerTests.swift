@@ -71,8 +71,10 @@ import Testing
         #expect(sessions.map { contexts[$0.id] } == expected.map(Optional.some))
     }
 
-    @Test func testEmitsAgainAfterNotificationsAreAcknowledged() {
-        let session = makeSession(title: "agent")
+    @Test(arguments: [false, true])
+    func testEmitsAgainAfterNotificationsAreAcknowledged(removed: Bool) {
+        let paneID = TerminalPane.ID()
+        let session = makeSession(title: "agent", paneID: paneID)
         var tracker = WorkspaceNotificationTracker(groups: [
             SessionGroup(name: "awesoMux", sessions: [session])
         ])
@@ -81,7 +83,7 @@ import Testing
             id: session.id,
             title: "agent",
             state: .needsAttention,
-            unreadNotificationCount: 1
+            unreadNotificationCount: 1, paneID: paneID
         )
         #expect(
             tracker.notificationEvents(
@@ -95,11 +97,13 @@ import Testing
             id: session.id,
             title: "agent",
             state: .running,
-            unreadNotificationCount: 0
+            unreadNotificationCount: 0, paneID: paneID
         )
         #expect(
             tracker.notificationEvents(
-                afterUpdating: [
+                afterUpdating: removed
+                    ? []
+                    : [
                     SessionGroup(name: "awesoMux", sessions: [acknowledgedSession])
                 ],
                 selectedSessionID: session.id
@@ -109,15 +113,13 @@ import Testing
             id: session.id,
             title: "agent",
             state: .needsAttention,
-            unreadNotificationCount: 1
+            unreadNotificationCount: 1, paneID: paneID
         )
-        #expect(
-            tracker.notificationEvents(
-                afterUpdating: [
-                    SessionGroup(name: "awesoMux", sessions: [secondAttentionSession])
-                ],
-                selectedSessionID: nil
-            ).count == 1)
+        let groups = [SessionGroup(name: "awesoMux", sessions: [secondAttentionSession])]
+        let events = tracker.notificationEvents(afterUpdating: groups, selectedSessionID: nil)
+        #expect(events.map(\.kind) == [.needsAttention])
+        #expect(events.map(\.sessionID) == [session.id])
+        #expect(tracker.notificationEvents(afterUpdating: groups, selectedSessionID: nil).isEmpty)
     }
 
     @Test func testDoesNotReEmitInterruptiveAfterDeliveryWhenFocusFlaps() {

@@ -236,6 +236,17 @@ struct AgentRuntimeEventReducerTests {
                 for: renameEvent(title: "Stale", eventID: "r0", timestamp: Date(timeIntervalSince1970: 5)),
                 currentSession: session, paneID: paneID, terminalIsFocused: false, now: now
             ) == nil)
+
+        #expect(
+            reducer.decision(
+                for: renameEvent(title: nil, eventID: "r2", timestamp: Date(timeIntervalSince1970: 20)),
+                currentSession: session, paneID: paneID, terminalIsFocused: false, now: now
+            ) == nil)
+        #expect(
+            reducer.decision(
+                for: renameEvent(title: "", eventID: "r3", timestamp: Date(timeIntervalSince1970: 30)),
+                currentSession: session, paneID: paneID, terminalIsFocused: false, now: now
+            )?.paneTitleAction == .reset)
     }
 
     // MARK: - Open document events
