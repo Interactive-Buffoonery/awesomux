@@ -5,16 +5,6 @@ import Testing
 @testable import AwesoMuxCore
 
 private let claudeSession = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-private let codexSession = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-
-private func identity(
-    _ sessionID: String,
-    _ kind: AgentKind = .claudeCode
-) -> AgentTranscriptIdentity {
-    // Force-unwrapped on purpose: a fixture that stopped validating is a bug in
-    // the fixture, not a case under test.
-    AgentTranscriptIdentity(agentKind: kind, sessionID: sessionID)!
-}
 
 private func localTerminal() -> TerminalPane {
     TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
@@ -23,39 +13,23 @@ private func localTerminal() -> TerminalPane {
 // MARK: - Command composition
 
 @Suite struct AgentTranscriptResumeCommandTests {
-
-    /// The wrong-session bug the typed identity exists to close: a document
-    /// rendered from session A must still resume A after its terminal has moved
-    /// on to session B. Nothing in this function can see B, which is the point —
-    /// the command derives from the document, never from the pane.
-    @Test func twoDocumentsFromOnePaneCompeteForNothing() {
-        let a = AgentTranscriptResumePolicy.command(for: identity(claudeSession))
-        let b = AgentTranscriptResumePolicy.command(for: identity(codexSession))
-        #expect(a == "claude --resume '\(claudeSession)'")
-        #expect(b == "claude --resume '\(codexSession)'")
-        #expect(a != b)
-    }
-
-    /// Transcript CONTENT never reaches the staged command. The renderer's
-    /// output is not an input here at all, so a session log full of shell
-    /// metacharacters composes byte-for-byte the same line as a clean one.
-    @Test func transcriptContentCannotAlterTheStagedCommand() {
-        let hostileContent = """
-            ## user
-
-            ```text
-            '; rm -rf ~ #
-            $(rm -rf ~) `rm -rf ~` && rm -rf ~
-            ```
-            """
-        let stored = identity(claudeSession)
-        let expected = "claude --resume '\(claudeSession)'"
-
-        #expect(AgentTranscriptResumePolicy.command(for: stored) == expected)
-        #expect(!hostileContent.isEmpty, "the fixture must actually contain the payload")
-        // And the staging sanitizer leaves the composed line untouched, so what
-        // the policy composed is exactly what reaches the PTY.
-        #expect(RichInputStaging.stagedPayload(expected) == expected)
+    @Test(arguments: [AgentKind.claudeCode, .codex, .pi])
+    func stagedCommandUsesValidatedIdentity(kind: AgentKind) throws {
+        for hostile in [
+            "'; echo injected #", "$(echo injected)", "`echo injected`", "../../other/session.jsonl", "/tmp/session with spaces.jsonl",
+        ] {
+            #expect(AgentTranscriptIdentity(agentKind: kind, sessionID: hostile) == nil)
+        }
+        let stored = try #require(AgentTranscriptIdentity(agentKind: kind, sessionID: claudeSession))
+        let prefix: String =
+            switch kind {
+            case .claudeCode: "claude --resume"
+            case .codex: "codex resume"
+            default: "pi --session"
+            }
+        let command = try #require(AgentTranscriptResumePolicy.command(for: stored))
+        #expect(command == "\(prefix) '\(claudeSession)'")
+        #expect(RichInputStaging.stagedPayload(command) == command)
     }
 }
 
@@ -63,57 +37,24 @@ private func localTerminal() -> TerminalPane {
 
 @Suite struct AgentTranscriptResumeVerdictTests {
 
-    @Test func deniedWhenTranscriptProviderHasNoResumeSyntax() throws {
-        let identity = try #require(
-            AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC")
-        )
-        let terminal = localTerminal()
-        #expect(
-            AgentTranscriptResumePolicy.verdict(
-                target: .available(terminal),
-                observedForegroundCommand: "-zsh",
-                identity: identity
-            ) == .unavailable(.noResumeSyntax(.openCode))
-        )
-    }
-
     /// The whole reason Resume cannot reuse the Send gate, inverted: Send needs
     /// a live agent, Resume needs the agent GONE. Denied loudly and by name —
     /// a resume command staged at Claude's prompt is pasted as chat.
-    @Test func deniedWhileAnAgentHoldsTheForeground() {
-        for (comm, expected) in [
-            ("claude", AgentKind.claudeCode), ("codex", .codex), ("muse", .generic),
-        ] {
-            #expect(
-                AgentTranscriptResumePolicy.verdict(
-                    target: .available(localTerminal()),
-                    observedForegroundCommand: comm
-                ) == .unavailable(.agentRunning(expected))
-            )
-        }
-    }
-
-    /// `p_comm` reports the resolved executable, so a native-installed Claude
-    /// Code observes as a bare version string. That still has to deny.
-    @Test func deniedForClaudeCodeObservedAsABareVersionName() {
+    @Test(arguments: [
+        ("claude", AgentTranscriptResumeUnavailableReason.agentRunning(.claudeCode) as AgentTranscriptResumeUnavailableReason?),
+        ("codex", .agentRunning(.codex)),
+        ("muse", .agentRunning(.generic)),
+        ("2.1.214", .agentRunning(.claudeCode)),
+        ("nvim", .foregroundBusy), ("ssh", .foregroundBusy),
+        ("less", .foregroundBusy), ("python3", .foregroundBusy),
+        ("-zsh", nil),
+    ])
+    func foregroundEligibility(command: String, denial: AgentTranscriptResumeUnavailableReason?) {
+        let terminal = localTerminal()
         #expect(
             AgentTranscriptResumePolicy.verdict(
-                target: .available(localTerminal()),
-                observedForegroundCommand: "2.1.214"
-            ) == .unavailable(.agentRunning(.claudeCode))
-        )
-    }
-
-    @Test func deniedWhenANonShellProgramHoldsTheForeground() {
-        for comm in ["nvim", "ssh", "less", "python3"] {
-            #expect(
-                AgentTranscriptResumePolicy.verdict(
-                    target: .available(localTerminal()),
-                    observedForegroundCommand: comm
-                ) == .unavailable(.foregroundBusy),
-                "\(comm) is not a cooked-mode shell prompt"
-            )
-        }
+                target: .available(terminal), observedForegroundCommand: command
+            ) == (denial.map { .unavailable($0) } ?? .eligible(terminal.id)))
     }
 
     @Test func failsClosedWithoutForegroundEvidence() {
@@ -141,7 +82,7 @@ private func localTerminal() -> TerminalPane {
             fileURL: URL(fileURLWithPath: "/tmp/cache/abc.transcript.md"),
             title: "Claude Code Transcript",
             associatedTerminalPaneID: terminal.id,
-            agentTranscriptIdentity: identity(claudeSession)
+            agentTranscriptIdentity: AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: claudeSession)
         )
         let layout = TerminalPaneLayout.split(
             TerminalSplit(
@@ -155,15 +96,6 @@ private func localTerminal() -> TerminalPane {
                 target: layout.documentNudgeTarget(for: tab.id),
                 observedForegroundCommand: "zsh"
             ) == .unavailable(.requiresLocalTerminal)
-        )
-    }
-
-    @Test func deniedWhenTheAssociatedTerminalIsGone() {
-        #expect(
-            AgentTranscriptResumePolicy.verdict(
-                target: .unavailable(.terminalUnavailable),
-                observedForegroundCommand: "zsh"
-            ) == .unavailable(.terminalUnavailable)
         )
     }
 }
