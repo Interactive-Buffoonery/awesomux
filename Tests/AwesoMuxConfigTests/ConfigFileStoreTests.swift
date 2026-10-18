@@ -4,6 +4,41 @@ import Testing
 
 @Suite("ConfigFileStore")
 struct ConfigFileStoreTests {
+    @Test("save writes through a symlinked config file to its target")
+    func saveWritesThroughSymlinkedConfig() throws {
+        let fixture = try TemporaryConfigFixture()
+        defer { fixture.cleanUp() }
+
+        // Create the config directory and a target file in a sibling
+        // directory; the configURL is a symlink to the target.
+        try FileManager.default.createDirectory(
+            at: fixture.configDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let targetURL = fixture.homeURL.appendingPathComponent("dotfiles-target.toml")
+        try Data("placeholder = true\n".utf8).write(to: targetURL)
+        try FileManager.default.createSymbolicLink(
+            at: fixture.configURL,
+            withDestinationURL: targetURL
+        )
+
+        try fixture.store.save(.defaultValue)
+
+        // The symlink should still be a symlink (not replaced with a
+        // regular file), and the target should contain our config.
+        let attrs = try FileManager.default.attributesOfItem(atPath: fixture.configURL.path)
+        // attributesOfItem follows symlinks — to check the symlink
+        // itself, use destinationOfSymbolicLink, which throws on a
+        // regular file.
+        let dest = try FileManager.default.destinationOfSymbolicLink(atPath: fixture.configURL.path)
+        #expect(dest.contains("dotfiles-target"))
+        _ = attrs
+
+        let targetBytes = try Data(contentsOf: targetURL)
+        let decoded = try TOMLConfigCodec().decode(targetBytes)
+        #expect(decoded.appearance.theme == AwesoMuxConfig.defaultValue.appearance.theme)
+    }
+
     @Test("existing invalid config is preserved and returns a validation error")
     func existingInvalidConfigIsPreservedAndReturnsValidationError() throws {
         let fixture = try TemporaryConfigFixture()
