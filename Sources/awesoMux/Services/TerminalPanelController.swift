@@ -374,7 +374,7 @@ final class TerminalPanelController {
     }
 
     func close() {
-        guard let store else { return }
+        guard !isConfirmingClose, let store else { return }
         runtime?.refreshTerminalQuitConfirmationRisks(in: store)
         // Close-scoped risk, not quit-scoped: companion panes are bridged, and
         // the quit policy calls bridged authoritatively safe (daemon survives a
@@ -386,7 +386,10 @@ final class TerminalPanelController {
             isConfirmingClose = true
             let confirmed = confirmClose()
             isConfirmingClose = false
-            guard confirmed else { return }
+            guard self.store === store else { return }
+            // Shell exit defers its teardown while the alert is running. An
+            // empty companion must still close if the user cancels the alert.
+            guard confirmed || store.selectedSession == nil else { return }
         }
         close(discardSurfaces: true)
     }
@@ -472,10 +475,12 @@ final class TerminalPanelController {
         } onChange: { [weak self, weak store] in
             Task { @MainActor in
                 guard let self, let store, self.store === store else { return }
-                if store.selectedSession == nil {
+                // Read the latest selection after willSet completes. Changes
+                // coalesce while this task is queued; reading and re-arming
+                // cannot interleave with another main-actor store mutation.
+                self.closeWhenSessionEnds(in: store)
+                if store.selectedSession == nil, !self.isConfirmingClose {
                     self.close(discardSurfaces: true)
-                } else {
-                    self.closeWhenSessionEnds(in: store)
                 }
             }
         }
