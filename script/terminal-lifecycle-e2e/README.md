@@ -10,6 +10,16 @@ identity block execution. Screenshots are human evidence only; capture errors
 block the run. No model dependencies, generated prose matching, screenshot
 baselines, or visual AI pass decisions.
 
+Display titles can become the current directory during reattachment, including
+between readiness and dispatch. A shared HOME directory must never identify a
+pane. Each backend therefore starts in `output/fixtures/panes/ZMX_SESSION`,
+outside HOME, and emits that same canonical path as OSC 7 CWD and OSC 2 title.
+Registration, challenge, and job receipts must retain the exact backend, shell,
+profile, namespace, and CWD binding. AX admission compares that unique path,
+resolving filesystem aliases such as `/tmp` and `/private/tmp`; a sibling path
+or shared HOME still fails. The native helper rechecks admission immediately
+before its single keyboard dispatch, without resetting titles or retrying input.
+
 Use one standalone Python driver, a small native AX/CG helper, and synthetic zsh
 startup/foreground-job fixtures. Copy and reidentify an already staged app with
 a fresh runtime-profile.sh identity; refuse existing profile paths or defaults.

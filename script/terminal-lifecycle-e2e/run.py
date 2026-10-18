@@ -289,7 +289,14 @@ def main():
         return json.loads(path.read_text()) if path.exists() else None
 
     def title(session):
-        return "TL-" + report["runID"] + "-" + session
+        return str(fixtures / "panes" / session)
+
+    def terminal_matches(description, session):
+        prefix = "Terminal output, "
+        return description.startswith(prefix + "/") and str(Path(description[len(prefix):]).resolve()) == title(session)
+
+    def same_identity(data, session):
+        return data and all(data.get(key) == value for key, value in identities[session].items())
 
     def type_into(session, text):
         def ready():
@@ -331,7 +338,7 @@ def main():
             audit_challenges()
             data = receipt(fixtures / ("response-" + nonce + "-" + session + ".json"))
             history = amx("history", session).replace("\r", "")
-            return data if data and data["session"] == session and data["shellPID"] == identities[session]["shellPID"] \
+            return data if same_identity(data, session) \
                 and data["response"] == response and response in history.splitlines() else None
         data = poll("challenge response " + scenario, received)
         poll("synthetic shell prompt ready", lambda: snapshot()["focusedValue"].rstrip().endswith(
@@ -368,6 +375,7 @@ def main():
         fixtures.mkdir(mode=0o700)
         fixture_home = fixtures / "home"
         fixture_home.mkdir(mode=0o700)
+        (fixtures / "panes").mkdir(mode=0o700)
         # These overrides belong only to isolated child processes, never this runner.
         env = {key: os.environ[key] for key in ("PATH", "USER", "LOGNAME", "__CF_USER_TEXT_ENCODING") if key in os.environ}
         socket_base = Path(run(["getconf", "DARWIN_USER_TEMP_DIR"]))
@@ -431,8 +439,10 @@ def main():
             report["binary"] = {"sourceBundle": str(args.bundle.resolve()), "path": str(binary),
                                 "sha256": digest(binary), "amxSHA256": digest(bundle / "Contents/MacOS/amx")}
             startup = f'''PS1='TL_PROMPT_{report["runID"]} '
+[[ "$ZMX_SESSION" =~ '^[0-9a-f-]{{36}}$' ]] || exit 91
+mkdir -m 700 -- "$TL_FIXTURES/panes/$ZMX_SESSION" && cd -P -- "$TL_FIXTURES/panes/$ZMX_SESSION" || exit 91
 {shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} register $$
-printf '\\033]2;TL-{report["runID"]}-%s\\007' "$ZMX_SESSION"
+printf '\\033]7;file://%s%s\\007\\033]2;%s\\007' "$HOST" "$PWD" "$PWD"
 '''
             (fixtures / ".zshenv").write_text(f'''if [[ "$CFFIXED_USER_HOME" != {shlex.quote(str(fixture_home))} || "$TL_FIXTURES" != {shlex.quote(str(fixtures))} || "$ZDOTDIR" != {shlex.quote(str(fixtures))} ]]; then
     print -u2 'Terminal lifecycle fixture startup isolation mismatch'
@@ -514,9 +524,11 @@ export GHOSTTY_SHELL_FEATURES=""
             identities = {}
             for session in current:
                 data = poll("shell identity", lambda s=session: receipt(fixtures / (s + ".json")))
-                if data["profile"] != profile["profile"] or Path(data["namespace"]) != socket or not alive(data["shellPID"]) \
+                if data["session"] != session or data["profile"] != profile["profile"] \
+                        or Path(data["namespace"]).resolve() != socket.resolve() or not alive(data["shellPID"]) \
                         or data["home"] != str(fixture_home) or data["fixedHome"] != str(fixture_home) \
-                        or data["startupZDOTDIR"] != str(fixtures) or data["zdotdir"] != str(fixtures):
+                        or data["startupZDOTDIR"] != str(fixtures) or data["zdotdir"] != str(fixtures) \
+                        or str(Path(data["cwd"]).resolve()) != title(session):
                     raise RuntimeError("Fixture shell/profile identity mismatch")
                 identities[session] = data
             second = next(iter(current - {first}))
@@ -535,7 +547,7 @@ export GHOSTTY_SHELL_FEATURES=""
             report["activeScenario"] = "TL03"
             type_into(second, f"{shlex.quote(sys.executable)} {shlex.quote(str(HERE / 'fixture.py'))} job $$")
             job = poll("controlled foreground job", lambda: receipt(fixtures / "job.json"))
-            if job["session"] != second or not alive(job["jobPID"]):
+            if not same_identity(job, second) or not alive(job["jobPID"]):
                 raise RuntimeError("Controlled job identity mismatch")
             report["job"] = job
             menu("Pane", "Focus Pane 1")
@@ -568,7 +580,10 @@ export GHOSTTY_SHELL_FEATURES=""
             if sessions() != {second} or not alive(identities[second]["shellPID"]):
                 raise RuntimeError("Soft close destroyed persistent shell")
             menu("Workspace", "Reopen Closed Workspace")
-            poll("reopened same terminal", lambda: snapshot()["terminals"] == ["Terminal output, " + title(second)])
+            def reopened():
+                terminals = snapshot()["terminals"]
+                return len(terminals) == 1 and terminal_matches(terminals[0], second)
+            poll("reopened same terminal", reopened)
             menu("Pane", "Focus Pane 1")
             challenge(second, "TL05-reopened")
             if sessions() != {second} or not alive(identities[second]["shellPID"]):

@@ -17,6 +17,7 @@ identity = {
     "home": os.environ["HOME"], "fixedHome": os.environ["CFFIXED_USER_HOME"],
     "homeBeforeFixture": os.environ["TL_HOME_BEFORE_FIXTURE"],
     "startupZDOTDIR": os.environ["TL_ZDOTDIR_AT_FIXTURE"], "zdotdir": os.environ["ZDOTDIR"],
+    "cwd": os.getcwd(),
 }
 
 def write(name, value):

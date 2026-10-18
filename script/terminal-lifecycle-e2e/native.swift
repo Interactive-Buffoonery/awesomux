@@ -349,6 +349,13 @@ func inputAdmission(_ expectedTitle: String) -> [String: Any] {
     let description = string(target, kAXDescriptionAttribute)
     result["terminal"] = isTerminal
     result["description"] = description
+    let prefix = "Terminal output, "
+    let observedTitle = String(description.dropFirst(prefix.count))
+    let canonicalTitle = URL(fileURLWithPath: observedTitle).resolvingSymlinksInPath().path
+    result["canonicalTitle"] = canonicalTitle
+    result["expectedTitle"] = expectedTitle
+    let identityMatches = description.hasPrefix(prefix + "/") && expectedTitle.hasPrefix("/")
+        && canonicalTitle == URL(fileURLWithPath: expectedTitle).resolvingSymlinksInPath().path
     var targetWindow: CFTypeRef?
     let windowError = AXUIElementCopyAttributeValue(target, kAXWindowAttribute as CFString, &targetWindow)
     var relationship: [String: Any] = ["error": windowError.rawValue, "equalsOwnedWindow": false]
@@ -370,7 +377,7 @@ func inputAdmission(_ expectedTitle: String) -> [String: Any] {
     }
     result["targetWindow"] = relationship
     result["ready"] = result["frontmost"] as? Bool == true && isTerminal
-        && description == "Terminal output, " + expectedTitle
+        && identityMatches
         && windowError == .success && relationship["equalsOwnedWindow"] as? Bool == true
     return result
 }
