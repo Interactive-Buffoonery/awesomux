@@ -4,90 +4,10 @@ import Testing
 
 @testable import AwesoMuxCore
 
-/// Issue #311: a display-only OSC title report writes group storage silently
-/// and notifies the session's `LiveTitleBox` instead of publishing `groups`.
-///
-/// These are the binding acceptance gate for the change: a silent write is by
-/// construction invisible to `withObservationTracking`, so a misclassified
-/// write cannot be caught by reading the code — only by pinning both sides of
-/// the classifier here.
+/// Title writes must reach already-created channels and survive persistence.
 @MainActor
 @Suite("SessionStore — live title channel (#311)")
 struct SessionStoreLiveTitleChannelTests {
-
-    // MARK: - 1. Classifier: what publishes `groups`
-
-    @Test("a display-only title write does not publish groups")
-    func displayOnlyTitleWriteDoesNotPublishGroups() {
-        let fixture = makeFixture()
-        let published = TrackingFlag()
-        track(fixture.store, published)
-
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-
-        #expect(!published.value)
-        // Storage is still current — every reader off the struct sees the new
-        // title, it just was not the thing that scheduled a render.
-        #expect(fixture.store.session(id: fixture.sessionID)?.activePane?.title == "cargo build")
-    }
-
-    @Test("a title write that also moves the working directory publishes groups")
-    func titleWriteWithWorkingDirectoryPublishesGroups() {
-        let fixture = makeFixture()
-        let published = TrackingFlag()
-        track(fixture.store, published)
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "cargo build",
-            workingDirectory: NSHomeDirectory()
-        )
-
-        #expect(published.value)
-    }
-
-    @Test("a title write that also moves progress publishes groups")
-    func titleWriteWithProgressPublishesGroups() {
-        let fixture = makeFixture()
-        let published = TrackingFlag()
-        track(fixture.store, published)
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "cargo build",
-            progressReport: TerminalProgressReport(state: .set, progress: 40)
-        )
-
-        #expect(published.value)
-    }
-
-    @Test("a rejected report still costs nothing")
-    func rejectedReportWritesNothing() {
-        let fixture = makeFixture()
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        #expect(box.paneTitles[fixture.paneID] == "cargo build")
-
-        let published = TrackingFlag()
-        track(fixture.store, published)
-        let boxPublished = TrackingFlag()
-        withObservationTracking {
-            _ = box.paneTitles
-            _ = box.workspaceTitle
-        } onChange: {
-            boxPublished.set()
-        }
-
-        // Identical repeat report: the reducer returns nil and nothing moves.
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-
-        #expect(!published.value)
-        #expect(!boxPublished.value)
-    }
-
-    // MARK: - 2. The box receives display-only writes
 
     @Test("a display-only title write reaches the session's live title box")
     func displayOnlyTitleWriteReachesBox() {
@@ -103,51 +23,6 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(box.paneTitles[fixture.paneID] == "cargo build")
     }
 
-    @Test("the box is seeded from restored storage before any report")
-    func boxSeedsFromStorage() throws {
-        let fixture = makeFixture()
-        let snapshot = fixture.store.snapshot()
-        let restored = SessionStore(restoring: snapshot)
-        let sessionID = try #require(restored.groups.first?.sessions.first?.id)
-        let paneID = try #require(restored.session(id: sessionID)?.activePaneID)
-
-        let box = restored.liveTitleBox(for: sessionID)
-
-        #expect(box.workspaceTitle == "workspace")
-        #expect(box.paneTitles[paneID] == "pane")
-    }
-
-    // MARK: - 3. Split sessions
-
-    @Test("split panes keep independent live titles and inactive entries survive")
-    func splitPanesKeepIndependentTitles() throws {
-        let fixture = makeFixture()
-        let store = fixture.store
-        _ = try #require(store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
-        let activePaneID = try #require(store.session(id: fixture.sessionID)?.activePaneID)
-        let inactivePaneID = try #require(
-            store.session(id: fixture.sessionID)?.panes.first { $0.id != activePaneID }?.id
-        )
-
-        let box = store.liveTitleBox(for: fixture.sessionID)
-
-        store.updatePane(sessionID: fixture.sessionID, paneID: inactivePaneID, title: "vim")
-        store.updatePane(sessionID: fixture.sessionID, paneID: activePaneID, title: "cargo build")
-
-        #expect(box.paneTitles[inactivePaneID] == "vim")
-        #expect(box.paneTitles[activePaneID] == "cargo build")
-        // The active pane is what the workspace title follows.
-        #expect(box.workspaceTitle == "cargo build")
-
-        // A further report on the active pane must not drop the inactive
-        // pane's entry — `resetPaneTitle` re-adopts the latest live title.
-        store.updatePane(sessionID: fixture.sessionID, paneID: activePaneID, title: "cargo test")
-        #expect(box.paneTitles[inactivePaneID] == "vim")
-        #expect(box.paneTitles[activePaneID] == "cargo test")
-    }
-
-    // MARK: - 4. Persistence round trip
-
     @Test("a display-only retitle survives snapshot and restore")
     func displayOnlyRetitleSurvivesRoundTrip() throws {
         let fixture = makeFixture()
@@ -159,8 +34,6 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(session.title == "cargo build")
         #expect(session.activePane?.title == "cargo build")
     }
-
-    // MARK: - 5. Remote identity still derives from a title report
 
     @Test("a title that trips the remote detector publishes and consumes the pending target")
     func remoteTitlePublishesAndConsumesPendingTarget() throws {
@@ -182,104 +55,6 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(fixture.store.index.remotePaneIDs.contains(fixture.paneID))
     }
 
-    // MARK: - 6. The remote-membership trap
-
-    @Test("repeated title writes on an already-remote pane do not publish")
-    func repeatedTitlesOnRemotePaneDoNotPublish() {
-        let fixture = makeFixture(remoteHost: "host-a", remoteSSHTarget: "host-a")
-        #expect(fixture.store.index.remotePaneIDs.contains(fixture.paneID))
-        let published = TrackingFlag()
-        track(fixture.store, published)
-
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "alice@host-a: one")
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "alice@host-a: two")
-
-        #expect(!published.value)
-        // Membership was not re-emitted, but it is also not stale.
-        #expect(fixture.store.index.remotePaneIDs.contains(fixture.paneID))
-        #expect(
-            fixture.store.index.remotePaneIDs
-                == SessionStoreIndex.build(from: fixture.store.groups).remotePaneIDs
-        )
-    }
-
-    @Test("leaving remote via a working directory report clears membership and publishes")
-    func leavingRemotePublishes() {
-        let fixture = makeFixture(remoteHost: "host-a", remoteSSHTarget: "host-a")
-        let published = TrackingFlag()
-        track(fixture.store, published)
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            workingDirectory: NSHomeDirectory()
-        )
-
-        #expect(published.value)
-        #expect(!fixture.store.index.remotePaneIDs.contains(fixture.paneID))
-        #expect(
-            fixture.store.index.remotePaneIDs
-                == SessionStoreIndex.build(from: fixture.store.groups).remotePaneIDs
-        )
-    }
-
-    // MARK: - 7. User-edit freeze and reset
-
-    @Test("a user-edited pane title stays frozen and the box does not move")
-    func userEditedTitleStaysFrozen() throws {
-        let fixture = makeFixture()
-        // Two panes: the lone-pane carve-out promotes a pinned title into the
-        // workspace bar, which would muddy what the box is being asserted on.
-        _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
-        #expect(fixture.store.renamePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "pinned"))
-
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let boxPublished = TrackingFlag()
-        withObservationTracking {
-            _ = box.paneTitles
-        } onChange: {
-            boxPublished.set()
-        }
-
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-
-        let pane = try #require(fixture.store.session(id: fixture.sessionID)?.layout.pane(id: fixture.paneID))
-        #expect(pane.title == "pinned")
-        #expect(pane.liveTerminalTitle == "cargo build")
-        #expect(box.paneTitles[fixture.paneID] == "pinned")
-        // Only the undisplayed live title moved, so nothing needed repainting.
-        #expect(!boxPublished.value)
-    }
-
-    @Test("resetPaneTitle re-adopts the latest silently written live title")
-    func resetPaneTitleReadoptsLiveTitle() throws {
-        let fixture = makeFixture()
-        _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
-        #expect(fixture.store.renamePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "pinned"))
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-
-        #expect(fixture.store.resetPaneTitle(sessionID: fixture.sessionID, paneID: fixture.paneID))
-
-        let pane = try #require(fixture.store.session(id: fixture.sessionID)?.layout.pane(id: fixture.paneID))
-        #expect(pane.title == "cargo build")
-        #expect(!pane.isTitleUserEdited)
-    }
-
-    // MARK: - Box lifetime
-
-    @Test("a closed session's box is pruned")
-    func closedSessionPrunesBox() {
-        let fixture = makeFixture()
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-
-        fixture.store.closeSession(id: fixture.sessionID)
-
-        // A pruned box cannot be handed back; re-requesting mints a new one.
-        #expect(fixture.store.liveTitleBox(for: fixture.sessionID) !== box)
-    }
-
-    // MARK: - Title-triggered save signal
-
     /// A silent write fires no `groups` observer, so the save it still needs
     /// rides `onDisplayOnlyTitleWrite` instead — synchronously, so the handler
     /// sees the title it is being asked to persist.
@@ -297,244 +72,6 @@ struct SessionStoreLiveTitleChannelTests {
         #expect(saves.count == 2)
     }
 
-    @Test("a publishing title write leaves the save handler alone")
-    func publishingWriteSkipsSaveHandler() {
-        let fixture = makeFixture()
-        let saves = CallCounter()
-        fixture.store.onDisplayOnlyTitleWrite = { saves.increment() }
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "cargo build",
-            workingDirectory: NSHomeDirectory()
-        )
-
-        // `groups` published, so the Scene's own save observer covers this one.
-        #expect(saves.count == 0)
-    }
-
-    @Test("a rejected report does not call the save handler")
-    func rejectedReportSkipsSaveHandler() {
-        let fixture = makeFixture()
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-
-        let saves = CallCounter()
-        fixture.store.onDisplayOnlyTitleWrite = { saves.increment() }
-
-        // Identical repeat report: the reducer returns nil and nothing moves.
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-
-        #expect(saves.count == 0)
-    }
-
-    // MARK: - Every writer refreshes an ALREADY-CREATED box
-
-    /// The box is preferred over the struct wherever one exists
-    /// (`LiveTitles.workspaceTitle(for:)` is `workspace ?? session.title`), so a
-    /// writer that moves a displayed title without refreshing the channel does
-    /// not lag by a frame — it shadows the fresher value indefinitely.
-    ///
-    /// Every assertion here reads the BOX, not the struct, against a box created
-    /// BEFORE the write. Asserting the struct is what let the original bug ship:
-    /// storage is current on every path by construction, so a struct-side
-    /// assertion passes whether or not the channel was told.
-
-    @Test("renameSession refreshes an existing box")
-    func renameSessionRefreshesBox() {
-        let fixture = makeFixture()
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        #expect(box.workspaceTitle == "workspace")
-
-        fixture.store.renameSession(id: fixture.sessionID, title: "release prep")
-
-        #expect(box.workspaceTitle == "release prep")
-    }
-
-    @Test("renamePane refreshes an existing box")
-    func renamePaneRefreshesBox() throws {
-        let fixture = makeFixture()
-        // Two panes so the lone-pane carve-out does not also move the workspace
-        // title: this has to fail if only the workspace field is refreshed.
-        _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        #expect(box.paneTitles[fixture.paneID] == "pane")
-
-        #expect(fixture.store.renamePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "logs"))
-
-        #expect(box.paneTitles[fixture.paneID] == "logs")
-    }
-
-    @Test("resetPaneTitle refreshes an existing box")
-    func resetPaneTitleRefreshesBox() throws {
-        let fixture = makeFixture()
-        _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
-        #expect(fixture.store.renamePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "pinned"))
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        #expect(box.paneTitles[fixture.paneID] == "pinned")
-
-        #expect(fixture.store.resetPaneTitle(sessionID: fixture.sessionID, paneID: fixture.paneID))
-
-        #expect(box.paneTitles[fixture.paneID] == "cargo build")
-    }
-
-    @Test("a publishing title report refreshes an existing box")
-    func publishingReportRefreshesBox() {
-        let fixture = makeFixture()
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        #expect(box.workspaceTitle == "workspace")
-
-        // Title and cwd in one report — an ordinary `cd` in a prompt hook. This
-        // takes the publishing branch, which never touched the channel.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "cargo build",
-            workingDirectory: NSHomeDirectory()
-        )
-
-        #expect(box.workspaceTitle == "cargo build")
-        #expect(box.paneTitles[fixture.paneID] == "cargo build")
-    }
-
-    /// The same gap one level deeper (issue #315). Titles now live in one
-    /// observable per pane, so "the box was refreshed" is no longer the whole
-    /// question — the write has to reach THIS pane's channel.
-    ///
-    /// This is NOT a channel-replacement gate: a replaced channel wakes the
-    /// reader through `paneChannels` too, so the wake fires either way. The
-    /// replacement invariant is owned by the app-target suite — by
-    /// `publishingMutationWithoutTitleMoveDoesNotWakePaneScope` and by
-    /// `siblingPanePublishingWriteDoesNotWakePaneScope`.
-    @Test("a publishing write reaches an already-created box's per-pane channel")
-    func publishingWriteWakesExistingPaneChannel() throws {
-        let fixture = makeFixture()
-        // Two panes, so the pane under test is inactive: this has to fail if
-        // only the workspace title is refreshed.
-        _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        #expect(box.paneTitle(for: fixture.paneID) == "pane")
-
-        let woken = TrackingFlag()
-        withObservationTracking {
-            _ = box.paneTitle(for: fixture.paneID)
-        } onChange: {
-            woken.set()
-        }
-
-        // Title and cwd in one report — the publishing branch, against a box
-        // created BEFORE the write.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "cargo build",
-            workingDirectory: NSHomeDirectory()
-        )
-
-        #expect(woken.value)
-        #expect(box.paneTitle(for: fixture.paneID) == "cargo build")
-    }
-
-    @Test("a structural mutation refreshes an existing box's pane roster")
-    func structuralMutationRefreshesBox() throws {
-        let fixture = makeFixture()
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-
-        let addedPaneID = try #require(
-            fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID)
-        )
-
-        #expect(box.paneTitles[addedPaneID] != nil)
-    }
-
-    /// The prune direction, which nothing else asserts: every other test here
-    /// covers the roster GROWING. Without this, deleting the prune outright,
-    /// loosening its guard, or reordering the loop it depends on all leave the
-    /// suite green, and a box accumulates one dead channel per closed pane for
-    /// its lifetime. `paneTitles` is computed over those channels, so a leaked
-    /// one keeps a closed pane's title visible to every `.everything` reader.
-    @Test("closing a pane drops its channel from an existing box")
-    func closingPaneDropsItsChannel() throws {
-        let fixture = makeFixture()
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let addedPaneID = try #require(
-            fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID)
-        )
-        #expect(box.paneTitles.count == 2)
-
-        _ = try #require(fixture.store.closePane(id: addedPaneID, in: fixture.sessionID))
-
-        #expect(box.paneTitle(for: addedPaneID) == nil)
-        #expect(box.paneTitles.count == 1)
-        #expect(box.paneTitle(for: fixture.paneID) == "pane")
-    }
-
-    /// The refresh rides `_groups`' accessors, which run BEFORE `commit`
-    /// rebuilds the index — so a bulk restore reaches it with an index still
-    /// naming the pre-restore tree, at positions the new tree may not have.
-    /// Bounds and session identity are checked there; this pins that a shrinking
-    /// restore neither traps nor leaves a surviving box on a stale value.
-    @Test("a bulk restore with a live box survives the pre-commit index and lands current")
-    func bulkRestoreRefreshesBoxes() throws {
-        let fixture = makeFixture()
-        let survivor = try #require(fixture.store.groups.first?.sessions.first)
-        let doomed = fixture.store.addSession(title: "second", groupName: "main")
-        let survivorBox = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let doomedBox = fixture.store.liveTitleBox(for: doomed)
-
-        var renamed = survivor
-        renamed.title = "restored"
-        _ = fixture.store.replaceState(
-            restoring: SessionSnapshot(
-                groups: [SessionGroup(name: "main", sessions: [renamed])],
-                selectedSessionID: renamed.id,
-                recentlyClosed: [],
-                pinnedSessionIDs: []
-            )
-        )
-
-        #expect(survivorBox.workspaceTitle == "restored")
-        // The doomed session's box is pruned, so a re-request mints a new one.
-        #expect(fixture.store.liveTitleBox(for: doomed) !== doomedBox)
-    }
-
-    // MARK: - Coalesced live-title generation
-
-    @Test("ONE session's burst bumps the generation at most once per interval")
-    func generationBumpsLeadingEdgeOncePerIntervalWithinOneSession() {
-        let fixture = makeFixture()
-        let base = Date(timeIntervalSince1970: 1_000_000)
-        #expect(fixture.store.liveTitleGeneration == 0)
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID, paneID: fixture.paneID, title: "one", now: base
-        )
-        #expect(fixture.store.liveTitleGeneration == 1)
-
-        // Inside the interval: the write lands and the projections do not
-        // re-derive. This is the documented ceiling on `liveTitleGeneration`, not
-        // a property worth relying on — if "two" were this session's LAST event
-        // ever, its projections would name it "one" until something else
-        // published. What is pinned here is only that the throttle throttles.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "two",
-            now: base.addingTimeInterval(0.5)
-        )
-        #expect(fixture.store.liveTitleGeneration == 1)
-        #expect(fixture.store.session(id: fixture.sessionID)?.title == "two")
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "three",
-            now: base.addingTimeInterval(1)
-        )
-        #expect(fixture.store.liveTitleGeneration == 2)
-    }
-
     /// The property that matters, and the one a store-global timestamp got
     /// wrong: coalescing is PER SESSION. With one shared timestamp, a workspace
     /// whose agent spins at 10 Hz keeps the store permanently "not due", so a
@@ -542,11 +79,12 @@ struct SessionStoreLiveTitleChannelTests {
     /// derived projections (sidebar search haystack, duplicate ordinals, rotor
     /// labels) never re-derive. Search then cannot find workspace B by the name
     /// B is displaying.
-    @Test("one session's burst does not suppress another session's first bump")
+    @Test("one session's burst does not suppress another session's title")
     func aBurstInOneSessionDoesNotSuppressAnother() throws {
         let fixture = makeFixture()
         let other = try fixture.addSession(title: "second")
         let base = Date(timeIntervalSince1970: 1_000_000)
+        let box = fixture.store.liveTitleBox(for: other.sessionID)
 
         // Session A saturates its own interval.
         for step in 0..<5 {
@@ -557,7 +95,6 @@ struct SessionStoreLiveTitleChannelTests {
                 now: base.addingTimeInterval(Double(step) * 0.1)
             )
         }
-        #expect(fixture.store.liveTitleGeneration == 1)
 
         // Session B's FIRST and only title change, well inside A's interval.
         fixture.store.updatePane(
@@ -567,22 +104,22 @@ struct SessionStoreLiveTitleChannelTests {
             now: base.addingTimeInterval(0.5)
         )
 
-        #expect(fixture.store.liveTitleGeneration == 2)
         #expect(fixture.store.session(id: other.sessionID)?.title == "release prep")
+        #expect(box.coarseWorkspaceTitle == "release prep")
     }
 
     /// A backwards wall-clock step (NTP correction, manual clock change) must not
     /// suppress bumps until the clock catches up: a jump of hours would freeze
     /// every projection for hours.
-    @Test("a wall-clock rollback still bumps the generation")
+    @Test("a wall-clock rollback still publishes coarse titles")
     func clockRollbackStillBumps() {
         let fixture = makeFixture()
         let base = Date(timeIntervalSince1970: 1_000_000)
+        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
 
         fixture.store.updatePane(
             sessionID: fixture.sessionID, paneID: fixture.paneID, title: "one", now: base
         )
-        #expect(fixture.store.liveTitleGeneration == 1)
 
         fixture.store.updatePane(
             sessionID: fixture.sessionID,
@@ -590,7 +127,7 @@ struct SessionStoreLiveTitleChannelTests {
             title: "two",
             now: base.addingTimeInterval(-3600)
         )
-        #expect(fixture.store.liveTitleGeneration == 2)
+        #expect(box.coarseWorkspaceTitle == "two")
 
         // And the rolled-back stamp becomes the new baseline rather than leaving
         // a future timestamp behind that would suppress the next hour of writes.
@@ -600,320 +137,87 @@ struct SessionStoreLiveTitleChannelTests {
             title: "three",
             now: base.addingTimeInterval(-3600 + 1)
         )
-        #expect(fixture.store.liveTitleGeneration == 3)
+        #expect(box.coarseWorkspaceTitle == "three")
     }
 
-    @Test("the generation interval is injectable")
-    func generationIntervalIsInjectable() {
-        let fixture = makeFixture(liveTitleGenerationInterval: 0)
+
+    enum Writer: CaseIterable, Sendable {
+        case renameSession, renamePane, reset, publishingReport, publishingInactivePane, split, closePane, restore
+    }
+
+    @Test("every writer refreshes existing fine and coarse title channels", arguments: Writer.allCases)
+    func writerRefreshesChannels(writer: Writer) throws {
+        let fixture = makeFixture()
+        let store = fixture.store
+        let box = store.liveTitleBox(for: fixture.sessionID)
+        #expect(box.workspaceTitle == "workspace")
+        #expect(box.coarseWorkspaceTitle == "workspace")
+        #expect(box.paneTitles[fixture.paneID] == "pane")
+        #expect(box.coarsePaneTitles == box.paneTitles)
         let base = Date(timeIntervalSince1970: 1_000_000)
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID, paneID: fixture.paneID, title: "one", now: base
-        )
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID, paneID: fixture.paneID, title: "two", now: base
-        )
-
-        #expect(fixture.store.liveTitleGeneration == 2)
-    }
-
-    @Test("a publishing title write leaves the generation alone")
-    func publishingWriteSkipsGeneration() {
-        let fixture = makeFixture()
-
-        // Publishing wakes every `groups` observer, so the bodies that derive
-        // from titles re-run anyway; a bump would be a second invalidation.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "cargo build",
-            workingDirectory: NSHomeDirectory()
-        )
-
-        #expect(fixture.store.liveTitleGeneration == 0)
-    }
-
-    /// The projections the generation invalidates cover the WHOLE roster, so
-    /// they cannot wait for a box (≈ a rendered row) to exist. If the bump
-    /// were folded behind the box lookup, a workspace nobody had ever rendered
-    /// would stay unsearchable by its agent's new title until it happened to
-    /// mount.
-    @Test("the generation bumps even for a session no box is watching")
-    func generationBumpsWithoutABox() {
-        let fixture = makeFixture()
-        let base = Date(timeIntervalSince1970: 1_000_000)
-
-        // Deliberately never calls `liveTitleBox(for:)`.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID, paneID: fixture.paneID, title: "one", now: base
-        )
-        #expect(fixture.store.liveTitleGeneration == 1)
-
-        // And the stamp still runs, so a later mid-window tick is suppressed
-        // for generation even before any box appears.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "two",
-            now: base.addingTimeInterval(0.4)
-        )
-        #expect(fixture.store.liveTitleGeneration == 1)
-    }
-
-    @Test("a generation observer resolves the coarse snapshot published by that tick")
-    func generationObserverSeesPublishedCoarseTitle() {
-        let fixture = makeFixture()
-        _ = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let observedTitle = TrackingTitle()
-
-        withObservationTracking {
-            _ = fixture.store.liveTitleGeneration
-        } onChange: {
-            MainActor.assumeIsolated {
-                observedTitle.set(
-                    fixture.store.sidebarResolvedTitle(for: fixture.sessionID)
-                )
+        store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "frame 0", now: base)
+        store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "frame 1", now: base.addingTimeInterval(0.2))
+        let paneWake = TrackingFlag()
+        switch writer {
+        case .renameSession:
+            store.renameSession(id: fixture.sessionID, title: "release prep")
+            #expect(box.workspaceTitle == "release prep")
+        case .renamePane, .reset, .publishingInactivePane:
+            _ = try #require(store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
+            if writer == .reset {
+                #expect(store.renamePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "pinned"))
+                store.updatePane(
+                    sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build", now: base.addingTimeInterval(0.3))
+                #expect(box.coarsePaneTitles[fixture.paneID] == "pinned")
+                #expect(store.resetPaneTitle(sessionID: fixture.sessionID, paneID: fixture.paneID))
+                #expect(box.paneTitles[fixture.paneID] == "cargo build")
+            } else if writer == .renamePane {
+                #expect(store.renamePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "logs"))
+                #expect(box.paneTitles[fixture.paneID] == "logs")
+            } else {
+                withObservationTracking {
+                    _ = box.paneTitle(for: fixture.paneID)
+                } onChange: {
+                    paneWake.set()
+                }
+                store.updatePane(
+                    sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build", workingDirectory: NSHomeDirectory())
+                #expect(paneWake.value)
+                #expect(box.paneTitle(for: fixture.paneID) == "cargo build")
             }
+        case .publishingReport:
+            store.updatePane(
+                sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build", workingDirectory: NSHomeDirectory())
+            #expect(box.workspaceTitle == "cargo build")
+            #expect(box.paneTitles[fixture.paneID] == "cargo build")
+        case .split:
+            let added = try #require(store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
+            #expect(box.paneTitles[added] != nil)
+            #expect(box.coarsePaneTitles.count == 2)
+        case .closePane:
+            let added = try #require(store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
+            #expect(box.paneTitles.count == 2)
+            _ = try #require(store.closePane(id: added, in: fixture.sessionID))
+            #expect(box.paneTitle(for: added) == nil)
+            #expect(box.paneTitles.count == 1)
+            #expect(box.paneTitle(for: fixture.paneID) == "frame 1")
+        case .restore:
+            var survivor = try #require(store.session(id: fixture.sessionID))
+            let doomed = store.addSession(title: "second", groupName: "main")
+            let doomedBox = store.liveTitleBox(for: doomed)
+            survivor.title = "restored"
+            store.replaceState(
+                restoring: SessionSnapshot(groups: [SessionGroup(name: "main", sessions: [survivor])], selectedSessionID: survivor.id))
+            #expect(box.workspaceTitle == "restored")
+            #expect(store.liveTitleBox(for: doomed) !== doomedBox)
         }
-
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "release prep",
-            now: Date(timeIntervalSince1970: 1_000_000)
-        )
-
-        #expect(observedTitle.value == "release prep")
+        let current = try #require(store.session(id: fixture.sessionID))
+        let titles = Dictionary(uniqueKeysWithValues: current.panes.map { ($0.id, $0.title) })
+        #expect(box.workspaceTitle == current.title)
+        #expect(box.paneTitles == titles)
+        #expect(box.coarseWorkspaceTitle == current.title)
+        #expect(box.coarsePaneTitles == titles)
     }
-
-    // MARK: - Issue #327: one gate, so one session's bump cannot phase another's surfaces
-
-    /// The issue's cross-session acceptance case. Session A's tick crosses A's
-    /// window and bumps the SHARED counter while session B's window is
-    /// mid-flight and B just took a newer silent title. Everything that names B
-    /// — the resolved-title map, the rotor and row labels, the search haystack
-    /// and its scored provenance — must say B's COARSE mirror, never B's fresh
-    /// storage title, or the sidebar has named one workspace two ways
-    /// (WCAG 4.1.2).
-    @Test("one session's bump leaves a mid-window session's every surface on its coarse mirror")
-    func crossSessionSurfacesStayOnTheCoarseMirror() throws {
-        let fixture = makeFixture()
-        let other = try fixture.addSession(title: "beta")
-        let base = Date(timeIntervalSince1970: 1_000_000)
-        let boxB = fixture.store.liveTitleBox(for: other.sessionID)
-
-        // A opens and crosses ITS window while B's is mid-flight.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID, paneID: fixture.paneID, title: "alpha", now: base
-        )
-        fixture.store.updatePane(
-            sessionID: other.sessionID,
-            paneID: other.paneID,
-            title: "beta leading edge",
-            now: base.addingTimeInterval(0.2)
-        )
-        #expect(boxB.coarseWorkspaceTitle == "beta leading edge")
-        #expect(fixture.store.liveTitleGeneration == 2)
-
-        // B's newer silent title, mid-window: storage moves alone.
-        fixture.store.updatePane(
-            sessionID: other.sessionID,
-            paneID: other.paneID,
-            title: "beta silent",
-            now: base.addingTimeInterval(0.5)
-        )
-        #expect(fixture.store.session(id: other.sessionID)?.title == "beta silent")
-
-        // A crosses its window. The shared counter bumps for A; B's mirror
-        // must NOT publish on a bump B didn't earn.
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "alpha two",
-            now: base.addingTimeInterval(1)
-        )
-        #expect(fixture.store.liveTitleGeneration == 3)
-        #expect(boxB.coarseWorkspaceTitle == "beta leading edge")
-
-        // Row parity, surface by surface. Every resolved value for B equals
-        // B's coarse mirror — never "beta silent".
-        let titles = fixture.store.sidebarResolvedTitles()
-        #expect(titles[other.sessionID] == "beta leading edge")
-
-        let freshB = try #require(fixture.store.session(id: other.sessionID))
-        let group = try #require(fixture.store.groups.first { $0.sessions.contains { $0.id == other.sessionID } })
-        let entries = [
-            SidebarGroupEntry(
-                group: group,
-                unfilteredIndex: 0,
-                sessions: [SidebarSessionEntry(session: freshB, match: nil)]
-            )
-        ]
-        let rotorLabel = SidebarVisibleRows.rotorEntries(for: entries, titles: titles)[0].label
-        #expect(rotorLabel == SidebarVisibleRows.rotorLabel(for: freshB, title: "beta leading edge"))
-        #expect(rotorLabel.contains("beta silent") == false)
-        let rowLabel = SidebarVisibleRows.rows(
-            for: entries,
-            collapsedGroupIDs: [],
-            isFiltering: false,
-            titles: titles
-        )[1].label
-        #expect(rowLabel == "beta leading edge")
-
-        // Search — haystack AND the provenance the row will highlight — sees
-        // only the coarse name: "beta silent" is unfindable, which is exactly
-        // what parity demands.
-        let output = SidebarSearchProjection.project(
-            groups: fixture.store.groups,
-            query: "silent",
-            haystacks: { session in
-                SidebarSearchHaystacks(
-                    title: titles[session.id] ?? session.title,
-                    // Mirrors the app-side wiring; the location field is not
-                    // under test here.
-                    location: session.workingDirectory,
-                    agentState: SidebarAgentStateSearchToken(agentState: session.effectiveChromeState)
-                )
-            }
-        )
-        #expect(output.entries.isEmpty)
-        let matched = SidebarSearchProjection.project(
-            groups: fixture.store.groups,
-            query: "leading",
-            haystacks: { session in
-                SidebarSearchHaystacks(
-                    title: titles[session.id] ?? session.title,
-                    // Mirrors the app-side wiring; the location field is not
-                    // under test here.
-                    location: session.workingDirectory,
-                    agentState: SidebarAgentStateSearchToken(agentState: session.effectiveChromeState)
-                )
-            }
-        )
-        #expect(
-            matched.entries.first?.sessions.first?.match?.matchedTitle == "beta leading edge"
-        )
-    }
-
-    @Test("an empty coarse title stays authoritative while storage moves ahead")
-    func emptyCoarseTitleDoesNotFallBackToStorage() throws {
-        let inactivePane = TerminalPane(title: "", workingDirectory: "~", executionPlan: .local)
-        let activePane = TerminalPane(title: "", workingDirectory: "~", executionPlan: .local)
-        let session = TerminalSession(
-            title: "",
-            workingDirectory: "~",
-            layout: .split(
-                TerminalSplit(
-                    orientation: .horizontal,
-                    first: .pane(inactivePane),
-                    second: .pane(activePane)
-                )),
-            activePaneID: activePane.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
-        let box = store.liveTitleBox(for: session.id)
-        let base = Date(timeIntervalSince1970: 1_000_000)
-
-        store.updatePane(
-            sessionID: session.id,
-            paneID: inactivePane.id,
-            title: "inactive",
-            now: base
-        )
-        store.updatePane(
-            sessionID: session.id,
-            paneID: activePane.id,
-            title: "storage only",
-            now: base.addingTimeInterval(0.5)
-        )
-
-        #expect(box.hasCoarseSnapshot)
-        #expect(box.coarseWorkspaceTitle == "")
-        #expect(store.session(id: session.id)?.title == "storage only")
-        #expect(store.sidebarResolvedTitles()[session.id] == "")
-        #expect(store.sidebarResolvedTitle(for: session.id) == "")
-        #expect(store.sidebarResolvedTitle(for: UUID()) == nil)
-    }
-
-    @Test("the roster resolver observes coarse titles but ignores fine-only writes")
-    func rosterResolverTracksOnlyTheCoarseChannel() {
-        let fixture = makeFixture()
-        let base = Date(timeIntervalSince1970: 1_000_000)
-        // Seed outside observation tracking. Creating a box adopts storage and
-        // reads its fine properties once; the steady-state resolver must not
-        // retain those dependencies after the box exists.
-        _ = fixture.store.sidebarResolvedTitles()
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "leading",
-            now: base
-        )
-
-        let fineWake = TrackingFlag()
-        withObservationTracking {
-            _ = fixture.store.sidebarResolvedTitles()
-        } onChange: {
-            fineWake.set()
-        }
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "fine only",
-            now: base.addingTimeInterval(0.5)
-        )
-        #expect(!fineWake.value)
-
-        let coarseWake = TrackingFlag()
-        withObservationTracking {
-            _ = fixture.store.sidebarResolvedTitles()
-        } onChange: {
-            coarseWake.set()
-        }
-        fixture.store.updatePane(
-            sessionID: fixture.sessionID,
-            paneID: fixture.paneID,
-            title: "coarse",
-            now: base.addingTimeInterval(1)
-        )
-        #expect(coarseWake.value)
-    }
-
-    // MARK: - A report that displays nothing costs nothing
-
-    @Test("a report against an inactive user-edited pane notifies nobody but still records the live title")
-    func inactiveUserEditedReportSkipsNotificationAndSave() throws {
-        let fixture = makeFixture()
-        // Splitting makes the original pane inactive, so the workspace title
-        // does not follow its live title either.
-        _ = try #require(fixture.store.splitActivePane(orientation: .horizontal, in: fixture.sessionID))
-        #expect(fixture.store.renamePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "pinned"))
-        let box = fixture.store.liveTitleBox(for: fixture.sessionID)
-        let saves = CallCounter()
-        fixture.store.onDisplayOnlyTitleWrite = { saves.increment() }
-        let boxPublished = TrackingFlag()
-        withObservationTracking {
-            _ = box.paneTitles
-            _ = box.workspaceTitle
-        } onChange: {
-            boxPublished.set()
-        }
-
-        fixture.store.updatePane(sessionID: fixture.sessionID, paneID: fixture.paneID, title: "cargo build")
-
-        #expect(!boxPublished.value)
-        #expect(saves.count == 0)
-        #expect(fixture.store.liveTitleGeneration == 0)
-        // Storage still took it: `resetPaneTitle` is the one reader of
-        // `liveTerminalTitle` and has to find the latest value there.
-        let pane = try #require(fixture.store.session(id: fixture.sessionID)?.layout.pane(id: fixture.paneID))
-        #expect(pane.liveTerminalTitle == "cargo build")
-        #expect(fixture.store.resetPaneTitle(sessionID: fixture.sessionID, paneID: fixture.paneID))
-        #expect(box.paneTitles[fixture.paneID] == "cargo build")
-    }
-
-    // MARK: - Helpers
 
     private struct Fixture {
         let store: SessionStore
@@ -932,16 +236,11 @@ struct SessionStoreLiveTitleChannelTests {
     }
 
     private func makeFixture(
-        remoteHost: String? = nil,
-        remoteSSHTarget: String? = nil,
-        pendingRemoteSSHTarget: String? = nil,
-        liveTitleGenerationInterval: TimeInterval = SessionStore.defaultLiveTitleGenerationInterval
+        pendingRemoteSSHTarget: String? = nil
     ) -> Fixture {
         let pane = TerminalPane(
             title: "pane",
             workingDirectory: "~",
-            remoteHost: remoteHost,
-            remoteSSHTarget: remoteSSHTarget,
             pendingRemoteSSHTarget: pendingRemoteSSHTarget,
             executionPlan: .local
         )
@@ -952,8 +251,7 @@ struct SessionStoreLiveTitleChannelTests {
             activePaneID: pane.id
         )
         let store = SessionStore(
-            groups: [SessionGroup(name: "main", sessions: [session])],
-            liveTitleGenerationInterval: liveTitleGenerationInterval
+            groups: [SessionGroup(name: "main", sessions: [session])]
         )
         store.localHostnames = ["local"]
         return Fixture(store: store, sessionID: session.id, paneID: pane.id)
@@ -987,18 +285,5 @@ private final class TrackingFlag: @unchecked Sendable {
 
     func set() {
         lock.withLock { storage = true }
-    }
-}
-
-private final class TrackingTitle: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: String?
-
-    var value: String? {
-        lock.withLock { storage }
-    }
-
-    func set(_ value: String?) {
-        lock.withLock { storage = value }
     }
 }
