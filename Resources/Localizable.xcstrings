@@ -229,8 +229,8 @@
     "%arg is running in this workspace. Closing the workspace will stop it." : {
       "comment" : "Body of the close-workspace confirmation dialog when a live agent process is verified in the workspace. Argument is the agent name (e.g. Claude Code)."
     },
-    "%arg is still waiting for a reply, moved to Needs Input" : {
-      "comment" : "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Input section; the placeholder is the workspace title"
+    "%arg is waiting for a reply, moved to Needs Attention" : {
+      "comment" : "VoiceOver announcement when a workspace whose finished turn went unanswered moves into the Needs Attention section; the placeholder is the workspace title"
     },
     "%arg isn't waiting for input yet" : {
       "comment" : "Unavailable reason when the target agent is not currently waiting at its prompt"
@@ -238,13 +238,13 @@
     "%arg keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead." : {
       "comment" : "Caption explaining what naming a remote session does. The argument is the destination host"
     },
-    "%arg left Needs Input, returned to %arg" : {
+    "%arg left Needs Attention, returned to %arg" : {
       "comment" : "VoiceOver announcement when a workspace stops needing input; first placeholder is the workspace title, second is its group name",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$arg left Needs Input, returned to %2$arg"
+            "value" : "%1$arg left Needs Attention, returned to %2$arg"
           }
         }
       }
@@ -909,6 +909,9 @@
     "Applied layout preset %arg" : {
       "comment" : "VoiceOver announcement after applying a layout preset."
     },
+    "Applies to executable files opened from Finder. Apps with their own terminal preference must be configured separately." : {
+
+    },
     "Applies to new agent sessions." : {
       "comment" : "Agents settings hint."
     },
@@ -1257,6 +1260,9 @@
       "comment" : "Opens the macOS character panel to choose a workspace emoji."
     },
     "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
+
+    },
+    "Choose a regular executable file or an executable .command script with no control characters in its path." : {
 
     },
     "Choose a remote base directory" : {
@@ -1677,6 +1683,9 @@
     "Could not launch agent setup" : {
 
     },
+    "Could not open terminal file" : {
+
+    },
     "Could not reach %arg, or the session ended." : {
       "comment" : "Description under the remote-owned session overlay title, naming the remote host"
     },
@@ -1687,6 +1696,9 @@
       "comment" : "VoiceOver announcement when Show Scrollback cannot read the terminal history"
     },
     "Could not reload Ghostty configuration." : {
+
+    },
+    "Could not run terminal file" : {
 
     },
     "Could not save the pull request document." : {
@@ -1708,6 +1720,9 @@
     },
     "Could not turn on Open at Login. Open System Settings > General > Login Items and allow awesoMux, then try again. %arg" : {
       "comment" : "Error shown when registering awesoMux as a login item fails."
+    },
+    "Could not update all terminal file associations. Check the macOS confirmation and try again." : {
+
     },
     "Could not verify the installed remote helper" : {
       "comment" : "Installed helper verification transport failure title"
@@ -1912,6 +1927,9 @@
     },
     "Default group" : {
       "comment" : "Workspace settings label."
+    },
+    "Default terminal" : {
+
     },
     "Defaults" : {
       "comment" : "Workspace settings title."
@@ -2838,6 +2856,9 @@
     "Make This Workspace Managed…" : {
       "comment" : "Workspace menu and command palette action for converting the selected ordinary SSH pane"
     },
+    "Make awesoMux the default terminal" : {
+
+    },
     "Malformed runtime event was ignored" : {
       "comment" : "Diagnostics event summary"
     },
@@ -2965,9 +2986,6 @@
     "Move Workspace Up" : {
 
     },
-    "Move a workspace to a Needs Input section at the top of the sidebar while it waits on your answer. It returns to its group once you've dealt with it. Off by default." : {
-      "comment" : "Settings field hint for the sidebar needs-input section toggle"
-    },
     "Move to Group…" : {
 
     },
@@ -2976,6 +2994,9 @@
     },
     "Move to Previous Group (%arg)" : {
 
+    },
+    "Move workspaces with attention alerts or completed Codex responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default." : {
+      "comment" : "Settings field hint for the sidebar needs-input section toggle"
     },
     "Moved Terminal Companion to workspace." : {
       "comment" : "VoiceOver announcement after promoting the Terminal Companion into the workspace list."
@@ -3022,11 +3043,17 @@
     "Named, the remote host keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead." : {
       "comment" : "Caption explaining what naming a remote session does, before a destination has been entered"
     },
-    "Needs Input" : {
+    "Needs Attention" : {
       "comment" : "Accessibility label for the needs-input workspaces section header in the collapsed sidebar.\nSidebar section header for workspaces awaiting user input."
     },
     "Needs approval" : {
       "comment" : "Settings label when Open at Login requires approval in System Settings."
+    },
+    "Needs attention from %arg" : {
+      "comment" : "Tooltip on a lifted sidebar workspace naming the group it returns to."
+    },
+    "Needs attention, from %arg" : {
+      "comment" : "Spoken on a workspace lifted into the sidebar's Needs Attention section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
     },
     "Needs input" : {
       "comment" : "Agent state label\nMenu bar visibility choice",
@@ -3038,12 +3065,6 @@
           }
         }
       }
-    },
-    "Needs input from %arg" : {
-      "comment" : "Tooltip on a lifted sidebar workspace naming the group it returns to."
-    },
-    "Needs input, from %arg" : {
-      "comment" : "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
     },
     "Network changed; the SSH session on %arg may be disconnected until SSH recovers or reports failure." : {
       "comment" : "Warning for a possibly stale remote path-bar button; the argument is the SSH host"
@@ -3367,6 +3388,9 @@
     "Open at Login" : {
       "comment" : "Settings field and VoiceOver label for controlling whether awesoMux opens when the user logs in."
     },
+    "Open executable files and .command scripts in awesoMux." : {
+
+    },
     "Open folder %arg" : {
 
     },
@@ -3420,6 +3444,9 @@
     },
     "Opening agent transcript." : {
       "comment" : "VoiceOver announcement when rendering a pane's agent transcript starts"
+    },
+    "Opening executable files requires confirm-close-surface = true in Ghostty settings so awesoMux can wait for the shell prompt." : {
+
     },
     "Opening pull request." : {
       "comment" : "VoiceOver pending state while GitHub is queried for the current branch"
@@ -3786,7 +3813,7 @@
     "Promote to workspace, Command Return" : {
       "comment" : "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
     },
-    "Promote workspaces needing input" : {
+    "Promote workspaces needing attention" : {
       "comment" : "Settings field label for the sidebar needs-input section toggle"
     },
     "Prompt" : {
@@ -4496,7 +4523,13 @@
     "Root folder %arg" : {
 
     },
+    "Run" : {
+
+    },
     "Run Shortcut" : {
+
+    },
+    "Run this file in awesoMux?" : {
 
     },
     "Running" : {
@@ -5394,6 +5427,9 @@
     "The shell was not ready to launch %@. Try again." : {
       "comment" : "Shell startup timeout for named setup"
     },
+    "The shell was not ready. Use sh, bash, zsh, dash, ksh, or fish with shell integration enabled, then open the file again." : {
+
+    },
     "The source is unavailable or changed" : {
       "comment" : "Remote handoff source error title"
     },
@@ -5768,7 +5804,7 @@
     "Unpin Workspace" : {
       "comment" : "Main-menu action that removes the selected workspace from the sidebar's pinned section."
     },
-    "Unpinned %arg, moved to Needs Input" : {
+    "Unpinned %arg, moved to Needs Attention" : {
       "comment" : "VoiceOver announcement when unpinning a workspace that still needs input; the placeholder is the workspace title"
     },
     "Unsafe saved workspace fields were sanitized during restore" : {
@@ -6187,6 +6223,9 @@
     },
     "awesoMux is not registered as a macOS login item." : {
       "comment" : "Settings hint when Open at Login is disabled."
+    },
+    "awesoMux is the default" : {
+
     },
     "awesoMux reopened the version it had already read and preserved those bytes in a recovery file. The live saved file changed during restore, so automatic session saving is paused. Keep the live file, or explicitly replace it with the workspaces currently open in awesoMux." : {
       "comment" : "Recovery warning shown when saved workspace data changed during restore and the opened bytes were archived"

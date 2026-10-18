@@ -766,7 +766,8 @@ struct AwesoMuxApp: App {
                     appSettingsStore: appSettingsStore,
                     terminalAppearancePreferencesCache: terminalAppearancePreferencesCache,
                     openSettings: { openSettingsWindow() },
-                    openPrimaryWindow: { openPrimaryWindow() }
+                        openPrimaryWindow: { openPrimaryWindow() },
+                        openTerminalFile: { request in runTerminalFile(request) }
                 )
                 installDisplayOnlyTitleSaveHandler()
                 appDelegate.updateDockBadge(total: sessionStore.unreadNotificationTotal)
@@ -4865,13 +4866,34 @@ struct AwesoMuxApp: App {
         )
     }
 
+    private func runTerminalFile(_ request: TerminalFileOpenRequest) {
+        guard ghosttyRuntime.supportsPromptReadiness else {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Could not run terminal file")
+            alert.informativeText = String(
+                localized:
+                    "Opening executable files requires confirm-close-surface = true in Ghostty settings so awesoMux can wait for the shell prompt."
+            )
+            alert.runModal()
+            return
+        }
+        // Explicitly local even when the selected workspace or default group uses SSH.
+        let session = TerminalSession(title: request.fileURL.lastPathComponent, workingDirectory: request.workingDirectory)
+        sessionStore.insertSession(session, groupName: appSettingsStore.workspaces.value.defaultGroup)
+        appDelegate.surfacePrimaryWindow()
+        requestTerminalFocus(sessionID: session.id, paneID: session.activePaneID)
+        sendQuickRunCommand(request.command, toPane: session.activePaneID, requiresPromptReadiness: true)
+    }
+
     private func sendQuickRunCommand(
         _ command: String,
         toPane paneID: TerminalPane.ID,
         deadline: ContinuousClock.Instant = .now.advanced(by: .seconds(10)),
-        agentSetup: AgentSetup? = nil
+        agentSetup: AgentSetup? = nil,
+        requiresPromptReadiness: Bool = false
     ) {
-        let foreground = agentSetup == nil ? nil : ghosttyRuntime.foregroundComm(in: paneID)
+        let waitsForPrompt = agentSetup != nil || requiresPromptReadiness
+        let foreground = waitsForPrompt ? ghosttyRuntime.foregroundComm(in: paneID) : nil
         // Startup commands may briefly own the foreground before the shell
         // reaches its prompt. Retry them without sending any command text.
         let setupShellIsReady =
@@ -4880,12 +4902,22 @@ struct AwesoMuxApp: App {
                 foreground: foreground,
                 promptIsAway: ghosttyRuntime.cachedSurfaceView(for: paneID)?.promptMarkerIsAwayFromPrompt()
             )
-        if .now < deadline, (agentSetup == nil || setupShellIsReady), ghosttyRuntime.submitCommand(command, toPane: paneID) {
+        if .now < deadline, (!waitsForPrompt || setupShellIsReady), ghosttyRuntime.submitCommand(command, toPane: paneID) {
             announceQuickRun("Running \(command).")
             return
         }
 
         guard .now < deadline else {
+            if requiresPromptReadiness {
+                let alert = NSAlert()
+                alert.messageText = String(localized: "Could not run terminal file")
+                alert.informativeText = String(
+                    localized:
+                        "The shell was not ready. Use sh, bash, zsh, dash, ksh, or fish with shell integration enabled, then open the file again."
+                )
+                alert.runModal()
+                return
+            }
             if let agentSetup {
                 agentSetupError(
                     String(
@@ -4899,7 +4931,8 @@ struct AwesoMuxApp: App {
         }
 
         ghosttyRuntime.scheduleCommandRetry(toPane: paneID) {
-            sendQuickRunCommand(command, toPane: paneID, deadline: deadline, agentSetup: agentSetup)
+            sendQuickRunCommand(
+                command, toPane: paneID, deadline: deadline, agentSetup: agentSetup, requiresPromptReadiness: requiresPromptReadiness)
         }
     }
 

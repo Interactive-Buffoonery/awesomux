@@ -241,17 +241,17 @@ struct AppearanceSettingsPane: View {
 
                 SettingsField(
                     label: String(
-                        localized: "Promote workspaces needing input",
+                        localized: "Promote workspaces needing attention",
                         comment: "Settings field label for the sidebar needs-input section toggle"),
                     hint: String(
                         localized:
-                            "Move a workspace to a Needs Input section at the top of the sidebar while it waits on your answer. It returns to its group once you've dealt with it. Off by default.",
+                            "Move workspaces with attention alerts or completed Codex responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default.",
                         comment: "Settings field hint for the sidebar needs-input section toggle"),
                     // Bare .labelsHidden() Toggle — let the field supply its name.
                     forwardsAccessibilityToControl: true
                 ) {
                     Toggle(
-                        "Promote workspaces needing input",
+                        "Promote workspaces needing attention",
                         isOn: appSettingsStore.appearance.binding(\.promoteWorkspacesNeedingInput)
                     )
                     .labelsHidden()

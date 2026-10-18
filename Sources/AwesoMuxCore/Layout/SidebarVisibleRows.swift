@@ -140,7 +140,7 @@ public enum SidebarVisibleRows {
         // lifted phrase opens with, so appending the tile's full phrase here
         // stutters them back to back. The tile escapes this because its value
         // puts "Workspace 1 of 3" between the two; the rotor has no such cushion.
-        // Narrow on purpose: a pinned row, or one the Needs Input section still
+        // Narrow on purpose: a pinned row, or one the Needs Attention section still
         // holds by selection stickiness, has had no reason spoken yet and keeps
         // the full phrase.
         let stateAlreadyNamedTheReason =
@@ -208,11 +208,11 @@ public enum SidebarVisibleRows {
         switch reason {
         case .needsInput:
             String(
-                localized: "Needs input, from \(originGroupName)",
+                localized: "Needs attention, from \(originGroupName)",
                 bundle: bundle,
                 locale: locale,
                 comment:
-                    "Spoken on a workspace lifted into the sidebar's Needs Input section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
+                    "Spoken on a workspace lifted into the sidebar's Needs Attention section — both the row's accessibility value and its VoiceOver rotor label — naming the group it returns to. The argument is a user-chosen group name."
             )
         case .pinned:
             String(
