@@ -90,18 +90,8 @@ final class BranchDiffStickyHeaderView: NSView {
         }
     }
 
-    /// Test seam: headless tests have no window to inspect the drawn chevron.
-    var isChevronHidden: Bool { chevron.isHidden }
-    /// Test seam: the chevron's own frame, so a hit-test assertion can aim at
-    /// the subview that used to swallow the click rather than at empty bar.
-    var chevronFrameForTesting: NSRect { chevron.frame }
     /// Test seam: VoiceOver focus is not observable in a headless window.
     var isAccessibilityFocusedForTesting: Bool?
-
-    /// Test seam: the counts label's frame after layout, and the width the
-    /// label needs; a frame narrower than the need clips the removed count.
-    var countsFrameForTesting: NSRect { countsLabel.frame }
-    var countsRequiredWidthForTesting: CGFloat { countsLabel.intrinsicContentSize.width }
 
     /// Click, or the test seam, resolved to the pinned section's key.
     var onActivate: ((String) -> Void)? = nil

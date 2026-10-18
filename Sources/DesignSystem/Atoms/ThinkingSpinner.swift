@@ -97,9 +97,6 @@ final class SpinnerView: NSView {
         needsDisplay = true
     }
 
-    /// Test seam: whether the rotation animation is currently attached.
-    var isSpinAnimationActive: Bool { shape.animation(forKey: Self.animationKey) != nil }
-
     func setSpinning(_ shouldSpin: Bool) {
         spinning = shouldSpin
         applyAnimation()

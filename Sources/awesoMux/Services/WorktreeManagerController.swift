@@ -14,7 +14,7 @@ final class WorktreeManagerController {
     // keeps running until IT checks cancellation, which `refresh()` never
     // does. Without this token, a stale task from a rapid dismiss-then-show
     // could finish after a newer one starts, clear `refreshTask` out from
-    // under it (breaking `hasPendingRefresh`/`waitForPendingRefresh`), and
+    // under it, and
     // announce ITS result against the panel now showing a different model.
     @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private weak var activeModel: WorktreeManagerModel?
@@ -22,21 +22,10 @@ final class WorktreeManagerController {
     @ObservationIgnored private let presentPanel: @MainActor (FloatingSwiftUIPanelWindow) -> Void
 
     private(set) var isVisible = false
-    var hasPendingRefresh: Bool { refreshTask != nil }
-
     init(
         presentPanel: @escaping @MainActor (FloatingSwiftUIPanelWindow) -> Void = { $0.presentAndFocus() }
     ) {
         self.presentPanel = presentPanel
-    }
-
-    /// Awaits the in-flight `show()` refresh, if any. Exists so tests can
-    /// observe completion deterministically instead of polling `hasPendingRefresh`
-    /// across a fixed number of yields — a bounded poll loop loses the race
-    /// under real scheduler load (confirmed flaky in the full suite, not just
-    /// the filtered run).
-    func waitForPendingRefresh() async {
-        await refreshTask?.value
     }
 
     // Rows are branch-name-first with a secondary condensed path, not the

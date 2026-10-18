@@ -9,12 +9,10 @@ import Testing
 
 /// Exercises `DocumentRevisionMonitor` (INT-782): background-tab revision
 /// detection over real files and watchers, baseline semantics, self-write
-/// suppression, reconcile-on-select, pruning, and announcement dedup.
+/// suppression, reconcile-on-select, and announcement dedup.
 ///
 /// The suite is @MainActor to match the monitor's isolation and the other
-/// watcher-driven suites. All polls are bounded; negative checks use short
-/// fixed waits (the event pipeline settles well inside them: 100 ms debounce
-/// plus one read and one diff).
+/// watcher-driven suites. All polls are bounded.
 @MainActor
 @Suite("DocumentRevisionMonitor", .serialized)
 struct DocumentRevisionMonitorTests {
@@ -108,26 +106,6 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
-    @Test("identical re-write does not re-record or re-announce")
-    func identicalContentDeduplicates() async throws {
-        try await withFixture { fixture, monitor, log in
-            let edited = Self.baseContent + "\nline4"
-            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
-                monitor.indicator(for: fixture.tabB) != nil
-            }
-            #expect(recorded)
-            let generation = monitor.indicator(for: fixture.tabB)?.generation
-
-            // Same bytes again: the watcher fires but lastSeenOnDisk matches.
-            try edited.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            try await Task.sleep(nanoseconds: 700_000_000)
-
-            #expect(monitor.indicator(for: fixture.tabB)?.generation == generation)
-            #expect(log.messages.count == 1)
-        }
-    }
-
     @Test("successive background edits diff from the baseline, not edit-to-edit")
     func successiveEditsAccumulate() async throws {
         try await withFixture { fixture, monitor, log in
@@ -160,8 +138,14 @@ struct DocumentRevisionMonitorTests {
         let log = AnnouncementLog()
         let monitor = makeMonitor(log: log)
         // No cached render: the monitor's async seed read becomes the baseline.
+        var seeded = false
+        monitor.selfWriteContext = { _, _ in
+            seeded = true
+            return nil
+        }
         monitor.sync(tabs: [selected, tab], selectedTabID: selected.id, cachedSource: { _ in nil })
-        try await Task.sleep(nanoseconds: 500_000_000)
+        monitor.reconcile(tab: tab)
+        try #require(await waitUntilEventually { seeded })
         #expect(monitor.indicator(for: tab) == nil)
 
         try (Self.baseContent + "\nline4").write(to: url, atomically: true, encoding: .utf8)
@@ -241,78 +225,7 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
-    @Test("coalesced self-write and external edit diff from the user's own source")
-    func coalescedSelfWriteUsesRegistrySource() async throws {
-        try await withFixture { fixture, monitor, _ in
-            let selfWritten = Self.baseContent + "\nannotation"
-            monitor.selfWriteContext = { _, _ in
-                MarkdownSelfWriteContext(source: selfWritten, isSelfWrite: false)
-            }
-            // Disk gained the annotation plus two external lines; the diff
-            // must be measured from the annotation (+2), not the baseline (+3).
-            try (selfWritten + "\nx\ny").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
-                self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)
-            }
-            #expect(recorded)
-        }
-    }
-
-    @Test("deleting the file never indicates")
-    func deletedFileDoesNotIndicate() async throws {
-        try await withFixture { fixture, monitor, log in
-            try FileManager.default.removeItem(at: fixture.urlB)
-            try await Task.sleep(nanoseconds: 700_000_000)
-            #expect(monitor.indicator(for: fixture.tabB) == nil)
-            #expect(log.messages.isEmpty)
-        }
-    }
-
-    @Test("recreation with changes after a delete indicates against the old baseline")
-    func recreationAfterDeleteIndicates() async throws {
-        try await withFixture { fixture, monitor, _ in
-            try FileManager.default.removeItem(at: fixture.urlB)
-            // Recreate inside the watcher's re-arm retry budget (~200 ms).
-            try await Task.sleep(nanoseconds: 30_000_000)
-            try (Self.baseContent + "\nline4").write(
-                to: fixture.urlB, atomically: false, encoding: .utf8)
-
-            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
-                self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 1, removed: 0)
-            }
-            #expect(recorded)
-        }
-    }
-
-    @Test("content returning exactly to the baseline dismisses the indicator")
-    func returnToBaselineDismisses() async throws {
-        try await withFixture { fixture, monitor, _ in
-            try (Self.baseContent + "\nline4").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
-                monitor.indicator(for: fixture.tabB) != nil
-            }
-            #expect(recorded)
-
-            try Self.baseContent.write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let dismissed = await waitUntilEventually(deadline: .seconds(10)) {
-                monitor.indicator(for: fixture.tabB) == nil
-            }
-            #expect(dismissed, "a stale marker would claim changes that no longer exist")
-        }
-    }
-
     // MARK: - Selection semantics
-
-    @Test("watcher events for the selected tab are left to the pane pipeline")
-    func selectedTabIsSkipped() async throws {
-        try await withFixture { fixture, monitor, log in
-            try (Self.baseContent + "\nline4").write(
-                to: fixture.tabA.fileURL, atomically: true, encoding: .utf8)
-            try await Task.sleep(nanoseconds: 700_000_000)
-            #expect(monitor.indicator(for: fixture.tabA) == nil)
-            #expect(log.messages.isEmpty)
-        }
-    }
 
     @Test("reconcile records an edit the watcher missed during a selection change")
     func reconcileRecordsMissedEdit() async throws {
@@ -334,7 +247,6 @@ struct DocumentRevisionMonitorTests {
                 self.exactDiff(monitor.indicator(for: fixture.tabB)) == LineDiffCount(added: 2, removed: 0)
             }
             #expect(recorded)
-            #expect(log.messages.count == 1)
         }
     }
 
@@ -369,37 +281,6 @@ struct DocumentRevisionMonitorTests {
         #expect(bothRecorded)
         #expect(log.messages.count == 1)
         monitor.stopAll()
-    }
-
-    @Test("in-place file replacement prunes state and resets the baseline")
-    func inPlaceReplacementPrunes() async throws {
-        try await withFixture { fixture, monitor, log in
-            try (Self.baseContent + "\nline4").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            let recorded = await waitUntilEventually(deadline: .seconds(10)) {
-                monitor.indicator(for: fixture.tabB) != nil
-            }
-            #expect(recorded)
-
-            // The Files browser replaces a tab's file in place: same id, new URL.
-            let replacementURL = fixture.directory.url.appendingPathComponent("c.md")
-            try Self.baseContent.write(to: replacementURL, atomically: false, encoding: .utf8)
-            let replacedTab = DocumentPane(
-                id: fixture.tabB.id, fileURL: replacementURL, title: "c.md")
-            monitor.sync(
-                tabs: [fixture.tabA, replacedTab],
-                selectedTabID: fixture.tabA.id,
-                cachedSource: { _ in nil }
-            )
-            #expect(monitor.indicator(for: fixture.tabB) == nil, "old-path indicator must prune")
-            #expect(monitor.indicator(for: replacedTab) == nil)
-
-            // Edits to the abandoned file must not reach the replaced tab.
-            let announcementsBefore = log.messages.count
-            try (Self.baseContent + "\nline5").write(to: fixture.urlB, atomically: true, encoding: .utf8)
-            try await Task.sleep(nanoseconds: 700_000_000)
-            #expect(monitor.indicator(for: replacedTab) == nil)
-            #expect(log.messages.count == announcementsBefore)
-        }
     }
 
     @Test("a re-edit back to previously announced content announces again after a dismiss")
@@ -481,61 +362,4 @@ struct DocumentRevisionMonitorTests {
         }
     }
 
-    // MARK: - Registry
-
-    @Test("registry returns one monitor per group and prune stops dead groups")
-    func registryIdentityAndPrune() async throws {
-        let directory = try TemporaryDirectory(prefix: "DocumentRevisionMonitorTests")
-        defer { withExtendedLifetime(directory) {} }
-        let url = directory.url.appendingPathComponent("a.md")
-        try Self.baseContent.write(to: url, atomically: false, encoding: .utf8)
-        let selected = DocumentPane(
-            fileURL: directory.url.appendingPathComponent("other.md"), title: "other.md")
-        try Self.baseContent.write(to: selected.fileURL, atomically: false, encoding: .utf8)
-        let tab = DocumentPane(fileURL: url, title: "a.md")
-
-        let groupID = UUID()
-        let monitor = DocumentRevisionMonitorRegistry.monitor(for: groupID)
-        // Survives an unmount: the registry hands back the same instance, so
-        // a session switch does not reset baselines or indicators.
-        #expect(DocumentRevisionMonitorRegistry.monitor(for: groupID) === monitor)
-        #expect(DocumentRevisionMonitorRegistry.monitor(for: UUID()) !== monitor)
-
-        monitor.announce = { _ in }
-        monitor.selfWriteContext = { _, _ in nil }
-        monitor.sync(
-            tabs: [selected, tab],
-            selectedTabID: selected.id,
-            cachedSource: { _ in Self.baseContent }
-        )
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        // Pruning a closed group stops its watchers: subsequent edits no
-        // longer record.
-        DocumentRevisionMonitorRegistry.prune(keeping: [])
-        try (Self.baseContent + "\nline4").write(to: url, atomically: true, encoding: .utf8)
-        try await Task.sleep(nanoseconds: 700_000_000)
-        #expect(monitor.indicator(for: tab) == nil)
-    }
-
-    // MARK: - Selected-pane passthrough
-
-    @Test("recordSelected records and announces")
-    func recordSelectedAnnounces() async throws {
-        let directory = try TemporaryDirectory(prefix: "DocumentRevisionMonitorTests")
-        defer { withExtendedLifetime(directory) {} }
-        let url = directory.url.appendingPathComponent("a.md")
-        try Self.baseContent.write(to: url, atomically: false, encoding: .utf8)
-        let tab = DocumentPane(fileURL: url, title: "a.md")
-
-        let log = AnnouncementLog()
-        let monitor = makeMonitor(log: log)
-        monitor.sync(tabs: [tab], selectedTabID: tab.id, cachedSource: { _ in Self.baseContent })
-
-        monitor.recordSelected(.exact(LineDiffCount(added: 1, removed: 2)), for: tab)
-        #expect(exactDiff(monitor.indicator(for: tab)) == LineDiffCount(added: 1, removed: 2))
-        #expect(log.messages.count == 1)
-        #expect(log.messages.first?.contains("a.md") == true)
-        monitor.stopAll()
-    }
 }

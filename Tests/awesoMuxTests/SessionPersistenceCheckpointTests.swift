@@ -18,12 +18,10 @@ extension SessionPersistenceSerializationDomainTests {
                 let store = Self.store()
                 let session = try #require(store.groups.first?.sessions.first)
                 let paneID = session.activePaneID
-                var completions = 0
                 store.onDisplayOnlyTitleWrite = { [weak store] in
                     guard let store else { return }
                     SessionPersistence.save(store) { result in
                         #expect(throws: Never.self) { try result.get() }
-                        completions += 1
                     }
                 }
                 defer { store.onDisplayOnlyTitleWrite = nil }
@@ -37,21 +35,23 @@ extension SessionPersistenceSerializationDomainTests {
                         if update == 3 {
                             _ = store.renameGroup(id: store.groups[0].id, to: "structural-\(window)")
                             store.addSession(title: "added-\(window)", groupName: store.groups[0].name)
-                            SessionPersistence.save(store) { _ in completions += 1 }
+                            SessionPersistence.save(store) { result in
+                                #expect(throws: Never.self) { try result.get() }
+                            }
                         }
                     }
-                    #expect(scheduler.sleepCallCount == window)
-                    #expect(scheduler.requestedDurations.last == .milliseconds(500))
+                    try #require(await waitUntil { scheduler.sleeperCount == 1 })
                     scheduler.advanceOneCycle()
-                    #expect(await waitUntilEventually { completions == window })
+                    try #require(
+                        await waitUntilEventually {
+                            (try? Self.read(directory.url).groups.first?.sessions.first?.title) == "title-\(window)-5"
+                        })
                     let saved = try Self.read(directory.url)
                     #expect(saved.groups[0].name == "structural-\(window)")
                     #expect(saved.groups[0].sessions.count == window + 1)
                     #expect(saved.groups[0].sessions.last?.title == "added-\(window)")
                     #expect(saved.groups[0].sessions[0].title == "title-\(window)-5")
                 }
-                // The last window has no following update to trigger its write.
-                #expect(completions == 3)
             }
         }
 

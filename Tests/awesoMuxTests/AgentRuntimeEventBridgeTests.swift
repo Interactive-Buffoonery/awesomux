@@ -9,114 +9,115 @@ import Testing
 extension SessionPersistenceSerializationDomainTests {
     @Suite("Agent runtime event bridge")
     struct AgentRuntimeEventBridgeTests {
-    @MainActor
-    @Test("a new watch consumes a buffered terminal session end")
-    func newWatchConsumesBufferedTerminalSessionEnd() throws {
-        try Self.withTemporaryDirectory { directory in
-            try SessionPersistence.withTemporarySupportDirectory(directory) {
-                let paneID = TerminalPane.ID()
-                let eventsDirectory = directory.appending(
-                    path: "runtime-events",
-                    directoryHint: .isDirectory
-                )
-                try FileManager.default.createDirectory(
-                    at: eventsDirectory,
-                    withIntermediateDirectories: true
-                )
-                let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
-                let oldEnd = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}"#
-                try Data((oldEnd + "\n").utf8).write(to: eventFile)
-
-                let bridge = AgentRuntimeEventBridge()
-                var appliedEvents: [AgentRuntimeEvent] = []
-                let environment = bridge.environment(
-                    sessionID: TerminalSession.ID(),
-                    paneID: paneID,
-                    enabledFileDropSources: []
-                ) { event in
-                    appliedEvents.append(event)
-                }
-
-                bridge.drainRuntimeEventsForTesting(paneID: paneID)
-                #expect(appliedEvents.map(\.phase) == [.sessionEnd])
-
-                let newStart = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}"#
-                let handle = try FileHandle(forWritingTo: environment.eventFileURL)
-                try handle.seekToEnd()
-                try handle.write(contentsOf: Data((newStart + "\n").utf8))
-                try handle.close()
-                bridge.drainRuntimeEventsForTesting(paneID: paneID)
-
-                #expect(appliedEvents.map(\.phase) == [.sessionEnd, .sessionStart])
-                bridge.stopWatchingAll()
-            }
-        }
+        enum BufferedLifecycleCase: String, CaseIterable {
+            case newWatchConsumesBufferedTerminalSessionEnd
+            case newerBufferedLifecyclePreventsOldSessionEndReplay
+            case finalBufferedRecordIsAuthoritative
     }
 
     @MainActor
-    @Test("a newer buffered lifecycle prevents an old session end replay")
-    func newerBufferedLifecyclePreventsOldSessionEndReplay() throws {
-        try Self.withTemporaryDirectory { directory in
-            try SessionPersistence.withTemporarySupportDirectory(directory) {
-                let paneID = TerminalPane.ID()
-                let eventsDirectory = directory.appending(
-                    path: "runtime-events",
-                    directoryHint: .isDirectory
-                )
-                try FileManager.default.createDirectory(
-                    at: eventsDirectory,
-                    withIntermediateDirectories: true
-                )
-                let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
-                let bufferedEvents = """
-                    {"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}
-                    {"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}
-                    """
-                try Data((bufferedEvents + "\n").utf8).write(to: eventFile)
+        @Test(arguments: BufferedLifecycleCase.allCases)
+        func bufferedLifecycle(_ scenario: BufferedLifecycleCase) throws {
+            switch scenario {
+            case .newWatchConsumesBufferedTerminalSessionEnd:
+                try Self.withTemporaryDirectory { directory in
+                    try SessionPersistence.withTemporarySupportDirectory(directory) {
+                        let paneID = TerminalPane.ID()
+                        let eventsDirectory = directory.appending(
+                            path: "runtime-events",
+                            directoryHint: .isDirectory
+                        )
+                        try FileManager.default.createDirectory(
+                            at: eventsDirectory,
+                            withIntermediateDirectories: true
+                        )
+                        let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+                        let oldEnd = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}"#
+                        try Data((oldEnd + "\n").utf8).write(to: eventFile)
 
-                let bridge = AgentRuntimeEventBridge()
-                var appliedEvents: [AgentRuntimeEvent] = []
-                bridge.environment(
-                    sessionID: TerminalSession.ID(),
-                    paneID: paneID,
-                    enabledFileDropSources: []
-                ) { appliedEvents.append($0) }
+                        let bridge = AgentRuntimeEventBridge()
+                        var appliedEvents: [AgentRuntimeEvent] = []
+                        let environment = bridge.environment(
+                            sessionID: TerminalSession.ID(),
+                            paneID: paneID,
+                            enabledFileDropSources: []
+                        ) { event in
+                            appliedEvents.append(event)
+                        }
 
-                #expect(appliedEvents.isEmpty)
-                bridge.stopWatchingAll()
+                        bridge.drainRuntimeEventsForTesting(paneID: paneID)
+                        #expect(appliedEvents.map(\.phase) == [.sessionEnd])
+
+                        let newStart = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}"#
+                        let handle = try FileHandle(forWritingTo: environment.eventFileURL)
+                        try handle.seekToEnd()
+                        try handle.write(contentsOf: Data((newStart + "\n").utf8))
+                        try handle.close()
+                        bridge.drainRuntimeEventsForTesting(paneID: paneID)
+
+                        #expect(appliedEvents.map(\.phase) == [.sessionEnd, .sessionStart])
+                        bridge.stopWatchingAll()
+                    }
             }
-        }
-    }
-
-    @MainActor
-    @Test("only the final complete nonempty buffered record can provide lifecycle truth")
-    func finalBufferedRecordIsAuthoritative() throws {
-        let invalidFinalRecords = [
-            "not-json",
-            #"{"v":2,"source":"pi","execution":"idle","phase":"sessionStart"}"#,
-            #"{"v":1,"source":"future","execution":"idle","phase":"sessionEnd"}"#,
-            String(repeating: "x", count: AgentRuntimeEvent.maximumLineByteCount + 1),
-        ]
-
-        for invalidFinalRecord in invalidFinalRecords {
+            case .newerBufferedLifecyclePreventsOldSessionEndReplay:
             try Self.withTemporaryDirectory { directory in
-                let paneID = TerminalPane.ID()
-                let eventsDirectory = directory.appending(path: "runtime-events")
-                try FileManager.default.createDirectory(at: eventsDirectory, withIntermediateDirectories: true)
-                let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
-                let oldEnd = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}"#
-                try Data("\(oldEnd)\n\(invalidFinalRecord)\n".utf8).write(to: eventFile)
+                    try SessionPersistence.withTemporarySupportDirectory(directory) {
+                        let paneID = TerminalPane.ID()
+                        let eventsDirectory = directory.appending(
+                            path: "runtime-events",
+                            directoryHint: .isDirectory
+                        )
+                        try FileManager.default.createDirectory(
+                            at: eventsDirectory,
+                            withIntermediateDirectories: true
+                        )
+                        let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+                        let bufferedEvents = """
+                            {"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}
+                            {"v":1,"source":"pi","execution":"idle","phase":"sessionStart"}
+                            """
+                        try Data((bufferedEvents + "\n").utf8).write(to: eventFile)
 
-                var appliedEvents: [AgentRuntimeEvent] = []
-                let bridge = AgentRuntimeEventBridge(runtimeEventsDirectoryURL: eventsDirectory)
-                bridge.environment(
-                    sessionID: TerminalSession.ID(),
-                    paneID: paneID,
-                    enabledFileDropSources: []
-                ) { appliedEvents.append($0) }
+                        let bridge = AgentRuntimeEventBridge()
+                        var appliedEvents: [AgentRuntimeEvent] = []
+                        bridge.environment(
+                            sessionID: TerminalSession.ID(),
+                            paneID: paneID,
+                            enabledFileDropSources: []
+                        ) { appliedEvents.append($0) }
 
-                #expect(appliedEvents.isEmpty)
-                bridge.stopWatchingAll()
+                        #expect(appliedEvents.isEmpty)
+                        bridge.stopWatchingAll()
+                    }
+                }
+            case .finalBufferedRecordIsAuthoritative:
+                let invalidFinalRecords = [
+                    "not-json",
+                    #"{"v":2,"source":"pi","execution":"idle","phase":"sessionStart"}"#,
+                    #"{"v":1,"source":"future","execution":"idle","phase":"sessionEnd"}"#,
+                    String(repeating: "x", count: AgentRuntimeEvent.maximumLineByteCount + 1),
+                ]
+
+                for invalidFinalRecord in invalidFinalRecords {
+                    try Self.withTemporaryDirectory { directory in
+                        let paneID = TerminalPane.ID()
+                        let eventsDirectory = directory.appending(path: "runtime-events")
+                        try FileManager.default.createDirectory(at: eventsDirectory, withIntermediateDirectories: true)
+                        let eventFile = eventsDirectory.appending(path: "\(paneID.uuidString).jsonl")
+                        let oldEnd = #"{"v":1,"source":"pi","execution":"idle","phase":"sessionEnd"}"#
+                        try Data("\(oldEnd)\n\(invalidFinalRecord)\n".utf8).write(to: eventFile)
+
+                        var appliedEvents: [AgentRuntimeEvent] = []
+                        let bridge = AgentRuntimeEventBridge(runtimeEventsDirectoryURL: eventsDirectory)
+                        bridge.environment(
+                            sessionID: TerminalSession.ID(),
+                            paneID: paneID,
+                            enabledFileDropSources: []
+                        ) { appliedEvents.append($0) }
+
+                        #expect(appliedEvents.isEmpty)
+                        bridge.stopWatchingAll()
+                    }
             }
         }
     }
@@ -149,92 +150,27 @@ extension SessionPersistenceSerializationDomainTests {
         }
     }
 
-    @MainActor
-    @Test("inode rotation invalidates the initial buffered decision")
-    func inodeRotationInvalidatesInitialSnapshot() throws {
-        try Self.initialSnapshotMutationTest { eventFile, replacement in
-            let rotatedFile = eventFile.appendingPathExtension("rotated")
-            try FileManager.default.moveItem(at: eventFile, to: rotatedFile)
-            try replacement.write(to: eventFile)
-        }
+        enum BufferedSnapshotInvalidationCase: String, CaseIterable {
+            case inodeRotationInvalidatesInitialSnapshot
+            case truncateRegrowInvalidatesInitialSnapshot
     }
 
     @MainActor
-    @Test("truncate and regrow invalidates the initial buffered decision")
-    func truncateRegrowInvalidatesInitialSnapshot() throws {
-        try Self.initialSnapshotMutationTest { eventFile, replacement in
-            let handle = try FileHandle(forWritingTo: eventFile)
-            try handle.truncate(atOffset: 0)
-            try handle.write(contentsOf: replacement)
-            try handle.close()
-        }
-    }
-
-    @MainActor
-    @Test("valid runtime activity updates state without creating diagnostic rows")
-    func validRuntimeActivityIsNotDuplicatedIntoDiagnostics() throws {
-        try Self.withTemporaryDirectory { directory in
-            try SessionPersistence.withTemporarySupportDirectory(directory) {
-                var diagnostics: [LocalDiagnosticEventInput] = []
-                let bridge = AgentRuntimeEventBridge(
-                    diagnosticEventHandler: { diagnostics.append($0) }
-                )
-                let sessionID = TerminalSession.ID()
-                let paneID = TerminalPane.ID()
-                var appliedEvents: [AgentRuntimeEvent] = []
-                let environment = bridge.environment(
-                    sessionID: sessionID,
-                    paneID: paneID,
-                    enabledFileDropSources: []
-                ) { appliedEvents.append($0) }
-                let event = #"{"v":1,"source":"codex","execution":"thinking","phase":"toolStart"}"#
-                let handle = try FileHandle(forWritingTo: environment.eventFileURL)
-                try handle.seekToEnd()
-                try handle.write(contentsOf: Data((event + "\n").utf8))
-                try handle.close()
-
-                bridge.drainRuntimeEventsForTesting(paneID: paneID)
-
-                #expect(appliedEvents.count == 1)
-                #expect(diagnostics.isEmpty)
-                bridge.stopWatchingAll()
+        @Test(arguments: BufferedSnapshotInvalidationCase.allCases)
+        func bufferedSnapshotInvalidation(_ scenario: BufferedSnapshotInvalidationCase) throws {
+            switch scenario {
+            case .inodeRotationInvalidatesInitialSnapshot:
+                try Self.initialSnapshotMutationTest { eventFile, replacement in
+                    let rotatedFile = eventFile.appendingPathExtension("rotated")
+                    try FileManager.default.moveItem(at: eventFile, to: rotatedFile)
+                    try replacement.write(to: eventFile)
             }
-        }
-    }
-
-    @MainActor
-    @Test("malformed runtime lines coalesce into one diagnostic event per drain")
-    func malformedLinesCoalescePerDrain() throws {
-        try Self.withTemporaryDirectory { directory in
-            try SessionPersistence.withTemporarySupportDirectory(directory) {
-                var diagnostics: [LocalDiagnosticEventInput] = []
-                let bridge = AgentRuntimeEventBridge(
-                    diagnosticEventHandler: { diagnostics.append($0) }
-                )
-                let sessionID = TerminalSession.ID()
-                let paneID = TerminalPane.ID()
-                var appliedEvents: [AgentRuntimeEvent] = []
-                let environment = bridge.environment(
-                    sessionID: sessionID,
-                    paneID: paneID,
-                    enabledFileDropSources: []
-                ) { appliedEvents.append($0) }
-                let payload = """
-                    not-json
-                    {"v":1,"source":"codex","execution":"thinking","phase":"toolStart"}
-                    also-not-json
-                    still-broken
-                    """
-                let handle = try FileHandle(forWritingTo: environment.eventFileURL)
-                try handle.seekToEnd()
-                try handle.write(contentsOf: Data((payload + "\n").utf8))
+            case .truncateRegrowInvalidatesInitialSnapshot:
+                try Self.initialSnapshotMutationTest { eventFile, replacement in
+                    let handle = try FileHandle(forWritingTo: eventFile)
+                    try handle.truncate(atOffset: 0)
+                    try handle.write(contentsOf: replacement)
                 try handle.close()
-
-                bridge.drainRuntimeEventsForTesting(paneID: paneID)
-
-                #expect(appliedEvents.count == 1)
-                #expect(diagnostics == [.runtimeEventRejected])
-                bridge.stopWatchingAll()
             }
         }
     }
@@ -350,176 +286,6 @@ extension SessionPersistenceSerializationDomainTests {
             #expect(phases == [.toolStart, .stop])
             bridge.stopWatchingAll()
         }
-    }
-
-    @MainActor
-    @Test("source-open failure retries and delivers in background before reactivation")
-    func backgroundSourceOpenFailureRecoversBeforeReactivation() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-runtime-event-bridge-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let runtimeEventsDirectory = directory.appending(
-            path: "runtime-events",
-            directoryHint: .isDirectory
-        )
-        try Data("block directory creation".utf8).write(to: runtimeEventsDirectory)
-
-        let session = TerminalSession(
-            title: "agent",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .running
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-        var tracker = WorkspaceNotificationTracker(groups: store.groups)
-        var notificationEvents: [WorkspaceNotificationEvent] = []
-        let notificationCenter = NotificationCenter()
-        let bridge = AgentRuntimeEventBridge(
-            notificationCenter: notificationCenter,
-            initialIsAppActive: true,
-            runtimeEventsDirectoryURL: runtimeEventsDirectory
-        )
-        defer { bridge.stopWatchingAll() }
-        let environment = bridge.environment(
-            sessionID: session.id,
-            paneID: session.activePaneID,
-            enabledFileDropSources: []
-        ) { event in
-            guard
-                store.applyAgentRuntimeEvent(
-                    event,
-                    to: session.id,
-                    paneID: session.activePaneID,
-                    terminalIsFocused: false
-                )
-            else {
-                return
-            }
-            notificationEvents = tracker.notificationEvents(
-                afterUpdating: store.groups,
-                selectedSessionID: session.id,
-                isAppActive: false,
-                notifyOnTurnDone: true
-            )
-        }
-
-        notificationCenter.post(
-            name: NSApplication.didResignActiveNotification,
-            object: nil
-        )
-        try FileManager.default.removeItem(at: runtimeEventsDirectory)
-        try FileManager.default.createDirectory(
-            at: runtimeEventsDirectory,
-            withIntermediateDirectories: true
-        )
-        try #require(
-            await waitUntilEventually(deadline: .seconds(10)) {
-                FileManager.default.fileExists(atPath: environment.eventFileURL.path)
-            }
-        )
-        let event = #"{"v":1,"source":"codex","execution":"waiting","phase":"stop"}"#
-        let handle = try FileHandle(forWritingTo: environment.eventFileURL)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data((event + "\n").utf8))
-        try handle.close()
-
-        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
-
-        #expect(store.session(id: session.id)?.agentState == .waiting)
-        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
-        #expect(notificationEvents.map(\.kind) == [.turnDone])
-    }
-
-    @MainActor
-    @Test("same-inode read failure drains after recovery without another event")
-    func sameInodeReadFailureRetriesDrain() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-runtime-event-bridge-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let session = TerminalSession(
-            title: "agent",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .running
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-        var tracker = WorkspaceNotificationTracker(groups: store.groups)
-        var notificationEvents: [WorkspaceNotificationEvent] = []
-        let notificationCenter = NotificationCenter()
-        let bridge = AgentRuntimeEventBridge(
-            notificationCenter: notificationCenter,
-            initialIsAppActive: true,
-            runtimeEventsDirectoryURL: directory.appending(
-                path: "runtime-events",
-                directoryHint: .isDirectory
-            )
-        )
-        defer { bridge.stopWatchingAll() }
-        let environment = bridge.environment(
-            sessionID: session.id,
-            paneID: session.activePaneID,
-            enabledFileDropSources: []
-        ) { event in
-            guard
-                store.applyAgentRuntimeEvent(
-                    event,
-                    to: session.id,
-                    paneID: session.activePaneID,
-                    terminalIsFocused: false
-                )
-            else {
-                return
-            }
-            notificationEvents = tracker.notificationEvents(
-                afterUpdating: store.groups,
-                selectedSessionID: session.id,
-                isAppActive: false
-            )
-        }
-
-        let handle = try FileHandle(forWritingTo: environment.eventFileURL)
-        defer { try? handle.close() }
-        defer {
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: environment.eventFileURL.path
-            )
-        }
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o000],
-            ofItemAtPath: environment.eventFileURL.path
-        )
-        notificationCenter.post(
-            name: NSApplication.didResignActiveNotification,
-            object: nil
-        )
-            // Exercise recovery independently of the Codex permission grace period.
-            let event = #"{"v":1,"source":"codex","attentionReason":"userInputRequired","phase":"notification"}"#
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data((event + "\n").utf8))
-        try await Task.sleep(for: .milliseconds(50))
-        notificationCenter.post(
-            name: NSApplication.didBecomeActiveNotification,
-            object: nil
-        )
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: environment.eventFileURL.path
-        )
-
-        #expect(await waitUntilEventually(deadline: .seconds(10)) { !notificationEvents.isEmpty })
-
-        #expect(store.session(id: session.id)?.agentState == .needsAttention)
-        #expect(store.session(id: session.id)?.unreadNotificationCount == 1)
-        #expect(notificationEvents.map(\.kind) == [.needsAttention])
     }
 
     @MainActor

@@ -45,10 +45,6 @@ enum AgentTranscriptResumeStaging {
     /// the same bug, and one guard in the shared path covers both.
     private static var inFlight: Set<DocumentPane.ID> = []
 
-    static func isStaging(_ documentID: DocumentPane.ID) -> Bool {
-        inFlight.contains(documentID)
-    }
-
     /// - Parameters:
     ///   - layout: The layout snapshot the click was made against. Used only to
     ///     resolve the document's terminal association, which the awaited probe

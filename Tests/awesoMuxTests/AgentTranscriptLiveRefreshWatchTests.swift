@@ -78,90 +78,68 @@ struct AgentTranscriptLiveRefreshWatchTests {
         await task.value
     }
 
-    @Test("an initially absent source is discovered inside an existing provider tree")
-    func initialNestedSourceCreationStartsTheCache() async throws {
+    @Test(arguments: [false, true])
+    func initialSourceCreationStartsTheCache(providerTreeExists: Bool) async throws {
         let root = try TemporaryDirectory(prefix: "awesomux-live-refresh-initial")
-        defer { withExtendedLifetime(root) {} }
-        let configHome = root.url.appending(path: "claude", directoryHint: .isDirectory)
-        let projects = configHome.appending(path: "projects/-tmp-repo", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
-        let source = projects.appending(path: "\(Self.sessionID).jsonl")
-
-        let store = AgentTranscriptStore(
-            cacheDirectoryURL: root.url.appending(path: "cache", directoryHint: .isDirectory)
-        )
-        let cacheURL = store.fileURL(agentKind: .claudeCode, sessionID: Self.sessionID)
-        let identity = try #require(
-            AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: Self.sessionID)
-        )
-        let loop = AgentTranscriptLiveRefresh(
-            identity: identity,
-            configHome: configHome,
-            gate: AgentTranscriptRenderGate(),
-            pinned: nil,
-            store: store,
-            onPin: { _ in }
-        )
-        let task = Task { await loop.run() }
-        defer { task.cancel() }
-
-        // This timing-only integration proof must let the catch-up discovery
-        // report `.notFound`; otherwise writing immediately could satisfy the
-        // initial probe without exercising the recursive watcher at all.
-        try await Task.sleep(for: .milliseconds(500))
-        try Data("\(Self.turnA)\n".utf8).write(to: source)
-
-        #expect(
-            await waitUntilEventually(deadline: .seconds(3)) {
-                (try? String(contentsOf: cacheURL, encoding: .utf8))?.contains("opening turn")
-                    == true
-            },
-            "a descendant directory event must wake exact-identity discovery"
-        )
-
-        task.cancel()
-        await task.value
-    }
-
-    @Test("an initially absent provider root remains recoverable")
-    func initialMissingProviderRootStartsTheCache() async throws {
-        let root = try TemporaryDirectory(prefix: "awesomux-live-refresh-missing-root")
         defer { withExtendedLifetime(root) {} }
         let configHome = root.url.appending(path: "claude", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: configHome, withIntermediateDirectories: true)
         let projects = configHome.appending(path: "projects/-tmp-repo", directoryHint: .isDirectory)
+        if providerTreeExists {
+            try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        }
         let source = projects.appending(path: "\(Self.sessionID).jsonl")
-
-        let store = AgentTranscriptStore(
-            cacheDirectoryURL: root.url.appending(path: "cache", directoryHint: .isDirectory)
-        )
+        let store = AgentTranscriptStore(cacheDirectoryURL: root.url.appending(path: "cache"))
         let cacheURL = store.fileURL(agentKind: .claudeCode, sessionID: Self.sessionID)
-        let identity = try #require(
-            AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: Self.sessionID)
-        )
+        let identity = try #require(AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: Self.sessionID))
+        let missing = EventRecorder<Void>()
+        let armed = EventRecorder<Void>()
         let loop = AgentTranscriptLiveRefresh(
-            identity: identity,
-            configHome: configHome,
-            gate: AgentTranscriptRenderGate(),
-            pinned: nil,
-            store: store,
-            onPin: { _ in }
+            gate: AgentTranscriptRenderGate(), pinned: nil, onPin: { _ in },
+            discover: {
+                let result = AgentTranscriptImporter.open(
+                    agentKind: identity.agentKind, executionPlan: .local,
+                    configHome: configHome, reportedSessionID: identity.sessionID
+                )
+                if case .failure(.notFound) = result { await missing.record(()) }
+                return result
+            },
+            refresh: { transcript, shouldCommit in
+                AgentTranscriptOpener.refresh(transcript, store: store, shouldCommit: shouldCommit)
+            },
+            watch: { url, onChange in
+                let watcher = DocumentFileWatcher(url: url, coalescing: .leadingEdge, onChange: onChange)
+                watcher.start()
+                return { watcher.stop() }
+            },
+            recoveryWatch: { url, onChange in
+                let watcher = AgentTranscriptDirectoryWatcher(
+                    rootURL: url,
+                    matchesPath: { path in
+                        AgentTranscriptImporter.matchesTranscriptFileName(
+                            agentKind: identity.agentKind, sessionID: identity.sessionID,
+                            fileName: URL(fileURLWithPath: path).lastPathComponent
+                        )
+                    }, onChange: onChange
+                )
+                guard watcher.start() else { return nil }
+                Task { await armed.record(()) }
+                return { watcher.stop() }
+            },
+            recoveryWatchURL: AgentTranscriptImporter.transcriptSearchRoot(
+                agentKind: identity.agentKind, configHome: configHome
+            )
         )
         let task = Task { await loop.run() }
         defer { task.cancel() }
-
-        try await Task.sleep(for: .milliseconds(500))
+        try #require(await armed.waitForCount(1, deadline: .seconds(3)))
+        try #require(await missing.waitForCount(1, deadline: .seconds(3)))
         try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
         try Data("\(Self.turnA)\n".utf8).write(to: source)
-
         #expect(
             await waitUntilEventually(deadline: .seconds(3)) {
-                (try? String(contentsOf: cacheURL, encoding: .utf8))?.contains("opening turn")
-                    == true
-            },
-            "watchRoot must wake discovery when the provider hierarchy appears"
-        )
-
+                (try? String(contentsOf: cacheURL, encoding: .utf8))?.contains("opening turn") == true
+            })
         task.cancel()
         await task.value
     }

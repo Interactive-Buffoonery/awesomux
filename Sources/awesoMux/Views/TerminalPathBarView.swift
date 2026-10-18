@@ -725,33 +725,6 @@ struct TerminalPathBarView: View {
         }
     }
 
-    nonisolated static func remoteIndicatorCopySnapshot(
-        host: String,
-        health: RemoteConnectionHealth,
-        isExpanded: Bool = false
-    ) -> (
-        health: RemoteConnectionHealth,
-        icon: String,
-        help: String,
-        accessibilityLabel: String,
-        accessibilityValue: String,
-        accessibilityHint: String
-    ) {
-        let copy = remoteIndicatorCopy(
-            host: host,
-            health: health,
-            isExpanded: isExpanded
-        )
-        return (
-            health: copy.health,
-            icon: copy.icon,
-            help: copy.help,
-            accessibilityLabel: copy.accessibilityLabel,
-            accessibilityValue: copy.accessibilityValue,
-            accessibilityHint: copy.accessibilityHint
-        )
-    }
-
     @ViewBuilder
     private var localContent: some View {
         HStack(spacing: 8) {

@@ -46,35 +46,12 @@ public enum AwFont {
         }
     }
 
-    // MARK: - UI
-
-    /// The text-style-anchored system mapping for a UI token. The user's
-    /// configured UI font family (INT-367) is applied by the `.awFont(...)`
-    /// modifier via `\.awUIFont` — every live chrome call site goes through it,
-    /// so this static path deliberately stays plain system.
-    public static func ui(_ kind: UI) -> Font {
-        switch kind {
-        case .body:
-            return .system(.body)
-        case .meta:
-            return .system(.subheadline)
-        case .label:
-            return .system(.callout).weight(.medium)
-        case .title:
-            return .system(.title3).weight(.semibold)
-        case .sectionHead:
-            return .system(.title2).weight(.semibold)
-        case .display:
-            return .system(.largeTitle).weight(.semibold)
-        }
-    }
-
     // MARK: - Scaled point-size specs
     //
     // macOS has no iOS-style Dynamic Type: `Font.system(.body)` reads a fixed
     // point size from `NSFont.preferredFont(forTextStyle:)` and does NOT move
     // when `.dynamicTypeSize(_:)` is set on the environment (INT-237). The
-    // `ui`/`mono` tokens above stay text-style-anchored for semantics, but they
+    // `mono` tokens above stay text-style-anchored for semantics, but they
     // cannot deliver real user-facing scaling on macOS on their own.
     //
     // `FontSpec` carries what a `@ScaledMetric(relativeTo:)`-driven modifier
@@ -278,7 +255,7 @@ public extension View {
 
 /// Applies an `AwFont` token as a genuinely scaling font on macOS.
 ///
-/// Unlike `.font(AwFont.ui(.body))`, which is frozen at its text-style point
+/// Unlike `.font(.body)`, which is frozen at its text-style point
 /// size on macOS, this modifier drives the point size through
 /// `@ScaledMetric(relativeTo:)` (so the platform Dynamic Type growth curve
 /// still applies) and then multiplies by the continuous `\.awTextScale` factor
@@ -370,84 +347,3 @@ public enum AwRadius {
 public enum AwAnimation {
     public static let pulseNeeds = Animation.easeOut(duration: 1.4).repeatForever(autoreverses: true)
 }
-
-// MARK: - Text-scaling previews
-//
-// These previews exist so reviewers can verify in Xcode Canvas that:
-// (1) every `awFont` token scales with the `\.awTextScale` factor, and
-// (2) `mono(.terminal)` does NOT scale (the libghostty column-alignment
-//     carve-out).
-//
-// To verify on the running app: Settings → Appearance → Interface text size.
-// The slider drives `\.awTextScale`; every `awFont` call site updates live.
-
-#if DEBUG
-// The sampler drives the *scaling* path (`.awFont(...)`), NOT the frozen
-// `.font(AwFont...)` path — that's the whole point of INT-237. Each preview
-// injects a different `\.awTextScale` factor; the tokens must render visibly
-// different sizes, and `mono(.terminal)` must stay put.
-private struct AwFontTokenSampler: View {
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Group {
-                    Text("ui.display").awFont(AwFont.UI.display)
-                    Text("ui.sectionHead").awFont(AwFont.UI.sectionHead)
-                    Text("ui.title").awFont(AwFont.UI.title)
-                    Text("ui.label").awFont(AwFont.UI.label)
-                    Text("ui.body").awFont(AwFont.UI.body)
-                    Text("ui.meta").awFont(AwFont.UI.meta)
-                }
-                Divider()
-                Group {
-                    Text("mono.body").awFont(AwFont.Mono.body)
-                    Text("mono.meta").awFont(AwFont.Mono.meta)
-                    Text("mono.kicker — UPPERCASE").awFont(AwFont.Mono.kicker)
-                    Text("mono.pill").awFont(AwFont.Mono.pill)
-                    Text("mono.kbd").awFont(AwFont.Mono.kbd)
-                }
-                Divider()
-                Text("mono.terminal — must NOT scale")
-                    .awFont(AwFont.Mono.terminal)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
-        }
-        .frame(minWidth: 320, minHeight: 480)
-    }
-}
-
-#Preview("AwFont — default (100%)") {
-    AwFontTokenSampler()
-        .awTextScale(1.0)
-}
-
-#Preview("AwFont — minimum (85%)") {
-    AwFontTokenSampler()
-        .awTextScale(AwTextScale.range.lowerBound)
-}
-
-#Preview("AwFont — maximum (135%)") {
-    AwFontTokenSampler()
-        .awTextScale(AwTextScale.range.upperBound)
-}
-
-#Preview("AwFont — text-scale sweep") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: 24) {
-            ForEach([0.85, 1.0, 1.15, 1.35], id: \.self) { factor in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(factor.formatted(.percent.precision(.fractionLength(0))))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    AwFontTokenSampler()
-                        .awTextScale(factor)
-                        .frame(height: 240)
-                }
-                Divider()
-            }
-        }
-        .padding()
-    }
-}
-#endif
