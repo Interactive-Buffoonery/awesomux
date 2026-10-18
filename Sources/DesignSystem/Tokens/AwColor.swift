@@ -153,12 +153,9 @@ public struct AwColors: Sendable {
     public func accentSoft(_ accent: AwAccent) -> Color { dynamic(accent.paletteKey).opacity(0.22) }
     public func accentGlow(_ accent: AwAccent) -> Color { dynamic(accent.paletteKey).opacity(0.60) }
 
-    public var rosewater: Color { dynamic(\.rosewater) }
-    public var flamingo: Color { dynamic(\.flamingo) }
     public var pink: Color { dynamic(\.pink) }
     public var mauve: Color { dynamic(\.mauve) }
     public var red: Color { dynamic(\.red) }
-    public var maroon: Color { dynamic(\.maroon) }
     public var peach: Color { dynamic(\.peach) }
     public var yellow: Color { dynamic(\.yellow) }
     public var green: Color { dynamic(\.green) }
@@ -216,17 +213,6 @@ public struct AwColors: Sendable {
     // against `surface.terminal` in both themes — a single `text.opacity`
     // alpha cannot satisfy both. See INT-299.
 
-    /// Divider at rest. Clears the 3:1 1.4.11 floor with added Latte
-    /// headroom (Mocha 3.36, Latte 3.62).
-    public var dividerRest: Color {
-        Color(nsColor: NSColor.awDynamic(
-            mocha: "#6c7086",
-            latte: "#7a7c92",
-            mochaHC: "#9399b2",
-            latteHC: "#6c6f85"
-        ))
-    }
-
     /// Divider on hover / drag. Targets ~4:1 (Mocha 4.44, Latte 4.18).
     public var dividerHover: Color {
         Color(nsColor: NSColor.awDynamic(
@@ -238,7 +224,7 @@ public struct AwColors: Sendable {
     }
 
     /// Divider at rest under "Increase Contrast". Must stay equal to
-    /// `dividerRest`'s HC slots; locked by `AwColorTests`.
+    /// the standard divider floor; locked by `AwColorTests`.
     public var dividerRestHC: Color {
         Color(nsColor: NSColor.awDynamic(
             mocha: "#9399b2", latte: "#6c6f85",
