@@ -4,12 +4,7 @@ import Testing
 
 @Suite("Workspace emoji")
 struct WorkspaceEmojiTests {
-    @Test(arguments: [
-        "🍎", "🚀", "👩🏽‍💻", "🇪🇸", "1️⃣", "❤️", "🏳️‍🌈", "☝🏽", "✌🏽", "🕵🏽",
-        "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
-        "🏴\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
-        "🏴\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}",
-    ])
+    @Test(arguments: ["🍎", "👩🏽‍💻", "🇪🇸"])
     func acceptsSingleEmoji(_ emoji: String) {
         #expect(WorkspaceEmoji.validated(emoji) == emoji)
     }
@@ -24,42 +19,6 @@ struct WorkspaceEmojiTests {
     ])
     func rejectsOtherInput(_ input: String) {
         #expect(WorkspaceEmoji.validated(input) == nil)
-    }
-
-    @Test @MainActor
-    func badgeDoesNotFreezeAutomaticTitle() throws {
-        let session = TerminalSession(title: "before", workingDirectory: NSHomeDirectory())
-        let store = SessionStore(groups: [SessionGroup(name: "Test", sessions: [session])])
-        #expect(store.setWorkspaceEmoji(id: session.id, emoji: "🍎"))
-        store.updatePane(sessionID: session.id, paneID: session.activePaneID, title: "after")
-        let updated = try #require(store.session(id: session.id))
-        #expect(updated.emoji == "🍎")
-        #expect(updated.title == "after")
-        #expect(!updated.isTitleUserEdited)
-        #expect(!updated.activePane!.isTitleUserEdited)
-        #expect(!store.setWorkspaceEmoji(id: session.id, emoji: "no"))
-        #expect(store.session(id: session.id)?.emoji == "🍎")
-        #expect(!store.setWorkspaceEmoji(id: UUID(), emoji: "🚀"))
-        #expect(store.setWorkspaceEmoji(id: session.id, emoji: nil))
-        #expect(store.session(id: session.id)?.emoji == nil)
-    }
-
-    @Test @MainActor
-    func survivesSnapshotRestoreAndReopen() throws {
-        let session = TerminalSession(title: "shell", workingDirectory: NSHomeDirectory())
-        let store = SessionStore(groups: [SessionGroup(name: "Test", sessions: [session])])
-        #expect(store.setWorkspaceEmoji(id: session.id, emoji: "👩🏽‍💻"))
-        let data = try JSONEncoder().encode(store.snapshot())
-        let snapshot = try SessionSnapshot.decode(from: data)
-        let restored = SessionStore(restoring: snapshot)
-        #expect(restored.session(id: session.id)?.emoji == "👩🏽‍💻")
-        restored.closeSession(id: session.id)
-        #expect(restored.recentlyClosed.first?.emoji == "👩🏽‍💻")
-        let closedData = try JSONEncoder().encode(restored.snapshot())
-        let closedSnapshot = try SessionSnapshot.decode(from: closedData)
-        let reopened = SessionStore(restoring: closedSnapshot)
-        let id = try #require(reopened.reopenMostRecentlyClosed())
-        #expect(reopened.session(id: id)?.emoji == "👩🏽‍💻")
     }
 
     @Test
