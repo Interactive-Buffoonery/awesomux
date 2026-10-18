@@ -103,9 +103,13 @@ the persistent path-bar label and each-read preview expose the fixed destination
 
 ## Amendment: reported cwd prefills the base directory
 
-For a managed SSH pane without a Remote File Context, a terminal-relative link
+For an SSH pane without a Remote File Context, a terminal-relative link
 prefills the editable base directory with the pane's validated reported remote
 working directory. Like an observed alias, this is a suggestion only: the user
 still sees the resolved path and confirms the read, and the confirmed value is
 the chosen base. A missing or stale report leaves the field empty or wrong,
 never authorizes a read on its own, and never changes the declared target.
+
+In an ordinary pane where the user typed `ssh`, the suggestion is the directory
+reported for the observed host, which may differ from the separately chosen
+file-read alias. The preview shows both before the read.

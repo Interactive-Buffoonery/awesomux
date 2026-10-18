@@ -110,7 +110,7 @@ enum RemoteMarkdownReadRouting {
         let prefill = observed.flatMap(configAlias) ?? ""
         // Like the alias, the reported cwd only prefills an editable base the user confirms.
         let suggestedBase =
-            binding == nil && origin.documentID == nil && origin.executionPlan?.remoteTarget != nil
+            binding == nil && origin.documentID == nil
             ? origin.paneID.flatMap { store.session(id: origin.sessionID)?.layout.pane(id: $0)?.remoteWorkingDirectory }
             : nil
         guard
