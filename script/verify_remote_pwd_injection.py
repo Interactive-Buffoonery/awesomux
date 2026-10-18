@@ -27,7 +27,11 @@ with tempfile.TemporaryDirectory() as tmp:
         original = (args.vendor / relative).read_text()
         added = fragment.read_text()
         generated = (scratch / relative).read_text()
-        assert generated == original.replace(marker, marker + added, 1), relative
+        expected = original
+        for other_path, other_marker, other_fragment in prepare.REMOTE_PWD_INSERTIONS:
+            if other_path == relative:
+                expected = expected.replace(other_marker, other_marker + other_fragment.read_text(), 1)
+        assert generated == expected, relative
         assert fragment in prepare.INPUTS
         for changed in (original.replace(marker, ""), original + marker):
             (scratch / relative).write_text(changed)
@@ -42,6 +46,14 @@ with tempfile.TemporaryDirectory() as tmp:
         prepare.inject_remote_pwd(scratch)
     handler = (scratch / "src/termio/stream_handler.zig").read_text()
     assert handler.index(".awesomux_remote_pwd =") < handler.index("const host_valid =")
+    assert '.capture(url, &self.renderer_state.awesomux_remote_pwd_generation)' in handler
+    state = (scratch / "src/renderer/State.zig").read_text()
+    assert 'awesomux_remote_pwd_generation: std.atomic.Value(u64)' in state
+    capi = (scratch / "src/apprt/embedded.zig").read_text()
+    assert 'export fn awesomux_surface_set_remote_pwd_generation' in capi
+    assert '.store(generation, .release)' in capi
+    surface = (scratch / "src/Surface.zig").read_text()
+    assert 'report.generation' in surface
     callback = (ROOT / "Sources/awesoMux/Services/GhosttyRuntimeCallbacks.swift").read_text()
     assert "view.consumeRemotePwdEnvelope(workingDirectory" in callback
     assert callback.index("view.consumeRemotePwdEnvelope(workingDirectory") < callback.index("view.updateWorkingDirectory(workingDirectory)")

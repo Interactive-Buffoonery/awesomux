@@ -576,6 +576,9 @@ extension GhosttySurfaceNSView {
         )
         let previous = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
         sessionStore.updatePane(sessionID: sessionID, paneID: paneID, title: title)
+        if let current = sessionStore.session(id: sessionID)?.layout.pane(id: paneID) {
+            synchronizeRemotePwdGeneration(sessionID: sessionID, current: current)
+        }
         qualifyPendingRemotePwd(previous: previous)
     }
 
@@ -603,7 +606,7 @@ extension GhosttySurfaceNSView {
     }
 
     func updateWorkingDirectory(_ workingDirectory: String) {
-        cancelPendingRemotePwd()
+        advanceRemotePwdGeneration()
         // Ordinary native PWD actions passed Ghostty's local-host check.
         // Managed remote cwd comes only from qualified raw reports or the daemon.
         guard sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.executionPlan == .local else { return }

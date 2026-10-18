@@ -51,7 +51,7 @@ public enum RemoteWorkingDirectoryValidator {
         return (host, path)
     }
 
-    private static func hostsMatch(_ lhs: String, _ rhs: String) -> Bool {
+    public static func hostsMatch(_ lhs: String, _ rhs: String) -> Bool {
         let lhs = lhs.lowercased()
         let rhs = rhs.lowercased()
         if lhs == rhs { return true }

@@ -24,10 +24,16 @@ INPUTS = (
     ROOT / "native/ghostty/remote-pwd-message.zig.inc",
     ROOT / "native/ghostty/remote-pwd-stream.zig.inc",
     ROOT / "native/ghostty/remote-pwd-surface.zig.inc",
+    ROOT / "native/ghostty/remote-pwd-generation.zig.inc",
+    ROOT / "native/ghostty/remote-pwd-capi.zig.inc",
 )
 
 
 REMOTE_PWD_INSERTIONS = (
+    ("src/renderer/State.zig", "const renderer = @import(\"../renderer.zig\");\n",
+     ROOT / "native/ghostty/remote-pwd-generation.zig.inc"),
+    ("src/apprt/embedded.zig", "pub const CAPI = struct {\n",
+     ROOT / "native/ghostty/remote-pwd-capi.zig.inc"),
     ("src/apprt/surface.zig", "    pwd_change: WriteReq,\n",
      ROOT / "native/ghostty/remote-pwd-message.zig.inc"),
     ("src/termio/stream_handler.zig", "    fn reportPwd(self: *StreamHandler, url: []const u8) !void {\n",
