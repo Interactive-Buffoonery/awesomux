@@ -30,6 +30,8 @@ class SourcePreparationTests(unittest.TestCase):
         (self.vendor / "src/config/Config.zig").write_text(".regex = url.regex,\n")
         (self.vendor / "src/shell-integration/zsh").mkdir(parents=True)
         (self.vendor / "src/shell-integration/zsh/.zshenv").write_text("# fixture\n")
+        (self.vendor / "src/shell-integration/fish/vendor_conf.d").mkdir(parents=True)
+        (self.vendor / "src/shell-integration/fish/vendor_conf.d/fixture.fish").write_text("# fixture\n")
         (self.vendor / "src/apprt/embedded.zig").write_text("pub const CAPI = struct {\n};\n")
         (self.vendor / "src/terminal/main.zig").write_text("// fixture\n")
         self.git("init", "--quiet")

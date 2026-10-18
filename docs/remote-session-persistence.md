@@ -9,8 +9,14 @@ that do not have Ghostty's terminfo installed. This applies to new SSH processes
 reattaching to a running session preserves its existing terminal environment.
 In an existing remote shell, run `export TERM=xterm-256color` for the current
 session, or start a new session to receive the launch fallback automatically.
-Local shells keep `xterm-ghostty`. For a manually typed SSH connection, use
-`TERM=xterm-256color ssh <host>` if the host lacks `xterm-ghostty` terminfo.
+Local shells keep `xterm-ghostty`. In fresh local zsh and fish shells with
+awesoMux shell integration, ordinary `ssh <host>` also uses `xterm-256color`
+when it inherits `xterm-ghostty`. Other terminal selections are preserved.
+User-defined `ssh` aliases/functions take precedence; `command ssh` and absolute
+SSH paths bypass the wrapper. For those paths, other shells, disabled integration,
+or existing persistent local shells, use `TERM=xterm-256color ssh <host>`.
+This fallback does not probe hosts or install remote files. Normal fish startup
+still needs manual verification; its wrapper has been verified independently.
 Remote terminfo setup is tracked in [#760](https://github.com/Interactive-Buffoonery/awesomux/issues/760).
 
 This setup uses `amx` or `zmx` on the remote host. It doesn't use the
