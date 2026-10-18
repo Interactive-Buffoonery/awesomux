@@ -784,7 +784,6 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
     var fetchOverride: (@Sendable (RemoteMarkdownReference) async -> BoundedCommandResult)?
     var onCoalescedFetch: (@Sendable () async -> Void)?
     var onFetchRegistered: (@Sendable () async -> Void)?
-    var onFetchFinished: (@Sendable () async -> Void)?
     var onPruneEnumerated: (@Sendable () async -> Void)?
 
     func fetch(_ reference: RemoteMarkdownReference) async -> RemoteMarkdownFetchOutcome? {
@@ -814,7 +813,6 @@ struct RemoteMarkdownSnapshotFetcher: @unchecked Sendable {
             announcementSessionID: announcementSessionID,
             onCoalesced: onCoalescedFetch,
             onRegistered: onFetchRegistered,
-            onFinished: onFetchFinished,
             admission: admission
         ) {
             await fetchUncoordinated(reference)

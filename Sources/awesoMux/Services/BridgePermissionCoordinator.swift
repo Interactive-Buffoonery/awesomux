@@ -163,10 +163,6 @@ final class BridgePermissionCoordinator {
     /// responder from wherever the user is working.
     @ObservationIgnored private var resolvedFocusedPromptID: String?
 
-    static var connectionLostAnnouncementDebounceForTesting: TimeInterval {
-        connectionLostAnnouncementDebounce
-    }
-
     init(
         expectedToken: String,
         expectedSession: String,

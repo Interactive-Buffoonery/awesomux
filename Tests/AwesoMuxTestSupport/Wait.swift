@@ -16,17 +16,6 @@ public func waitUntil(
     return condition()
 }
 
-public func waitUntilAsync(
-    attempts: Int = 10_000,
-    _ condition: @Sendable () async -> Bool
-) async -> Bool {
-    for _ in 0..<attempts {
-        if await condition() { return true }
-        await Task.yield()
-    }
-    return await condition()
-}
-
 /// The sanctioned bounded wait for tests that observe real I/O or operating-system events.
 ///
 /// Unlike `waitUntil`, this helper advances on elapsed monotonic time instead of a number

@@ -612,22 +612,13 @@ final class SidebarSplitController: NSViewController, NSSplitViewDelegate {
         splitView.onDragEnded?()
     }
 
-    var edgeTrackingFrameForTesting: CGRect { edgeTrackingView.frame }
     var edgeTrackingViewForTesting: SidebarEdgeTrackingView { edgeTrackingView }
-    var isEdgeTrackingVisibleForTesting: Bool { !edgeTrackingView.isHidden }
     var splitPaneViewsForTesting: [NSView] { splitView.subviews }
     var splitViewForTesting: NSSplitView { splitView }
     var dividerThicknessForTesting: CGFloat { splitView.dividerThickness }
-    var sidebarPaneContainerForTesting: NSView { sidebarPaneContainer }
     var sidebarHostViewForTesting: NSView { sidebarHostView }
-    var sidebarHostFrameForTesting: CGRect { sidebarHostClipView.frame }
-    var sidebarPaneFrameForTesting: CGRect { sidebarPaneContainer.frame }
     var sidebarHostClipViewForTesting: SidebarHostClipView { sidebarHostClipView }
     var hostModeForTesting: SidebarHostMode { hostMode }
-    func resampleSidebarPointerForTesting() -> Bool? { resampleSidebarPointer() }
-    func simulateTrackingAvailabilityLostForTesting() {
-        onTrackingAvailabilityLost?()
-    }
 
     static func dividerCoordinate(
         forSidebarWidth width: CGFloat,
