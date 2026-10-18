@@ -958,6 +958,7 @@ private final class E2EAgentRoster: @unchecked Sendable {
 
 private final class E2ESlowClient: @unchecked Sendable {
     private let fd: Int32
+    private var responseHeader = Data()
 
     init(profile: String, connectionID: UUID, credential: Data) throws {
         let endpoint = try LocalAPIEndpoint(profile: profile)
@@ -1012,38 +1013,76 @@ private final class E2ESlowClient: @unchecked Sendable {
     deinit { close(fd) }
 
     func waitForResponseStart() throws {
-        try waitForReadable()
-        var pending = [UInt8](repeating: 0, count: LocalAPIContract.maximumResponseBytes + 4)
-        let queued = recv(fd, &pending, pending.count, MSG_PEEK | MSG_DONTWAIT)
-        guard queued >= 4 else {
-            throw E2EFailure(message: "slow response closed before sending its frame header")
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while responseHeader.count < 4 {
+            try waitForReadable(until: deadline)
+            var buffer = [UInt8](repeating: 0, count: 4 - responseHeader.count)
+            let count = recv(fd, &buffer, buffer.count, MSG_DONTWAIT)
+            if count > 0 {
+                responseHeader.append(contentsOf: buffer.prefix(count))
+            } else if count == 0 {
+                throw E2EFailure(message: "slow response closed before sending its frame header")
+            } else if errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK {
+                throw E2EFailure(message: "slow response header read failed")
+            }
         }
-        let length = pending.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        guard length > 16 * 1024, queued < Int(length) + 4 else {
+        var pending = [UInt8](repeating: 0, count: LocalAPIContract.maximumResponseBytes)
+        var queued: Int
+        repeat {
+            guard ContinuousClock.now < deadline else {
+                throw E2EFailure(message: "slow response header observation exceeded deadline")
+            }
+            queued = recv(fd, &pending, pending.count, MSG_PEEK | MSG_DONTWAIT)
+        } while queued < 0 && errno == EINTR
+        if queued < 0 {
+            guard errno == EAGAIN || errno == EWOULDBLOCK else {
+                throw E2EFailure(message: "slow response observation failed")
+            }
+            queued = 0
+        } else if queued == 0 {
+            throw E2EFailure(message: "slow response closed before revocation")
+        }
+        let length = responseHeader.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        guard length > 16 * 1024, queued < Int(length) else {
             throw E2EFailure(message: "slow client did not hold an incomplete large response")
         }
     }
 
-    private func waitForReadable() throws {
-        var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-        guard poll(&descriptor, 1, 10_000) > 0 else {
-            throw E2EFailure(message: "slow client did not receive bytes or EOF before deadline")
+    private func waitForReadable(until deadline: ContinuousClock.Instant) throws {
+        while ContinuousClock.now < deadline {
+            let remaining = ContinuousClock.now.duration(to: deadline).components
+            let milliseconds = remaining.seconds * 1_000 + remaining.attoseconds / 1_000_000_000_000_000
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let result = poll(&descriptor, 1, Int32(max(1, milliseconds)))
+            if result > 0 {
+                guard descriptor.revents & Int16(POLLNVAL) == 0 else {
+                    throw E2EFailure(message: "slow client socket is invalid")
+                }
+                return
+            }
+            if result < 0 && errno != EINTR {
+                throw E2EFailure(message: "slow client readiness wait failed")
+            }
         }
+        throw E2EFailure(message: "slow client did not receive bytes or EOF before deadline")
     }
 
     func receivedCompleteFrameAfterEOF() throws -> Bool {
-        var received = Data()
+        var received = responseHeader
         var buffer = [UInt8](repeating: 0, count: 16 * 1024)
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while ContinuousClock.now < deadline {
-            try waitForReadable()
-            let count = Darwin.read(fd, &buffer, buffer.count)
+            try waitForReadable(until: deadline)
+            let count = recv(fd, &buffer, buffer.count, MSG_DONTWAIT)
             if count == 0 {
                 guard received.count >= 4 else { return false }
                 let length = received.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
                 return received.count >= Int(length) + 4
             }
-            guard count > 0 else { throw E2EFailure(message: "slow client read failed") }
+            if count < 0 {
+                if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { continue }
+                throw E2EFailure(message: "slow client read failed")
+            }
             received.append(contentsOf: buffer.prefix(count))
             guard received.count <= 2 * 1024 * 1024 else { throw E2EFailure(message: "slow response exceeded frame bound") }
         }
