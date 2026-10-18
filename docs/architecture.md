@@ -385,6 +385,20 @@ installation is a separate user action. See
 Agent transcript lookup and resume use the exact provider-native identity and
 the explicit JSONL or read-only SQLite adapters recorded in
 [ADR 0033](adr/0033-agent-transcripts-use-exact-provider-identities.md).
+The separate **Browse Project Transcripts** command explicitly enumerates recent
+Claude Code and Codex sessions for the active local pane's exact canonical
+working directory. It does not expand to parent repositories or other worktrees.
+Discovery is detached and bounded, filters children, and deduplicates by provider
+and ThreadId. Selecting a row revalidates its inode and project metadata before
+using the existing renderer, typed document identity and generated-cache pruning.
+Browser identities also persist their canonical project directory. Initial live
+discovery, pinned refresh and recovery reapply the same project/id/child admission,
+including after restore. Their cache slots include the project constraint, keeping
+exact-id writers and other projects' duplicates separate. Missing constraints in
+legacy identities retain exact-session behavior; malformed constraints discard the
+typed identity under the existing read-only generated-document fallback.
+This browser does not change exact-session Open Agent Transcript or Resume.
+Limits and native acceptance: [project transcripts](verification/project-transcripts.md).
 A mounted JSONL transcript tab re-renders as its session appends, re-validating
 through the secure descriptor reader on every refresh. OpenCode's SQLite-backed
 transcript remains the point-in-time snapshot opened by the user until a

@@ -22,6 +22,26 @@ session id. Every ingress validates and canonicalizes that id using the owning
 provider's rules. There is no working-directory fallback and no cross-provider
 sweep.
 
+The explicit **Browse Project Transcripts** command (#387) is a separate
+selection flow: the user asks to enumerate Claude Code and Codex metadata for
+the active local directory, then chooses an exact provider/session identity.
+It revalidates the selected file's identity and project metadata before opening.
+The typed identity persists an optional canonical project-directory constraint.
+A browser tab remains live: its first discovery, pinned-file refresh, rotation
+recovery and restored refresh all enforce the browser's project/id/child metadata
+admission. A runtime inode pin alone cannot preserve that scope. Browser cache
+slots include the constraint in a distinct length-prefixed identity domain, so
+unconstrained exact-id writes and other projects' browser writes cannot replace
+its artifact. Same-project tabs intentionally share a live slot. Existing write
+locks, freshness gates, leases, URL references and pruning remain authoritative.
+Missing constraints decode as legacy exact-session identities without changing
+legacy cache keys. Present malformed or null constraints invalidate typed
+provenance; the existing tolerant document decode keeps generated ownership and
+read-only state without starting unconstrained refresh. Decoding validates path
+shape without filesystem I/O or re-resolving a saved alias.
+It does not supply a fallback to the pane command or Resume. Enumeration limits
+and acceptance are recorded in [the browser recipe](../verification/project-transcripts.md).
+
 Transcript adapters are explicit:
 
 - Claude Code and Codex resolve an exact filename beneath their configured

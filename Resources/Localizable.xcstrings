@@ -1055,6 +1055,9 @@
     "Bridge handshake" : {
       "comment" : "Bridge doctor check title"
     },
+    "Browse Project Transcripts" : {
+      "comment" : "Heading of the current-project agent transcript browser"
+    },
     "Build" : {
       "comment" : "About window field label for the source revision hash"
     },
@@ -1129,7 +1132,7 @@
       "comment" : "Unavailable agent integration install state status"
     },
     "Cancel" : {
-      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste.\nDismisses the workspace emoji editor without saving."
+      "comment" : "Button title that cancels applying a layout preset.\nButton title that cancels choosing an IDE.\nButton title that cancels overwriting a layout preset.\nButton title that cancels saving a layout preset.\nButton to cancel composing an annotation\nButton to cancel editing a document note\nButton to dismiss the rich-input composer\nCancel editing remote file context\nCancel one remote Markdown file read\nCancel remote clipboard handoff button\nCancel the remote browser request\nCancel worktree creation action.\nClose project transcript browser\nDefault button on a destructive confirmation dialog. Cancels the action.\nDefault button on the OSC 52 clipboard write confirmation dialog.\nDefault button on the OSC 52 clipboard-read confirmation dialog. Cancels the read.\nDefault button on the OSC 8 hyperlink confirmation dialog. Cancels the open.\nDefault button on the quit confirmation dialog. Cancels the quit.\nDefault button on the system quit warning dialog. Cancels the system-initiated quit.\nDefault button on the unsafe-paste confirmation dialog. Cancels the paste.\nDismisses the workspace emoji editor without saving."
     },
     "Cancel and do not open URL" : {
       "comment" : "VoiceOver label for the Cancel button on the OSC 8 hyperlink confirmation dialog. More descriptive than the visual 'Cancel' so a user who tabs to the button still has context."
@@ -1208,6 +1211,9 @@
     "Check the SSH connection and try the installation again." : {
       "comment" : "Remote platform probe failure recovery"
     },
+    "Check the agents' Config home in Settings, or try Refresh after a session records a conversation." : {
+      "comment" : "Empty project transcript browser explanation"
+    },
     "Check your internet connection and try again." : {
       "comment" : "Remote helper release download failure recovery"
     },
@@ -1258,6 +1264,9 @@
     },
     "Choose a fixed destination and directory for Markdown links in this pane. Click a Markdown filename to open a read-only snapshot and confirm each read. Update this context when you change hosts or directories." : {
 
+    },
+    "Choose a local terminal with a reported working directory, then try again." : {
+      "comment" : "Explanation when project transcript browsing has no local directory"
     },
     "Choose a remote base directory" : {
       "comment" : "Label requiring an explicitly chosen remote directory for a relative link"
@@ -2823,6 +2832,9 @@
     "Looking for an installed integration." : {
       "comment" : "Agent integration card status detail while the first check is in flight"
     },
+    "Looking for project transcripts…" : {
+      "comment" : "Project transcript scan progress"
+    },
     "MIT" : {
 
     },
@@ -3178,6 +3190,9 @@
     "No Layout to Save" : {
       "comment" : "Alert title when the workspace has no preset-eligible panes."
     },
+    "No Project Directory" : {
+      "comment" : "Alert title when project transcripts have no local directory to inspect"
+    },
     "No Recent Workspaces" : {
       "comment" : "Placeholder shown in the Dock menu's Recent Workspaces submenu when nothing has been closed recently."
     },
@@ -3225,6 +3240,9 @@
     },
     "No presets were found under .awesomux/layouts for this project. Use “Save Layout as Preset…” to create one." : {
       "comment" : "Alert text when the project has no layout presets."
+    },
+    "No project transcripts found" : {
+      "comment" : "Empty transcript browser title"
     },
     "No recently closed workspace to reopen" : {
       "comment" : "VoiceOver announcement when Cmd-Shift-T is invoked but the recently-closed cache is empty or fully expired."
@@ -3323,7 +3341,7 @@
       "comment" : "Explanation that a saved browser permission covers only the exact website origin and where to revoke it"
     },
     "Open" : {
-      "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace."
+      "comment" : "Accessibility action for opening a worktree workspace.\nButton title that opens the selected IDE.\nDestructive button on the OSC 8 hyperlink confirmation dialog. Opens the URL in the default handler.\nOpen a worktree in a new workspace.\nOpen the selected project transcript"
     },
     "Open Agent Transcript" : {
       "comment" : "Workspace menu item that opens the active pane's agent session as a document"
@@ -3783,6 +3801,12 @@
     "Program writes (OSC 52)" : {
       "comment" : "Terminal settings label."
     },
+    "Project transcripts" : {
+      "comment" : "Accessible name of the project transcript list"
+    },
+    "Project transcripts loaded." : {
+      "comment" : "VoiceOver announcement after project transcript discovery"
+    },
     "Promote to workspace, Command Return" : {
       "comment" : "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
     },
@@ -3886,6 +3910,9 @@
     "Receiving terminal" : {
       "comment" : "Composer label for the pinned receiving terminal"
     },
+    "Recent Claude Code and Codex sessions in this directory. Child runs are hidden." : {
+      "comment" : "Scope explanation in the current-project transcript browser"
+    },
     "Recent Workspaces" : {
       "comment" : "Dock right-click menu item whose submenu lists recently closed workspaces to reopen."
     },
@@ -3971,7 +3998,7 @@
       }
     },
     "Refresh" : {
-      "comment" : "Refresh Worktree Manager action.\nSend-bar button title on a branch changes tab that re-runs the comparison\nSend-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
+      "comment" : "Refresh Worktree Manager action.\nRefresh project transcript metadata\nSend-bar button title on a branch changes tab that re-runs the comparison\nSend-bar button title on a remote Markdown snapshot tab that re-fetches over SSH"
     },
     "Refresh Markdown files" : {
 
@@ -4420,6 +4447,9 @@
     },
     "Restored session %@." : {
       "comment" : "Session Manager successful restore announcement"
+    },
+    "Results are limited. Some session files could not be inspected or exceeded the scan limit." : {
+      "comment" : "Notice when project transcript enumeration cannot show a complete list"
     },
     "Resume %arg" : {
       "comment" : "Send-bar button title on a transcript tab, naming the agent to resume"
