@@ -28,7 +28,7 @@ public enum RemoteWorkingDirectoryValidator {
             !RemoteSessionDetector.isLoopback(host.lowercased()), host != "0.0.0.0",
             host.lowercased() != "localhost.",
             host.unicodeScalars.allSatisfy({
-                CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-").contains($0)
+                CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-").contains($0)
             }),
             !hostsMatch(host, "localhost"),
             !localHostnames.contains(where: { hostsMatch(host, $0) }),
