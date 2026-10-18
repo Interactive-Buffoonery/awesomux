@@ -91,6 +91,23 @@ The pinned submodule is unchanged. The library build runs the
 `awesomux-link-paths` native regression tests before publishing artifacts.
 Existing document validation and remote-read authorization still own opens.
 
+The same native detector recognizes complete bare `.md`/`.markdown` filenames
+(case insensitive), optionally followed by `:line[:column]`. Surrounding
+whitespace, quotes, backticks, commas, semicolons, brackets, braces, angle
+brackets and pipes are excluded from the match. Adjacent path/URL characters,
+email addresses and extra extensions do not produce a bare filename suffix
+match; upstream URL and path detection remains unchanged. A standalone
+`example.md` is inherently ambiguous with a domain and is treated as a filename
+candidate. Ghostty owns the exact Cmd-hover underline, cursor and clearing,
+including existing OSC 8 precedence; no app overlay or polling is involved.
+
+This also enables native hover in local panes. Opens still pass through existing
+local working-directory resolution, Markdown validation and existence checks.
+Remote opens still require the existing origin checks and per-read authorization;
+matching and hovering grant no file access. User-configured link rules retain
+their existing behavior.
+
+
 ## Bounded Show Scrollback read
 
 Show Scrollback uses the awesoMux-only `awesomux_surface_read_scrollback`
