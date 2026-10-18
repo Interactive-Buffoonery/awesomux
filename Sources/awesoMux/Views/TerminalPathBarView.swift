@@ -97,7 +97,8 @@ struct TerminalPathBarView: View {
             .task(id: bridgePollKey) {
                 guard let pane = session.activePane,
                     pane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata,
-                    (pane.executionPlan == .local && pane.remoteHost != nil)
+                    pane.executionPlan.remoteTarget != nil
+                        || (pane.executionPlan == .local && pane.remoteHost != nil)
                         || BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(
                             bridgeEnabled: isCommandBridgeEnabled, isBridgePane: true
                         )
@@ -113,20 +114,31 @@ struct TerminalPathBarView: View {
                         livePane.terminalSessionID == terminalID,
                         livePane.terminalBackendMetadata == AmxBackend.establishedSessionMetadata
                     else { break }
-                    if livePane.executionPlan == .local, let host = livePane.remoteHost {
+                    if livePane.executionPlan.remoteTarget != nil
+                        || (livePane.executionPlan == .local && livePane.remoteHost != nil)
+                    {
                         guard isWindowActive else { break }
                         // ponytail: full inventory every 4s for one selected pane;
                         // use a per-session query only if inventory cost is measured.
                         if let rows = await AmxBackend.listSessionsResult(), !Task.isCancelled,
+                            sessionStore?.session(id: workspaceID)?.layout.pane(id: paneID)?
+                                .terminalBackendMetadata == AmxBackend.establishedSessionMetadata,
                             let raw = rows.first(where: { $0.id == terminalID })?.cwd
                         {
                             // The daemon retains the last OSC 7 report; it has no
                             // timestamp or generation proving this SSH connection.
-                            sessionStore?.updateObservedRemoteWorkingDirectory(
-                                sessionID: workspaceID, paneID: paneID,
-                                terminalSessionID: terminalID, expectedHost: host,
-                                reportedDirectory: raw
-                            )
+                            if livePane.executionPlan.remoteTarget != nil {
+                                sessionStore?.updateManagedRemoteWorkingDirectory(
+                                    sessionID: workspaceID, originatingPane: livePane,
+                                    reportedDirectory: raw
+                                )
+                            } else if let host = livePane.remoteHost {
+                                sessionStore?.updateObservedRemoteWorkingDirectory(
+                                    sessionID: workspaceID, paneID: paneID,
+                                    terminalSessionID: terminalID, expectedHost: host,
+                                    reportedDirectory: raw
+                                )
+                            }
                         }
                     } else if livePane.remotePresentationHost == nil,
                         BridgeCwdRefreshPolicy.shouldRefreshCwdFromAmx(

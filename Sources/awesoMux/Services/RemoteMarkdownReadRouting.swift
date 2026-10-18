@@ -108,12 +108,17 @@ enum RemoteMarkdownReadRouting {
         // An observed alias is only an editable suggestion. It never creates authority.
         let observed = origin.observedSSHTarget ?? origin.pendingSSHTarget
         let prefill = observed.flatMap(configAlias) ?? ""
+        // Like the alias, the reported cwd only prefills an editable base the user confirms.
+        let suggestedBase =
+            binding == nil && origin.documentID == nil
+            ? origin.paneID.flatMap { store.session(id: origin.sessionID)?.layout.pane(id: $0)?.remoteWorkingDirectory }
+            : nil
         guard
             let choice = await present(
                 target: target,
                 suggestedAlias: proposedTarget.map(\.sshDestination) ?? prefill,
                 path: chosenPath, locksPath: locksPath || (binding != nil && !path.isEmpty),
-                fixedBaseDirectory: binding?.baseDirectory,
+                fixedBaseDirectory: binding?.baseDirectory, suggestedBaseDirectory: suggestedBase,
                 isCurrent: { current(origin, store: store) == origin }
             ), current(origin, store: store) == origin, !Task.isCancelled,
             let reference = RemoteMarkdownReference.make(typedPath: choice.path, target: choice.target)
@@ -148,7 +153,7 @@ enum RemoteMarkdownReadRouting {
 
     private static func present(
         target: RemoteTarget?, suggestedAlias: String, path: String, locksPath: Bool, fixedBaseDirectory: String?,
-        isCurrent: @escaping () -> Bool
+        suggestedBaseDirectory: String?, isCurrent: @escaping () -> Bool
     ) async -> Choice? {
         guard !presenting, let parent = NSApp.keyWindow ?? NSApp.mainWindow, parent.attachedSheet == nil else { return nil }
         presenting = true
@@ -176,8 +181,8 @@ enum RemoteMarkdownReadRouting {
             }
             let view = RemoteMarkdownReadConfirmationSheet(
                 target: target, suggestedAlias: suggestedAlias, initialPath: path, locksPath: locksPath,
-                fixedBaseDirectory: fixedBaseDirectory, isCurrent: isCurrent,
-                complete: finish
+                fixedBaseDirectory: fixedBaseDirectory, suggestedBaseDirectory: suggestedBaseDirectory,
+                isCurrent: isCurrent, complete: finish
             )
             let host = NSHostingController(
                 rootView: RemoteMarkdownReadSheetAppearance(content: view, settings: appSettingsStore)
@@ -206,6 +211,7 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
     let complete: (RemoteMarkdownReadRouting.Choice?) -> Void
     let locksPath: Bool
     let fixedBaseDirectory: String?
+    let hasSuggestedBase: Bool
     let isCurrent: () -> Bool
     @State private var originChanged = false
     @State private var alias: String
@@ -217,17 +223,18 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
 
     init(
         target: RemoteTarget?, suggestedAlias: String, initialPath: String,
-        locksPath: Bool, fixedBaseDirectory: String?, isCurrent: @escaping () -> Bool,
-        complete: @escaping (RemoteMarkdownReadRouting.Choice?) -> Void
+        locksPath: Bool, fixedBaseDirectory: String?, suggestedBaseDirectory: String?,
+        isCurrent: @escaping () -> Bool, complete: @escaping (RemoteMarkdownReadRouting.Choice?) -> Void
     ) {
         self.target = target
         self.complete = complete
         self.locksPath = locksPath
         self.fixedBaseDirectory = fixedBaseDirectory
+        hasSuggestedBase = fixedBaseDirectory == nil && suggestedBaseDirectory?.isEmpty == false
         self.isCurrent = isCurrent
         _alias = State(initialValue: suggestedAlias)
         _path = State(initialValue: initialPath)
-        _base = State(initialValue: fixedBaseDirectory ?? "")
+        _base = State(initialValue: fixedBaseDirectory ?? suggestedBaseDirectory ?? "")
     }
 
     private var chosenTarget: RemoteTarget? {
@@ -309,10 +316,15 @@ private struct RemoteMarkdownReadConfirmationSheet: View {
                         localized: "Chosen remote base directory",
                         comment: "Accessibility label for the explicitly chosen remote base directory"))
                 Text(
-                    String(
-                        localized:
-                            "The terminal's current directory is unavailable. Choose a base directory or replace the path with a full /… or ~/… path.",
-                        comment: "Help explaining how to resolve a remote relative link without trustworthy cwd metadata")
+                    hasSuggestedBase
+                        ? String(
+                            localized:
+                                "Filled in from the terminal's reported directory. Check it, or replace the path with a full /… or ~/… path.",
+                            comment: "Help for a remote relative link whose base directory was prefilled from the terminal's reported cwd")
+                        : String(
+                            localized:
+                                "The terminal's current directory is unavailable. Choose a base directory or replace the path with a full /… or ~/… path.",
+                            comment: "Help explaining how to resolve a remote relative link without trustworthy cwd metadata")
                 )
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }

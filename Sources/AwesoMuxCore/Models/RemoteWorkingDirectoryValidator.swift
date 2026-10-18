@@ -10,13 +10,22 @@ public enum RemoteWorkingDirectoryValidator {
         // zmx ipc.MAX_CWD_LEN silently truncates the raw URI at 256 bytes.
         guard rawValue.utf8.count < 256,
             let uri = URLComponents(string: rawValue), uri.scheme == "file",
-            let host = uri.host, !host.isEmpty, host.lowercased() != "localhost",
-            !localHostnames.contains(host.lowercased()),
-            host.caseInsensitiveCompare(expectedHost) == .orderedSame,
+            let host = uri.host, !host.isEmpty,
+            !hostsMatch(host, "localhost"),
+            !localHostnames.contains(where: { hostsMatch(host, $0) }),
+            hostsMatch(host, expectedHost),
             uri.user == nil, uri.password == nil, uri.port == nil,
             uri.query == nil, uri.fragment == nil
         else { return nil }
         return validatedReportedDirectory(rawValue)
+    }
+
+    private static func hostsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let lhs = lhs.lowercased()
+        let rhs = rhs.lowercased()
+        if lhs == rhs { return true }
+        if !lhs.contains("."), rhs == lhs + ".local" { return true }
+        return !rhs.contains(".") && lhs == rhs + ".local"
     }
 
     /// Validates a directory explicitly reported by a remote terminal, such as
