@@ -497,7 +497,6 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         let isNew: Bool
         let onCoalesced: (@Sendable () async -> Void)?
         let onRegistered: (@Sendable () async -> Void)?
-        let onFinished: (@Sendable () async -> Void)?
 
         init(
             cohort: Cohort,
@@ -506,8 +505,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
             task: Task<RemoteMarkdownFetchOutcome?, Never>,
             isNew: Bool,
             onCoalesced: (@Sendable () async -> Void)?,
-            onRegistered: (@Sendable () async -> Void)?,
-            onFinished: (@Sendable () async -> Void)?
+            onRegistered: (@Sendable () async -> Void)?
         ) {
             self.cohort = cohort
             self.announcementSessionID = announcementSessionID
@@ -516,7 +514,6 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
             self.isNew = isNew
             self.onCoalesced = onCoalesced
             self.onRegistered = onRegistered
-            self.onFinished = onFinished
         }
 
         func value() async -> Attempt {
@@ -526,9 +523,6 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
                 await onCoalesced?()
             }
             let outcome = await task.value
-            if isNew {
-                await onFinished?()
-            }
             return Attempt(
                 outcome: outcome,
                 cohort: cohort,
@@ -583,7 +577,6 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         announcementSessionID: UUID? = nil,
         onCoalesced: (@Sendable () async -> Void)? = nil,
         onRegistered: (@Sendable () async -> Void)? = nil,
-        onFinished: (@Sendable () async -> Void)? = nil,
         admission: Admission? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) async -> Attempt {
@@ -593,7 +586,6 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
             announcementSessionID: announcementSessionID,
             onCoalesced: onCoalesced,
             onRegistered: onRegistered,
-            onFinished: onFinished,
             admission: admission,
             operation: operation
         ).value()
@@ -605,7 +597,6 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
         announcementSessionID: UUID? = nil,
         onCoalesced: (@Sendable () async -> Void)? = nil,
         onRegistered: (@Sendable () async -> Void)? = nil,
-        onFinished: (@Sendable () async -> Void)? = nil,
         admission: Admission? = nil,
         operation: @escaping @Sendable () async -> RemoteMarkdownFetchOutcome?
     ) -> PreparedAttempt {
@@ -624,8 +615,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
                 task: task,
                 isNew: false,
                 onCoalesced: onCoalesced,
-                onRegistered: onRegistered,
-                onFinished: onFinished
+                onRegistered: onRegistered
             )
         case .new(let task, let cohort, let ownsAnnouncements):
             PreparedAttempt(
@@ -635,8 +625,7 @@ final class RemoteMarkdownFetchCoordinator: @unchecked Sendable {
                 task: task,
                 isNew: true,
                 onCoalesced: onCoalesced,
-                onRegistered: onRegistered,
-                onFinished: onFinished
+                onRegistered: onRegistered
             )
         }
     }

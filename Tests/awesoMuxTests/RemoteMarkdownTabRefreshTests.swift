@@ -1368,7 +1368,6 @@ private func preparedAttempt(
         task: Task { await operation() },
         isNew: true,
         onCoalesced: nil,
-        onRegistered: nil,
-        onFinished: nil
+        onRegistered: nil
     )
 }
