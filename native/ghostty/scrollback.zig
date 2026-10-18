@@ -3,6 +3,8 @@ const std = @import("std");
 const Screen = @import("Screen.zig");
 const Page = @import("page.zig").Page;
 const ScreenFormatter = @import("formatter.zig").ScreenFormatter;
+const PageList = @import("PageList.zig");
+const PageListFormatter = @import("formatter.zig").PageListFormatter;
 
 pub const Limits = struct {
     rows: usize,
@@ -43,6 +45,66 @@ pub fn read(screen: *Screen, limits: Limits, buffer: []u8) Error!usize {
     });
     formatter.format(&writer) catch return error.TooLarge;
     return writer.end;
+}
+
+pub const Recent = struct {
+    written: usize,
+    older_output_omitted: bool,
+};
+
+/// The caller holds the renderer mutex. Admit a suffix using metadata only;
+/// even a partial page is charged at its full decompressed backing size.
+pub fn readRecent(screen: *Screen, limits: Limits, buffer: []u8) Error!Recent {
+    const bottom = screen.pages.getBottomRight(.screen) orelse return error.TooLarge;
+    var top: ?PageList.Pin = null;
+    var rows_left = limits.rows;
+    var cells_left = limits.cells;
+    var bytes_left = limits.page_bytes;
+    var selected_rows: usize = 0;
+    var node = screen.pages.pages.last;
+    while (node) |n| : (node = n.prev) {
+        const rows: usize = n.rows();
+        const cols: usize = n.cols();
+        if (rows == 0 or cols == 0) break;
+        const page_bytes = Page.layout(n.capacity()).total_size;
+        if (page_bytes > bytes_left) break;
+        const take = @min(rows, rows_left, cells_left / cols);
+        if (take == 0) break;
+        bytes_left -= page_bytes;
+        rows_left -= take;
+        cells_left -= take * cols;
+        selected_rows += take;
+        top = .{ .node = n, .y = @intCast(rows - take) };
+        if (take < rows) break;
+    }
+
+    var start = top orelse return error.TooLarge;
+    while (true) {
+        var writer: std.Io.Writer = .fixed(buffer);
+        // Direct pins avoid Selection's absolute-coordinate lookup through
+        // all preceding history. No page before start is formatted/restored.
+        var formatter: PageListFormatter = .init(&screen.pages, .{
+            .emit = .plain,
+            .unwrap = true,
+            .trim = false,
+        });
+        formatter.top_left = start;
+        formatter.bottom_right = bottom;
+        formatter.format(&writer) catch {
+            // Discard the failed prefix, including any partial UTF-8. Retry
+            // fewer complete physical rows, always retaining the newest row.
+            // A single oversized row fails rather than slicing a grapheme.
+            if (selected_rows <= 1) return error.TooLarge;
+            selected_rows /= 2;
+            start = bottom.up(selected_rows - 1) orelse return error.TooLarge;
+            start.x = 0;
+            continue;
+        };
+        return .{
+            .written = writer.end,
+            .older_output_omitted = start.node.prev != null or start.y > 0,
+        };
+    }
 }
 
 const testing = std.testing;

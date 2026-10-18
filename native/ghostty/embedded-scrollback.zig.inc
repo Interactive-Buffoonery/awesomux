@@ -21,3 +21,27 @@
         return 0;
     }
 
+    /// Same ownership and admission limits as the complete read, but starts
+    /// from the newest pages and reports when older output was excluded.
+    export fn awesomux_surface_read_recent_scrollback(
+        surface: *Surface,
+        maximum_rows: usize,
+        maximum_cells: usize,
+        maximum_page_bytes: usize,
+        buffer: [*]u8,
+        capacity: usize,
+        written: *usize,
+    ) c_int {
+        written.* = 0;
+        const state = &surface.core_surface.renderer_state;
+        state.mutex.lockUncancelable(global.io());
+        defer state.mutex.unlock(global.io());
+        const result = @import("../terminal/awesomux_scrollback.zig").readRecent(
+            state.terminal.screens.active,
+            .{ .rows = maximum_rows, .cells = maximum_cells, .page_bytes = maximum_page_bytes },
+            buffer[0..capacity],
+        ) catch return 1;
+        written.* = result.written;
+        return if (result.older_output_omitted) 2 else 0;
+    }
+
