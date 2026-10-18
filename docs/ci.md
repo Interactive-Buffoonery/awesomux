@@ -67,6 +67,7 @@ linked guides describe prerequisites and the limits of each proof.
 - Remote Markdown SSH transport and quoting: `python3 script/verify-remote-markdown-transport.py --host <SSH-alias> --report .build/verification/remote-markdown-transport.json`; [verification guide](verification/unmanaged-ssh-file-links.md).
 - Installed Codex plugin discovery: `./script/test_live_codex_plugin.sh` probes hooks through the production app-server client; requires an installed plugin.
 - Companion pairing and authenticated requests: `./script/run_companion_pairing_e2e.sh`; writes per-run logs and `result.json` under `/tmp/companion-pairing-e2e/`.
+- Deterministic native terminal lifecycle: `python3 script/terminal-lifecycle-e2e/run.py --output /tmp/terminal-lifecycle-run`; [prerequisites, contracts, freshness, and evidence](../script/terminal-lifecycle-e2e/README.md).
 - Floating-panel workspace rebinding: `./script/smoke-floating-rebind.sh`; requires macOS Accessibility access and a staged development app, and prints artifact paths.
 - Unmanaged SSH provider identity: follow [the fixture and screenshot checklist](../script/agent-identity-e2e/README.md), starting with `ssh -t localhost python3 "$PWD/script/agent-identity-e2e/fixture.py"`.
 - Codex subprocess lifecycle and transport: `python3 script/codex-transport-e2e/run.py --contracts`; [cases and report locations](../script/codex-transport-e2e/README.md).
