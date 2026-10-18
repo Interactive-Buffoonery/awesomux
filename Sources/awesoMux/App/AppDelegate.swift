@@ -959,6 +959,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             guard url.isFileURL else { continue }
             if ["md", "markdown"].contains(url.pathExtension.lowercased()) {
+                if sessionStore.selectedSession == nil {
+                    sessionStore.insertSession(
+                        TerminalSession(title: url.lastPathComponent, workingDirectory: url.deletingLastPathComponent().path),
+                        groupName: appSettingsStore?.workspaces.value.defaultGroup ?? "awesoMux"
+                    )
+                }
                 sessionStore.openDocumentPane(fileURL: url)
                 surfacePrimaryWindow()
                 continue

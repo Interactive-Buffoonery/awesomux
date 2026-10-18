@@ -16,7 +16,7 @@ import Foundation
         let claude = TerminalSession(title: "Claude", workingDirectory: "/tmp", agentKind: .claudeCode)
         let store = SessionStore(groups: [SessionGroup(name: "First", sessions: [home]), SessionGroup(name: "Agents", sessions: [codex, claude])], selectedSessionID: home.id)
         store.needsInputSectionEnabled = true
-        func visible(_ query: String = "") -> (attention: [UUID], pinned: [UUID], rest: [UUID], top: UUID?) {
+        func visible(_ query: String = "") -> (attention: [UUID], pinned: [UUID], rest: [UUID], top: UUID?, rotor: [String]) {
             let search = SidebarSearchProjection.project(groups: store.groups, query: query) {
                 SidebarSearchHaystacks(title: $0.title, location: $0.workingDirectory, agentState: .idle)
             }
@@ -28,13 +28,14 @@ import Foundation
             if query.isEmpty {
                 check("projection matches navigation", a + p + r == WorkspaceNavigationOrder.liftedFirstSessionIDs(in: store.groups, liftedSessionIDs: store.liftedSessionIDs, pinnedSessionIDs: store.pinnedSessionIDs))
             }
-            return (a, p, r, attention.topMatch)
+            return (a, p, r, attention.topMatch, SidebarVisibleRows.rotorEntries(attention: attention.attention, pinned: pinned.pinned, for: attention.entries).map(\.label))
         }
         func event(_ phase: AgentRuntimePhase, session: TerminalSession, pane: UUID? = nil, source: AgentRuntimeSource = .codex, execution: AgentExecutionState = .waiting) {
             check("event accepted: \(source) \(phase)", store.applyAgentRuntimeEvent(AgentRuntimeEvent(source: source, executionState: execution, phase: phase, providerSessionID: source.rawValue), to: session.id, paneID: pane ?? session.activePaneID))
         }
         store.markSessionNeedsAttention(id: codex.id)
         check("generic orange attention lifts", visible().attention == [codex.id])
+        check("lifted rotor identifies Needs Attention", visible().rotor.first?.contains("Needs attention, from") == true)
         check("generic reason stays unknown", store.session(id: codex.id)?.layout.pane(id: codex.activePaneID)?.attentionReason == .unknown)
         store.selectedSessionID = codex.id
         store.acknowledgeSession(id: codex.id, releasesAttentionSticky: false, answersUnansweredTurn: false)

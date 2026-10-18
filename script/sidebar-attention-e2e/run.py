@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix="sidebar-attention-e2e-") as temp:
     (package / "Package.swift").write_text('''// swift-tools-version: 6.0
 import PackageDescription
 let package = Package(name: "SidebarAttentionJourney", platforms: [.macOS(.v15)], dependencies: [.package(path: %s)], targets: [.executableTarget(name: "Journey", dependencies: [.product(name: "AwesoMuxCore", package: %s)])])
-''' % (json.dumps(str(root)), json.dumps(root.name)))
+''' % (json.dumps(str(root), ensure_ascii=False), json.dumps(root.name, ensure_ascii=False)))
     with (out / "journey.log").open("w") as log:
         result = subprocess.run(["swift", "run", "--package-path", str(package), "--scratch-path", str(root / ".build" / "sidebar-attention-e2e"), "Journey", str(out / "report.json")], stdout=log, stderr=subprocess.STDOUT)
     print((out / "journey.log").read_text())

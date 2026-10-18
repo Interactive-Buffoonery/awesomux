@@ -2995,8 +2995,8 @@
     "Move to Previous Group (%arg)" : {
 
     },
-    "Move workspaces with attention alerts or completed Codex responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default." : {
-      "comment" : "Settings field hint for the sidebar needs-input section toggle"
+    "Move workspaces with attention alerts, completed Codex responses, or unanswered Claude Code responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default." : {
+      "comment" : "Settings field hint for the sidebar needs-attention section toggle"
     },
     "Moved Terminal Companion to workspace." : {
       "comment" : "VoiceOver announcement after promoting the Terminal Companion into the workspace list."
@@ -3814,7 +3814,7 @@
       "comment" : "Accessibility label for the Terminal Companion promote button; action first, shortcut second."
     },
     "Promote workspaces needing attention" : {
-      "comment" : "Settings field label for the sidebar needs-input section toggle"
+      "comment" : "Settings field label for the sidebar needs-attention section toggle"
     },
     "Prompt" : {
       "comment" : "Accessibility label for the rich-input composer text editor"

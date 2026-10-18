@@ -1,6 +1,6 @@
 # Sidebar attention journey
 
-Run from any directory (macOS 15+, Xcode Swift toolchain):
+Run from the checkout root (macOS 15+, Xcode Swift toolchain):
 
 ```sh
 python3 script/sidebar-attention-e2e/run.py --output /tmp/sidebar-attention-result

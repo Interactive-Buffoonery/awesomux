@@ -242,11 +242,11 @@ struct AppearanceSettingsPane: View {
                 SettingsField(
                     label: String(
                         localized: "Promote workspaces needing attention",
-                        comment: "Settings field label for the sidebar needs-input section toggle"),
+                        comment: "Settings field label for the sidebar needs-attention section toggle"),
                     hint: String(
                         localized:
-                            "Move workspaces with attention alerts or completed Codex responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default.",
-                        comment: "Settings field hint for the sidebar needs-input section toggle"),
+                            "Move workspaces with attention alerts, completed Codex responses, or unanswered Claude Code responses to Needs Attention at the top of the sidebar. They return to their groups after you respond or clear the alert. Off by default.",
+                        comment: "Settings field hint for the sidebar needs-attention section toggle"),
                     // Bare .labelsHidden() Toggle — let the field supply its name.
                     forwardsAccessibilityToControl: true
                 ) {
