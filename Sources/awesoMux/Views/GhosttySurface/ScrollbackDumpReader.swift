@@ -24,8 +24,12 @@ enum ScrollbackDumpReader {
         case 0, 2:
             guard status == 0 || allowsRecentOutput else { return .failed }
             guard written >= 0, written <= buffer.count else { return .failed }
-            guard let text = String(bytes: buffer.prefix(written), encoding: .utf8) else { return .failed }
-            return status == 2 ? .recent(text) : .loaded(text)
+            let bytes = buffer.prefix(written)
+            guard status == 2 else { return .loaded(String(decoding: bytes, as: UTF8.self)) }
+            // The native reader retries at whole rows, so a recent suffix
+            // should be valid UTF-8. Reject a broken cut instead of repairing it.
+            guard let text = String(bytes: bytes, encoding: .utf8) else { return .failed }
+            return .recent(text)
         case 1:
             // A bounded writer may have filled part of the buffer. Never
             // present that prefix as if it were the complete history.
