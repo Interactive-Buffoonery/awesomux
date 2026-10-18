@@ -22,7 +22,7 @@ EOF
 # each other in bulk. AppKit-heavy Sidebar suites also get their own process:
 # concurrent NSAnimation waits can independently exhaust the dispatch thread
 # soft limit even after the real-blocking suites are removed.
-timing_pattern='AwesoMuxConfigTests\.AppSettingsSymlinkWatchTests|awesoMuxTests\.(ProcessCommandRunnerTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentTranscriptLiveRefreshWatchTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests|RemoteHandoffTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests|AwesoMuxTestSupportTests\.ProcessBoundedWaitTests'
+timing_pattern='AwesoMuxConfigTests\.AppSettingsSymlinkWatchTests|awesoMuxTests\.(ProcessCommandRunnerTests|SubprocessSafetyTests|BoundedProcessRunnerTests|BridgeConnectionActorTests|BridgeConnectionSupervisorTests|BridgeExecChannelTests|BridgeAttachPreflightTests|BridgeAttachAssemblyTests|BridgeGenerationRegistryTests|AgentIntegrationInstallerTests|AgentTranscriptLiveRefreshWatchTests|DocumentFileWatcherTests|DocumentRevisionMonitorTests|RemoteHandoffTests)|AwesoMuxBridgeHelperSupportTests\.HelperConnectionTests'
 timing_test_pattern='AwesoMuxAgentHookSupportTests\.AgentIntegrationTemplateTests/piTemplateBoundsHungHelpersAndPreservesNormalEvents(\(|$)'
 sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
 # Suites that replace the global TerminalAccessibilityAnnouncer poster stub.
@@ -31,7 +31,7 @@ sidebar_pattern='awesoMuxTests\.Sidebar[^/]*'
 announcement_pattern='awesoMuxTests\.(RemoteMarkdownTypedPathOpenTests|RemoteMarkdownTabRefreshTests)'
 
 # unit/adapter/system select SwiftPM test-target prefixes. Live membership:
-#   unit     AwesoMuxCoreTests AwesoMuxConfigTests AwesoMuxTestSupportTests
+#   unit     AwesoMuxCoreTests AwesoMuxConfigTests
 #            DesignSystemTests UnicodeHygieneTests SecureFileIOTests
 #   adapter  AwesoMuxAgentHookSupportTests AwesoMuxBridgeHelperSupportTests
 #   system   awesoMuxTests
@@ -51,7 +51,7 @@ filter=''
 skip=''
 case "$group" in
     unit)
-        filter='^(AwesoMuxCoreTests|AwesoMuxConfigTests|AwesoMuxTestSupportTests|DesignSystemTests|UnicodeHygieneTests|SecureFileIOTests)\.'
+        filter='^(AwesoMuxCoreTests|AwesoMuxConfigTests|DesignSystemTests|UnicodeHygieneTests|SecureFileIOTests)\.'
         ;;
     adapter)
         filter='^(AwesoMuxAgentHookSupportTests|AwesoMuxBridgeHelperSupportTests)\.'
