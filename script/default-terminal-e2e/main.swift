@@ -17,9 +17,14 @@ func check() async throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/sh")
     process.arguments = ["-n", "-c", request.command]
-    try process.run()
-    process.waitUntilExit()
-    precondition(process.terminationStatus == 0)
+    let syntaxOutput = try captureOutput(of: process)
+    guard process.terminationStatus == 0 else {
+        print(
+            "FAIL: /bin/sh syntax check, stdout=\(syntaxOutput.stdout.debugDescription), "
+                + "stderr=\(syntaxOutput.stderr.debugDescription)"
+        )
+        exit(1)
+    }
     var shells = ["/bin/sh", "/bin/bash", "/bin/zsh"]
     if let fish = ProcessInfo.processInfo.environment["AWESOMUX_E2E_FISH"], !fish.isEmpty {
         shells.append(fish)
@@ -33,16 +38,16 @@ func check() async throws {
         let quoted = try TerminalFileOpenRequest(url: candidate).command
         for shell in shells {
             let echo = Process()
-            let output = Pipe()
             echo.executableURL = URL(fileURLWithPath: shell)
             echo.arguments = (shell.hasSuffix("/fish") ? ["--no-config"] : []) + ["-c", "printf '%s' " + quoted]
             echo.environment = ["PATH": "/usr/bin:/bin", "HOME": directory.path]
-            echo.standardOutput = output
-            try echo.run()
-            let echoed = output.fileHandleForReading.readDataToEndOfFile()
-            echo.waitUntilExit()
-            guard echo.terminationStatus == 0 && String(data: echoed, encoding: .utf8) == candidate.path else {
-                print("FAIL: \(shell) filename round-trip, command=\(quoted.debugDescription), output=\(String(decoding: echoed, as: UTF8.self).debugDescription)")
+            let output = try captureOutput(of: echo)
+            guard echo.terminationStatus == 0 && output.stdout == candidate.path else {
+                print(
+                    "FAIL: \(shell) filename round-trip, command=\(quoted.debugDescription), "
+                        + "stdout=\(output.stdout.debugDescription), "
+                        + "stderr=\(output.stderr.debugDescription)"
+                )
                 exit(1)
             }
         }
@@ -103,4 +108,10 @@ func check() async throws {
     print("PASS: terminal-file validation/quoting and default-app registration success/failure; no files executed or OS defaults changed.")
     print("Fixtures retained at \(directory.path)")
 }
-try await check()
+do {
+    try await check()
+} catch {
+    let message = "FAIL: \(error)\n"
+    try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
+    exit(1)
+}
