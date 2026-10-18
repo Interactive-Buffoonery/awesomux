@@ -142,7 +142,10 @@ a managed first title confirming the declared host also preserves accepted cwd.
 Local reports, established title/host transitions, connection changes,
 recycle, exit and disposal discard pending evidence. No alias/DNS guessing is
 performed; hosts that do not match need an explicit user-selected base directory.
-The daemon inventory keeps its separate below-256-byte admission limit.
+Native and daemon reports use the same URI and host qualification. Spaces in
+reported file URIs must be percent-encoded; malformed or repaired encodings are
+rejected by both sources. The daemon inventory keeps its separate below-256-byte
+admission limit.
 
 All native fragments and regression cases participate in the source fingerprint.
 `script/verify_remote_pwd_injection.py --vendor /path/to/pinned/ghostty` verifies

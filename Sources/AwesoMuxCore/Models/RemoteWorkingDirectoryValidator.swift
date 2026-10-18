@@ -8,16 +8,9 @@ public enum RemoteWorkingDirectoryValidator {
         _ rawValue: String, expectedHost: String, localHostnames: Set<String>
     ) -> String? {
         // zmx ipc.MAX_CWD_LEN silently truncates the raw URI at 256 bytes.
-        guard rawValue.utf8.count < 256,
-            let uri = URLComponents(string: rawValue), uri.scheme == "file",
-            let host = uri.host, !host.isEmpty,
-            !hostsMatch(host, "localhost"),
-            !localHostnames.contains(where: { hostsMatch(host, $0) }),
-            hostsMatch(host, expectedHost),
-            uri.user == nil, uri.password == nil, uri.port == nil,
-            uri.query == nil, uri.fragment == nil
-        else { return nil }
-        return validatedReportedDirectory(rawValue)
+        guard rawValue.utf8.count < 256 else { return nil }
+        return validatedNativeReport(
+            rawValue, expectedHost: expectedHost, localHostnames: localHostnames)?.directory
     }
 
     /// Direct native reports are complete (unlike the daemon's 256-byte field).
@@ -32,7 +25,7 @@ public enum RemoteWorkingDirectoryValidator {
             let uri = URLComponents(string: rawValue), uri.scheme == "file",
             let host = uri.host, !host.isEmpty,
             rawValue.dropFirst(7).prefix(while: { $0 != "/" }) == host,
-            !host.hasPrefix("127."), host != "0.0.0.0",
+            !RemoteSessionDetector.isLoopback(host.lowercased()), host != "0.0.0.0",
             host.lowercased() != "localhost.",
             host.unicodeScalars.allSatisfy({
                 CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-").contains($0)

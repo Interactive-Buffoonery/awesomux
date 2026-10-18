@@ -7,8 +7,7 @@ import GhosttyKit
 struct PendingRemotePwd {
     let sessionID: TerminalSession.ID
     let pane: TerminalPane
-    let surface: ghostty_surface_t
-    let incarnation: UInt64?
+    let incarnation: UInt64
     let generation: UInt64
     let report: String
     let deadline: TimeInterval
@@ -52,9 +51,10 @@ extension GhosttySurfaceNSView {
             RemoteWorkingDirectoryValidator.validatedNativeReport(
                 report, expectedHost: nil, localHostnames: Self.remotePwdLocalHostnames) != nil
         else { return true }
+        guard let incarnation = lifecycleState.mouseSurfaceIncarnationID else { return true }
         let pending = PendingRemotePwd(
-            sessionID: sessionID, pane: current, surface: source,
-            incarnation: lifecycleState.mouseSurfaceIncarnationID, generation: generation, report: report,
+            sessionID: sessionID, pane: current,
+            incarnation: incarnation, generation: generation, report: report,
             deadline: CACurrentMediaTime() + 1)
         terminalEventState.pendingRemotePwd = pending
         let expiry = DispatchWorkItem { [weak self] in
@@ -126,10 +126,10 @@ extension GhosttySurfaceNSView {
             let current = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
             current.remoteHost != nil,
             pending.sessionID == sessionID, pending.pane.id == paneID,
-            pending.surface == surface,
+            let surface,
             pending.incarnation == lifecycleState.mouseSurfaceIncarnationID,
             pending.generation == terminalEventState.nativeRemotePwdGeneration,
-            !ghostty_surface_process_exited(pending.surface),
+            !ghostty_surface_process_exited(surface),
             pending.deadline >= CACurrentMediaTime(),
             pending.pane.terminalSessionID == current.terminalSessionID,
             pending.pane.executionPlan == current.executionPlan,
