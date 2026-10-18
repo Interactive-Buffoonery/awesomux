@@ -395,7 +395,8 @@ tell (first process whose unix id is $TARGET_PID)
     end repeat
     if (count matches) is not 1 then error \"Expected exactly one Close button\"
     set closeButton to item 1 of matches
-    if not enabled of closeButton then error \"Close button disabled\"
+    -- FloatingPanelCloseButton may omit AXEnabled; only an explicit false blocks.
+    if (enabled of closeButton) is false then error \"Close button disabled\"
     click closeButton
     return \"clicked\"
 end tell
