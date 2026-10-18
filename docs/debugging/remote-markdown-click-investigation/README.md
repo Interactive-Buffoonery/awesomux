@@ -35,6 +35,11 @@ probe.m links against .build/ghostty/GhosttyKit.xcframework/macos-arm64/libghost
 The temporary Swift probe is archived here as ZZMarkdownClickInvestigation.swift, outside all build/test targets. It deliberately retains its failing sheet expectation and direct-open control; it is diagnostic evidence, not a passing regression test. To rerun its app-control experiment, temporarily copy it into Tests/awesoMuxTests, run swift test --filter ZZMarkdownClickInvestigation under the shared validation lease, then trash the copy. It uses an isolated in-memory SessionStore and a cat/sleep fixture, not a real SSH session. Do not interpret a green probe invocation without its readback/control logs as end-to-end proof.
 
 
+The archived direct-open control launches an unawaited task and checks after a
+fixed delay; completion before cleanup is not guaranteed. Its no-sheet result
+is inconclusive. Any repaired harness should be a separate experiment with new
+evidence.
+
 ## Re-run the native-library control
 
 From the repository root after preparing the normal Ghostty artifacts:
