@@ -72,25 +72,26 @@ Markdown independently presented its managed remote-path sheet and Escape
 cancelled it. This trace establishes activation and incorrect local resolution;
 it does not establish the earlier report as a sheet-presentation failure.
 
-The local, uncommitted fix broadens the existing raw-target/filename click
+The click-capture fix broadens the existing raw-target/filename click
 eligibility to `RemoteMarkdownReadRouting.isRemoteFileContext` on the current
 stored pane. Its existing captured-origin, current-position/surface, native-link,
 boundary, and operation authorization checks remain in place. A captured native
 relative target uses the app-owned opener before Ghostty can resolve it locally.
 
-Local evidence and the acceptance/cleanup ledger are in
-[the Work Mac report](../../../.build/verification/remote-markdown-click-work-mac/REPORT.md).
-That folder includes the contributor-click screenshot and native/app logs,
-baseline and fixed build provenance, the patch, existing test output, and
-checks-only preflight output. Native acceptance status is recorded in that
-report; build or isolated-probe success alone is not native acceptance.
+The original checkout retains screenshots, traces, build provenance and a
+local acceptance ledger under `.build/verification/remote-markdown-click-work-mac/`.
+Those local artifacts are not distributed with this source. Fixture machine
+names and paths in this directory are anonymized. The archived probes below
+remain repeatable evidence; build or isolated-probe success alone is not native
+acceptance.
 
 The focused bare-name follow-up passed with matching press/release, surface,
 position and origin checks, then displayed the relative-path confirmation.
 Choosing `~/agent-skills` and Read File rendered the expected managed remote
 README in the diagnostic build. The final clean build separately demonstrated
-bare confirmation and Escape cancellation. Managed `remote-devbox`, ordinary SSH,
-native acceptance remain unrun. The later cwd result is recorded below. The test app was stopped by
+bare confirmation and Escape cancellation. Managed `remote-devbox` and ordinary
+SSH native acceptance were still unrun at that stage. The later cwd result is
+recorded below. The test app was stopped by
 verified PID/path. Restoring `feat/ssh-management-notice` was refused by Git to
 protect this edited README; changes remain on the investigation branch.
 
