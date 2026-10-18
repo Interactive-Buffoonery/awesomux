@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import CryptoKit
@@ -47,7 +48,6 @@ enum CompanionPairingError: Error {
     case transportInUse
     case identityUnavailable
     case listenerUnavailable
-    case invalidWords
     case invalidRequest
     case timeout
     case connectionClosed
@@ -174,19 +174,12 @@ final class CompanionPairingCoordinator {
         let id = UUID()
         let expiresAt = Date().addingTimeInterval(5 * 60)
         let macName = Host.current().localizedName ?? String(localized: "This Mac")
-        var components = URLComponents()
-        components.scheme = "awesomuxcompanion"
-        components.host = "pair"
-        components.queryItems = [
-            URLQueryItem(name: "v", value: "1"),
-            URLQueryItem(name: "h", value: address.host),
-            URLQueryItem(name: "p", value: String(port)),
-            URLQueryItem(name: "fp", value: loadedIdentity.fingerprint.companionBase64URL),
-            URLQueryItem(name: "s", value: generatedSecret.companionBase64URL),
-            URLQueryItem(name: "n", value: macName),
-            URLQueryItem(name: "t", value: transport.rawValue),
-        ]
-        guard let link = components.string else { throw CompanionPairingError.invalidRequest }
+        let link = try CompanionPairingLink(
+            host: address.host, port: port,
+            macFingerprint: loadedIdentity.fingerprint.companionBase64URL,
+            secret: generatedSecret.companionBase64URL, macName: macName,
+            transport: transport.rawValue
+        ).string()
         let session = CompanionPairingSession(id: id, transport: transport, link: link, expiresAt: expiresAt)
         pairingSession = session
         server?.pairingIsOpen = true
@@ -421,13 +414,15 @@ final class CompanionPairingCoordinator {
     private func claimSecret(_ candidate: Data, phoneSPKI: Data) -> ClaimedCompanionPairing? {
         guard let pairingSession, pairingSession.expiresAt > Date(),
             let secret, Self.constantTimeEqual(candidate, secret),
-            let identity,
-            let words = try? Self.confirmationWords(macSPKI: identity.subjectPublicKeyInfo, phoneSPKI: phoneSPKI)
+            let identity
         else { return nil }
         self.secret = nil
         expiryTask?.cancel()
         expiryTask = nil
-        return ClaimedCompanionPairing(id: pairingSession.id, words: words)
+        return ClaimedCompanionPairing(
+            id: pairingSession.id,
+            words: CompanionPairingWords.words(macSPKI: identity.subjectPublicKeyInfo, phoneSPKI: phoneSPKI)
+        )
     }
 
     private func finishPairing(id: UUID) {
@@ -514,21 +509,6 @@ final class CompanionPairingCoordinator {
         server?.stop()
         server = nil
         activeTransport = nil
-    }
-
-    private static func confirmationWords(macSPKI: Data, phoneSPKI: Data) throws -> [String] {
-        let words = try pairingWords()
-        let digest = SHA256.hash(data: macSPKI + phoneSPKI)
-        return digest.prefix(3).map { words[Int($0)] }
-    }
-
-    private static func pairingWords() throws -> [String] {
-        guard let url = Bundle.main.url(forResource: "companion-pairing-words", withExtension: "txt"),
-            let text = try? String(contentsOf: url, encoding: .utf8)
-        else { throw CompanionPairingError.invalidWords }
-        let words = text.split(whereSeparator: \.isNewline).map(String.init)
-        guard words.count == 256, Set(words).count == 256 else { throw CompanionPairingError.invalidWords }
-        return words
     }
 
     private static func address(for transport: LocalAPICompanionTransport) throws -> CompanionNetworkAddress {
@@ -873,7 +853,7 @@ private final class CompanionNetworkServer {
             guard request.connectionID == connectionID else { throw LocalAPIError.permissionDenied }
             // Self-unpair uses the same paired-certificate grant as status, but is
             // deliberately absent from the local bearer API's operation catalog.
-            let isUnpair = request.operation == "unpair"
+            let isUnpair = request.operation == CompanionOperation.unpair.rawValue
             guard let operation = isUnpair ? .connectionStatus : LocalAPIOperation(rawValue: request.operation) else {
                 throw LocalAPIError.unsupportedOperation
             }
@@ -905,11 +885,11 @@ private final class CompanionNetworkServer {
                         LocalAPIResponse(requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date())
                     }
                 responseProgress.markStarted()
-                try await Self.sendFrame(try LocalAPIContract.encoder().encode(response), connection: connection)
+                try await Self.sendFrame(try CompanionProtocol.encoder().encode(response.companionResponse), connection: connection)
                 return
             }
             let response = await capture(request, lease)
-            let encoded = try LocalAPIContract.encoder().encode(response)
+            let encoded = try CompanionProtocol.encoder().encode(response.companionResponse)
             guard encoded.count <= LocalAPIContract.maximumResponseBytes else { throw LocalAPIError.responseTooLarge }
             try await sendAuthorizedFrame(
                 encoded,
@@ -923,7 +903,7 @@ private final class CompanionNetworkServer {
         } catch let error as LocalAPIError {
             guard !responseProgress.started else { return }
             try? await Self.sendFrame(
-                try LocalAPIContract.encoder().encode(LocalAPIResponse(requestID: requestID, error: error)),
+                try CompanionProtocol.encoder().encode(LocalAPIResponse(requestID: requestID, error: error).companionResponse),
                 connection: connection
             )
         }
@@ -1000,10 +980,8 @@ private final class CompanionNetworkServer {
         try await Self.sendFrame(
             Self.pairingReply(
                 status: "paired",
-                additions: [
-                    "connectionID": grant.id.uuidString.lowercased(),
-                    "macName": macName,
-                ]
+                connectionID: grant.id,
+                macName: macName
             ),
             connection: connection
         )
@@ -1017,9 +995,7 @@ private final class CompanionNetworkServer {
         lease: LocalAPIAuthorizationLease,
         responseProgress: ResponseProgress
     ) async throws {
-        var length = UInt32(payload.count).bigEndian
-        var frame = withUnsafeBytes(of: &length) { Data($0) }
-        frame.append(payload)
+        let frame = try CompanionFrame.encode(payload, maximum: CompanionProtocol.maximumResponseBytes)
         var offset = 0
         while offset < frame.count {
             let end = min(offset + 16 * 1024, frame.count)
@@ -1050,8 +1026,12 @@ private final class CompanionNetworkServer {
     private static func readFrame(_ connection: NWConnection, maximum: Int) async throws -> Data {
         let header = try await receive(connection, minimum: 4, maximum: 4)
         guard header.count == 4 else { throw CompanionPairingError.connectionClosed }
-        let length = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        guard length > 0, length <= maximum else { throw LocalAPIError.requestTooLarge }
+        let length: Int
+        do {
+            length = try CompanionFrame.payloadLength(header, maximum: maximum)
+        } catch {
+            throw LocalAPIError.requestTooLarge
+        }
         let body = try await receive(connection, minimum: Int(length), maximum: Int(length))
         guard body.count == Int(length) else { throw CompanionPairingError.connectionClosed }
         return body
@@ -1074,9 +1054,7 @@ private final class CompanionNetworkServer {
     }
 
     private static func sendFrame(_ payload: Data, connection: NWConnection) async throws {
-        var length = UInt32(payload.count).bigEndian
-        var frame = withUnsafeBytes(of: &length) { Data($0) }
-        frame.append(payload)
+        let frame = try CompanionFrame.encode(payload, maximum: CompanionProtocol.maximumResponseBytes)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.send(
                 content: frame,
@@ -1086,10 +1064,10 @@ private final class CompanionNetworkServer {
         }
     }
 
-    private static func pairingReply(status: String, additions: [String: String] = [:]) -> Data {
-        var object = ["v": 1, "status": status] as [String: Any]
-        object.merge(additions) { _, new in new }
-        return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+    private static func pairingReply(status: String, connectionID: UUID? = nil, macName: String? = nil) -> Data {
+        (try? CompanionProtocol.encoder().encode(
+            CompanionPairingReply(status: status, connectionID: connectionID, macName: macName)
+        )) ?? Data()
     }
 
     private static func peerSPKI(_ connection: NWConnection) throws -> Data {

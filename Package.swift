@@ -78,6 +78,7 @@ import PackageDescription
             .library(name: "DesignSystem", targets: ["DesignSystem"]),
         ],
         dependencies: [
+            .package(url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git", exact: "0.1.0"),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
             .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
             .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
@@ -87,6 +88,7 @@ import PackageDescription
                 name: "awesoMux",
                 dependencies: [
                     "AwesoMuxBridgeProtocol",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                     "AwesoMuxLocalAPI",
                     "AwesoMuxLocalAPIAccess",
                     "AwesoMuxLocalAPICredentials",
@@ -100,7 +102,10 @@ import PackageDescription
                     .product(name: "Sparkle", package: "Sparkle"),
                 ]
             ),
-            .target(name: "AwesoMuxLocalAPI"),
+            .target(
+                name: "AwesoMuxLocalAPI",
+                dependencies: [.product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion")]
+            ),
             .target(
                 name: "AwesoMuxLocalAPICredentials",
                 dependencies: ["AwesoMuxLocalAPI"],
@@ -127,7 +132,10 @@ import PackageDescription
             ),
             .executableTarget(
                 name: "companion-pairing-e2e",
-                dependencies: ["AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess"],
+                dependencies: [
+                    "AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
+                ],
                 path: "script/companion-pairing-e2e",
                 linkerSettings: [.linkedFramework("Network"), .linkedFramework("Security")]
             ),

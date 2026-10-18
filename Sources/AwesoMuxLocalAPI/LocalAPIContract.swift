@@ -1,14 +1,15 @@
+import AwesoMuxCompanionProtocol
 import Foundation
 
 public enum LocalAPIContract {
-    public static let version = 1
-    public static let maximumRequestBytes = 8 * 1024
-    public static let maximumResponseBytes = 256 * 1024
+    public static let version = CompanionProtocol.version
+    public static let maximumRequestBytes = CompanionProtocol.maximumRequestBytes
+    public static let maximumResponseBytes = CompanionProtocol.maximumResponseBytes
     public static let timeout: TimeInterval = 5
     public static let maximumClients = 8
     public static let maximumContextBytes = 24 * 1024
     public static let maximumAttentionEvents = 512
-    public static let maximumAttentionPageSize = 100
+    public static let maximumAttentionPageSize = CompanionProtocol.maximumAttentionPageSize
 
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
