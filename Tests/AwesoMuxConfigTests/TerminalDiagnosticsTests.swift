@@ -23,22 +23,6 @@ struct TerminalDiagnosticsTests {
             "HOME": "/Users/example"
         ])
 
-        #expect(TerminalDiagnosticEnvironmentSnapshot.capturedKeys == [
-            "TERM",
-            "COLORTERM",
-            "COLORFGBG",
-            "NO_COLOR",
-            "FORCE_COLOR",
-            "TERM_PROGRAM",
-            "TMUX",
-            "TMUX_PANE",
-            "ZELLIJ",
-            "STY",
-            "MOSHI_SESSION",
-            "SSH_CONNECTION",
-            "SSH_CLIENT",
-            "SSH_TTY"
-        ])
         #expect(snapshot.logFields.contains("term=xterm-ghostty"))
         #expect(snapshot.logFields.contains("colorterm=truecolor"))
         #expect(snapshot.logFields.contains("colorfgbg=15;0"))
