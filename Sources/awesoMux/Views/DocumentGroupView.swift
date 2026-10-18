@@ -453,6 +453,9 @@ struct DocumentGroupView: View {
         .onChange(of: group) { oldGroup, newGroup in
             let followChrome = DocumentFocusHandoff.isDocumentChrome(
                 NSApp.keyWindow?.firstResponder)
+            let hasSheetFocusIntent = documentTabActions.selectionHasSheetFocusIntent(
+                for: newGroup.selectedTabID, in: session.id
+            )
             if oldGroup.selectedTabID != newGroup.selectedTabID {
                 documentFocus.selectedTabDidChange(to: newGroup.selectedTabID)
             }
@@ -496,7 +499,7 @@ struct DocumentGroupView: View {
                 // adopts the on-disk content (INT-782).
                 revisionMonitor.reconcile(tab: incomingTab)
             }
-            if followChrome,
+            if followChrome, !hasSheetFocusIntent,
                 let incomingID = newGroup.selectedTabID,
                 oldGroup.selectedTabID != newGroup.selectedTabID
                     || oldGroup.selectedTab?.fileURL.standardizedFileURL.path
@@ -757,9 +760,13 @@ struct DocumentGroupView: View {
             let tabID = group.selectedTabID,
             let request = documentTabActions.consumeFocusRequest(in: session.id, tabID: tabID)
         else { return }
-        request.intent?.cancel()
         setFilesVisible(false)
-        documentFocus.request(tabID)
+        if let intent = request.intent, intent.waitsForSheetDismissal {
+            documentFocus.request(tabID, preserving: intent)
+        } else {
+            request.intent?.cancel()
+            documentFocus.request(tabID)
+        }
     }
 
     private var selectedTaskProgress: TaskProgress? {
