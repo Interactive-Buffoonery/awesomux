@@ -723,6 +723,7 @@ extension SessionPersistenceSerializationDomainTests {
 
         enum CorruptInputArchivedCase: String, CaseIterable {
             case snapshotMissingGroupsKeyIsQuarantined
+            case futureSchemaVersionIsQuarantined
             case corruptedSnapshotArchivesExactBytesAndKeepsLivePathProtected
             case malformedRemoteMetadataArchivesInsteadOfBecomingLocalGroup
             case zeroByteSnapshotIsQuarantined
@@ -753,6 +754,29 @@ extension SessionPersistenceSerializationDomainTests {
                     #expect(archiveURL.lastPathComponent.contains("session-state.corrupted-"))
                     #expect(FileManager.default.fileExists(atPath: archiveURL.path))
                     #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
+                }
+            case .futureSchemaVersionIsQuarantined:
+                try Self.withTemporarySupportDirectory { tempDir in
+                    try FileManager.default.createDirectory(
+                        at: tempDir,
+                        withIntermediateDirectories: true
+                    )
+                    let snapshotURL = tempDir.appending(path: "session-state.json")
+                    let futureData = Data(
+                        #"{"schemaVersion":\#(SessionSnapshot.currentSchemaVersion + 1),"groups":[]}"#.utf8
+                    )
+                    try futureData.write(to: snapshotURL)
+
+                    let result = SessionPersistence.load()
+
+                    guard case let .archivedSnapshot(archivedSnapshotURL, archiveError) = result.recoveryWarning?.kind else {
+                        Issue.record("expected archived snapshot warning for a future schema version")
+                        return
+                    }
+                    let archiveURL = try #require(archivedSnapshotURL)
+                    #expect(archiveError == nil)
+                    #expect(try Data(contentsOf: archiveURL) == futureData)
+                    #expect(try Data(contentsOf: snapshotURL) == futureData)
                 }
             case .corruptedSnapshotArchivesExactBytesAndKeepsLivePathProtected:
                 try Self.withTemporarySupportDirectory { tempDir in
