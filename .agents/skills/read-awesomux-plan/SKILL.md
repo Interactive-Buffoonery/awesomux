@@ -13,6 +13,9 @@ tracked files; configure them locally.
 
 Read `.agents/planning.json` from the repository root. It is gitignored and
 contains `spaceId` and `team` strings identifying the shared planning space.
+`spaceId` is the exact space ID; `team` accepts a team slug, ID, or display name,
+which `sf` resolves. Verify the returned space ID rather than comparing the
+team selector with the receipt's canonical slug.
 Each contributor supplies their own local configuration and `sf` login; never
 put credentials in this file. If configuration is missing, ask for the space
 selection while continuing independent repository work. Do not guess a space
@@ -39,7 +42,7 @@ Check success before continuing. Select the live version, which may differ
 from the latest upload. Verify the receipt matches the configured space:
 
 ```sh
-planning_version="$(python3 -c 'import json,sys; c=json.load(open(".agents/planning.json")); d=json.load(open(sys.argv[1]))["data"]; assert d["space"]["id"] == c["spaceId"]; assert d["space"]["teamSlug"] == c["team"]; v=d["runtime"]["liveVersionId"]; assert v; print(v)' "$planning_dir/space.json")"
+planning_version="$(python3 -c 'import json,sys; c=json.load(open(".agents/planning.json")); d=json.load(open(sys.argv[1]))["data"]; assert d["space"]["id"] == c["spaceId"]; v=d["runtime"]["liveVersionId"]; assert v; print(v)' "$planning_dir/space.json")"
 sf spaces download --team "$planning_team" --space "$planning_space" \
   --version "$planning_version" --output "$planning_dir/files" --json \
   > "$planning_dir/download.json"
