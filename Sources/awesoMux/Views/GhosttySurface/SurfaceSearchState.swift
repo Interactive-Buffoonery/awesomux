@@ -99,6 +99,7 @@ final class SurfaceSearchState {
 enum ScrollbackDumpPresentation: Equatable {
     case loading
     case loaded(text: String)
+    case recent(text: String)
     case blocked(reason: ScrollbackDumpPolicy.BlockReason)
     case failed
 
@@ -106,7 +107,7 @@ enum ScrollbackDumpPresentation: Equatable {
         switch self {
         case .loading, .blocked, .failed:
             nil
-        case let .loaded(text):
+        case let .loaded(text), let .recent(text):
             text.isEmpty ? nil : text
         }
     }
