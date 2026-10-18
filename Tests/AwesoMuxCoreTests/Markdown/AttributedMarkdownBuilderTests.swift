@@ -147,14 +147,15 @@ struct AttributedMarkdownBuilderTests {
         let src = "| A | B |\n| - | - |\n| xx | y |"
         let cell = try #require(AttributedMarkdownBuilder.build(src).runs.first { $0.text == "xx" })
         let span = try #require(cell.sourceRange)
-        let (commented, n) = CommentMarkerWriter.insertingComment(
-            in: src, span: span, note: "too wide | fix"
-        )
+        let (commented, id) = try #require(
+            PlanAnnotationWriter.insertingAnnotation(
+                in: src, span: span, author: .user, payload: "too wide | fix"
+            ))
         let doc = AttributedMarkdownBuilder.build(commented)
         // The marker survives as one inline HTML comment (unescaped, the pipe splits
         // the row: phantom column, comment vanishes, trailing cell dropped)…
-        #expect(doc.annotation(id: String(n))?.payload == "too wide | fix")
-        #expect(try #require(doc.runs.first { $0.markID == String(n) }).text == "xx")
+        #expect(doc.annotation(id: id)?.payload == "too wide | fix")
+        #expect(try #require(doc.runs.first { $0.markID == id }).text == "xx")
         // …and the table keeps exactly its two columns.
         let cells = tableCells(doc)
         #expect(cells.contains { $0.text == "y" && $0.col == 1 })
@@ -163,12 +164,13 @@ struct AttributedMarkdownBuilderTests {
 
     @Test("a pipe in a comment note round-trips outside tables")
     func pipeInNoteOutsideTable() throws {
-        let (commented, n) = CommentMarkerWriter.insertingComment(
-            in: "see this ok", span: 4..<8, note: "a | b"
-        )
+        let (commented, id) = try #require(
+            PlanAnnotationWriter.insertingAnnotation(
+                in: "see this ok", span: 4..<8, author: .user, payload: "a | b"
+            ))
         let doc = AttributedMarkdownBuilder.build(commented)
         // Outside a table nothing strips the `\|` escape — the parser must.
-        #expect(doc.annotation(id: String(n))?.payload == "a | b")
+        #expect(doc.annotation(id: id)?.payload == "a | b")
     }
 
     @Test("CRLF sources keep column alignments")

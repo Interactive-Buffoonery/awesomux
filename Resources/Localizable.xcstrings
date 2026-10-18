@@ -2346,9 +2346,6 @@
     "File-read destination" : {
       "comment" : "Label for the independently authorized SSH file-read destination"
     },
-    "Files" : {
-
-    },
     "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
       "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
     },
@@ -6370,7 +6367,7 @@
       }
     },
     "shell" : {
-      "comment" : "Fallback session title prefix for an unnamed shell session, e.g. \"shell 1\"\nFallback workspace title noun for an unnamed shell workspace.",
+      "comment" : "Fallback workspace title noun for an unnamed shell workspace.",
       "localizations" : {
         "en" : {
           "stringUnit" : {

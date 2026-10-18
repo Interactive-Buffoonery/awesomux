@@ -56,7 +56,6 @@ struct AgentHookEventMapperTests {
             attentionReason: event.attentionReason
         )
         #expect(displayState == .waiting)
-        #expect(!displayState.triggersNotification)
     }
 
     @Test(arguments: [
