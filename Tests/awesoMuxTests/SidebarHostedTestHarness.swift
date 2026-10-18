@@ -29,39 +29,7 @@ final class SidebarHostedTestWindow: NSWindow {
 }
 
 @MainActor
-private final class SidebarHostedTestView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
-@MainActor
 enum SidebarHostedTestHarness {
-    static func makeWindow<Content: View>(
-        rootView: Content,
-        frame: NSRect
-    ) -> (window: NSWindow, hostingView: NSHostingView<Content>) {
-        let hostingView = SidebarHostedTestView(rootView: rootView)
-        hostingView.frame = frame
-        let container = NSView(frame: frame)
-        container.addSubview(hostingView)
-
-        let window = SidebarHostedTestWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = container
-        window.isReleasedWhenClosed = false
-        window.alphaValue = 0
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-        window.layoutIfNeeded()
-        container.layoutSubtreeIfNeeded()
-        hostingView.layoutSubtreeIfNeeded()
-        settleMainRunLoop()
-        return (window, hostingView)
-    }
-
     static func makePrimarySplitWindow(
         controller: SidebarSplitController,
         frame: NSRect
@@ -85,47 +53,6 @@ enum SidebarHostedTestHarness {
         controller.view.layoutSubtreeIfNeeded()
         settleMainRunLoop()
         return window
-    }
-
-    static func sendClick(to window: NSWindow, at location: CGPoint) {
-        for (type, eventNumber) in [(NSEvent.EventType.leftMouseDown, 1), (.leftMouseUp, 2)] {
-            guard
-                let event = NSEvent.mouseEvent(
-                    with: type,
-                    location: location,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber,
-                    context: nil,
-                    eventNumber: eventNumber,
-                    clickCount: 1,
-                    pressure: type == .leftMouseDown ? 1 : 0
-                )
-            else { continue }
-            window.sendEvent(event)
-        }
-    }
-
-    /// A single `mouseDown` carrying `clickCount: 2`. AppKit views that branch
-    /// on `clickCount` (the titlebar rename handle, the pane drag source) read
-    /// the count off the event, so one event is enough — no inter-click timing
-    /// to reproduce.
-    static func sendDoubleClick(to view: NSView, at location: CGPoint, in window: NSWindow) {
-        guard
-            let event = NSEvent.mouseEvent(
-                with: .leftMouseDown,
-                location: location,
-                modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
-                eventNumber: 3,
-                clickCount: 2,
-                pressure: 1
-            )
-        else { return }
-        view.mouseDown(with: event)
-        settleMainRunLoop()
     }
 
     static func sendKey(
