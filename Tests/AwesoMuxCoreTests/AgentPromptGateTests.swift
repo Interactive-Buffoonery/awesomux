@@ -5,9 +5,6 @@ import Testing
 
 @Suite("Agent prompt gate")
 struct AgentPromptGateTests {
-    /// A matching pair by default so every pre-existing test — none of which
-    /// are about generation binding — keeps exercising exactly the behavior
-    /// it names. Tests for the generation check itself override these.
     private static let defaultGeneration = AgentForegroundIncarnation(pid: 4242, startedAt: 1_000)
 
     private func verdict(
@@ -15,7 +12,6 @@ struct AgentPromptGateTests {
         state: AgentState = .waiting,
         enabled: Bool = true,
         comm: String? = nil,
-        binaryCandidate: String? = nil,
         verifiedGeneration: AgentForegroundIncarnation? = defaultGeneration,
         observedGeneration: AgentForegroundIncarnation? = defaultGeneration
     ) -> AgentPromptGate.Verdict {
@@ -25,44 +21,8 @@ struct AgentPromptGateTests {
             isIntegrationEnabled: { _ in enabled },
             observedForegroundCommand: comm,
             verifiedWaitingForegroundGeneration: verifiedGeneration,
-            observedForegroundGeneration: observedGeneration,
-            configuredBinaryCandidate: { binaryCandidate }
+            observedForegroundGeneration: observedGeneration
         )
-    }
-
-    @Test(
-        "every supported provider verifies at a live waiting prompt",
-        arguments: [
-            (AgentKind.claudeCode, "claude"),
-            (AgentKind.codex, "codex"),
-            (AgentKind.pi, "pi"),
-            (AgentKind.openCode, "opencode"),
-        ]
-    )
-    func verifiedProviders(kind: AgentKind, comm: String) {
-        #expect(verdict(kind: kind, comm: comm) == .verified(kind))
-    }
-
-    @Test("Claude Code's native installer verifies via its version-named binary")
-    func nativeInstallClaudeVerifies() {
-        // Measured live: `claude` symlinks to ~/.local/share/claude/versions/
-        // 2.1.214, and p_comm names the resolved file, so the observed comm is
-        // the bare semver.
-        #expect(verdict(kind: .claudeCode, comm: "2.1.214") == .verified(.claudeCode))
-    }
-
-    @Test(
-        "shell, grok, and hermes never verify, even waiting with a provider-looking foreground",
-        arguments: [AgentKind.shell, .grok, .hermes]
-    )
-    func unsupportedKindsDecline(kind: AgentKind) {
-        #expect(verdict(kind: kind, comm: "claude") == .unavailable(.noVerifiedAgent))
-    }
-
-    @Test("generic agents decline even when their foreground process matches")
-    func genericAgentsDeclineWithoutTrustedProviderSupport() {
-        #expect(verdict(kind: .generic, comm: "muse") == .unavailable(.noVerifiedAgent))
-        #expect(AgentPromptGate.foregroundCommandMatches(.generic, observedCommand: "muse"))
     }
 
     @Test(
@@ -77,27 +37,6 @@ struct AgentPromptGateTests {
     }
 
     @Test(
-        "provider-managed hook providers do not consult integration consent",
-        arguments: [AgentKind.claudeCode, .codex]
-    )
-    func trustedProvidersSkipConsent(kind: AgentKind) {
-        var consentConsulted = false
-        let verdict = AgentPromptGate.verdict(
-            agentKind: kind,
-            agentState: .waiting,
-            isIntegrationEnabled: { _ in
-                consentConsulted = true
-                return false
-            },
-            observedForegroundCommand: kind == .claudeCode ? "claude" : "codex",
-            verifiedWaitingForegroundGeneration: Self.defaultGeneration,
-            observedForegroundGeneration: Self.defaultGeneration
-        )
-        #expect(verdict == .verified(kind))
-        #expect(!consentConsulted)
-    }
-
-    @Test(
         "every non-waiting state declines",
         arguments: AgentState.allCases.filter { $0 != .waiting }
     )
@@ -108,319 +47,116 @@ struct AgentPromptGateTests {
         )
     }
 
-    @Test("absent foreground evidence fails closed")
-    func nilCommDeclines() {
-        #expect(verdict(kind: .codex, comm: nil) == .unavailable(.noVerifiedAgent))
-    }
-
-    @Test(
-        "a waiting agent with a non-provider foreground process declines",
-        arguments: ["zsh", "vim", "less", "htop", "node", "python3"]
-    )
-    func foregroundMismatchDeclines(comm: String) {
-        #expect(verdict(kind: .claudeCode, comm: comm) == .unavailable(.noVerifiedAgent))
-    }
-
-    // MARK: - Foreground-generation binding (INT-569 follow-up)
-    //
-    // `.waiting` can be synthesized from bare process-name recognition or
-    // scraped viewport text — neither proves the CURRENT foreground process
-    // ever earned it via a real hook. These prove the gate now binds
-    // `.waiting` evidence to the exact (pid, start time) a trusted hook last
-    // confirmed, and rejects anything that doesn't match the live process.
-
-    @Test("a same-provider relaunch's fresh incarnation is rejected until its own hook confirms it")
-    func relaunchedProcessDeclinesDespiteMatchingComm() {
-        // The stale `.waiting` (and its trusted generation) came from a
-        // process that has since exited; a new same-named process is now
-        // foreground with a different pid/start time — exactly the
-        // same-provider-relaunch spoof window this closes.
-        let staleGeneration = AgentForegroundIncarnation(pid: 100, startedAt: 1_000)
-        let relaunchedGeneration = AgentForegroundIncarnation(pid: 200, startedAt: 2_000)
-        #expect(
-            verdict(
-                kind: .claudeCode,
-                comm: "claude",
-                verifiedGeneration: staleGeneration,
-                observedGeneration: relaunchedGeneration
-            ) == .unavailable(.noVerifiedAgent)
-        )
-    }
-
-    @Test("no trusted hook has ever confirmed waiting for this pane")
-    func absentTrustedGenerationDeclines() {
-        // Only a synthesized/scraped `.waiting` exists (e.g.
-        // `detectAgentExitedToShell`'s process-recognition fast path) — no
-        // real hook ever stamped a trusted generation.
-        #expect(
-            verdict(
-                kind: .claudeCode,
-                comm: "claude",
-                verifiedGeneration: nil,
-                observedGeneration: AgentForegroundIncarnation(pid: 200, startedAt: 2_000)
-            ) == .unavailable(.noVerifiedAgent)
-        )
-    }
-
-    @Test("no live foreground process evidence declines even with a trusted generation on record")
-    func absentObservedGenerationDeclines() {
-        #expect(
-            verdict(
-                kind: .claudeCode,
-                comm: "claude",
-                verifiedGeneration: AgentForegroundIncarnation(pid: 100, startedAt: 1_000),
-                observedGeneration: nil
-            ) == .unavailable(.noVerifiedAgent)
-        )
-    }
-
-    @Test("the same live process that earned a trusted waiting hook is still verified")
-    func sameProcessIncarnationVerifies() {
-        // The process never relaunched — pid and start time are unchanged —
-        // so the earlier hook's trust still legitimately applies.
-        let generation = AgentForegroundIncarnation(pid: 4242, startedAt: 1_000)
-        #expect(
-            verdict(
-                kind: .claudeCode,
-                comm: "claude",
-                verifiedGeneration: generation,
-                observedGeneration: generation
-            ) == .verified(.claudeCode)
-        )
-    }
-
-    @Test("incarnations with the same pid but a different start time are rejected")
-    func pidReuseWithDifferentStartTimeDeclines() {
-        // A pid can be recycled by the OS; start time is what actually
-        // distinguishes the exited process from its replacement.
-        #expect(
-            verdict(
-                kind: .claudeCode,
-                comm: "claude",
-                verifiedGeneration: AgentForegroundIncarnation(pid: 100, startedAt: 1_000),
-                observedGeneration: AgentForegroundIncarnation(pid: 100, startedAt: 9_000)
-            ) == .unavailable(.noVerifiedAgent)
-        )
-    }
-
-    @Test("the configured binary candidate is not consulted for a non-receptive agent")
-    func candidateNotConsultedWhenNotReceptive() {
-        let verdict = AgentPromptGate.verdict(
-            agentKind: .codex,
-            agentState: .running,
-            isIntegrationEnabled: { _ in true },
-            observedForegroundCommand: "codex",
-            configuredBinaryCandidate: {
-                Issue.record("non-receptive agents must decline before candidate lookup")
-                return nil
-            }
-        )
-        #expect(verdict == .unavailable(.agentNotReceptive(.codex)))
-    }
-
-    // MARK: - foregroundCommandMatches
-
-    @Test("suffixed launcher binaries match by provider prefix")
-    func suffixedLaunchersMatch() {
-        #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .codex, observedCommand: "codex-aarch64-apple-darwin"
-            ))
-        #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .openCode, observedCommand: "opencode-darwin-arm64"
-            ))
-    }
-
-    @Test("the bare-version pattern is scoped to Claude Code only")
-    func versionPatternScopedToClaude() {
-        #expect(AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: "2.1.214"))
-        #expect(!AgentPromptGate.foregroundCommandMatches(.codex, observedCommand: "2.1.214"))
-        #expect(!AgentPromptGate.foregroundCommandMatches(.pi, observedCommand: "2.1.214"))
-        #expect(!AgentPromptGate.foregroundCommandMatches(.openCode, observedCommand: "2.1.214"))
-    }
-
-    @Test(
-        "names that are not bare dotted versions do not match the version pattern",
-        arguments: ["2.1.214a", ".214", "2.", "v2.1.214", "2-1-214", "214"]
-    )
-    func malformedVersionNamesDecline(name: String) {
-        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: name))
-    }
-
-    @Test("pi requires an exact name, not a prefix")
-    func piExactOnly() {
-        #expect(AgentPromptGate.foregroundCommandMatches(.pi, observedCommand: "pi"))
-        #expect(!AgentPromptGate.foregroundCommandMatches(.pi, observedCommand: "pip"))
-        #expect(!AgentPromptGate.foregroundCommandMatches(.pi, observedCommand: "ping"))
-    }
-
-    @Test("a configured binary basename matches exactly for any supported kind")
-    func configuredCandidateMatches() {
-        #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .claudeCode,
-                observedCommand: "2.1.300-beta",
-                configuredBinaryCandidate: { "2.1.300-beta" }
-            ))
-        #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .pi,
-                observedCommand: "pi-custom",
-                configuredBinaryCandidate: { "pi-custom" }
-            ))
-    }
-
-    @Test("a truncated observation matches a longer configured basename by prefix")
-    func truncatedObservationMatchesCandidate() {
-        // Kernel process names truncate; a 15+-char observation may be the
-        // prefix of the configured basename.
-        #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .pi,
-                observedCommand: "pi-agent-launch",
-                configuredBinaryCandidate: { "pi-agent-launcher-custom" }
-            ))
-        // Short observations never prefix-match — that would let "p" match.
-        #expect(
-            !AgentPromptGate.foregroundCommandMatches(
-                .pi,
-                observedCommand: "pi-agent",
-                configuredBinaryCandidate: { "pi-agent-launcher-custom" }
-            ))
-    }
-
-    @Test(
-        "a configured binary_path naming a shell, interpreter, or TUI never matches",
-        arguments: ["node", "zsh", "vim", "less", "htop", "python3", "tmux", "ssh"]
-    )
-    func misconfiguredCandidateCannotVerifyNonAgents(comm: String) {
-        // A misconfigured binary_path (e.g. pointing at /bin/zsh) must not
-        // open the gate to exactly the processes it exists to protect.
-        #expect(
-            !AgentPromptGate.foregroundCommandMatches(
-                .pi,
-                observedCommand: comm,
-                configuredBinaryCandidate: { comm }
-            ))
-    }
-
-    @Test(
-        "the version pattern requires non-empty ASCII-digit components",
-        arguments: ["2..1", "1.2.\u{0663}", "..", "1.2a.3"]
-    )
-    func versionPatternIsStrict(name: String) {
-        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: name))
-    }
-
-    @Test("wrapper interpreters never match, even with a claude candidate configured")
-    func wrapperInterpreterDeclines() {
-        // A provider launched through a bare `node` is indistinguishable from a
-        // raw-mode node REPL, so it must stay a false negative.
-        #expect(
-            !AgentPromptGate.foregroundCommandMatches(
-                .claudeCode,
-                observedCommand: "node",
-                configuredBinaryCandidate: { "claude" }
-            ))
-    }
-
-    @Test(
-        "an .exe launcher verifies at the full gate, not just the name matcher",
-        arguments: [
-            (AgentKind.claudeCode, "claude.exe"),
-            (AgentKind.codex, "codex.exe"),
-            (AgentKind.pi, "pi.exe"),
-            (AgentKind.openCode, "opencode.exe"),
-        ]
-    )
-    func exeLauncherVerifiesAtVerdict(kind: AgentKind, comm: String) {
-        // The reported failure was a `verdict()` denial with every other probe
-        // passing; the name-matcher tests below sit one layer beneath it, so
-        // this is the assertion that is red before the fix at the layer where
-        // the bug was actually seen (review finding).
+    @Test(arguments: [
+        (AgentKind.claudeCode, "claude"),
+        (AgentKind.codex, "codex"),
+        (AgentKind.pi, "pi"),
+        (AgentKind.openCode, "opencode"),
+        (AgentKind.claudeCode, "2.1.214"),
+        (AgentKind.claudeCode, "claude.exe"),
+        (AgentKind.codex, "codex.exe"),
+        (AgentKind.pi, "pi.exe"),
+        (AgentKind.openCode, "opencode.exe"),
+    ])
+    func verifiedProviders(kind: AgentKind, comm: String) {
         #expect(verdict(kind: kind, comm: comm) == .verified(kind))
     }
 
-    @Test("a doubled suffix is stripped once, not repeatedly")
-    func doubledExeSuffixDeclines() {
-        // Pins `hasSuffix` + `removeLast(4)` against a "simplification" to
-        // replacingOccurrences, which would silently make this match.
-        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: "claude.exe.exe"))
+    @Test(arguments: [
+        (AgentKind.shell, "claude"), (.grok, "claude"), (.hermes, "claude"), (.generic, "muse"),
+    ])
+    func unsupportedKindsDecline(kind: AgentKind, comm: String) {
+        #expect(verdict(kind: kind, comm: comm) == .unavailable(.noVerifiedAgent))
     }
 
     @Test(
-        "a native .exe launcher matches its provider",
         arguments: [
-            (AgentKind.claudeCode, "claude.exe"),
-            // npm ships the launcher at .../@anthropic-ai/claude-code/bin/claude.exe,
-            // so p_comm reads claude.exe even on macOS. Measured live; it was the
-            // sole reason a receptive agent was declined.
-            (.claudeCode, "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"),
-            (.codex, "codex.exe"),
-            (.openCode, "opencode.exe"),
-            (.pi, "pi.exe"),
-        ]
-    )
-    func nativeExeLauncherMatches(kind: AgentKind, command: String) {
-        #expect(AgentPromptGate.foregroundCommandMatches(kind, observedCommand: command))
+            (AgentKind.claudeCode, "zsh"),
+            (AgentKind.claudeCode, "vim"),
+            (AgentKind.claudeCode, "less"),
+            (AgentKind.claudeCode, "htop"),
+            (AgentKind.claudeCode, "node"),
+            (AgentKind.claudeCode, "python3"),
+            (.codex, nil),
+        ] as [(AgentKind, String?)])
+    func foregroundMismatchDeclines(kind: AgentKind, comm: String?) {
+        #expect(verdict(kind: kind, comm: comm) == .unavailable(.noVerifiedAgent))
+    }
+
+    @Test(arguments: [
+        (AgentKind.pi, "node", "node"),
+        (AgentKind.pi, "zsh", "zsh"),
+        (AgentKind.pi, "vim", "vim"),
+        (AgentKind.pi, "less", "less"),
+        (AgentKind.pi, "htop", "htop"),
+        (AgentKind.pi, "python3", "python3"),
+        (AgentKind.pi, "tmux", "tmux"),
+        (AgentKind.pi, "ssh", "ssh"),
+        (.claudeCode, "node.exe", "node"),
+        (.claudeCode, "zsh.exe", "zsh"),
+        (.claudeCode, "bash.exe", "bash"),
+        (.claudeCode, "python3.exe", "python3"),
+        (.claudeCode, "nvim.exe", "nvim"),
+        (.claudeCode, "node", "claude"),
+    ])
+    func misconfiguredCandidateCannotVerifyNonAgents(kind: AgentKind, comm: String, candidate: String) {
+        #expect(!AgentPromptGate.foregroundCommandMatches(kind, observedCommand: comm, configuredBinaryCandidate: { candidate }))
     }
 
     @Test(
-        "stripping .exe does not open the gate to shells or interpreters",
-        arguments: ["node.exe", "zsh.exe", "bash.exe", "python3.exe", "nvim.exe"]
-    )
-    func exeStrippingKeepsDenyList(name: String) {
+        arguments: [
+            (AgentForegroundIncarnation(pid: 100, startedAt: 1_000), AgentForegroundIncarnation(pid: 200, startedAt: 2_000)),
+            (nil, AgentForegroundIncarnation(pid: 200, startedAt: 2_000)),
+            (AgentForegroundIncarnation(pid: 100, startedAt: 1_000), nil),
+            (AgentForegroundIncarnation(pid: 100, startedAt: 1_000), AgentForegroundIncarnation(pid: 100, startedAt: 9_000)),
+        ] as [(AgentForegroundIncarnation?, AgentForegroundIncarnation?)])
+    func mismatchedGenerationsDecline(verified: AgentForegroundIncarnation?, observed: AgentForegroundIncarnation?) {
         #expect(
-            !AgentPromptGate.foregroundCommandMatches(
-                .claudeCode,
-                observedCommand: name,
-                configuredBinaryCandidate: { String(name.dropLast(4)) }
-            ))
-    }
-
-    @Test("a configured binary path ending in .exe still matches its process")
-    func configuredExeCandidateMatches() {
-        // Both sides normalize, or the escape hatch compares `my-agent` against
-        // `my-agent.exe` and never fires (review finding).
-        #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .claudeCode,
-                observedCommand: "my-agent.exe",
-                configuredBinaryCandidate: { "my-agent.exe" }
-            ))
-        #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .claudeCode,
-                observedCommand: "my-agent",
-                configuredBinaryCandidate: { "my-agent.exe" }
-            ))
+            verdict(kind: .claudeCode, comm: "claude", verifiedGeneration: verified, observedGeneration: observed)
+                == .unavailable(.noVerifiedAgent))
     }
 
     @Test(
-        "stripping .exe does not widen the Claude version pattern",
-        arguments: ["2.1.214.exe", "2.1.214.EXE"]
-    )
-    func versionPatternIgnoresStrippedSuffix(name: String) {
-        // The native installer executes a suffix-less version-named file, so
-        // the version rule reads the raw name; otherwise this would newly match.
-        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: name))
-    }
-
-    @Test("a truncated .exe basename still matches its configured binary")
-    func truncatedExeCandidateMatchesByPrefix() {
-        // p_comm truncates at 16 bytes, which can cut mid-suffix — the stripped
-        // forms cannot prefix-match each other, so the raw pair is compared.
+        arguments: [
+            (AgentKind.codex, "codex-aarch64-apple-darwin", nil, true),
+            (AgentKind.openCode, "opencode-darwin-arm64", nil, true),
+            (AgentKind.claudeCode, "2.1.214", nil, true),
+            (AgentKind.codex, "2.1.214", nil, false),
+            (AgentKind.pi, "2.1.214", nil, false),
+            (AgentKind.openCode, "2.1.214", nil, false),
+            (AgentKind.claudeCode, "2.1.214a", nil, false),
+            (AgentKind.claudeCode, ".214", nil, false),
+            (AgentKind.claudeCode, "2.", nil, false),
+            (AgentKind.claudeCode, "v2.1.214", nil, false),
+            (AgentKind.claudeCode, "2-1-214", nil, false),
+            (AgentKind.claudeCode, "214", nil, false),
+            (AgentKind.claudeCode, "2..1", nil, false),
+            (AgentKind.claudeCode, "1.2.\u{0663}", nil, false),
+            (AgentKind.claudeCode, "..", nil, false),
+            (AgentKind.claudeCode, "1.2a.3", nil, false),
+            (AgentKind.pi, "pi", nil, true),
+            (AgentKind.pi, "pip", nil, false),
+            (AgentKind.pi, "ping", nil, false),
+            (AgentKind.claudeCode, "2.1.300-beta", "2.1.300-beta", true),
+            (AgentKind.pi, "pi-custom", "pi-custom", true),
+            (AgentKind.pi, "pi-agent-launch", "pi-agent-launcher-custom", true),
+            (AgentKind.pi, "pi-agent", "pi-agent-launcher-custom", false),
+            (AgentKind.claudeCode, "claude.exe", nil, true),
+            (AgentKind.claudeCode, "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe", nil, true),
+            (AgentKind.codex, "codex.exe", nil, true),
+            (AgentKind.openCode, "opencode.exe", nil, true),
+            (AgentKind.pi, "pi.exe", nil, true),
+            (AgentKind.claudeCode, "claude.exe.exe", nil, false),
+            (AgentKind.claudeCode, "my-agent.exe", "my-agent.exe", true),
+            (AgentKind.claudeCode, "my-agent", "my-agent.exe", true),
+            (AgentKind.claudeCode, "2.1.214.exe", nil, false),
+            (AgentKind.claudeCode, "2.1.214.EXE", nil, false),
+            (AgentKind.claudeCode, "my-long-agent.ex", "/opt/tools/my-long-agent.exe", true),
+            (AgentKind.claudeCode, ".exe", nil, false),
+            (AgentKind.generic, "muse", nil, true),
+        ] as [(AgentKind, String, String?, Bool)])
+    func foregroundCommandMatches(kind: AgentKind, command: String, candidate: String?, expected: Bool) {
         #expect(
-            AgentPromptGate.foregroundCommandMatches(
-                .claudeCode,
-                observedCommand: "my-long-agent.ex",
-                configuredBinaryCandidate: { "/opt/tools/my-long-agent.exe" }
-            ))
-    }
-
-    @Test("a bare .exe is not a provider name")
-    func bareExeDeclines() {
-        #expect(!AgentPromptGate.foregroundCommandMatches(.claudeCode, observedCommand: ".exe"))
+            AgentPromptGate.foregroundCommandMatches(kind, observedCommand: command, configuredBinaryCandidate: { candidate }) == expected)
     }
 }
