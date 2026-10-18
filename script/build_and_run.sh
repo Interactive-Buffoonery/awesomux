@@ -849,6 +849,34 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key>
   <string>AwesoMuxApplication</string>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.apple.terminal.shell-script</string>
+      <key>UTTypeConformsTo</key>
+      <array><string>public.shell-script</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array><string>command</string><string>tool</string></array>
+      </dict>
+    </dict>
+  </array>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeRole</key>
+      <string>Shell</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.unix-executable</string>
+        <string>com.apple.terminal.shell-script</string>
+      </array>
+    </dict>
+  </array>
   <key>NSQuitAlwaysKeepsWindows</key>
   <false/>
 </dict>

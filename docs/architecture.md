@@ -238,14 +238,15 @@ moves a session in the store — both are render-time projections over the
 post-search `SidebarGroupEntry` list, which is what makes "return to origin"
 structurally free.
 
-1. **Needs Input** (`SidebarAttentionProjection`, opt-in via
+1. **Needs Attention** (`SidebarAttentionProjection`, opt-in via
    `appearance.promote_workspaces_needing_input`, default off). Membership is
    the ordered `SessionStore.liftedSessionIDs`, reconciled from
-   `TerminalSession.needsUserInput` — deliberately narrower than
-   `needsAcknowledgement`, gating on `AttentionReason.priority >= 2`
-   (`permissionPrompt`, `userInputRequired`). A bell, desktop notification,
-   process error, or stray background output still lights the peach cue but does
-   not reorder the sidebar.
+   visible `.needsAttention` chrome, including bells, terminal notifications,
+   and background-output attention. Low-priority reasons hidden by a dead pane's
+   recovery state do not lift it. Accepted Codex waiting `stop` events and Claude
+   Code's delayed idle prompt also lift unanswered turns without changing their
+   attention or execution semantics. Only sidebar membership is broader;
+   `TerminalSession.needsUserInput` remains reserved for blocking prompts.
 
 2. **Pinned** (`SidebarPinnedProjection`, INT-737). Membership is the
    user-ordered `SessionStore.pinnedSessionIDs`.
