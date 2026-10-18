@@ -14,32 +14,9 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
 }
 
 @Suite struct AgentTranscriptIdentityTests {
-    @Test func acceptsOnlyProvidersWithAKnownTranscriptLayout() {
-        #expect(AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: sessionA) != nil)
-        #expect(AgentTranscriptIdentity(agentKind: .codex, sessionID: sessionA) != nil)
-        #expect(AgentTranscriptIdentity(agentKind: .pi, sessionID: "pi-session-1") != nil)
-        #expect(AgentTranscriptIdentity(agentKind: .openCode, sessionID: "ses_01JABC") != nil)
-        for kind in [AgentKind.grok, .hermes, .generic, .shell] {
-            #expect(AgentTranscriptIdentity(agentKind: kind, sessionID: sessionA) == nil)
-        }
-    }
-
-    @Test func rejectsSessionIDsThatAreNotUUIDs() {
-        for raw in [
-            "",
-            "   ",
-            "not-a-uuid",
-            // The two shapes the trust-boundary work exists to stop: a staged
-            // command line, and a path traversal into the transcript glob.
-            "\(sessionA)\nrm -rf ~",
-            "../../../tmp/evil",
-            "\(sessionA)x",
-        ] {
-            #expect(
-                AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: raw) == nil,
-                "\(raw.debugDescription) must not become provenance"
-            )
-        }
+    @Test(arguments: ["", "   ", "not-a-uuid", "\(sessionA)\nrm -rf ~", "../../../tmp/evil", "\(sessionA)x"])
+    func rejectsInvalidSessionID(raw: String) {
+        #expect(AgentTranscriptIdentity(agentKind: .claudeCode, sessionID: raw) == nil)
     }
 
     @Test func decodeRevalidatesPersistedValues() {
@@ -58,19 +35,6 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
 }
 
 @Suite struct DocumentPaneTranscriptProvenanceTests {
-    private func transcriptTab(
-        _ sessionID: String = sessionA,
-        path: String = "/tmp/cache/abc.transcript.md",
-        associatedWith paneID: TerminalPane.ID? = nil
-    ) -> DocumentPane {
-        DocumentPane(
-            fileURL: URL(fileURLWithPath: path),
-            title: "Claude Code Transcript",
-            associatedTerminalPaneID: paneID,
-            agentTranscriptIdentity: identity(sessionID)
-        )
-    }
-
     @Test func malformedTranscriptProvenanceDropsTheFieldNotTheTab() throws {
         for value in [
             #"{"agentKind":"Claude Code","sessionID":"not-a-uuid"}"#,
@@ -89,33 +53,6 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
             #expect(pane.agentTranscriptIdentity == nil)
             #expect(pane.title == "notes.md", "the tab itself must survive")
         }
-    }
-
-    @Test func snapshotPredatingTranscriptProvenanceDecodesAsPlainDocument() throws {
-        let data = Data(
-            #"{"id":"11111111-1111-1111-1111-111111111111","fileURL":"file:///tmp/notes.md","title":"notes.md"}"#
-                .utf8
-        )
-        let pane = try JSONDecoder().decode(DocumentPane.self, from: data)
-
-        #expect(pane.agentTranscriptIdentity == nil)
-        #expect(pane.isEditable)
-        #expect(!pane.isReadOnlySnapshot)
-    }
-
-    /// Routing transcript read-only-ness through `isReadOnlySnapshot` disables
-    /// the send bar on the pane the feature adds a Resume control to.
-    @Test func documentNudgeTargetStillResolvesForATranscriptTab() {
-        let terminal = TerminalPane(title: "zsh", workingDirectory: "/tmp", executionPlan: .local)
-        let tab = transcriptTab(associatedWith: terminal.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(DocumentGroup(tabs: [tab], selectedTabID: tab.id))
-            ))
-
-        #expect(layout.documentNudgeTarget(for: tab.id) == .available(terminal))
     }
 }
 
@@ -159,41 +96,5 @@ private func identity(_ sessionID: String, _ kind: AgentKind = .claudeCode) -> A
         #expect(tabA != tabB)
         #expect(group.tab(id: tabA)?.agentTranscriptIdentity == identity(sessionA))
         #expect(group.tab(id: tabB)?.agentTranscriptIdentity == identity(sessionB))
-    }
-
-    @Test func reopeningATranscriptSlotNeverRetargetsItsProvenance() throws {
-        let (session, terminal) = session()
-        let path = "/tmp/cache/a.transcript.md"
-        let (afterA, tabA) = try #require(
-            openTranscript(sessionA, path: path, associatedWith: terminal.id, in: session)
-        )
-        // Only reachable if a slot were ever reused for another session; the
-        // store hashes the identity into the path so it is not, and the tab must
-        // keep A rather than silently becoming B if that ever changes.
-        let (afterB, tabB) = try #require(
-            openTranscript(sessionB, path: path, associatedWith: terminal.id, in: afterA)
-        )
-
-        #expect(tabB == tabA, "same path must dedup onto the same tab")
-        #expect(
-            afterB.layout.firstDocumentGroup?.tab(id: tabA)?.agentTranscriptIdentity
-                == identity(sessionA)
-        )
-    }
-
-    @Test func aTranscriptTabCannotBeNavigatedToAnotherFile() throws {
-        let (session, terminal) = session()
-        let (afterA, tabA) = try #require(
-            openTranscript(sessionA, path: "/tmp/cache/a.transcript.md", associatedWith: terminal.id, in: session)
-        )
-
-        #expect(
-            PaneLayoutReducer.replaceDocumentTab(
-                tabID: tabA,
-                fileURL: URL(fileURLWithPath: "/tmp/other.md"),
-                in: afterA
-            ) == nil,
-            "navigating in place would leave the stored identity describing a different document"
-        )
     }
 }

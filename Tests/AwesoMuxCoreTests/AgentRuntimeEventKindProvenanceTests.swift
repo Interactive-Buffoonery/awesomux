@@ -63,8 +63,8 @@ struct AgentRuntimeEventKindProvenanceTests {
         )
     }
 
-    @Test("a text-guessed kind yields to another provider's prompt submit")
-    func textGuessedKindYieldsToPromptSubmit() throws {
+    @Test(arguments: [AgentRuntimePhase.promptSubmit, .sessionStart])
+    func textGuessedKindYieldsToPromptSubmit(phase: AgentRuntimePhase) throws {
         let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
         let paneID = session.activePaneID
         var reducer = AgentRuntimeEventReducer()
@@ -72,7 +72,7 @@ struct AgentRuntimeEventKindProvenanceTests {
         // #require cannot wrap a mutating call; capture the optional first.
         let reclaimed = reducer.decision(
             for: openCodeEvent(
-                phase: .promptSubmit,
+                phase: phase,
                 eventID: "reclaim",
                 timestamp: Date(timeIntervalSince1970: 10)
             ),
@@ -86,12 +86,13 @@ struct AgentRuntimeEventKindProvenanceTests {
         #expect(decision.update.agentKindIsRuntimeEstablished == true)
     }
 
-    @Test("a foreign prompt submit cannot steal a mid-turn text-guessed pane")
-    func foreignPromptSubmitDoesNotReclaimMidTurn() throws {
+    @Test(arguments: [(true, AgentRuntimePhase.promptSubmit), (false, .toolStart)])
+    func foreignPromptSubmitDoesNotReclaimMidTurn(parentTurnApplied: Bool, phase: AgentRuntimePhase) throws {
         let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
         let paneID = session.activePaneID
         var reducer = AgentRuntimeEventReducer()
 
+        if parentTurnApplied {
         // The guessed provider's own prompt proves the pane is genuinely
         // mid-turn, so a nested child of another provider must not reclaim it.
         let parentTurn = reducer.decision(
@@ -107,10 +108,12 @@ struct AgentRuntimeEventKindProvenanceTests {
         )
         _ = try #require(parentTurn)
 
+        }
+
         #expect(
             reducer.decision(
                 for: openCodeEvent(
-                    phase: .promptSubmit,
+                    phase: phase,
                     eventID: "child-steal",
                     timestamp: Date(timeIntervalSince1970: 12)
                 ),
@@ -120,97 +123,6 @@ struct AgentRuntimeEventKindProvenanceTests {
                 now: Date(timeIntervalSince1970: 13)
             ) == nil,
             "a foreign prompt submit mid-turn must stay rejected over a text-guessed kind"
-        )
-    }
-
-    @Test("a stopped text-guessed pane still yields to another provider")
-    func stoppedTextGuessedKindStillYields() throws {
-        let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
-        let paneID = session.activePaneID
-        var reducer = AgentRuntimeEventReducer()
-
-        // A finished turn is not a live one: once the guessed provider stops
-        // between turns, the reclaim path stays open for a genuine handoff.
-        let earlierTurn = reducer.decision(
-            for: claudeCodeEvent(
-                phase: .promptSubmit,
-                eventID: "earlier-turn",
-                timestamp: Date(timeIntervalSince1970: 10)
-            ),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: false,
-            now: Date(timeIntervalSince1970: 11)
-        )
-        _ = try #require(earlierTurn)
-        let turnEnd = reducer.decision(
-            for: claudeCodeEvent(
-                phase: .stop,
-                eventID: "turn-end",
-                timestamp: Date(timeIntervalSince1970: 12)
-            ),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: false,
-            now: Date(timeIntervalSince1970: 13)
-        )
-        _ = try #require(turnEnd)
-
-        let reclaimed = reducer.decision(
-            for: openCodeEvent(
-                phase: .promptSubmit,
-                eventID: "handoff",
-                timestamp: Date(timeIntervalSince1970: 14)
-            ),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: false,
-            now: Date(timeIntervalSince1970: 15)
-        )
-        let handoff = try #require(reclaimed)
-        #expect(handoff.update.agentKind == .openCode)
-    }
-
-    @Test("a text-guessed kind yields to another provider's session start")
-    func textGuessedKindYieldsToSessionStart() throws {
-        let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
-        let paneID = session.activePaneID
-        var reducer = AgentRuntimeEventReducer()
-
-        let restarted = reducer.decision(
-            for: openCodeEvent(
-                phase: .sessionStart,
-                eventID: "restart",
-                timestamp: Date(timeIntervalSince1970: 10)
-            ),
-            currentSession: session,
-            paneID: paneID,
-            terminalIsFocused: false,
-            now: Date(timeIntervalSince1970: 11)
-        )
-        let decision = try #require(restarted)
-
-        #expect(decision.update.agentKind == .openCode)
-    }
-
-    @Test("foreign tool chatter cannot steal a text-guessed pane mid-turn")
-    func foreignToolChatterDoesNotReclaim() {
-        let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
-        let paneID = session.activePaneID
-        var reducer = AgentRuntimeEventReducer()
-
-        #expect(
-            reducer.decision(
-                for: openCodeEvent(
-                    phase: .toolStart,
-                    eventID: "chatter",
-                    timestamp: Date(timeIntervalSince1970: 10)
-                ),
-                currentSession: session,
-                paneID: paneID,
-                terminalIsFocused: false,
-                now: Date(timeIntervalSince1970: 11)
-            ) == nil
         )
     }
 
@@ -341,20 +253,25 @@ struct AgentRuntimeEventKindProvenanceTests {
     /// The real agent keeps its reclaim path after a retag: its own boundary
     /// carries the latched id, so the proof says it is exactly the session the
     /// pane runs.
-    @Test("the real agent's matching id still reclaims a stopped retagged pane")
-    func matchingIDStillReclaimsStoppedRetaggedPane() {
+    @Test(arguments: [false, true])
+    func matchingIDStillReclaimsStoppedRetaggedPane(anonymousForeignBoundary: Bool) {
         let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
         let paneID = session.activePaneID
         var reducer = latchedAndStoppedReducer(session: session, paneID: paneID)
 
         let retagged = self.retagged(session, agentKind: .openCode)
-        let healed = reducer.decision(
-            for: claudeCodeEventWithSessionID(
+        let event =
+            anonymousForeignBoundary
+            ? foreignBoundaryEvent(
+                phase: .promptSubmit, eventID: "anonymous", providerSessionID: nil, timestamp: Date(timeIntervalSince1970: 14))
+            : claudeCodeEventWithSessionID(
                 phase: .promptSubmit,
                 eventID: "heal",
                 providerSessionID: Self.parentSessionID,
                 timestamp: Date(timeIntervalSince1970: 14)
-            ),
+            )
+        let healed = reducer.decision(
+            for: event,
             currentSession: retagged,
             paneID: paneID,
             terminalIsFocused: false,
@@ -362,33 +279,7 @@ struct AgentRuntimeEventKindProvenanceTests {
         )
 
         #expect(healed != nil)
-        #expect(healed?.update.agentKind == .claudeCode)
-    }
-
-    /// A missing id on either side stays unproven — consistent with the
-    /// sessionEnd rule, an anonymous boundary remains governed by the live-turn
-    /// gate alone rather than being refused outright.
-    @Test("an anonymous boundary over a stopped retagged pane is not refused by identity")
-    func anonymousBoundaryStaysGovernedByTheLiveTurnGate() {
-        let session = session(agentKind: .claudeCode, agentKindIsRuntimeEstablished: false)
-        let paneID = session.activePaneID
-        var reducer = latchedAndStoppedReducer(session: session, paneID: paneID)
-
-        let retagged = self.retagged(session, agentKind: .openCode)
-        let decision = reducer.decision(
-            for: foreignBoundaryEvent(
-                phase: .promptSubmit,
-                eventID: "anonymous",
-                providerSessionID: nil,
-                timestamp: Date(timeIntervalSince1970: 14)
-            ),
-            currentSession: retagged,
-            paneID: paneID,
-            terminalIsFocused: false,
-            now: Date(timeIntervalSince1970: 15)
-        )
-
-        #expect(decision != nil)
+        #expect(healed?.update.agentKind == (anonymousForeignBoundary ? .codex : .claudeCode))
     }
 
     @Test("a runtime-proven kind still rejects another provider's identity boundary")

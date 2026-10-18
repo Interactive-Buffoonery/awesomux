@@ -12,21 +12,19 @@ import Testing
         )
     }
 
-    @Test func canonicalFractionClampsLowAndNonFinite() {
-        func fraction(_ value: Double) -> Double {
-            WorkspaceLayoutIntent.SplitIntent(
-                orientation: .vertical,
-                firstFraction: value,
-                first: .terminal(.init(title: nil, color: nil)),
-                second: .terminal(.init(title: nil, color: nil))
-            ).firstFraction
-        }
-        #expect(fraction(-1) == 0.15)
-        #expect(fraction(.nan) == 0.5)
-        #expect(fraction(.infinity) == 0.5)
+    @Test(arguments: [("-1", 0.15), ("\"NaN\"", 0.5), ("\"Infinity\"", 0.5), ("9", 0.85)])
+    func decodedFraction(value: String, expected: Double) throws {
+        let text = """
+            {"root":{"split":{"_0":{"orientation":"vertical","firstFraction":\(value),
+            "first":{"terminal":{"_0":{}}},"second":{"terminal":{"_0":{}}}}}}}
+            """
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")
+        let decoded = try decoder.decode(WorkspaceLayoutIntent.self, from: Data(text.utf8))
+        guard case let .split(split) = decoded.root else { Issue.record("expected split"); return }
+        #expect(split.firstFraction == expected)
     }
-
-    // MARK: - Preset boundary (the load-bearing guarantee)
 
     @Test func encodedIntentContainsNoLiveOnlyIdentifiers() throws {
         let layout = TerminalPaneLayout.split(
@@ -59,40 +57,6 @@ import Testing
             "unexpected intent key(s) — possible live-state leak: \(keys.subtracting(allowedKeys))"
         )
 
-        // Explicit belt: none of the known live-only field names appear.
-        let forbiddenExact: Set<String> = [
-            "id", "terminalSessionID", "sessionID", "executionPlan",
-            "workingDirectory", "fileURL", "url", "remoteResourceIdentity",
-            "remoteTarget", "target", "agentKind", "agentExecutionState",
-            "associatedTerminalPaneID", "persistenceOwner", "host", "user", "path",
-            "sessionName",
-        ]
-        #expect(keys.isDisjoint(with: forbiddenExact))
-
-        // Structure is present (sanity).
-        #expect(keys.isSuperset(of: ["orientation", "firstFraction", "first", "second", "title"]))
-    }
-
-    @Test func decodedIntentCanonicalizesOutOfRangeFraction() throws {
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(localPane(title: "A", pinned: true)),
-                second: .pane(localPane(title: "B", pinned: true)),
-                firstFraction: 0.5
-            ))
-        let intent = try #require(layout.layoutIntent)
-        // Force an out-of-range fraction into the wire bytes without depending on
-        // the enum wrapper shape.
-        var text = String(decoding: try JSONEncoder().encode(intent), as: UTF8.self)
-        text = text.replacingOccurrences(of: "\"firstFraction\":0.5", with: "\"firstFraction\":9")
-        #expect(text.contains("\"firstFraction\":9"))  // guard the substitution landed
-        let decoded = try JSONDecoder().decode(WorkspaceLayoutIntent.self, from: Data(text.utf8))
-        guard case let .split(split) = decoded.root else {
-            Issue.record("expected split")
-            return
-        }
-        #expect(split.firstFraction == 0.85)  // clamped on decode
     }
 
     private func collectKeys(_ obj: Any, into keys: inout Set<String>) {

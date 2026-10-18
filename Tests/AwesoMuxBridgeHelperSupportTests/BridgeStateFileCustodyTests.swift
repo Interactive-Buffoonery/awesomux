@@ -67,48 +67,10 @@ struct BridgeStateFileCustodyTests {
         #expect(BridgeStateFileCustody.read(path: path, effectiveUID: wrongUID) == nil)
     }
 
-    @Test
-    func groupReadableModeIsRejected() {
-        let path = Self.writeFile(Self.validJSON, mode: 0o640)
+    @Test(arguments: [mode_t(0o640), 0o644, 0o700, 0o400, 0o4600])
+    func unsafeModeIsRejected(mode: mode_t) {
+        let path = Self.writeFile(Self.validJSON, mode: mode)
         defer { try? FileManager.default.removeItem(atPath: path) }
-
-        #expect(BridgeStateFileCustody.read(path: path) == nil)
-    }
-
-    @Test
-    func worldReadableModeIsRejected() {
-        let path = Self.writeFile(Self.validJSON, mode: 0o644)
-        defer { try? FileManager.default.removeItem(atPath: path) }
-
-        #expect(BridgeStateFileCustody.read(path: path) == nil)
-    }
-
-    @Test
-    func ownerExecutableModeIsRejected() {
-        // Exactly 0600, not merely "no group/world": an owner-exec bit is
-        // just as anomalous for a credential file the app writes as a group
-        // bit, and "exact" must mean exact or the check drifts.
-        let path = Self.writeFile(Self.validJSON, mode: 0o700)
-        defer { try? FileManager.default.removeItem(atPath: path) }
-
-        #expect(BridgeStateFileCustody.read(path: path) == nil)
-    }
-
-    @Test
-    func ownerReadOnlyModeIsRejected() {
-        let path = Self.writeFile(Self.validJSON, mode: 0o400)
-        defer { try? FileManager.default.removeItem(atPath: path) }
-
-        #expect(BridgeStateFileCustody.read(path: path) == nil)
-    }
-
-    @Test
-    func setuidModeIsRejected() {
-        // 04600: rwx triads alone read as a clean 0600 — the mask must also
-        // cover the setuid/setgid/sticky bits for "exactly 0600" to hold.
-        let path = Self.writeFile(Self.validJSON, mode: 0o4600)
-        defer { try? FileManager.default.removeItem(atPath: path) }
-
         #expect(BridgeStateFileCustody.read(path: path) == nil)
     }
 

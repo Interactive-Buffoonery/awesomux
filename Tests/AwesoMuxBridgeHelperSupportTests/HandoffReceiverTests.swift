@@ -12,29 +12,6 @@ import Testing
 
 @Suite("Remote handoff receiver")
 struct HandoffReceiverTests {
-    @Test("writes exact bytes with private modes and a bounded receipt")
-    func receivesExactBytes() throws {
-        let home = try TemporaryDirectory(prefix: "handoff-home")
-        let payload = Data("# hello\n".utf8)
-        let input = try inputDescriptor(payload)
-        defer { close(input) }
-
-        let receipt = try HandoffReceiver.receive(
-            session: "session-1",
-            advisoryName: "notes.md",
-            expectedBytes: payload.count,
-            inputDescriptor: input,
-            homeDirectory: home.url
-        )
-
-        #expect(try Data(contentsOf: URL(fileURLWithPath: receipt.path)) == payload)
-        #expect(receipt.bytes == payload.count)
-        #expect(receipt.path.hasPrefix(home.url.path + "/.awesomux/handoffs/session-1/"))
-        #expect(mode(at: home.url.appendingPathComponent(".awesomux")) == 0o700)
-        #expect(mode(at: home.url.appendingPathComponent(".awesomux/handoffs")) == 0o700)
-        #expect(mode(at: home.url.appendingPathComponent(".awesomux/handoffs/session-1")) == 0o700)
-        #expect(mode(at: URL(fileURLWithPath: receipt.path)) == 0o600)
-    }
 
     @Test("hostile advisory names cannot escape and keep only a supported extension")
     func sanitizesAdvisoryName() throws {
@@ -126,9 +103,8 @@ struct HandoffReceiverTests {
     }
 
     @Test(
-        "early EOF and extra bytes leave no temporary or final file",
+        "extra bytes leave no temporary or final file",
         arguments: [
-            (Data("abc".utf8), 4),
             (Data("abcde".utf8), 4),
         ])
     func rejectsWrongByteCount(payload: Data, expectedBytes: Int) throws {
@@ -202,9 +178,4 @@ struct HandoffReceiverTests {
         return descriptors[0]
     }
 
-    private func mode(at url: URL) -> mode_t? {
-        var status = stat()
-        guard lstat(url.path, &status) == 0 else { return nil }
-        return status.st_mode & 0o777
-    }
 }

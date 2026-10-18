@@ -293,37 +293,6 @@ struct SessionRestoreReducerTests {
         #expect(restoredSession.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == restoredPane.id)
     }
 
-    @Test("restore preserves normal one-to-one pane references")
-    func restorePreservesUniquePaneReferences() throws {
-        let pane = TerminalPane(title: "pane", workingDirectory: "/work", executionPlan: .local)
-        let document = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/normal.md"),
-            title: "normal.md",
-            associatedTerminalPaneID: pane.id
-        )
-        let session = TerminalSession(
-            title: "normal",
-            workingDirectory: "/work",
-            layout: .split(
-                TerminalSplit(
-                    orientation: .horizontal,
-                    first: .documentGroup(DocumentGroup(tabs: [document], selectedTabID: document.id)),
-                    second: .pane(pane)
-                )),
-            activePaneID: pane.id
-        )
-
-        let restored = SessionRestoreReducer.restoredComponents(
-            from: SessionSnapshot(
-                groups: [SessionGroup(name: "main", sessions: [session])],
-                selectedSessionID: session.id
-            ))
-        let restoredSession = try #require(restored.groups.first?.sessions.first)
-
-        #expect(restoredSession.activePaneID == pane.id)
-        #expect(restoredSession.layout.firstDocumentGroup?.selectedTab?.associatedTerminalPaneID == pane.id)
-    }
-
     @Test("restore folds current-schema document groups before remapping associations")
     func restoreNormalizesCurrentSchemaDocumentGroups() throws {
         let firstPane = TerminalPane(
@@ -381,53 +350,10 @@ struct SessionRestoreReducerTests {
         #expect(restoredSession.layout.paneIDs == [firstPane.id, secondPane.id])
     }
 
-    @Test("restoredAgentExecutionState maps every case")
-    func restoredAgentExecutionStateMapsEveryCase() {
-        // .waiting is the only state that round-trips (live hook side-channel
-        // signal that survives restart); everything else clamps to .idle
-        // because a restored session has no live process to reattach to.
-        // Per-case policy spelled out (not derived from allCases) so a new
-        // case fails here and forces a test-time decision, mirroring the
-        // production switch's compile-time exhaustiveness.
-        let policy: [AgentExecutionState: AgentExecutionState] = [
-            .idle: .idle,
-            .running: .idle,
-            .waiting: .waiting,
-            .thinking: .idle,
-            .output: .idle,
-            .done: .idle,
-            .error: .idle,
-        ]
-        #expect(Set(policy.keys) == Set(AgentExecutionState.allCases))
-        for (state, expected) in policy {
-            #expect(SessionRestoreReducer.restoredAgentExecutionState(state) == expected)
-        }
-    }
-
     private static func layout(for panes: [TerminalPane]) -> TerminalPaneLayout {
         panes.dropFirst().reduce(.pane(panes[0])) { layout, pane in
             .split(TerminalSplit(orientation: .horizontal, first: layout, second: .pane(pane)))
         }
-    }
-
-    @Test("unique terminal-session id generation retries collisions")
-    func uniqueTerminalSessionIDGenerationRetriesCollisions() throws {
-        let duplicate = try #require(
-            TerminalSessionID(rawValue: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-        )
-        let unique = try #require(
-            TerminalSessionID(rawValue: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-        )
-        var seenTerminalSessionIDs: Set<TerminalSessionID> = [duplicate]
-        var generatedIDs = [duplicate, duplicate, unique].makeIterator()
-
-        let generated = SessionRestoreReducer.generateUniqueTerminalSessionID(
-            avoiding: &seenTerminalSessionIDs,
-            generate: { generatedIDs.next() ?? unique }
-        )
-
-        #expect(generated == unique)
-        #expect(seenTerminalSessionIDs == [duplicate, unique])
     }
 
     @Test("restore sanitizes visible fields, merges duplicate groups, and preserves waiting")

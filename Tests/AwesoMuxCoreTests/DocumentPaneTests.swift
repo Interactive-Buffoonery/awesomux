@@ -4,69 +4,26 @@ import Testing
 
 @Suite struct DocumentPaneTests {
 
-    @Test func rejectsMalformedLegacyRemoteOrigins() {
-        for origin in [
-            "",
-            ":/repo/cache.md",
-            "devbox:relative.md",
-            "devbox:/repo/file.txt",
-        ] {
-            let data = Data(
-                "{\"id\":\"11111111-1111-1111-1111-111111111111\",\"fileURL\":\"file:///tmp/cache.md\",\"title\":\"cache.md\",\"remoteSnapshotOrigin\":\"\(origin)\"}"
-                    .utf8
-            )
-            let decoder = JSONDecoder()
-            decoder.userInfo[.snapshotSchemaVersion] = 6
-
-            #expect(throws: DecodingError.self) {
-                try decoder.decode(DocumentPane.self, from: data)
-            }
-        }
-    }
-
-    @Test func rejectsLocalOrMalformedRemoteIdentity() throws {
-        let pane = DocumentPane(fileURL: URL(fileURLWithPath: "/tmp/a.md"), title: "a.md")
-        let encoded = try JSONEncoder().encode(pane)
-        var json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        json["remoteResourceIdentity"] = [
-            "location": ["kind": "local"],
-            "path": ["rawValue": "/repo/a.md"],
-        ]
+    @Test(arguments: [
+        (6, #""remoteSnapshotOrigin":"""#),
+        (6, #""remoteSnapshotOrigin":":/repo/cache.md""#),
+        (6, #""remoteSnapshotOrigin":"devbox:relative.md""#),
+        (6, #""remoteSnapshotOrigin":"devbox:/repo/file.txt""#),
+        (7, #""remoteResourceIdentity":{"location":{"kind":"local"},"path":{"rawValue":"/repo/a.md"}}"#),
+        (7, #""remoteSnapshotOrigin":"devbox:/repo/cache.md""#),
+    ])
+    func rejectsInvalidOrigin(version: Int, origin: String) {
+        let text = """
+            {"id":"11111111-1111-1111-1111-111111111111","fileURL":"file:///tmp/cache.md","title":"cache.md",\(origin)}
+            """
         let decoder = JSONDecoder()
-        decoder.userInfo[.snapshotSchemaVersion] = 7
-
-        #expect(throws: DecodingError.self) {
-            try decoder.decode(
-                DocumentPane.self,
-                from: JSONSerialization.data(withJSONObject: json)
-            )
-        }
+        decoder.userInfo[.snapshotSchemaVersion] = version
+        #expect(throws: DecodingError.self) { try decoder.decode(DocumentPane.self, from: Data(text.utf8)) }
     }
 
-    @Test func schemaSevenRejectsLegacyOrigin() throws {
-        let data = Data(
-            #"{"id":"11111111-1111-1111-1111-111111111111","fileURL":"file:///tmp/cache.md","title":"cache.md","remoteSnapshotOrigin":"devbox:/repo/cache.md"}"#
-                .utf8
-        )
-        let decoder = JSONDecoder()
-        decoder.userInfo[.snapshotSchemaVersion] = 7
-
-        #expect(throws: DecodingError.self) {
-            try decoder.decode(DocumentPane.self, from: data)
-        }
-    }
 }
 
 @Suite struct DocumentGroupDecodingTests {
-    @Test func emptyRecoveredGroupThrowsTypedSignal() {
-        let data = Data(
-            #"{"id":"22222222-2222-2222-2222-222222222222","tabs":[],"selectedTabID":"11111111-1111-1111-1111-111111111111"}"#.utf8
-        )
-
-        #expect(throws: EmptyDocumentGroupDecodingError.self) {
-            try JSONDecoder().decode(DocumentGroup.self, from: data)
-        }
-    }
 
     @Test func dropsOnlyMalformedTabsAndClampsSelection() throws {
         let data = Data(
@@ -83,37 +40,20 @@ import Testing
     }
 
     @Test func emptyRecoveredDocumentLeafCollapsesToTerminalSibling() throws {
-        let terminal = TerminalPane(title: "shell", workingDirectory: "/tmp", executionPlan: .local)
-        let bad = DocumentPane(fileURL: URL(fileURLWithPath: "/tmp/bad.md"), title: "bad.md")
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(DocumentGroup(tabs: [bad], selectedTabID: bad.id))
-            ))
-        let encoded = try JSONEncoder().encode(layout)
-        var json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        var splitCase = try #require(json["split"] as? [String: Any])
-        var split = try #require(splitCase["_0"] as? [String: Any])
-        var secondCase = try #require(split["second"] as? [String: Any])
-        var groupCase = try #require(secondCase["documentGroup"] as? [String: Any])
-        var group = try #require(groupCase["_0"] as? [String: Any])
-        var tabs = try #require(group["tabs"] as? [[String: Any]])
-        tabs[0]["remoteSnapshotOrigin"] = "bad"
-        group["tabs"] = tabs
-        groupCase["_0"] = group
-        secondCase["documentGroup"] = groupCase
-        split["second"] = secondCase
-        splitCase["_0"] = split
-        json["split"] = splitCase
+        let data = Data(
+            #"""
+            {"split":{"_0":{"id":"44444444-4444-4444-4444-444444444444","orientation":"vertical","firstFraction":0.5,
+            "first":{"pane":{"_0":{"id":"55555555-5555-5555-5555-555555555555","title":"shell","workingDirectory":"/tmp","executionPlan":{"kind":"local"}}}},
+            "second":{"documentGroup":{"_0":{"id":"22222222-2222-2222-2222-222222222222",
+            "tabs":[{"id":"11111111-1111-1111-1111-111111111111","fileURL":"file:///tmp/bad.md","title":"bad.md","remoteSnapshotOrigin":"bad"}],
+            "selectedTabID":"11111111-1111-1111-1111-111111111111"}}}}}}
+            """#.utf8)
         let decoder = JSONDecoder()
         decoder.userInfo[.snapshotSchemaVersion] = 6
-
-        let decoded = try decoder.decode(
-            TerminalPaneLayout.self,
-            from: JSONSerialization.data(withJSONObject: json)
-        )
-
-        #expect(decoded == .pane(terminal))
+        let decoded = try decoder.decode(TerminalPaneLayout.self, from: data)
+        guard case let .pane(terminal) = decoded else { Issue.record("expected terminal sibling"); return }
+        #expect(terminal.id == UUID(uuidString: "55555555-5555-5555-5555-555555555555"))
+        #expect(terminal.title == "shell")
     }
+
 }

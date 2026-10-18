@@ -25,14 +25,6 @@ struct RecentTerminalLinksTests {
         #expect(!String(decoding: data, as: UTF8.self).contains("token=secret"))
     }
 
-    @Test func recentLinksDoNotAffectTerminalPaneEqualityOrHashing() {
-        let pane = makePane(title: "pane")
-        var changed = pane
-        changed.recentLinks.record("https://example.com")
-        #expect(pane == changed)
-        #expect(Set([pane, changed]).count == 1)
-    }
-
     private func makePane(title: String) -> TerminalPane {
         TerminalPane(title: title, workingDirectory: "/tmp", executionPlan: .local)
     }

@@ -264,7 +264,7 @@ struct AgentPluginTemplateRenderer: @unchecked Sendable {
             """
     }
 
-    private func shellSingleQuoted(_ value: String) -> String {
+    func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 

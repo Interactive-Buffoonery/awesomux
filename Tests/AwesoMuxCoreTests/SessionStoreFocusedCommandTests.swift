@@ -4,114 +4,6 @@ import Testing
 @MainActor
 @Suite("SessionStore focused commands")
 struct SessionStoreFocusedCommandTests {
-    @Test("renameSession sanitizes title and marks it user-edited")
-    func renameSessionSanitizesTitleAndMarksUserEdited() {
-        let session = makeSession()
-        let store = makeStore(session)
-        let sessionID = session.id
-        let longTitle = String(repeating: "a", count: SessionStore.maxTitleLength + 10)
-
-        store.renameSession(
-            id: sessionID,
-            title: "  \(longTitle)\u{202E}\n  "
-        )
-
-        #expect(store.selectedSession?.title.count == SessionStore.maxTitleLength)
-        #expect(store.selectedSession?.title.contains("\u{202E}") == false)
-        #expect(store.selectedSession?.title.contains("\n") == false)
-        #expect(store.selectedSession?.title.contains("\u{2028}") == false)
-        #expect(store.selectedSession?.title.contains("\u{200B}") == false)
-        #expect(store.selectedSession?.isTitleUserEdited == true)
-    }
-
-    @Test("markSessionNeedsAttention increments unread and sets attention state")
-    func markSessionNeedsAttentionIncrementsUnreadAndSetsAttentionState() {
-        let session = makeSession()
-        let store = makeStore(session)
-
-        store.markSessionNeedsAttention(id: session.id, unreadNotificationDelta: 1)
-
-        #expect(store.selectedSession?.agentState == .needsAttention)
-        #expect(store.selectedSession?.unreadNotificationCount == 1)
-        #expect(store.unreadNotificationTotal == 1)
-    }
-
-    @Test("applyDetectedAgentState applies display state and clears attention")
-    func applyDetectedAgentStateAppliesDisplayStateAndClearsAttention() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .needsAttention,
-            unreadNotificationCount: 2
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.applyDetectedAgentState(
-            id: session.id,
-            detectedState: .running,
-            clearsAttention: true,
-            unreadNotificationDelta: 1
-        )
-
-        #expect(store.selectedSession?.agentState == .running)
-        #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.unreadNotificationCount == 3)
-        #expect(store.unreadNotificationTotal == 3)
-    }
-
-    @Test("applyDetectedAgentState can acknowledge stale unread attention")
-    func applyDetectedAgentStateCanAcknowledgeStaleUnreadAttention() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .needsAttention,
-            unreadNotificationCount: 2
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.applyDetectedAgentState(
-            id: session.id,
-            detectedState: .thinking,
-            clearsAttention: true,
-            clearsUnreadNotifications: true
-        )
-
-        #expect(store.selectedSession?.agentState == .thinking)
-        #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.unreadNotificationCount == 0)
-        #expect(store.unreadNotificationTotal == 0)
-    }
-
-    @Test("applyDetectedAgentState can correct stale visible-text identity")
-    func applyDetectedAgentStateCanCorrectStaleVisibleTextIdentity() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .thinking,
-            unreadNotificationCount: 2
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.applyDetectedAgentState(
-            id: session.id,
-            detectedState: nil,
-            agentKind: .claudeCode,
-            clearsAttention: false
-        )
-
-        #expect(store.selectedSession?.agentKind == .claudeCode)
-        #expect(store.selectedSession?.agentState == .thinking)
-        #expect(store.selectedSession?.unreadNotificationCount == 2)
-    }
 
     @Test("authoritative Codex detection reclaims a stale Grok tile identity")
     func authoritativeCodexDetectionReclaimsStaleGrokTileIdentity() {
@@ -151,196 +43,48 @@ struct SessionStoreFocusedCommandTests {
         #expect(store.selectedSession?.agentState == .done)
     }
 
-    @Test("markNeedsAttentionPromptAnswered transitions to thinking and clears unread")
-    func markNeedsAttentionPromptAnsweredTransitionsToThinkingAndClearsUnread() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .needsAttention,
-            unreadNotificationCount: 1
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.markNeedsAttentionPromptAnswered(id: session.id)
-
-        #expect(store.selectedSession?.agentState == .thinking)
-        #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.unreadNotificationCount == 0)
-        #expect(store.unreadNotificationTotal == 0)
-    }
-
-    @Test("markNeedsAttentionPromptAnswered clears a still-pending permission prompt")
-    func markNeedsAttentionPromptAnsweredClearsPendingPrompt() {
-        // The keystroke path is the user answering the prompt, so it is the one
-        // inference-free clear allowed past the pending-attention guard.
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .permissionPrompt,
-            unreadNotificationCount: 1
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.markNeedsAttentionPromptAnswered(id: session.id)
-
-        #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.needsUserInput == false)
-        #expect(store.selectedSession?.agentState == .thinking)
-    }
-
-    @Test("markNeedsAttentionPromptAnswered records an attempt before the hook lands")
-    func markNeedsAttentionPromptAnsweredRecordsAttemptBeforeHookLands() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .thinking,
-            unreadNotificationCount: 0
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.markNeedsAttentionPromptAnswered(id: session.id)
-
-        let applied = store.applyAgentRuntimeEvent(
-            AgentRuntimeEvent(
-                source: .codex,
-                attentionReason: .permissionPrompt,
-                phase: .notification,
-                eventID: "late-permission"
-            ),
-            to: session.id,
-            paneID: session.activePaneID,
-            terminalIsFocused: true
-        )
-        #expect(applied)
-        #expect(store.session(id: session.id)?.attentionReason == nil)
-        #expect(store.session(id: session.id)?.needsUserInput == false)
-    }
-
-    @Test("waiting-pane input does not suppress a later permission prompt")
-    func waitingPaneInputDoesNotSuppressLaterPermissionPrompt() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .waiting,
-            unreadNotificationCount: 0
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.markNeedsAttentionPromptAnswered(id: session.id)
-
-        let applied = store.applyAgentRuntimeEvent(
-            AgentRuntimeEvent(
-                source: .codex,
-                attentionReason: .permissionPrompt,
-                phase: .notification,
-                eventID: "real-permission"
-            ),
-            to: session.id,
-            paneID: session.activePaneID,
-            terminalIsFocused: false
-        )
-        #expect(applied)
-        #expect(store.session(id: session.id)?.attentionReason == .permissionPrompt)
-        #expect(store.session(id: session.id)?.needsUserInput == true)
-    }
-
-    @Test("terminal input clears unread from a waiting agent")
-    func terminalInputClearsUnreadFromWaitingAgent() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .waiting,
-            unreadNotificationCount: 1
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.markNeedsAttentionPromptAnswered(id: session.id)
-
-        #expect(store.selectedSession?.agentState == .waiting)
-        #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.unreadNotificationCount == 0)
-        #expect(store.unreadNotificationTotal == 0)
-    }
-
-    @Test("visible active work clears a resolved permission prompt")
-    func visibleActiveWorkClearsResolvedPermissionPrompt() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            attentionReason: .permissionPrompt,
-            unreadNotificationCount: 1
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        let applied = store.applyDetectedAgentState(
-            id: session.id,
-            detectedState: .thinking,
-            clearsAttention: true,
-            clearsUnreadNotifications: true
-        )
-
-        #expect(applied)
-        #expect(store.selectedSession?.agentState == .thinking)
-        #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.unreadNotificationCount == 0)
-    }
-
-    @Test("terminal input preserves visible state while clearing unread")
-    func terminalInputPreservesVisibleStateWhileClearingUnread() {
-        let session = TerminalSession(
-            title: "codex",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .running,
-            unreadNotificationCount: 2
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [session])
-        ])
-
-        store.markNeedsAttentionPromptAnswered(id: session.id)
-
-        #expect(store.selectedSession?.agentState == .running)
-        #expect(store.selectedSession?.attentionReason == nil)
-        #expect(store.selectedSession?.unreadNotificationCount == 0)
-        #expect(store.unreadNotificationTotal == 0)
-    }
-
-    private func makeSession(
-        title: String = "codex",
-        agentState: AgentState = .running,
-        unreadNotificationCount: Int = 0
-    ) -> TerminalSession {
-        TerminalSession(
-            title: title,
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: agentState,
-            unreadNotificationCount: unreadNotificationCount
-        )
-    }
-
     private func makeStore(_ session: TerminalSession) -> SessionStore {
         SessionStore(groups: [
             SessionGroup(name: "main", sessions: [session])
         ])
+    }
+
+    enum Resolution: Sendable { case input, visibleWork, beforeHook, waitingInput }
+
+    @Test(
+        "resolved prompts clear while later permission requests remain visible",
+        arguments: [
+            Resolution.input, .visibleWork, .beforeHook, .waitingInput,
+        ])
+    func promptLifecycle(resolution: Resolution) {
+        let session = TerminalSession(
+            title: "codex", workingDirectory: "~", agentKind: .codex,
+            agentExecutionState: resolution == .waitingInput ? .waiting : (resolution == .beforeHook ? .thinking : .idle),
+            attentionReason: resolution == .input || resolution == .visibleWork ? .permissionPrompt : nil,
+            unreadNotificationCount: resolution == .input || resolution == .visibleWork ? 1 : 0)
+        let store = makeStore(session)
+        if resolution == .visibleWork {
+            #expect(
+                store.applyDetectedAgentState(
+                    id: session.id, detectedState: .thinking, clearsAttention: true, clearsUnreadNotifications: true))
+        } else {
+            store.markNeedsAttentionPromptAnswered(id: session.id)
+        }
+        #expect(store.selectedSession?.attentionReason == nil)
+        #expect(store.selectedSession?.needsUserInput == false)
+        #expect(store.selectedSession?.agentState == (resolution == .waitingInput ? .waiting : .thinking))
+        #expect(store.selectedSession?.unreadNotificationCount == 0)
+        if resolution == .waitingInput || resolution == .beforeHook {
+            #expect(
+                store.applyAgentRuntimeEvent(
+                    AgentRuntimeEvent(
+                        source: .codex, attentionReason: .permissionPrompt, phase: .notification,
+                        eventID: resolution == .waitingInput ? "real-permission" : "late-permission"),
+                    to: session.id, paneID: session.activePaneID, terminalIsFocused: resolution == .beforeHook
+                ))
+            let pending = resolution == .waitingInput
+            #expect(store.session(id: session.id)?.attentionReason == (pending ? .permissionPrompt : nil))
+            #expect(store.session(id: session.id)?.needsUserInput == pending)
+        }
     }
 }

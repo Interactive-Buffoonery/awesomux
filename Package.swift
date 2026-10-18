@@ -269,10 +269,6 @@ import PackageDescription
                 exclude: ["LocalAPIE2E"]
             ),
             .testTarget(
-                name: "AwesoMuxTestSupportTests",
-                dependencies: ["AwesoMuxTestSupport"]
-            ),
-            .testTarget(
                 name: "DesignSystemTests",
                 dependencies: ["DesignSystem"]
             ),

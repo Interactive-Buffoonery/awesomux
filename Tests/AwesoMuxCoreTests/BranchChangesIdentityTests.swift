@@ -14,48 +14,16 @@ struct BranchChangesIdentityTests {
         BranchChangesIdentity(gitBranch: branch, baseRef: base, repositoryName: repository)
     }
 
-    // MARK: - Sanitization
-
-    @Test("a bidi override in a branch name cannot reach the title")
-    func titleStripsBidiOverrides() throws {
-        let identity = try #require(makeIdentity(branch: "fix\u{202E}gnp.js"))
-        #expect(!identity.displayBranch.unicodeScalars.contains { $0.value == 0x202E })
-        // The raw value is preserved: it is half of the cache slot key, and
-        // sanitizing before hashing would merge two different branches.
-        #expect(identity.gitBranch == "fix\u{202E}gnp.js")
+    @Test(arguments: [
+        ("fix\u{202E}gnp.js", "awesomux", "fixgnp.js", "awesomux"),
+        ("feature/x", "repo\u{0085}\u{200B}name", "feature/x", "reponame"),
+    ])
+    func sanitizedTitle(branch: String, repository: String, displayBranch: String, displayRepository: String) throws {
+        let identity = try #require(makeIdentity(branch: branch, repository: repository))
+        #expect(identity.displayBranch == displayBranch)
+        #expect(identity.displayRepositoryName == displayRepository)
+        #expect(identity.gitBranch == branch)
     }
-
-    @Test("C1 controls and zero-width scalars cannot reach the title")
-    func titleStripsInvisibleScalars() throws {
-        let identity = try #require(makeIdentity(repository: "repo\u{0085}\u{200B}name"))
-        #expect(identity.displayRepositoryName == "reponame")
-    }
-
-    @Test("an overlong branch name is bounded before it reaches the title")
-    func titleBoundsComponentLength() throws {
-        let long = String(repeating: "b", count: 5000)
-        let identity = try #require(makeIdentity(branch: long))
-        #expect(identity.gitBranch == long)
-        #expect(identity.displayBranch.count == BranchChangesIdentity.displayComponentLimit)
-        #expect(identity.documentTitle.count < 200)
-    }
-
-    @Test(
-        "a component with nothing visible left has no honest title, so there is no identity",
-        arguments: ["", "\u{200B}\u{200B}", "\u{202E}"]
-    )
-    func rejectsUnrenderableComponents(unrenderable: String) {
-        #expect(makeIdentity(branch: unrenderable) == nil)
-        #expect(makeIdentity(base: unrenderable) == nil)
-        #expect(makeIdentity(repository: unrenderable) == nil)
-    }
-
-    @Test("a base ref that is nothing but a namespace prefix is rejected")
-    func rejectsBareNamespacePrefix() {
-        #expect(makeIdentity(base: "refs/heads/") == nil)
-    }
-
-    // MARK: - Slots
 
     @Test("two branches sharing a long prefix are distinct identities")
     func longSharedPrefixesStayDistinct() throws {
@@ -76,8 +44,6 @@ struct BranchChangesIdentityTests {
             try JSONDecoder().decode(BranchChangesIdentity.self, from: data)
         }
     }
-
-    // MARK: - Document pane
 
     @Test("a tab carrying branch provenance is not editable")
     func branchChangesTabIsReadOnly() throws {

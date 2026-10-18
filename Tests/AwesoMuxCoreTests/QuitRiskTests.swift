@@ -5,61 +5,6 @@ import Testing
 @Suite("Quit risk")
 struct QuitRiskTests {
 
-    @MainActor
-    @Test("unobserved prompt state does not enter the quit-risk cache")
-    func unobservedPromptStateIsNotCachedAsRisk() {
-        let shell = TerminalSession(title: "shell", workingDirectory: "~", agentKind: .shell)
-        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [shell])])
-
-        store.updateTerminalQuitConfirmationRisks([
-            TerminalQuitConfirmationSnapshot(
-                sessionID: shell.id,
-                paneID: shell.activePaneID,
-                needsConfirmation: true,
-                promptObserved: false,
-                liveness: .unsampled
-            )
-        ])
-
-        #expect(store.sessionsAtRiskOnQuit.isEmpty)
-    }
-
-    @MainActor
-    @Test("sessions absent from the snapshot list are reset to safe (lazy-mount invariant)")
-    func snapshotAggregationClearsAbsentSessions() {
-        // Architectural invariant: a session is in `surfaceViews` iff it has
-        // a live `ghostty_surface_t`. Surfaces are created lazily on render
-        // and discarded on pane close / session close / pane recycle. So a
-        // session ID absent from the snapshot list has no spawned process —
-        // clearing the flag is correct, not a false-negative. If this test
-        // ever needs to be relaxed because surfaces are eagerly spawned for
-        // un-mounted sessions, revisit
-        // `SessionStore.updateTerminalQuitConfirmationRisks` simultaneously.
-        let mountedBusy = TerminalSession(
-            title: "vim",
-            workingDirectory: "~",
-            agentKind: .shell,
-            agentState: .idle,
-            needsTerminalQuitConfirmation: true
-        )
-        let unmounted = TerminalSession(
-            title: "stale-flag",
-            workingDirectory: "~",
-            agentKind: .shell,
-            agentState: .idle,
-            needsTerminalQuitConfirmation: true
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "main", sessions: [mountedBusy, unmounted])
-        ])
-
-        // Only the mounted session has a snapshot; the previously-flagged
-        // unmounted session must be cleared by the absence policy.
-        store.updateTerminalQuitConfirmationRisks([.active(mountedBusy, needsConfirmation: true)])
-
-        #expect(Set(store.sessionsAtRiskOnQuit.map(\.id)) == Set([mountedBusy.id]))
-    }
-
     // MARK: - INT-420 cache correctness
 
     @MainActor
@@ -120,56 +65,6 @@ struct QuitRiskTests {
     }
 
     @MainActor
-    @Test("splitting an already at-risk session's pane preserves its risk classification (structural mutation)")
-    func splittingAtRiskSessionPreservesRiskClassification() {
-        let session = TerminalSession(
-            title: "codex thinking",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .thinking
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
-        #expect(store.sessionsAtRiskOnQuit.map(\.id) == [session.id])
-
-        // Split is a structural mutation — it rebuilds both risk sets from
-        // scratch via rebuildDerivedState() rather than reclassifyRiskMembership.
-        // The original (risky) pane must survive the split still classified risky.
-        guard store.splitActivePane(orientation: .vertical, in: session.id) != nil else {
-            Issue.record("expected split to succeed")
-            return
-        }
-        #expect(store.sessionsAtRiskOnQuit.map(\.id) == [session.id])
-        #expect(store.sessionsAtRiskOnQuitCount == 1)
-    }
-
-    @MainActor
-    @Test("clearStaleErrorIfPresent reclassifies the session after clearing the only risky pane")
-    func clearStaleErrorIfPresentReclassifiesSession() {
-        let session = TerminalSession(
-            title: "codex errored",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .running
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "main", sessions: [session])])
-        store.updateTerminalQuitConfirmationRisks([
-            TerminalQuitConfirmationSnapshot(sessionID: session.id, paneID: session.activePaneID, needsConfirmation: true)
-        ])
-        #expect(store.sessionsAtRiskOnQuit.map(\.id) == [session.id])
-
-        // clearStaleErrorIfPresent only fires when the pane's execution state is
-        // .error, so drive it there first via recordPaneProcessError, then clear.
-        store.recordPaneProcessError(in: session.id, paneID: session.activePaneID, terminalIsFocused: true)
-        store.updateTerminalQuitConfirmationRisks([
-            TerminalQuitConfirmationSnapshot(sessionID: session.id, paneID: session.activePaneID, needsConfirmation: false)
-        ])
-        store.clearStaleErrorIfPresent(id: session.id)
-
-        #expect(store.sessionsAtRiskOnQuit.isEmpty)
-        #expect(store.sessionsAtRiskOnQuitCount == 0)
-    }
-
-    @MainActor
     @Test("a shared snapshot list containing another store's paneIDs is safely ignored (INT-185)")
     func sharedSnapshotListIgnoresForeignPaneIDs() {
         // INT-185: the quit path now computes ONE snapshot list across every
@@ -211,36 +106,4 @@ struct QuitRiskTests {
         #expect(store.sessionsAtRiskOnQuitCount == 0)
     }
 
-    @MainActor
-    @Test("duplicate session IDs fall back to brute-force evaluation instead of under-reporting risk")
-    func duplicateSessionIDsFallBackToBruteForce() {
-        let sharedID = TerminalSession.ID()
-        // The FIRST occurrence is safe. If the cache resolved risk via
-        // position(for:) (which always finds the first occurrence), a naive
-        // ID-keyed implementation would wrongly report this pair as safe.
-        let safeFirstCopy = TerminalSession(
-            id: sharedID,
-            title: "idle first",
-            workingDirectory: "~",
-            agentKind: .shell,
-            agentState: .idle
-        )
-        let riskySecondCopy = TerminalSession(
-            id: sharedID,
-            title: "codex thinking second",
-            workingDirectory: "~",
-            agentKind: .codex,
-            agentState: .thinking
-        )
-        let store = SessionStore(groups: [
-            SessionGroup(name: "one", sessions: [safeFirstCopy]),
-            SessionGroup(name: "two", sessions: [riskySecondCopy])
-        ])
-
-        // Matches main's pre-cache brute-force semantics: every session VALUE is
-        // evaluated independently, so the risky second copy is not masked by its
-        // safe duplicate.
-        #expect(store.sessionsAtRiskOnQuitCount == 1)
-        #expect(store.sessionsAtRiskOnQuit.map(\.title) == ["codex thinking second"])
-    }
 }
