@@ -17,6 +17,8 @@ INPUTS = (
     ROOT / "Sources/GhosttyKit/AwesoMuxGhostty.h",
     ROOT / "native/shell-integration/ssh-mouse-recovery.zsh",
     ROOT / "native/ghostty/link-paths.zig",
+    ROOT / "native/shell-integration/ssh-compat.zsh",
+    ROOT / "native/shell-integration/ssh-compat.fish",
 )
 
 
@@ -58,9 +60,17 @@ def prepare(vendor, destination):
         shutil.copyfile(INPUTS[5], staging / "src/config/awesomux_link_paths.zig")
         integration = staging / "src/shell-integration/zsh"
         shutil.copyfile(INPUTS[4], integration / "awesomux-ssh-mouse-recovery")
+        shutil.copyfile(INPUTS[6], integration / "awesomux-ssh-compat")
+        shutil.copyfile(
+            INPUTS[7],
+            staging / "src/shell-integration/fish/vendor_conf.d/awesomux-ssh-compat.fish",
+        )
         with (integration / ".zshenv").open("a") as file:
             file.write(
-                '\nif [[ ${AWESOMUX_SSH_MOUSE_RECOVERY:-} == 1 ]]; then\n'
+                '\nif [[ -o interactive ]]; then\n'
+                "    'builtin' 'source' \"$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/awesomux-ssh-compat\"\n"
+                'fi\n'
+                'if [[ ${AWESOMUX_SSH_MOUSE_RECOVERY:-} == 1 ]]; then\n'
                 '    builtin unset AWESOMUX_SSH_MOUSE_RECOVERY\n'
                 '    builtin source "$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/awesomux-ssh-mouse-recovery"\n'
                 'fi\n'

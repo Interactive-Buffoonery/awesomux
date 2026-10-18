@@ -171,6 +171,24 @@ matching keys in a user's `~/.config/ghostty/config` are overridden.
 Choose the `System default` option to skip awesoMux's family override
 entirely and let your Ghostty config and CoreText resolution stand.
 
+## Manual SSH terminal compatibility
+
+Generated resources include independently written zsh and fish `ssh` wrappers.
+They install at the first prompt after user startup, preserving existing SSH
+aliases/functions and executable lookup through `PATH`. When the inherited
+terminal is `xterm-ghostty`, the wrapper supplies `TERM=xterm-256color` only to
+the SSH process; local TERM and other terminal selections are unchanged.
+This also means hosts with working Ghostty terminfo receive the fallback.
+`command ssh`, absolute executable paths, custom aliases/functions, unsupported
+shells, and disabled shell integration bypass it. Existing persistent shells
+need recreation. No remote probes or installations occur.
+
+The scripts are fingerprinted and staged through `prepare_ghostty_source.py`;
+the vendored source and pin stay unchanged. Unsupported upstream helpers that
+require the standalone `ghostty +ssh` executable remain disabled.
+See [`../script/ssh-terminal-e2e/README.md`](../script/ssh-terminal-e2e/README.md)
+for real OpenSSH PTY verification and its coverage limits.
+
 ## SSH mouse recovery in local zsh
 
 Local bridged zsh panes install awesoMux's independently written
@@ -192,7 +210,7 @@ the same job number cannot keep the old recovery pending. A stopped SSH TUI
 continues to own mouse modes at the local prompt, so normal prompt selection is
 restored when it exits, rather than while it is suspended.
 
-Compound commands, shell functions named `ssh`, and wrappers are outside this
+Compound commands, user-defined shell functions named `ssh`, and wrappers are outside this
 hook's scope. A command such as
 `ssh host; local-tui` keeps its existing terminal behavior. Bash and fish are unchanged. Existing persistent zsh shells
 need to be recreated once to load the updated startup resources; reattaching a
