@@ -20,6 +20,37 @@ public enum RemoteWorkingDirectoryValidator {
         return validatedReportedDirectory(rawValue)
     }
 
+    /// Direct native reports are complete (unlike the daemon's 256-byte field).
+    public static func validatedNativeReport(
+        _ rawValue: String, expectedHost: String?, localHostnames: Set<String>
+    ) -> (host: String, directory: String)? {
+        guard rawValue.utf8.count <= 2048, rawValue.hasPrefix("file://"),
+            !UnicodeHygiene.containsUnsafePathScalars(rawValue),
+            !rawValue.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }),
+            let decoded = rawValue.removingPercentEncoding,
+            !UnicodeHygiene.containsUnsafePathScalars(decoded),
+            let uri = URLComponents(string: rawValue), uri.scheme == "file",
+            let host = uri.host, !host.isEmpty,
+            rawValue.dropFirst(7).prefix(while: { $0 != "/" }) == host,
+            !host.hasPrefix("127."), host != "0.0.0.0",
+            host.lowercased() != "localhost.",
+            host.unicodeScalars.allSatisfy({
+                CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-").contains($0)
+            }),
+            !hostsMatch(host, "localhost"),
+            !localHostnames.contains(where: { hostsMatch(host, $0) }),
+            expectedHost.map({ hostsMatch(host, $0) }) ?? true,
+            uri.user == nil, uri.password == nil, uri.port == nil,
+            uri.query == nil, uri.fragment == nil,
+            uri.percentEncodedPath.hasPrefix("/"),
+            let path = uri.percentEncodedPath.removingPercentEncoding,
+            path.hasPrefix("/"), !UnicodeHygiene.containsUnsafePathScalars(path),
+            // Foundation may repair malformed URLs. Accept only the original encoding.
+            uri.string == rawValue
+        else { return nil }
+        return (host, path)
+    }
+
     private static func hostsMatch(_ lhs: String, _ rhs: String) -> Bool {
         let lhs = lhs.lowercased()
         let rhs = rhs.lowercased()

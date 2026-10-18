@@ -574,7 +574,9 @@ extension GhosttySurfaceNSView {
         terminalEventState.lastTerminalTitleStoreWrite = (
             PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), writtenAt
         )
+        let previous = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
         sessionStore.updatePane(sessionID: sessionID, paneID: paneID, title: title)
+        qualifyPendingRemotePwd(previous: previous)
     }
 
     /// Flushes rather than drops: `disposeNativeSurface` also fronts the
@@ -601,6 +603,10 @@ extension GhosttySurfaceNSView {
     }
 
     func updateWorkingDirectory(_ workingDirectory: String) {
+        cancelPendingRemotePwd()
+        // Ordinary native PWD actions passed Ghostty's local-host check.
+        // Managed remote cwd comes only from qualified raw reports or the daemon.
+        guard sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.executionPlan == .local else { return }
         sessionStore.updatePane(
             sessionID: sessionID,
             paneID: paneID,

@@ -268,6 +268,7 @@ extension GhosttySurfaceNSView {
             lifecycleState.nativeSurfaceWasDisposed = false
             lifecycleState.nextMouseSurfaceIncarnationID += 1
             lifecycleState.mouseSurfaceIncarnationID = lifecycleState.nextMouseSurfaceIncarnationID
+            terminalEventState.nativeRemotePwdOrigin = (sessionID, pane)
             surface = createdSurface
             // A VoiceOver accessor firing mid-heal (surface == nil) could have
             // cached an empty read from the OLD surface; don't let it leak
