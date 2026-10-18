@@ -299,12 +299,17 @@ def main():
         return data and all(data.get(key) == value for key, value in identities[session].items())
 
     def type_into(session, text):
+        readiness = {"session": session, "pollCount": 0, "lastObservation": None}
         def ready():
             state = native("input-ready", window_id, title(session))
-            report.setdefault("inputReadiness", []).append(state)
-            save()
+            readiness["pollCount"] += 1
+            readiness["lastObservation"] = state
             return state["ready"]
-        poll("exact focused terminal", ready)
+        try:
+            poll("exact focused terminal", ready)
+        finally:
+            report.setdefault("inputReadiness", []).append(readiness)
+            save()
         native("type", window_id, title(session), text + "\r")
 
     def response_for(nonce, session):
