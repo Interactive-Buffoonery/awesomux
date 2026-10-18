@@ -1143,6 +1143,35 @@ extension SessionStore {
         }
     }
 
+    /// Applies qualified daemon metadata only while the captured managed pane
+    /// still represents the selected connection. The daemon report itself has
+    /// no timestamp or connection generation; this remains a cwd suggestion.
+    @discardableResult
+    public func updateManagedRemoteWorkingDirectory(
+        sessionID: TerminalSession.ID,
+        originatingPane: TerminalPane,
+        reportedDirectory: String
+    ) -> Bool {
+        guard let target = originatingPane.executionPlan.remoteTarget,
+            selectedSessionID == sessionID,
+            let session = session(id: sessionID), session.activePaneID == originatingPane.id,
+            let pane = session.layout.pane(id: originatingPane.id),
+            pane.terminalSessionID == originatingPane.terminalSessionID,
+            pane.executionPlan == originatingPane.executionPlan,
+            pane.remoteConnectivityEpoch == originatingPane.remoteConnectivityEpoch,
+            pane.terminalBackendMetadata == originatingPane.terminalBackendMetadata,
+            pane.remoteHost == originatingPane.remoteHost,
+            pane.remoteConnectionHealth == originatingPane.remoteConnectionHealth,
+            let directory = RemoteWorkingDirectoryValidator.validatedDaemonReportedDirectory(
+                reportedDirectory, expectedHost: originatingPane.remoteHost ?? target.host,
+                localHostnames: localHostnames)
+        else { return false }
+        guard pane.remoteWorkingDirectory != directory else { return true }
+        return mutatePane(sessionID: sessionID, paneID: pane.id) {
+            $0.remoteWorkingDirectory = directory
+        }
+    }
+
     public func noteSubmittedCommand(
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
