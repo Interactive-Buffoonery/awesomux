@@ -609,32 +609,8 @@ Expected environment outcomes:
 
 ## Legacy Arg-Driven Hook Helper
 
-The helper at `script/agent-hooks/awesomux-agent-event` appends one event when
-`AWESOMUX_AGENT_EVENT_FILE` is present and exits quietly otherwise:
-
-```sh
-script/agent-hooks/awesomux-agent-event --source claude-code --phase toolStart --state thinking
-```
-
-Use the path relative to the current repository checkout, or install the helper
-with an absolute path if the hook runner does not execute from the repo root.
-
-Historical script-helper Claude Code mapping:
-
-This table documents the deprecated `script/agent-hooks/awesomux-agent-event`
-prototype, not the app-bundled `awesoMuxAgentHook` contract above. Current
-helpers map `SessionStart` to `execution=idle`, and `Stop` to
-`execution=waiting` without an attention overlay.
-
-| Claude hook | awesoMux event |
-| --- | --- |
-| `SessionStart` | `kind=Claude Code`, `state=waiting`, `phase=sessionStart` |
-| `UserPromptSubmit` | `kind=Claude Code`, `state=thinking`, `phase=promptSubmit` |
-| `PreToolUse` | `kind=Claude Code`, `state=thinking`, `phase=toolStart` |
-| `PostToolUse` | `kind=Claude Code`, `state=thinking`, `phase=toolEnd` |
-| `Notification` | `kind=Claude Code`, `state=needsAttention`, `phase=notification` |
-| `Stop` | `kind=Claude Code`, `state=waiting`, `phase=stop` |
-| `SessionEnd` | `kind=Claude Code`, `state=done`, `phase=sessionEnd` |
+The prototype `script/agent-hooks/awesomux-agent-event` helper has been removed.
+Hooks use the app-bundled `awesoMuxAgentHook` contract described above.
 
 OSC desktop notifications are not an agent runtime-event transport. Arbitrary
 terminal output can forge notification title/body content, so awesoMux treats
