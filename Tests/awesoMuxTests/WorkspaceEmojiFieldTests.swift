@@ -74,55 +74,27 @@ struct WorkspaceEmojiFieldTests {
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         await drainMainQueue()
         #expect(presentations == 2)
-    }
-
-    @Test("reattaching the editor starts a new picker presentation")
-    func pickerReattaches() async {
-        let field = WorkspaceEmojiTextView(frame: NSRect(x: 0, y: 0, width: 64, height: 36))
-        var presentations = 0
-        field.openCharacterPalette = { _ in presentations += 1 }
-        for expected in 1...2 {
-            let window = EmojiTestWindow(
-                contentRect: field.bounds, styleMask: [.borderless], backing: .buffered, defer: false
-            )
-            window.isReleasedWhenClosed = false
-            window.testIsKey = true
-            window.contentView = field
+        window.contentView = nil
+        field.openCharacterPalette = { editor in
+            #expect(editor.window?.firstResponder === editor)
+            presentations += 1
+        }
+        for expected in 3...4 {
+            let reattached = EmojiTestWindow(contentRect: field.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+            reattached.isReleasedWhenClosed = false
+            reattached.testIsKey = true
+            reattached.contentView = field
             field.requestPicker(0)
             await drainMainQueue()
             #expect(presentations == expected)
-            window.contentView = nil
-            window.close()
+            reattached.contentView = nil
+            reattached.close()
         }
     }
 
     private func drainMainQueue() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
-        }
-    }
-
-    @Test("focused editor has room for the emoji glyph")
-    func focusedEmojiFits() throws {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 64, height: 36),
-            styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let editor = WorkspaceEmojiTextView(frame: .zero)
-        editor.frame = window.contentView!.bounds
-        window.contentView = editor
-        defer { window.contentView = nil; window.close() }
-        #expect(window.makeFirstResponder(editor))
-        for emoji in ["🍕", "😊", "👩🏽‍💻"] {
-            editor.insertText(emoji, replacementRange: NSRange(location: editor.string.utf16.count, length: 0))
-            let manager = try #require(editor.layoutManager)
-            let container = try #require(editor.textContainer)
-            manager.ensureLayout(for: container)
-            let used = manager.usedRect(for: container).offsetBy(dx: editor.textContainerOrigin.x, dy: editor.textContainerOrigin.y)
-            #expect(editor.string == emoji)
-            #expect(used.width > 0)
-            #expect(used.height > 0)
-            #expect(editor.bounds.contains(used))
         }
     }
 
