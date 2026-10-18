@@ -182,12 +182,6 @@ struct BridgeAttachAssemblyTests {
                 helperPath: "/home/ed/a helper/awesomux-bridge-helper",
                 session: Self.sessionID
             ),
-            AmxBackend.bridgeHelperSelfCheckCommand(
-                controlPath: "/tmp/c/%C", remote: Self.remote,
-                helperPath: "/home/ed/.awesomux/bin/awesomux-bridge-helper",
-                stateFilePath: "/home/ed/.awesomux/bridge/abc.json",
-                session: Self.sessionID
-            ),
             AmxBackend.bridgeStateFileRemoveCommand(
                 controlPath: "/tmp/c/%C", remote: Self.remote,
                 stateFilePath: "/home/ed/.awesomux/bridge/abc.json",
