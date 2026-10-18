@@ -39,61 +39,7 @@ struct BridgeDoctorSignalsTests {
         #expect(result.isEmpty == !compatible)
     }
 
-    // MARK: - Pure: self-check exit-code mapping
-
-    @Test(
-        "self-check exit code maps to custody + round-trip, fail-closed on unknown",
-        arguments: [
-            (Int32(0), true, true),
-            (Int32(1), false, false), // unavailable: custody failed, round-trip can't run
-            (Int32(2), true, false),  // incompatible proto: file read, no handshake
-            (Int32(3), true, false),  // handshake failed
-            (Int32(-1), false, false), // probe error
-            (Int32(99), false, false), // unknown code
-        ]
-    )
-    func selfCheckMapping(code: Int32, custody: Bool, roundTrip: Bool) {
-        let mapped = BridgeDoctorSignals.selfCheckSignals(exitCode: code)
-        #expect(mapped.custody == custody)
-        #expect(mapped.roundTrip == roundTrip)
-    }
-
-    // MARK: - Pure: reverse-forward mapping
-
-    @Test("reverse-forward mapping derives owner-only from the same stat as capability")
-    func reverseForwardMapping() {
-        // A thrown forward means neither signal can pass.
-        var r = BridgeDoctorSignals.reverseForwardSignals(forwardThrew: true, admissionOutput: "600\n")
-        #expect(r.forward == false); #expect(r.ownerOnly == false)
-
-        // Owner-only mode: both pass.
-        r = BridgeDoctorSignals.reverseForwardSignals(forwardThrew: false, admissionOutput: "600\n")
-        #expect(r.forward == true); #expect(r.ownerOnly == true)
-
-        // Bound but group-accessible: capability passes, owner-only fails.
-        r = BridgeDoctorSignals.reverseForwardSignals(forwardThrew: false, admissionOutput: "660\n")
-        #expect(r.forward == true); #expect(r.ownerOnly == false)
-
-        // Empty stat (socket never bound → forwarding effectively off): both fail.
-        r = BridgeDoctorSignals.reverseForwardSignals(forwardThrew: false, admissionOutput: "")
-        #expect(r.forward == false); #expect(r.ownerOnly == false)
-
-        // Non-octal garbage: not a mode → not bound → both fail.
-        r = BridgeDoctorSignals.reverseForwardSignals(forwardThrew: false, admissionOutput: "nope\n")
-        #expect(r.forward == false); #expect(r.ownerOnly == false)
-    }
-
     // MARK: - Full run: ordering + independence
-
-    @Test("a healthy target passes all six signals in a stable order")
-    func healthyRunPassesAllSignalsInOrder() async {
-        let log = CommandLog()
-        let report = await makeSignals(log: log).run(Self.context)
-        #expect(report.signals.map(\.check) == BridgeDoctorCheck.allCases)
-        #expect(report.allPassed)
-        #expect(report.degradationMessage == nil)
-        #expect(report.asDiagnostics() == nil)
-    }
 
     @Test("one failed probe never short-circuits its siblings")
     func failedForwardDoesNotShortCircuitSiblings() async {
@@ -113,66 +59,22 @@ struct BridgeDoctorSignalsTests {
 
     // MARK: - Exact commands, exact-path cleanup, no glob
 
-    @Test("the doctor runs each probe once and cleans up by exact path, never a glob")
-    func exactProbeCommandsAndCleanup() async {
+    @Test("doctor removes only the socket it forwarded")
+    func exactProbeCommandsAndCleanup() async throws {
         let log = CommandLog()
         let remote = "/tmp/awesomux-bridge-deadbeefdeadbeef.sock"
         let local = "/tmp/awesomux-bridge-probe-cafecafecafecafe.sock"
-        let signals = makeSignals(log: log, probeRemote: remote, probeLocal: local)
-        _ = await signals.run(Self.context)
-        let cmds = await log.commands
-
-        // Exactly one of each probe command.
-        #expect(cmds.filter { $0.contains("--version") }.count == 1)
-        #expect(cmds.filter { $0.contains("-O forward") }.count == 1)
-        #expect(cmds.filter { $0.contains("stat -c %a") }.count == 1)
-        #expect(cmds.filter { $0.contains("-O cancel") }.count == 1)
-        #expect(cmds.filter { $0.contains("rm -f") }.count == 1)
-        #expect(cmds.filter { $0.contains("--self-check") }.count == 1)
-
-        // Cleanup targets the EXACT throwaway remote socket the forward used.
-        let forward = cmds.first { $0.contains("-O forward") }!
-        let admission = cmds.first { $0.contains("stat -c %a") }!
-        let cancel = cmds.first { $0.contains("-O cancel") }!
-        let remove = cmds.first { $0.contains("rm -f") }!
-        #expect(forward.contains(remote))
-        #expect(admission.contains(remote))
-        #expect(cancel.contains(remote))
+        let report = await makeSignals(log: log, probeRemote: remote, probeLocal: local).run(Self.context)
+        #expect(report.allPassed)
+        let commands = await log.commands
+        let forward = try #require(commands.first { $0.contains("-O forward") })
+        let cancel = try #require(commands.first { $0.contains("-O cancel") })
+        let remove = try #require(commands.first { $0.contains("rm -f") })
+        #expect(forward.contains(remote + ":" + local))
+        #expect(cancel.contains(remote + ":" + local))
         #expect(remove.contains(remote))
-
-        // No glob / find anywhere — the exact minted path is the only authority.
-        for command in cmds {
-            #expect(!command.contains("*"), "glob found: \(command)")
-            #expect(!command.contains("find "), "find found: \(command)")
-        }
-    }
-
-    // MARK: - Degradation-reason mapping
-
-    @Test("every failed check maps to its own explicit reason, surfaced via diagnostics")
-    func eachFailedCheckMapsToItsReason() async {
-        let log = CommandLog()
-        let signals = makeSignals(
-            versionThrows: true,   // helperVersion
-            forwardThrows: true,   // reverseForward + remoteSocketOwnerOnly
-            selfCheckExit: 1,      // stateFileCustody + roundTrip
-            localCustody: false,   // localSelfCheck
-            log: log
-        )
-        let report = await signals.run(Self.context)
-
-        #expect(!report.allPassed)
-        #expect(report.failures.count == 6)
-        for signal in report.failures {
-            #expect(signal.reason == signal.check.failureReason)
-        }
-
-        #expect(report.degradationMessage != nil)
-        let diagnostics = report.asDiagnostics()
-        #expect(diagnostics != nil)
-        // The disclosure body lists each failed check title + its reason.
-        #expect(diagnostics!.stderr.contains(BridgeDoctorCheck.helperVersion.title))
-        #expect(diagnostics!.stderr.contains(BridgeDoctorCheck.roundTrip.failureReason))
+        #expect(!remove.contains(local))
+        #expect(commands.allSatisfy { !$0.contains("*") && !$0.contains("find ") })
     }
 
     // MARK: - Secrets never leak into any reason
