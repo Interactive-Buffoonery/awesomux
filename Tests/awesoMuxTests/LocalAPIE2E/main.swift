@@ -191,8 +191,10 @@ struct LocalAPIE2E {
             "default authorization denies without metadata")
         let gate = E2EAuthorization()
         let revokeProfile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let revokeCapture = E2ECaptureGate()
+        revokeCapture.arm()
         let revocable = try LocalAPIServer(profile: revokeProfile, authorization: gate.provider) { request, instance, _ in
-            try? await Task.sleep(for: .milliseconds(150))
+            await revokeCapture.enterIfArmed()
             return LocalAPIResponse(
                 requestID: request.requestID, profile: revokeProfile, appInstanceID: instance, capturedAt: Date(),
                 agents: store.localAPIAgents())
@@ -200,8 +202,9 @@ struct LocalAPIE2E {
         revocable.start()
         defer { revocable.stop() }
         let inFlight = Task.detached { try LocalAPIClient.call(LocalAPIRequest(profile: revokeProfile, operation: .listAgents)) }
-        try await Task.sleep(for: .milliseconds(50))
+        await revokeCapture.waitUntilEntered()
         gate.revoke()
+        revokeCapture.release()
         let revoked = try await inFlight.value
         try check(revoked.error == .permissionDenied && revoked.agents == nil, "revocation during capture prevents status return")
         let largeProfile = "development:" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
@@ -224,7 +227,7 @@ struct LocalAPIE2E {
         try check(empty.agents?.isEmpty == true && empty.error == nil, "empty roster is successful")
         server.stop()
         // The ownership lock is released when the listener loop and workers exit.
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitForStoppedEndpoint(profile: profile)
         let unavailable = try await call()
         try check(unavailable.error == .appUnavailable, "stopped app is unavailable without profile fallback")
         let restarted = try LocalAPIServer(
@@ -675,6 +678,7 @@ struct LocalAPIE2E {
             connectionID: firstPending.connection.id,
             statusScope: .persistentPanes([agents[1].paneID])
         )
+        captureGate.release()
         let editedInFlight = try await editing.value
         try check(
             editedInFlight.error != nil && editedInFlight.agents == nil,
@@ -758,12 +762,15 @@ struct LocalAPIE2E {
             connectionID: slowPending.connection.id,
             credential: slowPending.credential
         )
-        try await Task.sleep(for: .milliseconds(150))
-        let revokeStart = ContinuousClock.now
+        try await Task.detached { try slowClient.waitForResponseStart() }.value
         try initialStore.revoke(connectionID: slowPending.connection.id)
-        let revokeDuration = revokeStart.duration(to: .now)
-        try check(revokeDuration < .milliseconds(250), "slow reader cannot stall connection revocation")
-        try check(!slowClient.receivedCompleteFrame(), "slow reader cannot complete a response after revocation")
+        roster.setAgents(agents)
+        let independentRead = try await callHelper(
+            helper: helper, profile: profile, connectionID: secondPending.connection.id
+        )
+        try check(independentRead.error == nil && independentRead.agents != nil, "another client progresses after slow-reader revocation")
+        let completeFrame = try await Task.detached { try slowClient.receivedCompleteFrameAfterEOF() }.value
+        try check(!completeFrame, "slow reader cannot complete a response after revocation")
         try deleteCredential(helper: helper, profile: profile, connectionID: slowPending.connection.id)
         roster.setAgents(agents)
 
@@ -777,6 +784,7 @@ struct LocalAPIE2E {
         }
         await captureGate.waitUntilEntered()
         try initialStore.setGloballyEnabled(false)
+        captureGate.release()
         let disabledInFlight = try await disabling.value
         try check(
             disabledInFlight.error != nil && disabledInFlight.agents == nil,
@@ -791,7 +799,7 @@ struct LocalAPIE2E {
         try initialStore.setGloballyEnabled(true)
 
         initialServer.stop()
-        try await Task.sleep(for: .milliseconds(150))
+        try await waitForStoppedEndpoint(profile: profile)
         initialStore.relinquishAuthority()
         server = nil
         accessStore = nil
@@ -948,14 +956,15 @@ private final class E2EAgentRoster: @unchecked Sendable {
     }
 }
 
-private final class E2ESlowClient {
+private final class E2ESlowClient: @unchecked Sendable {
     private let fd: Int32
 
     init(profile: String, connectionID: UUID, credential: Data) throws {
         let endpoint = try LocalAPIEndpoint(profile: profile)
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw E2EFailure(message: "could not create slow client socket") }
-        var receiveBuffer: Int32 = 1024
+        // Admit one writer chunk so the test observes an actual partial response.
+        var receiveBuffer: Int32 = 16 * 1024
         guard setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &receiveBuffer, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
             close(fd)
             throw E2EFailure(message: "could not constrain slow client receive buffer")
@@ -1002,30 +1011,58 @@ private final class E2ESlowClient {
 
     deinit { close(fd) }
 
-    func receivedCompleteFrame() -> Bool {
-        _ = fcntl(fd, F_SETFL, O_NONBLOCK)
+    func waitForResponseStart() throws {
+        try waitForReadable()
+        var pending = [UInt8](repeating: 0, count: LocalAPIContract.maximumResponseBytes + 4)
+        let queued = recv(fd, &pending, pending.count, MSG_PEEK | MSG_DONTWAIT)
+        guard queued >= 4 else {
+            throw E2EFailure(message: "slow response closed before sending its frame header")
+        }
+        let length = pending.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        guard length > 16 * 1024, queued < Int(length) + 4 else {
+            throw E2EFailure(message: "slow client did not hold an incomplete large response")
+        }
+    }
+
+    private func waitForReadable() throws {
+        var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        guard poll(&descriptor, 1, 10_000) > 0 else {
+            throw E2EFailure(message: "slow client did not receive bytes or EOF before deadline")
+        }
+    }
+
+    func receivedCompleteFrameAfterEOF() throws -> Bool {
         var received = Data()
         var buffer = [UInt8](repeating: 0, count: 16 * 1024)
-        while true {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            try waitForReadable()
             let count = Darwin.read(fd, &buffer, buffer.count)
-            if count > 0 {
-                received.append(contentsOf: buffer.prefix(count))
-                continue
+            if count == 0 {
+                guard received.count >= 4 else { return false }
+                let length = received.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+                return received.count >= Int(length) + 4
             }
-            break
+            guard count > 0 else { throw E2EFailure(message: "slow client read failed") }
+            received.append(contentsOf: buffer.prefix(count))
+            guard received.count <= 2 * 1024 * 1024 else { throw E2EFailure(message: "slow response exceeded frame bound") }
         }
-        guard received.count >= 4 else { return false }
-        let length = received.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        return received.count >= Int(length) + 4
+        throw E2EFailure(message: "slow response did not close after revocation")
     }
 }
 
 private final class E2ECaptureGate: @unchecked Sendable {
     private let lock = NSLock()
     private var armed = false
+    private var released = false
     private var entered: CheckedContinuation<Void, Never>?
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
 
-    func arm() { lock.withLock { armed = true } }
+    func arm() {
+        lock.withLock {
+            armed = true; released = false
+        }
+    }
 
     func waitUntilEntered() async {
         await withCheckedContinuation { continuation in
@@ -1039,15 +1076,28 @@ private final class E2ECaptureGate: @unchecked Sendable {
     }
 
     func enterIfArmed() async {
-        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-            guard armed else { return nil }
-            armed = false
-            let continuation = entered
-            entered = nil
-            return continuation
+        await withCheckedContinuation { continuation in
+            let entry = lock.withLock { () -> (Bool, CheckedContinuation<Void, Never>?) in
+                guard armed else { return (false, nil) }
+                armed = false
+                let entry = entered
+                entered = nil
+                if !released { releaseWaiter = continuation }
+                return (!released, entry)
+            }
+            entry.1?.resume()
+            if !entry.0 { continuation.resume() }
         }
-        continuation?.resume()
-        try? await Task.sleep(for: .milliseconds(250))
+    }
+
+    func release() {
+        let waiter = lock.withLock {
+            released = true
+            let waiter = releaseWaiter
+            releaseWaiter = nil
+            return waiter
+        }
+        waiter?.resume()
     }
 }
 
@@ -1081,4 +1131,21 @@ private final class E2EAuthorization: @unchecked Sendable {
         )
     }
     func revoke() { lock.withLock { enabled = false } }
+}
+
+@MainActor
+private func waitForStoppedEndpoint(profile: String) async throws {
+    let endpoint = try LocalAPIEndpoint(profile: profile)
+    let lockFD = open(endpoint.directoryPath + "/instance.lock", O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    guard lockFD >= 0 else { throw E2EFailure(message: "could not observe endpoint ownership") }
+    defer { close(lockFD) }
+    let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+    while ContinuousClock.now < deadline {
+        if !FileManager.default.fileExists(atPath: endpoint.socketPath), flock(lockFD, LOCK_EX | LOCK_NB) == 0 {
+            _ = flock(lockFD, LOCK_UN)
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    throw E2EFailure(message: "stopped endpoint did not release ownership")
 }
