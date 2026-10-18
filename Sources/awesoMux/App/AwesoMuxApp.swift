@@ -4315,13 +4315,13 @@ struct AwesoMuxApp: App {
             id: toastID,
             command: identity.displayRepositoryName,
             output: String(
-                localized: "Show Branch Changes opened \(identity.displayBranch) in another tab.",
+                localized: "Changes for \(identity.displayBranch) opened in another tab.",
                 comment:
                     "Notice text when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
             ),
             state: .notice(
                 kicker: String(
-                    localized: "Refresh replaced",
+                    localized: "Refresh canceled",
                     comment:
                         "Notice heading when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
                 )

@@ -109,7 +109,7 @@ enum BranchChangesCompletion {
                 refreshWasSuperseded?(opened.identity)
                 TerminalAccessibilityAnnouncer.announce(
                     String(
-                        localized: "Branch changes opened in another tab. The earlier Refresh was replaced.",
+                        localized: "Refresh canceled. Branch changes opened in another tab.",
                         comment:
                             "VoiceOver announcement when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
                     )
