@@ -385,6 +385,112 @@ struct BranchChangesCompletionTests {
         #expect(focusRequests.first?.1 == session.id)
     }
 
+    // MARK: - Superseded tab Refresh
+
+    @Test("a menu run that replaces a tab's Refresh says so when it lands elsewhere")
+    func supersededTabRefreshIsDisclosed() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let refreshingTab = try #require(
+            store.openDocumentPane(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appending(path: "awesomux-old-\(UUID().uuidString).branch-changes.md"),
+                in: session.id,
+                associatedWith: terminal.id
+            )
+        )
+        let coordinator = BranchChangesCoordinator()
+        _ = coordinator.begin(paneID: terminal.id, originatingDocumentID: refreshingTab)
+        // Two menu presses: the disclosure must survive the middle run being
+        // superseded in turn.
+        _ = coordinator.begin(paneID: terminal.id)
+        let menu = coordinator.begin(paneID: terminal.id)
+        let result = try render(markdown: "# switched\n", branch: "feature/new")
+        var interrupted: [BranchChangesIdentity] = []
+
+        BranchChangesCompletion.apply(
+            .success(result),
+            paneID: terminal.id,
+            ticket: menu,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { interrupted.append($0) }
+        )
+
+        #expect(interrupted == [result.identity])
+        coordinator.finish(menu, paneID: terminal.id)
+
+        // A later, unrelated menu run has nothing to disclose.
+        let later = coordinator.begin(paneID: terminal.id)
+        BranchChangesCompletion.apply(
+            .success(try render(markdown: "# later\n", branch: "feature/later")),
+            paneID: terminal.id,
+            ticket: later,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { _ in Issue.record("no Refresh was in flight") }
+        )
+    }
+
+    @Test("no supersede notice when the menu run lands in that tab or the tab closed")
+    func supersededTabRefreshStaysQuietWhenNothingWasLost() throws {
+        let terminal = pane("zsh")
+        let session = TerminalSession(
+            title: "s",
+            workingDirectory: "/tmp",
+            layout: .pane(terminal),
+            activePaneID: terminal.id
+        )
+        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [session])])
+        let result = try render(markdown: "# same slot\n")
+        let sameSlotTab = try #require(
+            store.openDocumentPane(
+                fileURL: result.fileURL,
+                in: session.id,
+                associatedWith: terminal.id,
+                branchChangesIdentity: result.identity
+            )
+        )
+        let coordinator = BranchChangesCoordinator()
+        _ = coordinator.begin(paneID: terminal.id, originatingDocumentID: sameSlotTab)
+        let sameSlot = coordinator.begin(paneID: terminal.id)
+        BranchChangesCompletion.apply(
+            .success(result),
+            paneID: terminal.id,
+            ticket: sameSlot,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { _ in Issue.record("the tab itself was refreshed") }
+        )
+        coordinator.finish(sameSlot, paneID: terminal.id)
+
+        store.closeDocumentPane(documentID: sameSlotTab, in: session.id)
+        _ = coordinator.begin(paneID: terminal.id, originatingDocumentID: sameSlotTab)
+        let afterClose = coordinator.begin(paneID: terminal.id)
+        BranchChangesCompletion.apply(
+            .success(try render(markdown: "# closed\n", branch: "feature/new")),
+            paneID: terminal.id,
+            ticket: afterClose,
+            store: store,
+            coordinator: coordinator,
+            completeWrite: { _ in },
+            alert: { Issue.record("unexpected failure alert: \($0)") },
+            refreshWasSuperseded: { _ in Issue.record("the interrupted tab is gone") }
+        )
+    }
+
     // MARK: - Following the pane
 
     @Test("the tab follows a pane that moved to another workspace")

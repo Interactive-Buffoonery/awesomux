@@ -1152,6 +1152,9 @@
     "Change Access…" : {
 
     },
+    "Changes for %arg opened in another tab." : {
+      "comment" : "Notice text when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
+    },
     "Changes: %arg vs %arg — %arg" : {
       "comment" : "Document tab title for a rendered branch diff, e.g. 'Changes: feature/x vs origin/main — awesomux'",
       "localizations" : {
@@ -3972,6 +3975,12 @@
     },
     "Refresh all" : {
       "comment" : "Diagnostics refresh button"
+    },
+    "Refresh canceled" : {
+      "comment" : "Notice heading when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
+    },
+    "Refresh canceled. Branch changes opened in another tab." : {
+      "comment" : "VoiceOver announcement when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
     },
     "Refresh failed. The last successful process snapshot is still shown." : {
       "comment" : "Diagnostics failed refresh status"
