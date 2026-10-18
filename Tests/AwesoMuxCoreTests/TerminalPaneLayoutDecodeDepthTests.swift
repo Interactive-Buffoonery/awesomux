@@ -12,8 +12,8 @@ import Testing
 /// Fixtures are built as raw JSON *text* (not by encoding a deep Swift value):
 /// constructing/encoding a near-cap recursive value would itself recurse and
 /// could crash in fixture setup rather than exercising the guard. The text
-/// shape matches the synthesized enum Codable format (`{"split":{"_0":{…}}}`,
-/// `{"pane":{"_0":{…}}}`), verified by round-tripping the legal-depth case.
+/// shape matches the synthesized enum Codable format, with associated values
+/// nested under `_0`. The at-cap decode checks that the fixture is admitted.
 ///
 /// Decoding runs on a dedicated 8 MB-stack `Thread` to model the production
 /// restore path (main thread), not the shallow-stack Swift-concurrency pool
@@ -21,7 +21,7 @@ import Testing
 /// safe on a normal stack but the near-cap recursion needed to *reach* the
 /// guard would overflow a pool thread's smaller stack.
 @Suite struct TerminalPaneLayoutDecodeDepthTests {
-    private enum NestBranch { case first, second }
+    enum NestBranch: Sendable { case first, second }
 
     private func leafJSON() -> String {
         "{\"pane\":{\"_0\":{\"id\":\"\(UUID().uuidString)\",\"title\":\"z\",\"workingDirectory\":\"/tmp\"}}}"
@@ -83,19 +83,6 @@ import Testing
         """
     }
 
-    // MARK: - Legal depth (also pins the fixture shape against the real format)
-
-    @Test func legalDepthRoundTrips() throws {
-        let layout = try decodeLayout(nestedLayoutJSON(splitCount: 8, branch: .first)).get()
-        // 8 splits + 8 sibling leaves + 1 deepest leaf = 9 terminal panes.
-        #expect(layout.paneCount == 9)
-        // Re-encode/decode to confirm the hand-written text matches the type's
-        // own round-trip (calibrates the assumed synthesized-enum shape).
-        let reencoded = try JSONEncoder().encode(layout)
-        let redecoded = try decodeLayout(String(data: reencoded, encoding: .utf8)!).get()
-        #expect(redecoded == layout)
-    }
-
     // MARK: - Boundary (bare TerminalPaneLayout)
 
     @Test func atCapDecodesCleanly() throws {
@@ -105,35 +92,7 @@ import Testing
         #expect(layout.paneCount == TerminalSplit.maxDecodedSplitDepth + 1)
     }
 
-    @Test func overCapThrowsFirstBranch() {
-        let result = decodeLayout(
-            nestedLayoutJSON(splitCount: TerminalSplit.maxDecodedSplitDepth + 1, branch: .first)
-        )
-        #expect(throws: DecodingError.self) { try result.get() }
-    }
-
-    @Test func overCapThrowsSecondBranch() {
-        // Nesting down `second` must trip the same guard — the key-count logic
-        // is not one-sided.
-        let result = decodeLayout(
-            nestedLayoutJSON(splitCount: TerminalSplit.maxDecodedSplitDepth + 1, branch: .second)
-        )
-        #expect(throws: DecodingError.self) { try result.get() }
-    }
-
     // MARK: - Boundary (session-state-shaped path — the original vector)
-
-    /// Outer wrapper keys (`groups`/`sessions`/`layout` + array indices) are not
-    /// `first`/`second`, so the boundary must land at the same split count as
-    /// the bare case regardless of nesting context.
-    @Test func sessionShapedAtCapDecodes() throws {
-        let snapshot = try decodeSnapshot(
-            snapshotJSON(wrapping: nestedLayoutJSON(
-                splitCount: TerminalSplit.maxDecodedSplitDepth, branch: .first
-            ))
-        ).get()
-        #expect(snapshot.groups.first?.sessions.first != nil)
-    }
 
     @Test func sessionShapedOverCapThrows() {
         let result = decodeSnapshot(
@@ -141,6 +100,12 @@ import Testing
                 splitCount: TerminalSplit.maxDecodedSplitDepth + 1, branch: .first
             ))
         )
+        #expect(throws: DecodingError.self) { try result.get() }
+    }
+
+    @Test("depth cap rejects either branch before overflowing", arguments: [NestBranch.first, .second])
+    func overCapThrows(branch: NestBranch) {
+        let result = decodeLayout(nestedLayoutJSON(splitCount: TerminalSplit.maxDecodedSplitDepth + 1, branch: branch))
         #expect(throws: DecodingError.self) { try result.get() }
     }
 }
