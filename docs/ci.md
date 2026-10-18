@@ -18,10 +18,10 @@ The `Require fast CI` repository ruleset requires these stable check names:
   trusted default-branch workflow code. Dependabot pull requests skip this
   human-authored description check because GitHub owns their generated bodies.
 
-The fast guard job runs independent checks in parallel after setup. The wait
-guardrail and formatter fixtures remain sequential because they modify the
-checkout and Git index. Changed-line wait and format checks run in parallel
-only after those fixtures finish and clean up.
+The fast guard job runs independent checks in parallel after setup. The
+formatter fixtures remain sequential because they modify the checkout and Git
+index. Changed-line wait and format checks run in parallel only after
+those fixtures finish and clean up.
 
 The ruleset does not require a branch to be up to date before merging. Other
 checks, including pull-request sizing and native CI, remain useful but advisory.
@@ -54,6 +54,27 @@ Run focused native groups with:
 ./script/test.sh zmx
 ./script/test.sh all
 ```
+
+## Manual verification harnesses
+
+Run the relevant harness when changing its area and retain its logs, report,
+or screenshots with the review. These are manual gates; preflight and hosted
+CI do not run them. Commands below run from the repository root on macOS;
+linked guides describe prerequisites and the limits of each proof.
+
+- Remote Markdown queued admission: `python3 script/verify_remote_markdown_admission.py`; [proof and UI follow-up](verification/remote-markdown-admission.md).
+- Remote Markdown authorization: `python3 script/verify_remote_markdown_authorization.py`; [proof and limits](verification/remote-markdown-authorization.md).
+- Remote Markdown SSH transport and quoting: `python3 script/verify-remote-markdown-transport.py --host <SSH-alias> --report .build/verification/remote-markdown-transport.json`; [verification guide](verification/unmanaged-ssh-file-links.md).
+- Installed Codex plugin discovery: `./script/test_live_codex_plugin.sh` probes hooks through the production app-server client; requires an installed plugin.
+- Companion pairing and authenticated requests: `./script/run_companion_pairing_e2e.sh`; writes per-run logs and `result.json` under `/tmp/companion-pairing-e2e/`.
+- Floating-panel workspace rebinding: `./script/smoke-floating-rebind.sh`; requires macOS Accessibility access and a staged development app, and prints artifact paths.
+- Unmanaged SSH provider identity: follow [the fixture and screenshot checklist](../script/agent-identity-e2e/README.md), starting with `ssh -t localhost python3 "$PWD/script/agent-identity-e2e/fixture.py"`.
+- Codex subprocess lifecycle and transport: `python3 script/codex-transport-e2e/run.py --contracts`; [cases and report locations](../script/codex-transport-e2e/README.md).
+- Local API client peer closure: `python3 script/local-api-e2e/verify-peer-close.py --output .build/local-api-peer-close`; retain its report; [full local API verification](local-agent-api.md#repeatable-verification).
+- SSH terminal compatibility: follow [the generated-integration run command](../script/ssh-terminal-e2e/README.md) for `python3 script/ssh-terminal-e2e/run.py`; retain `report.txt` and logs.
+- Backend reaping ownership and failures: `./script/amx-reap-e2e.sh`; [scenario report](amx-reap-e2e-report.md).
+- Remote browser forwarding: `./script/test-remote-browser-e2e.sh`; [journey and UI follow-up](remote-browser-forwarding.md#real-ssh-end-to-end-check).
+- Read-only skill archive packaging: `python3 -B script/test-dot-skill-package.py`; retains a reproducible archive and `report.json` under `.build/dot-skill-e2e/`.
 
 ## Advisory native CI
 
@@ -248,9 +269,8 @@ request trigger records a skipped job without starting a macOS runner. A
 maintainer can run the focused `SidebarTintContrastTests` suite on the
 GitHub-hosted `xcode-27` runner when needed. The job fails closed if that
 filter matches no tests, so deleting `Tests/DesignSystemTests/SidebarTintContrastTests.swift`
-without updating `.github/workflows/tint-contrast.yml` (and its CI automation
-fixture) will break a later dispatch. It has read-only permissions, does not
-use the configurable native-runner label, and remains advisory.
+without updating `.github/workflows/tint-contrast.yml` will break a later
+dispatch. It has read-only permissions, does not use the configurable native-runner label, and remains advisory.
 
 Making broader native CI automatic, or making any native check required for
 merge, requires a separate reliability and cost review.

@@ -41,8 +41,7 @@ python3 script/codex-transport-e2e/run.py --source-ref c96d09c2 \
 ```
 
 `--expect-bugs` requires close to exit 1, timeout/cancel to hit watchdog 124, and
-echo to succeed. Historical results are summarized in `REPORT.md`; generated
-logs are no longer committed. Reports include source and harness hashes.
+echo to succeed. Generated logs are not committed. Reports include source and harness hashes.
 
 No new unit tests are added. The root integration run owns full preflight and
 application/UI verification.

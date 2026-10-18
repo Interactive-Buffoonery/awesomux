@@ -314,26 +314,45 @@ struct AgentHookCommandTests {
         #expect(output.contains("progress") == false)
     }
 
-    @Test(arguments: [
+    private static let invalidInvocations: [([String], Data)] =
+        [
         Data("{".utf8),
         Data("{}".utf8),
         Data(#"{"hook_event_name":"UnknownEvent"}"#.utf8),
         Data(#"{"hook_event_name":"PreCompact"}"#.utf8),
         Data(#"{"hook_event_name":"PostCompact"}"#.utf8),
-    ])
-    func invalidOrSilentCodexInputWritesNothing(stdin: Data) throws {
+        ].map { (["--provider", "codex"], $0) }
+        + [
+        [],
+        ["--provider"],
+        ["--provider", "gemini"],
+        ["--source", "codex"],
+        ["--provider", "codex", "--phase", "toolStart"],
+        ].map { ($0, hookPayload("SessionStart")) }
+        + [
+        ["open-document"],
+        ["open-document", "--provider", "gemini", "/tmp/notes.md"],
+        ["open-document", "--source", "codex", "/tmp/notes.md"],
+        ["open-document", "--provider", "codex"],
+        ["open-document", "--provider", "codex", "/tmp/notes.md", "extra"],
+        ].map { ($0, Data()) }
+        + [
+            "notes.md",
+            "/tmp/notes.txt",
+            "/tmp/notes.md\u{0}suffix",
+        ].map { (["open-document", "--provider", "codex", $0], Data()) }
+
+    @Test(arguments: invalidInvocations)
+    func invalidInvocationWritesNothing(arguments: [String], stdin: Data) throws {
         let temp = try Self.temporaryEventFile()
         defer { temp.remove() }
-        let eventFile = temp.file
-
         let status = AgentHookCommand.run(
-            arguments: ["--provider", "codex"],
-            environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
+            arguments: arguments,
+            environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
             stdin: stdin
         )
-
         #expect(status == 0)
-        #expect(try Data(contentsOf: eventFile).isEmpty)
+        #expect(try Data(contentsOf: temp.file).isEmpty)
     }
 
     @Test
@@ -345,70 +364,6 @@ struct AgentHookCommandTests {
         )
 
         #expect(status == 0)
-    }
-
-    @Test(arguments: [
-        [],
-        ["--provider"],
-        ["--provider", "gemini"],
-        ["--source", "codex"],
-        ["--provider", "codex", "--phase", "toolStart"],
-    ])
-    func invalidArgumentsExitSuccessAndWriteNothing(arguments: [String]) throws {
-        let temp = try Self.temporaryEventFile()
-        defer { temp.remove() }
-        let eventFile = temp.file
-
-        let status = AgentHookCommand.run(
-            arguments: arguments,
-            environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
-            stdin: Self.hookPayload("SessionStart")
-        )
-
-        #expect(status == 0)
-        #expect(try Data(contentsOf: eventFile).isEmpty)
-    }
-
-    @Test(arguments: [
-        ["open-document"],
-        ["open-document", "--provider", "gemini", "/tmp/notes.md"],
-        ["open-document", "--source", "codex", "/tmp/notes.md"],
-        ["open-document", "--provider", "codex"],
-        ["open-document", "--provider", "codex", "/tmp/notes.md", "extra"],
-    ])
-    func invalidOpenDocumentArgumentsWriteNothing(arguments: [String]) throws {
-        let temp = try Self.temporaryEventFile()
-        defer { temp.remove() }
-        let eventFile = temp.file
-
-        let status = AgentHookCommand.run(
-            arguments: arguments,
-            environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
-            stdin: Data()
-        )
-
-        #expect(status == 0)
-        #expect(try Data(contentsOf: eventFile).isEmpty)
-    }
-
-    @Test(arguments: [
-        "notes.md",
-        "/tmp/notes.txt",
-        "/tmp/notes.md\u{0}suffix",
-    ])
-    func invalidOpenDocumentPathsWriteNothing(path: String) throws {
-        let temp = try Self.temporaryEventFile()
-        defer { temp.remove() }
-        let eventFile = temp.file
-
-        let status = AgentHookCommand.run(
-            arguments: ["open-document", "--provider", "codex", path],
-            environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
-            stdin: Data()
-        )
-
-        #expect(status == 0)
-        #expect(try Data(contentsOf: eventFile).isEmpty)
     }
 
     @Test

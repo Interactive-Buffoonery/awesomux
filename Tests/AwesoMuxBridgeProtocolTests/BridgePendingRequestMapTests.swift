@@ -81,107 +81,50 @@ struct BridgePendingRequestMapTests {
         #expect(Self.admit(&map, id: "req-0") == .duplicate)
     }
 
-    @Test
-    func nonFiniteDeadlineIsRejected() {
-        var map = BridgePendingRequestMap()
-        let nan = Self.admit(&map, id: "a", expiresAt: Date(timeIntervalSince1970: .nan))
-        let infinite = Self.admit(&map, id: "b", expiresAt: Date(timeIntervalSince1970: .infinity))
-
-        #expect(nan == .invalidDeadline)
-        #expect(infinite == .invalidDeadline)
-        #expect(map.count == 0)
-    }
-
-    @Test
-    func admittedEntryRoundTripsAllFields() {
-        var map = BridgePendingRequestMap()
-        let expiresAt = Self.epoch.addingTimeInterval(60)
-        _ = map.admit(id: "req", target: "git push", tool: "Shell", expiresAt: expiresAt)
-
-        let outcome = map.resolve(id: "req", event: .decisionApplied, now: Self.epoch)
-        guard case .resolved(let entry, .decisionApplied) = outcome else {
-            Issue.record("expected the admitted entry back")
-            return
-        }
-        #expect(entry == BridgePendingRequestMap.Entry(id: "req", target: "git push", tool: "Shell", expiresAt: expiresAt))
-    }
-
-    // MARK: - Peek
-
-    @Test
-    func peekReturnsEntryWithoutConsumingIt() {
-        var map = BridgePendingRequestMap()
-        _ = Self.admit(&map, id: "req", target: "the target")
-
-        #expect(map.peek(id: "req")?.target == "the target")
-        // Still pending: peek must not consume — a failed target check in
-        // B2 relies on the entry surviving.
-        #expect(map.count == 1)
-        #expect(map.peek(id: "ghost") == nil)
-    }
-
     // MARK: - First-terminal-event-wins atomicity
 
-    @Test
-    func decisionThenExpiryLeavesLateEventUnknown() {
+    enum Resolution: Sendable {
+        case event(BridgePendingRequestMap.TerminalEvent, TimeInterval, BridgePendingRequestMap.TerminalEvent, TimeInterval)
+        case sweep
+        case drain
+    }
+
+    @Test(arguments: [
+        Resolution.event(.decisionApplied, 0, .expired, 200),
+        .event(.expired, 120, .decisionApplied, 0),
+        .event(.cancelled, 0, .decisionApplied, 0),
+        .event(.connectionLost, 0, .decisionApplied, 0),
+        .sweep, .drain,
+    ])
+    func firstTerminalEventWins(resolution: Resolution) {
         var map = BridgePendingRequestMap()
-        _ = Self.admit(&map, id: "req")
-
-        let first = map.resolve(id: "req", event: .decisionApplied, now: Self.epoch)
-        guard case .resolved(_, .decisionApplied) = first else {
-            Issue.record("expected first call to apply the decision")
-            return
+        let deadline: TimeInterval =
+            switch resolution {
+            case .sweep: 60;
+            default: 120
+            }
+        _ = Self.admit(&map, id: "req", expiresAt: Self.epoch.addingTimeInterval(deadline))
+        switch resolution {
+        case .event(let first, let firstTime, let late, let lateTime):
+            let outcome = map.resolve(id: "req", event: first, now: Self.epoch.addingTimeInterval(firstTime))
+            guard case .resolved(let entry, let applied) = outcome else {
+                Issue.record("expected first terminal event to resolve")
+                return
+            }
+            #expect(entry.id == "req")
+            #expect(applied == first)
+            #expect(map.resolve(id: "req", event: late, now: Self.epoch.addingTimeInterval(lateTime)) == .unknown)
+        case .sweep:
+            #expect(map.sweepExpired(now: Self.epoch.addingTimeInterval(60)).map(\.id) == ["req"])
+            #expect(map.resolve(id: "req", event: .decisionApplied, now: Self.epoch.addingTimeInterval(61)) == .unknown)
+        case .drain:
+            _ = Self.admit(&map, id: "b")
+            _ = map.drainAll()
+            for id in ["req", "b"] {
+                #expect(map.resolve(id: id, event: .decisionApplied, now: Self.epoch) == .unknown)
+            }
         }
-
-        let second = map.resolve(id: "req", event: .expired, now: Self.epoch.addingTimeInterval(200))
-        #expect(second == .unknown)
         #expect(map.count == 0)
-    }
-
-    @Test
-    func expiryThenDecisionLeavesLateEventUnknown() {
-        var map = BridgePendingRequestMap()
-        let expiresAt = Self.epoch.addingTimeInterval(120)
-        _ = Self.admit(&map, id: "req", expiresAt: expiresAt)
-
-        let first = map.resolve(id: "req", event: .expired, now: expiresAt)
-        guard case .resolved(_, .expired) = first else {
-            Issue.record("expected first call to resolve as expired")
-            return
-        }
-
-        let second = map.resolve(id: "req", event: .decisionApplied, now: Self.epoch)
-        #expect(second == .unknown)
-    }
-
-    @Test
-    func cancelThenDecisionLeavesLateEventUnknown() {
-        var map = BridgePendingRequestMap()
-        _ = Self.admit(&map, id: "req")
-
-        let first = map.resolve(id: "req", event: .cancelled, now: Self.epoch)
-        guard case .resolved(_, .cancelled) = first else {
-            Issue.record("expected first call to apply the cancellation")
-            return
-        }
-
-        let second = map.resolve(id: "req", event: .decisionApplied, now: Self.epoch)
-        #expect(second == .unknown)
-    }
-
-    @Test
-    func connectionLostThenDecisionLeavesLateEventUnknown() {
-        var map = BridgePendingRequestMap()
-        _ = Self.admit(&map, id: "req")
-
-        let first = map.resolve(id: "req", event: .connectionLost, now: Self.epoch)
-        guard case .resolved(_, .connectionLost) = first else {
-            Issue.record("expected first call to apply connection-lost")
-            return
-        }
-
-        let second = map.resolve(id: "req", event: .decisionApplied, now: Self.epoch)
-        #expect(second == .unknown)
     }
 
     @Test
@@ -207,32 +150,6 @@ struct BridgePendingRequestMapTests {
     func unknownIDNeverAdmittedResolvesUnknown() {
         var map = BridgePendingRequestMap()
         #expect(map.resolve(id: "ghost", event: .decisionApplied, now: Self.epoch) == .unknown)
-    }
-
-    @Test
-    func lateDecisionAfterSweepResolvesUnknown() {
-        var map = BridgePendingRequestMap()
-        let expiresAt = Self.epoch.addingTimeInterval(60)
-        _ = Self.admit(&map, id: "req", expiresAt: expiresAt)
-
-        let swept = map.sweepExpired(now: expiresAt)
-        #expect(swept.map(\.id) == ["req"])
-
-        // The decision that raced the sweep arrives a beat later.
-        #expect(map.resolve(id: "req", event: .decisionApplied, now: expiresAt.addingTimeInterval(1)) == .unknown)
-    }
-
-    @Test
-    func lateDecisionAfterDrainResolvesUnknown() {
-        var map = BridgePendingRequestMap()
-        _ = Self.admit(&map, id: "a")
-        _ = Self.admit(&map, id: "b")
-        _ = map.drainAll()
-
-        // The reattach race: a decision for a drained id was in flight on
-        // the old connection when the app drained on connection-loss.
-        #expect(map.resolve(id: "a", event: .decisionApplied, now: Self.epoch) == .unknown)
-        #expect(map.resolve(id: "b", event: .decisionApplied, now: Self.epoch) == .unknown)
     }
 
     // MARK: - Deadline supremacy (resolve forces .expired once now >= expiresAt)

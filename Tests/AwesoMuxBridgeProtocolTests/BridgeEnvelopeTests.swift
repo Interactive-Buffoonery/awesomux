@@ -4,10 +4,23 @@ import Testing
 
 @Suite
 struct BridgeEnvelopeTests {
-    @Test
-    func paneRenameAbsentTitleIsDropped() {
-        let line = #"{"v":1,"type":"pane-rename","token":"tok","session":"sess","id":"id3","ts":1700000000}"#
+    @Test(arguments: [
+        #"{"v":1,"type":"pane-rename","token":"tok","session":"sess","id":"id3","ts":1700000000}"#,
+        #"{"v":1,"type":"agent-status","token":"tok","session":"sess","id":"id","ts":1700000000}"#,
+        #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"relative/path.png","mediaKind":"image"}"#,
+        #"{"v":1,"type":"agent-teleport","token":"tok","session":"sess","id":"id7","ts":1700000000}"#,
+        #"{"v":2,"type":"pane-rename","token":"tok","session":"sess","id":"id8","ts":1700000000,"title":"x"}"#,
+        #"{"v":1,"type":"pane-rename""#,
+    ])
+    func invalidEnvelopeIsDropped(line: String) {
         #expect(BridgeEnvelope.parse(line: line) == nil)
+    }
+
+    @Test
+    func helloMissingRequiredFieldIsDropped() {
+        // Missing "helper".
+        let line = #"{"type":"hello","proto":"awesomux-bridge-v1","token":"tok","session":"s","ts":1700000000}"#
+        #expect(BridgeHandshake.parse(line: line) == nil)
     }
 
     // MARK: - encodedLine() self-validates
@@ -18,23 +31,11 @@ struct BridgeEnvelopeTests {
     /// time rather than silently emitting a line its own parser would drop
     /// (a real gap an adversarial review pass caught: constructing a
     /// hostile value directly and encoding it used to succeed).
-    @Test
-    func encodedLineThrowsForAHostileTitleBuiltDirectly() {
+    @Test(arguments: ["evil\u{202E}title", String(repeating: "x", count: 4 * 1024)])
+    func encodedLineThrowsForAHostileTitleBuiltDirectly(title: String) {
         let envelope = BridgeEnvelope(
             token: "tok", session: "sess", id: "id", ts: 1_700_000_000,
-            message: .paneRename(title: "evil\u{202E}title")
-        )
-
-        #expect(throws: (any Error).self) {
-            try envelope.encodedLine()
-        }
-    }
-
-    @Test
-    func encodedLineThrowsForAnOverCapFrame() {
-        let envelope = BridgeEnvelope(
-            token: "tok", session: "sess", id: "id", ts: 1_700_000_000,
-            message: .paneRename(title: String(repeating: "x", count: 4 * 1024))
+            message: .paneRename(title: title)
         )
 
         #expect(throws: (any Error).self) {
@@ -82,28 +83,6 @@ struct BridgeEnvelopeTests {
         #expect(status.phase == .stop)
     }
 
-    /// The lenient wrapper must not change the wire shape: the id still
-    /// encodes as a bare JSON string, and an absent one still omits the key.
-
-    // MARK: - Unknown type / version
-
-    @Test
-    func unknownTypeIsDropped() {
-        let line = #"{"v":1,"type":"agent-teleport","token":"tok","session":"sess","id":"id7","ts":1700000000}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test
-    func unknownVersionIsDropped() {
-        let line = #"{"v":2,"type":"pane-rename","token":"tok","session":"sess","id":"id8","ts":1700000000,"title":"x"}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test
-    func malformedJSONIsDropped() {
-        #expect(BridgeEnvelope.parse(line: #"{"v":1,"type":"pane-rename""#) == nil)
-    }
-
     // MARK: - Per-type size caps (raw line bytes, before full decode)
 
     /// Builds a syntactically valid line for `type` with the minimum
@@ -134,30 +113,14 @@ struct BridgeEnvelopeTests {
         ("permission-decision", #""inReplyTo":"req-1","decision":"allow","scope":"once","target":"ls""#),
     ]
 
-    @Test(arguments: fourKiBTypes)
-    func fourKiBCapBoundaryPasses(entry: (type: String, fields: String)) {
-        let line = paddedLine(type: entry.type, requiredFields: entry.fields, totalBytes: 4 * 1024)
-        #expect(line.utf8.count == 4 * 1024)
+    @Test(
+        arguments: fourKiBTypes.map { ($0.type, $0.fields, 4 * 1024) }
+            + eightKiBTypes.map { ($0.type, $0.fields, 8 * 1024) })
+    func frameByteCap(entry: (type: String, fields: String, cap: Int)) {
+        let line = paddedLine(type: entry.type, requiredFields: entry.fields, totalBytes: entry.cap)
+        #expect(line.utf8.count == entry.cap)
         #expect(BridgeEnvelope.parse(line: line) != nil)
-    }
-
-    @Test(arguments: fourKiBTypes)
-    func fourKiBCapOneOverFails(entry: (type: String, fields: String)) {
-        let line = paddedLine(type: entry.type, requiredFields: entry.fields, totalBytes: 4 * 1024 + 1)
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test(arguments: eightKiBTypes)
-    func eightKiBCapBoundaryPasses(entry: (type: String, fields: String)) {
-        let line = paddedLine(type: entry.type, requiredFields: entry.fields, totalBytes: 8 * 1024)
-        #expect(line.utf8.count == 8 * 1024)
-        #expect(BridgeEnvelope.parse(line: line) != nil)
-    }
-
-    @Test(arguments: eightKiBTypes)
-    func eightKiBCapOneOverFails(entry: (type: String, fields: String)) {
-        let line = paddedLine(type: entry.type, requiredFields: entry.fields, totalBytes: 8 * 1024 + 1)
-        #expect(BridgeEnvelope.parse(line: line) == nil)
+        #expect(BridgeEnvelope.parse(line: line + " ") == nil)
     }
 
     // MARK: - Scalar-safety rejection of hostile free-text fields
@@ -166,68 +129,21 @@ struct BridgeEnvelopeTests {
     private static let zeroWidthSpace = "\u{200B}"
 
     @Test(arguments: [bidiOverride, zeroWidthSpace])
-    func hostileTitleIsRejected(hazard: String) {
-        let line = #"{"v":1,"type":"pane-rename","token":"tok","session":"sess","id":"id","ts":1700000000,"title":"evil\#(hazard)title"}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test(arguments: [bidiOverride, zeroWidthSpace])
-    func hostilePathIsRejected(hazard: String) {
-        let line =
-            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/evil\#(hazard)path","mediaKind":"file"}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    /// `name` is advisory display text next to the path — the same
-    /// RLO-filename-spoofing class `path` is guarded against, so it gets
-    /// the identical fence (present-but-hostile drops the whole frame).
-    @Test(arguments: [bidiOverride, zeroWidthSpace])
-    func hostileNameIsRejected(hazard: String) {
-        let line =
-            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/f","name":"evil\#(hazard)name","mediaKind":"file"}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test(arguments: [bidiOverride, zeroWidthSpace])
-    func hostileToolIsRejected(hazard: String) {
-        let line =
-            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Ba\#(hazard)sh","target":"ls","expiresAt":1700000200}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test(arguments: [bidiOverride, zeroWidthSpace])
-    func hostileSummaryIsRejected(hazard: String) {
-        let line =
-            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"ls","summary":"de\#(hazard)lete","expiresAt":1700000200}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test(arguments: [bidiOverride, zeroWidthSpace])
-    func hostileTargetIsRejectedInPermissionRequest(hazard: String) {
-        let line =
-            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"rm \#(hazard)-rf","expiresAt":1700000200}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test(arguments: [bidiOverride, zeroWidthSpace])
-    func hostileTargetIsRejectedInPermissionDecision(hazard: String) {
-        let line =
-            #"{"v":1,"type":"permission-decision","token":"tok","session":"sess","id":"id","ts":1700000000,"inReplyTo":"req-1","decision":"allow","scope":"once","target":"rm \#(hazard)-rf"}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
-
-    @Test
-    func nonAbsolutePathIsRejected() {
-        let line =
-            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"relative/path.png","mediaKind":"image"}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
+    func hostileFreeTextIsRejected(hazard: String) {
+        let lines = [
+            #"{"v":1,"type":"pane-rename","token":"tok","session":"sess","id":"id","ts":1700000000,"title":"evil\#(hazard)title"}"#,
+            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/evil\#(hazard)path","mediaKind":"file"}"#,
+            #"{"v":1,"type":"handoff-notify","token":"tok","session":"sess","id":"id","ts":1700000000,"path":"/tmp/f","name":"evil\#(hazard)name","mediaKind":"file"}"#,
+            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Ba\#(hazard)sh","target":"ls","expiresAt":1700000200}"#,
+            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"ls","summary":"de\#(hazard)lete","expiresAt":1700000200}"#,
+            #"{"v":1,"type":"permission-request","token":"tok","session":"sess","id":"id","ts":1700000000,"tool":"Bash","target":"rm \#(hazard)-rf","expiresAt":1700000200}"#,
+            #"{"v":1,"type":"permission-decision","token":"tok","session":"sess","id":"id","ts":1700000000,"inReplyTo":"req-1","decision":"allow","scope":"once","target":"rm \#(hazard)-rf"}"#,
+        ]
+        for line in lines {
+            #expect(BridgeEnvelope.parse(line: line) == nil)
+        }
     }
 
     // MARK: - source vocabulary
 
-    @Test
-    func agentStatusMissingSourceIsDropped() {
-        let line = #"{"v":1,"type":"agent-status","token":"tok","session":"sess","id":"id","ts":1700000000}"#
-        #expect(BridgeEnvelope.parse(line: line) == nil)
-    }
 }
