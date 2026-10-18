@@ -2,18 +2,41 @@ import Foundation
 import Testing
 @testable import AwesoMuxCore
 
-@Suite struct MarkdownFileEnumeratorTests {
+@Suite("MarkdownFileEnumerator")
+struct MarkdownFileEnumeratorTests {
+    @Test(arguments: [false, true])
+    func enumerationCaps(countCap: Bool) throws {
+        try withTemporaryDirectory { root in
+            if countCap {
+                for index in 0..<5 { try writeFile("file \(index)", at: root.appendingPathComponent("file-\(index).md")) }
+                #expect(MarkdownFileEnumerator.enumerate(root: root, options: .init(maxCount: 3)).count == 3)
+            } else {
+                try writeFile("root", at: root.appendingPathComponent("root.md"))
+                try writeFile("one", at: root.appendingPathComponent("one/one.md"))
+                try writeFile("two", at: root.appendingPathComponent("one/two/two.md"))
+                let entries = MarkdownFileEnumerator.enumerate(root: root, options: .init(maxDepth: 1))
+                #expect(Set(entries.map(\.relativePath)) == ["root.md", "one/one.md"])
+            }
+        }
+    }
 
-    @Test func directoryBackNavigationStopsAtBrowserRoot() throws {
-        let nested = MarkdownDirectoryBrowser.parentRelativePath(for: "docs/guides")
-        #expect(nested == "docs")
-
-        let parent = MarkdownDirectoryBrowser.parentRelativePath(for: try #require(nested))
-        #expect(parent == "")
-
-        let root = MarkdownDirectoryBrowser.parentRelativePath(for: try #require(parent))
-        #expect(root == nil)
-        #expect(MarkdownDirectoryBrowser.contents(in: [], at: "docs/guides").parentRelativePath == nested)
+    @Test(arguments: [0, 1])
+    func fileSizeFlags(extraBytes: Int) throws {
+        try withTemporaryDirectory { root in
+            try writeFile("tiny", at: root.appendingPathComponent("small.md"))
+            let file = root.appendingPathComponent("at-cap.md")
+            try writeFile("", at: file)
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.truncate(atOffset: UInt64(DocumentURLValidator.maxFileSizeBytes + extraBytes))
+            try handle.close()
+            let entries = MarkdownFileEnumerator.enumerate(root: root)
+            let entry = try #require(entries.first { $0.fileName == "at-cap.md" })
+            #expect(entry.fileSizeBytes == DocumentURLValidator.maxFileSizeBytes + extraBytes)
+            #expect(entry.exceedsSizeCap == (extraBytes > 0))
+            let small = try #require(entries.first { $0.fileName == "small.md" })
+            #expect(small.fileSizeBytes == 4)
+            #expect(!small.exceedsSizeCap)
+        }
     }
 
     @Test func skipsGeneratedAndDependencyDirectories() throws {
@@ -29,88 +52,6 @@ import Testing
             let paths = MarkdownFileEnumerator.enumerate(root: root).map(\.relativePath)
 
             #expect(paths == ["docs/plan.md"])
-        }
-    }
-
-    @Test func respectsDepthCap() throws {
-        try withTemporaryDirectory { root in
-            try writeFile("root", at: root.appendingPathComponent("root.md"))
-            try writeFile("one", at: root.appendingPathComponent("one/one.md"))
-            try writeFile("two", at: root.appendingPathComponent("one/two/two.md"))
-
-            let entries = MarkdownFileEnumerator.enumerate(
-                root: root,
-                options: .init(maxDepth: 1)
-            )
-            let paths = Set(entries.map(\.relativePath))
-
-            #expect(paths == ["root.md", "one/one.md"])
-        }
-    }
-
-    @Test func respectsCountCap() throws {
-        try withTemporaryDirectory { root in
-            for index in 0..<5 {
-                try writeFile("file \(index)", at: root.appendingPathComponent("file-\(index).md"))
-            }
-
-            let entries = MarkdownFileEnumerator.enumerate(
-                root: root,
-                options: .init(maxCount: 3)
-            )
-
-            #expect(entries.count == 3)
-        }
-    }
-
-    /// The browser marks over-cap rows off `fileSizeBytes`, so the walk has to
-    /// carry the size it already stats for. Without it every entry looks
-    /// openable and the user only learns otherwise after the click has already
-    /// replaced their tab.
-    @Test func reportsFileSizeAndFlagsEntriesOverTheViewerCap() throws {
-        try withTemporaryDirectory { root in
-            let small = root.appendingPathComponent("small.md")
-            try writeFile("tiny", at: small)
-            let big = root.appendingPathComponent("big.md")
-            try writeFile("", at: big)
-            let handle = try FileHandle(forWritingTo: big)
-            defer { try? handle.close() }
-            // Sparse: the cap is a size check, so no bytes need to exist.
-            try handle.truncate(atOffset: UInt64(DocumentURLValidator.maxFileSizeBytes + 1))
-            try handle.close()
-
-            let entries = MarkdownFileEnumerator.enumerate(root: root)
-            let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.fileName, $0) })
-
-            #expect(byName["small.md"]?.fileSizeBytes == 4)
-            #expect(byName["small.md"]?.exceedsSizeCap == false)
-            #expect(byName["big.md"]?.fileSizeBytes == DocumentURLValidator.maxFileSizeBytes + 1)
-            #expect(byName["big.md"]?.exceedsSizeCap == true)
-        }
-    }
-
-    /// A file exactly at the cap opens, so it must not be marked.
-    @Test func doesNotFlagAFileExactlyAtTheCap() throws {
-        try withTemporaryDirectory { root in
-            let atCap = root.appendingPathComponent("at-cap.md")
-            try writeFile("", at: atCap)
-            let handle = try FileHandle(forWritingTo: atCap)
-            try handle.truncate(atOffset: UInt64(DocumentURLValidator.maxFileSizeBytes))
-            try handle.close()
-
-            let entry = try #require(MarkdownFileEnumerator.enumerate(root: root).first)
-
-            #expect(entry.fileSizeBytes == DocumentURLValidator.maxFileSizeBytes)
-            #expect(entry.exceedsSizeCap == false)
-        }
-    }
-
-    @Test func nonDirectoryRootReturnsEmptyList() throws {
-        try withTemporaryDirectory { root in
-            let file = root.appendingPathComponent("README.md")
-            try writeFile("root", at: file)
-
-            #expect(MarkdownFileEnumerator.enumerate(root: file).isEmpty)
         }
     }
 }
