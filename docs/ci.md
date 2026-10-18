@@ -39,7 +39,13 @@ test validates support for
 an unsupported runtime fails with an explicit prerequisite diagnostic.
 
 It runs the fast guards, the complete Swift suite, and the existing staged-app
-build, signing, and launch verification. Run focused native groups with:
+build, signing, and launch verification. For headless validation, use
+`./script/preflight.sh --checks-only`: it runs all the same guards and tests,
+omitting only the final `./script/build_and_run.sh --verify`. A checks-only
+pass leaves staged-app build, signing, and launch verification unverified;
+it is not a full preflight pass. Unknown arguments are rejected.
+
+Run focused native groups with:
 
 ```sh
 ./script/test.sh unit
