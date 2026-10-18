@@ -1,6 +1,6 @@
-# INT-1202: recent agent alerts
+# Recent agent alerts
 
-Issue: https://linear.app/interactive-buffoonery/issue/INT-1202/let-connected-assistants-check-recent-agent-alerts
+Shipped in #729 (v0.22.0).
 
 ## Behavior
 

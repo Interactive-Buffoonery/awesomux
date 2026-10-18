@@ -210,7 +210,7 @@ A revoked connection or disabled global access still returns the normal denial,
 without a page. Authorization is rechecked before every socket write.
 
 This operation supplies history for a client to check. It does not schedule
-checks, deliver Dot messages, or implement monitoring; that work is INT-1203.
+checks, deliver Dot messages, or implement monitoring.
 
 ## Exact-session context
 
