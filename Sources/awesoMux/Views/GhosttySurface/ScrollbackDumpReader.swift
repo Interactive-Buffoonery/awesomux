@@ -1,6 +1,9 @@
+import Foundation
+
 enum ScrollbackDumpReader {
     enum Result: Equatable, Sendable {
         case loaded(String)
+        case recent(String)
         case tooLarge
         case failed
         case busy
@@ -8,6 +11,7 @@ enum ScrollbackDumpReader {
 
     static func read(
         maximumBytes: Int,
+        allowsRecentOutput: Bool = false,
         operation: (UnsafeMutableBufferPointer<UInt8>, inout Int) -> Int32
     ) -> Result {
         guard maximumBytes > 0 else { return .failed }
@@ -17,9 +21,11 @@ enum ScrollbackDumpReader {
             operation(bytes, &written)
         }
         switch status {
-        case 0:
+        case 0, 2:
+            guard status == 0 || allowsRecentOutput else { return .failed }
             guard written >= 0, written <= buffer.count else { return .failed }
-            return .loaded(String(decoding: buffer.prefix(written), as: UTF8.self))
+            guard let text = String(bytes: buffer.prefix(written), encoding: .utf8) else { return .failed }
+            return status == 2 ? .recent(text) : .loaded(text)
         case 1:
             // A bounded writer may have filled part of the buffer. Never
             // present that prefix as if it were the complete history.
