@@ -352,10 +352,6 @@ final class CommentBadgeOverlay: NSView {
     /// is unreachable to them).
     var tableAccessibilityElements: [NSAccessibilityElement] { materializedTableElements() }
 
-    /// Test hook: whether the tree has been built yet. Nothing but an
-    /// accessibility query should be able to flip this to `true`.
-    var hasMaterializedTableAccessibilityElements: Bool { builtTableElements != nil }
-
     /// Coalesce per-run cell infos into rectangular logical grids, ordered by
     /// table serial. Pure — unit-testable without a view tree.
     static func tableAXGrids(from infos: [TableCellInfo]) -> [TableAXGrid] {

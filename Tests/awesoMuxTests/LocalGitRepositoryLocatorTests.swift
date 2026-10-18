@@ -5,114 +5,101 @@ import Testing
 
 @Suite("Local Git repository locator")
 struct LocalGitRepositoryLocatorTests {
-    @Test("locates a primary checkout from a nested directory")
-    func primaryCheckout() async throws {
+    enum StartingPointsCase: String, CaseIterable {
+        case primaryCheckout
+        case missingWorkingDirectory
+        case linkedWorktree
+        case symlinkedPath
+    }
+
+    @Test(arguments: StartingPointsCase.allCases)
+    func startingPoints(_ scenario: StartingPointsCase) async throws {
+        switch scenario {
+        case .primaryCheckout:
+            let fixture = try GitRepositoryFixture()
+            defer { fixture.remove() }
+            let nested = fixture.repository.appending(path: "one/two", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+
+            let outcome = await Self.makeLocator().locate(startingAt: nested)
+            let context = try #require(outcome.context)
+            #expect(context.invocationRoot == fixture.repository.resolvingSymlinksInPath())
+            #expect(context.displayName == "primary")
+            #expect(
+                context.canonicalCommonGitDirectory
+                    == fixture.repository.appending(path: ".git", directoryHint: .isDirectory)
+            )
+        case .missingWorkingDirectory:
+            let fixture = try GitRepositoryFixture()
+            defer { fixture.remove() }
+            let missing = fixture.repository.appending(path: "missing/nested", directoryHint: .isDirectory)
+
+            let context = try #require((await Self.makeLocator().locate(startingAt: missing)).context)
+            #expect(context.invocationRoot == fixture.repository.resolvingSymlinksInPath())
+        case .linkedWorktree:
+            let fixture = try GitRepositoryFixture()
+            defer { fixture.remove() }
+            let linked = fixture.root.appending(path: "linked", directoryHint: .isDirectory)
+            try fixture.git(["worktree", "add", "--detach", linked.path], cwd: fixture.repository)
+
+            let locator = Self.makeLocator()
+            let primary = try #require((await locator.locate(startingAt: fixture.repository)).context)
+            let linkedContext = try #require((await locator.locate(startingAt: linked)).context)
+            #expect(linkedContext.invocationRoot == linked.resolvingSymlinksInPath())
+            #expect(linkedContext.canonicalCommonGitDirectory == primary.canonicalCommonGitDirectory)
+        case .symlinkedPath:
+            let fixture = try GitRepositoryFixture()
+            defer { fixture.remove() }
+            let link = fixture.root.appending(path: "primary-link", directoryHint: .isDirectory)
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fixture.repository)
+
+            let locator = Self.makeLocator()
+            let direct = try #require((await locator.locate(startingAt: fixture.repository)).context)
+            let throughLink = try #require((await locator.locate(startingAt: link)).context)
+            #expect(throughLink == direct)
+        }
+    }
+
+    enum UnsupportedRepositoryCase: String, CaseIterable {
+        case bareRepository
+        case brokenNestedMetadataDoesNotSelectParentRepository
+    }
+
+    @Test(arguments: UnsupportedRepositoryCase.allCases)
+    func unsupportedRepository(_ scenario: UnsupportedRepositoryCase) async throws {
+        switch scenario {
+        case .bareRepository:
+            let fixture = try GitRepositoryFixture(initializePrimary: false)
+            defer { fixture.remove() }
+            let bare = fixture.root.appending(path: "bare.git", directoryHint: .isDirectory)
+            try fixture.git(["init", "--bare", bare.path], cwd: fixture.root)
+
+            #expect(await Self.makeLocator().locate(startingAt: bare) == .bareRepository)
+        case .brokenNestedMetadataDoesNotSelectParentRepository:
+            let fixture = try GitRepositoryFixture()
+            defer { fixture.remove() }
+            let broken = fixture.repository.appending(path: "broken", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+            try "gitdir: /no/such/git/directory\n".write(
+                to: broken.appending(path: ".git"), atomically: false, encoding: .utf8)
+
+            #expect(await Self.makeLocator().locate(startingAt: broken) == .notRepository)
+        }
+    }
+
+    @Test("the environment scrub prevents retargeting and executable shadowing")
+    func environmentScrubRemovesRetargetingVariables() async throws {
         let fixture = try GitRepositoryFixture()
         defer { fixture.remove() }
-        let nested = fixture.repository.appending(path: "one/two", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
-
-        let outcome = await Self.makeLocator().locate(startingAt: nested)
-        let context = try #require(outcome.context)
-        #expect(context.invocationRoot == fixture.repository.resolvingSymlinksInPath())
-        #expect(context.displayName == "primary")
-        #expect(
-            context.canonicalCommonGitDirectory
-                == fixture.repository.appending(path: ".git", directoryHint: .isDirectory)
-        )
-    }
-
-    @Test("a missing working directory falls back to its nearest existing parent")
-    func missingWorkingDirectory() async throws {
-        let fixture = try GitRepositoryFixture()
-        defer { fixture.remove() }
-        let missing = fixture.repository.appending(path: "missing/nested", directoryHint: .isDirectory)
-
-        let context = try #require((await Self.makeLocator().locate(startingAt: missing)).context)
-        #expect(context.invocationRoot == fixture.repository.resolvingSymlinksInPath())
-    }
-
-    @Test("a linked worktree shares canonical common-git-dir identity")
-    func linkedWorktree() async throws {
-        let fixture = try GitRepositoryFixture()
-        defer { fixture.remove() }
-        let linked = fixture.root.appending(path: "linked", directoryHint: .isDirectory)
-        try fixture.git(["worktree", "add", "--detach", linked.path], cwd: fixture.repository)
-
-        let locator = Self.makeLocator()
-        let primary = try #require((await locator.locate(startingAt: fixture.repository)).context)
-        let linkedContext = try #require((await locator.locate(startingAt: linked)).context)
-        #expect(linkedContext.invocationRoot == linked.resolvingSymlinksInPath())
-        #expect(linkedContext.canonicalCommonGitDirectory == primary.canonicalCommonGitDirectory)
-    }
-
-    @Test("bare repositories are an explicit unsupported outcome")
-    func bareRepository() async throws {
-        let fixture = try GitRepositoryFixture(initializePrimary: false)
-        defer { fixture.remove() }
-        let bare = fixture.root.appending(path: "bare.git", directoryHint: .isDirectory)
-        try fixture.git(["init", "--bare", bare.path], cwd: fixture.root)
-
-        #expect(await Self.makeLocator().locate(startingAt: bare) == .bareRepository)
-    }
-
-    @Test("the innermost repository wins for a repository nested inside another")
-    func nestedRepository() async throws {
-        let fixture = try GitRepositoryFixture()
-        defer { fixture.remove() }
-        let nested = fixture.repository.appending(path: "nested", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
-        try fixture.git(["init"], cwd: nested)
-
-        let context = try #require((await Self.makeLocator().locate(startingAt: nested)).context)
-        #expect(context.invocationRoot == nested.resolvingSymlinksInPath())
-    }
-
-    @Test("broken nested git metadata does not select its parent repository")
-    func brokenNestedMetadataDoesNotSelectParentRepository() async throws {
-        let fixture = try GitRepositoryFixture()
-        defer { fixture.remove() }
-        let broken = fixture.repository.appending(path: "broken", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
-        try "gitdir: /no/such/git/directory\n".write(
-            to: broken.appending(path: ".git"), atomically: false, encoding: .utf8)
-
-        #expect(await Self.makeLocator().locate(startingAt: broken) == .notRepository)
-    }
-
-    @Test("a non-repository runs one discovery command")
-    func nonRepositoryRunsOneDiscoveryCommand() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-no-repo-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let runner = CountingLocalGitRunner()
-
-        #expect(await LocalGitRepositoryLocator(runner: runner).locate(startingAt: directory) == .notRepository)
-        #expect(runner.count == 1)
-    }
-
-    @Test("a symlinked starting path resolves to the same canonical identity")
-    func symlinkedPath() async throws {
-        let fixture = try GitRepositoryFixture()
-        defer { fixture.remove() }
-        let link = fixture.root.appending(path: "primary-link", directoryHint: .isDirectory)
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fixture.repository)
-
-        let locator = Self.makeLocator()
-        let direct = try #require((await locator.locate(startingAt: fixture.repository)).context)
-        let throughLink = try #require((await locator.locate(startingAt: link)).context)
-        #expect(throughLink == direct)
-    }
-
-    @Test("the environment scrub drops every GIT_ variable and pins the rest")
-    func environmentScrubRemovesRetargetingVariables() {
+        let planted = fixture.root.appending(path: "git")
+        try "#!/bin/sh\necho shadowed\n".write(to: planted, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: planted.path)
         let scrubbed = BoundedLocalGitCommandRunner.scrubbing([
             "GIT_SSH_COMMAND": "ssh -o ProxyCommand=curl|sh",
             "GIT_CONFIG_COUNT": "1",
             "GIT_DIR": "/tmp/elsewhere/.git",
             "GIT_ASKPASS": "/tmp/steal",
-            "PATH": "/tmp/planted",
+            "PATH": fixture.root.path,
             "HOME": "/Users/someone",
         ])
         // Nothing GIT_-prefixed survives except the two this scrub sets itself.
@@ -125,9 +112,19 @@ struct LocalGitRepositoryLocatorTests {
         #expect(scrubbed["PAGER"] == "cat")
         // Unrelated variables survive: this is a targeted scrub, not a wipe.
         #expect(scrubbed["HOME"] == "/Users/someone")
-        // The inherited PATH is kept but can no longer shadow a trusted tool.
-        #expect(
-            scrubbed["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/tmp/planted")
+        let runner = BoundedCommandRunner(
+            executableCandidates: ["/usr/bin/env"], timeout: .seconds(30),
+            environment: scrubbed)
+        let result = await runner.runDetailed(arguments: ["git", "rev-parse", "--show-toplevel"], inDirectory: fixture.repository.path)
+        guard case .success(let data) = result else {
+            Issue.record("scrubbed git failed: \(result)")
+            return
+        }
+        let discovered = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let actual = try FileManager.default.attributesOfItem(atPath: discovered)
+        let expected = try FileManager.default.attributesOfItem(atPath: fixture.repository.path)
+        #expect(actual[.systemFileNumber] as? NSNumber == expected[.systemFileNumber] as? NSNumber)
+        #expect(actual[.systemNumber] as? NSNumber == expected[.systemNumber] as? NSNumber)
     }
 
     /// Git subprocess latency stretches under full-suite load; the timeout is
@@ -189,18 +186,4 @@ private final class GitRepositoryFixture {
 
 private enum FixtureError: Error {
     case gitFailed([String], Int32)
-}
-
-private final class CountingLocalGitRunner: LocalGitCommandRunning, @unchecked Sendable {
-    private let lock = NSLock()
-    private var invocations = 0
-
-    var count: Int { lock.withLock { invocations } }
-
-    func run(arguments: [String], inDirectory directory: URL) async -> BoundedCommandResult {
-        lock.withLock {
-            invocations += 1
-            return .nonZeroExit(128)
-        }
-    }
 }

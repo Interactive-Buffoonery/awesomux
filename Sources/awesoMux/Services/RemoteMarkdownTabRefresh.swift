@@ -167,8 +167,7 @@ enum RemoteMarkdownTabRefresh {
                 task: Task { await fetch(reference) },
                 isNew: true,
                 onCoalesced: nil,
-                onRegistered: nil,
-                onFinished: nil
+                onRegistered: nil
             )
         } else {
             prepared = read.fetcher(store: sessionStore).startAttempt(

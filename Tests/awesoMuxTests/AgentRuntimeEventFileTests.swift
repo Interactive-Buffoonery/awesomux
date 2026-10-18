@@ -5,13 +5,15 @@ import Testing
 
 @Suite("Agent runtime event file preparation")
 struct AgentRuntimeEventFileTests {
-    @Test("missing event file is created with private permissions")
-    func missingEventFileIsCreatedWithPrivatePermissions() throws {
+    @Test(arguments: [false, true])
+    func preparesPrivateEventFile(existing: Bool) throws {
         try Self.withTemporaryDirectory { directory in
             let file = directory.appending(path: "events.jsonl")
-
+            if existing {
+                FileManager.default.createFile(atPath: file.path, contents: nil)
+                try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+            }
             #expect(AgentRuntimeEventFile.prepare(at: file))
-
             let info = try Self.fileInfo(at: file)
             #expect(info.isRegularFile)
             #expect(info.permissions == 0o600)
@@ -19,58 +21,50 @@ struct AgentRuntimeEventFileTests {
         }
     }
 
-    @Test("existing event file is chmodded by descriptor")
-    func existingEventFileIsChmoddedByDescriptor() throws {
-        try Self.withTemporaryDirectory { directory in
-            let file = directory.appending(path: "events.jsonl")
-            FileManager.default.createFile(atPath: file.path, contents: nil)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o644],
-                ofItemAtPath: file.path
-            )
-
-            #expect(AgentRuntimeEventFile.prepare(at: file))
-
-            #expect(try Self.fileInfo(at: file).permissions == 0o600)
-        }
-    }
-
-    @Test("symlink event path is rejected without touching target")
-    func symlinkEventPathIsRejectedWithoutTouchingTarget() throws {
+    @Test(arguments: ["prepare-symlink", "prepare-directory", "truncate-symlink", "read-symlink"])
+    func rejectsUnsafeEventPath(scenario: String) throws {
         try Self.withTemporaryDirectory { directory in
             let target = directory.appending(path: "target.jsonl")
-            let link = directory.appending(path: "events.jsonl")
-            try Data("sentinel".utf8).write(to: target)
-            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-
-            #expect(!AgentRuntimeEventFile.prepare(at: link))
-
-            #expect(try String(contentsOf: target, encoding: .utf8) == "sentinel")
-            #expect(Self.isSymbolicLink(link))
+            let file = directory.appending(path: "events.jsonl")
+            let contents = scenario == "read-symlink" ? #"{"v":1,"source":"codex","execution":"thinking"}"# : "sentinel"
+            if scenario == "prepare-directory" {
+                try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+            } else {
+                try Data(contents.utf8).write(to: target)
+                try FileManager.default.createSymbolicLink(at: file, withDestinationURL: target)
+            }
+            switch scenario {
+            case "truncate-symlink":
+                #expect(AgentRuntimeEventFile.truncate(at: file) == .rotationRequired)
+            case "read-symlink":
+                #expect(AgentRuntimeEventFile.openForReading(at: file) == nil)
+            default:
+                #expect(!AgentRuntimeEventFile.prepare(at: file))
+            }
+            if scenario == "prepare-directory" {
+                #expect(try Self.fileInfo(at: file).isDirectory)
+            } else {
+                #expect(try String(contentsOf: target, encoding: .utf8) == contents)
+                #expect(Self.isSymbolicLink(file))
+            }
         }
     }
 
-    @Test("directory event path is rejected")
-    func directoryEventPathIsRejected() throws {
-        try Self.withTemporaryDirectory { directory in
-            let eventDirectory = directory.appending(path: "events.jsonl", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: eventDirectory, withIntermediateDirectories: false)
-
-            #expect(!AgentRuntimeEventFile.prepare(at: eventDirectory))
-            #expect(try Self.fileInfo(at: eventDirectory).isDirectory)
-        }
-    }
-
-    @Test("wrong owner directory is rejected")
-    func wrongOwnerDirectoryIsRejected() throws {
-        // `prepare` validates the directory owner before reaching the file, so a
-        // mismatched effective UID fails at `prepareDirectory`. The file-owner
-        // path is covered by `AgentHookEventFileAppender.validate` tests.
+    @Test(arguments: ["prepare", "truncate", "read"])
+    func rejectsWrongOwner(operation: String) throws {
         try Self.withTemporaryDirectory { directory in
             let file = directory.appending(path: "events.jsonl")
-            FileManager.default.createFile(atPath: file.path, contents: nil)
-
-            #expect(!AgentRuntimeEventFile.prepare(at: file, effectiveUID: geteuid() + 1))
+            let contents = operation == "truncate" ? "stale" : operation == "read" ? "event" : ""
+            try Data(contents.utf8).write(to: file)
+            switch operation {
+            case "prepare":
+                #expect(!AgentRuntimeEventFile.prepare(at: file, effectiveUID: geteuid() + 1))
+            case "truncate":
+                #expect(AgentRuntimeEventFile.truncate(at: file, effectiveUID: geteuid() + 1) == .rotationRequired)
+                #expect(try Data(contentsOf: file) == Data("stale".utf8))
+            default:
+                #expect(AgentRuntimeEventFile.openForReading(at: file, effectiveUID: geteuid() + 1) == nil)
+            }
         }
     }
 
@@ -89,44 +83,6 @@ struct AgentRuntimeEventFileTests {
         }
     }
 
-    @Test("truncate rejects a symlink without touching its target")
-    func truncateRejectsSymlinkWithoutTouchingTarget() throws {
-        try Self.withTemporaryDirectory { directory in
-            let target = directory.appending(path: "target.jsonl")
-            let link = directory.appending(path: "events.jsonl")
-            try Data("sentinel".utf8).write(to: target)
-            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-
-            #expect(AgentRuntimeEventFile.truncate(at: link) == .rotationRequired)
-
-            #expect(try String(contentsOf: target, encoding: .utf8) == "sentinel")
-            #expect(Self.isSymbolicLink(link))
-        }
-    }
-
-    @Test("truncate of a missing file requires rotation")
-    func truncateOfMissingFileRequiresRotation() throws {
-        try Self.withTemporaryDirectory { directory in
-            let file = directory.appending(path: "events.jsonl")
-
-            #expect(AgentRuntimeEventFile.truncate(at: file) == .rotationRequired)
-        }
-    }
-
-    @Test("truncate rejects a wrong-owner file")
-    func truncateRejectsWrongOwnerFile() throws {
-        try Self.withTemporaryDirectory { directory in
-            let file = directory.appending(path: "events.jsonl")
-            try Data("stale".utf8).write(to: file)
-
-            #expect(
-                AgentRuntimeEventFile.truncate(at: file, effectiveUID: geteuid() + 1)
-                    == .rotationRequired
-            )
-            #expect(try Data(contentsOf: file) == Data("stale".utf8))
-        }
-    }
-
     @Test("read handle reads from validated descriptor")
     func readHandleReadsFromValidatedDescriptor() throws {
         try Self.withTemporaryDirectory { directory in
@@ -140,32 +96,6 @@ struct AgentRuntimeEventFileTests {
             #expect(handle.inode == (try Self.inode(at: file)))
             #expect(handle.readData(from: 0) == contents)
             #expect(handle.readData(from: 6) == Data("second\n".utf8))
-        }
-    }
-
-    @Test("read handle rejects symlink without reading target")
-    func readHandleRejectsSymlinkWithoutReadingTarget() throws {
-        try Self.withTemporaryDirectory { directory in
-            let target = directory.appending(path: "target.jsonl")
-            let link = directory.appending(path: "events.jsonl")
-            let contents = #"{"v":1,"source":"codex","execution":"thinking"}"#
-            try Data(contents.utf8).write(to: target)
-            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-
-            #expect(AgentRuntimeEventFile.openForReading(at: link) == nil)
-
-            #expect(try String(contentsOf: target, encoding: .utf8) == contents)
-            #expect(Self.isSymbolicLink(link))
-        }
-    }
-
-    @Test("read handle rejects wrong-owner file")
-    func readHandleRejectsWrongOwnerFile() throws {
-        try Self.withTemporaryDirectory { directory in
-            let file = directory.appending(path: "events.jsonl")
-            try Data("event".utf8).write(to: file)
-
-            #expect(AgentRuntimeEventFile.openForReading(at: file, effectiveUID: geteuid() + 1) == nil)
         }
     }
 

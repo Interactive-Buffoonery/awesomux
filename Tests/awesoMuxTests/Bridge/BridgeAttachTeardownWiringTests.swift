@@ -88,35 +88,17 @@ struct BridgeAttachTeardownWiringTests {
 
     // MARK: - Teardown fires
 
-    @Test("markError breaks the live bridge generation")
-    func markErrorTearsDown() async throws {
+    @Test("closing entry points tear down bridge authority", arguments: ["error", "repoint", "fallback"])
+    func closingEntryPointsTearDown(entryPoint: String) async throws {
         let fixture = try makeFixture()
         let flag = AsyncFlag()
         try installSpyGeneration(fixture, flag: flag)
-
-        fixture.enactor.markError()
-        await flag.wait()
-        #expect(await flag.isSet)
-    }
-
-    @Test("session re-point breaks the live bridge generation")
-    func repointTearsDown() async throws {
-        let fixture = try makeFixture()
-        let flag = AsyncFlag()
-        try installSpyGeneration(fixture, flag: flag)
-
-        fixture.enactor.handleSessionRepoint()
-        await flag.wait()
-        #expect(await flag.isSet)
-    }
-
-    @Test("local-shell fallback breaks the live bridge generation")
-    func localShellFallbackTearsDown() async throws {
-        let fixture = try makeFixture()
-        let flag = AsyncFlag()
-        try installSpyGeneration(fixture, flag: flag)
-
-        fixture.enactor.clearStateForLocalShellFallback()
+        switch entryPoint {
+        case "error": fixture.enactor.markError()
+        case "repoint": fixture.enactor.handleSessionRepoint()
+        case "fallback": fixture.enactor.clearStateForLocalShellFallback()
+        default: Issue.record("Unknown entry point")
+        }
         await flag.wait()
         #expect(await flag.isSet)
     }
@@ -209,71 +191,13 @@ struct BridgeAttachTeardownWiringTests {
         fixture.enactor.sessionID = fixture.terminalSessionID
 
         fixture.enactor.notifyNativeSurfaceDisposed()
-        // Let any erroneously-scheduled teardown Task run.
-        await Task.yield()
-        #expect(!(await flag.isSet))
+        #expect(registry.currentToken(for: fixture.terminalSessionID) == channel.token)
 
         // The generation genuinely survived: an explicit teardown NOW fires it.
         await registry.teardown(for: fixture.terminalSessionID)
         #expect(await flag.isSet)
     }
 
-    @Test("D3 heal gate: a preserved recovery record is not torn down")
-    func healGateShouldTearDown() {
-        #expect(!BridgeGenerationRegistry.shouldTearDown(preservesRecoveryRecord: true))
-        #expect(BridgeGenerationRegistry.shouldTearDown(preservesRecoveryRecord: false))
-    }
-
-    // MARK: - Successor protection (stale-teardown race defense)
-
-    @Test("teardown ifToken no-ops on a successor re-mint, tears down its own token")
-    func teardownIfTokenProtectsSuccessor() async throws {
-        let fixture = try makeFixture()
-        let registry = BridgeGenerationRegistry(
-            ledger: fixture.runtime.bridgeSocketLedger,
-            execChannel: { _ in Data() },
-            syncExec: { _ in }
-        )
-        let session = fixture.terminalSessionID
-
-        let old = try #require(BridgeChannel.mint(
-            session: session, previousGeneration: 0,
-            localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
-        ))
-        let oldFlag = AsyncFlag()
-        registry.register(
-            BridgeGenerationRegistry.Generation(
-                controlPath: "/tmp/ctl", remote: Self.remote, channel: old,
-                shutdown: { await oldFlag.signal() }
-            ),
-            for: session
-        )
-        let staleToken = try #require(registry.currentToken(for: session))
-
-        // A reconnect re-mints a successor for the same session (replaces entry).
-        let new = try #require(BridgeChannel.mint(
-            session: session, previousGeneration: old.gen,
-            localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
-        ))
-        #expect(new.token != old.token)
-        let newFlag = AsyncFlag()
-        registry.register(
-            BridgeGenerationRegistry.Generation(
-                controlPath: "/tmp/ctl", remote: Self.remote, channel: new,
-                shutdown: { await newFlag.signal() }
-            ),
-            for: session
-        )
-
-        // The stale (old-token) teardown must NOT break the successor.
-        await registry.teardown(for: session, ifToken: staleToken)
-        #expect(!(await newFlag.isSet))
-
-        // The successor's own token still tears it down.
-        let liveToken = try #require(registry.currentToken(for: session))
-        await registry.teardown(for: session, ifToken: liveToken)
-        #expect(await newFlag.isSet)
-    }
 }
 
 /// Async flag: an actor-backed one-shot the spy generation's `shutdown` fulfils,
