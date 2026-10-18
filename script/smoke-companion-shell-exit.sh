@@ -386,17 +386,21 @@ companion_open || { note "FAIL: replacement companion did not remain open"; exit
 dump_companion "after re-summon"
 note "re-summoned companion executed unique marker and remains open"
 
+# Stored System Events references re-resolve the process by name, which can
+# reach another running awesoMux. Address elements by index inside this tell.
 CLOSE_RESULT="$(osascript -e "tell application \"System Events\"
 tell (first process whose unix id is $TARGET_PID)
-    set matches to {}
-    repeat with b in (buttons of group 1 of group 1 of window \"Terminal Companion\")
-        set p to properties of b
-        if help of p is \"Close\" then set end of matches to contents of b
+    set matchIndex to 0
+    set matchCount to 0
+    repeat with i from 1 to (count buttons of group 1 of group 1 of window \"Terminal Companion\")
+        if help of button i of group 1 of group 1 of window \"Terminal Companion\" is \"Close\" then
+            set matchIndex to i
+            set matchCount to matchCount + 1
+        end if
     end repeat
-    if (count matches) is not 1 then error \"Expected exactly one Close button\"
-    set closeButton to item 1 of matches
-    if not enabled of closeButton then error \"Close button disabled\"
-    click closeButton
+    if matchCount is not 1 then error \"Expected exactly one Close button\"
+    if not enabled of button matchIndex of group 1 of group 1 of window \"Terminal Companion\" then error \"Close button disabled\"
+    click button matchIndex of group 1 of group 1 of window \"Terminal Companion\"
     return \"clicked\"
 end tell
 end tell")" || { note "FAIL: could not activate actual Close button"; exit 1; }
@@ -410,9 +414,9 @@ CLOSE_OUTCOME=""
 for _ in $(seq 1 20); do
     CONFIRMED="$(osascript -e "tell application \"System Events\"
 tell (first process whose unix id is $TARGET_PID)
-    repeat with w in windows
-        if exists button \"Close Terminal\" of w then
-            click button \"Close Terminal\" of w
+    repeat with i from 1 to (count windows)
+        if exists button \"Close Terminal\" of window i then
+            click button \"Close Terminal\" of window i
             return \"yes\"
         end if
     end repeat
