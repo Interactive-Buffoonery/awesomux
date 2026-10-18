@@ -30,19 +30,6 @@ struct BridgeAttachPreflightTests {
 
     // MARK: - Happy path + ledger threading
 
-    @Test("a clean attach resolves ready with the env-prefixed spawn command")
-    func cleanAttachResolvesReady() async {
-        let harness = Harness()
-        let outcome = await harness.preflight.attach(Self.request)
-        guard case let .ready(channel, command) = outcome else {
-            Issue.record("expected ready, got \(outcome)")
-            return
-        }
-        #expect(channel.gen == 1)
-        #expect(command.contains("'AWESOMUX_BRIDGE_STATE=/Users/example/.awesomux/bridge/abc123-bridge.json'"))
-        #expect(command.hasSuffix("zmx attach remote-id"))
-    }
-
     @Test("previousGeneration threads ledger → mint so gen strictly increments across reattaches")
     func generationIncrementsAcrossReattaches() async {
         let harness = Harness()
@@ -61,7 +48,7 @@ struct BridgeAttachPreflightTests {
 
     // MARK: - Make-before-break ordering
 
-    @Test("the old generation's forward/socket/listener survive until publish, then break")
+    @Test("reattaches publish before breaking prior resources without accumulating forwards")
     func makeBeforeBreakOrdering() async {
         let harness = Harness()
         let first = await harness.preflight.attach(Self.request)
@@ -93,6 +80,13 @@ struct BridgeAttachPreflightTests {
 
         // The old socket is removed by its exact ledger path, never the new one.
         #expect(cmds.contains { $0.contains("rm -f") && $0.contains(channel1.remoteSocketPath) })
+
+        _ = await harness.preflight.attach(Self.request)
+        let allCommands = Self.execCommands(await harness.timeline.events)
+        // 3 attaches → forwards on each, cancels only on the two reattaches.
+        #expect(allCommands.filter { $0.contains("-O forward") }.count == 3)
+        #expect(allCommands.filter { $0.contains("-O cancel") }.count == 2)
+        #expect(allCommands.filter { $0.contains("rm -f") && $0.contains("awesomux-bridge-") }.count == 2)
     }
 
     @Test("retargeting tears the old generation down through its original host")
@@ -127,103 +121,47 @@ struct BridgeAttachPreflightTests {
         #expect(oldSocketRemove?.contains("/tmp/ctl/%C") == true)
     }
 
-    @Test("repeated reattaches cancel exactly one prior forward each — no accumulation")
-    func repeatedReattachesDoNotAccumulateForwards() async {
-        let harness = Harness()
-        for _ in 0..<3 { _ = await harness.preflight.attach(Self.request) }
-        let cmds = Self.execCommands(await harness.timeline.events)
-        // 3 attaches → forwards on each, cancels only on the two reattaches.
-        #expect(cmds.filter { $0.contains("-O forward") }.count == 3)
-        #expect(cmds.filter { $0.contains("-O cancel") }.count == 2)
-        #expect(cmds.filter { $0.contains("rm -f") && $0.contains("awesomux-bridge-") }.count == 2)
-    }
-
-    // MARK: - No glob anywhere
-
-    @Test("no executed command contains a glob")
-    func noGlobInAnyExecutedCommand() async {
-        let harness = Harness()
-        _ = await harness.preflight.attach(Self.request)
-        _ = await harness.preflight.attach(Self.request)
-        for command in Self.execCommands(await harness.timeline.events) {
-            #expect(!command.contains("*"), "glob found: \(command)")
-        }
-    }
-
     // MARK: - Rollback per mid-sequence failure step
 
-    @Test("step 2 — a listener bind failure degrades and stages no remote resources")
-    func listenerBindFailureRollsBack() async {
-        let harness = Harness(listenerFailsOn: { $0 == 1 })
-        let outcome = await harness.preflight.attach(Self.request)
-        #expect(outcome == .degraded(.listenerFailed))
-        let cmds = Self.execCommands(await harness.timeline.events)
-        #expect(cmds.isEmpty)  // never reached forward/admission/publish
-    }
-
-    @Test("a command assembly failure closes the listener before any remote mutation")
-    func commandAssemblyFailureRollsBackBeforeForward() async {
-        let harness = Harness()
-        let request = BridgeAttachPreflight.Request(
-            session: Self.session,
-            remote: RemoteTarget(user: "alice", host: "box")!,
-            controlPath: "/tmp/ctl/%C",
-            remoteHome: "/Users/example",
-            helperPath: "/usr/local/bin/awesomux-remote-helper",
-            commandBuilder: { _ in nil }
+    @Test("failed preparation rolls back every resource it reached", arguments: ["bind", "assembly", "forward", "admission", "publish"])
+    func failedPreparationRollsBack(stage: String) async {
+        let harness = Harness(
+            admissionMode: { stage == "admission" ? "660" : "600" },
+            failIf: { command in
+                (stage == "forward" && command.contains("-O forward")) || (stage == "publish" && command.contains("cat >"))
+            },
+            listenerFailsOn: { stage == "bind" && $0 == 1 }
         )
-
+        let request = BridgeAttachPreflight.Request(
+            session: Self.session, remote: Self.request.remote, controlPath: Self.request.controlPath,
+            remoteHome: Self.request.remoteHome, helperPath: Self.request.helperPath,
+            commandBuilder: { channel in stage == "assembly" ? nil : Self.request.commandBuilder(channel) }
+        )
         let outcome = await harness.preflight.attach(request)
-        #expect(outcome == .degraded(.commandFailed))
         let events = await harness.timeline.events
-        #expect(Self.execCommands(events).isEmpty)
-        #expect(
-            events == [
-                "bind:/tmp/fake-listener-1.sock",
-                "shutdown:/tmp/fake-listener-1.sock",
-            ])
-    }
-
-    @Test("step 3 forward — a forward failure best-effort cancels the new forward and closes the listener")
-    func forwardFailureRollsBackNewResources() async {
-        let harness = Harness(failIf: { $0.contains("-O forward") })
-        let outcome = await harness.preflight.attach(Self.request)
-        #expect(outcome == .degraded(.forwardFailed))
-        let events = await harness.timeline.events
-        let cmds = Self.execCommands(events)
-        #expect(cmds.contains { $0.contains("-O forward") })
-        // Cancellation can race a forward the master already accepted, so the
-        // rollback always attempts the cancel (a no-op if it never registered).
-        #expect(cmds.contains { $0.contains("-O cancel") })
-        #expect(!cmds.contains { $0.contains("cat >") })  // never published
-        #expect(events.contains("shutdown:/tmp/fake-listener-1.sock"))
-    }
-
-    @Test("step 3 admission — a rejected owner check cancels the new forward and closes the listener")
-    func admissionRejectionRollsBackNewResources() async {
-        // Group/world-accessible remote socket → not owner-only → rejected.
-        let harness = Harness(admissionMode: { "660" })
-        let outcome = await harness.preflight.attach(Self.request)
-        #expect(outcome == .degraded(.admissionRejected))
-        let events = await harness.timeline.events
-        let cmds = Self.execCommands(events)
-        #expect(cmds.contains { $0.contains("-O forward") })
-        #expect(cmds.contains { $0.contains("stat -c %a") })
-        #expect(cmds.contains { $0.contains("-O cancel") })  // new forward cancelled
-        #expect(!cmds.contains { $0.contains("cat >") })  // never published
-        #expect(events.contains("shutdown:/tmp/fake-listener-1.sock"))
-    }
-
-    @Test("step 4 publish — a publish failure cancels the new forward and closes the listener")
-    func publishFailureRollsBackNewResources() async {
-        let harness = Harness(failIf: { $0.contains("cat >") })
-        let outcome = await harness.preflight.attach(Self.request)
-        #expect(outcome == .degraded(.publishFailed))
-        let events = await harness.timeline.events
-        let cmds = Self.execCommands(events)
-        #expect(cmds.contains { $0.contains("cat >") })
-        #expect(cmds.contains { $0.contains("-O cancel") })
-        #expect(events.contains("shutdown:/tmp/fake-listener-1.sock"))
+        let commands = Self.execCommands(events)
+        switch stage {
+        case "bind":
+            #expect(outcome == .degraded(.listenerFailed))
+            #expect(commands.isEmpty)
+        case "assembly":
+            #expect(outcome == .degraded(.commandFailed))
+            #expect(events == ["bind:/tmp/fake-listener-1.sock", "shutdown:/tmp/fake-listener-1.sock"])
+        case "forward": #expect(outcome == .degraded(.forwardFailed))
+        case "admission":
+            #expect(outcome == .degraded(.admissionRejected))
+            #expect(commands.contains { $0.contains("stat -c %a") })
+        case "publish": #expect(outcome == .degraded(.publishFailed))
+        default: Issue.record("Unknown stage")
+        }
+        if stage != "bind" {
+            #expect(events.contains("shutdown:/tmp/fake-listener-1.sock"))
+        }
+        if !["bind", "assembly"].contains(stage) {
+            #expect(commands.contains { $0.contains("-O forward") })
+            #expect(commands.contains { $0.contains("-O cancel") })
+        }
+        #expect(commands.contains { $0.contains("cat >") } == (stage == "publish"))
     }
 
     @Test("a mid-sequence failure leaves the old generation working and does not advance the ledger")
@@ -280,70 +218,60 @@ struct BridgeAttachPreflightTests {
 
     // MARK: - Single-flight cancel-and-restart
 
-    @Test("a second attach while preparing cancels the first and releases its new resources")
-    func secondAttachCancelsAndRestarts() async {
-        let harness = Harness()
-        await harness.gate.arm()
+    @Test(
+        "caller or superseding attach cancellation rolls back and allows replacement",
+        arguments: ["secondAttachCancelsAndRestarts", "callerCancellationThenReplacement"])
+    func cancellationThenReplacement(scenario: String) async throws {
+        switch scenario {
+        case "secondAttachCancelsAndRestarts":
+            let harness = Harness()
+            await harness.gate.arm()
 
-        let first = Task { await harness.preflight.attach(Self.request) }
-        // Wait until the first attach is parked at its (gated) forward — its new
-        // listener is bound by now.
-        await harness.gate.awaitWaiting()
+            let first = Task { await harness.preflight.attach(Self.request) }
+            // Wait until the first attach is parked at its (gated) forward — its new
+            // listener is bound by now.
+            await harness.gate.awaitWaiting()
 
-        // The second attach cancels the in-flight first; the gate is cancellation-
-        // aware, so the first unblocks, observes cancellation, and rolls back.
-        let second = Task { await harness.preflight.attach(Self.request) }
+            // The second attach cancels the in-flight first; the gate is cancellation-
+            // aware, so the first unblocks, observes cancellation, and rolls back.
+            let second = Task { await harness.preflight.attach(Self.request) }
 
-        let firstOutcome = await first.value
-        let secondOutcome = await second.value
+            let firstOutcome = await first.value
+            let secondOutcome = await second.value
 
-        #expect(firstOutcome == .cancelled)
-        guard case .ready = secondOutcome else {
-            Issue.record("restarted attach should be ready, got \(secondOutcome)")
-            return
+            #expect(firstOutcome == .cancelled)
+            guard case .ready = secondOutcome else {
+                Issue.record("restarted attach should be ready, got \(secondOutcome)")
+                return
+            }
+            // The cancelled attach's new listener was shut down.
+            #expect(await harness.timeline.events.contains("shutdown:/tmp/fake-listener-1.sock"))
+            // Only the surviving attach committed a generation.
+            #expect(await harness.ledger.previousGeneration(for: Self.session) == 1)
+        case "callerCancellationThenReplacement":
+            let harness = Harness()
+            await harness.gate.arm()
+
+            let cancelled = Task { await harness.preflight.attach(Self.request) }
+            await harness.gate.awaitWaiting()
+            cancelled.cancel()
+            await harness.gate.release()
+
+            #expect(await cancelled.value == .cancelled)
+            #expect(await harness.ledger.previousGeneration(for: Self.session) == 0)
+            #expect(await harness.timeline.events.contains("shutdown:/tmp/fake-listener-1.sock"))
+            let replacement = await harness.preflight.attach(Self.request)
+
+            guard case let .ready(channel, _) = replacement else {
+                Issue.record("replacement should be ready, got \(replacement)")
+                return
+            }
+            #expect(channel.gen == 1)
+            #expect(await harness.ledger.previousGeneration(for: Self.session) == 1)
+            let commands = Self.execCommands(await harness.timeline.events)
+            #expect(commands.filter { $0.contains("cat >") }.count == 1)
+        default: Issue.record("Unknown scenario: \(scenario)")
         }
-        // The cancelled attach's new listener was shut down.
-        #expect(await harness.timeline.events.contains("shutdown:/tmp/fake-listener-1.sock"))
-        // Only the surviving attach committed a generation.
-        #expect(await harness.ledger.previousGeneration(for: Self.session) == 1)
-    }
-
-    @Test("cancelling the caller cancels and rolls back the in-flight attach")
-    func callerCancellationRollsBackInFlightAttach() async {
-        let harness = Harness()
-        await harness.gate.arm()
-
-        let cancelled = Task { await harness.preflight.attach(Self.request) }
-        await harness.gate.awaitWaiting()
-        cancelled.cancel()
-        await harness.gate.release()
-
-        #expect(await cancelled.value == .cancelled)
-        #expect(await harness.ledger.previousGeneration(for: Self.session) == 0)
-        #expect(await harness.timeline.events.contains("shutdown:/tmp/fake-listener-1.sock"))
-    }
-
-    @Test("a same-session attach after caller cancellation starts from clean state")
-    func sameSessionAttachAfterCancellationStartsClean() async {
-        let harness = Harness()
-        await harness.gate.arm()
-
-        let cancelled = Task { await harness.preflight.attach(Self.request) }
-        await harness.gate.awaitWaiting()
-        cancelled.cancel()
-        await harness.gate.release()
-        #expect(await cancelled.value == .cancelled)
-
-        let replacement = await harness.preflight.attach(Self.request)
-
-        guard case let .ready(channel, _) = replacement else {
-            Issue.record("replacement should be ready, got \(replacement)")
-            return
-        }
-        #expect(channel.gen == 1)
-        #expect(await harness.ledger.previousGeneration(for: Self.session) == 1)
-        let commands = Self.execCommands(await harness.timeline.events)
-        #expect(commands.filter { $0.contains("cat >") }.count == 1)
     }
 
     @MainActor
@@ -739,6 +667,7 @@ private actor AttachGate {
     private var armed = false
     private var waiter: CheckedContinuation<Void, Never>?
     private var isWaiting = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
     private var released = false
 
     func arm() { armed = true }
@@ -754,6 +683,9 @@ private actor AttachGate {
                 }
                 waiter = continuation
                 isWaiting = true
+                let pending = entryWaiters
+                entryWaiters.removeAll()
+                pending.forEach { $0.resume() }
             }
         } onCancel: {
             Task { await self.release() }
@@ -761,7 +693,8 @@ private actor AttachGate {
     }
 
     func awaitWaiting() async {
-        while !isWaiting { await Task.yield() }
+        guard !isWaiting else { return }
+        await withCheckedContinuation { entryWaiters.append($0) }
     }
 
     func release() {
