@@ -27,6 +27,7 @@ struct SessionStoreWorkspaceGroupTests {
     func addLocalSessionRejectsMissingGroup() {
         let original = SessionGroup(name: "work", sessions: [])
         let store = SessionStore(groups: [original])
+        let initialGroups = store.groups
 
         let id = store.addLocalSession(
             title: "feature",
@@ -35,7 +36,7 @@ struct SessionStoreWorkspaceGroupTests {
         )
 
         #expect(id == nil)
-        #expect(store.groups == [original])
+        #expect(store.groups == initialGroups)
     }
 
     @Test("addLocalSession never inherits a group's remote default")

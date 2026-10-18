@@ -250,6 +250,7 @@ struct SessionStoreTerminalBackendMetadataTests {
             selectedSessionID: existing.id,
             recentlyClosed: [entry]
         )
+        let initialGroups = store.groups
 
         let restored = try #require(
             store.provisionallyRestore(
@@ -264,7 +265,7 @@ struct SessionStoreTerminalBackendMetadataTests {
         store.rollbackDaemonRecovery(restored)
         #expect(store.session(id: restored.sessionID) == nil)
         #expect(store.recentlyClosed == [entry])
-        #expect(store.groups == originalGroups)
+        #expect(store.groups == initialGroups)
         #expect(store.selectedSessionID == existing.id)
     }
 
@@ -329,9 +330,10 @@ struct SessionStoreTerminalBackendMetadataTests {
         )
         let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
         let store = SessionStore(groups: originalGroups, recentlyClosed: [entry])
+        let initialGroups = store.groups
 
         #expect(store.provisionallyRestore(entry, daemonID: daemonID) == nil)
-        #expect(store.groups == originalGroups)
+        #expect(store.groups == initialGroups)
         #expect(store.recentlyClosed == [entry])
     }
 
@@ -340,6 +342,7 @@ struct SessionStoreTerminalBackendMetadataTests {
         let existing = TerminalSession(title: "existing", workingDirectory: "/tmp")
         let originalGroups = [SessionGroup(name: "main", sessions: [existing])]
         let store = SessionStore(groups: originalGroups, selectedSessionID: existing.id)
+        let initialGroups = store.groups
         let daemonID = TerminalSessionID.generate()
         let metadata = DaemonRecoveryMetadata(
             workspaceTitle: "Build", paneTitle: "Codex", groupID: nil,
@@ -353,7 +356,7 @@ struct SessionStoreTerminalBackendMetadataTests {
         #expect(store.selectedSessionID == recovery.sessionID)
         #expect(store.session(id: recovery.sessionID)?.activePaneID == recovery.paneID)
         store.rollbackDaemonRecovery(recovery)
-        #expect(store.groups == originalGroups)
+        #expect(store.groups == initialGroups)
         #expect(store.selectedSessionID == existing.id)
     }
 

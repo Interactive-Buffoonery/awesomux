@@ -253,7 +253,7 @@ struct SidebarHoverIntegrationTests {
         peek.show(
             session: session,
             location: .local("~"),
-            tint: ProjectTint(groupName: "Group", color: nil, index: 0),
+            tint: ProjectTint(group: SessionGroup(name: "Group", sessions: []), index: 0),
             frame: .zero)
         peek.setPointerOverCard(true, for: session.id)
 

@@ -1435,6 +1435,15 @@ extension SessionStore {
     }
 
     private func rebuildDerivedState(now: Date = Date()) {
+        if _groups.contains(where: { $0.automaticColor == nil }) {
+            // Initialization and structural mutations already schedule consumers;
+            // seed before they render so legacy groups keep their current colors.
+            withSilentGroupMutation { groups in
+                for index in groups.indices {
+                    groups[index].rememberAutomaticColor(at: index)
+                }
+            }
+        }
         index = SessionStoreIndex.build(from: _groups)
         unreadNotificationTotal = index.unreadNotificationTotal
         shellActivityReducer.prune(livePaneIDs: index.livePaneIDs)
