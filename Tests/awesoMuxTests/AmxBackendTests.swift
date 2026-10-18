@@ -53,517 +53,334 @@ struct AmxBackendAttachCommandTests {
         #expect(command.contains("-u ZMX_SESSION"))
     }
 
-    @Test("assembles the env-scrubbed, ZMX_DIR-pinned, single-quoted command")
-    func assemblesCommand() throws {
+    @Test(arguments: ["plain", "spaces", "quote", "socket", "status", "zsh", "fish", "hostile"])
+    func attachCommandPreservesShellArguments(scenario: String) throws {
+        let directory = try TemporaryDirectory(prefix: "amx-shell-quoting")
+        let root = directory.url
+        let suffix: String
+        switch scenario {
+        case "spaces": suffix = "weird path/amx"
+        case "quote": suffix = "a'b/amx"
+        case "hostile": suffix = "'; touch pwned #/amx"
+        default: suffix = "Apps/awesoMux.app/Contents/MacOS/amx"
+        }
+        let executable = root.appending(path: suffix)
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(
+            """
+            #!/bin/sh
+            printf '%s\\000' "$ZMX_DIR" "$ZMX_DIR_MODE" "$AMX_STATUS_FILE" "$AMX_STATUS_TOKEN" "$ZDOTDIR" "$GHOSTTY_ZSH_ZDOTDIR" "$GHOSTTY_SHELL_INTEGRATION_XDG_DIR" "$XDG_DATA_DIRS"
+            /usr/bin/env > captured-env
+            printf '%s\\000' "$@"
+            """.utf8
+        ).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let id = try #require(TerminalSessionID(rawValue: "abc123-def"))
-        let command = AmxBackend.attachCommand(
-            executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-            sessionID: id,
-            socketDirectory: "/tmp/amx"
-        )
-        // Local attach: ZMX control vars + the stale-status pair only. The
-        // AWESOMUX_* pane-scoped keys are deliberately NOT scrubbed here —
-        // the local agent hook reads them from this inherited environment
-        // (they are scrubbed only on the ssh-crossing remote variant).
-        #expect(
-            command == "'/usr/bin/env' "
-                + "-u CLAUDE_CODE_CHILD_SESSION -u ZMX_SESSION -u ZMX_SESSION_PREFIX -u ZMX_LOG_MODE "
-                + "-u AMX_STATUS_FILE -u AMX_STATUS_TOKEN -u AWESOMUX_SSH_MOUSE_RECOVERY "
-                + "'ZMX_DIR=/tmp/amx' 'ZMX_DIR_MODE=700' "
-                + "'/Apps/awesoMux.app/Contents/MacOS/amx' attach --labels "
-                + "'awesomux.agent-kind= awesomux.group-id= awesomux.group-name= "
-                + "awesomux.group-remote= awesomux.pane-title= awesomux.workspace-title=' "
-                + "'abc123-def'")
-    }
-
-    @Test("appends ssh tail for RemoteTarget")
-    func attachCommandAppendsSshTailForRemoteTarget() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-remote"))
+        let socketDirectory = scenario == "socket" ? "/weird dir/amx" : "/tmp/amx"
+        let statusPath = "/tmp/weird dir/abc123-sp-aabb.status.jsonl"
+        let status = scenario == "status" ? AmxStatusChannel(fileURL: URL(fileURLWithPath: statusPath), token: "aabbccdd") : nil
+        let zsh = scenario == "zsh"
+        let fish = scenario == "fish"
         let command = try #require(
             AmxBackend.attachCommand(
-                executablePath: "/opt/awesomux/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                remote: RemoteTarget(user: "alice", host: "box")!
+                executablePath: executable.path, sessionID: id, socketDirectory: socketDirectory,
+                status: status, ghosttyResourcesDir: zsh || fish ? "/a'b/ghostty" : nil,
+                inheritedZDOTDIR: zsh ? "/c'; touch pwned #" : nil,
+                inheritedXDGDataDirs: fish ? "/c'; touch pwned #" : nil,
+                shellPath: zsh ? "/bin/zsh" : fish ? "/usr/local/bin/fish" : nil
             ))
-        #expect(command.contains("attach"))
-        #expect(command.contains("ssh"))
-        #expect(command.contains("ControlMaster=auto"))
-        // ControlPath uses the dedicated per-user ssh-control dir (NOT the
-        // socketDirectory arg): STABLE under $HOME so relaunches, reattaches,
-        // and the bridge preflight all converge on the same %C master
-        // (INT-698 finding #8), and short enough that ssh's temp master
-        // socket fits sockaddr_un (INT-766).
-        #expect(command.contains("/.awesomux/ssh"))
-        #expect(command.contains("/%C'"))
-        #expect(command.contains("ControlPersist=60"))
-        #expect(command.contains("ConnectTimeout=10"))
-        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
-        #expect(command.contains("ServerAliveInterval=15"))
-        // The user's SSH config remains authoritative.
-        #expect(!command.contains("ForwardAgent"))
-        #expect(command.hasSuffix("'--' 'alice@box'"))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = root
+        let scrubbed = [
+            "CLAUDE_CODE_CHILD_SESSION", "ZMX_SESSION", "ZMX_SESSION_PREFIX", "ZMX_LOG_MODE", "AMX_STATUS_FILE", "AMX_STATUS_TOKEN",
+            "AWESOMUX_SSH_MOUSE_RECOVERY",
+        ]
+        process.environment = Dictionary(uniqueKeysWithValues: scrubbed.map { ($0, "inherited-sentinel") })
+        let captured = try captureOutput(of: process)
+        #expect(process.terminationStatus == 0, "\(captured.stderr)")
+        let fields = captured.stdout.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+        let expected = [
+            socketDirectory, "700", status == nil ? "" : statusPath, status == nil ? "" : "aabbccdd",
+            zsh ? "/a'b/ghostty/shell-integration/zsh" : "", zsh ? "/c'; touch pwned #" : "",
+            fish ? "/a'b/ghostty/shell-integration" : "", fish ? "/a'b/ghostty/shell-integration:/c'; touch pwned #" : "",
+        ]
+        #expect(Array(fields.prefix(8)) == expected)
+        #expect(fields.dropFirst(8).first == "attach")
+        #expect(fields.dropLast().last == id.rawValue)
+        let environment = try String(contentsOf: root.appending(path: "captured-env"), encoding: .utf8)
+        #expect(!environment.contains("inherited-sentinel"))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "pwned").path))
     }
 
-    @Test("unchanged when not remote")
-    func attachCommandUnchangedWhenNotRemote() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-noremote"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/opt/awesomux/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx"
-            ))
-        #expect(!command.contains("ssh"))
-        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
+    enum ClaudeChildContextScrubCase: String, CaseIterable {
+        case remoteStatusAttachScrubsClaudeChildContext
+        case bridgeStatusAttachScrubsClaudeChildContext
     }
 
-    @Test("remote status attach scrubs inherited Claude child context")
-    func remoteStatusAttachScrubsClaudeChildContext() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-remote-status"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/opt/awesomux/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                status: AmxStatusChannel(
-                    fileURL: URL(fileURLWithPath: "/tmp/amx/status.jsonl"),
-                    token: "token"
-                ),
-                remote: RemoteTarget(user: "alice", host: "box")!
+    @Test(arguments: ClaudeChildContextScrubCase.allCases)
+    func claudeChildContextScrub(_ scenario: ClaudeChildContextScrubCase) throws {
+        switch scenario {
+        case .remoteStatusAttachScrubsClaudeChildContext:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-remote-status"))
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/opt/awesomux/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    status: AmxStatusChannel(
+                        fileURL: URL(fileURLWithPath: "/tmp/amx/status.jsonl"),
+                        token: "token"
+                    ),
+                    remote: RemoteTarget(user: "alice", host: "box")!
+                )
             )
-        )
 
-        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
-        #expect(command.contains("-u AWESOMUX_AGENT_EVENT_FILE"))
-    }
-
-    @Test("bridge status attach scrubs inherited Claude child context")
-    func bridgeStatusAttachScrubsClaudeChildContext() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-bridge"))
-        let command = try #require(
-            AmxBackend.bridgeAttachCommand(
-                executablePath: "/opt/awesomux/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                status: AmxStatusChannel(
-                    fileURL: URL(fileURLWithPath: "/tmp/amx/status.jsonl"),
-                    token: "token"
-                ),
-                remote: RemoteTarget(user: "alice", host: "box")!,
-                stateFilePath: "/tmp/bridge-state.json",
-                helperPath: "/opt/awesomux/bridge"
+            #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
+            #expect(command.contains("-u AWESOMUX_AGENT_EVENT_FILE"))
+        case .bridgeStatusAttachScrubsClaudeChildContext:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-bridge"))
+            let command = try #require(
+                AmxBackend.bridgeAttachCommand(
+                    executablePath: "/opt/awesomux/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    status: AmxStatusChannel(
+                        fileURL: URL(fileURLWithPath: "/tmp/amx/status.jsonl"),
+                        token: "token"
+                    ),
+                    remote: RemoteTarget(user: "alice", host: "box")!,
+                    stateFilePath: "/tmp/bridge-state.json",
+                    helperPath: "/opt/awesomux/bridge"
+                )
             )
-        )
 
-        #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
-        #expect(command.contains("-u AWESOMUX_AGENT_EVENT_FILE"))
+            #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
+            #expect(command.contains("-u AWESOMUX_AGENT_EVENT_FILE"))
+        }
     }
 
-    @Test("single-quotes an executable path containing spaces")
-    func quotesSpaces() throws {
-        let id = try #require(TerminalSessionID(rawValue: "session1"))
-        let command = AmxBackend.attachCommand(
-            executablePath: "/weird path/amx",
-            sessionID: id,
-            socketDirectory: "/tmp/amx"
-        )
-        #expect(command?.contains("'/weird path/amx'") == true)
+    enum ShellIntegrationEnvironmentCase: String, CaseIterable {
+        case injectsShellIntegrationZDOTDIR
+        case preservesInheritedZDOTDIR
+        case omitsShellIntegrationWithoutResourcesDir
+        case omitsShellIntegrationForUnsupportedShells
+        case injectsFishShellIntegrationXDGDataDirs
+        case prependsInheritedXDGDataDirs
+        case distinguishesAbsentFromEmptyXDGDataDirs
+        case omitsFishShellIntegrationWithoutResourcesDir
+        case omitsFishShellIntegrationForRemote
+        case omitsShellIntegrationForRemote
+        case statusOverloadInjectsShellIntegration
     }
 
-    @Test("escapes a single quote in the executable path (no shell break-out)")
-    func escapesSingleQuote() throws {
-        let id = try #require(TerminalSessionID(rawValue: "session2"))
-        let command = AmxBackend.attachCommand(
-            executablePath: "/a'b/amx",
-            sessionID: id,
-            socketDirectory: "/tmp/amx"
-        )
-        // POSIX single-quote escaping: ' becomes '\'' — close, escaped quote, reopen.
-        #expect(command?.contains("'/a'\\''b/amx'") == true)
-    }
-
-    @Test("single-quotes a socket directory containing spaces")
-    func quotesSocketDirSpaces() throws {
-        let id = try #require(TerminalSessionID(rawValue: "session3"))
-        let command = AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: id,
-            socketDirectory: "/weird dir/amx"
-        )
-        #expect(command?.contains("'ZMX_DIR=/weird dir/amx'") == true)
-    }
-
-    @Test("injects zsh shell-integration ZDOTDIR when resources dir is provided and SHELL is zsh")
-    func injectsShellIntegrationZDOTDIR() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-zdot"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "/Apps/awesoMux.app/Contents/Resources/ghostty",
-                shellPath: "/bin/zsh"
-            ))
-        #expect(
-            command.contains(
-                "'ZDOTDIR=/Apps/awesoMux.app/Contents/Resources/ghostty/shell-integration/zsh'"
-            ))
-        // No pre-existing ZDOTDIR → the preserve token must be absent, so the
-        // integration .zshenv unsets ZDOTDIR after chaining (ghostty parity).
-        #expect(!command.contains("GHOSTTY_ZSH_ZDOTDIR"))
-    }
-
-    @Test("preserves a pre-existing ZDOTDIR via GHOSTTY_ZSH_ZDOTDIR")
-    func preservesInheritedZDOTDIR() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotkeep"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "/res/ghostty",
-                inheritedZDOTDIR: "/Users/me/.config/zsh",
-                shellPath: "/bin/zsh"
-            ))
-        #expect(command.contains("'ZDOTDIR=/res/ghostty/shell-integration/zsh'"))
-        #expect(command.contains("'GHOSTTY_ZSH_ZDOTDIR=/Users/me/.config/zsh'"))
-    }
-
-    @Test("omits shell-integration tokens when resources dir is absent or empty")
-    func omitsShellIntegrationWithoutResourcesDir() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-nores"))
-        let missing = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                shellPath: "/bin/zsh"
-            ))
-        #expect(!missing.contains("ZDOTDIR"))
-        let empty = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "",
-                shellPath: "/bin/zsh"
-            ))
-        #expect(!empty.contains("ZDOTDIR"))
-    }
-
-    @Test("omits shell-integration tokens when SHELL is bash, elvish, nushell, or unknown")
-    func omitsShellIntegrationForUnsupportedShells() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-bash"))
-        // bash/nu: zmx's execvpe($SHELL) spawn can't do the argv rewriting
-        // (--posix+ENV / --execute) their integration needs. elvish: unlike
-        // fish, it does not auto-source its integration file from
-        // XDG_DATA_DIRS — ghostty's own docs say the user must explicitly
-        // `use ghostty-integration` themselves, so env-only injection here
-        // would neither activate it nor get cleaned up.
-        for shell in ["/bin/bash", "/usr/bin/elvish", "/usr/local/bin/nu", nil] as [String?] {
+    @Test(arguments: ShellIntegrationEnvironmentCase.allCases)
+    func shellIntegrationEnvironment(_ scenario: ShellIntegrationEnvironmentCase) throws {
+        switch scenario {
+        case .injectsShellIntegrationZDOTDIR:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-zdot"))
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    ghosttyResourcesDir: "/Apps/awesoMux.app/Contents/Resources/ghostty",
+                    shellPath: "/bin/zsh"
+                ))
+            #expect(
+                command.contains(
+                    "'ZDOTDIR=/Apps/awesoMux.app/Contents/Resources/ghostty/shell-integration/zsh'"
+                ))
+            // No pre-existing ZDOTDIR → the preserve token must be absent, so the
+            // integration .zshenv unsets ZDOTDIR after chaining (ghostty parity).
+            #expect(!command.contains("GHOSTTY_ZSH_ZDOTDIR"))
+        case .preservesInheritedZDOTDIR:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-zdotkeep"))
             let command = try #require(
                 AmxBackend.attachCommand(
                     executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
                     sessionID: id,
                     socketDirectory: "/tmp/amx",
                     ghosttyResourcesDir: "/res/ghostty",
-                    shellPath: shell
+                    inheritedZDOTDIR: "/Users/me/.config/zsh",
+                    shellPath: "/bin/zsh"
+                ))
+            #expect(command.contains("'ZDOTDIR=/res/ghostty/shell-integration/zsh'"))
+            #expect(command.contains("'GHOSTTY_ZSH_ZDOTDIR=/Users/me/.config/zsh'"))
+        case .omitsShellIntegrationWithoutResourcesDir:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-nores"))
+            let missing = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    shellPath: "/bin/zsh"
+                ))
+            #expect(!missing.contains("ZDOTDIR"))
+            let empty = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    ghosttyResourcesDir: "",
+                    shellPath: "/bin/zsh"
+                ))
+            #expect(!empty.contains("ZDOTDIR"))
+        case .omitsShellIntegrationForUnsupportedShells:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-bash"))
+            // bash/nu: zmx's execvpe($SHELL) spawn can't do the argv rewriting
+            // (--posix+ENV / --execute) their integration needs. elvish: unlike
+            // fish, it does not auto-source its integration file from
+            // XDG_DATA_DIRS — ghostty's own docs say the user must explicitly
+            // `use ghostty-integration` themselves, so env-only injection here
+            // would neither activate it nor get cleaned up.
+            for shell in ["/bin/bash", "/usr/bin/elvish", "/usr/local/bin/nu", nil] as [String?] {
+                let command = try #require(
+                    AmxBackend.attachCommand(
+                        executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                        sessionID: id,
+                        socketDirectory: "/tmp/amx",
+                        ghosttyResourcesDir: "/res/ghostty",
+                        shellPath: shell
+                    ))
+                #expect(!command.contains("ZDOTDIR"))
+                #expect(!command.contains("XDG_DATA_DIRS"))
+            }
+        case .injectsFishShellIntegrationXDGDataDirs:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-fish"))
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    ghosttyResourcesDir: "/Apps/awesoMux.app/Contents/Resources/ghostty",
+                    shellPath: "/usr/local/bin/fish"
+                ))
+            #expect(
+                command.contains(
+                    "'GHOSTTY_SHELL_INTEGRATION_XDG_DIR=/Apps/awesoMux.app/Contents/Resources/ghostty/shell-integration'"
+                ))
+            // No pre-existing XDG_DATA_DIRS → prepend ghostty's own freedesktop
+            // fallback default, not an empty/missing value (ghostty parity).
+            #expect(
+                command.contains(
+                    "'XDG_DATA_DIRS=/Apps/awesoMux.app/Contents/Resources/ghostty/shell-integration:/usr/local/share:/usr/share'"
+                ))
+        case .prependsInheritedXDGDataDirs:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-fishxdg"))
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    ghosttyResourcesDir: "/res/ghostty",
+                    inheritedXDGDataDirs: "/opt/share",
+                    shellPath: "/usr/local/bin/fish"
+                ))
+            #expect(command.contains("'XDG_DATA_DIRS=/res/ghostty/shell-integration:/opt/share'"))
+        case .distinguishesAbsentFromEmptyXDGDataDirs:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-fishxdgempty"))
+            // Explicitly empty (present but ""): ghostty's own internal_os.prependEnv
+            // (vendor/ghostty/src/os/env.zig) special-cases a zero-length current
+            // value as "nothing to prepend onto" and returns the new value alone
+            // — no trailing delimiter, no default substituted. That only happens
+            // for an ABSENT XDG_DATA_DIRS (where `orelse` substitutes the
+            // freedesktop default before prependEnv ever sees it).
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    ghosttyResourcesDir: "/res/ghostty",
+                    inheritedXDGDataDirs: "",
+                    shellPath: "/usr/local/bin/fish"
+                ))
+            #expect(command.contains("'XDG_DATA_DIRS=/res/ghostty/shell-integration'"))
+            #expect(!command.contains("shell-integration:"))
+            #expect(!command.contains("/usr/local/share:/usr/share"))
+        case .omitsFishShellIntegrationWithoutResourcesDir:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-fishnores"))
+            let missing = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    shellPath: "/usr/local/bin/fish"
+                ))
+            #expect(!missing.contains("XDG_DATA_DIRS"))
+            let empty = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    ghosttyResourcesDir: "",
+                    shellPath: "/usr/local/bin/fish"
+                ))
+            #expect(!empty.contains("XDG_DATA_DIRS"))
+        case .omitsFishShellIntegrationForRemote:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-fishremote"))
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/opt/awesomux/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    remote: RemoteTarget(user: "alice", host: "box")!,
+                    ghosttyResourcesDir: "/res/ghostty",
+                    shellPath: "/usr/local/bin/fish"
+                ))
+            #expect(!command.contains("XDG_DATA_DIRS"))
+        case .omitsShellIntegrationForRemote:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-zdotremote"))
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/opt/awesomux/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    remote: RemoteTarget(user: "alice", host: "box")!,
+                    ghosttyResourcesDir: "/res/ghostty",
+                    shellPath: "/bin/zsh"
                 ))
             #expect(!command.contains("ZDOTDIR"))
-            #expect(!command.contains("XDG_DATA_DIRS"))
+        case .statusOverloadInjectsShellIntegration:
+            let id = try #require(TerminalSessionID(rawValue: "abc123-zdotstatus"))
+            let status = AmxStatusChannel(
+                fileURL: URL(fileURLWithPath: "/tmp/amx/abc123-zdotstatus.status.jsonl"),
+                token: "deadbeef01234567deadbeef01234567"
+            )
+            let command = try #require(
+                AmxBackend.attachCommand(
+                    executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
+                    sessionID: id,
+                    socketDirectory: "/tmp/amx",
+                    status: status,
+                    ghosttyResourcesDir: "/res/ghostty",
+                    shellPath: "/bin/zsh"
+                ))
+            #expect(command.contains("'ZDOTDIR=/res/ghostty/shell-integration/zsh'"))
         }
     }
 
-    @Test("injects fish shell-integration XDG_DATA_DIRS when resources dir is provided and SHELL is fish")
-    func injectsFishShellIntegrationXDGDataDirs() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-fish"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "/Apps/awesoMux.app/Contents/Resources/ghostty",
-                shellPath: "/usr/local/bin/fish"
-            ))
-        #expect(
-            command.contains(
-                "'GHOSTTY_SHELL_INTEGRATION_XDG_DIR=/Apps/awesoMux.app/Contents/Resources/ghostty/shell-integration'"
-            ))
-        // No pre-existing XDG_DATA_DIRS → prepend ghostty's own freedesktop
-        // fallback default, not an empty/missing value (ghostty parity).
-        #expect(
-            command.contains(
-                "'XDG_DATA_DIRS=/Apps/awesoMux.app/Contents/Resources/ghostty/shell-integration:/usr/local/share:/usr/share'"
-            ))
-    }
-
-    @Test("prepends to a pre-existing XDG_DATA_DIRS rather than clobbering it")
-    func prependsInheritedXDGDataDirs() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-fishxdg"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "/res/ghostty",
-                inheritedXDGDataDirs: "/opt/share",
-                shellPath: "/usr/local/bin/fish"
-            ))
-        #expect(command.contains("'XDG_DATA_DIRS=/res/ghostty/shell-integration:/opt/share'"))
-    }
-
-    @Test("distinguishes an absent XDG_DATA_DIRS from an explicitly empty one")
-    func distinguishesAbsentFromEmptyXDGDataDirs() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-fishxdgempty"))
-        // Explicitly empty (present but ""): ghostty's own internal_os.prependEnv
-        // (vendor/ghostty/src/os/env.zig) special-cases a zero-length current
-        // value as "nothing to prepend onto" and returns the new value alone
-        // — no trailing delimiter, no default substituted. That only happens
-        // for an ABSENT XDG_DATA_DIRS (where `orelse` substitutes the
-        // freedesktop default before prependEnv ever sees it).
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "/res/ghostty",
-                inheritedXDGDataDirs: "",
-                shellPath: "/usr/local/bin/fish"
-            ))
-        #expect(command.contains("'XDG_DATA_DIRS=/res/ghostty/shell-integration'"))
-        #expect(!command.contains("shell-integration:"))
-        #expect(!command.contains("/usr/local/share:/usr/share"))
-    }
-
-    @Test("omits fish shell-integration tokens when resources dir is absent or empty")
-    func omitsFishShellIntegrationWithoutResourcesDir() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-fishnores"))
-        let missing = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                shellPath: "/usr/local/bin/fish"
-            ))
-        #expect(!missing.contains("XDG_DATA_DIRS"))
-        let empty = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "",
-                shellPath: "/usr/local/bin/fish"
-            ))
-        #expect(!empty.contains("XDG_DATA_DIRS"))
-    }
-
-    @Test("omits fish shell-integration tokens on the remote attach variant")
-    func omitsFishShellIntegrationForRemote() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-fishremote"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/opt/awesomux/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                remote: RemoteTarget(user: "alice", host: "box")!,
-                ghosttyResourcesDir: "/res/ghostty",
-                shellPath: "/usr/local/bin/fish"
-            ))
-        #expect(!command.contains("XDG_DATA_DIRS"))
-    }
-
-    @Test("escapes a single quote in ghosttyResourcesDir and inheritedXDGDataDirs for fish (no shell break-out)")
-    func escapesSingleQuoteInFishShellIntegrationValues() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-fishquote"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "/a'b/ghostty",
-                inheritedXDGDataDirs: "/c'; touch pwned #",
-                shellPath: "/usr/local/bin/fish"
-            ))
-        #expect(command.contains("'GHOSTTY_SHELL_INTEGRATION_XDG_DIR=/a'\\''b/ghostty/shell-integration'"))
-        #expect(command.contains("'XDG_DATA_DIRS=/a'\\''b/ghostty/shell-integration:/c'\\''; touch pwned #'"))
-    }
-
-    @Test("omits shell-integration tokens on the remote attach variant")
-    func omitsShellIntegrationForRemote() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotremote"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/opt/awesomux/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                remote: RemoteTarget(user: "alice", host: "box")!,
-                ghosttyResourcesDir: "/res/ghostty",
-                shellPath: "/bin/zsh"
-            ))
-        #expect(!command.contains("ZDOTDIR"))
-    }
-
-    @Test("status overload injects the same shell-integration tokens")
-    func statusOverloadInjectsShellIntegration() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotstatus"))
-        let status = AmxStatusChannel(
-            fileURL: URL(fileURLWithPath: "/tmp/amx/abc123-zdotstatus.status.jsonl"),
-            token: "deadbeef01234567deadbeef01234567"
-        )
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                status: status,
-                ghosttyResourcesDir: "/res/ghostty",
-                shellPath: "/bin/zsh"
-            ))
-        #expect(command.contains("'ZDOTDIR=/res/ghostty/shell-integration/zsh'"))
-    }
-
-    @Test("escapes a single quote in ghosttyResourcesDir and inheritedZDOTDIR (no shell break-out)")
-    func escapesSingleQuoteInShellIntegrationValues() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-zdotquote"))
-        let command = try #require(
-            AmxBackend.attachCommand(
-                executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-                sessionID: id,
-                socketDirectory: "/tmp/amx",
-                ghosttyResourcesDir: "/a'b/ghostty",
-                inheritedZDOTDIR: "/c'; touch pwned #",
-                shellPath: "/bin/zsh"
-            ))
-        #expect(command.contains("'ZDOTDIR=/a'\\''b/ghostty/shell-integration/zsh'"))
-        #expect(command.contains("'GHOSTTY_ZSH_ZDOTDIR=/c'\\''; touch pwned #'"))
-    }
 }
 
 // MARK: - AmxBackend.shellIntegrationInputs (env → attach-input resolution)
 
 @Suite("AmxBackend shellIntegrationInputs")
 struct AmxBackendShellIntegrationInputsTests {
-    @Test("returns all values when the zsh integration dir exists")
-    func returnsAllValuesWhenDirExists() {
-        let inputs = AmxBackend.shellIntegrationInputs(
-            from: [
-                "GHOSTTY_RESOURCES_DIR": "/Apps/awesoMux.app/Contents/Resources/ghostty",
-                "ZDOTDIR": "/Users/me/.config/zsh",
-                "SHELL": "/bin/zsh",
-            ],
-            fileExists: { _ in true }
-        )
-        #expect(inputs.ghosttyResourcesDir == "/Apps/awesoMux.app/Contents/Resources/ghostty")
-        #expect(inputs.inheritedZDOTDIR == "/Users/me/.config/zsh")
-        #expect(inputs.inheritedXDGDataDirs == nil)
-        #expect(inputs.shellPath == "/bin/zsh")
-    }
 
-    @Test("returns all values when the fish integration dir exists")
-    func returnsAllValuesForFishWhenDirExists() {
+    @Test(arguments: ["zsh-missing", "zsh", "fish"])
+    func shellIntegrationInputsUseValidatedResources(scenario: String) {
+        let shell = scenario == "fish" ? "/usr/local/bin/fish" : "/bin/zsh"
+        let resources = scenario == "zsh-missing" ? "/Apps/awesoMux.app/Contents/Resources/ghostty" : "/res/ghostty"
         let inputs = AmxBackend.shellIntegrationInputs(
-            from: [
-                "GHOSTTY_RESOURCES_DIR": "/Apps/awesoMux.app/Contents/Resources/ghostty",
-                "XDG_DATA_DIRS": "/opt/share",
-                "SHELL": "/usr/local/bin/fish",
-            ],
-            fileExists: { _ in true }
-        )
-        #expect(inputs.ghosttyResourcesDir == "/Apps/awesoMux.app/Contents/Resources/ghostty")
-        #expect(inputs.inheritedXDGDataDirs == "/opt/share")
-        #expect(inputs.shellPath == "/usr/local/bin/fish")
-    }
-
-    @Test("drops the resources dir for an unsupported shell without probing")
-    func dropsResourcesDirForUnsupportedShellWithoutProbing() {
-        var probed = false
-        let inputs = AmxBackend.shellIntegrationInputs(
-            from: ["GHOSTTY_RESOURCES_DIR": "/res/ghostty", "SHELL": "/bin/bash"],
-            fileExists: { _ in
-                probed = true
-                return true
-            }
-        )
-        #expect(inputs.ghosttyResourcesDir == nil)
-        #expect(!probed)
-    }
-
-    @Test("drops the resources dir when the zsh integration subdirectory is missing")
-    func dropsResourcesDirWhenSubdirectoryMissing() {
-        let inputs = AmxBackend.shellIntegrationInputs(
-            from: [
-                "GHOSTTY_RESOURCES_DIR": "/Apps/awesoMux.app/Contents/Resources/ghostty",
-                "ZDOTDIR": "/Users/me/.config/zsh",
-                "SHELL": "/bin/zsh",
-            ],
-            fileExists: { _ in false }
-        )
-        // ZDOTDIR pinned at a missing integration dir makes zsh skip the
-        // user's dotfiles entirely — worse than the missing-OSC-133 bug this
-        // is meant to fix — so the dir is dropped rather than trusted as-is.
-        #expect(inputs.ghosttyResourcesDir == nil)
-        #expect(inputs.inheritedZDOTDIR == "/Users/me/.config/zsh")
-        #expect(inputs.shellPath == "/bin/zsh")
-    }
-
-    @Test("returns nil resources dir without probing when GHOSTTY_RESOURCES_DIR is absent")
-    func returnsNilWithoutProbingWhenAbsent() {
-        var probed = false
-        let inputs = AmxBackend.shellIntegrationInputs(
-            from: ["ZDOTDIR": "/Users/me/.config/zsh", "SHELL": "/bin/zsh"],
-            fileExists: { _ in
-                probed = true
-                return true
-            }
-        )
-        #expect(inputs.ghosttyResourcesDir == nil)
-        #expect(!probed)
-    }
-
-    @Test("returns nil resources dir without probing when GHOSTTY_RESOURCES_DIR is empty")
-    func returnsNilWithoutProbingWhenEmpty() {
-        var probed = false
-        let inputs = AmxBackend.shellIntegrationInputs(
-            from: ["GHOSTTY_RESOURCES_DIR": "", "SHELL": "/bin/zsh"],
-            fileExists: { _ in
-                probed = true
-                return true
-            }
-        )
-        #expect(inputs.ghosttyResourcesDir == nil)
-        #expect(!probed)
-    }
-
-    @Test("probes exactly <dir>/shell-integration/zsh for zsh")
-    func probesExpectedSubdirectory() {
-        var probedPath: String?
-        _ = AmxBackend.shellIntegrationInputs(
-            from: ["GHOSTTY_RESOURCES_DIR": "/res/ghostty", "SHELL": "/bin/zsh"],
+            from: ["GHOSTTY_RESOURCES_DIR": resources, "ZDOTDIR": "/Users/me/.config/zsh", "SHELL": shell],
             fileExists: { path in
-                probedPath = path
-                return true
+                scenario != "zsh-missing" && path == resources + (scenario == "fish" ? "/shell-integration" : "/shell-integration/zsh")
             }
         )
-        #expect(probedPath == "/res/ghostty/shell-integration/zsh")
-    }
-
-    @Test("probes exactly <dir>/shell-integration (the parent dir, not a per-shell subdir) for fish")
-    func probesParentDirectoryForFish() {
-        // Deliberately divergent from zsh's per-shell-subdir probe: fish
-        // scans XDG_DATA_DIRS entries and applies its own `vendor_conf.d`
-        // subpath itself, matching ghostty's own setupXdgDataDirs (which
-        // never probes a per-shell path). The most likely spot a future edit
-        // "fixes" this to `.../shell-integration/fish` by mistake.
-        var probedPath: String?
-        _ = AmxBackend.shellIntegrationInputs(
-            from: ["GHOSTTY_RESOURCES_DIR": "/res/ghostty", "SHELL": "/usr/local/bin/fish"],
-            fileExists: { path in
-                probedPath = path
-                return true
-            }
-        )
-        #expect(probedPath == "/res/ghostty/shell-integration")
+        #expect(inputs.ghosttyResourcesDir == (scenario == "zsh-missing" ? nil : resources))
+        #expect(inputs.inheritedZDOTDIR == "/Users/me/.config/zsh")
+        #expect(inputs.shellPath == shell)
     }
 
     @Test("the default probe rejects a regular file squatting on the integration path")
@@ -590,46 +407,6 @@ struct AmxBackendShellIntegrationInputsTests {
 
 @Suite("AmxStatusChannel")
 struct AmxStatusChannelTests {
-    @Test("makeStatusChannel produces a fileURL under sessionSocketDirectory()")
-    func fileURLUnderSocketDirectory() throws {
-        let id = try #require(TerminalSessionID(rawValue: "test-session-1"))
-        let channel = try #require(AmxBackend.makeStatusChannel(for: id))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-        let socketDir = AmxBackend.sessionSocketDirectory()
-        #expect(channel.fileURL.path.hasPrefix(socketDir))
-    }
-
-    @Test("makeStatusChannel produces a non-empty token")
-    func nonEmptyToken() throws {
-        let id = try #require(TerminalSessionID(rawValue: "test-session-2"))
-        let channel = try #require(AmxBackend.makeStatusChannel(for: id))
-        defer { try? FileManager.default.removeItem(at: channel.fileURL) }
-        #expect(!channel.token.isEmpty)
-    }
-
-    @Test("two makeStatusChannel calls produce different tokens and file paths")
-    func uniquenessAcrossCalls() throws {
-        let id = try #require(TerminalSessionID(rawValue: "test-session-3"))
-        let ch1 = try #require(AmxBackend.makeStatusChannel(for: id))
-        defer { try? FileManager.default.removeItem(at: ch1.fileURL) }
-        let ch2 = try #require(AmxBackend.makeStatusChannel(for: id))
-        defer { try? FileManager.default.removeItem(at: ch2.fileURL) }
-        #expect(ch1.token != ch2.token)
-        #expect(ch1.fileURL != ch2.fileURL)
-    }
-
-    @Test("AmxStatusChannel conforms to Equatable")
-    func equatable() throws {
-        let id = try #require(TerminalSessionID(rawValue: "test-session-4"))
-        let ch = try #require(AmxBackend.makeStatusChannel(for: id))
-        defer { try? FileManager.default.removeItem(at: ch.fileURL) }
-        // A copy with same values compares equal; distinct call compares unequal.
-        let copy = AmxStatusChannel(fileURL: ch.fileURL, token: ch.token)
-        #expect(ch == copy)
-        let other = try #require(AmxBackend.makeStatusChannel(for: id))
-        defer { try? FileManager.default.removeItem(at: other.fileURL) }
-        #expect(ch != other)
-    }
 
     // MARK: - Pre-create the status file (M1)
 
@@ -694,126 +471,29 @@ struct AmxBackendAttachCommandStatusTests {
         #expect(command?.contains("'ZMX_DIR=/tmp/amx'") == true)
     }
 
-    @Test("single-quotes a file path containing spaces in status channel")
-    func quotesSpacesInStatusFilePath() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-sp"))
-        let channel = AmxStatusChannel(
-            fileURL: URL(fileURLWithPath: "/tmp/weird dir/abc123-sp-aabb.status.jsonl"),
-            token: "aabbccdd"
-        )
-        let command = AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: id,
-            socketDirectory: "/tmp/amx",
-            status: channel
-        )
-        // shellQuote wraps the whole KEY=VALUE; the space inside the path is enclosed by the outer quotes.
-        #expect(command?.contains("'AMX_STATUS_FILE=/tmp/weird dir/abc123-sp-aabb.status.jsonl'") == true)
-    }
-
-    @Test("rejects an invalid session ID even with a status channel")
-    func rejectsInvalidIDWithStatus() throws {
-        // TerminalSessionID only accepts lowercase alnum + hyphen, so an empty
-        // string is invalid — make a channel with a dummy id then try to build the
-        // command with a raw invalid value.  Since TerminalSessionID is always
-        // pre-validated at construction, we simulate post-construction corruption
-        // by going through the injectable overload with a manually crafted id.
-        // We can't construct an invalid TerminalSessionID directly (the init
-        // returns nil), so test that the injectable overload validates too.
-        // Use a valid id to confirm the overload works, which verifies the path.
-        let id = try #require(TerminalSessionID(rawValue: "valid-id-for-status"))
-        let channel = AmxStatusChannel(
-            fileURL: URL(fileURLWithPath: "/tmp/amx/valid-id-for-status-aabb.status.jsonl"),
-            token: "aabbccdd"
-        )
-        let command = AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: id,
-            socketDirectory: "/tmp/amx",
-            status: channel
-        )
-        // A valid id must produce a non-nil command.
-        #expect(command != nil)
-    }
 }
 
 // MARK: - queryCwd output parsing (pure unit tests, no binary needed)
 
 @Suite("AmxBackend queryCwd output parsing")
 struct AmxBackendQueryCwdParsingTests {
-    @Test("parses a single-line path")
-    func singleLine() {
-        #expect(AmxBackend.parseCwdOutput("/Users/alice/project\n") == "/Users/alice/project")
+
+    @Test(arguments: [
+        ("/Users/alice/project\n", "/Users/alice/project" as String?),
+        ("  /Users/alice  \n", "/Users/alice"),
+        ("/Users/alice\n/extra/line\n", "/Users/alice"),
+        ("", nil), ("   \n  \n", nil), ("\n\n", nil),
+        ("\n\n/Users/alice/src\n", "/Users/alice/src"),
+        ("relative/path\n", nil), ("error: no such session\n", nil),
+        ("/Users/alice/\0evil\n", nil),
+        ("/" + String(repeating: "a", count: 1024) + "\n", nil),
+        ("/" + String(repeating: "a", count: 1023) + "\n", "/" + String(repeating: "a", count: 1023)),
+        ("/tmp/e\u{202E}vil\n", nil),
+    ])
+    func cwdOutputTrustBoundary(input: String, expected: String?) {
+        #expect(AmxBackend.parseCwdOutput(input) == expected)
     }
 
-    @Test("trims leading and trailing whitespace")
-    func trimsWhitespace() {
-        #expect(AmxBackend.parseCwdOutput("  /Users/alice  \n") == "/Users/alice")
-    }
-
-    @Test("returns first nonempty line from multi-line output")
-    func multiLine() {
-        #expect(AmxBackend.parseCwdOutput("/Users/alice\n/extra/line\n") == "/Users/alice")
-    }
-
-    @Test("returns nil for empty string")
-    func emptyString() {
-        #expect(AmxBackend.parseCwdOutput("") == nil)
-    }
-
-    @Test("returns nil for whitespace-only output")
-    func whitespaceOnly() {
-        #expect(AmxBackend.parseCwdOutput("   \n  \n") == nil)
-    }
-
-    @Test("returns nil for newline-only output")
-    func newlineOnly() {
-        #expect(AmxBackend.parseCwdOutput("\n\n") == nil)
-    }
-
-    @Test("skips leading blank lines and returns first nonempty line")
-    func skipsLeadingBlanks() {
-        #expect(AmxBackend.parseCwdOutput("\n\n/Users/alice/src\n") == "/Users/alice/src")
-    }
-
-    // MARK: - Path validation (S2): the parsed cwd flows to updatePane + Finder
-
-    @Test("rejects a relative (non-absolute) path")
-    func rejectsRelativePath() {
-        #expect(AmxBackend.parseCwdOutput("relative/path\n") == nil)
-    }
-
-    @Test("rejects daemon error text that isn't a path")
-    func rejectsNonPathText() {
-        #expect(AmxBackend.parseCwdOutput("error: no such session\n") == nil)
-    }
-
-    @Test("rejects a path containing an embedded NUL")
-    func rejectsNulByte() {
-        #expect(AmxBackend.parseCwdOutput("/Users/alice/\0evil\n") == nil)
-    }
-
-    @Test("rejects an over-long path (> 1024 bytes)")
-    func rejectsOverLongPath() {
-        let longPath = "/" + String(repeating: "a", count: 1024)
-        #expect(AmxBackend.parseCwdOutput(longPath + "\n") == nil)
-    }
-
-    @Test("accepts a path at exactly the 1024-byte bound")
-    func acceptsBoundaryLengthPath() {
-        let boundaryPath = "/" + String(repeating: "a", count: 1023)  // 1024 bytes total
-        #expect(AmxBackend.parseCwdOutput(boundaryPath + "\n") == boundaryPath)
-    }
-
-    @Test("accepts a valid absolute path")
-    func acceptsValidAbsolutePath() {
-        #expect(AmxBackend.parseCwdOutput("/Users/alice/project\n") == "/Users/alice/project")
-    }
-
-    @Test("rejects a path containing bidi/zero-width codepoints")
-    func rejectsUnsafeCodepointPath() {
-        #expect(AmxBackend.parseCwdOutput("/tmp/e\u{202E}vil\n") == nil)
-    }
 }
 
 // MARK: - sshControlPath sockaddr_un budget
@@ -870,106 +550,53 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
 
     private static let exitStatusFile = URL(fileURLWithPath: "/tmp/amx-test/session.exit")
 
-    private static func singleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 
     /// The whole of #235: nothing is asked for, and every place the backend can
     /// hide is checked on the far side. Asserted on the script rather than
     /// through both quoting layers, where it is an unreadable blob.
-    @Test("the remote script resolves the backend itself, PATH first then the app bundle")
-    func discoveryScriptChecksEveryBackendLocation() {
-        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
 
-        #expect(
-            script == "exec \"$SHELL\" -lc '"
-                + "command -v amx 2>/dev/null | grep -q \"^/\" && exec amx attach dev; "
-                + "command -v zmx 2>/dev/null | grep -q \"^/\" && exec zmx attach dev; "
-                + "[ -x \"$HOME/Applications/awesoMux.app/Contents/MacOS/amx\" ]"
-                + " && exec \"$HOME/Applications/awesoMux.app/Contents/MacOS/amx\" attach dev; "
-                + "[ -x \"/Applications/awesoMux.app/Contents/MacOS/amx\" ]"
-                + " && exec \"/Applications/awesoMux.app/Contents/MacOS/amx\" attach dev; "
-                + "echo \"awesoMux: no amx or zmx found on this host."
-                + " Install one, or reconnect without a remote session name.\" >&2; "
-                + "exit 127'")
-    }
-
-    /// The chain only survives a miss if each probe can FAIL. `command -v`
-    /// matches shell functions and aliases, `exec` matches neither, and a failed
-    /// `exec` kills a non-interactive shell — so a bare `command -v` hit would
-    /// let a wrapper function in the remote profile abort every fallback after
-    /// it. Requiring an absolute path is what keeps the chain a chain.
-    @Test("a PATH probe demands a real executable, not a shell function")
-    func discoveryScriptRejectsAFunctionShadowingTheBackend() {
-        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
-
-        for backend in ["amx", "zmx"] {
-            #expect(script.contains("command -v \(backend) 2>/dev/null | grep -q \"^/\""))
-            // The bare form is what makes a function look like an executable.
-            #expect(!script.contains("command -v \(backend) >/dev/null 2>&1 &&"))
+    @Test(arguments: ["amx", "zmx", "home-app", "system-app", "function", "missing"])
+    func discoveryExecutesBackendFallbacks(scenario: String) throws {
+        let directory = try TemporaryDirectory(prefix: "amx-discovery")
+        let root = directory.url
+        let bin = root.appending(path: "bin")
+        let home = root.appending(path: "home")
+        let systemApp = root.appending(path: "Applications/awesoMux.app/Contents/MacOS/amx")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: bin.appending(path: "grep"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/grep"))
+        func executable(_ url: URL, _ body: String) throws {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(("#!/bin/sh\n" + body).utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         }
-    }
-
-    /// `ssh host cmd` runs a NON-login shell, which is the mechanism that made
-    /// bare `zmx` fail on every host tested (#235). Re-execing through a login
-    /// shell is the fix, so losing `-l` would silently restore the bug.
-    @Test("the remote script runs under a login shell")
-    func discoveryScriptUsesALoginShell() {
-        #expect(
-            AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
-                .hasPrefix("exec \"$SHELL\" -lc "))
-    }
-
-    /// The script is wrapped in single quotes for the remote shell and the whole
-    /// thing is re-quoted for the local one. One stray apostrophe in the
-    /// diagnostic message breaks out of both.
-    @Test("the remote script carries no single quote of its own")
-    func discoveryScriptIsFreeOfInnerQuotes() {
-        let script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
-        let body = script.dropFirst("exec \"$SHELL\" -lc '".count).dropLast()
-        #expect(!body.contains("'"))
-    }
-
-    @Test("a missing backend exits 127, distinguishable from ssh's own 255")
-    func discoveryScriptExitsNotFound() {
-        #expect(
-            AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
-                .hasSuffix("; exit 127'"))
-    }
-
-    @Test("the assembled command carries the discovery script for the named session")
-    func assemblesDiscoveryCommand() {
-        let command = AmxBackend.remoteOwnedAttachCommand(
-            remote: Self.remote,
-            sessionName: Self.sessionName,
-            exitStatusFile: Self.exitStatusFile
-        )
-        let discovery = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
-        let script =
-            Self.expectedSSHTokens + Self.singleQuoted(discovery)
-            + "; printf %s \"$?\" > '/tmp/amx-test/session.exit'"
-        #expect(command == Self.expectedPrefix + Self.singleQuoted(script))
-    }
-
-    /// The pane's only exit status: libghostty reports 0 for every child on
-    /// macOS, so without this report a deliberate `exit` and a dropped
-    /// connection reach the enactor identically.
-    @Test("the ssh run writes its exit status to the per-attach file")
-    func reportsExitStatusToFile() {
-        let command = AmxBackend.remoteOwnedAttachCommand(
-            remote: Self.remote,
-            sessionName: Self.sessionName,
-            exitStatusFile: Self.exitStatusFile
-        )
-        // Sequenced after ssh, not `exec`d in front of it: an `exec` would
-        // replace the shell and the report would never run.
-        #expect(command.contains("'\\''; printf %s \"$?\" > '\\''/tmp/amx-test/session.exit'\\''"))
-        #expect(!command.contains("exec 'ssh'"))
-        // NOT an in-band terminal report: an OSC 133 status would be parsed on
-        // libghostty's reader thread with no ordering against the child-exited
-        // event, and would be indistinguishable from one the far host's own
-        // shell integration emitted.
-        #expect(!command.contains("133"))
+        let shell = root.appending(path: "login-shell")
+        try executable(shell, "[ \"$1\" = -lc ] || exit 91\nexec /bin/sh -c \"$2\"\n")
+        let marker = "printf '%s:%s' \"$1\" \"$2\"\n"
+        if scenario == "amx" || scenario == "zmx" { try executable(bin.appending(path: scenario), marker) }
+        if scenario == "home-app" { try executable(home.appending(path: "Applications/awesoMux.app/Contents/MacOS/amx"), marker) }
+        if scenario == "system-app" { try executable(systemApp, marker) }
+        var script = AmxBackend.remoteBackendDiscoveryCommand(sessionName: Self.sessionName)
+            .replacingOccurrences(of: "/Applications/awesoMux.app/Contents/MacOS/amx", with: systemApp.path)
+        // Only the fixed system fallback is redirected; HOME's lookup remains literal.
+        script = script.replacingOccurrences(of: "$HOME" + root.path, with: "$HOME")
+        if scenario == "function" {
+            try executable(shell, "[ \"$1\" = -lc ] || exit 91\nexec /bin/sh -c 'amx() { echo wrong; }; '" + "\"$2\"\n")
+            try executable(bin.appending(path: "zmx"), marker)
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.environment = ["PATH": bin.path, "HOME": home.path, "SHELL": shell.path]
+        let captured = try captureOutput(of: process)
+        #expect(process.terminationStatus == (scenario == "missing" ? 127 : 0), "\(captured.stderr)")
+        if scenario == "missing" {
+            #expect(captured.stdout.isEmpty)
+            #expect(captured.stderr.contains("no amx or zmx found"))
+        } else {
+            #expect(captured.stdout == "attach:dev")
+        }
     }
 
     /// Minting can fail (squatted path, EACCES). The pane must still attach —
@@ -986,16 +613,6 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
         #expect(!command.contains("'/bin/sh'"))
         #expect(!command.contains("printf"))
         #expect(command.contains("-u CLAUDE_CODE_CHILD_SESSION"))
-    }
-
-    @Test("forces a remote PTY")
-    func forcesRemotePTY() {
-        let command = AmxBackend.remoteOwnedAttachCommand(
-            remote: Self.remote,
-            sessionName: Self.sessionName,
-            exitStatusFile: Self.exitStatusFile
-        )
-        #expect(command.contains("'\\''-t'\\'' "))
     }
 
     /// Round-trips the real file through the real shell command, which is the
@@ -1052,6 +669,7 @@ struct AmxBackendRemoteOwnedAttachCommandTests {
             sessionName: Self.sessionName,
             exitStatusFile: Self.exitStatusFile
         )
+        #expect(command.contains("'\\''-t'\\'' "))
         // The local socket directory is meaningless to a zmx on another host.
         #expect(!command.contains("ZMX_DIR"))
         #expect(!command.contains("ZMX_DIR_MODE"))
