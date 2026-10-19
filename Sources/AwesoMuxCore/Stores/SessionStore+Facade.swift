@@ -1030,6 +1030,7 @@ extension SessionStore {
         title: String? = nil,
         workingDirectory: String? = nil,
         progressReport: TerminalProgressReport? = nil,
+        localShellOwnsTerminal: @autoclosure () -> Bool = false,
         now: Date = Date()
     ) {
         guard let position = position(for: sessionID) else {
@@ -1045,7 +1046,8 @@ extension SessionStore {
                 title: title,
                 workingDirectory: workingDirectory,
                 progressReport: progressReport,
-                localHostnames: localHostnames
+                localHostnames: localHostnames,
+                localShellOwnsTerminal: localShellOwnsTerminal()
             )
         else {
             return
