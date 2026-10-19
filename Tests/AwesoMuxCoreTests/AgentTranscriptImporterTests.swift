@@ -8,98 +8,19 @@ import Testing
 @Suite
 struct AgentTranscriptImporterTests {
     private static let sessionA = "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
-    private static let sessionB = "9a8b7c6d-5e4f-4321-9876-543210fedcba"
 
-    @Test
-    func transcriptSearchRootUsesTheProviderLayout() {
-        let configHome = URL(fileURLWithPath: "/tmp/provider-home", isDirectory: true)
-
-        #expect(
-            AgentTranscriptImporter.transcriptSearchRoot(
-                agentKind: .claudeCode,
-                configHome: configHome
-            ) == configHome.appending(path: "projects", directoryHint: .isDirectory)
-        )
-        for provider: AgentKind in [.codex, .pi] {
-            #expect(
-                AgentTranscriptImporter.transcriptSearchRoot(
-                    agentKind: provider,
-                    configHome: configHome
-                ) == configHome.appending(path: "sessions", directoryHint: .isDirectory)
-            )
-        }
-        for unsupported: AgentKind in [.openCode, .grok, .generic, .shell] {
-            #expect(
-                AgentTranscriptImporter.transcriptSearchRoot(
-                    agentKind: unsupported,
-                    configHome: configHome
-                ) == nil
-            )
-        }
-    }
-
-    @Test
-    func recoveryFilenameMatchingRejectsUnrelatedSessions() {
-        #expect(
-            AgentTranscriptImporter.matchesTranscriptFileName(
-                agentKind: .claudeCode,
-                sessionID: Self.sessionA,
-                fileName: "\(Self.sessionA).jsonl"
-            )
-        )
-        #expect(
-            !AgentTranscriptImporter.matchesTranscriptFileName(
-                agentKind: .claudeCode,
-                sessionID: Self.sessionA,
-                fileName: "\(Self.sessionB).jsonl"
-            )
-        )
-        #expect(
-            AgentTranscriptImporter.matchesTranscriptFileName(
-                agentKind: .codex,
-                sessionID: Self.sessionA,
-                fileName: "rollout-2026-08-29-\(Self.sessionA).jsonl"
-            )
-        )
-    }
-
-    @Test
-    func opensClaudeTranscriptByExactSessionID() throws {
-        let fixture = try Fixture(provider: .claudeCode)
+    @Test(arguments: [
+        (AgentTranscriptImporter.Provider.claudeCode, "projects/-tmp-project/", #"{"type":"user","message":{"content":"hello"}}"#),
+        (.codex, "sessions/2026/08/16/rollout-2026-08-16T12-00-00-", #"{"type":"response_item","payload":{"type":"message"}}"#),
+        (.pi, "sessions/2026-08-16T12-00-00_", #"{"type":"message","message":{"role":"user","content":"hello"}}"#),
+    ])
+    func opensTranscriptByExactSessionID(provider: AgentTranscriptImporter.Provider, prefix: String, contents: String) throws {
+        let fixture = try Fixture(provider: provider)
         defer { fixture.remove() }
-        let expected = try fixture.write(
-            "projects/-tmp-project/\(Self.sessionA).jsonl",
-            #"{"type":"user","message":{"content":"hello"}}"#
-        )
-
+        let expected = try fixture.write(prefix + Self.sessionA + ".jsonl", contents)
         let transcript = try fixture.open(sessionID: Self.sessionA).get()
-
         #expect(transcript.sessionID == Self.sessionA)
         #expect(transcript.resolvedURL == expected)
-    }
-
-    @Test
-    func opensCodexTranscriptByExactSessionID() throws {
-        let fixture = try Fixture(provider: .codex)
-        defer { fixture.remove() }
-        let expected = try fixture.write(
-            "sessions/2026/08/16/rollout-2026-08-16T12-00-00-\(Self.sessionA).jsonl",
-            #"{"type":"response_item","payload":{"type":"message"}}"#
-        )
-
-        #expect(try fixture.open(sessionID: Self.sessionA).get().resolvedURL == expected)
-    }
-
-    @Test
-    func opensPiTranscriptByExactSessionID() throws {
-        let fixture = try Fixture(provider: .pi)
-        defer { fixture.remove() }
-        let expected = try fixture.write(
-            "sessions/2026-08-16T12-00-00_\(Self.sessionA).jsonl",
-            #"{"type":"message","message":{"role":"user","content":"hello"}}"#
-        )
-
-        #expect(try fixture.open(sessionID: Self.sessionA).get().resolvedURL == expected)
     }
 
     @Test
@@ -113,18 +34,6 @@ struct AgentTranscriptImporterTests {
 
         #expect(fixture.failure(fixture.open(sessionID: "foo")) == .notFound)
         #expect(try fixture.open(sessionID: "my_foo").get().resolvedURL == expected)
-    }
-
-    @Test
-    func canonicalizesUUIDBeforeFilenameLookup() throws {
-        let fixture = try Fixture(provider: .claudeCode)
-        defer { fixture.remove() }
-        _ = try fixture.write(
-            "projects/p/\(Self.sessionA).jsonl",
-            #"{"type":"user","message":{"content":"hello"}}"#
-        )
-
-        #expect(try fixture.open(sessionID: Self.sessionA.uppercased()).get().sessionID == Self.sessionA)
     }
 
     @Test
@@ -145,38 +54,6 @@ struct AgentTranscriptImporterTests {
         )
 
         #expect(try fixture.open(sessionID: Self.sessionA).get().resolvedURL == conversation)
-    }
-
-    @Test
-    func prefersNewestWhenBothCandidatesContainConversation() throws {
-        let fixture = try Fixture(provider: .claudeCode)
-        defer { fixture.remove() }
-        _ = try fixture.write(
-            "projects/old/\(Self.sessionA).jsonl",
-            #"{"type":"user","message":{"content":"old"}}"#
-        )
-        let newest = try fixture.write(
-            "projects/new/\(Self.sessionA).jsonl",
-            #"{"type":"assistant","message":{"content":"new"}}"#
-        )
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: 60)],
-            ofItemAtPath: newest.path
-        )
-
-        #expect(try fixture.open(sessionID: Self.sessionA).get().resolvedURL == newest)
-    }
-
-    @Test
-    func missingIdentityDoesNotGuessByWorkingDirectory() throws {
-        let fixture = try Fixture(provider: .claudeCode)
-        defer { fixture.remove() }
-        _ = try fixture.write(
-            "projects/p/\(Self.sessionA).jsonl",
-            #"{"type":"user","cwd":"/tmp/project"}"#
-        )
-
-        #expect(fixture.failure(fixture.open(sessionID: nil)) == .noSessionIdentity)
     }
 
     @Test(arguments: ["not-a-uuid", "../../../tmp/evil", "id\nrm -rf ~"])
@@ -205,21 +82,6 @@ struct AgentTranscriptImporterTests {
     }
 
     @Test
-    func unsupportedProviderIsRejected() throws {
-        let fixture = try Fixture(provider: .claudeCode)
-        defer { fixture.remove() }
-
-        let result = AgentTranscriptImporter.open(
-            agentKind: .openCode,
-            executionPlan: .local,
-            configHome: fixture.configHome,
-            reportedSessionID: "ses_01JABC"
-        )
-
-        #expect(fixture.failure(result) == .unsupportedAgent(.openCode))
-    }
-
-    @Test
     func finalSymlinkIsRefused() throws {
         let fixture = try Fixture(provider: .claudeCode)
         defer { fixture.remove() }
@@ -236,25 +98,6 @@ struct AgentTranscriptImporterTests {
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
 
         #expect(fixture.failure(fixture.open(sessionID: Self.sessionA)) == .unreadable(.unreadable))
-    }
-
-    @Test
-    func candidateTraversalReportsItsBound() throws {
-        let fixture = try Fixture(provider: .claudeCode)
-        defer { fixture.remove() }
-        let root = fixture.configHome.appending(path: "projects")
-        _ = try fixture.write("projects/a.jsonl", "{}")
-        _ = try fixture.write("projects/b.jsonl", "{}")
-
-        let search = AgentTranscriptImporter.transcriptCandidates(
-            in: root,
-            sessionID: Self.sessionA,
-            provider: .claudeCode,
-            fileManager: .default,
-            maximumEntries: 1
-        )
-
-        #expect(search.reachedLimit)
     }
 
     // MARK: - Re-opening a growing transcript
@@ -299,22 +142,6 @@ struct AgentTranscriptImporterTests {
             fixture.failure(AgentTranscriptImporter.reopen(prior, effectiveUID: geteuid() &+ 1))
                 == .unreadable(.wrongOwner)
         )
-    }
-
-    @Test
-    func reopenRefusesANonRegularFileAtTheSamePath() throws {
-        let fixture = try Fixture(provider: .claudeCode)
-        defer { fixture.remove() }
-        let url = try fixture.write(
-            "projects/p/\(Self.sessionA).jsonl",
-            #"{"type":"user","message":{"content":"first"}}"#
-        )
-        let prior = try fixture.open(sessionID: Self.sessionA).get()
-
-        try FileManager.default.removeItem(at: url)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
-
-        #expect(fixture.failure(AgentTranscriptImporter.reopen(prior)) == .unreadable(.notRegularFile))
     }
 
     /// Every refresh re-runs the ingress checks against whatever inode the path

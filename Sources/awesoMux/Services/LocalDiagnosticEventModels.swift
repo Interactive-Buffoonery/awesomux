@@ -85,8 +85,6 @@ struct LocalDiagnosticEventSnapshot: Equatable, Sendable {
     let warningCount: Int
     let malformedOrDroppedCount: Int
 
-    var issueCount: Int { errorCount + warningCount }
-
     init(events: [LocalDiagnosticEvent]) {
         self.events = events
         var errorCount = 0

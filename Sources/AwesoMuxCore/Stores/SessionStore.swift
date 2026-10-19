@@ -86,7 +86,9 @@ public final class SessionStore {
     /// Mutates group storage in place **without** publishing: no `access`, no
     /// `withMutation`, so no observer of `groups` is woken.
     ///
-    /// Exclusively for display-only OSC title writes (issue #311). Storage stays
+    /// Used for display-only OSC title writes (issue #311) and one-time color
+    /// normalization during initialization or an already-published structural commit.
+    /// For title writes, storage stays
     /// current, so every consumer that reads `session.title` / `pane.title` off
     /// the struct still sees the new value on its next render — the write simply
     /// stops *being* the thing that schedules that render, which is the whole

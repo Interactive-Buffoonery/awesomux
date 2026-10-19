@@ -1,12 +1,143 @@
-@testable import AwesoMuxCore
 import Testing
+@testable import AwesoMuxCore
 
 @Suite("PlanAnnotationWriter")
 struct PlanAnnotationWriterTests {
-    @Test("existingIDs collects AMX and legacy ids")
-    func existingIDs() {
-        let src = "<mark>a</mark><!-- AMX id=q3k7 by=user: x --> <mark>b</mark><!-- USER COMMENT 2: y -->"
-        #expect(PlanAnnotationWriter.existingIDs(in: src) == ["q3k7", "2"])
+    enum Operation { case resolve, edit, reply, remove, document }
+
+    private func apply(_ operation: Operation, source: String, id: String, author: PlanAnnotationAuthor = .user, payload: String) -> String?
+    {
+        switch operation {
+        case .resolve: return PlanAnnotationWriter.updatingAnnotation(id: id, in: source) { $0.status = .resolved }
+        case .edit: return PlanAnnotationWriter.updatingAnnotation(id: id, in: source) { $0.payload = payload }
+        case .reply: return PlanAnnotationWriter.appendingNote(to: id, in: source, author: author, payload: payload)
+        case .remove: return PlanAnnotationWriter.removingAnnotation(id: id, in: source)
+        case .document:
+            return PlanAnnotationWriter.appendingDocumentAnnotation(in: source, author: author, payload: payload, id: id)?.source
+        }
+    }
+
+    @Test(arguments: [
+        (
+            "pre <mark>a</mark><!-- AMX id=q3k7 by=user: note --> post", Operation.resolve, "q3k7", PlanAnnotationAuthor.user, "",
+            "pre <mark>a</mark><!-- AMX id=q3k7 by=user status=resolved: note --> post"
+        ),
+        (
+            "<mark>a</mark><!-- USER COMMENT 3: old \\| note --> tail", .edit, "3", .user, "new note",
+            "<mark>a</mark><!-- AMX id=3 by=user: new note --> tail"
+        ),
+        (
+            "<mark>a</mark><!-- AMX id=q3k7 by=user: note --> tail", .reply, "q3k7", .claudeCode, "done",
+            "<mark>a</mark><!-- AMX id=q3k7 by=user: note --><!-- AMX re=q3k7 by=claude-code: done --> tail"
+        ),
+        ("text\n", .reply, "gone", .user, "late reply", "text\n\n<!-- AMX re=gone by=user: late reply -->\n"),
+        (
+            "see <mark>this</mark><!-- AMX id=q3k7 by=user: note --><!-- AMX re=q3k7 by=codex: reply --> ok", .remove, "q3k7", .user, "",
+            "see this ok"
+        ),
+        (
+            "<mark>a</mark><!-- AMX id=aa11 by=user: one --> mid <mark>b</mark><!-- AMX id=bb22 by=user: two -->", .remove, "bb22", .user,
+            "", "<mark>a</mark><!-- AMX id=aa11 by=user: one --> mid b"
+        ),
+        (
+            "<mark>x</mark><!-- USER COMMENT 3: old --> tail", .reply, "3", .claudeCode, "done",
+            "<mark>x</mark><!-- AMX id=3 by=user: old --><!-- AMX re=3 by=claude-code: done --> tail"
+        ),
+        (
+            "plan text\n", .document, "w8p2", .codex, "overall: needs rollback",
+            "plan text\n\n<!-- AMX id=w8p2 by=codex: overall: needs rollback -->\n"
+        ),
+        (
+            "> context\n>\n> <!-- AMX id=w8p2 by=user: rollback missing -->\n", .resolve, "w8p2", .user, "",
+            "> context\n>\n> <!-- AMX id=w8p2 by=user status=resolved: rollback missing -->\n"
+        ),
+        (
+            "text\n\n<!-- AMX id=w8p2 by=user: doc note -->\n", .reply, "w8p2", .codex, "ack",
+            "text\n\n<!-- AMX id=w8p2 by=user: doc note -->\n<!-- AMX re=w8p2 by=codex: ack -->\n"
+        ),
+    ])
+    func exactOperations(source: String, operation: Operation, id: String, author: PlanAnnotationAuthor, payload: String, expected: String)
+        throws
+    {
+        let output = try #require(apply(operation, source: source, id: id, author: author, payload: payload))
+        #expect(output == expected)
+        let annotation = AttributedMarkdownBuilder.build(output).annotation(id: id)
+        if operation == .document || (operation == .reply && id == "w8p2") {
+            #expect(annotation?.anchor == .document)
+        }
+        if operation == .edit || operation == .document {
+            #expect(annotation?.payload == payload)
+            #expect(annotation?.isLegacy == false)
+        }
+        if operation == .reply && id != "gone" {
+            #expect(annotation?.notes == [.init(author: author, payload: payload)])
+            #expect(annotation?.isLegacy == false)
+        }
+    }
+
+    enum Refusal: CaseIterable { case secondDocument, unknownUpdate, unknownRemoval, emptySpan, oversized, duplicate }
+
+    @Test(arguments: Refusal.allCases)
+    func refusedWrites(reason: Refusal) {
+        switch reason {
+        case .secondDocument:
+            #expect(
+                PlanAnnotationWriter.appendingDocumentAnnotation(
+                    in: "# Plan\n\n<!-- AMX id=w8p2 by=user: overall note -->\n", author: .user, payload: "another note") == nil)
+        case .unknownUpdate:
+            #expect(PlanAnnotationWriter.updatingAnnotation(id: "none", in: "text") { _ in } == nil)
+        case .unknownRemoval:
+            #expect(PlanAnnotationWriter.removingAnnotation(id: "none", in: "text") == nil)
+        case .emptySpan:
+            #expect(PlanAnnotationWriter.insertingAnnotation(in: "hello", span: 2..<2, author: .user, payload: "x") == nil)
+        case .oversized:
+            let payload = String(repeating: "a", count: PlanAnnotationMarker.maxPayloadBytes + 1)
+            #expect(PlanAnnotationWriter.insertingAnnotation(in: "text", span: 0..<1, author: .user, payload: payload) == nil)
+            #expect(PlanAnnotationWriter.appendingDocumentAnnotation(in: "text", author: .user, payload: payload) == nil)
+            #expect(PlanAnnotationWriter.appendingNote(to: "gone", in: "text", author: .user, payload: payload) == nil)
+        case .duplicate:
+            let source = "<!-- AMX id=q3k7 by=user: smuggled -->\n\n<mark>x</mark><!-- AMX id=q3k7 by=user: real -->"
+            #expect(PlanAnnotationWriter.removingAnnotation(id: "q3k7", in: source) == nil)
+            #expect(PlanAnnotationWriter.updatingAnnotation(id: "q3k7", in: source) { $0.status = .resolved } == nil)
+            #expect(PlanAnnotationWriter.appendingNote(to: "q3k7", in: source, author: .user, payload: "x") == nil)
+        }
+    }
+
+    @Test(arguments: [
+        ("<!-- AMX id=w8p2 by=user status=resolved: old note -->\n", Operation.edit, "w8p2", "updated note"),
+        ("<mark>a</mark><!-- AMX id=q3k7 by=user status=resolved: note --> tail", .reply, "q3k7", "actually, revert"),
+    ])
+    func reopensResolved(source: String, operation: Operation, id: String, payload: String) throws {
+        let output = try #require(apply(operation, source: source, id: id, payload: payload))
+        let annotation = try #require(AttributedMarkdownBuilder.build(output).annotation(id: id))
+        #expect(annotation.status == .open)
+        if operation == .edit {
+            #expect(annotation.payload == payload)
+            #expect(annotation.anchor == .document)
+        } else {
+            #expect(annotation.notes == [.init(author: .user, payload: payload)])
+        }
+    }
+
+    @Test(arguments: [
+        ("# Plan\n", Operation.document, "w8p2", ["First paragraph.\n\nSecond paragraph."]),
+        ("<!-- AMX id=w8p2 by=user: root -->\n", .reply, "w8p2", ["Reply one.\n\nReply two."]),
+        ("<mark>a</mark><!-- AMX id=q3k7 by=user: note -->", .reply, "q3k7", ["first reply", "second reply"]),
+    ])
+    func multilineAndOrderedNotes(source: String, operation: Operation, id: String, payloads: [String]) throws {
+        var output = source
+        for (index, payload) in payloads.enumerated() {
+            output = try #require(
+                apply(operation, source: output, id: id, author: payloads.count > 1 && index == 0 ? .codex : .user, payload: payload))
+        }
+        let annotation = try #require(AttributedMarkdownBuilder.build(output).annotation(id: id))
+        if payloads.count == 1 { #expect(output.contains("encoding=lines")) }
+        if operation == .document {
+            #expect(annotation.payload == payloads[0])
+        } else {
+            #expect(annotation.notes.map(\.payload) == payloads)
+            #expect(annotation.notes.map(\.author) == (payloads.count > 1 ? [.codex, .user] : [.user]))
+        }
     }
 
     @Test("insertingAnnotation wraps the span and round-trips through the builder")
@@ -34,147 +165,6 @@ struct PlanAnnotationWriterTests {
         #expect(id.utf8.contains { $0 >= UInt8(ascii: "a") && $0 <= UInt8(ascii: "z") })
     }
 
-    @Test("appendingDocumentAnnotation lands own-line and parses as document-level")
-    func appendDocument() throws {
-        let (out, id) = try #require(PlanAnnotationWriter.appendingDocumentAnnotation(
-            in: "plan text\n", author: .codex, payload: "overall: needs rollback"
-        ))
-        #expect(out == "plan text\n\n<!-- AMX id=\(id) by=codex: overall: needs rollback -->\n")
-        let annotation = try #require(AttributedMarkdownBuilder.build(out).annotation(id: id))
-        #expect(annotation.anchor == .document)
-        #expect(annotation.payload == "overall: needs rollback")
-    }
-
-    @Test("document annotations preserve paragraph breaks in a single-line marker")
-    func appendMultilineDocument() throws {
-        let payload = "First paragraph.\n\nSecond paragraph."
-        let result = try #require(PlanAnnotationWriter.appendingDocumentAnnotation(
-            in: "# Plan\n", author: .user, payload: payload, id: "w8p2"
-        ))
-
-        #expect(result.source.contains("encoding=lines"))
-        #expect(AttributedMarkdownBuilder.build(result.source).annotation(id: "w8p2")?.payload == payload)
-    }
-
-    @Test("a second document note is refused")
-    func refusesSecondDocumentNote() {
-        let source = "# Plan\n\n<!-- AMX id=w8p2 by=user: overall note -->\n"
-
-        #expect(PlanAnnotationWriter.appendingDocumentAnnotation(
-            in: source,
-            author: .user,
-            payload: "another note"
-        ) == nil)
-    }
-
-    @Test("updatingAnnotation flips status without touching surroundings")
-    func statusFlip() throws {
-        let src = "pre <mark>a</mark><!-- AMX id=q3k7 by=user: note --> post"
-        let out = try #require(PlanAnnotationWriter.updatingAnnotation(id: "q3k7", in: src) {
-            $0.status = .resolved
-        })
-        #expect(out == "pre <mark>a</mark><!-- AMX id=q3k7 by=user status=resolved: note --> post")
-    }
-
-    @Test("editing a resolved annotation reopens it")
-    func editReopensResolvedAnnotation() throws {
-        let source = "<!-- AMX id=w8p2 by=user status=resolved: old note -->\n"
-        let output = try #require(PlanAnnotationWriter.updatingAnnotation(id: "w8p2", in: source) {
-            $0.payload = "updated note"
-        })
-
-        let annotation = try #require(AttributedMarkdownBuilder.build(output).documentNote)
-        #expect(annotation.payload == "updated note")
-        #expect(annotation.status == .open)
-    }
-
-    @Test("updatingAnnotation upgrades a legacy marker to AMX form, keeping its id")
-    func legacyUpgrade() throws {
-        let src = "<mark>a</mark><!-- USER COMMENT 3: old \\| note --> tail"
-        let out = try #require(PlanAnnotationWriter.updatingAnnotation(id: "3", in: src) {
-            $0.payload = "new note"
-        })
-        #expect(out == "<mark>a</mark><!-- AMX id=3 by=user: new note --> tail")
-        let doc = AttributedMarkdownBuilder.build(out)
-        #expect(doc.annotation(id: "3")?.payload == "new note")
-        #expect(doc.annotation(id: "3")?.isLegacy == false)
-    }
-
-    @Test("updatingAnnotation returns nil for an unknown id")
-    func updateUnknownID() {
-        #expect(PlanAnnotationWriter.updatingAnnotation(id: "none", in: "text") { _ in } == nil)
-    }
-
-    @Test("appendingNote after a span marker stays inline and attaches")
-    func noteAfterSpanMarker() throws {
-        let src = "<mark>a</mark><!-- AMX id=q3k7 by=user: note --> tail"
-        let out = try #require(PlanAnnotationWriter.appendingNote(
-            to: "q3k7", in: src, author: .claudeCode, payload: "done"
-        ))
-        #expect(out == "<mark>a</mark><!-- AMX id=q3k7 by=user: note --><!-- AMX re=q3k7 by=claude-code: done --> tail")
-        let annotation = try #require(AttributedMarkdownBuilder.build(out).annotation(id: "q3k7"))
-        #expect(annotation.notes == [.init(author: .claudeCode, payload: "done")])
-    }
-
-    @Test("an empty span is refused, fail-closed")
-    func emptySpanIsRefused() {
-        #expect(PlanAnnotationWriter.insertingAnnotation(in: "hello", span: 2 ..< 2, author: .user, payload: "x") == nil)
-    }
-
-    @Test("replying to a resolved annotation reopens it in the same write")
-    func replyReopensResolvedParent() throws {
-        let src = "<mark>a</mark><!-- AMX id=q3k7 by=user status=resolved: note --> tail"
-        let out = try #require(PlanAnnotationWriter.appendingNote(
-            to: "q3k7", in: src, author: .user, payload: "actually, revert"
-        ))
-        let annotation = try #require(AttributedMarkdownBuilder.build(out).annotation(id: "q3k7"))
-        #expect(annotation.status == .open)
-        #expect(annotation.notes == [.init(author: .user, payload: "actually, revert")])
-    }
-
-    @Test("thread replies preserve paragraph breaks")
-    func appendMultilineReply() throws {
-        let source = "<!-- AMX id=w8p2 by=user: root -->\n"
-        let payload = "Reply one.\n\nReply two."
-        let output = try #require(PlanAnnotationWriter.appendingNote(
-            to: "w8p2", in: source, author: .user, payload: payload
-        ))
-
-        #expect(output.contains("encoding=lines"))
-        #expect(AttributedMarkdownBuilder.build(output).annotation(id: "w8p2")?.notes.first?.payload == payload)
-    }
-
-    @Test("appending notes preserves their file order")
-    func notesAppendInOrder() throws {
-        let first = "<mark>a</mark><!-- AMX id=q3k7 by=user: note -->"
-        let second = try #require(PlanAnnotationWriter.appendingNote(
-            to: "q3k7", in: first, author: .codex, payload: "first reply"
-        ))
-        let third = try #require(PlanAnnotationWriter.appendingNote(
-            to: "q3k7", in: second, author: .user, payload: "second reply"
-        ))
-        #expect(AttributedMarkdownBuilder.build(third).annotation(id: "q3k7")?.notes.map(\.payload) == ["first reply", "second reply"])
-    }
-
-    @Test("oversized payloads are refused before a writer can create an inert marker")
-    func oversizedPayloadIsRefused() {
-        let payload = String(repeating: "a", count: PlanAnnotationMarker.maxPayloadBytes + 1)
-        #expect(PlanAnnotationWriter.insertingAnnotation(in: "text", span: 0 ..< 1, author: .user, payload: payload) == nil)
-        #expect(PlanAnnotationWriter.appendingDocumentAnnotation(in: "text", author: .user, payload: payload) == nil)
-        #expect(PlanAnnotationWriter.appendingNote(to: "gone", in: "text", author: .user, payload: payload) == nil)
-    }
-
-    @Test("appendingNote after an own-line marker takes its own line and still parses")
-    func noteAfterDocumentMarker() throws {
-        let src = "text\n\n<!-- AMX id=w8p2 by=user: doc note -->\n"
-        let out = try #require(PlanAnnotationWriter.appendingNote(
-            to: "w8p2", in: src, author: .codex, payload: "ack"
-        ))
-        let annotation = try #require(AttributedMarkdownBuilder.build(out).annotation(id: "w8p2"))
-        #expect(annotation.anchor == .document)
-        #expect(annotation.notes == [.init(author: .codex, payload: "ack")])
-    }
-
     @Test("appendingNote after an own-line marker in a CRLF file takes its own line")
     func noteAfterDocumentMarkerCRLF() throws {
         // The \r before the \n is line-ending whitespace; treating it as
@@ -189,21 +179,6 @@ struct PlanAnnotationWriterTests {
         #expect(annotation.notes == [.init(author: .codex, payload: "ack")])
     }
 
-    @Test("appendingNote falls back to end-of-file when the marker is gone")
-    func noteFallbackAppends() throws {
-        let out = try #require(PlanAnnotationWriter.appendingNote(
-            to: "gone", in: "text\n", author: .user, payload: "late reply"
-        ))
-        #expect(out == "text\n\n<!-- AMX re=gone by=user: late reply -->\n")
-    }
-
-    @Test("removingAnnotation unwraps the mark and removes thread notes")
-    func removeSpanWithNotes() throws {
-        let src = "see <mark>this</mark><!-- AMX id=q3k7 by=user: note --><!-- AMX re=q3k7 by=codex: reply --> ok"
-        let out = try #require(PlanAnnotationWriter.removingAnnotation(id: "q3k7", in: src))
-        #expect(out == "see this ok")
-    }
-
     @Test("removingAnnotation drops an own-line document marker without a blank gap")
     func removeDocumentLevel() throws {
         let src = "para one\n\n<!-- AMX id=w8p2 by=user: doc note -->\n<!-- AMX re=w8p2 by=codex: reply -->\n\npara two\n"
@@ -212,20 +187,6 @@ struct PlanAnnotationWriterTests {
         #expect(doc.annotations.isEmpty)
         #expect(doc.runs.map(\.text).joined() == "para one\n\npara two")
     }
-
-    @Test("removingAnnotation returns nil for an unknown id")
-    func removeUnknownID() {
-        #expect(PlanAnnotationWriter.removingAnnotation(id: "none", in: "text") == nil)
-    }
-
-    @Test("removal of the second of two annotations leaves the first intact")
-    func removalStaysLocal() throws {
-        let src = "<mark>a</mark><!-- AMX id=aa11 by=user: one --> mid <mark>b</mark><!-- AMX id=bb22 by=user: two -->"
-        let out = try #require(PlanAnnotationWriter.removingAnnotation(id: "bb22", in: src))
-        #expect(out == "<mark>a</mark><!-- AMX id=aa11 by=user: one --> mid b")
-    }
-
-    // MARK: Adversarial hardening (review convergence)
 
     @Test("marker-shaped text inside a code fence is never a write target")
     func fencedExampleTextIsImmune() {
@@ -236,43 +197,9 @@ struct PlanAnnotationWriterTests {
         <!-- AMX id=fake by=user: example text in docs -->
         ```
         """
-        #expect(PlanAnnotationWriter.existingIDs(in: src) == ["q3k7"])
+        #expect(PlanAnnotationWriter.existingIDs(in: src + "\n\n<mark>b</mark><!-- USER COMMENT 2: y -->") == ["q3k7", "2"])
         #expect(PlanAnnotationWriter.removingAnnotation(id: "fake", in: src) == nil)
         #expect(PlanAnnotationWriter.updatingAnnotation(id: "fake", in: src) { _ in } == nil)
-    }
-
-    @Test("duplicate ids refuse every write, fail-closed")
-    func duplicateIDsRefuseWrites() {
-        let src = """
-        <!-- AMX id=q3k7 by=user: smuggled -->
-
-        <mark>x</mark><!-- AMX id=q3k7 by=user: real -->
-        """
-        #expect(PlanAnnotationWriter.removingAnnotation(id: "q3k7", in: src) == nil)
-        #expect(PlanAnnotationWriter.updatingAnnotation(id: "q3k7", in: src) { $0.status = .resolved } == nil)
-        #expect(PlanAnnotationWriter.appendingNote(to: "q3k7", in: src, author: .user, payload: "x") == nil)
-    }
-
-    @Test("replying to a legacy annotation upgrades the parent to AMX form")
-    func replyUpgradesLegacyParent() throws {
-        let src = "<mark>x</mark><!-- USER COMMENT 3: old --> tail"
-        let out = try #require(PlanAnnotationWriter.appendingNote(
-            to: "3", in: src, author: .claudeCode, payload: "done"
-        ))
-        #expect(out == "<mark>x</mark><!-- AMX id=3 by=user: old --><!-- AMX re=3 by=claude-code: done --> tail")
-        let doc = AttributedMarkdownBuilder.build(out)
-        let annotation = try #require(doc.annotation(id: "3"))
-        #expect(annotation.isLegacy == false)
-        #expect(annotation.notes == [.init(author: .claudeCode, payload: "done")])
-    }
-
-    @Test("a document-level marker inside a blockquote is a real write target")
-    func blockquoteMarkerIsWritable() throws {
-        let src = "> context\n>\n> <!-- AMX id=w8p2 by=user: rollback missing -->\n"
-        let out = try #require(PlanAnnotationWriter.updatingAnnotation(id: "w8p2", in: src) {
-            $0.status = .resolved
-        })
-        #expect(out.contains("> <!-- AMX id=w8p2 by=user status=resolved: rollback missing -->"))
     }
 
     @Test("HTML markers keep Unicode byte ranges and fence opacity")

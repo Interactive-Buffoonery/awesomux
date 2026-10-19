@@ -31,11 +31,14 @@ extension RemoteHandoffTests {
             #expect(!FileManager.default.fileExists(atPath: fixture.acquiredURL!.path))
         }
 
-        @Test("GNU stat fallback discards failed output and still rejects unsafe directories", arguments: [false, true])
-        func linuxStatValidation(unsafeLayout: Bool) async throws {
-            let fixture = try Fixture(gnuStat: true)
+        @Test("BSD and GNU stat validation installs safely and rejects unsafe directories", arguments: [false, true], [false, true])
+        func linuxStatValidation(unsafeLayout: Bool, gnuStat: Bool) async throws {
+            let fixture = try Fixture(gnuStat: gnuStat)
             if unsafeLayout {
                 #expect(chmod(fixture.home.appendingPathComponent(".awesomux").path, 0o755) == 0)
+                if !gnuStat {
+                    #expect(chmod(fixture.home.appendingPathComponent(".awesomux/bin").path, 0o755) == 0)
+                }
                 await #expect(throws: RemoteHelperInstaller.Failure.unsafeRemoteLayout) {
                     try await fixture.run()
                 }
@@ -46,20 +49,14 @@ extension RemoteHandoffTests {
             }
         }
 
-        @Test("Compatible helpers proceed without acquisition or installation")
-        func compatibleHelper() async throws {
+        @Test("existing capability gates all installation", arguments: [RemoteHelperInstaller.Capability.supported, .probeFailed])
+        func existingCapability(capability: RemoteHelperInstaller.Capability) async throws {
             let fixture = try Fixture()
-            fixture.initialCapability = .supported
-            #expect(try await fixture.run() == .readyToTransfer)
-            #expect(fixture.events == ["probe"])
-        }
-
-        @Test("Probe failure does not offer installation")
-        func probeFailure() async throws {
-            let fixture = try Fixture()
-            fixture.initialCapability = .probeFailed
-            await #expect(throws: RemoteHelperInstaller.Failure.helperProbeFailed) {
-                try await fixture.run()
+            fixture.initialCapability = capability
+            if capability == .supported {
+                #expect(try await fixture.run() == .readyToTransfer)
+            } else {
+                await #expect(throws: RemoteHelperInstaller.Failure.helperProbeFailed) { try await fixture.run() }
             }
             #expect(fixture.events == ["probe"])
         }
@@ -78,13 +75,15 @@ extension RemoteHandoffTests {
         @Test(
             "Stale pane or host stops after each suspension",
             arguments: ["initial", "probe", "platform", "consent", "acquire", "install", "verify"],
-            ["pane", "host"])
+            ["pane", "host", "cancel"])
         func staleAuthority(stage: String, replacement: String) async throws {
             let fixture = try Fixture()
             defer { fixture.afterStage = { _ in } }
             fixture.afterStage = { currentStage in
                 guard currentStage == stage else { return }
-                if replacement == "pane" {
+                if replacement == "cancel" {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                } else if replacement == "pane" {
                     fixture.pane.terminalSessionID = .generate()
                 } else {
                     fixture.pane.executionPlan = .ssh(
@@ -92,25 +91,12 @@ extension RemoteHandoffTests {
                     )
                 }
             }
-            await #expect(throws: RemoteHandoff.Failure.destinationChanged) {
-                try await fixture.run()
-            }
-            assertStopped(fixture, after: stage)
-        }
-
-        @Test(
-            "Cancellation stops after each suspension",
-            arguments: ["initial", "probe", "platform", "consent", "acquire", "install", "verify"])
-        func cancellation(stage: String) async throws {
-            let fixture = try Fixture()
-            defer { fixture.afterStage = { _ in } }
-            fixture.afterStage = { currentStage in
-                if currentStage == stage {
-                    withUnsafeCurrentTask { $0?.cancel() }
-                }
-            }
             let task = Task { try await fixture.run() }
-            await #expect(throws: CancellationError.self) { try await task.value }
+            if replacement == "cancel" {
+                await #expect(throws: CancellationError.self) { try await task.value }
+            } else {
+                await #expect(throws: RemoteHandoff.Failure.destinationChanged) { try await task.value }
+            }
             assertStopped(fixture, after: stage)
         }
 
@@ -129,29 +115,20 @@ extension RemoteHandoffTests {
             }
         }
 
-        @Test("Checksum request failure cleans a successful concurrent binary download")
-        func checksumRequestFailure() async throws {
+        @Test("failed checksum acquisition cleans or cancels the binary", arguments: [false, true])
+        func checksumFailure(suspendBinary: Bool) async throws {
             let fixture = try Fixture()
             fixture.checksumRequestFails = true
-            await #expect(throws: RemoteHelperInstaller.Failure.releaseArtifactUnavailable) {
-                try await fixture.run()
-            }
-            #expect(!FileManager.default.fileExists(atPath: fixture.downloadURL.path))
-            #expect(try Data(contentsOf: fixture.installedURL) == fixture.previous)
-            #expect(fixture.events == ["probe", "platform", "consent", "acquire"])
-        }
-
-        @Test("Checksum request failure cancels an in-flight binary download")
-        func checksumFailureCancelsBinary() async throws {
-            let fixture = try Fixture()
-            fixture.checksumRequestFails = true
-            fixture.suspendBinaryDownload = true
-            await #expect(throws: RemoteHelperInstaller.Failure.releaseArtifactUnavailable) {
-                try await fixture.run()
-            }
-            #expect(await fixture.downloadCancellation.wasCancelled)
+            fixture.suspendBinaryDownload = suspendBinary
+            await #expect(throws: RemoteHelperInstaller.Failure.releaseArtifactUnavailable) { try await fixture.run() }
             #expect(try Data(contentsOf: fixture.installedURL) == fixture.previous)
             #expect(!fixture.events.contains("install"))
+            if suspendBinary {
+                #expect(await fixture.downloadCancellation.wasCancelled)
+            } else {
+                #expect(!FileManager.default.fileExists(atPath: fixture.downloadURL.path))
+                #expect(fixture.events == ["probe", "platform", "consent", "acquire"])
+            }
         }
 
         @Test("Failed staged replacement preserves the old helper and removes temporary files")

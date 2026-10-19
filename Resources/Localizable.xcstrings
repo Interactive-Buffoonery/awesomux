@@ -1058,9 +1058,6 @@
     "Bridge" : {
       "comment" : "Diagnostics process type"
     },
-    "Bridge handshake" : {
-      "comment" : "Bridge doctor check title"
-    },
     "Build" : {
       "comment" : "About window field label for the source revision hash"
     },
@@ -1160,6 +1157,9 @@
     },
     "Change Access…" : {
 
+    },
+    "Changes for %arg opened in another tab." : {
+      "comment" : "Notice text when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
     },
     "Changes: %arg vs %arg — %arg" : {
       "comment" : "Document tab title for a rendered branch diff, e.g. 'Changes: feature/x vs origin/main — awesomux'",
@@ -2358,8 +2358,8 @@
     "File-read destination" : {
       "comment" : "Label for the independently authorized SSH file-read destination"
     },
-    "Files" : {
-
+    "Filled in from the terminal's reported directory. Check it, or replace the path with a full /… or ~/… path." : {
+      "comment" : "Help for a remote relative link whose base directory was prefilled from the terminal's reported cwd"
     },
     "Filters workspaces by title or location. Agent state tokens: %arg. Use needs for Needs input workspaces. Use Up and Down Arrow to focus a result, Return to open it, or Escape to clear." : {
       "comment" : "Sidebar search help. Keep the interpolated canonical English agent-state tokens unchanged."
@@ -2804,9 +2804,6 @@
     },
     "Local document paths can only be sent to a local terminal" : {
       "comment" : "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
-    },
-    "Local listener permissions" : {
-      "comment" : "Bridge doctor check title"
     },
     "Local network" : {
       "comment" : "Companion LAN choice."
@@ -3998,6 +3995,12 @@
     "Refresh all" : {
       "comment" : "Diagnostics refresh button"
     },
+    "Refresh canceled" : {
+      "comment" : "Notice heading when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
+    },
+    "Refresh canceled. Branch changes opened in another tab." : {
+      "comment" : "VoiceOver announcement when Show Branch Changes cancels a tab's in-flight Refresh and opens its newer comparison in a different tab"
+    },
     "Refresh failed. The last successful process snapshot is still shown." : {
       "comment" : "Diagnostics failed refresh status"
     },
@@ -4097,7 +4100,7 @@
       }
     },
     "Remote helper" : {
-      "comment" : "Bridge doctor check title\nRemote helper installation preference label"
+      "comment" : "Remote helper installation preference label"
     },
     "Remote helper installation cancelled" : {
       "comment" : "Remote helper installation cancellation accessibility status"
@@ -4157,12 +4160,6 @@
     },
     "Remote snapshot from %arg" : {
       "comment" : "Help text for the Files toggle when the visible document is a read-only remote snapshot"
-    },
-    "Remote socket permissions" : {
-      "comment" : "Bridge doctor check title"
-    },
-    "Remote terminal works; rich agent features are off." : {
-      "comment" : "Bridge doctor degradation banner when the bridge is down"
     },
     "Remote working directory unavailable." : {
 
@@ -4550,9 +4547,6 @@
     "Runtime issues plus restore, configuration, and terminal outcomes from this launch." : {
       "comment" : "Diagnostics settings section subtitle"
     },
-    "SSH Unix-socket forwarding is disabled on the remote host." : {
-      "comment" : "Bridge doctor failure reason"
-    },
     "SSH connection failed" : {
       "comment" : "Title on the overlay covering a remote pane whose SSH connection failed or ended"
     },
@@ -4581,9 +4575,6 @@
     },
     "SSH destination" : {
 
-    },
-    "SSH forwarding" : {
-      "comment" : "Bridge doctor check title"
     },
     "SSH to a destination below reconnects as managed without asking. Destinations added here persist locally; to have the remote host own the session, answer the prompt on a live connection instead. Removing one restores the usual prompt for it." : {
       "comment" : "Workspace settings hint."
@@ -4990,9 +4981,6 @@
     "Startup" : {
       "comment" : "General settings title."
     },
-    "State file custody" : {
-      "comment" : "Bridge doctor check title"
-    },
     "Steady" : {
       "comment" : "Diagnostics resource trend"
     },
@@ -5205,14 +5193,8 @@
     "The app wasn't added, and awesoMux couldn't remove its unused Keychain key." : {
 
     },
-    "The awesoMux remote helper is missing or reports an incompatible protocol version." : {
-      "comment" : "Bridge doctor failure reason"
-    },
     "The badge uses your accent color when a workspace needs acknowledgement or has an unanswered turn." : {
       "comment" : "Menu bar attention badge settings hint"
-    },
-    "The bridge handshake did not complete." : {
-      "comment" : "Bridge doctor failure reason"
     },
     "The bundled remote helper is unavailable" : {
       "comment" : "Bundled helper unavailable title"
@@ -5386,14 +5368,8 @@
     "The pull request lookup reached its result limit. Open the intended pull request on GitHub." : {
       "comment" : "Reason a connected pull request document could not open"
     },
-    "The remote bridge socket is group- or world-accessible." : {
-      "comment" : "Bridge doctor failure reason"
-    },
     "The remote file has grown past the %arg MB limit, so it stopped refreshing. Showing the last version that fit." : {
       "comment" : "Document banner when a remote snapshot stops refreshing because the remote file is over the cap; the placeholder is the cap in whole megabytes"
-    },
-    "The remote helper cannot read the bridge state file under its custody rules." : {
-      "comment" : "Bridge doctor failure reason"
     },
     "The remote helper download could not be verified" : {
       "comment" : "Remote helper release checksum failure title"
@@ -6105,9 +6081,6 @@
     "awesoMux connected to the host but could not read %arg." : {
       "comment" : "Body of the missing remote Markdown page; the placeholder is the remote origin"
     },
-    "awesoMux could not create an owner-only local listener." : {
-      "comment" : "Bridge doctor failure reason"
-    },
     "awesoMux could not establish a trusted remote path for this link." : {
       "comment" : "Explanation for rejecting an unsafe or unresolved remote Markdown path"
     },
@@ -6440,7 +6413,7 @@
       }
     },
     "shell" : {
-      "comment" : "Fallback session title prefix for an unnamed shell session, e.g. \"shell 1\"\nFallback workspace title noun for an unnamed shell workspace.",
+      "comment" : "Fallback workspace title noun for an unnamed shell workspace.",
       "localizations" : {
         "en" : {
           "stringUnit" : {

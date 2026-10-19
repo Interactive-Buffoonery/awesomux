@@ -101,11 +101,6 @@ enum SidebarPeekDirection: Equatable {
     case right
 }
 
-enum AppTitlebarColumn: Equatable {
-    case sidebar
-    case detail
-}
-
 enum AppTitlebarLockupAlignment: Equatable {
     case leading
     case trailing
@@ -122,12 +117,6 @@ struct SidebarPresentationLayoutPolicy {
 
     var edge: SidebarPhysicalEdge { position == .left ? .leading : .trailing }
     var peekDirection: SidebarPeekDirection { position == .left ? .right : .left }
-    var titlebarColumns: [AppTitlebarColumn] {
-        position == .left ? [.sidebar, .detail] : [.detail, .sidebar]
-    }
-    var trafficLightColumn: AppTitlebarColumn { titlebarColumns[0] }
-    var dividerGutterColumn: AppTitlebarColumn { position == .left ? .detail : .sidebar }
-    var dividerGutterEdge: SidebarPhysicalEdge { .leading }
     var titlebarLockupAlignment: AppTitlebarLockupAlignment {
         position == .left ? .leading : .trailing
     }

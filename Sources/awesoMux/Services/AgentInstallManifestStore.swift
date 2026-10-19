@@ -57,11 +57,6 @@ struct AgentInstallManifestStore<Manifest: AgentInstallManifest> {
         return legacy
     }
 
-    func loadCurrent() throws -> Manifest {
-        try importLegacyIfNeeded()
-        return try loadCurrentAssumingLock()
-    }
-
     func loadCurrentAssumingLock() throws -> Manifest {
         try currentManifest(from: readState(at: manifestURL))
     }

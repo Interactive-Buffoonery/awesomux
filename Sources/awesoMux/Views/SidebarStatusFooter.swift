@@ -141,12 +141,12 @@ struct SidebarStatusFooter: View {
             onToggleActivityPanel(state.agentDisplayState)
         } label: {
             if compact {
-                StatusDot(state)
+                StatusDot(state, animatesThinking: !activityPanelOpen)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             } else {
                 HStack(spacing: 6) {
-                    StatusDot(state)
+                    StatusDot(state, animatesThinking: !activityPanelOpen)
                     Text("\(count)")
                         .monospacedDigit()
                         .lineLimit(1)

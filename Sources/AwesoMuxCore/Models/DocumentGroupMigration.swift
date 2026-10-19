@@ -11,7 +11,7 @@ import Foundation
 /// `TerminalSession.init(from:)`):
 ///
 /// 1. **Backfill**: every tab with a nil `associatedTerminalPaneID` adopts its
-///    group's split-adjacent terminal (`nearestTerminalSibling(ofDocumentGroup:)`),
+///    group's split-adjacent terminal, found by the migration traversal,
 ///    computed while each single-tab group still sits at its original split
 ///    position — adjacency is exactly what pre-v5 send routing targeted, so each
 ///    document keeps the terminal it was actually next to.

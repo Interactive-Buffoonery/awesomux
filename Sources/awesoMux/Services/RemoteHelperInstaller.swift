@@ -541,10 +541,6 @@ enum RemoteHelperInstaller {
         return platform
     }
 
-    static func isSupportedPlatform(_ output: Data) -> Bool {
-        supportedPlatform(output) != nil
-    }
-
     static func supportedPlatform(_ output: Data) -> Platform? {
         let lines = String(decoding: output, as: UTF8.self)
             .split(whereSeparator: \.isNewline)

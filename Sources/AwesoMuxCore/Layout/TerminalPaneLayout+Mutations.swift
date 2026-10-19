@@ -103,6 +103,7 @@ public extension TerminalPaneLayout {
                     || pane.hasManagedSSHObservation
             else { return (self, false) }
             pane.remoteConnectivityEpoch = UUID()
+            pane.remoteWorkingDirectory = nil
             pane.remoteForegroundLivenessSnapshot = nil
             return (.pane(pane), true)
 

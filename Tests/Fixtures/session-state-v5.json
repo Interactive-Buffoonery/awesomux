@@ -1,0 +1,111 @@
+{
+  "groups" : [
+    {
+      "id" : "60000000-0000-0000-0000-000000000001",
+      "name" : "main",
+      "sessions" : [
+        {
+          "activePaneID" : "6E4B3E28-EE03-498F-8C9A-0A9A0788FD08",
+          "id" : "4A9F5ECA-40D2-4F52-BCBE-038D42DAAAF4",
+          "isTitleUserEdited" : false,
+          "layout" : {
+            "pane" : {
+              "_0" : {
+                "agentExecutionState" : "idle",
+                "agentKind" : "Shell",
+                "agentKindIsRuntimeEstablished" : true,
+                "executionPlan" : {
+                  "kind" : "local"
+                },
+                "id" : "6E4B3E28-EE03-498F-8C9A-0A9A0788FD08",
+                "isTitleUserEdited" : false,
+                "terminalSessionID" : "42867a9a-5c53-4692-b909-751c01166996",
+                "title" : "shell 4",
+                "unreadNotificationCount" : 0,
+                "workingDirectory" : "~"
+              }
+            }
+          },
+          "title" : "shell 4",
+          "workingDirectory" : "~"
+        },
+        {
+          "activePaneID" : "13724B0F-A52E-4AB6-BA32-E55D9A3F9A59",
+          "id" : "95AA45EF-3F86-4FA7-B7D6-C97DFEE961FF",
+          "isTitleUserEdited" : true,
+          "layout" : {
+            "pane" : {
+              "_0" : {
+                "agentExecutionState" : "idle",
+                "agentKind" : "Shell",
+                "agentKindIsRuntimeEstablished" : true,
+                "executionPlan" : {
+                  "kind" : "local"
+                },
+                "id" : "13724B0F-A52E-4AB6-BA32-E55D9A3F9A59",
+                "isTitleUserEdited" : false,
+                "terminalSessionID" : "9a2c076a-9ff7-4852-87dd-8bc98a57b938",
+                "title" : "shell 5",
+                "unreadNotificationCount" : 0,
+                "workingDirectory" : "~"
+              }
+            }
+          },
+          "title" : "shell 5",
+          "workingDirectory" : "~"
+        },
+        {
+          "activePaneID" : "79093A62-DBB3-4886-B327-C90348449246",
+          "id" : "1C4E9468-A8B1-48D0-BA3F-8747D2822C57",
+          "isTitleUserEdited" : false,
+          "layout" : {
+            "pane" : {
+              "_0" : {
+                "agentExecutionState" : "running",
+                "agentKind" : "Codex",
+                "agentKindIsRuntimeEstablished" : true,
+                "executionPlan" : {
+                  "kind" : "local"
+                },
+                "id" : "79093A62-DBB3-4886-B327-C90348449246",
+                "isTitleUserEdited" : false,
+                "terminalSessionID" : "a17fac99-7a05-49e3-a089-d7df6a057b8a",
+                "title" : "shell 6",
+                "unreadNotificationCount" : 0,
+                "workingDirectory" : "~"
+              }
+            }
+          },
+          "title" : "shell 6",
+          "workingDirectory" : "~"
+        },
+        {
+          "activePaneID" : "430F732F-EC56-4109-8AE8-A5D0CB9978EE",
+          "id" : "33320697-B69B-461F-AEF7-22D5EF45A0EE",
+          "isTitleUserEdited" : false,
+          "layout" : {
+            "pane" : {
+              "_0" : {
+                "agentExecutionState" : "idle",
+                "agentKind" : "Shell",
+                "agentKindIsRuntimeEstablished" : true,
+                "executionPlan" : {
+                  "kind" : "local"
+                },
+                "id" : "430F732F-EC56-4109-8AE8-A5D0CB9978EE",
+                "isTitleUserEdited" : false,
+                "terminalSessionID" : "648cf661-7c4a-4384-878a-02036da9ccbb",
+                "title" : "shell 06",
+                "unreadNotificationCount" : 0,
+                "workingDirectory" : "~"
+              }
+            }
+          },
+          "title" : "shell 06",
+          "workingDirectory" : "~"
+        }
+      ]
+    }
+  ],
+  "schemaVersion" : 5
+}

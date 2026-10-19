@@ -1,0 +1,46 @@
+Building for debugging...
+[Computing dependencies]
+[Using on-disk description]
+[1 / 93] cmark-gfm-extensions
+[2 / 7] awesoMuxTests-product
+[8 / 15]
+[10 / 15] awesoMuxTests-product
+[15 / 19] awesoMuxTests-product
+[17 / 19] awesoMuxTests-product
+Build complete! (7.53 sec)
+􀟈  Test run started.
+􀄵  Testing Library Version: 2084
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ZZMarkdownClickInvestigation started.
+􀟈  Test nativeViewToSheet(managed:) started.
+􀟈  Test case passing 1 argument managed → true to nativeViewToSheet(managed:) started.
+APP-GRID ghostty_surface_size_s(columns: 99, rows: 26, width_px: 800, height_px: 400, cell_width_px: 8, cell_height_px: 15) bounds=(0.0, 0.0, 800.0, 400.0)
+APP-WORD README.md pos=(44.0, 7.5)
+APP-PROBE managed=true row=0 native=nil appProbe=nil
+APP-WORD ./README.md pos=(44.0, 22.5)
+APP-PROBE managed=true row=1 native=./README.md appProbe=nil
+APP-SHEET managed=true presented=false key=false main=false
+APP-DIRECT presented=false
+􀢄  Test nativeViewToSheet(managed:) recorded an issue with 1 argument managed → true at ZZMarkdownClickInvestigation.swift:57:17: Expectation failed: window.attachedSheet != nil
+􀄵  window.attachedSheet != nil → false
+􀄵    window.attachedSheet → nil
+APP-WORD docs/README.md pos=(44.0, 37.5)
+APP-PROBE managed=true row=2 native=docs/README.md appProbe=nil
+􀟈  Test case passing 1 argument managed → false to nativeViewToSheet(managed:) started.
+APP-GRID ghostty_surface_size_s(columns: 99, rows: 26, width_px: 800, height_px: 400, cell_width_px: 8, cell_height_px: 15) bounds=(0.0, 0.0, 800.0, 400.0)
+APP-WORD README.md pos=(44.0, 7.5)
+APP-PROBE managed=false row=0 native=nil appProbe=nil
+APP-WORD ./README.md pos=(44.0, 22.5)
+APP-PROBE managed=false row=1 native=./README.md appProbe=nil
+APP-SHEET managed=false presented=false key=false main=false
+APP-DIRECT presented=false
+􀢄  Test nativeViewToSheet(managed:) recorded an issue with 1 argument managed → false at ZZMarkdownClickInvestigation.swift:57:17: Expectation failed: window.attachedSheet != nil
+􀄵  window.attachedSheet != nil → false
+􀄵    window.attachedSheet → nil
+APP-WORD docs/README.md pos=(44.0, 37.5)
+APP-PROBE managed=false row=2 native=docs/README.md appProbe=nil
+􀢄  Test nativeViewToSheet(managed:) with 2 test cases failed after 4.538 seconds with 2 issues.
+􀢄  Suite ZZMarkdownClickInvestigation failed after 4.538 seconds with 2 issues.
+􀢄  Test run with 1 test in 1 suite failed after 4.539 seconds with 2 issues.
+Note: Some test targets reported failures:
+  - awesoMuxTests (Swift Testing)

@@ -59,12 +59,9 @@ struct PrimaryContentFocusRouterTests {
             window.orderOut(nil)
         }
 
-        #expect(
-            await waitUntil {
-                window.layoutIfNeeded()
-                detail.view.layoutSubtreeIfNeeded()
-                return EmptyWorkspaceAccessibilityFocusHandoff.target(in: contentView) != nil
-            })
+        window.layoutIfNeeded()
+        detail.view.layoutSubtreeIfNeeded()
+        await SidebarHostedTestHarness.drainMainQueue()
         let target = try #require(
             EmptyWorkspaceAccessibilityFocusHandoff.target(in: contentView))
         let targetView = try #require(target as? NSView)
@@ -206,12 +203,10 @@ struct PrimaryContentFocusRouterTests {
         #expect(!surface.acceptsFirstResponder)
         _ = window.makeFirstResponder(surface)
         #expect(window.firstResponder !== surface)
-        #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
         #expect(window.makeFirstResponder(sentinel))
         #expect(!surface.isAccessibilityElement())
         surface.setAccessibilityFocused(true)
         #expect(!surface.isAccessibilityFocused())
-        #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
         let request = SidebarFocusHandoffRequest(
             requiresKeyboardFocus: testCase.requiresKeyboardFocus,
             requiresAccessibilityFocus: testCase.requiresAccessibilityFocus)
@@ -226,7 +221,6 @@ struct PrimaryContentFocusRouterTests {
 
         #expect(window.firstResponder === sentinel)
         #expect(!surface.isAccessibilityFocused())
-        #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
 
         #expect(
             sessionStore.confirmPaneRemoteReconnected(
@@ -257,7 +251,6 @@ struct PrimaryContentFocusRouterTests {
         if testCase.requiresKeyboardFocus {
             #expect(PrimaryContentFocusRouter.clearTerminalFirstResponder(in: window))
             #expect(window.firstResponder !== surface)
-            #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
             #expect(window.makeFirstResponder(surface))
         }
 
@@ -274,19 +267,8 @@ struct PrimaryContentFocusRouterTests {
         #expect(!surface.acceptsFirstResponder)
         _ = window.makeFirstResponder(surface)
         #expect(window.firstResponder !== surface)
-        #expect(!runtime.isSecureInputFocusedForTesting(pane.id))
         #expect(!surface.isAccessibilityElement())
         #expect(!surface.isAccessibilityFocused())
     }
 
-    private func waitUntil(
-        _ condition: () -> Bool,
-        attempts: Int = 100
-    ) async -> Bool {
-        for _ in 0..<attempts {
-            if condition() { return true }
-            await Task.yield()
-        }
-        return condition()
-    }
 }

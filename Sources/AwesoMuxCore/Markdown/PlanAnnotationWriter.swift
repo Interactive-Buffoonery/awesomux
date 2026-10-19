@@ -3,7 +3,7 @@
 // Guarded, marker-local rewrites for AMX plan annotations
 // (docs/plan-annotations.md). Every operation edits exactly the markers it
 // targets — never whole-file regeneration — and callers wrap writes in the
-// same stale-source guard as CommentMarkerWriter.applyIfCurrent.
+// stale-source guard in MarkdownDocumentCommitter.
 //
 // Markers are located by walking the swift-markdown AST, NOT by regexing the
 // raw source: code fences and inline code are opaque nodes, so

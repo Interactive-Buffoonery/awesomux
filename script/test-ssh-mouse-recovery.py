@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--amx", required=True, type=Path)
     parser.add_argument("--integration", required=True, type=Path)
     parser.add_argument("--host", required=True)
+    parser.add_argument("--ssh-config", type=Path, help="Use a disposable OpenSSH client configuration")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -66,13 +67,15 @@ def main():
     local_tui = args.output / "tui.py"
     local_tui.write_text(TUI)
     env = os.environ.copy()
+    env.pop("ZMX_SESSION", None)
     env.update(
         ZMX_DIR=str(args.output / "s"), ZMX_DIR_MODE="700", SHELL="/bin/zsh",
         ZDOTDIR=str(args.integration), GHOSTTY_ZSH_ZDOTDIR=str(user),
         GHOSTTY_RESOURCES_DIR=str(args.integration.parent.parent),
         AWESOMUX_SSH_MOUSE_RECOVERY="1",
     )
-    ssh = f"ssh -o BatchMode=yes {shlex.quote(args.host)}"
+    config = " -F " + shlex.quote(str(args.ssh_config)) if args.ssh_config else ""
+    ssh = f"ssh{config} -o BatchMode=yes {shlex.quote(args.host)}"
     remote_enable = ssh + " " + shlex.quote("printf '\\033[?1003h\\033[?1006hREMOTE-DIED\\n'")
     local_command = "python3 " + shlex.quote(str(local_tui))
     remote_tui = ssh + " -tt " + shlex.quote("python3 -c " + shlex.quote(TUI))

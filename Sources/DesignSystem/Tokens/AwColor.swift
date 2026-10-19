@@ -7,12 +7,9 @@ public extension Color {
 
 public struct AwColors: Sendable {
     let mocha = AwPalette(
-        rosewater: "#f5e0dc",
-        flamingo: "#f2cdcd",
         pink: "#f5c2e7",
         mauve: "#cba6f7",
         red: "#f38ba8",
-        maroon: "#eba0ac",
         peach: "#fab387",
         yellow: "#f9e2af",
         green: "#a6e3a1",
@@ -36,12 +33,9 @@ public struct AwColors: Sendable {
     )
 
     let latte = AwPalette(
-        rosewater: "#dc8a78",
-        flamingo: "#dd7878",
         pink: "#ea76cb",
         mauve: "#8839ef",
         red: "#d20f39",
-        maroon: "#e64553",
         peach: "#fe640b",
         yellow: "#df8e1d",
         green: "#40a02b",
@@ -68,12 +62,9 @@ public struct AwColors: Sendable {
     // ramp but kept stepped: each clears AA 4.5:1 against every same-theme
     // surface (tightest floor: `surface2 #585b70`). Locked by `AwColorTests`.
     let mochaHC = AwPalette(
-        rosewater: "#fff0ed",
-        flamingo: "#ffe0e0",
         pink: "#ffd6f0",
         mauve: "#dcc2ff",
         red: "#ffb3c4",
-        maroon: "#ffc0c8",
         peach: "#ffc8a3",
         yellow: "#fff0c2",
         green: "#c2f5bd",
@@ -102,12 +93,9 @@ public struct AwColors: Sendable {
     // little luminance span fits between the AA floor and black). Locked by
     // `AwColorTests`.
     let latteHC = AwPalette(
-        rosewater: "#963b31",
-        flamingo: "#963737",
         pink: "#9a2d82",
         mauve: "#6f20d1",
         red: "#b00030",
-        maroon: "#a82d37",
         peach: "#9b3d07",
         yellow: "#835100",
         green: "#29661c",
@@ -153,12 +141,9 @@ public struct AwColors: Sendable {
     public func accentSoft(_ accent: AwAccent) -> Color { dynamic(accent.paletteKey).opacity(0.22) }
     public func accentGlow(_ accent: AwAccent) -> Color { dynamic(accent.paletteKey).opacity(0.60) }
 
-    public var rosewater: Color { dynamic(\.rosewater) }
-    public var flamingo: Color { dynamic(\.flamingo) }
     public var pink: Color { dynamic(\.pink) }
     public var mauve: Color { dynamic(\.mauve) }
     public var red: Color { dynamic(\.red) }
-    public var maroon: Color { dynamic(\.maroon) }
     public var peach: Color { dynamic(\.peach) }
     public var yellow: Color { dynamic(\.yellow) }
     public var green: Color { dynamic(\.green) }
@@ -216,17 +201,6 @@ public struct AwColors: Sendable {
     // against `surface.terminal` in both themes — a single `text.opacity`
     // alpha cannot satisfy both. See INT-299.
 
-    /// Divider at rest. Clears the 3:1 1.4.11 floor with added Latte
-    /// headroom (Mocha 3.36, Latte 3.62).
-    public var dividerRest: Color {
-        Color(nsColor: NSColor.awDynamic(
-            mocha: "#6c7086",
-            latte: "#7a7c92",
-            mochaHC: "#9399b2",
-            latteHC: "#6c6f85"
-        ))
-    }
-
     /// Divider on hover / drag. Targets ~4:1 (Mocha 4.44, Latte 4.18).
     public var dividerHover: Color {
         Color(nsColor: NSColor.awDynamic(
@@ -238,7 +212,7 @@ public struct AwColors: Sendable {
     }
 
     /// Divider at rest under "Increase Contrast". Must stay equal to
-    /// `dividerRest`'s HC slots; locked by `AwColorTests`.
+    /// the standard divider floor; locked by `AwColorTests`.
     public var dividerRestHC: Color {
         Color(nsColor: NSColor.awDynamic(
             mocha: "#9399b2", latte: "#6c6f85",
@@ -646,12 +620,9 @@ public enum AwTintAccent: Sendable, CaseIterable, Hashable {
 }
 
 struct AwPalette: Sendable {
-    let rosewater: String
-    let flamingo: String
     let pink: String
     let mauve: String
     let red: String
-    let maroon: String
     let peach: String
     let yellow: String
     let green: String

@@ -199,15 +199,10 @@ Splits live **inside** a session. `Command-D` creates **Split Right** and `Comma
 The layout tree (`TerminalPaneLayout`) is a **closed** taxonomy of leaf kinds —
 a terminal pane and a tabbed Markdown `documentGroup` — plus a split node. It is
 deliberately an enum, not a protocol or plugin registry: awesoMux owns a small
-set of product-owned pane kinds. `WorkspacePaneKind` names the leaf kinds,
-`WorkspaceLeafID` is a kind-tagged durable reference, and `WorkspaceLeaf` is the
-leaf-as-value that type-aware projections dispatch on (the protocol-free "shared
-leaf"). Shared layout operations live over the tree
-(`leaves`/`leafIDs`/`leaf(_:)`/`removingLeaf(_:)`/`replacingLeaf(_:with:)`, with
-`TerminalSplit.rebuilding` centralizing split reconstruction); removal
-*dispatches* to the distinct per-kind policies because only terminal removal
-defends the root "≥1 terminal" invariant — an auxiliary pane can never be a
-workspace's sole survivor.
+set of product-owned pane kinds. `WorkspaceLeaf` is the leaf-as-value, and
+`TerminalPaneLayout.leaves` is the shared tree-order traversal over it.
+`TerminalSplit.rebuilding` centralizes split reconstruction for structural
+mutations.
 
 Type-aware behavior is exposed as pure projections so the view layer need not
 guess from raw payloads:
@@ -215,33 +210,22 @@ guess from raw payloads:
 - **Capabilities** — `WorkspacePaneCapabilities` (`localFileAccess`,
   `remoteProvenance`, `safeInputTarget`, `duplicable`, `presetEligible`) at
   layout granularity, reusing `ExecutionContext`.
-- **Lifecycle, three axes** — `PaneAvailability`
-  (`awaitingHydration`/`attached`/`unavailable`/`stale`) is the derivable
-  classifier over a leaf plus its runtime signals and never lets a
-  remote/degraded/dead pane read as a healthy local attach; `PaneVisibility`
-  (`visible`/`hidden`) is supplied by the mounting layer; `PaneClosePhase`
-  (`active`/`closing`/`closed`) is supplied by the close pipeline. `PaneLifecycle`
-  composes all three so every lifecycle term is representable while each axis is
-  produced only by the authority that can observe it.
+- **Availability** — `PaneAvailability`
+  (`awaitingHydration`/`attached`/`unavailable`/`stale`) classifies a leaf plus
+  its runtime signals and never lets a remote/degraded/dead pane read as a
+  healthy local attach.
 - **Live state vs reusable layout intent** — `WorkspaceLayoutIntent` is the
-  preset seam (INT-757). The `TerminalPaneLayout.layoutIntent` projection prunes
+  preset seam. The `TerminalPaneLayout.layoutIntent` projection prunes
   everything not preset-eligible (documents, remote terminals), collapses the
   resulting unary splits, and carries an explicit attribute allowlist only
   (orientation, fraction, user-pinned title, color). It has no field for a
   session id, execution plan, file URL, agent state, or remote-cache origin, so
   a preset cannot serialize live-only state.
-- **Restore / close / descriptor seams** — `PaneRestorationRequirement`
-  separates reattaching an existing terminal (durable `TerminalSessionID`) from
-  reopening a document group (INT-425); `PaneCloseConsequence` folds terminals
-  through `QuitRiskPolicy` and closes documents immediately;
-  `WorkspaceLeafDescriptor` aggregates id/kind/label/capabilities/availability
-  for INT-810 and INT-809.
 
-The model is additive: it changes **no encoded snapshot form** (schema stays
-v7). Adding a persisted kind is a localized set of exhaustive-switch arms reusing
-the single split renderer and Codable machinery — see
-[ADR 0026](adr/0026-typed-workspace-pane-foundation.md) for the full model and
-the touch-point checklist.
+The model changes **no encoded snapshot form**. Adding a persisted kind is a
+localized set of exhaustive-switch arms reusing the single split renderer and
+Codable machinery — see
+[ADR 0026](adr/0026-typed-workspace-pane-foundation.md) and its amendment.
 
 ## Sidebar presentation
 

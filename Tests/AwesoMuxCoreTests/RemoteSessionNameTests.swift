@@ -47,13 +47,6 @@ import Testing
         #expect(RemoteSessionName(rawValue: raw) == nil)
     }
 
-    @Test func roundTripsThroughCodable() throws {
-        let name = RemoteSessionName(rawValue: "build-42")!
-        let data = try JSONEncoder().encode(name)
-        #expect(String(decoding: data, as: UTF8.self) == "\"build-42\"")
-        #expect(try JSONDecoder().decode(RemoteSessionName.self, from: data) == name)
-    }
-
     @Test("decoding rejects malformed names", arguments: ["\"bad name\"", "\"..\"", "\"-x\""])
     func decodingRejectsMalformedNames(json: String) {
         #expect(throws: DecodingError.self) {

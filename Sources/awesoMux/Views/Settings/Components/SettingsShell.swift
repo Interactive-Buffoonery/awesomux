@@ -14,10 +14,6 @@ import SwiftUI
 /// The shell renders its title bar inside the full-size SwiftUI content view,
 /// matching the main window's chrome geometry while `WindowChromeConfigurator`
 /// keeps the native title bar transparent and stable across focus changes.
-enum SettingsTitlebarMetrics {
-    static let extendsIntoNativeTitlebar = true
-}
-
 struct SettingsShell<Selection: Hashable, Sidebar: View, Detail: View>: View {
     @Environment(AppSettingsStore.self) private var appSettingsStore
     @Binding var selection: Selection

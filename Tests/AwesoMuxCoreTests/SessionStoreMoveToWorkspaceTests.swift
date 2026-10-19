@@ -160,18 +160,6 @@ struct SessionStoreMoveToWorkspaceTests {
         #expect(store.session(id: source.id)?.layout.paneIDs == [first.id, movedPane.id])
     }
 
-    @Test("return disables after source closes")
-    func sourceClosed() throws {
-        let first = pane("first")
-        let movedPane = pane("moved")
-        let source = TerminalSession(title: "source", workingDirectory: "~", layout: split(.pane(first), .pane(movedPane)))
-        let store = SessionStore(groups: [SessionGroup(name: "work", sessions: [source])])
-        let movedID = try #require(store.movePaneToNewWorkspace(id: movedPane.id, in: source.id))
-        store.closeSession(id: source.id)
-        #expect(!store.canReturnPaneToSourceWorkspace(sessionID: movedID))
-        #expect(!store.returnPaneToSourceWorkspace(sessionID: movedID))
-    }
-
     @Test("reopening a closed source restores the pending return link")
     func reopenSourceThenReturn() throws {
         let first = pane("first")

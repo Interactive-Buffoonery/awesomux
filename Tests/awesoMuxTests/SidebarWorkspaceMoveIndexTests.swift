@@ -20,58 +20,21 @@ struct SidebarWorkspaceMoveIndexTests {
         #expect(store.groups[0].sessions.map(\.id) == [b.id, a.id, c.id])
     }
 
-    @Test func pinnedPrefixDoesNotTurnADownwardMoveIntoANoOp() {
+    @Test(arguments: [
+        ("a", 1, ["a", "b"], ["pinned", "a", "b"], 2),
+        ("c", 0, ["a", "b", "c"], ["pinned", "a", "needs", "b", "c"], 1),
+        ("a", 1, ["a", "b", "c"], ["pinned", "a", "needs", "b", "c"], 3),
+        ("a", 1, ["a", "b"], ["a", "needs", "b", "pinned"], 2),
+        ("a", 0, ["a", "b"], ["a", "pinned", "b"], 0),
+        ("a", 0, ["a"], ["pinned", "a", "needs"], 1),
+        ("incoming", 1, ["a", "b"], ["pinned", "a", "needs", "b"], 3),
+        ("incoming", 0, [], ["pinned", "needs"], 2),
+    ])
+    func workspaceMoveIndex(source: String, target: Int, visible: [String], stored: [String], expected: Int) {
         #expect(
             SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "a", visibleTargetIndex: 1,
-                visibleIDs: ["a", "b"], storedIDs: ["pinned", "a", "b"]
-            ) == 2)
+                sourceID: source, visibleTargetIndex: target,
+                visibleIDs: visible, storedIDs: stored) == expected)
     }
 
-    @Test func hiddenAttentionRowsDoNotShiftUpwardOrMiddleDestinations() {
-        #expect(
-            SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "c", visibleTargetIndex: 0,
-                visibleIDs: ["a", "b", "c"], storedIDs: ["pinned", "a", "needs", "b", "c"]
-            ) == 1)
-        #expect(
-            SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "a", visibleTargetIndex: 1,
-                visibleIDs: ["a", "b", "c"], storedIDs: ["pinned", "a", "needs", "b", "c"]
-            ) == 3)
-    }
-
-    @Test func lastVisibleDestinationStaysBeforeTrailingHiddenRows() {
-        #expect(
-            SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "a", visibleTargetIndex: 1,
-                visibleIDs: ["a", "b"], storedIDs: ["a", "needs", "b", "pinned"]
-            ) == 2)
-    }
-
-    @Test func unchangedVisiblePositionDoesNotReorderHiddenSiblings() {
-        #expect(
-            SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "a", visibleTargetIndex: 0,
-                visibleIDs: ["a", "b"], storedIDs: ["a", "pinned", "b"]
-            ) == 0)
-        #expect(
-            SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "a", visibleTargetIndex: 0,
-                visibleIDs: ["a"], storedIDs: ["pinned", "a", "needs"]
-            ) == 1)
-    }
-
-    @Test func incomingWorkspaceUsesVisibleAnchorsAndEmptyProjectionAppends() {
-        #expect(
-            SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "incoming", visibleTargetIndex: 1,
-                visibleIDs: ["a", "b"], storedIDs: ["pinned", "a", "needs", "b"]
-            ) == 3)
-        #expect(
-            SidebarInsertionResolver.storedWorkspaceTargetIndex(
-                sourceID: "incoming", visibleTargetIndex: 0,
-                visibleIDs: [String](), storedIDs: ["pinned", "needs"]
-            ) == 2)
-    }
 }

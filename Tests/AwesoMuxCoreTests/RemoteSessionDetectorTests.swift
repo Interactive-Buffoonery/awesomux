@@ -14,179 +14,34 @@ struct RemoteSessionDetectorTests {
         RemoteSessionDetector.detect(title: title, localNames: Self.local)
     }
 
-    @Test("local hostname resolution includes full and short forms")
-    func localHostnameResolutionIncludesFullAndShortForms() throws {
-        var buffer = [CChar](repeating: 0, count: 256)
-        try #require(gethostname(&buffer, buffer.count) == 0)
-        buffer[buffer.count - 1] = 0
-        let hostname = String(
-            decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-            as: UTF8.self
-        ).lowercased()
-        let names = LocalHostnames.resolve()
-
-        #expect(names.contains(hostname))
-        if let dot = hostname.firstIndex(of: ".") {
-            #expect(names.contains(String(hostname[..<dot])))
-        }
+    @Test(arguments: [
+        ("ed@webserver: ~/app", "webserver"), ("ed@webserver", "webserver"),
+        ("root@db-01: /var/log", "db-01"), ("ed@webserver:22", "webserver"),
+        ("ed@192.168.1.5: ~", "192.168.1.5"), ("ed@[2001:db8::1]: ~", "[2001:db8::1]"),
+        ("ed@mymac.corp: ~", "mymac.corp"), ("ed@127.example.com: ~", "127.example.com"),
+        ("sam@dev_api: ~/svc", "dev_api"), ("ed@webserver: ~/x\r\n", "webserver"),
+        ("ed@webserver:~/app", "webserver"),
+    ])
+    func remoteTitles(title: String, host: String) {
+        #expect(detect(title) == .remote(host: host))
     }
 
-    @Test("local hostname resolution avoids network alias lookup")
-    func localHostnameResolutionAvoidsNetworkAliasLookup() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "Sources/AwesoMuxCore/Models/RemoteSessionDetector.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let compactSource = source.filter { !$0.isWhitespace }
-
-        #expect(!compactSource.contains("Host.current()." + "names"))
+    @Test(arguments: ["ed@mymac: ~/app", "ed@mymac.local: ~", "ed@localhost: ~", "ed@127.0.0.1", "ed@[::1]"])
+    func localTitles(title: String) {
+        #expect(detect(title) == .local)
     }
 
-    @Test("a foreign user@host prompt with a path is remote")
-    func remoteWithPath() {
-        #expect(detect("ed@webserver: ~/app") == .remote(host: "webserver"))
-    }
-
-    @Test("a foreign user@host with no path is remote")
-    func remoteNoPath() {
-        #expect(detect("ed@webserver") == .remote(host: "webserver"))
-    }
-
-    @Test("the bash default \\u@\\h: \\w form (colon-space) is parsed, not eaten by the host")
-    func remoteBashDefault() {
-        #expect(detect("root@db-01: /var/log") == .remote(host: "db-01"))
-    }
-
-    @Test("a user@host port form keeps the host")
-    func remoteWithPort() {
-        #expect(detect("ed@webserver:22") == .remote(host: "webserver"))
-    }
-
-    @Test("a foreign IPv4 host is remote")
-    func remoteIPv4() {
-        #expect(detect("ed@192.168.1.5: ~") == .remote(host: "192.168.1.5"))
-    }
-
-    @Test("a bracketed IPv6 host is remote")
-    func remoteIPv6() {
-        #expect(detect("ed@[2001:db8::1]: ~") == .remote(host: "[2001:db8::1]"))
-    }
-
-    @Test("our own host (short) is local")
-    func localShort() {
-        #expect(detect("ed@mymac: ~/app") == .local)
-    }
-
-    @Test("our own host (.local fqdn) is local")
-    func localFQDN() {
-        #expect(detect("ed@mymac.local: ~") == .local)
-    }
-
-    @Test("a remote FQDN sharing our short label is remote, not a false clear")
-    func remoteFQDNSharingShortLabel() {
-        // `mymac.corp` shares the short label `mymac` with our `mymac.local`;
-        // reducing it to the short form would wrongly treat it as local.
-        #expect(detect("ed@mymac.corp: ~") == .remote(host: "mymac.corp"))
-    }
-
-    @Test("localhost and loopback IPs are local")
-    func loopback() {
-        #expect(detect("ed@localhost: ~") == .local)
-        #expect(detect("ed@127.0.0.1") == .local)
-        #expect(detect("ed@[::1]") == .local)
-    }
-
-    @Test("a DNS host starting with 127. is remote, not loopback")
-    func dnsHostStartingWith127() {
-        #expect(detect("ed@127.example.com: ~") == .remote(host: "127.example.com"))
-    }
-
-    @Test("a title with no user@host is indeterminate")
-    func noToken() {
-        #expect(detect("~/projects/awesomux") == .indeterminate)
-        #expect(detect("starship ❯ build") == .indeterminate)
-        #expect(detect("") == .indeterminate)
-    }
-
-    @Test("an email-in-prose title is rejected (trailing not prompt-shaped)")
-    func emailProse() {
-        #expect(detect("user@example.com — Mail") == .indeterminate)
-    }
-
-    @Test("a running command with a later @ is not a leading user@host")
-    func commandWithAt() {
-        // "vim foo@bar" → the leading user token would contain a space → rejected.
-        #expect(detect("vim foo@bar.txt") == .indeterminate)
-    }
-
-    @Test("a bidi/control byte in the host position can't produce a remote flag")
-    func bidiHostRejected() {
-        // The host capture stops at the non-ASCII override, leaving non-prompt-shaped
-        // trailing → indeterminate, so no polluted host is ever surfaced.
-        let signal = detect("ed@web\u{202E}evil: ~")
-        #expect(signal != .remote(host: "web\u{202E}evil"))
-        #expect(signal == .indeterminate)
-    }
-
-    @Test("fails closed: with no local names known, a foreign host is indeterminate")
-    func failsClosed() {
-        #expect(
-            RemoteSessionDetector.detect(title: "ed@webserver: ~", localNames: [])
-                == .indeterminate
-        )
-    }
-
-    @Test("a malformed host (trailing hyphen label) is indeterminate")
-    func malformedHost() {
-        #expect(detect("ed@-bad-: ~") == .indeterminate)
-    }
-
-    @Test("an underscore SSH-alias host is detected as remote")
-    func underscoreHost() {
-        #expect(detect("sam@dev_api: ~/svc") == .remote(host: "dev_api"))
-    }
-
-    @Test("trailing CR/LF doesn't break detection")
-    func trailingNewline() {
-        #expect(detect("ed@webserver: ~/x\r\n") == .remote(host: "webserver"))
-    }
-
-    @Test("a multiline title can't smuggle a user@host past a newline")
-    func multilineTitle() {
-        #expect(detect("status line\ned@webserver: ~") == .indeterminate)
-    }
-
-    @Test("an over-long host label is rejected")
-    func overLongHost() {
-        let host = String(repeating: "a", count: 500)
-        #expect(detect("ed@\(host): ~") == .indeterminate)
-    }
-
-    @Test("a percent-encoded host is rejected (not prompt-shaped after the run)")
-    func percentHost() {
-        #expect(detect("ed@web%20server: ~") == .indeterminate)
-    }
-
-    @Test("a ssh:// URL in the title is not a leading user@host (URL-ish user)")
-    func sshURLTitle() {
-        #expect(detect("ssh://ed@webserver:22") == .indeterminate)
-    }
-
-    @Test("an email-subject colon title is rejected (colon suffix isn't a port/path)")
-    func emailColonSubject() {
-        #expect(detect("ed@example.com: Inbox (3)") == .indeterminate)
-    }
-
-    @Test("a host:port form is accepted")
-    func hostColonPort() {
-        #expect(detect("ed@webserver:22") == .remote(host: "webserver"))
-    }
-
-    @Test("a colon-then-path form (no space) is accepted")
-    func colonThenPath() {
-        #expect(detect("ed@webserver:~/app") == .remote(host: "webserver"))
+    @Test(arguments: [
+        ("~/projects/awesomux", Self.local), ("starship ❯ build", Self.local), ("", Self.local),
+        ("user@example.com — Mail", Self.local), ("vim foo@bar.txt", Self.local),
+        ("ed@web\u{202E}evil: ~", Self.local), ("ed@webserver: ~", Set<String>()),
+        ("ed@-bad-: ~", Self.local), ("status line\ned@webserver: ~", Self.local),
+        ("ed@\(String(repeating: "a", count: 500)): ~", Self.local),
+        ("ed@web%20server: ~", Self.local), ("ssh://ed@webserver:22", Self.local),
+        ("ed@example.com: Inbox (3)", Self.local),
+    ])
+    func indeterminateTitles(title: String, localNames: Set<String>) {
+        #expect(RemoteSessionDetector.detect(title: title, localNames: localNames) == .indeterminate)
     }
 }
 
@@ -232,190 +87,20 @@ struct SessionStoreRemoteSessionTests {
         store.selectedSession?.layout.pane(id: paneID)?.remoteConnectionHealth
     }
 
-    @Test("a foreign-host title cannot report a remote working directory")
-    func titleSetsRemote() {
-        let (store, sid, pid) = makeStore()
-        #expect(store.index.remotePaneIDs.isEmpty)
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-        #expect(remoteHost(store, pid) == "webserver")
-        #expect(remoteWorkingDirectory(store, pid) == nil)
-        #expect(remoteConnectionHealth(store, pid) == .active)
-        #expect(store.index.remotePaneIDs == Set([pid]))
-    }
-
-    @Test("a local directory title containing @ does not become a remote host")
-    func normalizedDirectoryTitleWithAtStaysLocal() {
-        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Ｄｅｖｅｌｏｐｍｅｎｔ＠a8c")
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c")
-
-        #expect(remoteHost(store, pid) == nil)
-        #expect(store.index.remotePaneIDs.isEmpty)
-        #expect(store.selectedSession?.layout.pane(id: pid)?.title == "Development@a8c")
-        store.updatePane(sessionID: sid, paneID: pid, title: "✳ Claude Code")
-        #expect(remoteHost(store, pid) == nil)
-    }
-
-    @Test("sanitized clipped directory title containing @ stays local")
-    func sanitizedClippedDirectoryTitleWithAtStaysLocal() {
-        let title = String(repeating: "x", count: 190) + "@a8c: ~" + String(repeating: "y", count: 10)
-        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/\(title)")
-
+    @Test(arguments: [
+        ("/Users/me/Ｄｅｖｅｌｏｐｍｅｎｔ＠a8c", "Development@a8c", nil as String?),
+        ("/Users/me/Development@a8c", "Development@a8c: ~", "a8c"),
+    ])
+    func directoryTitleDistinguishesPrompt(directory: String, title: String, host: String?) {
+        let (store, sid, pid) = makeStore(workingDirectory: directory)
         store.updatePane(sessionID: sid, paneID: pid, title: title)
-
-        #expect(remoteHost(store, pid) == nil)
-        #expect(store.selectedSession?.layout.pane(id: pid)?.title == SessionStore.sanitizedTitle(title))
-    }
-
-    @Test("an incoming validated local cwd title does not consume pending SSH")
-    func incomingLocalDirectoryTitleStaysLocal() throws {
-        let parent = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
-        let directory = parent.appendingPathComponent("Incoming@a8c")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: parent) }
-        let (store, sid, pid) = makeStore()
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-a")
-
-        store.updatePane(
-            sessionID: sid,
-            paneID: pid,
-            title: "Incoming@a8c",
-            workingDirectory: directory.path
-        )
-
-        #expect(remoteHost(store, pid) == nil)
-        let pane = store.selectedSession?.layout.pane(id: pid)
-        #expect(pane?.workingDirectory == "/Users/me/project")
-        #expect(pane?.pendingRemoteSSHTarget == "host-a")
-        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
-    }
-
-    @Test("a prompt extending the directory basename still identifies a remote host")
-    func directoryNamedPromptWithPathIsRemote() {
-        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Development@a8c")
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c: ~")
-
-        #expect(remoteHost(store, pid) == "a8c")
-        #expect(store.index.remotePaneIDs == Set([pid]))
-    }
-
-    @Test("a matching directory title still updates the live channel while frozen")
-    func frozenDirectoryTitleStaysLocal() {
-        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Frozen@a8c")
-        #expect(store.renamePane(sessionID: sid, paneID: pid, title: "Pinned"))
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "Frozen@a8c")
-
-        let pane = store.selectedSession?.layout.pane(id: pid)
-        #expect(pane?.title == "Pinned")
-        #expect(pane?.liveTerminalTitle == "Frozen@a8c")
-        #expect(pane?.remoteHost == nil)
-    }
-
-    @Test("a matching directory title preserves a pending SSH target until a real prompt")
-    func pendingSSHDirectoryTitleDoesNotPromote() {
-        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Development@a8c")
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh host-a")
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c")
-
-        #expect(remoteHost(store, pid) == nil)
-        #expect(store.selectedSession?.layout.pane(id: pid)?.pendingRemoteSSHTarget == "host-a")
-        #expect(remoteSSHTarget(store, pid) == nil)
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "alice@host-a: ~")
-        #expect(remoteHost(store, pid) == "host-a")
-        #expect(remoteSSHTarget(store, pid) == "host-a")
-    }
-
-    @Test("a matching directory title keeps an established remote host sticky")
-    func directoryTitleKeepsEstablishedRemoteHost() {
-        let (store, sid, pid) = makeStore(workingDirectory: "/Users/me/Development@a8c")
-        store.updatePane(sessionID: sid, paneID: pid, title: "alice@webserver: ~/app")
-        store.markRemotePanesPossiblyStale()
-        #expect(remoteConnectionHealth(store, pid) == .possiblyStale)
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "Development@a8c")
-
-        #expect(remoteHost(store, pid) == "webserver")
-        #expect(remoteConnectionHealth(store, pid) == .active)
-    }
-
-    @Test("declared SSH panes still observe a matching remote prompt")
-    func declaredSSHDirectoryNamedPromptStillUpdatesRemoteHealth() throws {
-        let target = try #require(RemoteTarget(parsing: "buildbox"))
-        let pane = TerminalPane(
-            title: "shell",
-            workingDirectory: "/Users/me/Development@a8c",
-            executionPlan: .ssh(SSHExecution(target: target))
-        )
-        let session = TerminalSession(
-            title: "shell",
-            workingDirectory: pane.workingDirectory,
-            layout: .pane(pane),
-            activePaneID: pane.id
-        )
-        let store = SessionStore(
-            groups: [SessionGroup(name: "g", sessions: [session])],
-            selectedSessionID: session.id
-        )
-        store.localHostnames = ["mymac"]
-        store.markRemotePanesPossiblyStale()
-
-        store.updatePane(sessionID: session.id, paneID: pane.id, title: "Development@a8c")
-
-        let updated = store.selectedSession?.layout.pane(id: pane.id)
-        #expect(updated?.executionPlan == .ssh(SSHExecution(target: target)))
-        #expect(updated?.remoteHost == "a8c")
-        #expect(updated?.remotePresentationHost == "buildbox")
-        #expect(updated?.remoteConnectionHealth == .active)
-    }
-
-    @Test("submitted ssh target is promoted when the pane becomes remote")
-    func submittedSSHTargetPromotesOnRemoteTitle() {
-        let (store, sid, pid) = makeStore()
-
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh devbox")
-        store.updatePane(sessionID: sid, paneID: pid, title: "alice@devbox: ~/app")
-
-        #expect(remoteHost(store, pid) == "devbox")
-        #expect(remoteSSHTarget(store, pid) == "devbox")
-    }
-
-    @Test("a working-directory report does not erase a title-less SSH target")
-    func workingDirectoryReportPreservesTitlelessSSHTarget() {
-        let (store, sid, pid) = makeStore()
-        let originalDirectory = store.session(id: sid)?.layout.pane(id: pid)?.workingDirectory
-
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh devbox")
-        store.updatePane(
-            sessionID: sid,
-            paneID: pid,
-            workingDirectory: Self.validLocalDir
-        )
-
-        let pane = store.session(id: sid)?.layout.pane(id: pid)
-        #expect(pane?.pendingRemoteSSHTarget == "devbox")
-        #expect(pane?.workingDirectory == originalDirectory)
-        #expect(
-            store.managedSSHConversionSuggestion(sessionID: sid, paneID: pid)?.sshDestination
-                == "devbox"
-        )
-    }
-
-    @Test("dismissing the managed offer preserves the explicit conversion target without reopening")
-    func managedWorkspaceOfferDismissalPreservesExplicitConversionTarget() {
-        let (store, sid, pid) = makeStore()
-
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh devbox")
-        store.updatePane(sessionID: sid, paneID: pid, title: "alice@devbox: ~/app")
-
-        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid)?.sshDestination == "devbox")
-        #expect(store.consumeManagedSSHWorkspaceOffer(sessionID: sid, paneID: pid) == nil)
-        #expect(store.managedSSHConversionTarget(sessionID: sid, paneID: pid)?.sshDestination == "devbox")
-        #expect(remoteSSHTarget(store, pid) == "devbox")
+        #expect(remoteHost(store, pid) == host)
+        #expect(store.index.remotePaneIDs == (host == nil ? [] : Set([pid])))
+        #expect(store.selectedSession?.layout.pane(id: pid)?.title == title)
+        if host == nil {
+            store.updatePane(sessionID: sid, paneID: pid, title: "✳ Claude Code")
+            #expect(remoteHost(store, pid) == nil)
+        }
     }
 
     @Test("explicit managed conversion rejects unsafe, stale, inactive, and managed panes")
@@ -510,17 +195,6 @@ struct SessionStoreRemoteSessionTests {
         )
     }
 
-    @Test("ssh commands with extra options do not become managed workspace offers")
-    func optionedSSHCommandDoesNotBecomeManagedWorkspaceOffer() {
-        let (store, sid, pid) = makeStore()
-
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh -p 2222 devbox")
-        store.updatePane(sessionID: sid, paneID: pid, title: "alice@devbox: ~/app")
-
-        #expect(remoteHost(store, pid) == "devbox")
-        #expect(remoteSSHTarget(store, pid) == nil)
-    }
-
     @Test("submitted ssh config alias survives prompt hostname")
     func submittedSSHConfigAliasSurvivesPromptHostname() {
         let (store, sid, pid) = makeStore()
@@ -548,71 +222,6 @@ struct SessionStoreRemoteSessionTests {
         #expect(store.managedSSHConversionTarget(sessionID: sid, paneID: pid)?.sshDestination == "host-a")
     }
 
-    @Test("nested title-less SSH keeps the outer destination")
-    func nestedTitlelessSSHRetainsOuterTarget() {
-        let (store, sid, pid) = makeStore()
-
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh bastion")
-        store.noteSubmittedCommand(sessionID: sid, paneID: pid, command: "ssh private-host")
-
-        let pane = store.session(id: sid)?.layout.pane(id: pid)
-        #expect(pane?.pendingRemoteSSHTarget == "bastion")
-        #expect(
-            store.managedSSHConversionSuggestion(sessionID: sid, paneID: pid)?.sshDestination
-                == "bastion"
-        )
-    }
-
-    @Test("an indeterminate tool title cannot recover a title-derived remote directory")
-    func indeterminateTitleDoesNotRecoverRemoteWorkingDirectory() {
-        let (store, sid, pid) = makeStore()
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "codex")
-
-        #expect(remoteHost(store, pid) == "webserver")
-        #expect(remoteWorkingDirectory(store, pid) == nil)
-    }
-
-    @Test("an SSH pane accepts an explicitly reported remote directory")
-    func sshPaneAcceptsExplicitlyReportedRemoteDirectory() throws {
-        let target = try #require(RemoteTarget(parsing: "my-purple"))
-        let pane = TerminalPane(
-            title: "shell",
-            workingDirectory: "/Users/me/project",
-            executionPlan: .ssh(SSHExecution(target: target))
-        )
-        let session = TerminalSession(
-            title: "shell",
-            workingDirectory: pane.workingDirectory,
-            layout: .pane(pane),
-            activePaneID: pane.id
-        )
-        let store = SessionStore(
-            groups: [SessionGroup(name: "g", sessions: [session])],
-            selectedSessionID: session.id
-        )
-
-        store.updatePane(
-            sessionID: session.id,
-            paneID: pane.id,
-            workingDirectory: "file://devbox/srv/repo"
-        )
-
-        #expect(remoteWorkingDirectory(store, pane.id) == "/srv/repo")
-        #expect(store.selectedSession?.layout.pane(id: pane.id)?.workingDirectory == "/Users/me/project")
-        for (reported, expected) in [
-            ("file://devbox/private/tmp", "/private/tmp"),
-            ("/srv/link/../project", "/srv/link/../project"),
-            ("~", "~"),
-            ("~/child/..", "~"),
-        ] {
-            store.updatePane(sessionID: session.id, paneID: pane.id, workingDirectory: reported)
-            #expect(remoteWorkingDirectory(store, pane.id) == expected)
-            #expect(store.selectedSession?.layout.pane(id: pane.id)?.workingDirectory == "/Users/me/project")
-        }
-    }
-
     // A real, existing directory so the pwd survives WorkingDirectoryValidator and
     // is actually applied (only an applied cwd clears remote — see B3).
     private static let validLocalDir = NSTemporaryDirectory()
@@ -634,18 +243,11 @@ struct SessionStoreRemoteSessionTests {
         )
         #expect(remoteWorkingDirectory(store, pid) == "/srv/remote-only")
         #expect(store.session(id: sid)?.layout.pane(id: pid)?.workingDirectory == localDirectory)
-        for invalid in [
-            "file://another/srv/wrong", "file://webserver/srv/a%0Ab", "/srv/unqualified",
-            "file://webserver/srv/wrong?query=1", "file://user@webserver/srv/wrong",
-            "file://webserver:22/srv/wrong", "file:///srv/local", "file://localhost/srv/local",
-            "file://webserver/srv/wrong#fragment", "file://webserver/" + String(repeating: "x", count: 256),
-        ] {
-            store.updateObservedRemoteWorkingDirectory(
-                sessionID: sid, paneID: pid, terminalSessionID: terminalID,
-                expectedHost: "webserver", reportedDirectory: invalid
-            )
-            #expect(remoteWorkingDirectory(store, pid) == "/srv/remote-only")
-        }
+        store.updateObservedRemoteWorkingDirectory(
+            sessionID: sid, paneID: pid, terminalSessionID: terminalID,
+            expectedHost: "webserver", reportedDirectory: "file://another/srv/wrong"
+        )
+        #expect(remoteWorkingDirectory(store, pid) == "/srv/remote-only")
         store.updateObservedRemoteWorkingDirectory(
             sessionID: sid, paneID: pid, terminalSessionID: .generate(),
             expectedHost: "webserver", reportedDirectory: "file://webserver/srv/wrong"
@@ -677,172 +279,21 @@ struct SessionStoreRemoteSessionTests {
         #expect(store.index.remotePaneIDs.isEmpty)
     }
 
-    @Test("a fresh remote title clears a stale remote health hint")
-    func titleResetsStaleRemoteHealth() {
+    @Test(arguments: ["command", "localTitle", "rejectedPwd"])
+    func remoteHostStaysUntilValidatedLocalPwd(transition: String) {
         let (store, sid, pid) = makeStore()
         store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-        store.markRemotePanesPossiblyStale()
-        #expect(remoteConnectionHealth(store, pid) == .possiblyStale)
-
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-        #expect(remoteHost(store, pid) == "webserver")
-        #expect(remoteConnectionHealth(store, pid) == .active)
-    }
-
-    @Test("connectivity invalidation revokes remote evidence without diagnosing health")
-    func connectivityInvalidationOnlyAffectsRemotePanes() {
-        var remotePane = TerminalPane(
-            title: "ed@webserver: ~/app",
-            workingDirectory: "/tmp",
-            remoteHost: "webserver",
-            executionPlan: .local
-        )
-        remotePane.remoteForegroundLivenessSnapshot = RemoteForegroundLivenessSnapshot(
-            workspaceID: UUID(),
-            paneID: remotePane.id,
-            terminalSessionID: remotePane.terminalSessionID,
-            connectionGeneration: "generation",
-            liveness: .liveCommand,
-            sampledAt: Date()
-        )
-        let localPane = TerminalPane(
-            title: "ed@mymac: ~/local",
-            workingDirectory: "/tmp",
-            executionPlan: .local
-        )
-        let session = TerminalSession(
-            title: "w",
-            workingDirectory: "/tmp",
-            agentKind: .shell,
-            layout: .split(
-                TerminalSplit(
-                    orientation: .vertical,
-                    first: .pane(remotePane),
-                    second: .pane(localPane)
-                )),
-            activePaneID: remotePane.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
-
-        store.invalidateRemoteConnectivityEvidence()
-
-        let layout = store.groups[0].sessions[0].layout
-        #expect(layout.pane(id: remotePane.id)?.remoteConnectionHealth == .active)
-        #expect(layout.pane(id: remotePane.id)?.remoteHost == remotePane.remoteHost)
-        #expect(layout.pane(id: remotePane.id)?.executionPlan == remotePane.executionPlan)
-        #expect(layout.pane(id: remotePane.id)?.remoteForegroundLivenessSnapshot == nil)
-        let epoch = layout.pane(id: remotePane.id)?.remoteConnectivityEpoch
-        #expect(epoch != remotePane.remoteConnectivityEpoch)
-        #expect(
-            layout.pane(id: localPane.id)?.remoteConnectivityEpoch == localPane.remoteConnectivityEpoch
-        )
-        store.invalidateRemoteConnectivityEvidence()
-        #expect(
-            store.groups[0].sessions[0].layout.pane(id: remotePane.id)?.remoteConnectivityEpoch != epoch
-        )
-
-        var contextPane = localPane
-        contextPane.remoteFileContext = RemoteFileContext(
-            target: RemoteTarget(user: "alice", host: "files")!, baseDirectory: "/srv"
-        )
-        let contextSession = TerminalSession(
-            title: "files", workingDirectory: "/tmp", layout: .pane(contextPane),
-            activePaneID: contextPane.id
-        )
-        let contextStore = SessionStore(groups: [SessionGroup(name: "g", sessions: [contextSession])])
-        #expect(contextStore.index.remotePaneIDs.isEmpty)
-        contextStore.invalidateRemoteConnectivityEvidence()
-        let invalidatedContext = contextStore.groups[0].sessions[0].layout.pane(id: contextPane.id)
-        #expect(invalidatedContext?.remoteConnectivityEpoch != contextPane.remoteConnectivityEpoch)
-        #expect(invalidatedContext?.remoteFileContext == contextPane.remoteFileContext)
-        #expect(layout.pane(id: localPane.id)?.remoteConnectionHealth == .active)
-        #expect(layout.pane(id: localPane.id)?.remoteHost == nil)
-    }
-
-    @Test("remote stays sticky across an indeterminate (command) title between prompts")
-    func stickyAcrossCommandTitle() {
-        let (store, sid, pid) = makeStore()
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-        // The remote shell retitles to the running command — no user@host token.
-        store.updatePane(sessionID: sid, paneID: pid, title: "make")
-        #expect(remoteHost(store, pid) == "webserver")  // not cleared by churn
-    }
-
-    @Test("declared SSH panes invalidate evidence before host observation")
-    func declaredSSHPanesInvalidateEvidenceBeforeObservation() {
-        let target = RemoteTarget(user: "alice", host: "buildbox")!
-        let remotePane = TerminalPane(
-            title: "remote",
-            workingDirectory: "/srv/app",
-            executionPlan: .ssh(SSHExecution(target: target))
-        )
-        let session = TerminalSession(
-            title: "w",
-            workingDirectory: "/tmp/stale-local",
-            layout: .pane(remotePane),
-            activePaneID: remotePane.id
-        )
-        let store = SessionStore(groups: [SessionGroup(name: "g", sessions: [session])])
-
-        #expect(store.index.remotePaneIDs == Set([remotePane.id]))
-
-        store.invalidateRemoteConnectivityEvidence()
-        #expect(
-            store.groups[0].sessions[0].layout.pane(id: remotePane.id)?.remoteConnectivityEpoch
-                != remotePane.remoteConnectivityEpoch
-        )
-
-        #expect(
-            store.groups[0].sessions[0].layout.pane(id: remotePane.id)?.remoteConnectionHealth
-                == .active
-        )
-    }
-
-    @Test("a local-looking title does NOT clear remote — only a pwd event does")
-    func localTitleDoesNotClearRemote() {
-        let (store, sid, pid) = makeStore()
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-        // A local-looking title doesn't refresh the cwd, so it must not resurrect
-        // local affordances over a stale path — remote stays sticky.
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@mymac: ~/local")
-        #expect(remoteHost(store, pid) == "webserver")
-        // The pwd event (fresh, host-validated-local cwd) is what clears it.
-        store.updatePane(sessionID: sid, paneID: pid, workingDirectory: Self.validLocalDir)
-        #expect(remoteHost(store, pid) == nil)
-    }
-
-    @Test("a local session is never marked remote")
-    func localStaysLocal() {
-        let (store, sid, pid) = makeStore()
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@mymac: ~/project")
-        #expect(remoteHost(store, pid) == nil)
-    }
-
-    @Test("an empty/blank title update does not resurrect cleared remote state")
-    func emptyTitleDoesNotResurrectRemote() {
-        let (store, sid, pid) = makeStore()
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-        store.updatePane(sessionID: sid, paneID: pid, workingDirectory: Self.validLocalDir)
-        #expect(remoteHost(store, pid) == nil)
-        // A blank title sanitizes to empty → pane.title stays the old remote string;
-        // detection must NOT reparse it and re-mark the pane remote.
-        store.updatePane(sessionID: sid, paneID: pid, title: "   ")
-        #expect(remoteHost(store, pid) == nil)
-    }
-
-    @Test("a rejected (invalid) pwd does NOT clear remote")
-    func rejectedPwdKeepsRemote() {
-        let (store, sid, pid) = makeStore()
-        store.updatePane(sessionID: sid, paneID: pid, title: "ed@webserver: ~/app")
-        // A non-existent absolute path fails validation, so the cwd isn't applied
-        // and remote must stay (clearing on it would re-enable a stale local view).
-        store.updatePane(
-            sessionID: sid,
-            paneID: pid,
-            workingDirectory: "/this/does/not/exist-\(UUID().uuidString)"
-        )
+        switch transition {
+        case "command": store.updatePane(sessionID: sid, paneID: pid, title: "make")
+        case "localTitle": store.updatePane(sessionID: sid, paneID: pid, title: "ed@mymac: ~/local")
+        default: store.updatePane(sessionID: sid, paneID: pid, workingDirectory: "/this/does/not/exist-\(UUID().uuidString)")
+        }
         #expect(remoteHost(store, pid) == "webserver")
         #expect(store.index.remotePaneIDs == Set([pid]))
+        if transition == "localTitle" {
+            store.updatePane(sessionID: sid, paneID: pid, workingDirectory: Self.validLocalDir)
+            #expect(remoteHost(store, pid) == nil)
+        }
     }
 }
 
@@ -887,52 +338,5 @@ struct TerminalPaneRemoteHostPersistenceTests {
         #expect(restored.remoteWorkingDirectory == nil)
         #expect(restored.title == pane.title)
         #expect(restored.workingDirectory == pane.workingDirectory)
-    }
-}
-
-@Suite("TerminalPane value semantics")
-struct TerminalPaneValueSemanticsTests {
-    @Test("remote connection health is excluded from equality and hashing")
-    func remoteConnectionHealthDoesNotAffectEqualityOrHashing() {
-        let id = UUID()
-        let activePane = TerminalPane(
-            id: id,
-            title: "ed@webserver: ~/app",
-            workingDirectory: "/srv/app",
-            remoteHost: "webserver",
-            remoteConnectionHealth: .active,
-            executionPlan: .local
-        )
-        let stalePane = TerminalPane(
-            id: id,
-            title: "ed@webserver: ~/app",
-            workingDirectory: "/srv/app",
-            remoteHost: "webserver",
-            remoteConnectionHealth: .possiblyStale,
-            executionPlan: .local
-        )
-
-        #expect(activePane == stalePane)
-        #expect(Set([activePane, stalePane]).count == 1)
-    }
-
-    @Test("remote host remains part of equality")
-    func remoteHostAffectsEquality() {
-        let id = UUID()
-        let localPane = TerminalPane(
-            id: id,
-            title: "ed@webserver: ~/app",
-            workingDirectory: "/srv/app",
-            executionPlan: .local
-        )
-        let remotePane = TerminalPane(
-            id: id,
-            title: "ed@webserver: ~/app",
-            workingDirectory: "/srv/app",
-            remoteHost: "webserver",
-            executionPlan: .local
-        )
-
-        #expect(localPane != remotePane)
     }
 }

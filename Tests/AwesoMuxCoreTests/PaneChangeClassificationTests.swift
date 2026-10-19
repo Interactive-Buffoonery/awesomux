@@ -34,86 +34,41 @@ struct PaneChangeClassificationTests {
         )
     }
 
-    // MARK: - Durable fields
-
     /// Every field `updatePane` can move that carries runtime behaviour. Both
     /// operands come from ONE base pane with a single field mutated, so the
     /// verdict can only be that field's doing — building two panes from a factory
     /// would compare fresh `id`s as well and stay green with the field deleted.
-    @Test("each durable field on its own classifies as durable")
-    func durableFieldsClassifyAsDurable() {
-        let mutations: [(field: String, mutate: (inout TerminalPane) -> Void)] = [
-            ("workingDirectory", { $0.workingDirectory = "/var" }),
-            ("remoteHost", { $0.remoteHost = "other-box" }),
-            ("remoteSSHTarget", { $0.remoteSSHTarget = "other" }),
-            ("hasConsumedManagedSSHWorkspaceOffer", { $0.hasConsumedManagedSSHWorkspaceOffer = true }),
-            ("pendingRemoteSSHTarget", { $0.pendingRemoteSSHTarget = nil }),
-            ("hasObservedPendingRemoteSSHProcess", { $0.hasObservedPendingRemoteSSHProcess = true }),
-            ("remoteWorkingDirectory", { $0.remoteWorkingDirectory = "/srv/other" }),
-            ("remoteConnectionHealth", { $0.remoteConnectionHealth = .possiblyStale }),
-            ("progressReport", { $0.progressReport = nil }),
-        ]
-
-        let old = Self.basePane()
-        for mutation in mutations {
-            var new = old
-            mutation.mutate(&new)
-            #expect(
-                PaneLayoutReducer.paneChangeKind(from: old, to: new) == .durable,
-                """
-                Moving `\(mutation.field)` alone must classify as durable. \
-                Classified otherwise, a write that moves only this field lands \
-                silently and every consumer off the live-title channel freezes \
-                until something else publishes `groups` (#311).
-                """
-            )
-        }
-    }
-
-    // MARK: - Chrome text
-
-    @Test("a displayed-title move alone is display-only")
-    func titleMoveIsDisplayOnly() {
+    @Test(arguments: Self.classificationCases)
+    func classifiesMutation(name: String, mutate: @Sendable (inout TerminalPane) -> Void, expected: PaneLayoutReducer.PaneChangeKind) {
         let old = Self.basePane()
         var new = old
-        new.title = "cargo build"
-
-        #expect(PaneLayoutReducer.paneChangeKind(from: old, to: new) == .displayOnly)
+        mutate(&new)
+        #expect(PaneLayoutReducer.paneChangeKind(from: old, to: new) == expected, "\(name)")
     }
 
-    @Test("a live-title move behind a frozen displayed title is display-only")
-    func liveTitleMoveIsDisplayOnly() {
-        let old = Self.basePane()
-        var new = old
-        new.liveTerminalTitle = "cargo build"
-
-        // The ~10 Hz case: `isTitleUserEdited` froze `title`, so only the runtime
-        // cache moves. Nothing renders it, but the reducer must still commit it —
-        // `resetPaneTitle` reads it.
-        #expect(PaneLayoutReducer.paneChangeKind(from: old, to: new) == .displayOnly)
-    }
-
-    @Test("an identical pane is unchanged")
-    func identicalPaneIsUnchanged() {
-        let pane = Self.basePane()
-
-        #expect(PaneLayoutReducer.paneChangeKind(from: pane, to: pane) == .unchanged)
-    }
-
-    @Test("a durable move alongside a title move is durable, not display-only")
-    func durableWinsOverTitle() {
-        let old = Self.basePane()
-        var new = old
-        new.title = "cargo build"
-        new.liveTerminalTitle = "cargo build"
-        new.workingDirectory = "/var"
-
-        // Title + cwd in one report is an ordinary `cd` in a prompt hook, so this
-        // combination is the common case, not an edge one.
-        #expect(PaneLayoutReducer.paneChangeKind(from: old, to: new) == .durable)
-    }
-
-    // MARK: - The structural check
+    private static let classificationCases: [(String, @Sendable (inout TerminalPane) -> Void, PaneLayoutReducer.PaneChangeKind)] = [
+        ("workingDirectory", { $0.workingDirectory = "/var" }, PaneLayoutReducer.PaneChangeKind.durable),
+        ("remoteHost", { $0.remoteHost = "other-box" }, PaneLayoutReducer.PaneChangeKind.durable),
+        ("remoteSSHTarget", { $0.remoteSSHTarget = "other" }, PaneLayoutReducer.PaneChangeKind.durable),
+        (
+            "hasConsumedManagedSSHWorkspaceOffer", { $0.hasConsumedManagedSSHWorkspaceOffer = true },
+            PaneLayoutReducer.PaneChangeKind.durable
+        ),
+        ("pendingRemoteSSHTarget", { $0.pendingRemoteSSHTarget = nil }, PaneLayoutReducer.PaneChangeKind.durable),
+        ("hasObservedPendingRemoteSSHProcess", { $0.hasObservedPendingRemoteSSHProcess = true }, PaneLayoutReducer.PaneChangeKind.durable),
+        ("remoteWorkingDirectory", { $0.remoteWorkingDirectory = "/srv/other" }, PaneLayoutReducer.PaneChangeKind.durable),
+        ("remoteConnectionHealth", { $0.remoteConnectionHealth = .possiblyStale }, PaneLayoutReducer.PaneChangeKind.durable),
+        ("progressReport", { $0.progressReport = nil }, PaneLayoutReducer.PaneChangeKind.durable),
+        ("title", { $0.title = "cargo build" }, .displayOnly),
+        ("liveTerminalTitle", { $0.liveTerminalTitle = "cargo build" }, .displayOnly),
+        ("identical", { _ in }, .unchanged),
+        (
+            "durable and title",
+            {
+                $0.title = "cargo build"; $0.liveTerminalTitle = "cargo build"; $0.workingDirectory = "/var"
+            }, .durable
+        ),
+    ]
 
     /// The drift this replaces the old two-list arrangement to prevent. Adding a
     /// field to `updatePane` without adding it to `paneChangeKind` would make the
