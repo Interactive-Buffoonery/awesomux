@@ -902,7 +902,8 @@ struct PaneLayoutReducer: Sendable {
         title: String?,
         workingDirectory: String?,
         progressReport: TerminalProgressReport? = nil,
-        localHostnames: Set<String>
+        localHostnames: Set<String>,
+        localShellOwnsTerminal: @autoclosure () -> Bool = false
     ) -> TerminalSession? {
         var session = session
         guard var pane = session.layout.pane(id: paneID) else {
@@ -936,13 +937,16 @@ struct PaneLayoutReducer: Sendable {
                         ((validatedLocalWorkingDirectory ?? pane.workingDirectory) as NSString)
                             .lastPathComponent
                     )
-                    let isLocalDirectoryTitle =
-                        pane.executionPlan == .local
-                        && sanitized == directoryBasename
                     // A directory basename can look exactly like user@host; it is
                     // not new remote evidence. A canonicalized symlink's basename
-                    // can differ from its original-path title.
-                    if !isLocalDirectoryTitle {
+                    // can differ from its original-path title. Neither is a prompt
+                    // title while an idle local shell owns the terminal: no SSH
+                    // client is running, so the host is a stale or unresolved
+                    // local name (#698). Probed last; it reads process state.
+                    let isLocalTitle =
+                        pane.executionPlan == .local
+                        && (sanitized == directoryBasename || localShellOwnsTerminal())
+                    if !isLocalTitle {
                         let confirmsDeclaredHost =
                             originalPane.remoteHost == nil
                             && originalPane.executionPlan.remoteTarget.map {

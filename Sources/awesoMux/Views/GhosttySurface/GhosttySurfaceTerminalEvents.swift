@@ -575,7 +575,12 @@ extension GhosttySurfaceNSView {
             PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), writtenAt
         )
         let previous = sessionStore.session(id: sessionID)?.layout.pane(id: paneID)
-        sessionStore.updatePane(sessionID: sessionID, paneID: paneID, title: title)
+        sessionStore.updatePane(
+            sessionID: sessionID,
+            paneID: paneID,
+            title: title,
+            localShellOwnsTerminal: localShellOwnsTerminal(sample: foregroundProcessSample())
+        )
         if let current = sessionStore.session(id: sessionID)?.layout.pane(id: paneID) {
             synchronizeRemotePwdGeneration(sessionID: sessionID, current: current)
         }
