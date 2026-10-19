@@ -235,12 +235,32 @@ entirely and let your Ghostty config and CoreText resolution stand.
 Generated resources include independently written zsh and fish `ssh` wrappers.
 They install at the first prompt after user startup, preserving existing SSH
 aliases/functions and executable lookup through `PATH`. When the inherited
-terminal is `xterm-ghostty`, the wrapper supplies `TERM=xterm-256color` only to
-the SSH process; local TERM and other terminal selections are unchanged.
-This also means hosts with working Ghostty terminfo receive the fallback.
+terminal is `xterm-ghostty`, the wrapper supplies `TERM=xterm-256color` to the
+SSH process unless the host was set up (below); local TERM and other terminal
+selections are unchanged.
 `command ssh`, absolute executable paths, custom aliases/functions, unsupported
 shells, and disabled shell integration bypass it. Existing persistent shells
-need recreation. No remote probes or installations occur.
+need recreation.
+
+Both wrappers, and the SSH workspace launcher in `AmxBackend`, route through
+one POSIX `sh` helper, `shell-integration/awesomux-ssh`. It runs through
+`/bin/sh` because Ghostty installs resources without the executable bit. The
+helper is the only place that picks the remote TERM. It keeps `xterm-ghostty`
+only for hosts listed in the setup cache, and gives every other host
+`xterm-256color`. SSH workspaces pass `--portable`, which also maps any other
+TERM to `xterm-256color`, as the launcher did before. When the cache is missing or empty it never runs `ssh -G`,
+because `-G` re-runs `Match exec` and can look up DNS.
+
+`awesomux-ssh --setup-terminfo` asks y/N on the terminal before it connects.
+It then sends a script on stdin to a bare remote `sh`, so the remote login shell
+never parses it. The payload comes from the local `infocmp -x xterm-ghostty`,
+using the bundled compiled terminfo. The remote side writes nothing if the
+definition is already present (unless `--force`). Otherwise it writes the
+definition to a `mktemp` file and runs `tic -x -o "$HOME/.terminfo"`, then
+checks it with `infocmp`. The host is cached only when the definition is
+present or verified. A missing `tic`, an unwritable home, or a failed check
+leaves the host on `xterm-256color`. `ssh -G` keys can drift when `Match exec`
+or DNS results change; `--forget` clears a stale entry.
 
 The scripts are fingerprinted and staged through `prepare_ghostty_source.py`;
 the vendored source and pin stay unchanged. Unsupported upstream helpers that
