@@ -4,23 +4,21 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `6301810a48aaa3426887a4316668f18833a40138` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `f44c67817d1869cd1ff3cbd648552e4c7ac9ba23` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
-> The current pin includes upstream terminal fixes for word selection across
-> wide characters and hard line breaks, reverse-wrap cursor jumps, and a tmux
-> `list-windows` use-after-free. It adds overscan support to `RenderState` with
-> the matching libghostty C API, window resizing through `CSI 8 t` (including
-> macOS), glyph cache keys packed into a `u64`, and batched special-graphics
-> writes. The renderer also gained a synchronized-output render hold effect
-> (mode 2026). The GTK/OpenGL changes in this range are Linux-only.
+> This update adds upstream fixes for a
+> [scrollback cursor-page use-after-free](https://github.com/ghostty-org/ghostty/commit/65ff54c67),
+> [PTY and terminal resize synchronization](https://github.com/ghostty-org/ghostty/pull/14706),
+> and [mouse-button release reporting at prompts](https://github.com/ghostty-org/ghostty/pull/14710).
+> These changes affect awesoMux's terminal engine; upstream's macOS application
+> changes do not replace awesoMux's own window and command handling.
 >
-> The `uucode` package pin moved from Ghostty's `deps.files.ghostty.org` mirror
-> to the upstream GitHub archive at revision
-> `9d55524551411b493cca41ca06363625d90aff1e`. uucode produces generated tables
-> only, so the audited ReleaseFast archive-member inventory is unchanged at 277
-> members with digest
+> The generated awesoMux scrollback and path-link extensions build against this
+> pin and pass their native regression suites. The ReleaseFast archive inventory
+> remains at 277 members with digest
 > `dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82`.
+> The bundled Ghostty license is byte-identical to the file at this revision.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
