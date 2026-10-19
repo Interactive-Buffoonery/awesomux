@@ -82,13 +82,23 @@ struct AgentPluginCard: View {
             guard panel.runModal() == .OK, let url = panel.url else { return }
             onAddFolder(url.path)
         } label: {
-            Label("Add folder…", systemImage: "folder.badge.plus")
+            Label(
+                String(localized: "Add folder…", comment: "Button that opens a picker for another agent config folder."),
+                systemImage: "folder.badge.plus"
+            )
         }
         .buttonStyle(.bordered)
         .disabled(!isEnabled || state.isBusy)
-        .help("Manage the \(state.title) status plugin in another \(state.configHomeLabel) folder")
-        .accessibilityLabel("Add folder")
-        .accessibilityHint("Manage the \(state.title) status plugin in another \(state.configHomeLabel) folder")
+        .help(
+            String(
+                localized: "Manage the \(state.title) status plugin in another \(state.configHomeLabel) folder",
+                comment: "Help for adding a config folder; arguments are the provider name and config home label.")
+        )
+        .accessibilityLabel(String(localized: "Add folder", comment: "Accessibility label for the agent config folder picker button."))
+        .accessibilityHint(
+            String(
+                localized: "Manage the \(state.title) status plugin in another \(state.configHomeLabel) folder",
+                comment: "Help for adding a config folder; arguments are the provider name and config home label."))
     }
 
     // MARK: Header
@@ -119,7 +129,9 @@ struct AgentPluginCard: View {
                 AgentPluginStatusBadge(
                     label: installSummary,
                     color: Color.aw.textFaint,
-                    accessibilityLabel: "\(state.title) status",
+                    accessibilityLabel: String(
+                        localized: "\(state.title) status",
+                        comment: "Accessibility label for an agent plugin status badge; argument is the provider name."),
                     accessibilityHint: ""
                 )
             } else {
@@ -130,11 +142,17 @@ struct AgentPluginCard: View {
 
     private var toggleAccessibilityHint: String {
         if state.isBusy {
-            return "Unavailable while \(state.title) is checking or updating"
+            return String(
+                localized: "Unavailable while \(state.title) is checking or updating",
+                comment: "Accessibility hint for a busy agent integration toggle; argument is the provider name.")
         }
         return isEnabled
-            ? "Disabling stops awesoMux from probing this provider"
-            : "Enabling allows status probes; installing the plugin is a separate step"
+            ? String(
+                localized: "Disabling stops awesoMux from probing this provider",
+                comment: "Accessibility hint for an enabled agent integration toggle.")
+            : String(
+                localized: "Enabling allows status probes; installing the plugin is a separate step",
+                comment: "Accessibility hint for a disabled agent integration toggle.")
     }
 
     // MARK: Fields
@@ -305,17 +323,32 @@ struct AgentPluginFolderSection: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
-                .accessibilityLabel("Folder \(state.folderPath)")
+                .accessibilityLabel(
+                    String(
+                        localized: "Folder \(state.folderPath)",
+                        comment: "Accessibility label for an agent config folder; argument is its path."))
             Spacer(minLength: 8)
             if state.canForget {
                 Button(action: onForget) {
-                    Label("Stop managing", systemImage: "minus.circle")
+                    Label(
+                        String(localized: "Stop managing", comment: "Button to forget an additional agent config folder."),
+                        systemImage: "minus.circle")
                 }
                 .buttonStyle(.borderless)
                 .disabled(state.isBusy)
-                .help("Remove this folder from the list. Remove the plugin first to uninstall it.")
-                .accessibilityLabel("Stop managing folder")
-                .accessibilityHint("Removes this folder from the list without changing it")
+                .help(
+                    String(
+                        localized: "Remove this folder from the list. Remove the plugin first to uninstall it.",
+                        comment: "Help for forgetting an agent config folder without uninstalling its plugin.")
+                )
+                .accessibilityLabel(
+                    String(
+                        localized: "Stop managing folder", comment: "Accessibility label for forgetting an additional agent config folder.")
+                )
+                .accessibilityHint(
+                    String(
+                        localized: "Removes this folder from the list without changing it",
+                        comment: "Accessibility hint for forgetting an additional agent config folder."))
             }
             AgentPluginStatusBadge(state: state)
         }
@@ -603,7 +636,8 @@ struct AgentPluginWarningBanner: View {
         .accessibilityElement(children: .combine)
         // The triangle icon and peach tint carry the "caution" signal visually;
         // name the role so VoiceOver doesn't read it as ordinary body text.
-        .accessibilityLabel("Warning: \(message)")
+        .accessibilityLabel(
+            String(localized: "Warning: \(message)", comment: "Accessibility label for an agent plugin warning; argument is its message."))
     }
 }
 
@@ -624,7 +658,9 @@ struct AgentPluginStatusBadge: View {
         self.init(
             label: state.statusLabel,
             color: Self.color(for: state.status),
-            accessibilityLabel: "\(state.title) status",
+            accessibilityLabel: String(
+                localized: "\(state.title) status",
+                comment: "Accessibility label for an agent plugin status badge; argument is the provider name."),
             accessibilityHint: state.statusDetail
         )
     }

@@ -327,7 +327,7 @@
 
     },
     "%arg status" : {
-
+      "comment" : "Accessibility label for an agent plugin status badge; argument is the provider name."
     },
     "%arg status in %arg: %arg." : {
       "comment" : "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, and the status",
@@ -719,10 +719,10 @@
       "comment" : "Placeholder for a new comment annotation"
     },
     "Add folder" : {
-
+      "comment" : "Accessibility label for the agent config folder picker button."
     },
     "Add folder…" : {
-
+      "comment" : "Button that opens a picker for another agent config folder."
     },
     "Adds an accent halo to the chrome cursor indicator. Does not affect the libghostty surface cursor." : {
       "comment" : "Terminal settings hint."
@@ -2008,6 +2008,9 @@
     "Diagnostics summary: %arg" : {
 
     },
+    "Disabling stops awesoMux from probing this provider" : {
+      "comment" : "Accessibility hint for an enabled agent integration toggle."
+    },
     "Disconnected from %arg in %arg. Background sessions are off. Enable them to reconnect." : {
       "comment" : "VoiceOver announcement when a managed SSH pane in a split is blocked because background terminal sessions are disabled",
       "localizations" : {
@@ -2191,6 +2194,9 @@
     },
     "Enable…" : {
 
+    },
+    "Enabling allows status probes; installing the plugin is a separate step" : {
+      "comment" : "Accessibility hint for a disabled agent integration toggle."
     },
     "End session" : {
 
@@ -2401,7 +2407,7 @@
       "comment" : "VoiceOver announcement when jumping to a pane from the sidebar peek card.\nVoiceOver announcement when the user jumps to a specific split pane by index."
     },
     "Folder %arg" : {
-
+      "comment" : "Accessibility label for an agent config folder; argument is its path."
     },
     "Folder Name:" : {
       "comment" : "Name field label in the worktree target path picker."
@@ -2854,6 +2860,7 @@
       "comment" : "Command palette action that opens Worktree Manager.\nWorkspace menu action that opens Worktree Manager."
     },
     "Manage the %arg status plugin in another %arg folder" : {
+      "comment" : "Help for adding a config folder; arguments are the provider name and config home label.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4215,7 +4222,7 @@
       "comment" : "Revoke a saved SSH helper choice; argument is the SSH destination"
     },
     "Remove this folder from the list. Remove the plugin first to uninstall it." : {
-
+      "comment" : "Help for forgetting an agent config folder without uninstalling its plugin."
     },
     "Remove “%arg”?" : {
       "comment" : "Title of the confirmation dialog before deleting a custom command"
@@ -4233,7 +4240,7 @@
       "comment" : "Terminal settings hint."
     },
     "Removes this folder from the list without changing it" : {
-
+      "comment" : "Accessibility hint for forgetting an additional agent config folder."
     },
     "Removing an alias from below restores automatic offers for it." : {
       "comment" : "Workspace settings hint."
@@ -5002,10 +5009,10 @@
 
     },
     "Stop managing" : {
-
+      "comment" : "Button to forget an additional agent config folder."
     },
     "Stop managing folder" : {
-
+      "comment" : "Accessibility label for forgetting an additional agent config folder."
     },
     "Stops awesoMux offering to convert SSH connections. Destinations on the always-manage list above keep converting — remove them there to stop that too." : {
       "comment" : "Workspace settings hint."
@@ -5736,6 +5743,9 @@
     "Unavailable" : {
       "comment" : "Diagnostics history metric with no samples yet"
     },
+    "Unavailable while %arg is checking or updating" : {
+      "comment" : "Accessibility hint for a busy agent integration toggle; argument is the provider name."
+    },
     "Unavailable while notifications are muted." : {
 
     },
@@ -5888,7 +5898,7 @@
       "comment" : "Diagnostics event severity"
     },
     "Warning: %arg" : {
-
+      "comment" : "Accessibility label for an agent plugin warning; argument is its message."
     },
     "Warning: this request mixes character scripts and may be disguised." : {
       "comment" : "Accessibility warning appended to the remote permission banner when the request text mixes writing systems (a homograph-spoof signal)"
