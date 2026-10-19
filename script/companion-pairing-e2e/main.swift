@@ -1,3 +1,4 @@
+import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import CryptoKit
@@ -427,11 +428,7 @@ struct CompanionPairingE2E {
     }
 
     private static func confirmationWords(macSPKI: Data, phoneSPKI: Data) throws -> [String] {
-        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Resources/companion-pairing-words.txt")
-        let words = try String(contentsOf: path, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
-        guard words.count == 256, Set(words).count == 256 else { throw E2EFailure("invalid confirmation word list") }
-        return SHA256.hash(data: macSPKI + phoneSPKI).prefix(3).map { words[Int($0)] }
+        CompanionPairingWords.words(macSPKI: macSPKI, phoneSPKI: phoneSPKI)
     }
 }
 

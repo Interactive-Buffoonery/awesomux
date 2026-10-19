@@ -72,7 +72,6 @@ APP_ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.icon"
 APP_FONTS="$ROOT_DIR/Resources/Fonts"
 LICENSE_RESOURCES="$ROOT_DIR/Resources/Licenses"
 APP_AGENT_INTEGRATIONS="$ROOT_DIR/Resources/AgentIntegrations"
-APP_COMPANION_PAIRING_WORDS="$ROOT_DIR/Resources/companion-pairing-words.txt"
 APP_LOCALIZATIONS="$ROOT_DIR/Resources"
 APP_STRING_CATALOG="$APP_LOCALIZATIONS/Localizable.xcstrings"
 GHOSTTY_ARTIFACT_DIR="$ROOT_DIR/.build/ghostty"
@@ -708,11 +707,6 @@ if [[ -d "$APP_AGENT_INTEGRATIONS" ]]; then
     rm -rf "$APP_RESOURCES/AgentIntegrations/openai"
   fi
 fi
-if [[ ! -f "$APP_COMPANION_PAIRING_WORDS" ]]; then
-  echo "error: Companion pairing word list is missing: $APP_COMPANION_PAIRING_WORDS" >&2
-  exit 1
-fi
-cp "$APP_COMPANION_PAIRING_WORDS" "$APP_RESOURCES/companion-pairing-words.txt"
 find "$APP_LOCALIZATIONS" -maxdepth 1 -type d -name '*.lproj' -exec cp -R {} "$APP_RESOURCES/" \;
 if ! xcrun --find xcstringstool >/dev/null 2>&1; then
   echo "error: xcstringstool is required to compile $APP_STRING_CATALOG" >&2

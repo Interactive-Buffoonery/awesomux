@@ -3,6 +3,11 @@
 This document is the complete Mac-to-iPhone pairing, read-only API, and self-unpair contract.
 All integers are decimal unless a representation is stated explicitly.
 
+V1 wire DTOs, framing, link syntax, and confirmation words live in the root
+`AwesoMuxCompanionProtocol` package in `awesomux-companion`. This app pins an exact
+package release in `Package.swift` and `Package.resolved`; TLS and authorization
+remain local. Package versions do not change wire versions.
+
 The v1 link and framed protocol below describe the current implementation.
 The v2 link and route metadata are the planned #782 contract, pending Mac
 listener/current-address support in #783 and corresponding phone support.
