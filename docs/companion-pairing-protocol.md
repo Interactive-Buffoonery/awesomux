@@ -8,9 +8,9 @@ V1 wire DTOs, framing, link syntax, and confirmation words live in the root
 package revision in `Package.swift` and `Package.resolved`; TLS and authorization
 remain local. Package versions do not change wire versions.
 
-The v1 link and framed protocol below describe the current implementation.
-The v2 link and route metadata are the planned #782 contract, pending Mac
-listener/current-address support in #783 and corresponding phone support.
+The Mac emits v2 pairing links and reports current bound routes (#783).
+Legacy v1 grants retain their stored transport restriction. Phone v2 parsing,
+persistence, and route selection require corresponding phone support.
 Pairing frames retain `v: 1`; API requests and responses retain
 `schemaVersion: 1`. Link version 2 does not change either wire version.
 
@@ -32,9 +32,9 @@ SPKI fingerprint. TLS is version 1.3 and requires certificates from both peers.
 
 ## Pairing link
 
-### Legacy v1 (currently implemented)
+### Legacy v1
 
-The QR code and **Copy Link** action currently contain exactly this URL:
+Legacy pairings used exactly this URL:
 
 ```text
 awesomuxcompanion://pair?v=1&h=<host>&p=<port>&fp=<macFP>&s=<secret>&n=<macName>&t=<lan|tailscale>
@@ -58,9 +58,9 @@ A persisted v1 pairing stays single-route and transport-scoped. Authorizing
 both routes requires explicit re-pairing with a v2 link, not a metadata update.
 An unreachable v1 saved endpoint still requires re-pairing.
 
-### v2 (planned)
+### v2
 
-The QR code and **Copy Link** action will contain this fixed shape:
+The QR code and **Copy Link** action contain this fixed shape:
 
 ```text
 awesomuxcompanion://pair?v=2&lan=<IPv4>&tailscale=<IPv4>&p=<port>&fp=<pin>&s=<secret>&n=<name>
@@ -97,7 +97,7 @@ applies even when a v2 grant authorizes the other listener.
 
 #### Eligible private interfaces and listener lifecycle
 
-The planned listeners retain the current IPv4 route-class boundaries:
+The listeners enforce these IPv4 route-class boundaries:
 
 - Every address must be assigned to an UP, non-loopback interface and be
   unicast. Never bind or advertise public, wildcard, loopback, link-local,
@@ -364,7 +364,7 @@ Current success adds `connectionStatus`:
 `connected` means this exact app instance is reachable and the paired
 connection is still authorized.
 
-#### Planned v2 route metadata
+#### V2 route metadata
 
 A successful Companion `get_connection_status` response for a v2 grant may additionally
 contain a `routes` object using the link vocabulary: `v` is `2`, `p` is the

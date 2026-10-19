@@ -116,14 +116,13 @@ struct CompanionSettingsPane: View {
     }
 
     private var listeningFooter: String? {
-        switch coordinator.activeTransport {
-        case .tailscale:
-            String(localized: "Listening on Tailscale only", comment: "Companion active Tailscale transport footer.")
-        case .lan:
-            String(localized: "Listening on local network only", comment: "Companion active LAN transport footer.")
-        case nil:
-            nil
+        let transports = coordinator.boundAddresses.map(\.transport)
+        if transports.contains(.lan), transports.contains(.tailscale) {
+            return String(localized: "Listening on local network and Tailscale")
         }
+        if transports.contains(.lan) { return String(localized: "Listening on local network only") }
+        if transports.contains(.tailscale) { return String(localized: "Listening on Tailscale only") }
+        return nil
     }
 
     private func phoneRow(_ phone: LocalAPIConnectionGrant) -> some View {
@@ -204,7 +203,6 @@ struct CompanionSettingsPane: View {
 private struct CompanionPairingSheet: View {
     @Environment(CompanionPairingCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
-    @State private var transport: LocalAPICompanionTransport = .lan
     @State private var now = Date()
     @State private var errorMessage: String?
     @State private var qrImage: NSImage?
@@ -216,19 +214,7 @@ private struct CompanionPairingSheet: View {
                 .foregroundStyle(Color.aw.text)
                 .accessibilityAddTraits(.isHeader)
 
-            SettingsField(
-                label: String(localized: "Pairing transport"),
-                forwardsAccessibilityToControl: false
-            ) {
-                SettingsSegmented(
-                    options: transportOptions,
-                    selection: $transport,
-                    expandsToFill: true
-                )
-                .accessibilityLabel(String(localized: "Pairing transport"))
-            }
-
-            if let session = coordinator.pairingSession {
+            if let session = coordinator.pairingSession, coordinator.currentPairingLink != nil {
                 if let qrImage {
                     Image(nsImage: qrImage)
                         .interpolation(.none)
@@ -290,11 +276,11 @@ private struct CompanionPairingSheet: View {
         }
         .padding(24)
         .frame(width: 440)
-        .task(id: transport) {
+        .task {
             await startPairing()
         }
-        .task(id: coordinator.pairingSession?.id) {
-            qrImage = coordinator.pairingSession.flatMap { Self.qrImage(for: $0.link) }
+        .task(id: coordinator.currentPairingLink) {
+            qrImage = coordinator.currentPairingLink.flatMap { Self.qrImage(for: $0) }
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now = $0 }
         .onChange(of: coordinator.pairingResult) { _, result in
@@ -316,17 +302,6 @@ private struct CompanionPairingSheet: View {
             }
         } message: { prompt in
             Text(prompt.words.joined(separator: "   "))
-        }
-    }
-
-    private var transportOptions: [SettingsSegmented<LocalAPICompanionTransport>.Option] {
-        coordinator.availableTransports.map { transport in
-            switch transport {
-            case .lan:
-                .init(value: .lan, label: String(localized: "Local network", comment: "Companion LAN choice."))
-            case .tailscale:
-                .init(value: .tailscale, label: String(localized: "Tailscale", comment: "Companion Tailscale choice."))
-            }
         }
     }
 
@@ -354,13 +329,9 @@ private struct CompanionPairingSheet: View {
     private func startPairing() async {
         do {
             errorMessage = nil
-            _ = try await coordinator.beginPairing(transport: transport)
-        } catch CompanionPairingError.noTailscaleAddress {
-            errorMessage = String(localized: "This Mac doesn't currently have a Tailscale address.")
+            _ = try await coordinator.beginPairing()
         } catch CompanionPairingError.noLocalAddress {
             errorMessage = String(localized: "This Mac doesn't currently have a local network address.")
-        } catch CompanionPairingError.transportInUse {
-            errorMessage = String(localized: "Unpair existing phones before switching network type.")
         } catch {
             errorMessage = String(localized: "Companion pairing could not start.")
         }

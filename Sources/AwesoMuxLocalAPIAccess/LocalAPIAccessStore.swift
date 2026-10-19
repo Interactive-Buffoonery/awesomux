@@ -24,19 +24,26 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     public let pairedAt: Date
     public let port: UInt16
     public var paneRenameScope: LocalAPITargetScope?
+    public let pairingVersion: Int?
+
+    public func allows(_ transport: LocalAPICompanionTransport) -> Bool {
+        pairingVersion == 2 || self.transport == transport
+    }
 
     public init(
         certificateFingerprint: Data,
         transport: LocalAPICompanionTransport,
         pairedAt: Date,
         port: UInt16,
-        paneRenameScope: LocalAPITargetScope? = nil
+        paneRenameScope: LocalAPITargetScope? = nil,
+        pairingVersion: Int? = nil
     ) {
         self.certificateFingerprint = certificateFingerprint
         self.transport = transport
         self.pairedAt = pairedAt
         self.port = port
         self.paneRenameScope = paneRenameScope
+        self.pairingVersion = pairingVersion
     }
 }
 
@@ -444,11 +451,16 @@ public final class LocalAPIAccessStore {
         certificateFingerprint: Data,
         transport: LocalAPICompanionTransport,
         port: UInt16,
+        pairingVersion: Int? = nil,
         pairedAt: Date = Date()
     ) throws -> LocalAPIConnectionGrant {
         try requireWritableAuthority()
         let phoneName = UnicodeHygiene.sanitize(rawPhoneName, maxLength: 80, stripInvisibleRoutingScalars: true)
         guard !phoneName.isEmpty else { throw LocalAPIAccessFailure.invalidLabel }
+        guard port != 0, pairingVersion == nil || pairingVersion == 2 else { throw LocalAPIAccessFailure.persistenceFailed }
+        guard state.connections.filter({ $0.kind == .companion }).allSatisfy({ $0.companion?.port == port }) else {
+            throw LocalAPIAccessFailure.persistenceFailed
+        }
         guard certificateFingerprint.count == SHA256.byteCount else { throw LocalAPIAccessFailure.persistenceFailed }
         let connection = LocalAPIConnectionGrant(
             id: UUID(),
@@ -462,7 +474,8 @@ public final class LocalAPIAccessStore {
                 certificateFingerprint: certificateFingerprint,
                 transport: transport,
                 pairedAt: pairedAt,
-                port: port
+                port: port,
+                pairingVersion: pairingVersion
             )
         )
         var candidate = state
@@ -723,7 +736,9 @@ public final class LocalAPIAccessStore {
             guard scopeShapeIsValid(scope) else { return false }
             keys.remove("paneRenameScope")
         }
-        return keys == ["certificateFingerprint", "transport", "pairedAt", "port"]
+        let legacy: Set<String> = ["certificateFingerprint", "transport", "pairedAt", "port"]
+        if keys == legacy { return true }
+        return keys == legacy.union(["pairingVersion"]) && (metadata["pairingVersion"] as? Int) == 2
     }
 
     private static func scopeShapeIsValid(_ value: Any?) -> Bool {

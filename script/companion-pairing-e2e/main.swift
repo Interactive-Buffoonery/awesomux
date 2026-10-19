@@ -20,28 +20,19 @@ private struct PairingLink {
     let transport: String
 
     init(_ rawValue: String) throws {
-        guard let components = URLComponents(string: rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
-            components.scheme == "awesomuxcompanion", components.host == "pair",
-            let queryItems = components.queryItems, queryItems.count == 7
-        else { throw E2EFailure("invalid pairing link") }
-        var values: [String: String] = [:]
-        for item in queryItems {
-            guard values[item.name] == nil, let value = item.value else { throw E2EFailure("duplicate pairing field") }
-            values[item.name] = value
-        }
-        guard Set(values.keys) == ["v", "h", "p", "fp", "s", "n", "t"], values["v"] == "1",
-            let rawHost = values["h"], let rawPort = values["p"], let portValue = UInt16(rawPort),
-            let port = NWEndpoint.Port(rawValue: portValue),
-            let fingerprint = Data(base64URL: values["fp"] ?? ""), fingerprint.count == 32,
-            let secretData = Data(base64URL: values["s"] ?? ""), secretData.count == 32,
-            let secret = values["s"], let macName = values["n"], !macName.isEmpty,
-            let transport = values["t"], transport == "lan" || transport == "tailscale"
+        let link = try CompanionPairingLinkV2(rawValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let rawHost = link.routes.lan ?? link.routes.tailscale,
+            let port = NWEndpoint.Port(rawValue: link.routes.p),
+            let fingerprint = Data(base64URL: link.macFingerprint), fingerprint.count == 32,
+            let secretData = Data(base64URL: link.secret), secretData.count == 32,
+            !link.macName.isEmpty
         else { throw E2EFailure("invalid pairing field") }
+        let transport = link.routes.lan != nil ? "lan" : "tailscale"
         host = NWEndpoint.Host(rawHost)
         self.port = port
         macFingerprint = fingerprint
-        self.secret = secret
-        self.macName = macName
+        self.secret = link.secret
+        self.macName = link.macName
         self.transport = transport
     }
 }
@@ -213,7 +204,13 @@ struct CompanionPairingE2E {
                 if operation == "get_attention_events" { request["limit"] = 100 }
                 let response = try await call(request, link: link, identity: identity)
                 guard response["error"] == nil else { throw E2EFailure("\(operation) was denied") }
-                if operation == "get_connection_status" { profile = response["profile"] as? String }
+                if operation == "get_connection_status" {
+                    profile = response["profile"] as? String
+                    guard let routes = response["routes"] as? [String: Any], routes["v"] as? Int == 2,
+                        routes["p"] as? Int == Int(link.port.rawValue),
+                        routes[link.transport] as? String == String(describing: link.host)
+                    else { throw E2EFailure("status did not report the current v2 route") }
+                }
                 printJSON(label: operation, object: response)
             }
             let denied = try await call(

@@ -2778,6 +2778,9 @@
     "Listening on Tailscale only" : {
       "comment" : "Companion active Tailscale transport footer."
     },
+    "Listening on local network and Tailscale" : {
+
+    },
     "Listening on local network only" : {
       "comment" : "Companion active LAN transport footer."
     },
@@ -2804,9 +2807,6 @@
     },
     "Local document paths can only be sent to a local terminal" : {
       "comment" : "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
-    },
-    "Local network" : {
-      "comment" : "Companion LAN choice."
     },
     "Local only" : {
 
@@ -3512,9 +3512,6 @@
     },
     "Paired phones" : {
       "comment" : "Companion paired-phone list label."
-    },
-    "Pairing transport" : {
-
     },
     "Pairing wasn't allowed. Create a new code to try again." : {
 
@@ -5021,9 +5018,6 @@
     "TOML at %@." : {
       "comment" : "Advanced settings subtitle. Placeholder is the configuration file path."
     },
-    "Tailscale" : {
-      "comment" : "Companion Tailscale choice."
-    },
     "Target path" : {
       "comment" : "New worktree target path field label."
     },
@@ -5441,9 +5435,6 @@
     "This Mac" : {
 
     },
-    "This Mac doesn't currently have a Tailscale address." : {
-
-    },
     "This Mac doesn't currently have a local network address." : {
 
     },
@@ -5736,9 +5727,6 @@
       "comment" : "Confirm Companion unpair button."
     },
     "Unpair %@" : {
-
-    },
-    "Unpair existing phones before switching network type." : {
 
     },
     "Unpair iPhone?" : {

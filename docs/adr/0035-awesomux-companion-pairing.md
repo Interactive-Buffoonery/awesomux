@@ -44,7 +44,7 @@ authority lock through the store change. Cancellation or an expired request
 deadline prevents a pending mutation. Policy changes invalidate outstanding
 leases before saving and deny the phone for the run if saving fails.
 
-**One pairing carries up to two routes.** The planned v2 pairing link carries
+**One pairing carries up to two routes.** The v2 pairing link carries
 one LAN IPv4 address and one Tailscale IPv4 address, omitting unavailable
 routes and requiring at least one. Both use the same stable port, Mac identity,
 phone grant, and exact runtime profile. The app binds only the listed private
@@ -80,11 +80,10 @@ not discover arbitrary replacement addresses or change trust after an identity
 failure. The [pairing protocol](../companion-pairing-protocol.md) defines the
 v2 link, route metadata, and legacy v1 rules.
 
-This amendment is a planned contract, not shipped behavior. Mac listeners and
-current-address reporting are implementation work in #783; phone v2 parsing,
-persistence, and route selection also need support. The current implementation
-uses a v1 link with one chosen transport. There is no silent v2 downgrade or
-reinterpretation. Framed pairing messages and the local API schema remain v1.
+Mac listeners and current-address reporting implement this contract in #783.
+Phone v2 parsing, persistence, and route selection still need phone-side support.
+There is no silent v2 downgrade or reinterpretation. Framed pairing messages
+and the local API schema remain v1.
 
 **Both sides authenticate with pinned keys.** The listener requires mutual
 TLS 1.3. The Mac's identity is a self-signed key in its Keychain. The phone
