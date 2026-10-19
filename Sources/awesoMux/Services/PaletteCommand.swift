@@ -132,6 +132,7 @@ struct PaletteAppActions {
     let showBranchChanges: @MainActor () -> Void
     let openPullRequest: @MainActor () -> Void
     let reconnectRemotePane: @MainActor () -> Void
+    let setUpRemoteTerminal: @MainActor () -> Void
     let growActivePane: @MainActor () -> Void
     let shrinkActivePane: @MainActor () -> Void
     let previousPane: @MainActor () -> Void
@@ -214,6 +215,7 @@ struct PaletteAppActions {
             showBranchChanges: action,
             openPullRequest: action,
             reconnectRemotePane: action,
+            setUpRemoteTerminal: action,
             growActivePane: action,
             shrinkActivePane: action,
             previousPane: action,
@@ -576,6 +578,20 @@ enum PaletteCommandRegistry {
                 isEnabled: selectedActivePaneIsDisconnected,
                 selectionScope: .pane,
                 run: actions.reconnectRemotePane
+            ),
+            PaletteCommand(
+                id: "setUpRemoteTerminal",
+                title: String(
+                    localized: "Set Up Ghostty Terminal on Remote Host…",
+                    comment: "Command that offers to install the xterm-ghostty terminal definition on the active pane's SSH host"
+                ),
+                subtitle: selected?.activePane?.executionPlan.remoteTarget?.sshDestination,
+                keywords: ["ssh", "remote", "terminfo", "xterm-ghostty", "term", "colors"],
+                shortcut: nil,
+                isEnabled: selected?.activePane?.executionPlan.remoteTarget != nil
+                    && AmxBackend.hasTerminalSetupHelper,
+                selectionScope: .pane,
+                run: actions.setUpRemoteTerminal
             ),
             PaletteCommand(
                 id: KeyboardShortcutCatalog.growActivePane.id,

@@ -4514,6 +4514,15 @@ struct AwesoMuxApp: App {
         _ = ghosttyRuntime.reconnectRemotePane(in: session.activePaneID)
     }
 
+    /// Runs the consent-gated terminfo setup (#760) in a new local tab; the
+    /// helper itself asks before connecting.
+    private func setUpRemoteTerminalForActivePane() {
+        guard let remote = sessionStore.selectedSession?.activePane?.executionPlan.remoteTarget,
+            let command = AmxBackend.terminalSetupCommand(for: remote)
+        else { return }
+        runCommandInNewTab(command: command, tabTitle: remote.sshDestination, pinsTitle: false)
+    }
+
     /// Selects the workspace that owns a daemon (reusing the same selection +
     /// terminal-focus path the command palette uses) so "Jump" lands the user on
     /// the exact live pane. The model resolves both the owning workspace and pane,
@@ -5130,6 +5139,7 @@ struct AwesoMuxApp: App {
             showBranchChanges: showBranchChangesForActivePane,
             openPullRequest: openPullRequestForActivePane,
             reconnectRemotePane: reconnectActiveRemotePane,
+            setUpRemoteTerminal: setUpRemoteTerminalForActivePane,
             growActivePane: {
                 sessionStore.resizeActiveSplit(by: 0.05)
             },

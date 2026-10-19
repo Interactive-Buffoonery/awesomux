@@ -4772,6 +4772,9 @@
     "Set Remote File Context…" : {
       "comment" : "Command to configure the active pane remote file context\nTitle for configuring runtime-only remote Markdown file links"
     },
+    "Set Up Ghostty Terminal on Remote Host…" : {
+      "comment" : "Command that offers to install the xterm-ghostty terminal definition on the active pane's SSH host"
+    },
     "Set Workspace Emoji" : {
       "comment" : "Accessible name of the workspace emoji editor."
     },
