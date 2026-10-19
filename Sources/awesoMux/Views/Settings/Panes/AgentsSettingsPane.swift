@@ -389,8 +389,14 @@ struct AgentsSettingsPane: View {
     private func addPluginFolder(_ path: String, provider: AgentPluginProvider) {
         guard pluginTasks[provider] == nil else { return }
         var draft = pluginDraftSetup(for: provider)
-        // A folder already listed under another spelling is dropped by `targets`.
-        if draft.additionalConfigHomes?.contains(path) != true {
+        let target = AgentPluginTarget(provider: provider, configHome: path)
+        let resolved = pluginViewModel.resolvedFolderPath(target, setup: draft)
+        let alreadyListed = (draft.additionalConfigHomes ?? []).contains { home in
+            pluginViewModel.resolvedFolderPath(
+                AgentPluginTarget(provider: provider, configHome: home), setup: draft
+            ) == resolved
+        }
+        if !alreadyListed {
             draft.additionalConfigHomes = (draft.additionalConfigHomes ?? []) + [path]
         }
         pluginDraftSetups[provider] = draft
@@ -402,7 +408,12 @@ struct AgentsSettingsPane: View {
     private func forgetPluginFolder(_ target: AgentPluginTarget) {
         guard pluginTasks[target.provider] == nil else { return }
         var draft = pluginDraftSetup(for: target.provider)
-        draft.additionalConfigHomes?.removeAll { $0 == target.configHome }
+        let resolved = pluginViewModel.resolvedFolderPath(target, setup: draft)
+        draft.additionalConfigHomes = draft.additionalConfigHomes?.filter { home in
+            pluginViewModel.resolvedFolderPath(
+                AgentPluginTarget(provider: target.provider, configHome: home), setup: draft
+            ) != resolved
+        }
         pluginDraftSetups[target.provider] = draft
         commitPluginSetup(target.provider)
     }

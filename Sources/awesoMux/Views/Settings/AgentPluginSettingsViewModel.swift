@@ -159,7 +159,7 @@ final class AgentPluginSettingsViewModel {
         var seen: Set<String> = []
         return homes.compactMap { home in
             let target = AgentPluginTarget(provider: provider, configHome: home)
-            let resolved = URL(fileURLWithPath: folderPath(target, setup: setup)).resolvingSymlinksInPath().path
+            let resolved = resolvedFolderPath(target, setup: setup)
             return seen.insert(resolved).inserted ? target : nil
         }
     }
@@ -168,6 +168,10 @@ final class AgentPluginSettingsViewModel {
         var folderSetup = setup
         folderSetup.configHome = target.configHome
         return folderSetup
+    }
+
+    func resolvedFolderPath(_ target: AgentPluginTarget, setup: AgentIntegrationSetup) -> String {
+        URL(fileURLWithPath: folderPath(target, setup: setup)).resolvingSymlinksInPath().path
     }
 
     private func folderPath(_ target: AgentPluginTarget, setup: AgentIntegrationSetup) -> String {
