@@ -286,6 +286,9 @@ final class GhosttySurfaceNSView: NSView {
 
     @MainActor
     func disposeNativeSurface(resetHostedLayer: Bool = false) {
+        clearNativeRemotePwd()
+        terminalEventState.nativeRemotePwdOrigin = nil
+        terminalEventState.nativeRemotePwdSnapshot = nil
         invalidateBridgePreflight()
         // Mounted exit-supervision/heal paths opt in so they don't show the
         // previous renderer contents while deciding whether to respawn.
@@ -371,6 +374,10 @@ final class GhosttySurfaceNSView: NSView {
             || paneID != pane.id
             || terminalSessionRepointed
             || bridgeExecutionPlanChanged
+        if bridgePreflightIdentityChanged {
+            clearNativeRemotePwd()
+        }
+        synchronizeRemotePwdGeneration(sessionID: session.id, current: pane)
         let bridgePolicyDisabled =
             lifecycleState.bridgePreflightTask != nil
             && !runtime.isCommandBridgeEnabled

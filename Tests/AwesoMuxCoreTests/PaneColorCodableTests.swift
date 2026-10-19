@@ -5,39 +5,28 @@ import Testing
 @Suite
 struct PaneColorCodableTests {
 
-    @Test
-    func unknownKindThrows() {
-        // A future build's `.theme` value read by this build: the Kind decode
-        // fails, which the pane-level tolerant decoder turns into nil.
-        let json = #"{"kind":"theme","name":"whatever"}"#
-        #expect(throws: (any Error).self) {
-            try JSONDecoder().decode(PaneColor.self, from: Data(json.utf8))
-        }
-    }
-
-    @Test
-    func paneMissingColorKeyDecodesNil() throws {
-        let json = #"{"id":"\#(UUID().uuidString)","title":"shell","workingDirectory":"~","unreadNotificationCount":0}"#
-        let decoded = try JSONDecoder().decode(TerminalPane.self, from: Data(json.utf8))
-        #expect(decoded.color == nil)
-    }
-
-    @Test
-    func paneWithCorruptColorDecodesNilNotThrow() throws {
-        // A hand-edited/forward snapshot must not fail the whole pane decode.
-        let json = #"{"id":"\#(UUID().uuidString)","title":"shell","workingDirectory":"~","unreadNotificationCount":0,"color":{"kind":"theme","name":"x"}}"#
-        let decoded = try JSONDecoder().decode(TerminalPane.self, from: Data(json.utf8))
-        #expect(decoded.color == nil)
-    }
-
-    @Test
-    func paneWithFuturePaletteNameDecodesNilNotThrow() throws {
-        // The realistic forward path: a *known* `kind` (palette) carrying a `name`
-        // from a WorkspaceGroupColor case a newer build added (here "coral"). The
-        // synthesized WorkspaceGroupColor decode throws inside PaneColor; the pane's
-        // tolerant decoder must turn that into nil, not quarantine the snapshot.
-        let json = #"{"id":"\#(UUID().uuidString)","title":"shell","workingDirectory":"~","unreadNotificationCount":0,"color":{"kind":"palette","name":"coral"}}"#
-        let decoded = try JSONDecoder().decode(TerminalPane.self, from: Data(json.utf8))
-        #expect(decoded.color == nil)
+    @Test(
+        "bad colors degrade to nil without losing the snapshot",
+        arguments: [
+            (true, #"{"kind":"theme","name":"x"}"#),
+            (true, #"{"kind":"palette","name":"coral"}"#),
+            (true, #""ultraviolet""#),
+            (false, #""ultraviolet""#),
+            (false, #"{"unexpected":"shape"}"#),
+        ])
+    func badColor(paneColor: Bool, colorJSON: String) throws {
+        let paneID = UUID()
+        let json = """
+            {"groups":[{"id":"\(UUID())","name":"main",\(paneColor ? "" : "\"color\":\(colorJSON),")"sessions":[
+            {"id":"\(UUID())","title":"shell","workingDirectory":"~","layout":{"pane":{"_0":{
+            "id":"\(paneID)","title":"shell","workingDirectory":"~"\(paneColor ? ",\"color\":\(colorJSON)" : "")
+            }}}}]}]}
+            """
+        let snapshot = try SessionSnapshot.decode(from: Data(json.utf8))
+        let group = try #require(snapshot.groups.first)
+        let pane = try #require(group.sessions.first?.layout.pane(id: paneID))
+        #expect(group.color == nil)
+        #expect(pane.color == nil)
+        #expect(group.sessions.count == 1)
     }
 }

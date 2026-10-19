@@ -74,24 +74,9 @@ struct ProjectTint {
     /// darkened in Latte so the hairline clears WCAG 1.4.11 (see `tintBorder`).
     let borderHue: Color
 
-    // Mauve stays reserved for the awesoMux group, and peach is excluded from
-    // the auto-cycle: it's the exact hex of `status.needs`, so an auto-assigned
-    // peach workspace collides with the needs-attention cue. Both remain valid
-    // explicit choices via `accent(for:)`.
-    // See INT-491.
-    private static let palette: [AwTintAccent] = [.teal, .green, .blue, .pink, .yellow, .red, .gray]
-
-    /// `index` must be the group's position in the unfiltered store. Keying off
-    /// the filtered position would shift colors as users typed search queries.
-    init(groupName: String, color: WorkspaceGroupColor?, index: Int) {
-        let resolvedAccent: AwTintAccent
-        if let color {
-            resolvedAccent = Self.accent(for: color)
-        } else if groupName.range(of: "awesomux", options: .caseInsensitive) != nil {
-            resolvedAccent = .mauve
-        } else {
-            resolvedAccent = Self.palette[index % Self.palette.count]
-        }
+    /// The index is only a fallback for groups not yet adopted by SessionStore.
+    init(group: SessionGroup, index: Int) {
+        let resolvedAccent = Self.accent(for: group.resolvedColor(at: index))
 
         accent = resolvedAccent
         hue = Color.aw.tint(resolvedAccent)

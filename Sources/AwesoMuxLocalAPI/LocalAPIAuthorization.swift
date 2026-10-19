@@ -1,9 +1,5 @@
 import Foundation
 
-public enum LocalAPIGrantAction: String, Codable, Sendable {
-    case status
-}
-
 public enum LocalAPITargetScope: Codable, Equatable, Sendable {
     case allWorkspaces
     case exactTarget(paneID: UUID, targetVersion: UUID)

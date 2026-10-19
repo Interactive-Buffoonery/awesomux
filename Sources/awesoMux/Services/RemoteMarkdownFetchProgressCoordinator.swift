@@ -212,15 +212,6 @@ final class RemoteMarkdownFetchProgressCoordinator {
         surfaceBusyPanes.contains(SurfaceKey(sessionID: sessionID, paneID: paneID))
     }
 
-    /// Document overlay for this selected-tab identity, including a source pin
-    /// when the in-flight fetch identity differs.
-    func isDocumentOverlayBusy(
-        sessionID: TerminalSession.ID,
-        identity: ResourceIdentity
-    ) -> Bool {
-        documentOverlayKeys.contains(Key(sessionID: sessionID, identity: identity))
-    }
-
     func registerSurface(
         _ presenter: any RemoteMarkdownFetchProgressSurfacePresenting,
         sessionID: TerminalSession.ID,

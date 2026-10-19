@@ -191,22 +191,6 @@ enum DestructivePaneActionConfirmationPolicy {
         }
     }
 
-    /// Legacy / convenience close-pane confirmation body helper.
-    static func closePaneConfirmationBody(
-        displayTitle: String,
-        agentKind: AgentKind?,
-        sampledComm: String? = nil,
-        riskReason: QuitRiskReason?
-    ) -> String {
-        confirmationBody(
-            action: .closePane,
-            displayTitle: displayTitle,
-            agentKind: agentKind,
-            sampledComm: sampledComm,
-            riskReason: riskReason
-        )
-    }
-
     static func confirmedCloseAction(
         session: TerminalSession?,
         targetPaneID: TerminalPane.ID

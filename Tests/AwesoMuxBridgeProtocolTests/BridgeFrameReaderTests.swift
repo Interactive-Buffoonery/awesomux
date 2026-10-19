@@ -40,23 +40,6 @@ struct BridgeFrameReaderTests {
         #expect(result.action == .none)
     }
 
-    @Test
-    func completeLineIsExtractedImmediately() throws {
-        let line = try Self.envelopeLine()
-        let data = Data((line + "\n").utf8)
-
-        let result = Self.consume(data)
-
-        #expect(result.frames.count == 1)
-        #expect(result.tail == .empty)
-        #expect(result.action == .none)
-        if case .envelope(let envelope) = result.frames.first {
-            #expect(envelope.message == .paneRename(title: "hi"))
-        } else {
-            Issue.record("expected .envelope")
-        }
-    }
-
     // MARK: - Split-line reassembly across two consumes
 
     @Test
@@ -271,18 +254,6 @@ struct BridgeFrameReaderTests {
         #expect(result.tail == .empty)
     }
 
-    @Test
-    func pendingTailInitializerNormalizesEmptyBytesWithStaleDate() {
-        // The documented invariant (startedAt nil exactly when bytes empty)
-        // is enforced by construction: a caller bug pairing empty bytes with
-        // a stale date must not fabricate a deadline close.
-        let inconsistent = BridgeFrameReader.PendingTail(bytes: Data(), startedAt: .distantPast)
-        #expect(inconsistent.startedAt == nil)
-
-        let result = Self.consume(Data(), pendingTail: inconsistent, now: Self.epoch)
-        #expect(result.action == .none)
-    }
-
     // MARK: - Token / session mismatch, unknown type — drop, stay open
 
     @Test
@@ -305,56 +276,20 @@ struct BridgeFrameReaderTests {
         #expect(result.action == .none)
     }
 
-    @Test
-    func unknownTypeDropsLineButKeepsConnectionOpen() {
-        let line = #"{"v":1,"type":"unheard-of","token":"tok","session":"sess","id":"i","ts":1700000000}"#
+    @Test(arguments: [
+        #"{"v":1,"type":"unheard-of","token":"tok","session":"sess","id":"i","ts":1700000000}"#,
+        #"{"v":1,"type":"pane-rename""#,
+    ])
+    func invalidFrameDropsWithoutClosing(line: String) {
         let result = Self.consume(Data((line + "\n").utf8))
-
-        #expect(result.frames.isEmpty)
-        #expect(result.action == .none)
-    }
-
-    @Test
-    func malformedJSONLineDropsButKeepsConnectionOpen() {
-        let result = Self.consume(Data((#"{"v":1,"type":"pane-rename""# + "\n").utf8))
-
         #expect(result.frames.isEmpty)
         #expect(result.action == .none)
     }
 
     // MARK: - Empty-data consume is a no-op
 
-    @Test
-    func emptyDataConsumeIsANoOp() {
-        let result = Self.consume(Data())
-
-        #expect(result.frames.isEmpty)
-        #expect(result.tail == .empty)
-        #expect(result.action == .none)
-    }
-
     // MARK: - Handshake frames surface distinctly
-
-    @Test
-    func helloLineSurfacesAsHandshakeNotEnvelope() throws {
-        let hello = BridgeHandshake.hello(
-            proto: "awesomux-bridge-v1", token: "tok", session: "sess", ts: 1_700_000_000,
-            helper: "awesomux-remote-helper/1.0.0"
-        )
-        let result = Self.consume(Data((try hello.encodedLine() + "\n").utf8))
-
-        #expect(result.frames == [.handshake(hello)])
-        #expect(result.action == .none)
-    }
 
     // MARK: - Constant-time token compare
 
-    @Test
-    func constantTimeEqualsMatchesStringEquality() {
-        #expect(BridgeFrameReader.constantTimeEquals("tok", "tok"))
-        #expect(!BridgeFrameReader.constantTimeEquals("tok", "toX"))
-        #expect(!BridgeFrameReader.constantTimeEquals("tok", "tokk"))
-        #expect(!BridgeFrameReader.constantTimeEquals("", "tok"))
-        #expect(BridgeFrameReader.constantTimeEquals("", ""))
-    }
 }

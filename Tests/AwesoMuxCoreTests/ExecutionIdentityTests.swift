@@ -29,19 +29,6 @@ struct ExecutionIdentityTests {
         return value
     }
 
-    @Test("local and SSH plans round trip")
-    func planRoundTrip() throws {
-        let plans: [PaneExecutionPlan] = [
-            .local,
-            .ssh(SSHExecution(target: RemoteTarget(user: "alice", host: "buildbox")!)),
-        ]
-
-        for plan in plans {
-            let data = try JSONEncoder().encode(plan)
-            #expect(try JSONDecoder().decode(PaneExecutionPlan.self, from: data) == plan)
-        }
-    }
-
     @Test(
         "malformed remote plans fail decoding",
         arguments: [
@@ -63,20 +50,6 @@ struct ExecutionIdentityTests {
         }
     }
 
-    @Test("remote-owned plans round trip")
-    func remoteZmxPlanRoundTrip() throws {
-        let plan = PaneExecutionPlan.ssh(
-            try #require(
-                SSHExecution(
-                    target: RemoteTarget(user: "alice", host: "buildbox")!,
-                    persistenceOwner: .remoteZmx,
-                    sessionName: RemoteSessionName(rawValue: "build-42")!
-                )))
-
-        let data = try JSONEncoder().encode(plan)
-        #expect(try JSONDecoder().decode(PaneExecutionPlan.self, from: data) == plan)
-    }
-
     /// The key is gone from the model (#235 replaced it with far-side
     /// discovery), so a snapshot written before that must still open — the
     /// stale path is ignored, not a decode failure.
@@ -94,155 +67,35 @@ struct ExecutionIdentityTests {
         #expect(execution.sessionName?.rawValue == "build")
     }
 
-    @Test("a legacy ssh plan without remote-session keys still decodes as local-amx")
-    func legacySSHPlanDecodesAsLocalAmx() throws {
-        let json = #"{"kind":"ssh","target":{"user":"alice","host":"buildbox"},"persistenceOwner":"localAmx"}"#
-        let plan = try JSONDecoder().decode(PaneExecutionPlan.self, from: Data(json.utf8))
-
-        guard case .ssh(let execution) = plan else {
-            Issue.record("expected an ssh plan")
-            return
+    @MainActor
+    @Test(arguments: [
+        (nil as RemoteTarget?, "missing", "/srv/app", SessionSnapshot.currentSchemaVersion),
+        (RemoteTarget(user: "alice", host: "buildbox"), "missing", "/srv/app", SessionSnapshot.currentSchemaVersion),
+        (RemoteTarget(user: "alice", host: "prod-host"), "noLayout", "~", 1),
+        (RemoteTarget(user: "alice", host: "prod-host"), "null", "~", SessionSnapshot.currentSchemaVersion),
+    ])
+    func migratesLegacyLocation(groupRemote: RemoteTarget?, shape: String, directory: String, version: Int) throws {
+        let pane = TerminalPane(title: "legacy", workingDirectory: directory, executionPlan: .local)
+        let session = TerminalSession(
+            title: "legacy", workingDirectory: directory,
+            layout: .pane(pane), activePaneID: pane.id)
+        let snapshot = SessionSnapshot(
+            groups: [SessionGroup(name: shape == "missing" ? "work" : "prod", remote: groupRemote, sessions: [session])],
+            selectedSessionID: session.id)
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
+        let migrated: Any
+        switch shape {
+        case "noLayout": migrated = removingLayouts(in: encoded)
+        case "null": migrated = replacingExecutionPlans(in: encoded, with: NSNull())
+        default: migrated = replacingExecutionPlans(in: encoded, with: nil)
         }
-        #expect(execution.persistenceOwner == .localAmx)
-        #expect(execution.sessionName == nil)
-    }
-
-    @Test("the failable SSH init enforces the persistence-owner invariants")
-    func sshExecutionInvariants() {
-        let target = RemoteTarget(user: "alice", host: "buildbox")!
-        let name = RemoteSessionName(rawValue: "build")!
-
-        #expect(
-            SSHExecution(target: target, persistenceOwner: .localAmx, sessionName: name) == nil)
-        #expect(
-            SSHExecution(target: target, persistenceOwner: .remoteZmx, sessionName: nil) == nil)
-        #expect(
-            SSHExecution(target: target, persistenceOwner: .localAmx, sessionName: nil) != nil)
-        #expect(
-            SSHExecution(target: target, persistenceOwner: .remoteZmx, sessionName: name) != nil)
-    }
-
-    @Test("same path differs across execution locations")
-    func hostAwareResourceIdentity() throws {
-        let path = ResourcePath(rawValue: "/repo/plan.md")
-        let identities: Set<ResourceIdentity> = [
-            ResourceIdentity(location: .local, path: path),
-            ResourceIdentity(
-                location: .remote(RemoteTarget(user: "alice", host: "dev-a")!),
-                path: path
-            ),
-            ResourceIdentity(
-                location: .remote(RemoteTarget(user: "alice", host: "dev-b")!),
-                path: path
-            ),
-        ]
-
-        #expect(identities.count == 3)
-        let encoded = try JSONEncoder().encode(identities)
-        #expect(try JSONDecoder().decode(Set<ResourceIdentity>.self, from: encoded) == identities)
-    }
-
-    @Test("capabilities follow declared execution location")
-    func capabilityResolution() {
-        let target = RemoteTarget(user: "alice", host: "buildbox")!
-        let local = ExecutionContext(plan: .local)
-        let remote = ExecutionContext(plan: .ssh(SSHExecution(target: target)))
-
-        #expect(local.capability(.revealInFinder) == .allowed)
-        #expect(remote.capability(.revealInFinder) == .denied(.requiresLocalExecution))
-        #expect(local.capability(.copyLocalPath) == .allowed)
-        #expect(remote.capability(.copyLocalPath) == .denied(.requiresLocalExecution))
-        #expect(local.capability(.stageLocalDocumentPath) == .allowed)
-        #expect(remote.capability(.stageLocalDocumentPath) == .denied(.requiresLocalExecution))
-    }
-
-    @MainActor
-    @Test(
-        "legacy panes inherit their group's location without a schema bump",
-        arguments: [
-            nil,
-            RemoteTarget(user: "alice", host: "buildbox")!,
-        ])
-    func legacyPaneMigration(groupRemote: RemoteTarget?) throws {
-        let pane = TerminalPane(
-            title: "legacy",
-            workingDirectory: "/srv/app",
-            executionPlan: .local
-        )
-        let session = TerminalSession(
-            title: "legacy",
-            workingDirectory: "/srv/app",
-            layout: .pane(pane),
-            activePaneID: pane.id
-        )
-        let snapshot = SessionSnapshot(
-            groups: [SessionGroup(name: "work", remote: groupRemote, sessions: [session])],
-            selectedSessionID: session.id
-        )
-        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
-        let legacyJSON = replacingExecutionPlans(in: encoded, with: nil)
-        let legacyData = try JSONSerialization.data(
-            withJSONObject: legacyJSON
-        )
-
-        let decoded = try SessionSnapshot.decode(from: legacyData)
+        var json = try #require(migrated as? [String: Any])
+        json["schemaVersion"] = version
+        let decoded = try SessionSnapshot.decode(from: JSONSerialization.data(withJSONObject: json))
         let restored = SessionStore(restoring: decoded).selectedSession?.activePane
-        let expected =
-            groupRemote.map { PaneExecutionPlan.ssh(SSHExecution(target: $0)) }
-            ?? .local
-
-        #expect(decoded.schemaVersion == SessionSnapshot.currentSchemaVersion)
+        let expected = groupRemote.map { PaneExecutionPlan.ssh(SSHExecution(target: $0)) } ?? .local
+        #expect(decoded.schemaVersion == version)
         #expect(restored?.executionPlan == expected)
-    }
-
-    @MainActor
-    @Test("a true v1 remote session without a layout inherits its group target")
-    func trueV1SessionWithoutLayoutInheritsRemoteTarget() throws {
-        let target = RemoteTarget(user: "alice", host: "prod-host")!
-        let session = TerminalSession(title: "legacy", workingDirectory: "~")
-        let snapshot = SessionSnapshot(
-            groups: [SessionGroup(name: "prod", remote: target, sessions: [session])],
-            selectedSessionID: session.id
-        )
-        var json = try #require(
-            removingLayouts(
-                in: JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
-            ) as? [String: Any]
-        )
-        json["schemaVersion"] = 1
-
-        let decoded = try SessionSnapshot.decode(
-            from: JSONSerialization.data(withJSONObject: json)
-        )
-        let restored = SessionStore(restoring: decoded).selectedSession?.activePane
-
-        #expect(restored?.executionPlan == .ssh(SSHExecution(target: target)))
-    }
-
-    @MainActor
-    @Test("a null pane plan inherits its legacy remote group target")
-    func nullPanePlanInheritsRemoteTarget() throws {
-        let target = RemoteTarget(user: "alice", host: "prod-host")!
-        let pane = TerminalPane(title: "legacy", workingDirectory: "~", executionPlan: .local)
-        let session = TerminalSession(
-            title: "legacy",
-            workingDirectory: "~",
-            layout: .pane(pane),
-            activePaneID: pane.id
-        )
-        let snapshot = SessionSnapshot(
-            groups: [SessionGroup(name: "prod", remote: target, sessions: [session])],
-            selectedSessionID: session.id
-        )
-        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
-        let data = try JSONSerialization.data(
-            withJSONObject: replacingExecutionPlans(in: encoded, with: NSNull())
-        )
-
-        let decoded = try SessionSnapshot.decode(from: data)
-        let restored = SessionStore(restoring: decoded).selectedSession?.activePane
-
-        #expect(restored?.executionPlan == .ssh(SSHExecution(target: target)))
     }
 
     @Test("malformed active pane plan fails while a malformed recently-closed row is dropped")

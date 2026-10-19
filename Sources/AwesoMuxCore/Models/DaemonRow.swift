@@ -50,8 +50,4 @@ public struct DaemonRow: Identifiable, Equatable, Sendable {
         self.agentKind = agentKind
         self.shortID = shortID ?? "amx:\(id.rawValue.prefix(8))"
     }
-
-    /// True when this daemon may be reaped from the panel without yanking a
-    /// session out from under another process. `inUseElsewhere` is never reapable.
-    public var isReapable: Bool { lifecycle != .inUseElsewhere }
 }

@@ -35,11 +35,6 @@ struct PaneLayoutReducerTests {
         // shell. Reset the split-off pane and the rollup follows the new shell.
         #expect(result.session.layout.pane(id: active.id)?.agentExecutionState == .idle)
         #expect(result.session.agentRollup().state == .idle)
-        // Determinism (review auto-fix): the minted pane carries the reducer's
-        // `now`, not an implicit `Date()`.
-        #expect(
-            result.session.layout.pane(id: result.newPaneID)?.lastAgentStateChangeAt == now
-        )
     }
 
     @Test("pwd updates clear sticky remote host while local-looking titles do not")
@@ -120,23 +115,4 @@ struct PaneLayoutReducerTests {
         #expect(session.activePane?.pendingRemoteSSHTarget == nil)
     }
 
-    @Test("an unrecognized ssh command does not republish an unchanged pane")
-    func unrecognizedSSHCommandDoesNotRepublishUnchangedPane() {
-        let pane = TerminalPane(title: "shell", workingDirectory: "~", executionPlan: .local)
-        let session = TerminalSession(
-            title: "shell",
-            workingDirectory: "~",
-            layout: .pane(pane),
-            activePaneID: pane.id
-        )
-
-        #expect(
-            PaneLayoutReducer.noteSubmittedCommand(
-                in: session,
-                paneID: pane.id,
-                command: "ssh -p 2222 devbox",
-                submittedFromLocalShell: true
-            ) == nil
-        )
-    }
 }

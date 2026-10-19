@@ -3,68 +3,33 @@ import Testing
 
 @Suite("BridgeSessionEndPolicy")
 struct BridgeSessionEndPolicyTests {
-    @Test("respawns fresh when reason is nil (fail-safe)")
-    func failSafeRespawnsWhenReasonAbsent() {
-        #expect(BridgeSessionEndPolicy.decide(reason: nil, bridgeEnabled: true, respawnAttempts: 0, maxAttempts: 3) == .respawnFresh)
-    }
-
-    @Test("respawns fresh when reason is unknown (fail-safe)")
-    func failSafeRespawnsWhenReasonUnknown() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .unknown, bridgeEnabled: true, respawnAttempts: 0, maxAttempts: 3) == .respawnFresh)
-    }
-
-    @Test("marks exited when shell exits")
-    func shellExitMarksExited() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .shellExit, bridgeEnabled: true, respawnAttempts: 0, maxAttempts: 3) == .markExited)
-    }
-
-    @Test("remote clean exit (code 0) closes the pane like a local shell")
-    func remoteCleanShellExitMarksExited() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .shellExit, bridgeEnabled: true, isRemote: true, exitCode: 0, respawnAttempts: 0, maxAttempts: 3) == .markExited)
-    }
-
-    @Test("remote ssh transport failure (code 255) latches error")
-    func remoteTransportFailureShellExitErrors() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .shellExit, bridgeEnabled: true, isRemote: true, exitCode: 255, respawnAttempts: 0, maxAttempts: 3) == .error)
-    }
-
-    @Test("remote deliberate non-zero exit (e.g. `exit 1`) closes like a local shell")
-    func remoteDeliberateNonzeroShellExitCloses() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .shellExit, bridgeEnabled: true, isRemote: true, exitCode: 1, respawnAttempts: 0, maxAttempts: 3) == .markExited)
-    }
-
-    @Test("remote shell exit with unknown/absent code errors (safe default)")
-    func remoteUnknownCodeShellExitErrors() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .shellExit, bridgeEnabled: true, isRemote: true, respawnAttempts: 0, maxAttempts: 3) == .error)
-    }
-
-    @Test("local shell exit closes regardless of exit code")
-    func localShellExitMarksExitedIgnoringCode() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .shellExit, bridgeEnabled: true, isRemote: false, exitCode: 255, respawnAttempts: 0, maxAttempts: 3) == .markExited)
-    }
-
-    @Test("respawns fresh when daemon dies")
-    func daemonDiedRespawns() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .daemonDied, bridgeEnabled: true, respawnAttempts: 0, maxAttempts: 3) == .respawnFresh)
-    }
-
-    @Test("reconnects when detached")
-    func detachedReconnects() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .detached, bridgeEnabled: true, respawnAttempts: 0, maxAttempts: 3) == .reconnect)
-    }
-
-    @Test("errors when over respawn limit")
-    func overLimitErrors() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .daemonDied, bridgeEnabled: true, respawnAttempts: 3, maxAttempts: 3) == .error)
-    }
-
-    @Test("marks exited when bridge is disabled")
-    func disabledMarksExited() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .daemonDied, bridgeEnabled: false, respawnAttempts: 0, maxAttempts: 3) == .markExited)
-    }
-
-    @Test("remote bridge disabled latches error instead of closing")
-    func remoteDisabledErrors() {
-        #expect(BridgeSessionEndPolicy.decide(reason: .daemonDied, bridgeEnabled: false, isRemote: true, respawnAttempts: 0, maxAttempts: 3) == .error)
+    @Test(arguments: [
+        (nil as String?, true, false, nil as Int?, 0, "respawnFresh"),
+        ("unknown", true, false, nil, 0, "respawnFresh"),
+        ("shellExit", true, false, nil, 0, "markExited"),
+        ("shellExit", true, true, 0, 0, "markExited"),
+        ("shellExit", true, true, 255, 0, "error"),
+        ("shellExit", true, true, 1, 0, "markExited"),
+        ("shellExit", true, true, nil, 0, "error"),
+        ("shellExit", true, false, 255, 0, "markExited"),
+        ("daemonDied", true, false, nil, 0, "respawnFresh"),
+        ("detached", true, false, nil, 0, "reconnect"),
+        ("daemonDied", true, false, nil, 3, "error"),
+        ("daemonDied", false, false, nil, 0, "markExited"),
+        ("daemonDied", false, true, nil, 0, "error"),
+    ])
+    func sessionEndDecision(reason: String?, enabled: Bool, remote: Bool, exitCode: Int?, attempts: Int, expected: String) throws {
+        let reasons: [String: SessionEndReason] = [
+            "unknown": .unknown, "shellExit": .shellExit, "daemonDied": .daemonDied, "detached": .detached,
+        ]
+        let endReason = try reason.map { try #require(reasons[$0]) }
+        let commands: [String: BridgeSessionEndCommand] = [
+            "respawnFresh": .respawnFresh, "markExited": .markExited, "reconnect": .reconnect, "error": .error,
+        ]
+        let command = try #require(commands[expected])
+        #expect(
+            BridgeSessionEndPolicy.decide(
+                reason: endReason, bridgeEnabled: enabled,
+                isRemote: remote, exitCode: exitCode, respawnAttempts: attempts, maxAttempts: 3) == command)
     }
 }

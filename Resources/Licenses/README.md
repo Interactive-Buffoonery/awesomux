@@ -11,7 +11,7 @@ named in the table:
 | Component | Pinned revision | Bundled files |
 | --- | --- | --- |
 | Sparkle | 2.10.0 | `Sparkle/LICENSE` |
-| Ghostty | `6301810a48aaa3426887a4316668f18833a40138` | `Ghostty/LICENSE` |
+| Ghostty | `f44c67817d1869cd1ff3cbd648552e4c7ac9ba23` | `Ghostty/LICENSE` |
 | zmx / amx | `480fc5eae888d0dca7cefc80aff913efeb2eb88c` | `zmx/LICENSE` |
 | Hack Nerd Font Mono | `ryanoasis/nerd-fonts` 3.4.0 (self-reported by the bundled TTFs) | `HackNerdFontMono/LICENSE.md` |
 | Geist Sans | `vercel/geist-font` 1.700 (self-reported by the bundled TTFs) | `Geist/OFL.txt` |
@@ -81,5 +81,5 @@ shasum -a 256 "$members_file"
 Do not update only the digest. Review every added or removed member, map it to
 the producing archive and Ghostty's exact pinned package source, and refresh
 the component row, license copies, bundle staging, About actions, and notices
-together. Finish with `./script/test-ghostty-third-party-licenses.sh` and
-`./script/check_ghostty_third_party_licenses.sh` before the full preflight.
+together. Finish with `./script/check_ghostty_third_party_licenses.sh` before
+the full preflight.

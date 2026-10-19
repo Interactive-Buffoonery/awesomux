@@ -4,23 +4,21 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `6301810a48aaa3426887a4316668f18833a40138` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `f44c67817d1869cd1ff3cbd648552e4c7ac9ba23` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
-> The current pin includes upstream terminal fixes for word selection across
-> wide characters and hard line breaks, reverse-wrap cursor jumps, and a tmux
-> `list-windows` use-after-free. It adds overscan support to `RenderState` with
-> the matching libghostty C API, window resizing through `CSI 8 t` (including
-> macOS), glyph cache keys packed into a `u64`, and batched special-graphics
-> writes. The renderer also gained a synchronized-output render hold effect
-> (mode 2026). The GTK/OpenGL changes in this range are Linux-only.
+> This update adds upstream fixes for a
+> [scrollback cursor-page use-after-free](https://github.com/ghostty-org/ghostty/commit/65ff54c67),
+> [PTY and terminal resize synchronization](https://github.com/ghostty-org/ghostty/pull/14706),
+> and [mouse-button release reporting at prompts](https://github.com/ghostty-org/ghostty/pull/14710).
+> These changes affect awesoMux's terminal engine; upstream's macOS application
+> changes do not replace awesoMux's own window and command handling.
 >
-> The `uucode` package pin moved from Ghostty's `deps.files.ghostty.org` mirror
-> to the upstream GitHub archive at revision
-> `9d55524551411b493cca41ca06363625d90aff1e`. uucode produces generated tables
-> only, so the audited ReleaseFast archive-member inventory is unchanged at 277
-> members with digest
+> The generated awesoMux scrollback and path-link extensions build against this
+> pin and pass their native regression suites. The ReleaseFast archive inventory
+> remains at 277 members with digest
 > `dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82`.
+> The bundled Ghostty license is byte-identical to the file at this revision.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
@@ -90,6 +88,67 @@ with a checked config insertion point and the existing artifact fingerprint.
 The pinned submodule is unchanged. The library build runs the
 `awesomux-link-paths` native regression tests before publishing artifacts.
 Existing document validation and remote-read authorization still own opens.
+
+The same native detector recognizes complete bare `.md`/`.markdown` filenames
+(case insensitive), optionally followed by `:line[:column]`. Surrounding
+whitespace, quotes, backticks, commas, semicolons, brackets, braces, angle
+brackets and pipes are excluded from the match. Adjacent path/URL characters,
+email addresses and extra extensions do not produce a bare filename suffix
+match; upstream URL and path detection remains unchanged. A standalone
+`example.md` is inherently ambiguous with a domain and is treated as a filename
+candidate. Ghostty owns the exact Cmd-hover underline, cursor and clearing,
+including existing OSC 8 precedence; no app overlay or polling is involved.
+
+This also enables native hover in local panes. Opens still pass through existing
+local working-directory resolution, Markdown validation and existence checks.
+Remote opens still require the existing origin checks and per-read authorization;
+matching and hovering grant no file access. User-configured link rules retain
+their existing behavior.
+
+
+## Direct SSH directory suggestions
+
+The generated source adds `awesomux_remote_pwd` to the application surface
+mailbox before `termio/stream_handler.zig` rejects a nonlocal OSC 7 URI. A fixed
+2,048-byte report rejects overflow, invalid UTF-8 and embedded NUL in full. The
+normal Ghostty parser, local-host check and stored terminal pwd are unchanged.
+
+The main-thread surface handler delivers this advisory event through the existing
+PWD action with the reserved `awesomux:remote-osc7:` prefix. Absolute local PWD
+paths cannot collide. awesoMux consumes the envelope synchronously before normal
+cwd updates. A narrow C setter publishes a per-surface atomic generation, copied
+by the reader into each report before enqueueing and carried in the envelope.
+Swift advances it on observed connection/origin invalidation and checks it before
+acceptance, including when the store changes ahead of the view update. Fresh
+reports on a surviving surface use the new generation; queued old reports cannot
+cross the barrier. Counter exhaustion permanently disables this view's reports
+instead of reusing a generation. No reader-thread Swift callback is introduced.
+Managed panes use
+qualified raw metadata or daemon metadata for remote cwd; ordinary native PWD
+still updates local panes through the existing path.
+
+Strict file URI validation rejects local hosts, credentials, ports, query,
+fragment, malformed escapes and unsafe characters. The host must match the
+observed title host or, when absent, the declared target, with only short-name
+and `.local` equivalence. This is a runtime-only editable directory suggestion,
+not authorization, an execution-plan change or Remote File Context.
+
+One report may await initial title recognition for at most one second. It is
+bound to the session, pane, terminal, native surface incarnation, execution plan
+and connectivity epoch. Initial title recognition preserves pending evidence;
+a managed first title confirming the declared host also preserves accepted cwd.
+Local reports, established title/host transitions, connection changes,
+recycle, exit and disposal discard pending evidence. No alias/DNS guessing is
+performed; hosts that do not match need an explicit user-selected base directory.
+Native and daemon reports use the same URI and host qualification. Spaces in
+reported file URIs must be percent-encoded; malformed or repaired encodings are
+rejected by both sources. The daemon inventory keeps its separate below-256-byte
+admission limit.
+
+All native fragments and regression cases participate in the source fingerprint.
+`script/verify_remote_pwd_injection.py --vendor /path/to/pinned/ghostty` verifies
+exact insertion counts and preservation of upstream source without compiling.
+The native build also runs the `awesomux-remote-pwd` bounded-copy regressions.
 
 ## Bounded Show Scrollback read
 
@@ -171,6 +230,24 @@ matching keys in a user's `~/.config/ghostty/config` are overridden.
 Choose the `System default` option to skip awesoMux's family override
 entirely and let your Ghostty config and CoreText resolution stand.
 
+## Manual SSH terminal compatibility
+
+Generated resources include independently written zsh and fish `ssh` wrappers.
+They install at the first prompt after user startup, preserving existing SSH
+aliases/functions and executable lookup through `PATH`. When the inherited
+terminal is `xterm-ghostty`, the wrapper supplies `TERM=xterm-256color` only to
+the SSH process; local TERM and other terminal selections are unchanged.
+This also means hosts with working Ghostty terminfo receive the fallback.
+`command ssh`, absolute executable paths, custom aliases/functions, unsupported
+shells, and disabled shell integration bypass it. Existing persistent shells
+need recreation. No remote probes or installations occur.
+
+The scripts are fingerprinted and staged through `prepare_ghostty_source.py`;
+the vendored source and pin stay unchanged. Unsupported upstream helpers that
+require the standalone `ghostty +ssh` executable remain disabled.
+See [`../script/ssh-terminal-e2e/README.md`](../script/ssh-terminal-e2e/README.md)
+for real OpenSSH PTY verification and its coverage limits.
+
 ## SSH mouse recovery in local zsh
 
 Local bridged zsh panes install awesoMux's independently written
@@ -192,7 +269,7 @@ the same job number cannot keep the old recovery pending. A stopped SSH TUI
 continues to own mouse modes at the local prompt, so normal prompt selection is
 restored when it exits, rather than while it is suspended.
 
-Compound commands, shell functions named `ssh`, and wrappers are outside this
+Compound commands, user-defined shell functions named `ssh`, and wrappers are outside this
 hook's scope. A command such as
 `ssh host; local-tui` keeps its existing terminal behavior. Bash and fish are unchanged. Existing persistent zsh shells
 need to be recreated once to load the updated startup resources; reattaching a

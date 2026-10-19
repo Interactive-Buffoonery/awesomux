@@ -1,4 +1,6 @@
 import AwesoMuxBridgeProtocol
+import AwesoMuxTestSupport
+import Foundation
 import Testing
 @testable import awesoMux
 
@@ -15,62 +17,78 @@ struct SessionRecoveryConfirmationCenterTests {
         #expect(await center.wait(for: id, timeout: .milliseconds(10)))
     }
 
-    @Test("confirmation timeout starts when attach starts")
-    func timeoutStartsWithAttach() async throws {
+    @Test("attach starts the confirmation deadline after startup has waited longer than that deadline")
+    func timeoutStartsWithAttach() async {
         let center = SessionRecoveryConfirmationCenter()
         let id = TerminalSessionID.generate()
         center.begin(id, daemonPID: 42, createdEpoch: 100)
-        let task = Task { await center.wait(for: id, timeout: .milliseconds(10)) }
-
-        try await Task.sleep(for: .milliseconds(25))
-        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
-
-        #expect(await task.value)
-    }
-
-    @Test("started attach times out without confirmation")
-    func startedAttachTimesOut() async {
-        let center = SessionRecoveryConfirmationCenter()
-        let id = TerminalSessionID.generate()
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
+        var completed = false
+        let task = Task {
+            let result = await center.wait(for: id, timeout: .milliseconds(10))
+            completed = true
+            return result
+        }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(25)) { continuation.resume() }
+        }
+        #expect(!completed)
         center.didStartAttach(id)
-
-        #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
-    }
-
-    @Test("attach that never starts retires its expectation")
-    func neverStartedAttachTimesOut() async {
-        let center = SessionRecoveryConfirmationCenter()
-        let id = TerminalSessionID.generate()
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
-
-        #expect(await center.wait(for: id, startupTimeout: .milliseconds(10)) == false)
+        #expect(await task.value == false)
         #expect(center.expectationToken(for: id) == nil)
     }
 
-    @Test("pre-attach failure retires its waiter immediately")
-    func preAttachFailureRetiresWaiter() async {
+    @Test(
+        "timeouts, cancellation, and replacement retire exactly their waiter",
+        arguments: [
+            "startedAttachTimesOut", "neverStartedAttachTimesOut", "preAttachFailureRetiresWaiter",
+            "cancellationRevokesBufferedConfirmation", "tokenCancellationRevokesBufferedConfirmation", "beginRetiresWaiter",
+            "secondWaitRetiresFirst", "cancellationRetiresWaiter",
+        ])
+    func waiterRetirement(scenario: String) async throws {
         let center = SessionRecoveryConfirmationCenter()
         let id = TerminalSessionID.generate()
         center.begin(id, daemonPID: 42, createdEpoch: 100)
-        let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
-        await Task.yield()
-
-        center.cancel(id)
-
-        #expect(await task.value == false)
-    }
-
-    @Test("explicit cancellation revokes buffered confirmation")
-    func cancellationRevokesBufferedConfirmation() async throws {
-        let center = SessionRecoveryConfirmationCenter()
-        let id = TerminalSessionID.generate()
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
-        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
-
-        center.cancel(id)
-
-        #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
+        switch scenario {
+        case "startedAttachTimesOut":
+            center.didStartAttach(id)
+            #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
+        case "neverStartedAttachTimesOut":
+            #expect(await center.wait(for: id, startupTimeout: .milliseconds(10)) == false)
+            #expect(center.expectationToken(for: id) == nil)
+        case "cancellationRevokesBufferedConfirmation", "tokenCancellationRevokesBufferedConfirmation":
+            let token = try #require(center.expectationToken(for: id))
+            try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
+            if scenario == "tokenCancellationRevokesBufferedConfirmation" {
+                center.cancel(id, expectationToken: token)
+            } else {
+                center.cancel(id)
+            }
+            #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
+        case "preAttachFailureRetiresWaiter", "beginRetiresWaiter", "cancellationRetiresWaiter":
+            let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
+            await drainMainQueue(rounds: 1)
+            switch scenario {
+            case "preAttachFailureRetiresWaiter": center.cancel(id)
+            case "beginRetiresWaiter": center.begin(id, daemonPID: 42, createdEpoch: 100)
+            default: task.cancel()
+            }
+            #expect(await task.value == false)
+        case "secondWaitRetiresFirst":
+            let first = Task { await center.wait(for: id, timeout: .seconds(10)) }
+            await drainMainQueue(rounds: 1)
+            let second = Task { await center.wait(for: id, timeout: .seconds(10)) }
+            await drainMainQueue(rounds: 1)
+            let watchdog = DispatchWorkItem {
+                Issue.record("second wait did not retire the installed first waiter")
+                center.cancel(id)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: watchdog)
+            #expect(await first.value == false)
+            watchdog.cancel()
+            try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
+            #expect(await second.value)
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
     @Test("stale expectation token cannot cancel its successor")
@@ -96,7 +114,7 @@ struct SessionRecoveryConfirmationCenterTests {
         center.begin(id, daemonPID: 42, createdEpoch: 100)
         let currentToken = try #require(center.expectationToken(for: id))
         let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
-        await Task.yield()
+        await drainMainQueue(rounds: 1)
 
         center.confirm(
             id, expectationToken: staleToken, daemonPID: 42, createdEpoch: 100
@@ -111,72 +129,15 @@ struct SessionRecoveryConfirmationCenterTests {
         #expect(await task.value)
     }
 
-    @Test("token cancellation revokes its buffered confirmation")
-    func tokenCancellationRevokesBufferedConfirmation() async throws {
-        let center = SessionRecoveryConfirmationCenter()
-        let id = TerminalSessionID.generate()
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
-        let token = try #require(center.expectationToken(for: id))
-        center.confirm(
-            id, expectationToken: token, daemonPID: 42, createdEpoch: 100
-        )
-
-        center.cancel(id, expectationToken: token)
-
-        #expect(await center.wait(for: id, timeout: .milliseconds(10)) == false)
-    }
-
     @Test("replacement daemon does not confirm recovery")
     func replacementDoesNotConfirm() async throws {
         let center = SessionRecoveryConfirmationCenter()
         let id = TerminalSessionID.generate()
         center.begin(id, daemonPID: 42, createdEpoch: 100)
         let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
-        await Task.yield()
+        await drainMainQueue(rounds: 1)
 
         try confirm(center, id: id, daemonPID: 99, createdEpoch: 101)
-
-        #expect(await task.value == false)
-    }
-
-    @Test("begin retires an existing waiter")
-    func beginRetiresWaiter() async {
-        let center = SessionRecoveryConfirmationCenter()
-        let id = TerminalSessionID.generate()
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
-        let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
-        await Task.yield()
-
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
-
-        #expect(await task.value == false)
-    }
-
-    @Test("second wait retires the first waiter")
-    func secondWaitRetiresFirst() async throws {
-        let center = SessionRecoveryConfirmationCenter()
-        let id = TerminalSessionID.generate()
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
-        let first = Task { await center.wait(for: id, timeout: .seconds(10)) }
-        await Task.yield()
-        let second = Task { await center.wait(for: id, timeout: .seconds(10)) }
-        await Task.yield()
-
-        try confirm(center, id: id, daemonPID: 42, createdEpoch: 100)
-
-        #expect(await first.value == false)
-        #expect(await second.value)
-    }
-
-    @Test("task cancellation retires its waiter")
-    func cancellationRetiresWaiter() async {
-        let center = SessionRecoveryConfirmationCenter()
-        let id = TerminalSessionID.generate()
-        center.begin(id, daemonPID: 42, createdEpoch: 100)
-        let task = Task { await center.wait(for: id, timeout: .seconds(10)) }
-        await Task.yield()
-
-        task.cancel()
 
         #expect(await task.value == false)
     }

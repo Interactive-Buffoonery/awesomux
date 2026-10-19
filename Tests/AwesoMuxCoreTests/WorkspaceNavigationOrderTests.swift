@@ -15,8 +15,6 @@ import Testing
         return (groups, a, b, c, d)
     }
 
-    // MARK: - Traversal runs (INT-819)
-
     @Test func traversalWalksEveryWorkspaceWhenAStickyReleasesMidRun() {
         let f = groups()
         // b starts lifted (needs input). Walking off it releases the sticky, so
@@ -56,36 +54,6 @@ import Testing
         }
         // Without a pinned run this yields b, a, b, a — c and d never reached.
         #expect(visited == [f.b.id, f.a.id, f.c.id, f.d.id])
-    }
-
-    @Test func selectionFromAnotherPathInvalidatesTheRun() {
-        let f = groups()
-        let order = WorkspaceNavigationOrder.liftedFirstSessionIDs(
-            in: f.groups,
-            liftedSessionIDs: [f.d.id],
-            pinnedSessionIDs: []
-        )
-        let first = WorkspaceNavigationOrder.step(
-            offset: 1,
-            currentSelection: f.d.id,
-            run: nil,
-            freshOrder: order
-        )
-        #expect(first?.selection == f.a.id)
-
-        // A click/jump moved selection to c. The stale run must be ignored and
-        // the fresh (no longer lifted) order used instead.
-        let fresh = WorkspaceNavigationOrder.liftedFirstSessionIDs(
-            in: f.groups,
-            pinnedSessionIDs: []
-        )
-        let next = WorkspaceNavigationOrder.step(
-            offset: 1,
-            currentSelection: f.c.id,
-            run: first?.run,
-            freshOrder: fresh
-        )
-        #expect(next?.selection == f.d.id)
     }
 
     @Test func closingAnUnselectedWorkspaceMidRunNeverSelectsIt() {

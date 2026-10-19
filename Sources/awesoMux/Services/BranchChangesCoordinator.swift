@@ -26,6 +26,11 @@ final class BranchChangesCoordinator {
     /// until every run for that pane has retired.
     private var inFlightTickets: [TerminalPane.ID: Set<Int>] = [:]
     private var registeredTickets: [URL: Int] = [:]
+    /// The tab whose live run started the pane's current one, and the tab whose
+    /// Refresh a newer run superseded. Latest-wins stays; this only lets the
+    /// winner tell the user when the tab they clicked was left behind.
+    private var paneOrigins: [TerminalPane.ID: DocumentPane.ID] = [:]
+    private var supersededRefreshTabs: [TerminalPane.ID: DocumentPane.ID] = [:]
     nonisolated private let slots = BranchChangesSlotRegistry()
 
     /// Panes with a Show Branch Changes run in flight. Drives the Refresh
@@ -33,8 +38,14 @@ final class BranchChangesCoordinator {
     var refreshingPaneIDs: Set<TerminalPane.ID> { Set(inFlightTickets.keys) }
 
     /// Starts a new pane generation and cancels the task it replaces.
-    func begin(paneID: TerminalPane.ID) -> Int {
+    func begin(paneID: TerminalPane.ID, originatingDocumentID: DocumentPane.ID? = nil) -> Int {
         paneTasks[paneID]?.task.cancel()
+        if paneTickets[paneID] == nil {
+            supersededRefreshTabs.removeValue(forKey: paneID)
+        } else if let origin = paneOrigins[paneID], origin != originatingDocumentID {
+            supersededRefreshTabs[paneID] = origin
+        }
+        paneOrigins[paneID] = originatingDocumentID
         nextTicket += 1
         paneTickets[paneID] = nextTicket
         activeTickets.insert(nextTicket)
@@ -55,6 +66,11 @@ final class BranchChangesCoordinator {
         paneTickets[paneID] == ticket
     }
 
+    /// The tab whose Refresh the pane's current run superseded, if any.
+    func supersededRefreshTab(for paneID: TerminalPane.ID) -> DocumentPane.ID? {
+        supersededRefreshTabs[paneID]
+    }
+
     /// Retires one completed task and any high-water entries no older task can
     /// still reach. Arbitrary LRU cleanup would let a late completion win again;
     /// the minimum live ticket is the proof that makes removal safe.
@@ -69,6 +85,8 @@ final class BranchChangesCoordinator {
         }
         if paneTickets[paneID] == ticket {
             paneTickets.removeValue(forKey: paneID)
+            paneOrigins.removeValue(forKey: paneID)
+            supersededRefreshTabs.removeValue(forKey: paneID)
         }
 
         guard let oldestActive = activeTickets.min() else {

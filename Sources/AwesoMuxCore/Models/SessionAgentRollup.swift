@@ -10,8 +10,7 @@ public struct PaneAgentSnapshot: Equatable, Sendable {
     public let state: AgentDisplayState
     public let unread: Int
     /// Raw `attentionReason != nil` for the pane — the acknowledgement signal.
-    /// Carried separately from `state` so the rollup's `attentionPaneIDs` derives
-    /// from the SAME condition as `TerminalSession.needsAcknowledgement` instead
+    /// Carried separately from `state` to match `TerminalSession.needsAcknowledgement` instead
     /// of inferring it from the chrome-collapsed `state == .needsAttention`,
     /// which only agrees by accident (C1 / INT-504 review).
     public let needsAcknowledgement: Bool
@@ -60,13 +59,6 @@ public struct SessionAgentRollup: Equatable, Sendable {
     /// `state`/`winningPaneID`/`winningAgentKind`/`unreadTotal`, so the
     /// filters are deferred to the rare caller that actually needs them.
     private let snapshots: [PaneAgentSnapshot]
-
-    /// Panes whose `attentionReason != nil` — the exact acknowledgement set,
-    /// derived from the per-pane signal so it cannot drift from
-    /// `TerminalSession.needsAcknowledgement` (C1).
-    public var attentionPaneIDs: [UUID] {
-        snapshots.filter(\.needsAcknowledgement).map(\.paneID)
-    }
 
     /// Attention reasons of every acknowledgement-needing pane (INT-642 dedup
     /// input). Per-pane, not just the winner's: every reason collapses to the

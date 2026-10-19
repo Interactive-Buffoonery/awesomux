@@ -3,6 +3,11 @@ import AwesoMuxCore
 
 @MainActor
 final class GhosttySurfaceTerminalEventState {
+    var nativeRemotePwdOrigin: (sessionID: TerminalSession.ID, pane: TerminalPane)?
+    var nativeRemotePwdSnapshot: (sessionID: TerminalSession.ID, pane: TerminalPane)?
+    var nativeRemotePwdGeneration: UInt64 = 1
+    var pendingRemotePwd: PendingRemotePwd?
+    var remotePwdExpiry: DispatchWorkItem?
     let agentOutputDetector = AgentOutputDetector()
     let handleCommandFinishedReducer = HandleCommandFinishedReducer()
     let visibleTextAgentStateReducer = VisibleTextAgentStateReducer()
