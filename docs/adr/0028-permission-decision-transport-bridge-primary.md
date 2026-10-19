@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted (INT-628, feeds INT-110).
+Accepted (INT-628, feeds #822).
 
 ## Context
 
-INT-110 gives agent tool calls an in-pane permission card. The provider side
+#822 gives agent tool calls an in-pane permission card. The provider side
 is a blocking `PermissionRequest` hook: the hook process holds the tool call
 open until it writes a decision JSON
 (`hookSpecificOutput.decision.behavior: allow|deny`) to stdout, or writes
@@ -58,7 +58,7 @@ always the helper's choice, never the provider killing the hook.
   trust-store layers above are transport-agnostic.
 - The provider's native dialog renders in the pane *while* the hook blocks
   and remains answerable; the hook decision wins if returned. The card UI
-  (INT-110) must account for that duplication — this ADR only fixes the
+  (#822) must account for that duplication — this ADR only fixes the
   transport.
 - Headless `claude -p` never fires the hook (calls are auto-denied first on
   2.1.200), so integration tests must drive the interactive TUI.

@@ -318,7 +318,7 @@ notification can fall through to the missing/unknown row
 
 This channel carries permission *attention* only — no command content and no
 decision return. For what a bidirectional permission channel (in-pane
-Allow/Deny cards, INT-110) would take on top of it, see
+Allow/Deny cards, #822) would take on top of it, see
 [`docs/reference/int-110-implementation-research.md`](reference/int-110-implementation-research.md).
 
 Codex mapping:
