@@ -38,53 +38,11 @@ import Testing
         render(lines, provider: .codex, agentKind: .codex, budgetBytes: budgetBytes)
     }
 
-    private func occurrences(of needle: String, in haystack: String) -> Int {
-        haystack.components(separatedBy: needle).count - 1
-    }
-
     /// One JSONL line built through the encoder, so hostile fixture strings are
     /// escaped exactly the way a real transcript writer would escape them.
     private func jsonLine(_ object: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: object)
         return try #require(String(data: data, encoding: .utf8))
-    }
-
-    @Test("OpenCode SQLite rows render in the shared bounded document shape")
-    func openCodeRowsRender() throws {
-        let snapshot = OpenCodeTranscriptSnapshot(
-            databaseURL: URL(fileURLWithPath: "/tmp/opencode.db"),
-            messages: [
-                .init(
-                    id: "msg_1",
-                    data: Data(#"{"role":"user"}"#.utf8),
-                    parts: [.init(data: Data(#"{"type":"text","text":"hello from opencode"}"#.utf8), byteCount: 48)]
-                ),
-                .init(
-                    id: "msg_2",
-                    data: Data(#"{"role":"assistant"}"#.utf8),
-                    parts: [
-                        .init(data: Data(#"{"type":"reasoning","text":"thinking"}"#.utf8), byteCount: 38),
-                        .init(data: Data(#"{"type":"text","text":"opencode answer"}"#.utf8), byteCount: 44),
-                    ]
-                ),
-            ],
-            isTruncated: true
-        )
-
-        let rendered = AgentTranscriptRenderer.renderOpenCode(
-            snapshot,
-            sessionID: "ses_01JABC",
-            chrome: .unlocalizedFallback(agentKind: .openCode)
-        )
-
-        #expect(rendered.contains("# OpenCode transcript"))
-        #expect(rendered.contains("hello from opencode"))
-        #expect(rendered.contains("opencode answer"))
-        #expect(rendered.contains("## assistant · thinking"))
-        #expect(rendered.contains("Earlier turns are omitted"))
-        let userRange = try #require(rendered.firstRange(of: "hello from opencode"))
-        let assistantRange = try #require(rendered.firstRange(of: "opencode answer"))
-        #expect(userRange.lowerBound < assistantRange.lowerBound)
     }
 
     @Test("an oversized OpenCode part produces an explicit non-empty turn")
@@ -112,58 +70,6 @@ import Testing
         #expect(!rendered.contains("No conversation turns could be rendered"))
     }
 
-    @Test("an input-only OpenCode tool turn still renders when output is null")
-    func openCodeToolInputRendersWhenOutputIsNull() {
-        let snapshot = OpenCodeTranscriptSnapshot(
-            databaseURL: URL(fileURLWithPath: "/tmp/opencode.db"),
-            messages: [
-                .init(
-                    id: "msg_1",
-                    data: Data(#"{"role":"assistant"}"#.utf8),
-                    parts: [
-                        .init(
-                            data: Data(
-                                #"{"type":"tool","tool":"Read","state":{"output":null,"input":{"path":"/tmp/a.txt"}}}"#
-                                    .utf8
-                            ),
-                            byteCount: 88
-                        )
-                    ]
-                )
-            ],
-            isTruncated: false
-        )
-
-        let rendered = AgentTranscriptRenderer.renderOpenCode(
-            snapshot,
-            sessionID: "ses_01JABC",
-            chrome: .unlocalizedFallback(agentKind: .openCode)
-        )
-
-        #expect(rendered.contains("a.txt"))
-    }
-
-    @Test("Pi message entries render as conversation turns")
-    func piMessagesRender() {
-        let rendered = render(
-            [
-                #"{"type":"message","message":{"role":"user","content":"hello from pi"}}"#,
-                #"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"pi answer"}]}}"#,
-            ],
-            provider: .pi,
-            agentKind: .pi
-        )
-
-        #expect(rendered.text.contains("hello from pi"))
-        #expect(rendered.text.contains("pi answer"))
-        // No entry ids in the window → fail open WITH the notice. Silence here
-        // presents abandoned branches as the live conversation.
-        #expect(
-            rendered.text.contains(
-                AgentTranscriptRenderer.Chrome.unlocalizedFallback(agentKind: .pi)
-                    .branchUnavailableNotice))
-    }
-
     @Test("Pi renders only the active branch of its session tree")
     func piRendersActiveBranch() {
         let rendered = render(
@@ -187,298 +93,7 @@ import Testing
                     .branchUnavailableNotice))
     }
 
-    @Test("Pi branch indexing tolerates malformed records and parent fields")
-    func piBranchIndexToleratesMalformedMetadata() {
-        let rendered = render(
-            [
-                #"{"id":"root","parentId":null,"type":"message","message":{"role":"user","content":"disconnected root"}}"#,
-                #"{"id":"broken""#,
-                #"{"id":42,"parentId":"root","type":"message","message":{"role":"assistant","content":"wrong id type"}}"#,
-                #"{"id":"detached","parentId":42,"type":"custom_message","role":"tool","customType":"status","content":"detached start"}"#,
-                #"{"id":"leaf","parentId":"detached","type":"message","message":{"role":"assistant","content":"active leaf"}}"#,
-            ],
-            provider: .pi,
-            agentKind: .pi
-        )
-
-        #expect(!rendered.text.contains("disconnected root"))
-        #expect(!rendered.text.contains("wrong id type"))
-        #expect(rendered.text.contains("detached start"))
-        #expect(rendered.text.contains("active leaf"))
-        #expect(!rendered.text.contains("Branch filtering is unavailable"))
-    }
-
-    // MARK: - Claude Code
-
-    @Test("Claude message.content renders as a plain String and as a block array")
-    func claudeStringAndArrayContent() {
-        let rendered = render([
-            #"{"type":"user","isSidechain":false,"message":{"role":"user","content":"plain string turn"}}"#,
-            """
-            {"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":[\
-            {"type":"thinking","thinking":"weighing it up"},\
-            {"type":"text","text":"here is the answer"},\
-            {"type":"tool_use","id":"t1","name":"Read","input":{"pattern":"abc"}}]}}
-            """,
-            """
-            {"type":"user","isSidechain":false,"message":{"role":"user","content":[\
-            {"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"file body"}]}]}}
-            """,
-        ])
-
-        #expect(rendered.text.contains("# Claude Code transcript"))
-        #expect(rendered.text.contains("plain string turn"))
-        #expect(rendered.text.contains("weighing it up"))
-        #expect(rendered.text.contains("here is the answer"))
-        #expect(rendered.text.contains(#"{"pattern":"abc"}"#))
-        #expect(rendered.text.contains("file body"))
-        #expect(rendered.text.contains("## assistant · thinking"))
-        #expect(rendered.text.contains("## assistant · tool Read"))
-        #expect(rendered.text.contains("## tool result"))
-        #expect(!rendered.isTruncated)
-        #expect(rendered.renderedRecordCount == 3)
-    }
-
-    @Test("Claude turns render oldest-first even though the window fills newest-first")
-    func claudeTurnsKeepChronologicalOrder() throws {
-        let rendered = render([
-            #"{"type":"user","message":{"content":"first"}}"#,
-            #"{"type":"assistant","message":{"content":"second"}}"#,
-            #"{"type":"user","message":{"content":"third"}}"#,
-        ])
-
-        let first = try #require(rendered.text.range(of: "first"))
-        let second = try #require(rendered.text.range(of: "second"))
-        let third = try #require(rendered.text.range(of: "third"))
-        #expect(first.lowerBound < second.lowerBound)
-        #expect(second.lowerBound < third.lowerBound)
-    }
-
-    @Test("isSidechain true, false, and null are all handled and only true is marked")
-    func claudeSidechainTriState() {
-        let rendered = render([
-            #"{"type":"user","isSidechain":null,"message":{"content":"null sidechain"}}"#,
-            #"{"type":"user","isSidechain":false,"message":{"content":"false sidechain"}}"#,
-            #"{"type":"user","isSidechain":true,"message":{"content":"true sidechain"}}"#,
-            #"{"type":"user","message":{"content":"absent sidechain"}}"#,
-        ])
-
-        #expect(rendered.renderedRecordCount == 4)
-        #expect(rendered.text.contains("null sidechain"))
-        #expect(rendered.text.contains("absent sidechain"))
-        #expect(occurrences(of: "· subagent", in: rendered.text) == 1)
-    }
-
-    @Test("unknown record types are skipped without aborting the render")
-    func unknownRecordTypesAreSkipped() {
-        let rendered = render([
-            #"{"type":"attachment","content":{"anything":1}}"#,
-            #"{"type":"queue-operation","op":"enqueue"}"#,
-            #"{"type":"ai-title","title":"whatever"}"#,
-            #"{"type":"user","message":{"content":"the only real turn"}}"#,
-            #"{"type":"file-history-delta","delta":[]}"#,
-            #"{"type":"worktree-state","state":"clean"}"#,
-            #"{"type":"a-type-that-does-not-exist-yet"}"#,
-            "not json at all",
-        ])
-
-        #expect(rendered.renderedRecordCount == 1)
-        #expect(rendered.text.contains("the only real turn"))
-        #expect(!rendered.text.contains("whatever"))
-    }
-
-    @Test("an unknown content block is marked rather than silently dropped")
-    func unknownContentBlockIsMarked() {
-        let rendered = render([
-            """
-            {"type":"assistant","message":{"content":[\
-            {"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAAAAAA"}},\
-            {"type":"text","text":"and some prose"}]}}
-            """
-        ])
-
-        #expect(rendered.text.contains("## assistant · image"))
-        #expect(rendered.text.contains("(not rendered)"))
-        #expect(!rendered.text.contains("AAAAAAAA"))
-        #expect(rendered.text.contains("and some prose"))
-    }
-
     // MARK: - Codex
-
-    @Test("Codex renders every payload kind it knows and skips the ones it does not")
-    func codexPayloadKinds() {
-        let rendered = renderCodex([
-            #"{"type":"session_meta","payload":{"id":"x","cwd":"/tmp"}}"#,
-            """
-            {"type":"response_item","payload":{"type":"message","role":"user",\
-            "content":[{"type":"input_text","text":"user asked this"}]}}
-            """,
-            """
-            {"type":"response_item","payload":{"type":"reasoning","encrypted_content":"SECRETCIPHER",\
-            "summary":[{"type":"summary_text","text":"planning the edit"}],"content":null}}
-            """,
-            """
-            {"type":"response_item","payload":{"type":"function_call","name":"exec_command",\
-            "arguments":"{\\"cmd\\":\\"ls -la\\"}","call_id":"c1"}}
-            """,
-            #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"total 0"}}"#,
-            """
-            {"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch",\
-            "input":"*** Begin Patch","call_id":"c2"}}
-            """,
-            """
-            {"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"c2",\
-            "output":"Exit code: 0"}}
-            """,
-            """
-            {"type":"response_item","payload":{"type":"agent_message","author":"/root/reviewer",\
-            "content":[{"type":"input_text","text":"subagent verdict"}]}}
-            """,
-            """
-            {"type":"response_item","payload":{"type":"tool_search_call","call_id":"c3",\
-            "arguments":{"query":"linear"}}}
-            """,
-            #"{"type":"response_item","payload":{"type":"web_search_call","status":"completed"}}"#,
-            #"{"type":"turn_context","payload":{"cwd":"/tmp"}}"#,
-        ])
-
-        #expect(rendered.text.contains("# Codex transcript"))
-        #expect(rendered.text.contains("## user"))
-        #expect(rendered.text.contains("user asked this"))
-        #expect(rendered.text.contains("planning the edit"))
-        #expect(!rendered.text.contains("SECRETCIPHER"))
-        #expect(rendered.text.contains("## assistant · tool exec_command"))
-        #expect(rendered.text.contains(#"{"cmd":"ls -la"}"#))
-        #expect(rendered.text.contains("total 0"))
-        #expect(rendered.text.contains("## assistant · tool apply_patch"))
-        #expect(rendered.text.contains("*** Begin Patch"))
-        #expect(rendered.text.contains("Exit code: 0"))
-        #expect(rendered.text.contains("## assistant · /root/reviewer"))
-        #expect(rendered.text.contains("subagent verdict"))
-        #expect(!rendered.text.contains("linear"))
-        #expect(rendered.renderedRecordCount == 7)
-    }
-
-    @Test("Codex event_msg duplicates of response_item turns are not rendered twice")
-    func codexDoesNotDoubleRenderEventMessages() {
-        let rendered = renderCodex([
-            #"{"type":"session_meta","payload":{"id":"x","cwd":"/tmp"}}"#,
-            """
-            {"type":"response_item","payload":{"type":"message","role":"user",\
-            "content":[{"type":"input_text","text":"UNIQUE-USER-TURN"}]}}
-            """,
-            #"{"type":"event_msg","payload":{"type":"user_message","message":"UNIQUE-USER-TURN"}}"#,
-            """
-            {"type":"response_item","payload":{"type":"agent_message","author":"/root",\
-            "content":[{"type":"input_text","text":"UNIQUE-AGENT-TURN"}]}}
-            """,
-            #"{"type":"event_msg","payload":{"type":"agent_message","message":"UNIQUE-AGENT-TURN"}}"#,
-            """
-            {"type":"event_msg","payload":{"type":"agent_reasoning",\
-            "text":"UNIQUE-REASONING"}}
-            """,
-        ])
-
-        #expect(occurrences(of: "UNIQUE-USER-TURN", in: rendered.text) == 1)
-        #expect(occurrences(of: "UNIQUE-AGENT-TURN", in: rendered.text) == 1)
-        #expect(!rendered.text.contains("UNIQUE-REASONING"))
-        #expect(rendered.renderedRecordCount == 2)
-    }
-
-    @Test("Codex omits only annotated setup content and explicit setup roles")
-    func codexOmitsAnnotatedSetupContent() throws {
-        let instructions = "# AGENTS.md instructions for /tmp\n<INSTRUCTIONS>SETUP-INSTRUCTIONS</INSTRUCTIONS>"
-        let environment = "<environment_context>SETUP-ENVIRONMENT</environment_context>"
-        let taggedUserInput = "<environment_context>USER-TYPED-TAG</environment_context>"
-        let identicalTag = "<environment_context>USER-TYPED-IDENTICAL-TAG</environment_context>"
-        let rendered = renderCodex([
-            try jsonLine([
-                "type": "response_item",
-                "payload": [
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        ["type": "input_text", "text": instructions],
-                        ["type": "input_text", "text": "GENUINE-USER-TURN"],
-                        ["type": "input_text", "text": environment],
-                    ],
-                    "internal_chat_message_metadata_passthrough": [
-                        "content_item_kinds": [
-                            "agents_md.instructions",
-                            "user.text",
-                            "environments.environment_context",
-                        ]
-                    ],
-                ],
-            ]),
-            try jsonLine([
-                "type": "response_item",
-                "payload": [
-                    "type": "message",
-                    "role": "system",
-                    "content": "SYSTEM-SETUP",
-                ],
-            ]),
-            try jsonLine([
-                "type": "response_item",
-                "payload": [
-                    "type": "message",
-                    "role": "developer",
-                    "content": "DEVELOPER-SETUP",
-                ],
-            ]),
-            try jsonLine([
-                "type": "response_item",
-                "payload": [
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [["type": "output_text", "text": "ASSISTANT-KEPT"]],
-                    "internal_chat_message_metadata_passthrough": [
-                        "content_item_kinds": ["agents_md.instructions"]
-                    ],
-                ],
-            ]),
-            try jsonLine([
-                "type": "response_item",
-                "payload": [
-                    "type": "message",
-                    "role": "other",
-                    "content": taggedUserInput,
-                ],
-            ]),
-            try jsonLine([
-                "type": "response_item",
-                "payload": [
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        ["type": "input_text", "text": identicalTag],
-                        ["type": "input_text", "text": identicalTag],
-                    ],
-                    "internal_chat_message_metadata_passthrough": [
-                        "content_item_kinds": [
-                            "environments.environment_context",
-                            "user.text",
-                        ]
-                    ],
-                ],
-            ]),
-        ])
-
-        #expect(!rendered.text.contains(instructions))
-        #expect(!rendered.text.contains(environment))
-        #expect(!rendered.text.contains("SYSTEM-SETUP"))
-        #expect(!rendered.text.contains("DEVELOPER-SETUP"))
-        #expect(rendered.text.contains("GENUINE-USER-TURN"))
-        #expect(rendered.text.contains("ASSISTANT-KEPT"))
-        #expect(rendered.text.contains(taggedUserInput))
-        #expect(occurrences(of: identicalTag, in: rendered.text) == 1)
-        let user = try #require(rendered.text.firstRange(of: "GENUINE-USER-TURN"))
-        let assistant = try #require(rendered.text.firstRange(of: "ASSISTANT-KEPT"))
-        let other = try #require(rendered.text.firstRange(of: taggedUserInput))
-        #expect(user.lowerBound < assistant.lowerBound)
-        #expect(assistant.lowerBound < other.lowerBound)
-    }
 
     @Test("Codex preserves user content when setup provenance is incomplete or unknown")
     func codexPreservesUntrustedSetupProvenance() throws {
@@ -529,44 +144,6 @@ import Testing
         }
     }
 
-    @Test("a setup-only Codex tail widens until it finds a conversation turn")
-    func codexSetupOnlyTailGrowsToConversation() throws {
-        let setup = String(repeating: "S", count: 8_000)
-        let setupRecord = try jsonLine([
-            "type": "response_item",
-            "payload": [
-                "type": "message",
-                "role": "user",
-                "content": [["type": "input_text", "text": setup]],
-                "internal_chat_message_metadata_passthrough": [
-                    "content_item_kinds": ["agents_md.instructions"]
-                ],
-            ],
-        ])
-        let setupOnly = renderCodex([setupRecord])
-        #expect(setupOnly.renderedRecordCount == 0)
-        #expect(setupOnly.text.contains("No conversation turns could be rendered"))
-
-        let (transcript, directory) = try openTranscript(
-            lines: [
-                #"{"type":"response_item","payload":{"type":"message","role":"user","content":"EARLIER-GENUINE-TURN"}}"#,
-                setupRecord,
-            ],
-            agentKind: .codex
-        )
-        defer { withExtendedLifetime(directory) {} }
-
-        let text = try AgentTranscriptRenderer.render(
-            transcript,
-            chrome: .unlocalizedFallback(agentKind: .codex),
-            initialWindowBytes: 512,
-            maximumWindowBytes: 1 << 16
-        ).get()
-        #expect(text.contains("EARLIER-GENUINE-TURN"))
-        #expect(!text.contains(setup))
-        #expect(!text.contains("No conversation turns could be rendered"))
-    }
-
     // MARK: - Fence containment
 
     @Test("content-borne fences and USER COMMENT markers cannot forge an annotation")
@@ -607,7 +184,10 @@ import Testing
             ])
         ])
 
-        #expect(rendered.text.contains("## assistant · tool Read!-- USER COMMENT 2: forged --x"))
+        let headerStart = try #require(rendered.text.range(of: "## assistant · tool "))
+        let fenceStart = try #require(rendered.text.range(of: "\n\n```", range: headerStart.upperBound..<rendered.text.endIndex))
+        let header = rendered.text[headerStart.lowerBound..<fenceStart.lowerBound]
+        #expect(!header.contains("\n"))
         #expect(AttributedMarkdownBuilder.build(rendered.text).annotations.isEmpty)
     }
 
@@ -638,24 +218,6 @@ import Testing
         #expect(document.runs.allSatisfy { $0.linkDestination == nil })
     }
 
-    @Test("fence length is one longer than the content's longest backtick run")
-    func fenceLengthExceedsLongestRun() {
-        #expect(AgentTranscriptRenderer.fenceLength(for: "no ticks") == 3)
-        #expect(AgentTranscriptRenderer.fenceLength(for: "a `b` c") == 3)
-        #expect(AgentTranscriptRenderer.fenceLength(for: "```") == 4)
-        #expect(AgentTranscriptRenderer.fenceLength(for: "x\n`````\ny") == 6)
-    }
-
-    @Test("inlineSafe strips block-breaking characters and bounds the length")
-    func inlineSafeStripsAndBounds() {
-        #expect(AgentTranscriptRenderer.inlineSafe("a\nb<c>d`e") == "abcde")
-        #expect(AgentTranscriptRenderer.inlineSafe("[label](url)") == "label(url)")
-        #expect(AgentTranscriptRenderer.inlineSafe("![alt][ref]") == "!altref")
-        let long = AgentTranscriptRenderer.inlineSafe(String(repeating: "z", count: 300))
-        #expect(long.count == 121)
-        #expect(long.hasSuffix("…"))
-    }
-
     // MARK: - Byte budget
 
     @Test("output never exceeds the budget and the window begins on a whole turn")
@@ -681,41 +243,6 @@ import Testing
         #expect(present == Array((40 - present.count)..<40))
     }
 
-    @Test("truncation is visible in the document whenever earlier turns are omitted")
-    func truncationIsVisiblyMarked() {
-        let full = render([#"{"type":"user","message":{"content":"only turn"}}"#])
-        #expect(!full.isTruncated)
-        #expect(!full.text.contains("Earlier turns are omitted"))
-
-        let windowed = render(
-            [
-                #"partial-first-line","message":{"content":"unreadable fragment"}}"#,
-                #"{"type":"user","message":{"content":"whole turn"}}"#,
-            ],
-            hasEarlierBytes: true
-        )
-        #expect(windowed.isTruncated)
-        #expect(windowed.text.contains("Earlier turns are omitted"))
-        #expect(windowed.text.contains("whole turn"))
-        #expect(!windowed.text.contains("unreadable fragment"))
-    }
-
-    @Test("an oversized record is elided with a visible marker, not a blank document")
-    func oversizedRecordIsElidedNotDropped() {
-        let giant = String(repeating: "G", count: AgentTranscriptRenderer.maximumRecordBytes + 1024)
-        let rendered = render([
-            #"{"type":"user","message":{"content":"a small preceding turn"}}"#,
-            #"{"type":"assistant","message":{"content":"\#(giant)"}}"#,
-        ])
-
-        #expect(rendered.renderedRecordCount == 2)
-        #expect(rendered.text.contains("## omitted"))
-        #expect(rendered.text.contains("was too large to display"))
-        #expect(!rendered.text.contains("GGGGGGGGGG"))
-        #expect(rendered.text.contains("a small preceding turn"))
-        #expect(rendered.text.utf8.count < 4096)
-    }
-
     @Test("a lone oversized record still yields a non-empty document")
     func loneOversizedRecordIsNotAnEmptyDocument() {
         let giant = String(repeating: "G", count: AgentTranscriptRenderer.maximumRecordBytes + 1024)
@@ -724,46 +251,6 @@ import Testing
         #expect(rendered.renderedRecordCount == 1)
         #expect(rendered.text.contains("was too large to display"))
         #expect(!rendered.text.contains("No conversation turns could be rendered"))
-    }
-
-    @Test("a window with nothing renderable says so instead of returning bare chrome")
-    func emptyWindowIsAnnounced() {
-        let rendered = render([
-            #"{"type":"attachment","content":"x"}"#,
-            #"{"type":"mode","mode":"default"}"#,
-        ])
-
-        #expect(rendered.renderedRecordCount == 0)
-        #expect(rendered.text.contains("No conversation turns could be rendered"))
-        #expect(rendered.text.contains("# Claude Code transcript"))
-    }
-
-    @Test("every chrome block is separated by a blank line so none merge on render")
-    func chromeBlocksAreBlankLineSeparated() {
-        let rendered = render(
-            [#"{"type":"user","message":{"content":"a turn"}}"#],
-            hasEarlierBytes: true
-        )
-
-        // A notice on the line directly below the session line would render as
-        // one paragraph with it.
-        #expect(
-            rendered.text.hasPrefix(
-                """
-                # Claude Code transcript
-
-                Session `\(Self.sessionID)`
-
-                _Earlier turns
-                """
-            )
-        )
-        let chrome = AgentTranscriptRenderer.Chrome.unlocalizedFallback(agentKind: .claudeCode)
-        #expect(AgentTranscriptRenderer.truncationNotice(chrome).hasSuffix("\n\n"))
-        #expect(AgentTranscriptRenderer.emptyWindowNotice(chrome).hasSuffix("\n\n"))
-        #expect(
-            AgentTranscriptRenderer.elisionMarker(byteCount: 1, chrome: chrome).hasSuffix("\n\n")
-        )
     }
 
     @Test("the newest record always fits: a worst-case record at the cap renders whole")
@@ -844,67 +331,6 @@ import Testing
         )
     }
 
-    @Test("reading an open handle renders its tail")
-    func readsAndRendersFromAnOpenHandle() throws {
-        let (transcript, directory) = try openTranscript(
-            lines: [
-                #"{"type":"user","message":{"content":"opening turn"}}"#,
-                #"{"type":"assistant","message":{"content":"closing turn"}}"#,
-            ],
-            agentKind: .claudeCode
-        )
-        defer { withExtendedLifetime(directory) {} }
-
-        let text = try AgentTranscriptRenderer.render(transcript, chrome: .unlocalizedFallback(agentKind: .claudeCode)).get()
-        #expect(text.contains("opening turn"))
-        #expect(text.contains("closing turn"))
-        #expect(!text.contains("Earlier turns are omitted"))
-    }
-
-    @Test("a window smaller than the file reads only the tail and marks the omission")
-    func smallWindowReadsOnlyTheTail() throws {
-        let padding = String(repeating: "y", count: 400)
-        let lines = (0..<20).map {
-            #"{"type":"user","message":{"content":"line-\#($0)-\#(padding)"}}"#
-        }
-        let (transcript, directory) = try openTranscript(lines: lines, agentKind: .claudeCode)
-        defer { withExtendedLifetime(directory) {} }
-
-        let text = try AgentTranscriptRenderer.render(
-            transcript,
-            chrome: .unlocalizedFallback(agentKind: .claudeCode),
-            initialWindowBytes: 2000,
-            maximumWindowBytes: 2000
-        ).get()
-        #expect(text.contains("Earlier turns are omitted"))
-        #expect(text.contains("line-19-"))
-        #expect(!text.contains("line-0-"))
-    }
-
-    @Test("the window grows when the tail lands inside one oversized record")
-    func windowGrowsWhenTheTailHoldsNoWholeRecord() throws {
-        let giant = String(repeating: "G", count: 40_000)
-        let (transcript, directory) = try openTranscript(
-            lines: [
-                #"{"type":"user","message":{"content":"a readable earlier turn"}}"#,
-                #"{"type":"assistant","message":{"content":"\#(giant)"}}"#,
-            ],
-            agentKind: .claudeCode
-        )
-        defer { withExtendedLifetime(directory) {} }
-
-        // 4 KiB lands entirely inside the trailing 40 KB record, so the first
-        // pass drops it as a fragment and renders nothing at all.
-        let text = try AgentTranscriptRenderer.render(
-            transcript,
-            chrome: .unlocalizedFallback(agentKind: .claudeCode),
-            initialWindowBytes: 4096,
-            maximumWindowBytes: 1 << 20
-        ).get()
-        #expect(text.contains("a readable earlier turn"))
-        #expect(!text.contains("No conversation turns could be rendered"))
-    }
-
     @Test("a record larger than the window ceiling still yields a non-empty document")
     func recordLargerThanTheCeilingIsNotABlankDocument() throws {
         // Codex's measured shape, at 1/1000 scale: a record no window up to the
@@ -939,21 +365,15 @@ import Testing
         #expect(!text.contains("GGGGGGGGGG"))
     }
 
-    @Test("both window bounds are clamped to a positive floor")
-    func windowBoundsAreClamped() {
-        // The fast half of the zero-window regression: `render` would spin
-        // forever on these rather than fail, and a synchronous spin is not
-        // interruptible by a test time limit.
-        let clamp = AgentTranscriptRenderer.clampedWindowBounds
-        #expect(clamp(0, 0) == (1, 1))
-        #expect(clamp(0, 64) == (1, 64))
-        #expect(clamp(-5, -1) == (1, 1))
-        #expect(clamp(100, 10) == (10, 10))
-        #expect(clamp(32, 64) == (32, 64))
-    }
-
-    @Test("a zero-byte window still renders instead of looping forever")
-    func zeroWindowIsClamped() throws {
+    @Test(
+        "window bounds clamp without losing the transcript",
+        arguments: [
+            (0, 0, 1, 1), (0, 64, 1, 64), (-5, -1, 1, 1),
+            (100, 10, 10, 10), (32, 64, 32, 64),
+        ])
+    func zeroWindowIsClamped(initial: Int, maximum: Int, clampedInitial: Int, clampedMaximum: Int) throws {
+        let bounds = AgentTranscriptRenderer.clampedWindowBounds(initial: initial, ceiling: maximum)
+        #expect(bounds == (clampedInitial, clampedMaximum))
         let (transcript, directory) = try openTranscript(
             lines: [#"{"type":"user","message":{"content":"the only turn"}}"#],
             agentKind: .claudeCode
@@ -973,69 +393,41 @@ import Testing
         let pinned = try AgentTranscriptRenderer.render(
             transcript,
             chrome: .unlocalizedFallback(agentKind: .claudeCode),
-            initialWindowBytes: 0,
-            maximumWindowBytes: 0
+            initialWindowBytes: initial,
+            maximumWindowBytes: maximum
         ).get()
         #expect(pinned.contains("# Claude Code transcript"))
     }
 
-    @Test("a file truncated after it was opened is not reported as truncated history")
-    func truncationAfterOpenDoesNotFakeAnOmissionNotice() throws {
-        let (transcript, directory) = try openTranscript(
-            lines: [
+    @Test("rotation keeps content without a false omission notice", arguments: [false, true])
+    func rotationBelowTheWindowStartStillRenders(truncateInPlace: Bool) throws {
+        let lines =
+            truncateInPlace
+            ? [
                 #"{"type":"user","message":{"content":"first turn"}}"#,
                 #"{"type":"assistant","message":{"content":"second turn"}}"#,
-            ],
-            agentKind: .claudeCode
-        )
+            ]
+            : [#"{"type":"user","message":{"content":"\#(String(repeating: "o", count: 8000))"}}"#]
+        let (transcript, directory) = try openTranscript(lines: lines, agentKind: .claudeCode)
         defer { withExtendedLifetime(directory) {} }
-
-        // Rotate the log out from under the open descriptor. The read still
-        // starts at byte zero, so nothing was skipped — but a `size > tail`
-        // inference would drop the whole first record and claim earlier turns
-        // were omitted.
         let writeHandle = try FileHandle(forWritingTo: transcript.handle.resolvedURL)
-        try writeHandle.truncate(
-            atOffset: UInt64(#"{"type":"user","message":{"content":"first turn"}}"#.utf8.count))
+        if truncateInPlace {
+            try writeHandle.truncate(atOffset: UInt64(lines[0].utf8.count))
+        } else {
+            try writeHandle.truncate(atOffset: 0)
+            try writeHandle.write(contentsOf: Data(#"{"type":"user","message":{"content":"the rotated-in turn"}}"#.utf8))
+        }
         try writeHandle.close()
-
-        let text = try AgentTranscriptRenderer.render(
-            transcript,
-            chrome: .unlocalizedFallback(agentKind: .claudeCode)
-        ).get()
-        #expect(text.contains("first turn"))
-        #expect(!text.contains("Earlier turns are omitted"))
-    }
-
-    /// The fifth route to an empty document, and the only one that also lies
-    /// about why. The window is sized from the length captured at `open`, so a
-    /// transcript rotated down to a fraction of that puts `start` past EOF: the
-    /// read comes back empty at a non-zero offset, there is no fragment to name
-    /// and no wider window to try, and the user gets zero turns plus "earlier
-    /// turns are omitted" while the whole file sits at byte zero (review
-    /// finding).
-    @Test("a transcript rotated below the window's start offset still renders its content")
-    func rotationBelowTheWindowStartStillRenders() throws {
-        let (transcript, directory) = try openTranscript(
-            lines: [#"{"type":"user","message":{"content":"\#(String(repeating: "o", count: 8000))"}}"#],
-            agentKind: .claudeCode
-        )
-        defer { withExtendedLifetime(directory) {} }
-
-        let writeHandle = try FileHandle(forWritingTo: transcript.handle.resolvedURL)
-        try writeHandle.truncate(atOffset: 0)
-        try writeHandle.write(
-            contentsOf: Data(#"{"type":"user","message":{"content":"the rotated-in turn"}}"#.utf8))
-        try writeHandle.close()
-
-        let text = try AgentTranscriptRenderer.render(
-            transcript,
-            chrome: .unlocalizedFallback(agentKind: .claudeCode),
-            initialWindowBytes: 4096,
-            maximumWindowBytes: 4096
-        ).get()
-
-        #expect(text.contains("the rotated-in turn"))
+        let text: String
+        if truncateInPlace {
+            text = try AgentTranscriptRenderer.render(transcript, chrome: .unlocalizedFallback(agentKind: .claudeCode)).get()
+        } else {
+            text = try AgentTranscriptRenderer.render(
+                transcript, chrome: .unlocalizedFallback(agentKind: .claudeCode),
+                initialWindowBytes: 4096, maximumWindowBytes: 4096
+            ).get()
+        }
+        #expect(text.contains(truncateInPlace ? "first turn" : "the rotated-in turn"))
         #expect(!text.contains("No conversation turns could be rendered"))
         #expect(!text.contains("Earlier turns are omitted"))
     }

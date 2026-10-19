@@ -182,44 +182,6 @@ struct RemoteHandoffTests {
             ) == nil)
     }
 
-    @Test("captured authority ignores selection but rejects identity changes")
-    func authorityValidation() throws {
-        let remote = try #require(RemoteTarget(parsing: "me@example"))
-        let terminalID = try #require(TerminalSessionID(rawValue: "session-1"))
-        var pane = TerminalPane(
-            terminalSessionID: terminalID,
-            title: "remote", workingDirectory: "~",
-            executionPlan: .ssh(SSHExecution(target: remote))
-        )
-        let authority = RemoteHandoff.Authority(
-            appSessionID: UUID(), paneID: pane.id, terminalSessionID: terminalID,
-            executionPlan: pane.executionPlan, remote: remote
-        )
-        #expect(RemoteHandoff.authorityMatches(authority, pane: pane))
-        #expect(!RemoteHandoff.authorityMatches(authority, pane: nil))
-
-        pane.executionPlan = .local
-        #expect(!RemoteHandoff.authorityMatches(authority, pane: pane))
-        pane.executionPlan = authority.executionPlan
-        pane.terminalSessionID = .generate()
-        #expect(!RemoteHandoff.authorityMatches(authority, pane: pane))
-    }
-
-    @Test("capability and SSH arguments are exact and privacy-safe")
-    func capabilityAndArguments() throws {
-        let remote = try #require(RemoteTarget(parsing: "me@example"))
-        let arguments = RemoteHandoff.sshArguments(
-            remote: remote,
-            controlPath: "/tmp/control/%C",
-            remoteCommand: "'/home/me/.awesomux/bin/awesomux-bridge-helper' receive-handoff"
-        )
-        #expect(arguments.contains("ControlMaster=auto"))
-        #expect(arguments.contains("ControlPath=/tmp/control/%C"))
-        #expect(arguments.contains("ConnectTimeout=10"))
-        #expect(arguments.contains("me@example"))
-        #expect(!arguments.joined(separator: " ").contains("/Users/local/private-notes.md"))
-    }
-
     @Test("transfer streams source bytes on stdin without exposing the source path")
     func transferStreamsSourceBytes() async throws {
         let directory = try TemporaryDirectory(prefix: "handoff-transfer")

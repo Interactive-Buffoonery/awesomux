@@ -53,13 +53,6 @@ enum AgentPluginSourceFingerprint {
         return computed
     }
 
-    /// Test hook: drop cached digests so temp resource trees recompute.
-    static func resetDigestCacheForTests() {
-        cacheLock.lock()
-        digestCache.removeAll()
-        cacheLock.unlock()
-    }
-
     private static func computeDigest(
         provider: AgentPluginProvider,
         resourcesDirectoryURL: URL,

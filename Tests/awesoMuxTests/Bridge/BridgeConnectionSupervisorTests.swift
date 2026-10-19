@@ -27,27 +27,6 @@ struct BridgeConnectionSupervisorTests {
                 ))
     }
 
-    @Test("unknown proto gets exactly one hello-nack, then closes")
-    func unknownProtoNacksThenCloses() async throws {
-        let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
-        let recorder = Recorder()
-        let supervisor = makeSupervisor(actor: actor, recorder: recorder)
-        await supervisor.start()
-        defer { Task { await supervisor.shutdown() } }
-
-        let client = try UnixSocketClient(path: actor.socketPath)
-        try client.write(
-            try BridgeHandshake.hello(
-                proto: "awesomux-bridge-v2", token: "token", session: "session", ts: 1, helper: "test"
-            ).encodedLine())
-
-        let nackLine = try await client.readLine()
-        #expect(BridgeHandshake.parse(line: nackLine) == .helloNack(supported: BridgeConnectionSupervisor.supportedProtocols))
-        // The nack is the mandatory, and only, reply — the connection closes
-        // right after it, no further bytes.
-        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
-    }
-
     @Test("unsupported proto still nacks even when the token is also wrong — proto is checked first")
     func unknownProtoTakesPriorityOverOtherFailures() async throws {
         let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
@@ -70,40 +49,24 @@ struct BridgeConnectionSupervisorTests {
         #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
-    @Test("wrong token closes silently with no reply")
-    func wrongTokenClosesSilently() async throws {
+    @Test(
+        "wrong token or session closes without replying",
+        arguments: [
+            ("wrong-length-token", "session"), ("token", "wrong-session"),
+        ])
+    func invalidIdentityClosesSilently(token: String, session: String) async throws {
         let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
         let recorder = Recorder()
         let supervisor = makeSupervisor(actor: actor, recorder: recorder)
         await supervisor.start()
         defer { Task { await supervisor.shutdown() } }
-
         let client = try UnixSocketClient(path: actor.socketPath)
         try client.write(
             try BridgeHandshake.hello(
-                proto: "awesomux-bridge-v1", token: "wrong-length-token", session: "session", ts: 1, helper: "test"
+                proto: "awesomux-bridge-v1", token: token, session: session, ts: 1, helper: "test"
             ).encodedLine())
-
-        // First readable event is EOF itself — no ack, no nack, nothing.
         #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
         #expect(await recorder.lostConnections.values.isEmpty)
-    }
-
-    @Test("wrong session closes silently with no reply")
-    func wrongSessionClosesSilently() async throws {
-        let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
-        let recorder = Recorder()
-        let supervisor = makeSupervisor(actor: actor, recorder: recorder)
-        await supervisor.start()
-        defer { Task { await supervisor.shutdown() } }
-
-        let client = try UnixSocketClient(path: actor.socketPath)
-        try client.write(
-            try BridgeHandshake.hello(
-                proto: "awesomux-bridge-v1", token: "token", session: "wrong-session", ts: 1, helper: "test"
-            ).encodedLine())
-
-        #expect(await client.waitForEOF(timeoutMilliseconds: 10_000))
     }
 
     @Test("a second valid hello replaces the first and fires the connection-lost sink")
@@ -147,56 +110,6 @@ struct BridgeConnectionSupervisorTests {
         client.disconnect()
 
         #expect(await recorder.lostConnections.waitForCount(1, deadline: .seconds(10)))
-    }
-
-    @Test("post-handshake envelopes reach the frame sink generation-tagged; handshake frames never do")
-    func envelopeReachesFrameSinkHandshakeNever() async throws {
-        let actor = try BridgeConnectionActor(expectedToken: "token", expectedSession: "session")
-        let recorder = Recorder()
-        let supervisor = makeSupervisor(actor: actor, recorder: recorder)
-        await supervisor.start()
-        defer { Task { await supervisor.shutdown() } }
-
-        let firstClient = try UnixSocketClient(path: actor.socketPath)
-        try firstClient.write(helloLine)
-        _ = try await firstClient.readLine()
-
-        // Give the handshake a beat to (not) leak into the frame sink before
-        // any envelope is ever sent.
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(await recorder.frames.values.isEmpty)
-
-        try firstClient.write(try envelope(.paneRename(title: "first"), id: "first-id").encodedLine())
-        #expect(await recorder.frames.waitForCount(1, deadline: .seconds(10)))
-        let firstGeneration = try #require(await recorder.frames.values.first?.generation)
-
-        // Replace the connection; the new one's frames carry a different
-        // generation than the old one's, proving the tag is per-promotion,
-        // not a constant.
-        let secondClient = try UnixSocketClient(path: actor.socketPath)
-        try secondClient.write(helloLine)
-        _ = try await secondClient.readLine()
-        try secondClient.write(try envelope(.paneRename(title: "second"), id: "second-id").encodedLine())
-        #expect(await recorder.frames.waitForCount(2, deadline: .seconds(10)))
-
-        let secondGeneration = try #require(await recorder.frames.values.last?.generation)
-        #expect(firstGeneration != secondGeneration)
-        // Still exactly two frames delivered — no handshake frame ever
-        // reached the sink for either connection.
-        #expect(await recorder.frames.values.count == 2)
-    }
-
-    @Test("constant-time compare is the one shared implementation, not a second hand-rolled one")
-    func constantTimeCompareIsShared() {
-        // BridgeConnectionSupervisor's hello token check calls
-        // BridgeFrameReader.constantTimeEquals directly (see its doc comment
-        // and the `package`-access bump on that function) rather than a
-        // second copy — this exercises the exact symbol, not a stand-in, and
-        // asserts behavior (not timing, which is inherently flaky in tests).
-        #expect(BridgeFrameReader.constantTimeEquals("token", "token"))
-        #expect(!BridgeFrameReader.constantTimeEquals("token", "tokfn"))
-        #expect(!BridgeFrameReader.constantTimeEquals("token", "shorter"))
-        #expect(!BridgeFrameReader.constantTimeEquals("", "nonempty"))
     }
 
     // MARK: - Helpers

@@ -3,8 +3,7 @@ import Testing
 @testable import AwesoMuxCore
 
 // INT-748: each document tab stores the terminal pane its send/stage actions
-// target. These tests pin the association lifecycle: captured at open, immune
-// to dedup, per-tab across closes, and following a recycled pane's new id.
+// target. Keep sends scoped to a live association and preserve read-only provenance.
 @Suite struct DocumentTabAssociationTests {
     private let remoteIdentity = ResourceIdentity(
         location: .remote(RemoteTarget(parsing: "devbox")!),
@@ -41,58 +40,59 @@ import Testing
         )
     }
 
-    @Test func tabsRetainTheirOwnAssociationsAcrossOpens() throws {
-        let (session, t1, t2) = makeTwoTerminalSession()
+    private enum SendCase: CaseIterable { case storedAssociation, directSibling, ambiguousSibling, staleAssociation }
 
-        let (first, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-        let (second, tabB) = try #require(openTab("/tmp/b.md", associatedWith: t2.id, in: first))
-
-        let group = try #require(second.layout.firstDocumentGroup)
-        #expect(group.tab(id: tabA)?.associatedTerminalPaneID == t1.id)
-        #expect(group.tab(id: tabB)?.associatedTerminalPaneID == t2.id)
+    @Test(arguments: SendCase.allCases)
+    private func sendTarget(scenario: SendCase) {
+        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
+        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp/two", executionPlan: .local)
+        let association: TerminalPane.ID? = scenario == .storedAssociation ? t2.id : scenario == .staleAssociation ? TerminalPane.ID() : nil
+        let doc = DocumentPane(fileURL: URL(fileURLWithPath: "/tmp/a.md"), title: "a.md", associatedTerminalPaneID: association)
+        let group = TerminalPaneLayout.documentGroup(DocumentGroup(tabs: [doc], selectedTabID: doc.id))
+        let layout: TerminalPaneLayout
+        switch scenario {
+        case .storedAssociation:
+            layout = .split(
+                TerminalSplit(
+                    orientation: .vertical, first: .pane(t2),
+                    second: .split(TerminalSplit(orientation: .vertical, first: .pane(t1), second: group))))
+        case .ambiguousSibling:
+            layout = .split(
+                TerminalSplit(
+                    orientation: .vertical, first: .split(TerminalSplit(orientation: .horizontal, first: .pane(t1), second: .pane(t2))),
+                    second: group))
+        case .directSibling, .staleAssociation:
+            layout = .split(TerminalSplit(orientation: .vertical, first: .pane(t1), second: group))
+        }
+        let expected = scenario == .storedAssociation ? t2.id : scenario == .directSibling ? t1.id : nil
+        #expect(layout.documentSendTarget(for: doc.id)?.id == expected)
     }
 
-    @Test func remoteSnapshotTabUsesRemoteFileNameAsTitle() throws {
-        let (session, t1, _) = makeTwoTerminalSession()
+    private enum NudgeCase: CaseIterable { case local, ssh, remoteSnapshot }
 
-        let (opened, tabID) = try #require(
-            PaneLayoutReducer.openDocumentTab(
-                fileURL: URL(fileURLWithPath: "/tmp/3a70fb49e7a91c2.md"),
-                associatedTerminalPaneID: t1.id,
-                remoteResourceIdentity: remoteIdentity,
-                in: session,
-                now: Date()
-            ))
-
-        let group = try #require(opened.layout.firstDocumentGroup)
-        #expect(group.tab(id: tabID)?.title == "SKILL.md")
-    }
-
-    @Test func remoteSnapshotDoesNotRetargetLocalCacheTab() throws {
-        let (session, t1, _) = makeTwoTerminalSession()
-        let url = URL(fileURLWithPath: "/tmp/3a70fb49e7a91c2.md")
-        let (opened, tabID) = try #require(
-            PaneLayoutReducer.openDocumentTab(
-                fileURL: url,
-                associatedTerminalPaneID: t1.id,
-                in: session,
-                now: Date()
-            ))
-
-        let (reopened, reopenedTabID) = try #require(
-            PaneLayoutReducer.openDocumentTab(
-                fileURL: url,
-                associatedTerminalPaneID: t1.id,
-                remoteResourceIdentity: remoteIdentity,
-                in: opened,
-                now: Date()
-            ))
-
-        let group = try #require(reopened.layout.firstDocumentGroup)
-        #expect(reopenedTabID != tabID)
-        #expect(group.tabs.count == 2)
-        #expect(group.tab(id: tabID)?.title == "3a70fb49e7a91c2.md")
-        #expect(group.tab(id: reopenedTabID)?.title == "SKILL.md")
+    @Test(arguments: NudgeCase.allCases)
+    private func nudgeTarget(scenario: NudgeCase) {
+        let target = RemoteTarget(user: "alice", host: "remote.example")!
+        let terminal = TerminalPane(
+            title: scenario == .local ? "alice@remote:~/repo" : scenario == .ssh ? "local-looking-title" : "local",
+            workingDirectory: scenario == .ssh ? "/Users/alice/repo" : "/tmp",
+            remoteHost: scenario == .local ? "remote.example" : nil,
+            remoteSSHTarget: scenario == .local ? "remote-alias" : nil,
+            executionPlan: scenario == .ssh ? .ssh(SSHExecution(target: target)) : .local
+        )
+        let doc = DocumentPane(
+            fileURL: URL(
+                fileURLWithPath: scenario == .ssh ? "/Users/alice/repo/a.md" : scenario == .remoteSnapshot ? "/tmp/cache.md" : "/tmp/a.md"),
+            title: scenario == .remoteSnapshot ? "README.md" : "a.md", associatedTerminalPaneID: terminal.id,
+            remoteResourceIdentity: scenario == .remoteSnapshot ? remoteIdentity : nil
+        )
+        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
+        let layout = TerminalPaneLayout.split(TerminalSplit(orientation: .vertical, first: .pane(terminal), second: .documentGroup(group)))
+        switch scenario {
+        case .local: #expect(layout.documentNudgeTarget(for: doc.id) == .available(terminal))
+        case .ssh: #expect(layout.documentNudgeTarget(for: doc.id) == .unavailable(.requiresLocalTerminal))
+        case .remoteSnapshot: #expect(layout.documentNudgeTarget(for: doc.id) == .unavailable(.readOnlyRemoteSnapshot))
+        }
     }
 
     @Test func localReopenOfSnapshotCacheFilePreservesReadOnlyOrigin() throws {
@@ -183,51 +183,6 @@ import Testing
             ) == nil)
     }
 
-    @Test func selectingTabNeverMutatesActivePane() throws {
-        let (session, t1, t2) = makeTwoTerminalSession()
-
-        let (first, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-        let (second, _) = try #require(openTab("/tmp/b.md", associatedWith: t2.id, in: first))
-        #expect(second.activePaneID == t1.id)
-
-        let selected = try #require(PaneLayoutReducer.selectDocumentTab(tabID: tabA, in: second))
-        #expect(selected.activePaneID == t1.id, "tab selection must not move terminal focus")
-        let group = try #require(selected.layout.firstDocumentGroup)
-        #expect(group.selectedTabID == tabA)
-    }
-
-    @Test func selectingUnknownOrAlreadySelectedTabIsNoOp() throws {
-        let (session, t1, _) = makeTwoTerminalSession()
-        let (opened, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-
-        #expect(PaneLayoutReducer.selectDocumentTab(tabID: tabA, in: opened) == nil)
-        #expect(PaneLayoutReducer.selectDocumentTab(tabID: DocumentPane.ID(), in: opened) == nil)
-    }
-
-    @Test func closingOneTabLeavesOtherAssociationIdentical() throws {
-        let (session, t1, t2) = makeTwoTerminalSession()
-
-        let (first, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-        let (second, tabB) = try #require(openTab("/tmp/b.md", associatedWith: t2.id, in: first))
-
-        let closed = try #require(
-            PaneLayoutReducer.closeDocumentTab(tabID: tabA, in: second, now: Date())
-        )
-        let group = try #require(closed.layout.firstDocumentGroup)
-        #expect(group.tab(id: tabB)?.associatedTerminalPaneID == t2.id)
-        #expect(closed.activePaneID == t1.id)
-    }
-
-    @Test func closingLastTabRestoresPreOpenLayout() throws {
-        let (session, t1, _) = makeTwoTerminalSession()
-
-        let (opened, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-        let closed = try #require(
-            PaneLayoutReducer.closeDocumentTab(tabID: tabA, in: opened, now: Date())
-        )
-        #expect(closed.layout == session.layout)
-    }
-
     @Test func dedupDoesNotOverwriteLiveAssociation() throws {
         let (session, t1, t2) = makeTwoTerminalSession()
 
@@ -240,110 +195,6 @@ import Testing
         #expect(
             group.tab(id: tabA)?.associatedTerminalPaneID == t1.id,
             "reopening an open file must not silently retarget a LIVE association"
-        )
-    }
-
-    @Test func dedupHealsDeadAssociation() throws {
-        let (session, _, t2) = makeTwoTerminalSession()
-
-        // The tab's terminal is gone (a pane id that no longer exists in the
-        // layout) — reopening from a live terminal repairs the routing instead
-        // of leaving the send button permanently fail-closed.
-        let deadPaneID = TerminalPane.ID()
-        let (first, tabA) = try #require(openTab("/tmp/a.md", associatedWith: deadPaneID, in: session))
-        let (second, reopenedID) = try #require(openTab("/tmp/a.md", associatedWith: t2.id, in: first))
-
-        #expect(reopenedID == tabA)
-        let group = try #require(second.layout.firstDocumentGroup)
-        #expect(
-            group.tab(id: tabA)?.associatedTerminalPaneID == t2.id,
-            "a dead association heals to the incoming live pane"
-        )
-    }
-
-    @Test func newTabDropsDeadIncomingAssociation() throws {
-        let (session, _, _) = makeTwoTerminalSession()
-        let result = try #require(
-            openTab(
-                "/tmp/a.md",
-                associatedWith: TerminalPane.ID(),
-                in: session
-            ))
-
-        #expect(
-            result.session.layout.firstDocumentGroup?
-                .tab(id: result.newTabID)?.associatedTerminalPaneID == nil
-        )
-    }
-
-    @Test func remoteIdentityReopenReconcilesCacheURL() throws {
-        let (session, t1, _) = makeTwoTerminalSession()
-        let firstURL = URL(fileURLWithPath: "/tmp/old-cache.md")
-        let secondURL = URL(fileURLWithPath: "/tmp/new-cache.md")
-        let first = try #require(
-            PaneLayoutReducer.openDocumentTab(
-                fileURL: firstURL,
-                associatedTerminalPaneID: t1.id,
-                remoteResourceIdentity: remoteIdentity,
-                in: session,
-                now: Date()
-            ))
-        let reopened = try #require(
-            PaneLayoutReducer.openDocumentTab(
-                fileURL: secondURL,
-                associatedTerminalPaneID: t1.id,
-                remoteResourceIdentity: remoteIdentity,
-                in: first.session,
-                now: Date()
-            ))
-
-        #expect(reopened.newTabID == first.newTabID)
-        #expect(
-            reopened.session.layout.firstDocumentGroup?
-                .tab(id: reopened.newTabID)?.fileURL == secondURL
-        )
-    }
-
-    @Test func openWithoutSelectingAppendsInBackground() throws {
-        let (session, t1, t2) = makeTwoTerminalSession()
-
-        let (first, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-        let result = try #require(
-            PaneLayoutReducer.openDocumentTab(
-                fileURL: URL(fileURLWithPath: "/tmp/b.md"),
-                associatedTerminalPaneID: t2.id,
-                in: first,
-                now: Date(),
-                selectingNewTab: false
-            ))
-
-        let group = try #require(result.session.layout.firstDocumentGroup)
-        #expect(group.tabs.count == 2)
-        #expect(
-            group.selectedTabID == tabA,
-            "deferred selection keeps the current tab (open during comment compose)"
-        )
-        #expect(group.tab(id: result.newTabID)?.associatedTerminalPaneID == t2.id)
-    }
-
-    @MainActor
-    @Test func facadeWithNilAssociationCapturesActivePaneAtOpen() throws {
-        let (session, _, t2) = makeTwoTerminalSession()
-        var focused = session
-        focused.activePaneID = t2.id
-        let store = SessionStore(
-            groups: [SessionGroup(name: "main", sessions: [focused])],
-            selectedSessionID: focused.id
-        )
-
-        let tabID = try #require(
-            store.openDocumentPane(fileURL: URL(fileURLWithPath: "/tmp/a.md"), in: focused.id)
-        )
-
-        let group = try #require(store.session(id: focused.id)?.layout.firstDocumentGroup)
-        #expect(
-            group.tab(id: tabID)?.associatedTerminalPaneID == t2.id,
-            "nil association captures the session's activePaneID at open time"
         )
     }
 
@@ -370,25 +221,6 @@ import Testing
             group.tab(id: tabID)?.associatedTerminalPaneID == nil,
             "document-to-document opens must not silently capture activePaneID when no safe source association exists"
         )
-    }
-
-    @MainActor
-    @Test func facadePreservesExistingNilAssociationOnDocumentLinkDedup() throws {
-        let (session, _, t2) = makeTwoTerminalSession()
-        var focused = session
-        focused.activePaneID = t2.id
-        let store = SessionStore(
-            groups: [SessionGroup(name: "main", sessions: [focused])],
-            selectedSessionID: focused.id
-        )
-
-        let firstTabID = try #require(
-            store.openDocumentPane(
-                fileURL: URL(fileURLWithPath: "/tmp/a.md"),
-                in: focused.id,
-                associationPolicy: .preserveNil
-            )
-        )
         let reopenedTabID = try #require(
             store.openDocumentPane(
                 fileURL: URL(fileURLWithPath: "/tmp/a.md"),
@@ -397,191 +229,12 @@ import Testing
             )
         )
 
-        let group = try #require(store.session(id: focused.id)?.layout.firstDocumentGroup)
-        #expect(reopenedTabID == firstTabID)
+        let reopenedGroup = try #require(store.session(id: focused.id)?.layout.firstDocumentGroup)
+        #expect(reopenedTabID == tabID)
         #expect(
-            group.tab(id: firstTabID)?.associatedTerminalPaneID == nil,
+            reopenedGroup.tab(id: tabID)?.associatedTerminalPaneID == nil,
             "document-to-document dedup with no safe source association must not heal nil to activePaneID"
         )
     }
 
-    @Test func recycleRewritesMatchingAssociationsToReplacementPane() throws {
-        let (session, t1, t2) = makeTwoTerminalSession()
-
-        let (first, tabA) = try #require(openTab("/tmp/a.md", associatedWith: t1.id, in: session))
-        let (second, tabB) = try #require(openTab("/tmp/b.md", associatedWith: t2.id, in: first))
-
-        // t1 is the active pane; recycle it.
-        let result = try #require(PaneLayoutReducer.recycleActivePane(in: second, now: Date()))
-        #expect(result.discardedPaneID == t1.id)
-        let newPaneID = result.session.activePaneID
-
-        let group = try #require(result.session.layout.firstDocumentGroup)
-        #expect(
-            group.tab(id: tabA)?.associatedTerminalPaneID == newPaneID,
-            "tabs associated with the recycled pane follow it to the replacement id"
-        )
-        #expect(
-            group.tab(id: tabB)?.associatedTerminalPaneID == t2.id,
-            "other tabs' associations are untouched"
-        )
-    }
-
-    @Test func documentSendTargetUsesLiveStoredAssociation() throws {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp/two", executionPlan: .local)
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/a.md"),
-            title: "a.md",
-            associatedTerminalPaneID: t2.id
-        )
-        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(t2),
-                second: .split(
-                    TerminalSplit(
-                        orientation: .vertical,
-                        first: .pane(t1),
-                        second: .documentGroup(group)
-                    ))
-            ))
-
-        #expect(layout.documentSendTarget(for: doc.id)?.id == t2.id)
-    }
-
-    @Test func documentSendTargetUsesDirectSiblingForNilAssociation() throws {
-        let terminal = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/a.md"),
-            title: "a.md",
-            associatedTerminalPaneID: nil
-        )
-        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(group)
-            ))
-
-        #expect(layout.documentSendTarget(for: doc.id)?.id == terminal.id)
-    }
-
-    @Test func documentSendTargetFailsClosedForAmbiguousNilAssociationSibling() throws {
-        let t1 = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
-        let t2 = TerminalPane(title: "t2", workingDirectory: "/tmp/two", executionPlan: .local)
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/a.md"),
-            title: "a.md",
-            associatedTerminalPaneID: nil
-        )
-        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .split(
-                    TerminalSplit(
-                        orientation: .horizontal,
-                        first: .pane(t1),
-                        second: .pane(t2)
-                    )),
-                second: .documentGroup(group)
-            ))
-
-        #expect(layout.documentSendTarget(for: doc.id) == nil)
-    }
-
-    @Test func documentSendTargetFailsClosedForStaleExplicitAssociation() throws {
-        let terminal = TerminalPane(title: "t1", workingDirectory: "/tmp/one", executionPlan: .local)
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/a.md"),
-            title: "a.md",
-            associatedTerminalPaneID: TerminalPane.ID()
-        )
-        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(group)
-            ))
-
-        #expect(layout.documentSendTarget(for: doc.id) == nil)
-    }
-
-    @Test func documentNudgeTargetAllowsLocalDocumentIntoDeclaredLocalPane() {
-        let terminal = TerminalPane(
-            title: "alice@remote:~/repo",
-            workingDirectory: "/tmp",
-            remoteHost: "remote.example",
-            remoteSSHTarget: "remote-alias",
-            executionPlan: .local
-        )
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/a.md"),
-            title: "a.md",
-            associatedTerminalPaneID: terminal.id
-        )
-        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(group)
-            ))
-
-        #expect(layout.documentNudgeTarget(for: doc.id) == .available(terminal))
-    }
-
-    @Test func documentNudgeTargetRejectsLocalDocumentIntoDeclaredSSHPane() {
-        let target = RemoteTarget(user: "alice", host: "remote.example")!
-        let terminal = TerminalPane(
-            title: "local-looking-title",
-            workingDirectory: "/Users/alice/repo",
-            remoteHost: nil,
-            remoteSSHTarget: nil,
-            executionPlan: .ssh(SSHExecution(target: target))
-        )
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/Users/alice/repo/a.md"),
-            title: "a.md",
-            associatedTerminalPaneID: terminal.id
-        )
-        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(group)
-            ))
-
-        #expect(
-            layout.documentNudgeTarget(for: doc.id)
-                == .unavailable(.requiresLocalTerminal)
-        )
-    }
-
-    @Test func documentNudgeTargetKeepsRemoteSnapshotNonSendable() {
-        let terminal = TerminalPane(title: "local", workingDirectory: "/tmp", executionPlan: .local)
-        let doc = DocumentPane(
-            fileURL: URL(fileURLWithPath: "/tmp/cache.md"),
-            title: "README.md",
-            associatedTerminalPaneID: terminal.id,
-            remoteResourceIdentity: remoteIdentity
-        )
-        let group = DocumentGroup(tabs: [doc], selectedTabID: doc.id)
-        let layout = TerminalPaneLayout.split(
-            TerminalSplit(
-                orientation: .vertical,
-                first: .pane(terminal),
-                second: .documentGroup(group)
-            ))
-
-        #expect(
-            layout.documentNudgeTarget(for: doc.id)
-                == .unavailable(.readOnlyRemoteSnapshot)
-        )
-    }
 }

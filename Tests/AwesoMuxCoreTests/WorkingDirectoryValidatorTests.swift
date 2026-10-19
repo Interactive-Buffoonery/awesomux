@@ -1,116 +1,57 @@
-import XCTest
+import Foundation
+import Testing
 @testable import AwesoMuxCore
 
-final class WorkingDirectoryValidatorTests: XCTestCase {
-    func testAcceptsExistingUserOwnedAbsoluteDirectory() throws {
-        let directory = try makeTemporaryDirectory()
-
-        XCTAssertEqual(
-            WorkingDirectoryValidator.validatedReportedDirectory(directory.path),
-            directory.path
-        )
+@Suite struct WorkingDirectoryValidatorTests {
+    private enum Reported: CaseIterable {
+        case directory, fileURL, localhost, remoteHost, relative, missing, file, nul, encodedNul, system, symlink
     }
 
-    func testStripsLocalFileURLPrefixes() throws {
+    @Test(arguments: Reported.allCases)
+    private func reportedDirectory(scenario: Reported) throws {
         let directory = try makeTemporaryDirectory()
-
-        XCTAssertEqual(
-            WorkingDirectoryValidator.validatedReportedDirectory(directory.absoluteString),
-            directory.path
-        )
-        XCTAssertEqual(
-            WorkingDirectoryValidator.validatedReportedDirectory("file://localhost\(directory.path)"),
-            directory.path
-        )
-    }
-
-    func testRejectsRemoteFileURLHosts() throws {
-        let directory = try makeTemporaryDirectory()
-
-        XCTAssertNil(
-            WorkingDirectoryValidator.validatedReportedDirectory("file://example.test\(directory.path)")
-        )
-    }
-
-    func testRejectsRelativeMissingNonDirectoryAndControlCharacterPaths() throws {
-        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("not-a-directory")
         try Data().write(to: file)
-
-        XCTAssertNil(WorkingDirectoryValidator.validatedReportedDirectory("relative/path"))
-        XCTAssertNil(WorkingDirectoryValidator.validatedReportedDirectory(directory.appendingPathComponent("missing").path))
-        XCTAssertNil(WorkingDirectoryValidator.validatedReportedDirectory(file.path))
-        XCTAssertNil(WorkingDirectoryValidator.validatedReportedDirectory("\(directory.path)\u{0}"))
-        XCTAssertNil(WorkingDirectoryValidator.validatedReportedDirectory("file://localhost\(directory.path)%00"))
+        let link = directory.appendingPathComponent("system-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: URL(fileURLWithPath: "/usr/share"))
+        let raw: String
+        let expected: String?
+        switch scenario {
+        case .directory: raw = directory.path; expected = directory.path
+        case .fileURL: raw = directory.absoluteString; expected = directory.path
+        case .localhost: raw = "file://localhost\(directory.path)"; expected = directory.path
+        case .remoteHost: raw = "file://example.test\(directory.path)"; expected = nil
+        case .relative: raw = "relative/path"; expected = nil
+        case .missing: raw = directory.appendingPathComponent("missing").path; expected = nil
+        case .file: raw = file.path; expected = nil
+        case .nul: raw = "\(directory.path)\u{0}"; expected = nil
+        case .encodedNul: raw = "file://localhost\(directory.path)%00"; expected = nil
+        case .system: raw = "/usr/share"; expected = "/usr/share"
+        case .symlink: raw = link.path; expected = "/usr/share"
+        }
+        #expect(WorkingDirectoryValidator.validatedReportedDirectory(raw) == expected)
     }
 
-    func testValidatesStartupDirectoryBeforeGhosttyLaunch() throws {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+    @Test(arguments: ["~", "temporary", "/tmp", "/usr/share", "symlink"])
+    func startupOwnership(input: String) throws {
         let directory = try makeTemporaryDirectory()
-
-        // Canonical form: identical to raw `home` on a non-symlinked home, but
-        // asserting the canonical form keeps this meaningful on machines whose
-        // home is symlinked (INT-498).
-        XCTAssertEqual(
-            WorkingDirectoryValidator.validatedStartupDirectory("~"),
-            WorkingDirectoryValidator.canonicalizedPath(home)
-        )
-        XCTAssertEqual(
-            WorkingDirectoryValidator.validatedStartupDirectory(directory.path),
-            directory.path
-        )
-        XCTAssertNil(WorkingDirectoryValidator.validatedStartupDirectory("/tmp"))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let link = directory.appendingPathComponent("system-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: URL(fileURLWithPath: "/usr/share"))
+        let raw = input == "temporary" ? directory.path : input == "symlink" ? link.path : input
+        let expected: String? =
+            input == "~"
+            ? WorkingDirectoryValidator.canonicalizedPath(FileManager.default.homeDirectoryForCurrentUser.path)
+            : input == "temporary" ? directory.path : nil
+        #expect(WorkingDirectoryValidator.validatedStartupDirectory(raw) == expected)
     }
 
-    func testReportedDirectoryFollowsIntoDirectoriesTheUserDoesNotOwn() throws {
-        // INT-576: a user can `cd` into a root-owned system directory, so the
-        // reported-cwd validator must accept it — otherwise the path bar froze at
-        // the persisted cwd for every non-user-owned directory (/usr/share, /tmp,
-        // …). Ownership is required only for the startup dir (a shell spawns
-        // there), which stays rejected. /usr/share is a stable root-owned dir.
-        XCTAssertEqual(
-            WorkingDirectoryValidator.validatedReportedDirectory("/usr/share"),
-            "/usr/share"
-        )
-        XCTAssertNil(WorkingDirectoryValidator.validatedStartupDirectory("/usr/share"))
-    }
-
-    func testFirstValidatedReportedDirectoryPrefersActiveCandidate() throws {
-        let activePaneDirectory = try makeTemporaryDirectory()
-        let sessionDirectory = try makeTemporaryDirectory()
-
-        XCTAssertEqual(
-            WorkingDirectoryValidator.firstValidatedReportedDirectory(
-                from: [activePaneDirectory.path, sessionDirectory.path]
-            ),
-            activePaneDirectory.path
-        )
-    }
-
-    func testFirstValidatedReportedDirectoryFallsBackAndExpandsTilde() throws {
-        let homeDirectory = try makeTemporaryHomeDirectory()
-        let missingActiveDirectory = homeDirectory.appendingPathComponent("missing").path
-
-        XCTAssertEqual(
-            WorkingDirectoryValidator.firstValidatedReportedDirectory(
-                from: [missingActiveDirectory, "~/\(homeDirectory.lastPathComponent)"]
-            ),
-            WorkingDirectoryValidator.canonicalizedPath(homeDirectory.path)
-        )
-    }
-
-    func testFirstValidatedReportedDirectoryKeepsReportedCwdOwnershipSemantics() {
-        XCTAssertEqual(
-            WorkingDirectoryValidator.firstValidatedReportedDirectory(from: ["/tmp"]),
-            WorkingDirectoryValidator.canonicalizedPath("/tmp")
-        )
-        XCTAssertNil(WorkingDirectoryValidator.validatedStartupDirectory("/tmp"))
-    }
-
-    func testSanitizesRestoredDirectoriesWithoutEscapingHome() throws {
+    @Test func testSanitizesRestoredDirectoriesWithoutEscapingHome() throws {
         let homeURL = FileManager.default.homeDirectoryForCurrentUser
         let home = homeURL.path
         let restoredDirectory = try makeTemporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: restoredDirectory) }
         let restoredRelativePath = "~/\(restoredDirectory.lastPathComponent)/ProjectCase"
         let restoredAbsolutePath = restoredDirectory
             .appendingPathComponent("ProjectCase", isDirectory: true)
@@ -120,43 +61,32 @@ final class WorkingDirectoryValidatorTests: XCTestCase {
             withIntermediateDirectories: true
         )
 
-        XCTAssertEqual(WorkingDirectoryValidator.sanitizedRestoredDirectory("~"), "~")
-        XCTAssertEqual(
-            WorkingDirectoryValidator.sanitizedRestoredDirectory(restoredRelativePath),
-            restoredRelativePath
-        )
-        XCTAssertEqual(WorkingDirectoryValidator.sanitizedRestoredDirectory(home), home)
-        XCTAssertEqual(
-            WorkingDirectoryValidator.sanitizedRestoredDirectory(restoredAbsolutePath),
-            restoredAbsolutePath
-        )
-        XCTAssertEqual(
-            WorkingDirectoryValidator.sanitizedRestoredDirectory("~/\(restoredDirectory.lastPathComponent)/./ProjectCase"),
-            restoredRelativePath
-        )
-        XCTAssertEqual(WorkingDirectoryValidator.sanitizedRestoredDirectory("~/../Shared"), "~")
-        XCTAssertEqual(WorkingDirectoryValidator.sanitizedRestoredDirectory("\(home)/../Shared"), "~")
-        XCTAssertEqual(WorkingDirectoryValidator.sanitizedRestoredDirectory("/tmp"), "~")
-        XCTAssertEqual(WorkingDirectoryValidator.sanitizedRestoredDirectory("~/Dev\u{2028}elopment"), "~")
-        XCTAssertEqual(WorkingDirectoryValidator.sanitizedRestoredDirectory("~/Dev\u{00A0}elopment"), "~")
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory("~") == "~")
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory(restoredRelativePath) == restoredRelativePath)
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory(home) == home)
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory(restoredAbsolutePath) == restoredAbsolutePath)
+        #expect(
+            WorkingDirectoryValidator.sanitizedRestoredDirectory("~/\(restoredDirectory.lastPathComponent)/./ProjectCase")
+                == restoredRelativePath)
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory("~/../Shared") == "~")
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory("\(home)/../Shared") == "~")
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory("/tmp") == "~")
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory("~/Dev\u{2028}elopment") == "~")
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory("~/Dev\u{00A0}elopment") == "~")
     }
 
-    func testSanitizedRestoredDirectoryRejectsSymlinkEscapes() throws {
+    @Test func testSanitizedRestoredDirectoryRejectsSymlinkEscapes() throws {
         let outsideHome = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: outsideHome) }
         let link = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("awesomux-working-directory-symlink-\(UUID().uuidString)")
         try FileManager.default.createSymbolicLink(
             at: link,
             withDestinationURL: outsideHome
         )
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: link)
-        }
+        defer { try? FileManager.default.removeItem(at: link) }
 
-        XCTAssertEqual(
-            WorkingDirectoryValidator.sanitizedRestoredDirectory("~/" + link.lastPathComponent),
-            "~"
-        )
+        #expect(WorkingDirectoryValidator.sanitizedRestoredDirectory("~/" + link.lastPathComponent) == "~")
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -167,9 +97,6 @@ final class WorkingDirectoryValidatorTests: XCTestCase {
             at: directory,
             withIntermediateDirectories: true
         )
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: directory)
-        }
         // Resolved so round-trip assertions hold now that the validator
         // canonicalizes its return (INT-498): the raw temp path sits behind the
         // /var -> /private/var symlink.
@@ -183,9 +110,6 @@ final class WorkingDirectoryValidatorTests: XCTestCase {
             at: directory,
             withIntermediateDirectories: true
         )
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: directory)
-        }
         return directory
     }
 }

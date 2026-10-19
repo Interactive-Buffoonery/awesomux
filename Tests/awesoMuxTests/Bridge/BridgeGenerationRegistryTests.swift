@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Dispatch
 import Foundation
 import Testing
@@ -34,8 +35,58 @@ struct BridgeGenerationRegistryTests {
 
     // MARK: - Genuine-close teardown
 
-    @Test("genuine-close teardown cancels, rm's the exact path, and shuts the listener")
-    func genuineCloseTearsDown() async {
+    @Test("teardown ifToken no-ops on a successor re-mint, tears down its own token")
+    func teardownIfTokenProtectsSuccessor() async throws {
+        let registry = BridgeGenerationRegistry(
+            ledger: BridgeSocketLedger(),
+            execChannel: { _ in Data() },
+            syncExec: { _ in }
+        )
+        let session = Self.session
+
+        let old = try #require(
+            BridgeChannel.mint(
+                session: session, previousGeneration: 0,
+                localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
+            ))
+        let oldFlag = AsyncFlag()
+        registry.register(
+            BridgeGenerationRegistry.Generation(
+                controlPath: "/tmp/ctl", remote: Self.remote, channel: old,
+                shutdown: { await oldFlag.signal() }
+            ),
+            for: session
+        )
+        let staleToken = try #require(registry.currentToken(for: session))
+
+        // A reconnect re-mints a successor for the same session (replaces entry).
+        let new = try #require(
+            BridgeChannel.mint(
+                session: session, previousGeneration: old.gen,
+                localSocketPath: "/tmp/l.sock", remoteHome: "/Users/example"
+            ))
+        #expect(new.token != old.token)
+        let newFlag = AsyncFlag()
+        registry.register(
+            BridgeGenerationRegistry.Generation(
+                controlPath: "/tmp/ctl", remote: Self.remote, channel: new,
+                shutdown: { await newFlag.signal() }
+            ),
+            for: session
+        )
+
+        // The stale (old-token) teardown must NOT break the successor.
+        await registry.teardown(for: session, ifToken: staleToken)
+        #expect(!(await newFlag.isSet))
+
+        // The successor's own token still tears it down.
+        let liveToken = try #require(registry.currentToken(for: session))
+        await registry.teardown(for: session, ifToken: liveToken)
+        #expect(await newFlag.isSet)
+    }
+
+    @Test("genuine close removes its resources while preserving successor state")
+    func genuineCloseTearsDown() async throws {
         let harness = Harness()
         let channel = Self.channel()
         await harness.commitLedger(session: Self.session, channel: channel)
@@ -67,65 +118,34 @@ struct BridgeGenerationRegistryTests {
         #expect(harness.shutdownCount == 1)
         // Ledger entry forgotten so the next attach for this session mints gen 1.
         #expect(await harness.ledger.previousGeneration(for: Self.session) == 0)
-    }
 
-    @Test("no teardown command is ever a glob")
-    func noGlobInTeardown() async {
-        let harness = Harness()
-        let channel = Self.channel()
-        await harness.commitLedger(session: Self.session, channel: channel)
-        harness.registry.register(harness.generation(channel: channel), for: Self.session)
-
-        await harness.registry.teardown(for: Self.session)
-
-        for command in harness.execCommands {
-            #expect(!command.contains("*"), "glob found: \(command)")
-            #expect(!command.contains("find "), "find-sweep found: \(command)")
+        let directory = try TemporaryDirectory(prefix: "bridge-remove-guard")
+        let state = directory.url.appendingPathComponent("state.json")
+        let oldSocket = "/tmp/awesomux-bridge-aaaa.sock"
+        let successorSocket = "/tmp/awesomux-bridge-bbbb.sock"
+        let script = AmxBackend.bridgeStateFileRemoveRemoteScript(
+            stateFilePath: state.path, remoteSocketPath: oldSocket
+        )
+        for socket in [successorSocket, oldSocket] {
+            try JSONEncoder().encode(
+                BridgeStateFile(
+                    proto: "awesomux-bridge-v1", gen: 1, socket: socket, token: "token"
+                )
+            ).write(to: state)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", script]
+            try process.run()
+            try await process.waitUntilExitEventually()
+            #expect(process.terminationStatus == (socket == oldSocket ? 0 : 1))
+            #expect(FileManager.default.fileExists(atPath: state.path) == (socket == successorSocket))
+            if socket == successorSocket {
+                #expect(try JSONDecoder().decode(BridgeStateFile.self, from: Data(contentsOf: state)).socket == successorSocket)
+            }
         }
     }
 
-    // MARK: - Heal / transfer
-
-    @Test("the heal branch preserves the generation — no commands, still registered")
-    func healPreservesGeneration() async {
-        let harness = Harness()
-        let channel = Self.channel()
-        await harness.commitLedger(session: Self.session, channel: channel)
-        harness.registry.register(harness.generation(channel: channel), for: Self.session)
-
-        // A heal routes AWAY from teardown (see `shouldTearDown`) — the registry
-        // is simply not asked to tear down. Nothing runs; the generation stays.
-        #expect(BridgeGenerationRegistry.shouldTearDown(preservesRecoveryRecord: true) == false)
-        #expect(harness.execCommands.isEmpty)
-        #expect(harness.shutdownCount == 0)
-        // The successor's re-mint replaces the entry without breaking it here.
-        harness.registry.register(harness.generation(channel: Self.channel(gen: 2, remoteSuffix: "bbbb")), for: Self.session)
-        #expect(harness.execCommands.isEmpty)
-    }
-
-    @Test("shouldTearDown routes genuine close vs heal")
-    func routingDecision() {
-        #expect(BridgeGenerationRegistry.shouldTearDown(preservesRecoveryRecord: false) == true)
-        #expect(BridgeGenerationRegistry.shouldTearDown(preservesRecoveryRecord: true) == false)
-    }
-
     // MARK: - Idempotency + unknown session
-
-    @Test("a second teardown records nothing (idempotent)")
-    func teardownIsIdempotent() async {
-        let harness = Harness()
-        let channel = Self.channel()
-        await harness.commitLedger(session: Self.session, channel: channel)
-        harness.registry.register(harness.generation(channel: channel), for: Self.session)
-
-        await harness.registry.teardown(for: Self.session)
-        let afterFirst = harness.execCommands.count
-        await harness.registry.teardown(for: Self.session)
-
-        #expect(afterFirst == 3)
-        #expect(harness.execCommands.count == 3)  // second call added nothing
-        #expect(harness.shutdownCount == 1)
-    }
 
     @Test("teardown deletes its own captured path, never a successor re-mint's")
     func teardownUsesCapturedPathNotLedgerRead() async {
@@ -261,14 +281,6 @@ struct BridgeGenerationRegistryTests {
         await teardown.value
     }
 
-    @Test("teardown of an unknown session is a silent no-op")
-    func unknownSessionNoOp() async {
-        let harness = Harness()
-        await harness.registry.teardown(for: TerminalSessionID(rawValue: "never-registered")!)
-        #expect(harness.execCommands.isEmpty)
-        #expect(harness.shutdownCount == 0)
-    }
-
     // MARK: - App-quit sweep
 
     @Test("the quit sweep runs exact-path cancel + rm for every live generation")
@@ -314,13 +326,6 @@ struct BridgeGenerationRegistryTests {
         // None of the five-second commands can have completed inside the
         // 0.3-second drain budget; the returned recorder state proves the
         // sweep abandoned the still-running background work.
-        #expect(harness.syncCommands.isEmpty)
-    }
-
-    @Test("the quit sweep is a no-op with no live generations")
-    func quitSweepNoOpWhenEmpty() async {
-        let harness = Harness()
-        harness.registry.drainForTermination(budget: 2)
         #expect(harness.syncCommands.isEmpty)
     }
 

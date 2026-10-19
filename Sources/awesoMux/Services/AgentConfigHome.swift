@@ -40,15 +40,6 @@ enum AgentConfigHome {
         return homeDirectoryURL.appending(path: defaultDirectoryName, directoryHint: .isDirectory)
     }
 
-    /// Every kind `url(for:setup:)` can answer for, in a stable order.
-    ///
-    /// Derived from the switch below rather than restated, so a provider
-    /// gaining a config home is picked up by the callers that sweep them
-    /// without a second list to remember.
-    static var kindsWithConfigHome: [AgentKind] {
-        AgentKind.allCases.filter { defaultDirectoryName(for: $0) != nil }
-    }
-
     private static func defaultDirectoryName(for kind: AgentKind) -> String? {
         switch kind {
         case .claudeCode: ".claude"

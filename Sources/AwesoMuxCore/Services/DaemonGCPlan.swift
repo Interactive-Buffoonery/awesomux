@@ -512,7 +512,7 @@ public enum DaemonGCPlan {
     /// argv0 from the subcommand if the exec'd path itself contains a space
     /// (an install location like `/Applications/awesoMux Dev.app/...`) —
     /// `argv0` would truncate at the first space and fail the basename
-    /// check in `confirmedOrphanAttachPIDs`, missing that orphan (a false
+    /// check in `confirmedOrphanAttachSamples`, missing that orphan (a false
     /// negative, the safe direction — never a false-positive kill). Ceiling:
     /// resolve the executable path via `proc_pidpath()`/libproc instead of
     /// parsing `args` text if a space-containing install path is ever real.
@@ -525,7 +525,7 @@ public enum DaemonGCPlan {
         /// `attach` — the session id argument, needed to enforce the same
         /// `isUUIDShaped` fence `reapable()` already applies to daemons (a
         /// hand-run `amx attach dev` must never be a GC candidate here
-        /// either — see `confirmedOrphanAttachPIDs`).
+        /// either — see `confirmedOrphanAttachSamples`).
         public let argv0: String
         public let subcommand: String?
         public let sessionArgument: String?
@@ -622,22 +622,6 @@ public enum DaemonGCPlan {
     /// built from THIS profile's `amx list` only. Where the session's socket
     /// file lives is the one ground truth that cannot cross profiles, so a
     /// session with no local socket is never this pass's to kill.
-    public static func confirmedOrphanAttachPIDs(
-        samples: [AttachProcessSample],
-        daemonPIDs: Set<Int32>,
-        executableName: String,
-        localSessionSockets: Set<String>,
-        minAgeSeconds: Int = orphanAttachMinAgeSeconds
-    ) -> [Int32] {
-        confirmedOrphanAttachSamples(
-            samples: samples,
-            daemonPIDs: daemonPIDs,
-            executableName: executableName,
-            localSessionSockets: localSessionSockets,
-            minAgeSeconds: minAgeSeconds
-        ).map(\.pid)
-    }
-
     public static func confirmedOrphanAttachSamples(
         samples: [AttachProcessSample],
         daemonPIDs: Set<Int32>,

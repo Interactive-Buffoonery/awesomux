@@ -1119,6 +1119,30 @@ extension SessionStore {
         return PaneLayoutReducer.paneChangeKind(from: old, to: new)
     }
 
+    /// Native OSC 7 is suggestion-only, never a local cwd or file-read grant.
+    @discardableResult
+    public func updateNativeRemoteWorkingDirectory(
+        sessionID: TerminalSession.ID, originatingPane: TerminalPane, report: String?
+    ) -> Bool {
+        guard let pane = session(id: sessionID)?.layout.pane(id: originatingPane.id),
+            pane.terminalSessionID == originatingPane.terminalSessionID,
+            pane.executionPlan == originatingPane.executionPlan,
+            pane.remoteHost == originatingPane.remoteHost,
+            pane.remoteConnectivityEpoch == originatingPane.remoteConnectivityEpoch
+        else { return false }
+        let expectedHost = pane.remoteHost ?? pane.executionPlan.remoteTarget?.host
+        let directory = expectedHost.flatMap { host in
+            report.flatMap {
+                RemoteWorkingDirectoryValidator.validatedNativeReport(
+                    $0, expectedHost: host, localHostnames: localHostnames)?.directory
+            }
+        }
+        guard pane.remoteWorkingDirectory != directory else { return true }
+        return mutatePane(sessionID: sessionID, paneID: pane.id) {
+            $0.remoteWorkingDirectory = directory
+        }
+    }
+
     /// Applies display-only OSC 7 metadata from a hand-opened SSH terminal.
     /// Returns whether the report was accepted, including an unchanged path.
     @discardableResult
@@ -1139,6 +1163,35 @@ extension SessionStore {
         else { return false }
         guard pane.remoteWorkingDirectory != directory else { return true }
         return mutatePane(sessionID: sessionID, paneID: paneID) {
+            $0.remoteWorkingDirectory = directory
+        }
+    }
+
+    /// Applies qualified daemon metadata only while the captured managed pane
+    /// still represents the selected connection. The daemon report itself has
+    /// no timestamp or connection generation; this remains a cwd suggestion.
+    @discardableResult
+    public func updateManagedRemoteWorkingDirectory(
+        sessionID: TerminalSession.ID,
+        originatingPane: TerminalPane,
+        reportedDirectory: String
+    ) -> Bool {
+        guard let target = originatingPane.executionPlan.remoteTarget,
+            selectedSessionID == sessionID,
+            let session = session(id: sessionID), session.activePaneID == originatingPane.id,
+            let pane = session.layout.pane(id: originatingPane.id),
+            pane.terminalSessionID == originatingPane.terminalSessionID,
+            pane.executionPlan == originatingPane.executionPlan,
+            pane.remoteConnectivityEpoch == originatingPane.remoteConnectivityEpoch,
+            pane.terminalBackendMetadata == originatingPane.terminalBackendMetadata,
+            pane.remoteHost == originatingPane.remoteHost,
+            pane.remoteConnectionHealth == originatingPane.remoteConnectionHealth,
+            let directory = RemoteWorkingDirectoryValidator.validatedDaemonReportedDirectory(
+                reportedDirectory, expectedHost: originatingPane.remoteHost ?? target.host,
+                localHostnames: localHostnames)
+        else { return false }
+        guard pane.remoteWorkingDirectory != directory else { return true }
+        return mutatePane(sessionID: sessionID, paneID: pane.id) {
             $0.remoteWorkingDirectory = directory
         }
     }
@@ -1435,6 +1488,15 @@ extension SessionStore {
     }
 
     private func rebuildDerivedState(now: Date = Date()) {
+        if _groups.contains(where: { $0.automaticColor == nil }) {
+            // Initialization and structural mutations already schedule consumers;
+            // seed before they render so legacy groups keep their current colors.
+            withSilentGroupMutation { groups in
+                for index in groups.indices {
+                    groups[index].rememberAutomaticColor(at: index)
+                }
+            }
+        }
         index = SessionStoreIndex.build(from: _groups)
         unreadNotificationTotal = index.unreadNotificationTotal
         shellActivityReducer.prune(livePaneIDs: index.livePaneIDs)

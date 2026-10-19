@@ -4,23 +4,26 @@ import SwiftUI
 public struct StatusDot: View {
     private let state: AwState
     private let foregroundOverride: Color?
+    private let animatesThinking: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
-    public init(_ state: AwState) {
+    public init(_ state: AwState, animatesThinking: Bool = true) {
         self.state = state
         self.foregroundOverride = nil
+        self.animatesThinking = animatesThinking
     }
 
     fileprivate init(_ state: AwState, foreground: Color?) {
         self.state = state
         self.foregroundOverride = foreground
+        self.animatesThinking = true
     }
 
     public var body: some View {
         switch state {
         case .thinking:
-            ThinkingSpinner(color: foregroundColor)
+            ThinkingSpinner(color: foregroundColor, isAnimating: animatesThinking)
                 // Decorative, mirroring `.waiting`: state comes from the
                 // labeled container, and the bridged NSView must not surface
                 // its own unlabeled VoiceOver stop.

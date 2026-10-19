@@ -466,16 +466,6 @@ struct AgentIntegrationInstaller {
         return try configHomeURL(path, defaultURL: nil)
     }
 
-    @discardableResult
-    func prepareConfigHome(_ path: String?) throws -> URL? {
-        guard let path = normalizedOptional(path) else {
-            return nil
-        }
-        let url = try configHomeURL(path, defaultURL: nil)
-        try createProviderDirectory(url)
-        return url
-    }
-
     func loadManifest() throws -> AgentIntegrationInstallManifest {
         try manifest(from: manifestStore.loadState())
     }

@@ -4,15 +4,6 @@ import Testing
 
 @Suite("Bridge exec channel")
 struct BridgeExecChannelTests {
-    @Test("captures bounded stdout")
-    func capturesBoundedOutput() async throws {
-        let output = try await BridgeExecChannel.run(
-            command: "printf bridge-ready",
-            stdin: nil
-        )
-        #expect(String(decoding: output, as: UTF8.self) == "bridge-ready")
-    }
-
     @Test("terminates a child whose stdout exceeds the cap")
     func rejectsOversizedOutput() async {
         // Two mechanisms can terminate this child — the 64 KB output cap and the

@@ -559,7 +559,9 @@ extension GhosttySurfaceNSView: NSUserInterfaceValidations {
         // lets the later mouseUp verify it is still talking to the same native
         // surface incarnation.
         let hasRemoteFileContext =
-            sessionStore.session(id: sessionID)?.layout.pane(id: paneID)?.remoteFileContext != nil
+            sessionStore.session(id: sessionID)?.layout.pane(id: paneID).map {
+                RemoteMarkdownReadRouting.isRemoteFileContext($0)
+            } == true
             && event.modifierFlags.intersection([.control, .option, .shift]).isEmpty
         if let markdown = markdownClick(at: event) {
             inputState.appOwnedMarkdownClickActive = true

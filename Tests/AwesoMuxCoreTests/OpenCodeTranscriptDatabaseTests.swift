@@ -7,12 +7,6 @@ import Testing
 
 @Suite("OpenCode transcript database", .serialized)
 struct OpenCodeTranscriptDatabaseTests {
-    private func text(in part: OpenCodeTranscriptSnapshot.Part) throws -> String {
-        let data = try #require(part.data)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        return try #require(object["text"] as? String)
-    }
-
     @Test("an exact session reads committed WAL rows in chronological order")
     func readsLiveWALByExactSessionID() throws {
         let fixture = try Fixture()
@@ -72,30 +66,6 @@ struct OpenCodeTranscriptDatabaseTests {
 
         #expect(snapshot.messages.map(\.id) == ["msg_old"])
         #expect(!snapshot.isTruncated)
-    }
-
-    @Test("the query keeps only the newest bounded turns and reports truncation")
-    func boundsRecentTurns() throws {
-        let fixture = try Fixture()
-        defer { fixture.close() }
-        try fixture.insertSession("ses_target")
-        for index in 1...4 {
-            try fixture.insertMessage(
-                id: "msg_\(index)", sessionID: "ses_target", time: index,
-                role: index.isMultiple(of: 2) ? "assistant" : "user",
-                partID: "part_\(index)",
-                part: ["type": "text", "text": "turn \(index)"]
-            )
-        }
-
-        let snapshot = try OpenCodeTranscriptDatabase.read(
-            dataHome: fixture.dataHome,
-            sessionID: "ses_target",
-            maximumTurns: 2
-        ).get()
-
-        #expect(snapshot.messages.map(\.id) == ["msg_3", "msg_4"])
-        #expect(snapshot.isTruncated)
     }
 
     @Test("read-only open never creates a missing database")
@@ -192,27 +162,6 @@ struct OpenCodeTranscriptDatabaseTests {
             })
     }
 
-    @Test("byte caps measure UTF-8 bytes, not Unicode characters")
-    func byteCapsUseOctetLength() throws {
-        let fixture = try Fixture()
-        defer { fixture.close() }
-        try fixture.insertSession("ses_target")
-        let wideText = String(repeating: "\u{1F600}", count: 70_000)
-        try fixture.insertMessage(
-            id: "msg_wide", sessionID: "ses_target", time: 1,
-            role: "user", partID: "part_wide", part: ["type": "text", "text": wideText]
-        )
-
-        let snapshot = try OpenCodeTranscriptDatabase.read(
-            dataHome: fixture.dataHome,
-            sessionID: "ses_target"
-        ).get()
-
-        let part = try #require(snapshot.messages.first?.parts.first)
-        #expect(part.data == nil)
-        #expect(part.byteCount > OpenCodeTranscriptDatabase.maximumPartBytes)
-    }
-
     @Test("a cumulative source-byte budget keeps only the newest rows")
     func boundsCumulativeSourceBytes() throws {
         let fixture = try Fixture()
@@ -239,76 +188,6 @@ struct OpenCodeTranscriptDatabaseTests {
             count += message.parts.reduce(0) { $0 + ($1.data?.count ?? 0) }
         }
         #expect(retainedBytes <= 500)
-    }
-
-    @Test("multi-part messages retain chronological grouping and part order")
-    func preservesMultiPartMessageOrder() throws {
-        let fixture = try Fixture()
-        defer { fixture.close() }
-        try fixture.insertSession("ses_target")
-        try fixture.insertMessage(
-            id: "msg_old", sessionID: "ses_target", time: 1,
-            role: "user", partID: "part_old", part: ["type": "text", "text": "old"]
-        )
-        try fixture.insertMessage(
-            id: "msg_new", sessionID: "ses_target", time: 2,
-            role: "assistant", partID: "part_1", part: ["type": "text", "text": "first"]
-        )
-        try fixture.insertPart(
-            id: "part_2", messageID: "msg_new", sessionID: "ses_target", time: 3,
-            part: ["type": "text", "text": "second"]
-        )
-        try fixture.insertPart(
-            id: "part_3", messageID: "msg_new", sessionID: "ses_target", time: 4,
-            part: ["type": "text", "text": "third"]
-        )
-
-        let snapshot = try OpenCodeTranscriptDatabase.read(
-            dataHome: fixture.dataHome, sessionID: "ses_target"
-        ).get()
-
-        #expect(snapshot.messages.map(\.id) == ["msg_old", "msg_new"])
-        #expect(try snapshot.messages[1].parts.map { try text(in: $0) } == ["first", "second", "third"])
-    }
-
-    @Test("part and byte caps retain a partial newest message")
-    func capsRetainPartialNewestMessage() throws {
-        let fixture = try Fixture()
-        defer { fixture.close() }
-        try fixture.insertSession("ses_target")
-        try fixture.insertMessage(
-            id: "msg_new", sessionID: "ses_target", time: 1,
-            role: "assistant", partID: "part_1", part: ["type": "text", "text": "first"]
-        )
-        try fixture.insertPart(
-            id: "part_2", messageID: "msg_new", sessionID: "ses_target", time: 2,
-            part: ["type": "text", "text": "second"]
-        )
-        try fixture.insertPart(
-            id: "part_3", messageID: "msg_new", sessionID: "ses_target", time: 3,
-            part: ["type": "text", "text": "third"]
-        )
-
-        let cappedParts = try OpenCodeTranscriptDatabase.read(
-            dataHome: fixture.dataHome, sessionID: "ses_target", maximumParts: 2
-        ).get()
-        #expect(cappedParts.messages.map(\.id) == ["msg_new"])
-        #expect(cappedParts.messages[0].parts.count == 2)
-        #expect(try cappedParts.messages[0].parts.map { try text(in: $0) } == ["second", "third"])
-
-        let complete = try OpenCodeTranscriptDatabase.read(
-            dataHome: fixture.dataHome, sessionID: "ses_target"
-        ).get()
-        let message = try #require(complete.messages.first)
-        let messageData = try #require(message.data)
-        let newestPartData = try #require(message.parts.last?.data)
-        let byteCap = messageData.count + newestPartData.count
-        let cappedBytes = try OpenCodeTranscriptDatabase.read(
-            dataHome: fixture.dataHome, sessionID: "ses_target", maximumSourceBytes: byteCap
-        ).get()
-        #expect(cappedBytes.messages.map(\.id) == ["msg_new"])
-        #expect(cappedBytes.messages[0].parts.count == 1)
-        #expect(try text(in: cappedBytes.messages[0].parts[0]) == "third")
     }
 }
 

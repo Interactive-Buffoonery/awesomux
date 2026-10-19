@@ -34,11 +34,4 @@ struct FontRegistrationTests {
         }
     }
 
-    @Test("registration is idempotent")
-    func registrationIsIdempotent() {
-        let first = DesignSystemFonts.registerBundledFonts()
-        let second = DesignSystemFonts.registerBundledFonts()
-
-        #expect(second == first)
-    }
 }

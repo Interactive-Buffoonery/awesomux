@@ -13,31 +13,6 @@ public enum GitWorktreeCreateValidationIssue: Equatable, Sendable {
 public struct GitWorktreeCreatePolicy: Sendable {
     public init() {}
 
-    public func suggestedTargetPath(
-        repositoryContext: GitRepositoryContext,
-        branchName: String,
-        fileManager: FileManager = .default
-    ) -> URL? {
-        guard let candidate = candidateTargetPath(repositoryContext: repositoryContext, branchName: branchName) else {
-            return nil
-        }
-        let parent = candidate.deletingLastPathComponent()
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return nil
-        }
-        return candidate
-    }
-
-    /// The same `<repo>/.worktrees/<branch>` convention as `suggestedTargetPath`,
-    /// but computed with no filesystem check — used to show a hint even before
-    /// that container directory exists (the create form's "Choose…" panel can
-    /// create it), where the gated version would return `nil`.
-    ///
-    /// `.worktrees/` inside the repo, not a `<repo>-worktrees` sibling: that's
-    /// the convention every worktree this app actually creates already lands
-    /// in (see the repo's own `.gitignore`) — a sibling folder nobody's disk
-    /// has ever matched read as an opaque, made-up suggestion (round-4 smoke).
     public func candidateTargetPath(
         repositoryContext: GitRepositoryContext,
         branchName: String
@@ -74,19 +49,7 @@ public struct GitWorktreeCreatePolicy: Sendable {
         repositoryContext.canonicalCommonGitDirectory.deletingLastPathComponent()
     }
 
-    /// The create form's live pre-fill for its Target path field: always the
-    /// ungated `candidateTargetPath`, so the BOUND value is never emptier
-    /// than what the form displays. A freshly-created linked worktree has no
-    /// `.worktrees/` of its own yet — the gated `suggestedTargetPath` returns
-    /// nil there, but the form still SHOWED the candidate as if it were real
-    /// content, so `submit()` validated an empty bound string against a
-    /// visibly-absolute path and failed with "must be absolute" (INT-857
-    /// round-7 smoke). `suggestedTargetPath`'s filesystem check exists purely
-    /// to gate whether to suggest AT ALL, not to change the resulting path —
-    /// for a given repository context and branch name, the two never differ
-    /// on the actual string, so preferring the gated call first here only
-    /// bought a redundant existence check on every keystroke for no
-    /// behavioral difference.
+    /// The create form's pre-fill, including when its container does not exist.
     public func formTargetPathPrefill(
         repositoryContext: GitRepositoryContext,
         branchName: String

@@ -3,35 +3,17 @@ import Testing
 @testable import AwesoMuxCore
 
 @Suite struct RemoteTargetTests {
-    @Test func parsesUserAndHost() {
-        let target = RemoteTarget(parsing: "ed@mac-mini.local")
-        #expect(target == RemoteTarget(user: "ed", host: "mac-mini.local")!)
-        #expect(target?.sshDestination == "ed@mac-mini.local")
-    }
-
-    @Test func parsesHostOnlyWithEmptyUser() {
-        let target = RemoteTarget(parsing: "mac-mini")
-        #expect(target == RemoteTarget(user: "", host: "mac-mini")!)
-        #expect(target?.sshDestination == "mac-mini")
-    }
-
-    @Test func trimsSurroundingWhitespace() {
-        #expect(RemoteTarget(parsing: "  ed@host  ") == RemoteTarget(user: "ed", host: "host")!)
-    }
-
-    @Test func rejectsEmptyOrHostlessInput() {
-        #expect(RemoteTarget(user: "ed", host: "") == nil)
-        #expect(RemoteTarget(user: "ed", host: "   ") == nil)
-        #expect(RemoteTarget(parsing: "") == nil)
-        #expect(RemoteTarget(parsing: "   ") == nil)
-        #expect(RemoteTarget(parsing: "ed@") == nil)
-        #expect(RemoteTarget(parsing: "@host") == RemoteTarget(user: "", host: "host")!)
-    }
-
-    @Test func roundTripsThroughCodable() throws {
-        let target = RemoteTarget(user: "ed", host: "box")!
-        let data = try JSONEncoder().encode(target)
-        #expect(try JSONDecoder().decode(RemoteTarget.self, from: data) == target)
+    @Test(arguments: [
+        ("ed@mac-mini.local", "ed", "mac-mini.local", "ed@mac-mini.local" as String?),
+        ("mac-mini", "", "mac-mini", "mac-mini"),
+        ("  ed@host  ", "ed", "host", "ed@host"),
+        ("", "ed", "", nil), ("   ", "ed", "   ", nil),
+        ("ed@", "ed", "", nil), ("@host", "", "host", "host"),
+    ])
+    func parsesDestination(input: String, user: String, host: String, destination: String?) {
+        let target = RemoteTarget(parsing: input)
+        #expect(target == RemoteTarget(user: user, host: host))
+        #expect(target?.sshDestination == destination)
     }
 
     @Test func rejectsUnsafeRoutingScalarsAndDashLeadingDestinations() {
@@ -42,24 +24,19 @@ import Testing
         #expect(RemoteTarget(parsing: "ed@-host") == RemoteTarget(user: "ed", host: "-host"))
     }
 
-    @Test func decodingRejectsUnsafeRoutingScalars() {
-        let data = Data(#"{"user":"ed","host":"bo\u202ex"}"#.utf8)
-        #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(RemoteTarget.self, from: data)
+    @Test(arguments: [
+        (#"{"user":"ed","host":"bo\u202ex"}"#, nil as String?),
+        (#"{"user":"","host":"-oProxyCommand=bad"}"#, nil),
+        (#"{"user":"ed","host":"-host"}"#, "-host"),
+    ])
+    func decodesValidatedDestination(json: String, host: String?) throws {
+        let data = Data(json.utf8)
+        if let host {
+            #expect(try JSONDecoder().decode(RemoteTarget.self, from: data) == RemoteTarget(user: "ed", host: host)!)
+        } else {
+            #expect(throws: DecodingError.self) {
+                try JSONDecoder().decode(RemoteTarget.self, from: data)
+            }
         }
-    }
-
-    @Test func decodingRejectsDashLeadingDestinations() {
-        let data = Data(#"{"user":"","host":"-oProxyCommand=bad"}"#.utf8)
-        #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(RemoteTarget.self, from: data)
-        }
-    }
-
-    @Test func decodingKeepsADashLeadingHostBehindAUser() throws {
-        // `ed@-host` is a safe destination: the dash is not in argv position,
-        // so the decoder must not over-reject it.
-        let data = Data(#"{"user":"ed","host":"-host"}"#.utf8)
-        #expect(try JSONDecoder().decode(RemoteTarget.self, from: data) == RemoteTarget(user: "ed", host: "-host")!)
     }
 }

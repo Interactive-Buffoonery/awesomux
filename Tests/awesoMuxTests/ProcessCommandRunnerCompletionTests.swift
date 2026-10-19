@@ -4,30 +4,18 @@ import Testing
 @testable import awesoMux
 
 extension ProcessCommandRunnerTests {
-    @Test("output reader completes when stopped before startup")
-    func outputReaderStoppedBeforeStartupCompletes() async throws {
+    @Test(arguments: [false, true])
+    func outputReaderStopCompletes(beforeStartup: Bool) async throws {
         let pipe = Pipe()
         defer { try? pipe.fileHandleForWriting.close() }
         let reader = ProcessCommandOutputReader(pipe.fileHandleForReading)
         let completed = EventRecorder<Data>()
-        reader.stop()
-        reader.stop()
+        if beforeStartup {
+            reader.stop()
+            reader.stop()
+        }
         Task.detached { await completed.record(await reader.readToEnd()) }
-
-        #expect(await completed.waitForCount(1, deadline: .seconds(3)))
-        #expect(await completed.values == [Data()])
-        #expect(reader.isFinished)
-    }
-
-    @Test("output reader stop races safely with startup")
-    func outputReaderStopDuringStartupCompletes() async throws {
-        let pipe = Pipe()
-        defer { try? pipe.fileHandleForWriting.close() }
-        let reader = ProcessCommandOutputReader(pipe.fileHandleForReading)
-        let completed = EventRecorder<Data>()
-        Task.detached { await completed.record(await reader.readToEnd()) }
-        reader.stop()
-
+        if !beforeStartup { reader.stop() }
         #expect(await completed.waitForCount(1, deadline: .seconds(3)))
         #expect(await completed.values == [Data()])
         #expect(reader.isFinished)

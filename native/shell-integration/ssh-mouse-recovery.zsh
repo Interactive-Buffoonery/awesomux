@@ -17,7 +17,9 @@ _awesomux_ssh_mouse_recovery_init() {
         builtin local -a words
         words=(${(z)2})
         [[ $words[1] == ssh || $words[1] == /usr/bin/ssh ]] || return 0
-        [[ $words[1] == ssh ]] && (( $+functions[ssh] )) && return 0
+        if [[ $words[1] == ssh ]] && (( $+functions[ssh] )); then
+            [[ $functions[ssh] == ${functions[_awesomux_ssh_compat]-} ]] || return 0
+        fi
         builtin local word
         for word in "${words[@]}"; do
             case "$word" in

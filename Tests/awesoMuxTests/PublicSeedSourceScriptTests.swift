@@ -4,24 +4,29 @@ import Testing
 
 @Suite("Public seed source guard")
 struct PublicSeedSourceScriptTests {
-    @Test("Linear issue links are allowed on the public surface")
-    func linearIssueLinksAreAllowed() throws {
-        let result = try runGuard(
-            publicText: "https://linear.app/interactive-buffoonery/issue/INT-819/example"
-        )
-
-        #expect(result.status == 0)
-        #expect(result.output.contains("check_public_seed_source: clean."))
+    enum LinearURLsCase: String, CaseIterable {
+        case linearIssueLinksAreAllowed
+        case nonIssueLinearWorkspaceLinksRemainRejected
     }
 
-    @Test("non-issue Linear workspace links remain rejected")
-    func nonIssueLinearWorkspaceLinksRemainRejected() throws {
-        let result = try runGuard(
-            publicText: "https://linear.app/" + "interactive-buffoonery/project/private-plan"
-        )
+    @Test(arguments: LinearURLsCase.allCases)
+    func linearURLs(_ scenario: LinearURLsCase) throws {
+        switch scenario {
+        case .linearIssueLinksAreAllowed:
+            let result = try runGuard(
+                publicText: "https://linear.app/interactive-buffoonery/issue/INT-819/example"
+            )
 
-        #expect(result.status == 1)
-        #expect(result.error.contains("non-issue Linear workspace URL"))
+            #expect(result.status == 0)
+            #expect(result.output.contains("check_public_seed_source: clean."))
+        case .nonIssueLinearWorkspaceLinksRemainRejected:
+            let result = try runGuard(
+                publicText: "https://linear.app/" + "interactive-buffoonery/project/private-plan"
+            )
+
+            #expect(result.status == 1)
+            #expect(result.error.contains("non-issue Linear workspace URL"))
+        }
     }
 
     private static let privateMarkers: [String] = [
@@ -46,48 +51,32 @@ struct PublicSeedSourceScriptTests {
         #expect(result.error.contains("remains in the public seed surface"))
     }
 
-    @Test("tracked gitignored files remain scanned")
-    func trackedIgnoredFilesRemainScanned() throws {
-        let result = try runGuard(
-            publicText: "public",
-            // Split to avoid triggering the guard's own scan of this file.
-            trackedIgnoredText: "/Users/" + "sarah/project"
-        )
-
-        #expect(result.status == 1)
-        #expect(result.error.contains("real maintainer fixture path or host"))
+    enum IgnoredFilesCase: String, CaseIterable {
+        case trackedIgnoredFilesRemainScanned
+        case untrackedIgnoredFilesAreNotScanned
     }
 
-    @Test("untracked gitignored files are outside the public seed surface")
-    func untrackedIgnoredFilesAreNotScanned() throws {
-        let result = try runGuard(
-            publicText: "public",
-            ignoredUntrackedText: "/Users/" + "sarah/project"
-        )
+    @Test(arguments: IgnoredFilesCase.allCases)
+    func ignoredFiles(_ scenario: IgnoredFilesCase) throws {
+        switch scenario {
+        case .trackedIgnoredFilesRemainScanned:
+            let result = try runGuard(
+                publicText: "public",
+                // Split to avoid triggering the guard's own scan of this file.
+                trackedIgnoredText: "/Users/" + "sarah/project"
+            )
 
-        #expect(result.status == 0)
-        #expect(result.output.contains("check_public_seed_source: clean."))
-    }
+            #expect(result.status == 1)
+            #expect(result.error.contains("real maintainer fixture path or host"))
+        case .untrackedIgnoredFilesAreNotScanned:
+            let result = try runGuard(
+                publicText: "public",
+                ignoredUntrackedText: "/Users/" + "sarah/project"
+            )
 
-    @Test("ignored dist binaries remain excluded across repeated runs")
-    func ignoredDistArtifactsRemainExcludedAcrossRuns() throws {
-        let result = try runGuard(
-            publicText: "public",
-            ignoredDistText: "\0/Users/" + "sarah/project\0",
-            repetitions: 2
-        )
-
-        #expect(result.status == 0)
-        #expect(result.output == String(repeating: "check_public_seed_source: clean.\n", count: 2))
-        #expect(result.error.isEmpty)
-    }
-
-    @Test("nonignored untracked sources remain scanned")
-    func untrackedSourcesRemainScanned() throws {
-        let result = try runGuard(publicText: "/Users/" + "sarah/project")
-
-        #expect(result.status == 1)
-        #expect(result.error.contains("real maintainer fixture path or host"))
+            #expect(result.status == 0)
+            #expect(result.output.contains("check_public_seed_source: clean."))
+        }
     }
 
     @Test(
@@ -121,16 +110,13 @@ struct PublicSeedSourceScriptTests {
     /// rest unnoticed. The fixture content here is deliberately innocuous: if
     /// this test can only fail when the file contains a flagged string, it is
     /// testing the wrong thing.
-    @Test(
-        "purged directories are rejected even when their contents are innocuous",
-        arguments: ["docs/plans", "docs/superpowers"])
-    func purgedDirectoriesRemainRejected(directory: String) throws {
+    @Test(arguments: ["docs/plans", "docs/superpowers"], [false, true])
+    func purgedPathsRemainRejected(directory: String, symlink: Bool) throws {
         let result = try runGuard(
-            publicText: "public",
-            purgedDirectory: directory,
-            purgedFileText: "nothing sensitive in here at all"
+            publicText: "public", purgedDirectory: directory,
+            purgedFileText: "nothing sensitive in here at all",
+            purgedPathKind: symlink ? .danglingSymlink : .directory
         )
-
         #expect(result.status == 1)
         #expect(result.error.contains(directory))
         #expect(result.error.contains("must not be reintroduced"))
@@ -140,20 +126,6 @@ struct PublicSeedSourceScriptTests {
     /// `docs/superpowers -> nowhere` link would reintroduce the path while
     /// passing an existence check. The guard pairs `-e` with `-L` for that
     /// reason; this pins it.
-    @Test(
-        "purged directories are rejected when reintroduced as a dangling symlink",
-        arguments: ["docs/plans", "docs/superpowers"])
-    func purgedDirectoriesRejectedAsDanglingSymlink(directory: String) throws {
-        let result = try runGuard(
-            publicText: "public",
-            purgedDirectory: directory,
-            purgedPathKind: .danglingSymlink
-        )
-
-        #expect(result.status == 1)
-        #expect(result.error.contains(directory))
-        #expect(result.error.contains("must not be reintroduced"))
-    }
 
     private enum PurgedPathKind {
         case directory

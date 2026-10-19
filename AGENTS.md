@@ -1,141 +1,69 @@
 # Agent instructions — awesoMux
 
-Shared rules for Claude Code and Codex (`CLAUDE.md` imports this file).
+Shared rules for Codex and Claude (`CLAUDE.md` imports this file).
+awesoMux is a SwiftPM macOS 15+ terminal built on libghostty, with a native
+single-window sidebar/session shell.
 
-awesoMux is a SwiftPM macOS 15+ terminal built on libghostty. Its product shape
-is a native, single-window sidebar/session shell with first-class agent UX—not a
-multi-window manager or tmux replacement.
+## Context
 
-## Start here
+Read the docs relevant to your change:
 
-Read the documentation for the area you will change before editing:
+- [CONTEXT.md](CONTEXT.md), [architecture](docs/architecture.md), and [ADRs](docs/adr/).
+- [README](README.md), [contributing](CONTRIBUTING.md), and [CI](docs/ci.md).
+- [Ghostty integration](docs/ghostty-integration.md), [pane automation](docs/amx-automation.md),
+  [signing](docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md),
+  [targets](Package.swift), and [UI tokens](Sources/DesignSystem/), as applicable.
 
-- Orientation and glossary: [`CONTEXT.md`](CONTEXT.md)
-- Architecture and decisions: [`docs/architecture.md`](docs/architecture.md) and
-  [`docs/adr/`](docs/adr/)
-- Build, test, and contribution workflow: [`README.md`](README.md),
-  [`docs/ci.md`](docs/ci.md), and [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- Ghostty integration and submodule updates:
-  [`docs/ghostty-integration.md`](docs/ghostty-integration.md)
-- Pane automation (`amx`, `AWESOMUX_AMX`, `$ZMX_SESSION`):
-  [`docs/amx-automation.md`](docs/amx-automation.md)
-- Distribution, signing, and sandbox posture: [ADR-0019](docs/adr/0019-macos-distribution-signing-and-sandbox-posture.md)
-- Targets and dependencies: [`Package.swift`](Package.swift); UI tokens and
-  patterns: [`Sources/DesignSystem/`](Sources/DesignSystem/)
+For issue work, also check the shared plan using
+[read-awesomux-plan](.agents/skills/read-awesomux-plan/SKILL.md).
+Reconcile it with current code, ADRs, and GitHub; flag conflicts.
 
-Use current code, ADRs, and docs as the source of truth. Use GitHub Issues for
-decisions not recorded there; do not treat old issue or PR prose as current
-architecture without checking.
+## Guardrails
 
-## Hard guardrails
+- Preserve unrelated changes. Do not push to `main` without explicit approval.
+- Get direct human approval of the action and content before publishing issues,
+  pushing commits, opening PRs, or posting comments/replies.
+- External contributors need issue assignment or an ownership handoff before
+  pushing/updating its PR; maintainers `serabi` and `edequalsawesome` are exempt.
+- GitHub and synced Linear issues are public. Synced issue keys are fine;
+  private notes, links, credentials, and unpublished tracker content are not.
+  Draft roadmap issues for review; preserve labels and get approval before
+  restructuring synced issues. Linear workspace: `interactive-buffoonery`, team `INT`.
+- Use neutral public review wording; omit internal reviewer personas.
+- Never copy or read GPL-3.0 source for implementation references. Use public
+  product docs instead. Ghostty, Ghostling, and zmx are MIT; attribute copied patterns.
+- `vendor/ghostty` and `vendor/zmx` are pinned submodules. Keep local work out;
+  change pins only when explicitly requested. After pulling, reconcile unexpected
+  submodule changes with `git submodule update --init --recursive`; preserve local edits.
+- App/window/workspace commands belong to awesoMux menus, palette, and
+  `KeyboardShortcutCatalog`, not Ghostty app-action bindings ([ADR-0020](docs/adr/0020-ghostty-app-actions-are-not-an-awesomux-command-surface.md)).
+- Local builds are ad-hoc signed. Follow ADR-0019 for distribution; add entitlements
+  only with evidence from a failing signed release build.
 
-### Licensing and dependencies
+## Changes
 
-- Never copy code from GPL-3.0 sources. When another product informs analogous
-  behavior, do not read its GPL source; use public product documentation,
-  screenshots, or user descriptions instead.
-- `ghostty-org/ghostty`, `ghostty-org/ghostling`, and `neurosnap/zmx` are MIT
-  references. Attribute any small copied pattern.
-- `vendor/ghostty` and `vendor/zmx` are pinned submodules. Do not park
-  uncommitted work inside them, commit their contents, or change a gitlink/pin
-  unless the task explicitly asks for a pin update. Follow the integration docs
-  for temporary local diagnostics.
-- If a submodule appears modified after pulling, run
-  `git submodule update --init --recursive`. The update refuses to overwrite
-  local submodule changes.
+- Keep changes narrow; avoid compatibility shims for nonexistent code paths.
+- Format only changed Swift files: `./script/format.sh path/to/File.swift`.
+  Inspect the diff; `./script/format.sh --lint` is non-mutating.
+- Use literal-as-key `String(localized:)`, never keyed `defaultValue:` calls.
+  Use `Localizable.stringsdict` for plurals ([ADR-0014](docs/adr/0014-literal-as-key-localized-strings.md)).
+- Comments explain non-obvious reasons. Commits use Conventional Commits,
+  imperative lowercase subjects, no trailing period, and at most 72 characters.
 
-### Product and command ownership
+## Verification and PRs
 
-- Keep the app aligned with the native single-window product direction.
-- awesoMux owns app, window, and workspace commands through SwiftUI/AppKit
-  menus, the command palette, and `KeyboardShortcutCatalog`. Ghostty app-action
-  keybindings are not a parallel awesoMux command surface; see [ADR-0020](docs/adr/0020-ghostty-app-actions-are-not-an-awesomux-command-surface.md).
-- Local builds are ad-hoc signed. Follow ADR-0019 for distribution; do not copy
-  Ghostty's entitlements without evidence from a failing signed release build.
-
-### Repository and public workflow
-
-- Preserve unrelated local changes. Never push directly to `main` without
-  explicit user approval.
-- Do not publish issues, open PRs, push commits, or post review comments or
-  replies without direct human approval of that action and its content.
-- External contributors must be the issue assignee (or have ownership handed off)
-  to push or update that issue's PR. Maintainers (`serabi`, `edequalsawesome`)
-  are exempt.
-- Treat GitHub issues synchronized with Linear as public. Referencing synced
-  Linear issue keys (e.g., `INT-758`) in PR descriptions, GitHub issues, and
-  review comments is expected cross-linking, not a privacy leak. Do not expose
-  internal notes, private links, credentials, or unpublished tracker content
-  (draft issues, internal-only URLs). Draft new roadmap issues for maintainer
-  review; do not restructure synchronized roadmap issues without approval, and
-  preserve labels.
-- When using Linear in this checkout, use workspace `interactive-buffoonery` and team `INT`.
-- In public text, use neutral terms such as “review” or “code review findings”;
-  do not name internal reviewer personas.
-
-## Making changes
-
-- Prefer narrow changes that use existing seams. Do not add compatibility shims
-  for code paths that do not exist yet.
-- Format only Swift files you intentionally changed:
-  `./script/format.sh path/to/File.swift`, then inspect the diff. Use
-  `./script/format.sh --lint` for a non-mutating check.
-- Localized strings use literal-as-key `String(localized:)`, never keyed
-  `defaultValue:` calls. Count-dependent user-facing text uses
-  `Localizable.stringsdict`, not hand-written singular/plural branches. See
-  [ADR-0014](docs/adr/0014-literal-as-key-localized-strings.md).
-- Comments should explain a non-obvious reason, not narrate the code.
-- Commit subjects follow Conventional Commits, use an imperative lowercase
-  description, have no trailing period, and stay at or below 72 characters.
-
-## Testing
-
-Prefer end-to-end verification. Do not grow the unit-test suite.
-
-- Never write unit tests after you write code.
-- Highly prefer end-to-end tests as the sole testing mechanism. Use them to
-  verify complex features work. At the end of an E2E run, produce a verifiable
-  and repeatable artifact (a log, screenshot, recording, or report a reviewer
-  can re-run or inspect).
-- If you must test a system in isolation, first write down all the ways it
-  could fail, then write the code. Isolation tests belong before the production
-  change, never after it.
-
-Do not add low-signal unit tests, extra coverage for logic an E2E run already
-exercises, or characterization suites as a substitute for end-to-end proof.
-Existing Swift Testing and XCTest suites stay until a focused cull removes
-them. Keep existing XCTest tests unless you are already changing them. If an
-isolation test is required, use Swift Testing (`@Suite`, `@Test`, `#expect`).
-
-## Verification
-
-Choose checks proportional to the change and report exactly what ran. Lead with
-the E2E evidence and the artifact it produced, not with new unit coverage.
-
-```sh
-./script/build_and_run.sh                     # build and run the app
-./script/preflight.sh                         # full non-docs PR gate
-./script/test.sh all                          # zmx and the existing Swift suite
-```
-
-- Existing Swift filters match identifiers, not display names. Confirm the
-  output reports a non-zero test count; a filter that matches nothing can
-  exit 0. Do not add a new `--filter` suite to satisfy this check.
-- Run `./script/preflight.sh` directly and use its own exit status. Do not pipe
-  it or append a command that masks failure.
-- Let repository scripts prepare Ghostty and the compatible Zig toolchain.
-- Do not bypass commit or PR hooks. Address findings or document why they do not
-  apply. Keep E2E artifacts, existing automated suites, full preflight, and
-  manual macOS/UI/accessibility checks as separate evidence; one does not imply
-  another passed.
-
-## Pull requests
-
-- Plan in an issue when appropriate and link the PR to it.
-- Before opening a PR, ask the contributor to choose the AI assistance level:
-  `none`, `light`, `moderate`, or `substantial`. Never infer it from tool usage.
-- Read [`.github/pull_request_template.md`](.github/pull_request_template.md) in
-  full and preserve its exact required headings. Remove placeholder comments,
-  include real validation results, and explicitly name checks not run and why.
-- Before a non-docs PR, run `./script/preflight.sh`. If it was not run, say so
-  in the PR.
+- Prefer E2E verification with a repeatable artifact. Do not grow the unit suite
+  or write unit tests after production code. If isolation testing is necessary,
+  document failure modes and write Swift Testing tests first. Preserve existing
+  tests unless changing them or performing a focused cull.
+- Choose proportional checks and report actual results. Keep E2E, automated
+  tests, preflight, native UI, and accessibility evidence separate.
+- Use repository scripts for Ghostty/Zig setup. Never bypass commit or PR hooks.
+- `./script/build_and_run.sh` builds/runs the app; `./script/test.sh all` runs
+  zmx and existing Swift tests. Filters match identifiers: require a non-zero count.
+- Before a non-docs PR, run `./script/preflight.sh` directly and preserve its exit
+  status. If unrun, say so. Docs-only changes can use `git diff --check`.
+- Link the issue and follow the exact [PR template](.github/pull_request_template.md)
+  headings. Remove placeholders; name unrun checks and why.
+- Ask the contributor to choose AI assistance (`none`, `light`, `moderate`,
+  `substantial`) before opening a PR; never infer it.
