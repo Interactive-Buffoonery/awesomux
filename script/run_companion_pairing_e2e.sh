@@ -74,10 +74,18 @@ if [[ ! -s "$LINK_FILE" ]]; then
   exit 1
 fi
 
-swift run companion-pairing-e2e \
+if ! swift run companion-pairing-e2e \
   --link-file "$LINK_FILE" \
   --result-file "$RESULT_FILE" \
-  --profile "$runtime_profile" 2>&1 | tee "$E2E_LOG"
+  --profile "$runtime_profile" 2>&1 | tee "$E2E_LOG"; then
+  if grep -q "TLS connection timed out" "$E2E_LOG"; then
+    echo "hint: TCP connected but the app never answered the TLS handshake." >&2
+    echo "  This has been a macOS permission blocking the dev app, not a code bug." >&2
+    echo "  Check for a pending macOS prompt and Privacy & Security settings for" >&2
+    echo "  the dev app, then rebuild and relaunch before debugging the code." >&2
+  fi
+  exit 1
+fi
 
 kill "$app_pid"
 wait "$app_pid" 2>/dev/null || true
