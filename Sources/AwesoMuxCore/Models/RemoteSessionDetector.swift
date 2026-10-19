@@ -151,7 +151,7 @@ public enum RemoteSessionDetector {
         return rest[index] == "/" || rest[index] == "~"
     }
 
-    private static func isLoopback(_ lowerHost: String) -> Bool {
+    static func isLoopback(_ lowerHost: String) -> Bool {
         if lowerHost == "localhost" || lowerHost == "::1" || lowerHost == "[::1]" {
             return true
         }

@@ -45,15 +45,6 @@ public struct WorkspacePaneCapabilities: Hashable, Sendable {
 }
 
 public extension WorkspacePaneCapabilities {
-    static func of(_ leaf: WorkspaceLeaf) -> WorkspacePaneCapabilities {
-        switch leaf {
-        case let .terminal(pane):
-            terminal(pane)
-        case let .documentGroup(group):
-            documentGroup(group)
-        }
-    }
-
     static func terminal(_ pane: TerminalPane) -> WorkspacePaneCapabilities {
         let isLocal = ExecutionContext(plan: pane.executionPlan)
             .capability(.inspectLocalFilesystem).isAllowed
@@ -68,33 +59,5 @@ public extension WorkspacePaneCapabilities {
             // boundary where a leak means host identity in a shareable preset.
             presetEligible: isLocal && pane.executionPlan.remoteTarget == nil
         )
-    }
-
-    static func documentGroup(_ group: DocumentGroup) -> WorkspacePaneCapabilities {
-        guard !group.isBrowserOnly else {
-            return WorkspacePaneCapabilities(
-                localFileAccess: false,
-                remoteProvenance: false,
-                safeInputTarget: false,
-                duplicable: false,
-                presetEligible: false
-            )
-        }
-        // Conservative fold: one remote snapshot makes the whole leaf carry
-        // remote provenance and lose local-file standing.
-        let anyRemote = group.tabs.contains { $0.isReadOnlySnapshot }
-        return WorkspacePaneCapabilities(
-            localFileAccess: !anyRemote,
-            remoteProvenance: anyRemote,
-            safeInputTarget: false,
-            duplicable: false,
-            presetEligible: false
-        )
-    }
-}
-
-public extension WorkspaceLeaf {
-    var capabilities: WorkspacePaneCapabilities {
-        .of(self)
     }
 }

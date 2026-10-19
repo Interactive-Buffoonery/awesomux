@@ -89,7 +89,9 @@ extension GhosttyRuntime {
                 "GHOSTTY_ACTION_PWD fired off-main — the ghostty_app_tick-only assumption no longer holds"
             )
             onMainThreadSynchronously {
-                view.updateWorkingDirectory(workingDirectory)
+                if !view.consumeRemotePwdEnvelope(workingDirectory, source: target.target.surface) {
+                    view.updateWorkingDirectory(workingDirectory)
+                }
             }
             return true
 

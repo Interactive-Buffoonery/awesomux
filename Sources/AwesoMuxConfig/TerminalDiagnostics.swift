@@ -11,23 +11,6 @@ public enum TerminalDiagnosticsConfiguration {
 }
 
 public struct TerminalDiagnosticEnvironmentSnapshot: Equatable, Sendable {
-    public static let capturedKeys = [
-        "TERM",
-        "COLORTERM",
-        "COLORFGBG",
-        "NO_COLOR",
-        "FORCE_COLOR",
-        "TERM_PROGRAM",
-        "TMUX",
-        "TMUX_PANE",
-        "ZELLIJ",
-        "STY",
-        "MOSHI_SESSION",
-        "SSH_CONNECTION",
-        "SSH_CLIENT",
-        "SSH_TTY"
-    ]
-
     public let term: String
     public let colorTerm: String
     public let colorFGBG: String

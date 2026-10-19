@@ -24,4 +24,9 @@ int awesomux_surface_read_recent_scrollback(ghostty_surface_t surface,
                                            size_t capacity,
                                            size_t *written);
 
+// Main-thread barrier for advisory OSC 7 reports captured by the IO reader.
+// Zero disables acceptance; callers must never reuse a generation on a surface.
+void awesomux_surface_set_remote_pwd_generation(ghostty_surface_t surface,
+                                                uint64_t generation);
+
 #endif

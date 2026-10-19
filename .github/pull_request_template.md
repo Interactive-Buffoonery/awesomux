@@ -28,6 +28,7 @@
 
 - [ ] `./script/swift-test.sh`
 - [ ] `./script/preflight.sh`
+- E2E impact: <!-- Review affected journey contracts, link fresh run artifacts, or explain why no journey needs updating or rerunning. Start with script/terminal-lifecycle-e2e/README.md. -->
 
 ## AI Assistance
 

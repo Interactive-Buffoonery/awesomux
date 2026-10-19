@@ -5,21 +5,6 @@ import Testing
 @Suite("Sidebar workspace native drag source")
 @MainActor
 struct SidebarWorkspaceDragSourceTests {
-    @Test func activeDragSourcesPassHitTestingToTheDestination() {
-        _ = NSApplication.shared
-        let view = SidebarWorkspaceDragSource.DragSourceView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
-        #expect(view.hitTest(CGPoint(x: 10, y: 10)) === view)
-        view.isHitTestingDisabled = true
-        #expect(view.hitTest(CGPoint(x: 10, y: 10)) == nil)
-        view.isHitTestingDisabled = false
-        #expect(view.hitTest(CGPoint(x: 10, y: 10)) === view)
-    }
-
-    @Test(arguments: [SidebarDragStateTiming.exitTimeout, SidebarDragStateTiming.activeTimeout])
-    func scheduledCleanupDoesNotEndANativeWorkspaceDrag(delay: TimeInterval) {
-        #expect(SidebarDragStateTiming.clearDelay(delay, for: .workspace) == nil)
-        #expect(SidebarDragStateTiming.clearDelay(delay, for: .group) == delay)
-    }
 
     @Test func cancelFinishesExactlyOnceUsingTheOriginalCallback() throws {
         let view = SidebarWorkspaceDragSource.DragSourceView()

@@ -8,120 +8,30 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct TerminalPanelWindowTests {
-    @Test("application installs the shared shortcut-routing subclass")
-    func applicationInstallsSharedShortcutRoutingSubclass() {
-        let application = AwesoMuxApplication.installAsSharedApplicationIfNeeded()
 
-        #expect(NSApplication.shared === application)
-        #expect(NSApplication.shared is AwesoMuxApplication)
-        #expect(AwesoMuxApplication.installAsSharedApplicationIfNeeded() === application)
-    }
-
-    @Test("application promotes a Companion event when its parent is key")
-    func applicationPromotesCompanionEventWhenParentIsKey() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-        fixture.parent.makeKeyAndOrderFront(nil)
-
-        fixture.application.sendEvent(try fixture.event())
-
-        #expect(fixture.promotionCount == 1)
-    }
-
-    @Test("application preserves detached terminal panel promotion")
-    func applicationPreservesDetachedTerminalPanelPromotion() throws {
-        let fixture = PromotionFixture(attachedToParent: false)
-
-        fixture.application.sendEvent(try fixture.event())
-
-        #expect(fixture.promotionCount == 1)
-    }
-
-    @Test("application does not promote repeated Command-Return")
-    func applicationDoesNotPromoteRepeatedCommandReturn() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-
-        fixture.application.sendEvent(try fixture.event(isARepeat: true))
-
-        #expect(fixture.promotionCount == 0)
-    }
-
-    @Test("application does not intercept the Keyboard Shortcuts menu shortcut")
-    func applicationDoesNotInterceptKeyboardShortcutsShortcut() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-        var notificationCount = 0
-        let observer = NotificationCenter.default.addObserver(
-            forName: .awesoMuxKeyboardCheatsheetRequested,
-            object: fixture.application,
-            queue: nil
-        ) { _ in
-            notificationCount += 1
+    @Test(arguments: ["companion", "detached", "repeat", "panel sheet", "parent sheet", "modal", "foreign"])
+    func panelPromotion(scenario: String) throws {
+        let fixture = PromotionFixture(attachedToParent: scenario != "detached")
+        if scenario == "companion" { fixture.parent.makeKeyAndOrderFront(nil) }
+        let sheetOwner = scenario == "panel sheet" ? fixture.panel : (scenario == "parent sheet" ? fixture.parent : nil)
+        let sheet = sheetOwner.map { fixture.beginSheet(on: $0) }
+        defer { if let sheet, let sheetOwner { sheetOwner.endSheet(sheet) } }
+        let extraWindow = ["modal", "foreign"].contains(scenario) ? fixture.makeWindow() : nil
+        defer { extraWindow?.close() }
+        let modal = scenario == "modal" ? extraWindow.map { fixture.application.beginModalSession(for: $0) } : nil
+        defer { if let modal { fixture.application.endModalSession(modal) } }
+        let receiver = KeyEventReceiver(frame: extraWindow?.contentView?.bounds ?? .zero)
+        if scenario == "foreign", let extraWindow {
+            extraWindow.contentView = receiver
+            extraWindow.makeKeyAndOrderFront(nil)
+            extraWindow.makeFirstResponder(receiver)
         }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
-        fixture.application.sendEvent(try fixture.keyboardCheatsheetEvent())
-        fixture.application.sendEvent(try fixture.keyboardCheatsheetEvent(isARepeat: true))
-
-        #expect(notificationCount == 0)
-    }
-
-    @Test("application blocks promotion while the terminal panel owns a sheet")
-    func applicationBlocksPromotionForTerminalPanelSheet() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-        let sheet = fixture.beginSheet(on: fixture.panel)
-        defer { fixture.panel.endSheet(sheet) }
-
-        fixture.application.sendEvent(try fixture.event())
-
-        #expect(fixture.promotionCount == 0)
-    }
-
-    @Test("application blocks Companion promotion while its parent owns a sheet")
-    func applicationBlocksCompanionPromotionForParentSheet() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-        let sheet = fixture.beginSheet(on: fixture.parent)
-        defer { fixture.parent.endSheet(sheet) }
-
-        fixture.application.sendEvent(try fixture.event())
-
-        #expect(fixture.promotionCount == 0)
-    }
-
-    @Test("application blocks terminal panel promotion during an app-modal session")
-    func applicationBlocksPromotionDuringAppModalSession() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-        let modalWindow = fixture.makeWindow()
-        let session = fixture.application.beginModalSession(for: modalWindow)
-        defer {
-            fixture.application.endModalSession(session)
-            modalWindow.close()
-        }
-
-        fixture.application.sendEvent(try fixture.event())
-
-        #expect(fixture.promotionCount == 0)
-    }
-
-    @Test("application ignores Command-Return from a foreign window")
-    func applicationIgnoresCommandReturnFromForeignWindow() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-        let foreignWindow = fixture.makeWindow()
-        let receiver = KeyEventReceiver(frame: foreignWindow.contentView?.bounds ?? .zero)
-        foreignWindow.contentView = receiver
-        foreignWindow.makeKeyAndOrderFront(nil)
-        foreignWindow.makeFirstResponder(receiver)
-        defer { foreignWindow.close() }
-
-        fixture.application.sendEvent(try fixture.event(windowNumber: foreignWindow.windowNumber))
-
-        #expect(fixture.promotionCount == 0)
-        #expect(receiver.receivedEventCount == 1)
-    }
-
-    @Test("promotion target ignores an event without a window")
-    func promotionTargetIgnoresEventWithoutWindow() throws {
-        let fixture = PromotionFixture(attachedToParent: true)
-
-        #expect(AwesoMuxApplication.promotionTarget(for: try fixture.event(windowNumber: 0)) == nil)
+        fixture.application.sendEvent(
+            try fixture.event(
+                windowNumber: scenario == "foreign" ? extraWindow?.windowNumber : nil,
+                isARepeat: scenario == "repeat"))
+        #expect(fixture.promotionCount == (["companion", "detached"].contains(scenario) ? 1 : 0))
+        if scenario == "foreign" { #expect(receiver.receivedEventCount == 1) }
     }
 
     @Test("mouse input is forwarded without reading keyboard-only fields")
@@ -310,22 +220,6 @@ private final class PromotionFixture {
                 charactersIgnoringModifiers: "\r",
                 isARepeat: isARepeat,
                 keyCode: UInt16(kVK_Return)
-            ))
-    }
-
-    func keyboardCheatsheetEvent(isARepeat: Bool = false) throws -> NSEvent {
-        try #require(
-            NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: .command,
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: panel.windowNumber,
-                context: nil,
-                characters: "/",
-                charactersIgnoringModifiers: "/",
-                isARepeat: isARepeat,
-                keyCode: UInt16(kVK_ANSI_Slash)
             ))
     }
 

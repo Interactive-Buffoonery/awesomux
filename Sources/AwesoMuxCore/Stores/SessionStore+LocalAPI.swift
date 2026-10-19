@@ -116,11 +116,6 @@ public extension SessionStore {
         }
     }
 
-    func validateLocalAPITarget(paneID: UUID, targetVersion: UUID, processIncarnations: [UUID: String]) -> Bool {
-        localAPIAgents(processIncarnations: processIncarnations, limitedTo: [paneID]).contains {
-            $0.paneID == paneID && $0.targetVersion == targetVersion
-        }
-    }
 }
 
 extension SessionStore {

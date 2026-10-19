@@ -1,6 +1,6 @@
 # 0026 — Typed workspace-pane foundation
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-18: unused seams removed — see Amendment)
 - **Date:** 2026-07-17
 - **Deciders:** eD
 
@@ -146,3 +146,20 @@ arms), so a missed site is a build error, not a silent fallthrough.
 Shipping a third pane kind, a plugin system, sidebar redesign, drag-and-drop, and
 implementing the presets/reopen UIs — this ADR provides their safe model seams
 only.
+
+## Amendment (2026-10-18): unused seams removed
+
+The seams below never gained a product caller and were removed, along with their
+tests. The decision text above is kept as the original record.
+
+- Removed: `WorkspacePaneKind`, `WorkspaceLeafID`, `TerminalPaneLayout.leafKind`,
+  `leafIDs`, `leaf(_:)`, `removingLeaf(_:)`, `replacingLeaf(_:with:)`,
+  `PaneVisibility`, `PaneClosePhase`, `PaneLifecycle`,
+  `PaneRestorationRequirement`, `PaneCloseConsequence`, and
+  `WorkspaceLeafDescriptor`.
+- Kept: `WorkspaceLeaf` and `TerminalPaneLayout.leaves`,
+  `TerminalSplit.rebuilding`, `WorkspacePaneCapabilities`, `PaneAvailability`,
+  and `WorkspaceLayoutIntent` with its `layoutIntent` projection.
+- The touch-point checklist still applies, minus the removed types. A feature
+  that needs one of the removed seams (for example pane-level reopen, INT-425)
+  should add it with its first caller.

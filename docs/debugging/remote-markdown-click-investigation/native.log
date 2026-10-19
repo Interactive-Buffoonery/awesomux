@@ -1,0 +1,19 @@
+GRID 100 22 cell=8,18
+ROW 0
+WORD README.md start=2 length=8
+RESULT row=0 opens=0
+ROW 1
+HOVER ./README.md
+WORD ./README.md start=102 length=10
+OPEN ./README.md
+RESULT row=1 opens=1
+ROW 2
+HOVER docs/README.md
+WORD docs/README.md start=202 length=13
+OPEN docs/README.md
+RESULT row=2 opens=1
+ROW 3
+HOVER https://example.com
+WORD https start=302 length=4
+OPEN https://example.com
+RESULT row=3 opens=1

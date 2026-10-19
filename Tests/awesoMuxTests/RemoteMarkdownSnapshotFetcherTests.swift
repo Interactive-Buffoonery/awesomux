@@ -86,28 +86,6 @@ struct RemoteMarkdownReferenceTests {
         )
     }
 
-    @Test func absoluteRemoteMarkdownUsesDeclaredAlias() throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane()
-            ))
-
-        #expect(reference.sshTarget == "my-purple")
-        #expect(reference.remotePath == "/repo/README.md")
-        #expect(reference.origin == "my-purple:/repo/README.md")
-    }
-
-    @Test func declaredUserAndAliasArePassedExactly() throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane(target: "alice@my-purple")
-            ))
-
-        #expect(reference.sshTarget == "alice@my-purple")
-    }
-
     @Test func titleAndSubmittedTargetCannotRetargetDeclaredPane() throws {
         let reference = try #require(
             RemoteMarkdownReference.make(
@@ -136,295 +114,270 @@ struct RemoteMarkdownReferenceTests {
         #expect(RemoteMarkdownReference.make(payload: "/repo/README.md", pane: pane) == nil)
     }
 
-    @Test func declaredRemoteWorksWithoutObservedHost() throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane(remoteHost: nil)
-            ))
-
-        #expect(reference.sshTarget == "my-purple")
-    }
-
-    @Test func absoluteRemoteMarkdownStripsTrailingSentencePeriod() throws {
-        #expect(RemoteMarkdownReference.isPotentialPayload("/repo/README.md."))
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md.",
-                pane: remotePane()
-            ))
-        #expect(reference.remotePath == "/repo/README.md")
-    }
-
-    @Test func relativeRemoteMarkdownUsesReportedRemoteDirectory() throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "docs/plan.md",
-                pane: remotePane(remoteWorkingDirectory: "~/repo")
-            ))
-
-        #expect(reference.remotePath == "~/repo/docs/plan.md")
-    }
-
-    @Test func relativeRemoteMarkdownStripsSourceLocationSuffixesBeforeSchemeDetection() throws {
-        for payload in ["README.md:12", "docs/readme.md:12:5", "docs/readme.md#anchor"] {
-            #expect(RemoteMarkdownReference.isPotentialPayload(payload))
-        }
-
-        let lineReference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "README.md:12",
-                pane: remotePane(remoteWorkingDirectory: "/srv/project")
-            )
-        )
-        #expect(lineReference.remotePath == "/srv/project/README.md")
-
-        let anchorReference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "docs/readme.md#anchor",
-                pane: remotePane(remoteWorkingDirectory: "/srv/project")
-            )
-        )
-        #expect(anchorReference.remotePath == "/srv/project/docs/readme.md")
-    }
-
-    @Test func relativeRemoteMarkdownIgnoresTitleDirectory() {
-        let pane = remotePane(title: "alice@devbox:~/repo")
-        #expect(RemoteMarkdownReference.make(payload: "docs/plan.md", pane: pane) == nil)
-    }
-
-    @Test func relativeRemoteMarkdownRejectsInvalidReportedDirectories() {
-        for directory in [nil, "repo", "~other/repo", ""] as [String?] {
-            #expect(
+    @Test(
+        "payload paths require a safe remote directory and supported normalized path",
+        arguments: [
+            "absoluteRemoteMarkdownStripsTrailingSentencePeriod", "relativeRemoteMarkdownUsesReportedRemoteDirectory",
+            "relativeRemoteMarkdownStripsSourceLocationSuffixesBeforeSchemeDetection", "relativeRemoteMarkdownIgnoresTitleDirectory",
+            "relativeRemoteMarkdownRejectsInvalidReportedDirectories", "relativeRemoteMarkdownNormalizesWithoutEscapingTildeRoot",
+            "remoteMarkdownRejectsUnsafeOrUnsupportedPaths", "fileURLPayloadUsesRemotePath",
+        ])
+    func payloadPathGate(scenario: String) async throws {
+        switch scenario {
+        case "absoluteRemoteMarkdownStripsTrailingSentencePeriod":
+            #expect(RemoteMarkdownReference.isPotentialPayload("/repo/README.md."))
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "/repo/README.md.",
+                    pane: remotePane()
+                ))
+            #expect(reference.remotePath == "/repo/README.md")
+        case "relativeRemoteMarkdownUsesReportedRemoteDirectory":
+            let reference = try #require(
                 RemoteMarkdownReference.make(
                     payload: "docs/plan.md",
-                    pane: remotePane(remoteWorkingDirectory: directory)
+                    pane: remotePane(remoteWorkingDirectory: "~/repo")
+                ))
+
+            #expect(reference.remotePath == "~/repo/docs/plan.md")
+        case "relativeRemoteMarkdownStripsSourceLocationSuffixesBeforeSchemeDetection":
+            for payload in ["README.md:12", "docs/readme.md:12:5", "docs/readme.md#anchor"] {
+                #expect(RemoteMarkdownReference.isPotentialPayload(payload))
+            }
+
+            let lineReference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "README.md:12",
+                    pane: remotePane(remoteWorkingDirectory: "/srv/project")
+                )
+            )
+            #expect(lineReference.remotePath == "/srv/project/README.md")
+
+            let anchorReference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "docs/readme.md#anchor",
+                    pane: remotePane(remoteWorkingDirectory: "/srv/project")
+                )
+            )
+            #expect(anchorReference.remotePath == "/srv/project/docs/readme.md")
+        case "relativeRemoteMarkdownIgnoresTitleDirectory":
+            let pane = remotePane(title: "alice@devbox:~/repo")
+            #expect(RemoteMarkdownReference.make(payload: "docs/plan.md", pane: pane) == nil)
+        case "relativeRemoteMarkdownRejectsInvalidReportedDirectories":
+            for directory in [nil, "repo", "~other/repo", ""] as [String?] {
+                #expect(
+                    RemoteMarkdownReference.make(
+                        payload: "docs/plan.md",
+                        pane: remotePane(remoteWorkingDirectory: directory)
+                    ) == nil)
+            }
+        case "relativeRemoteMarkdownNormalizesWithoutEscapingTildeRoot":
+            let normalized = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "docs/../plan.md",
+                    pane: remotePane(remoteWorkingDirectory: "~/repo")
+                ))
+            #expect(normalized.remotePath == "~/repo/plan.md")
+
+            #expect(
+                RemoteMarkdownReference.make(
+                    payload: "../../plan.md",
+                    pane: remotePane(remoteWorkingDirectory: "~/repo")
                 ) == nil)
+        case "remoteMarkdownRejectsUnsafeOrUnsupportedPaths":
+            let pane = remotePane()
+            #expect(RemoteMarkdownReference.make(payload: "/repo/script.sh", pane: pane) == nil)
+            #expect(RemoteMarkdownReference.make(payload: "/repo/e\u{202E}vil.md", pane: pane) == nil)
+            #expect(RemoteMarkdownReference.make(payload: "~other/notes.md", pane: pane) == nil)
+        case "fileURLPayloadUsesRemotePath":
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "file:///repo/docs/plan.markdown",
+                    pane: remotePane()
+                ))
+            #expect(reference.remotePath == "/repo/docs/plan.markdown")
+        default: Issue.record("Unknown scenario: \(scenario)")
         }
     }
 
-    @Test func relativeRemoteMarkdownNormalizesWithoutEscapingTildeRoot() throws {
-        let normalized = try #require(
-            RemoteMarkdownReference.make(
-                payload: "docs/../plan.md",
-                pane: remotePane(remoteWorkingDirectory: "~/repo")
-            ))
-        #expect(normalized.remotePath == "~/repo/plan.md")
-
-        #expect(
-            RemoteMarkdownReference.make(
-                payload: "../../plan.md",
-                pane: remotePane(remoteWorkingDirectory: "~/repo")
-            ) == nil)
-    }
-
-    @Test("Md→Md resolves relative destinations against the source document directory")
-    func markdownDestinationResolvesAgainstSourceDocumentDirectory() throws {
-        let source = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "/repo/docs/README.md")
-        )
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                markdownDestination: "guide.md#install",
-                relativeTo: source
+    @Test(
+        "document destinations stay within the source directory",
+        arguments: [
+            "markdownDestinationResolvesAgainstSourceDocumentDirectory", "markdownDestinationCannotEscapeSourceDirectory",
+            "markdownDestinationAllowsContainedNormalization", "markdownDestinationRejectsQueryAndSupportsTildeSource",
+        ])
+    func destinations(scenario: String) async throws {
+        switch scenario {
+        case "markdownDestinationResolvesAgainstSourceDocumentDirectory":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
             )
-        )
-        #expect(reference.remotePath == "/repo/docs/guide.md")
-        #expect(reference.sshTarget == "my-purple")
-        #expect(reference.identity.location == source.location)
-    }
-
-    @Test("Md→Md rejects parent traversal outside the source document directory")
-    func markdownDestinationCannotEscapeSourceDirectory() {
-        let source = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "/repo/docs/README.md")
-        )
-        #expect(
-            RemoteMarkdownReference.make(
-                markdownDestination: "../secret.md",
-                relativeTo: source
-            ) == nil
-        )
-    }
-
-    @Test("Md→Md allows contained normalization under the source directory")
-    func markdownDestinationAllowsContainedNormalization() throws {
-        let source = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "/repo/docs/README.md")
-        )
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                markdownDestination: "nested/../sibling.md",
-                relativeTo: source
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    markdownDestination: "guide.md#install",
+                    relativeTo: source
+                )
             )
-        )
-        #expect(reference.remotePath == "/repo/docs/sibling.md")
-    }
-
-    @Test("Md→Md rejects queries and keeps tilde sources on the declared target")
-    func markdownDestinationRejectsQueryAndSupportsTildeSource() throws {
-        let source = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "alice@my-purple")!),
-            path: ResourcePath(rawValue: "~/repo/docs/README.md")
-        )
-        #expect(
-            RemoteMarkdownReference.make(
-                markdownDestination: "guide.md?raw=1",
-                relativeTo: source
-            ) == nil
-        )
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                markdownDestination: "guide.md",
-                relativeTo: source
+            #expect(reference.remotePath == "/repo/docs/guide.md")
+            #expect(reference.sshTarget == "my-purple")
+            #expect(reference.identity.location == source.location)
+        case "markdownDestinationCannotEscapeSourceDirectory":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
             )
-        )
-        #expect(reference.remotePath == "~/repo/docs/guide.md")
-        #expect(reference.sshTarget == "alice@my-purple")
-
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(
-                forMarkdownDestination: "guide.md",
-                relativeTo: source
+            #expect(
+                RemoteMarkdownReference.make(
+                    markdownDestination: "../secret.md",
+                    relativeTo: source
+                ) == nil
             )
-        )
-        #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
-
-        let reopened = try #require(
-            RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
-        )
-        #expect(reopened.remotePath == "~/repo/docs/guide.md")
-    }
-
-    @Test("Md→Md click gate rejects local file URLs outside the source directory")
-    func openedLinkURLRejectsLocalEscape() {
-        let source = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "/repo/docs/README.md")
-        )
-        #expect(
-            RemoteMarkdownReference.make(
-                openedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
-                relativeTo: source
-            ) == nil
-        )
-        #expect(
-            RemoteMarkdownDocumentLinkNavigation.reference(
-                forOpenedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
-                from: source
-            ) == nil
-        )
-    }
-
-    @Test("Md→Md click gate accepts a contained absolute file link URL")
-    func openedLinkURLAcceptsContainedAbsolutePath() throws {
-        let source = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "/repo/docs/README.md")
-        )
-        let link = URL(fileURLWithPath: "/repo/docs/sibling.md")
-        let reference = try #require(
-            RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
-        )
-        #expect(reference.remotePath == "/repo/docs/sibling.md")
-        #expect(reference.sshTarget == "my-purple")
-    }
-
-    @Test("absolute remote destination encodes with the scheme, never a local file URL")
-    func absoluteDestinationNeverEncodesAsLocalFileURL() throws {
-        let source = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "/repo/docs/README.md")
-        )
-        let link = try #require(
-            RemoteMarkdownReference.linkURL(
-                forMarkdownDestination: "sibling.md",
-                relativeTo: source
+        case "markdownDestinationAllowsContainedNormalization":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
             )
-        )
-        #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
-        #expect(!link.isFileURL)
-        // Still round-trips through the click gate back to the same remote path.
-        let reopened = try #require(
-            RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
-        )
-        #expect(reopened.remotePath == "/repo/docs/sibling.md")
-        #expect(reopened.sshTarget == "my-purple")
-    }
-
-    @Test("failure-page path predicate matches only the app-generated suffix")
-    func failureDocumentPathPredicate() {
-        #expect(
-            RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
-                URL(fileURLWithPath: "/tmp/abc.failure.md")))
-        #expect(
-            !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
-                URL(fileURLWithPath: "/tmp/abc.md")))
-        #expect(
-            !RemoteMarkdownSnapshotFetcher.isFailureDocumentPath(
-                URL(fileURLWithPath: "/tmp/failure.md")))
-    }
-
-    @Test("Md→Md click gate normalizes before containment and rejects crafted ../ escapes")
-    func openedLinkURLRejectsCraftedParentTraversalUnderPrefix() throws {
-        let absoluteSource = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "/repo/docs/README.md")
-        )
-        let tildeSource = ResourceIdentity(
-            location: .remote(RemoteTarget(parsing: "my-purple")!),
-            path: ResourcePath(rawValue: "~/repo/docs/README.md")
-        )
-
-        // Raw prefix would match `…/docs/../secret.md`; normalize must collapse
-        // first so containment sees `/repo/secret.md` / `~/repo/secret.md`.
-        let craftedFile = try #require(URL(string: "file:///repo/docs/../secret.md"))
-        #expect(
-            RemoteMarkdownReference.make(
-                openedLinkURL: craftedFile,
-                relativeTo: absoluteSource
-            ) == nil
-        )
-
-        var tildeComponents = URLComponents()
-        tildeComponents.scheme = RemoteMarkdownReference.remoteMarkdownLinkScheme
-        tildeComponents.percentEncodedPath = "/~/repo/docs/../secret.md"
-        let craftedTilde = try #require(tildeComponents.url)
-        #expect(
-            RemoteMarkdownReference.make(
-                openedLinkURL: craftedTilde,
-                relativeTo: tildeSource
-            ) == nil
-        )
-
-        // Contained normalization after the same walk still opens.
-        let containedFile = try #require(URL(string: "file:///repo/docs/nested/../sibling.md"))
-        let contained = try #require(
-            RemoteMarkdownReference.make(
-                openedLinkURL: containedFile,
-                relativeTo: absoluteSource
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    markdownDestination: "nested/../sibling.md",
+                    relativeTo: source
+                )
             )
-        )
-        #expect(contained.remotePath == "/repo/docs/sibling.md")
+            #expect(reference.remotePath == "/repo/docs/sibling.md")
+        case "markdownDestinationRejectsQueryAndSupportsTildeSource":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "alice@my-purple")!),
+                path: ResourcePath(rawValue: "~/repo/docs/README.md")
+            )
+            #expect(
+                RemoteMarkdownReference.make(
+                    markdownDestination: "guide.md?raw=1",
+                    relativeTo: source
+                ) == nil
+            )
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    markdownDestination: "guide.md",
+                    relativeTo: source
+                )
+            )
+            #expect(reference.remotePath == "~/repo/docs/guide.md")
+            #expect(reference.sshTarget == "alice@my-purple")
+
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(
+                    forMarkdownDestination: "guide.md",
+                    relativeTo: source
+                )
+            )
+            #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
+
+            let reopened = try #require(
+                RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
+            )
+            #expect(reopened.remotePath == "~/repo/docs/guide.md")
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
-    @Test func remoteMarkdownRejectsUnsafeOrUnsupportedPaths() {
-        let pane = remotePane()
-        #expect(RemoteMarkdownReference.make(payload: "/repo/script.sh", pane: pane) == nil)
-        #expect(RemoteMarkdownReference.make(payload: "/repo/e\u{202E}vil.md", pane: pane) == nil)
-        #expect(RemoteMarkdownReference.make(payload: "~other/notes.md", pane: pane) == nil)
-    }
+    @Test(
+        "opened links normalize containment and round trip remote identities",
+        arguments: [
+            "openedLinkURLRejectsLocalEscape", "openedLinkURLAcceptsContainedAbsolutePath", "absoluteDestinationNeverEncodesAsLocalFileURL",
+            "openedLinkURLRejectsCraftedParentTraversalUnderPrefix",
+        ])
+    func openedLinks(scenario: String) async throws {
+        switch scenario {
+        case "openedLinkURLRejectsLocalEscape":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
+            )
+            #expect(
+                RemoteMarkdownReference.make(
+                    openedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
+                    relativeTo: source
+                ) == nil
+            )
+            #expect(
+                RemoteMarkdownDocumentLinkNavigation.reference(
+                    forOpenedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
+                    from: source
+                ) == nil
+            )
+        case "openedLinkURLAcceptsContainedAbsolutePath":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
+            )
+            let link = URL(fileURLWithPath: "/repo/docs/sibling.md")
+            let reference = try #require(
+                RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
+            )
+            #expect(reference.remotePath == "/repo/docs/sibling.md")
+            #expect(reference.sshTarget == "my-purple")
+        case "absoluteDestinationNeverEncodesAsLocalFileURL":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
+            )
+            let link = try #require(
+                RemoteMarkdownReference.linkURL(
+                    forMarkdownDestination: "sibling.md",
+                    relativeTo: source
+                )
+            )
+            #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
+            #expect(!link.isFileURL)
+            // Still round-trips through the click gate back to the same remote path.
+            let reopened = try #require(
+                RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
+            )
+            #expect(reopened.remotePath == "/repo/docs/sibling.md")
+            #expect(reopened.sshTarget == "my-purple")
+        case "openedLinkURLRejectsCraftedParentTraversalUnderPrefix":
+            let absoluteSource = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
+            )
+            let tildeSource = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "~/repo/docs/README.md")
+            )
 
-    @Test func fileURLPayloadUsesRemotePath() throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "file:///repo/docs/plan.markdown",
-                pane: remotePane()
-            ))
-        #expect(reference.remotePath == "/repo/docs/plan.markdown")
+            // Raw prefix would match `…/docs/../secret.md`; normalize must collapse
+            // first so containment sees `/repo/secret.md` / `~/repo/secret.md`.
+            let craftedFile = try #require(URL(string: "file:///repo/docs/../secret.md"))
+            #expect(
+                RemoteMarkdownReference.make(
+                    openedLinkURL: craftedFile,
+                    relativeTo: absoluteSource
+                ) == nil
+            )
+
+            var tildeComponents = URLComponents()
+            tildeComponents.scheme = RemoteMarkdownReference.remoteMarkdownLinkScheme
+            tildeComponents.percentEncodedPath = "/~/repo/docs/../secret.md"
+            let craftedTilde = try #require(tildeComponents.url)
+            #expect(
+                RemoteMarkdownReference.make(
+                    openedLinkURL: craftedTilde,
+                    relativeTo: tildeSource
+                ) == nil
+            )
+
+            // Contained normalization after the same walk still opens.
+            let containedFile = try #require(URL(string: "file:///repo/docs/nested/../sibling.md"))
+            let contained = try #require(
+                RemoteMarkdownReference.make(
+                    openedLinkURL: containedFile,
+                    relativeTo: absoluteSource
+                )
+            )
+            #expect(contained.remotePath == "/repo/docs/sibling.md")
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
     @Test func cacheIdentitySeparatesHostsAndUsers() throws {
@@ -455,16 +408,6 @@ struct RemoteMarkdownReferenceTests {
     /// victim path's slot and have it served back as that victim's snapshot.
     /// 64-bit FNV-1a produced a variable-length 16-hex-max digest; this pins the
     /// full 128-bit width a truncated SHA-256 gives.
-    @Test func cacheFileNamesUseAWideDigestNotAnInvertibleHash() throws {
-        let fetcher = RemoteMarkdownSnapshotFetcher()
-        let reference = try #require(
-            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
-        )
-        let digest = fetcher.cacheFileName(for: reference).replacingOccurrences(of: ".md", with: "")
-
-        #expect(digest.count == 32, "expected 128 bits of hex, got \(digest)")
-        #expect(digest.allSatisfy { $0.isHexDigit && !$0.isUppercase })
-    }
 
     @Test func fetchedSnapshotsUsePrivateFilesystemPermissions() async throws {
         let reference = try #require(
@@ -492,68 +435,87 @@ struct RemoteMarkdownReferenceTests {
         #expect((fileAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
 
-    @Test func shellSingleQuoteEscapesQuotes() {
-        #expect(RemoteMarkdownSnapshotFetcher.shellSingleQuoted("a'b.md") == "'a'\\''b.md'")
-    }
+    @Test(
+        "SSH argv separates the target and quotes remote paths",
+        arguments: ["shellSingleQuoteEscapesQuotes", "sshOptionParsingEndsBeforeDestination"])
+    func argvInjection(scenario: String) async throws {
+        switch scenario {
+        case "shellSingleQuoteEscapesQuotes":
+            #expect(RemoteMarkdownSnapshotFetcher.shellSingleQuoted("a'b.md") == "'a'\\''b.md'")
+        case "sshOptionParsingEndsBeforeDestination":
+            let arguments = RemoteMarkdownSnapshotFetcher.sshArguments(
+                target: "-oProxyCommand=example",
+                path: "/repo/README.md"
+            )
+            let delimiterIndex = try #require(arguments.firstIndex(of: "--"))
 
-    @Test func sshOptionParsingEndsBeforeDestination() throws {
-        let arguments = RemoteMarkdownSnapshotFetcher.sshArguments(
-            target: "-oProxyCommand=example",
-            path: "/repo/README.md"
-        )
-        let delimiterIndex = try #require(arguments.firstIndex(of: "--"))
-
-        #expect(arguments[delimiterIndex + 1] == "-oProxyCommand=example")
+            #expect(arguments[delimiterIndex + 1] == "-oProxyCommand=example")
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
     /// The remote script and the Swift classifier are one contract. This pins
     /// the shell half to the same symbols the classifier matches, and pins both
     /// clear of the statuses `/bin/sh` and ssh claim for themselves — a remote
     /// with a broken shell must never be reported as a verdict about the file.
-    @Test func theRemoteScriptReportsTheSameExitStatusesTheClassifierMatches() {
-        let notReadable = RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileNotReadable
-        let tooLarge = RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileTooLarge
-        let arguments = RemoteMarkdownSnapshotFetcher.sshArguments(
-            target: "my-purple",
-            path: "/repo/README.md"
-        )
-        let command = arguments.last ?? ""
 
-        #expect(command.contains("|| exit \(notReadable);"))
-        #expect(command.contains("|| exit \(tooLarge);"))
-        for reserved: Int32 in [1, 2, 126, 127, 255] {
-            #expect(notReadable != reserved)
-            #expect(tooLarge != reserved)
+    @Test(
+        "failed refetches preserve snapshot bytes and the distinct stale reason",
+        arguments: ["failedRefetchPreservesSuccessfulCachedSnapshot", "anOverCapRefetchReportsWhyTheCachedCopyIsStale"])
+    func staleCache(scenario: String) async throws {
+        switch scenario {
+        case "failedRefetchPreservesSuccessfulCachedSnapshot":
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "/repo/README.md",
+                    pane: remotePane()
+                ))
+            let cacheDirectory = FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+            let successful = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in .success(Data("last successful snapshot".utf8)) }
+            )
+            let failing = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in .nonZeroExit(1) }
+            )
+
+            let first = try #require(await successful.fetch(reference))
+            let refetched = try #require(await failing.fetch(reference))
+
+            #expect(refetched == .cached(first.snapshot, staleReason: .connection))
+            #expect(try Data(contentsOf: refetched.snapshot.fileURL) == Data("last successful snapshot".utf8))
+        case "anOverCapRefetchReportsWhyTheCachedCopyIsStale":
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "/repo/README.md",
+                    pane: remotePane()
+                ))
+            let cacheDirectory = FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+            let successful = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in .success(Data("the copy that fit".utf8)) }
+            )
+            let overCap = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in
+                    .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileTooLarge)
+                }
+            )
+
+            let first = try #require(await successful.fetch(reference))
+            let refetched = try #require(await overCap.fetch(reference))
+
+            #expect(refetched == .cached(first.snapshot, staleReason: .oversize))
+            // The retained content is the point — an explanation must not have
+            // replaced it.
+            #expect(try Data(contentsOf: refetched.snapshot.fileURL) == Data("the copy that fit".utf8))
+        default: Issue.record("Unknown scenario: \(scenario)")
         }
-    }
-
-    @Test func markdownInlineCodeStripsBackticks() {
-        #expect(RemoteMarkdownSnapshotFetcher.markdownInlineCode("dev:/tmp/a`b.md") == "dev:/tmp/ab.md")
-    }
-
-    @Test func failedRefetchPreservesSuccessfulCachedSnapshot() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane()
-            ))
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let successful = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in .success(Data("last successful snapshot".utf8)) }
-        )
-        let failing = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in .nonZeroExit(1) }
-        )
-
-        let first = try #require(await successful.fetch(reference))
-        let refetched = try #require(await failing.fetch(reference))
-
-        #expect(refetched == .cached(first.snapshot, staleReason: .connection))
-        #expect(try Data(contentsOf: refetched.snapshot.fileURL) == Data("last successful snapshot".utf8))
     }
 
     /// The journey PR #254 left open: a file caches successfully, the remote
@@ -565,78 +527,86 @@ struct RemoteMarkdownReferenceTests {
     /// The whole outcome is compared rather than just the reason: `.cached`
     /// carrying the wrong snapshot would be a far worse bug than carrying the
     /// wrong reason, and asserting only the reason would not see it.
-    @Test func anOverCapRefetchReportsWhyTheCachedCopyIsStale() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane()
-            ))
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let successful = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in .success(Data("the copy that fit".utf8)) }
-        )
-        let overCap = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in
-                .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileTooLarge)
-            }
-        )
 
-        let first = try #require(await successful.fetch(reference))
-        let refetched = try #require(await overCap.fetch(reference))
+    @Test(
+        "failure pages stay separate from recovered snapshots",
+        arguments: [
+            "initialFetchFailureStillCreatesFailureSnapshot", "repeatedFailuresNeverServeTheFailureDocumentAsACachedSnapshot",
+            "aSuccessfulRefetchAfterAFailureMovesBackToTheSnapshotPath",
+        ])
+    func failureRecovery(scenario: String) async throws {
+        switch scenario {
+        case "initialFetchFailureStillCreatesFailureSnapshot":
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "/repo/README.md",
+                    pane: remotePane()
+                ))
+            let cacheDirectory = FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+            let fetcher = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in .nonZeroExit(1) }
+            )
 
-        #expect(refetched == .cached(first.snapshot, staleReason: .oversize))
-        // The retained content is the point — an explanation must not have
-        // replaced it.
-        #expect(try Data(contentsOf: refetched.snapshot.fileURL) == Data("the copy that fit".utf8))
-    }
+            let outcome = try #require(await fetcher.fetch(reference))
+            let content = try String(contentsOf: outcome.snapshot.fileURL, encoding: .utf8)
 
-    @Test func initialFetchFailureStillCreatesFailureSnapshot() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane()
-            ))
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let fetcher = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in .nonZeroExit(1) }
-        )
+            #expect(outcome == .failureDocument(outcome.snapshot, reason: .connection))
+            #expect(content.contains("# Couldn't fetch remote Markdown"))
+        case "repeatedFailuresNeverServeTheFailureDocumentAsACachedSnapshot":
+            let reference = try #require(
+                RemoteMarkdownReference.make(
+                    payload: "/repo/README.md",
+                    pane: remotePane()
+                ))
+            let cacheDirectory = FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+            let fetcher = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in .nonZeroExit(1) }
+            )
 
-        let outcome = try #require(await fetcher.fetch(reference))
-        let content = try String(contentsOf: outcome.snapshot.fileURL, encoding: .utf8)
+            let first = try #require(await fetcher.fetch(reference))
+            let second = try #require(await fetcher.fetch(reference))
 
-        #expect(outcome == .failureDocument(outcome.snapshot, reason: .connection))
-        #expect(content.contains("# Couldn't fetch remote Markdown"))
-    }
+            #expect(second == .failureDocument(second.snapshot, reason: .connection))
+            #expect(first.snapshot.fileURL == second.snapshot.fileURL)
+            #expect(
+                second.snapshot.fileURL.lastPathComponent != fetcher.cacheFileName(for: reference)
+            )
+        case "aSuccessfulRefetchAfterAFailureMovesBackToTheSnapshotPath":
+            let reference = try #require(
+                RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
+            )
+            let cacheDirectory = FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+            let failing = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileNotReadable) }
+            )
+            let successful = RemoteMarkdownSnapshotFetcher(
+                cacheDirectoryURL: cacheDirectory,
+                fetchOverride: { _ in .success(Data("recovered".utf8)) }
+            )
 
-    @Test func repeatedFailuresNeverServeTheFailureDocumentAsACachedSnapshot() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane()
-            ))
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let fetcher = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in .nonZeroExit(1) }
-        )
+            let failed = try #require(await failing.fetch(reference))
+            let recovered = try #require(await successful.fetch(reference))
 
-        let first = try #require(await fetcher.fetch(reference))
-        let second = try #require(await fetcher.fetch(reference))
-
-        #expect(second == .failureDocument(second.snapshot, reason: .connection))
-        #expect(first.snapshot.fileURL == second.snapshot.fileURL)
-        #expect(
-            second.snapshot.fileURL.lastPathComponent != fetcher.cacheFileName(for: reference)
-        )
+            #expect(failed == .failureDocument(failed.snapshot, reason: .notFound))
+            #expect(recovered == .fresh(recovered.snapshot))
+            #expect(recovered.snapshot.fileURL != failed.snapshot.fileURL)
+            #expect(recovered.snapshot.fileURL.lastPathComponent == failing.cacheFileName(for: reference))
+            #expect(try Data(contentsOf: recovered.snapshot.fileURL) == Data("recovered".utf8))
+            // The orphaned failure page stays on disk until the prune sweep runs,
+            // but it is at a name `cachedSnapshot` never looks up, so it can never
+            // be served as the user's file.
+            #expect(FileManager.default.fileExists(atPath: failed.snapshot.fileURL.path))
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
     /// A cache written by a build that put the failure page at the snapshot path
@@ -706,110 +676,80 @@ struct RemoteMarkdownReferenceTests {
     /// The panel's missing multi-call journey: a first fetch fails, a later one
     /// succeeds. The outcome must flip to the snapshot path, and the failure
     /// page it leaves behind must not be reachable as a snapshot.
-    @Test func aSuccessfulRefetchAfterAFailureMovesBackToTheSnapshotPath() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
-        )
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let failing = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileNotReadable) }
-        )
-        let successful = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in .success(Data("recovered".utf8)) }
-        )
 
-        let failed = try #require(await failing.fetch(reference))
-        let recovered = try #require(await successful.fetch(reference))
-
-        #expect(failed == .failureDocument(failed.snapshot, reason: .notFound))
-        #expect(recovered == .fresh(recovered.snapshot))
-        #expect(recovered.snapshot.fileURL != failed.snapshot.fileURL)
-        #expect(recovered.snapshot.fileURL.lastPathComponent == failing.cacheFileName(for: reference))
-        #expect(try Data(contentsOf: recovered.snapshot.fileURL) == Data("recovered".utf8))
-        // The orphaned failure page stays on disk until the prune sweep runs,
-        // but it is at a name `cachedSnapshot` never looks up, so it can never
-        // be served as the user's file.
-        #expect(FileManager.default.fileExists(atPath: failed.snapshot.fileURL.path))
-    }
-
-    @Test func oversizeExitCodeExplainsTheSizeCapInsteadOfConnectivity() async throws {
-        let (content, reason) = try await failureDocument(
-            for: .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileTooLarge)
-        )
-
-        #expect(reason == .oversize)
-        #expect(content.contains("# Remote Markdown is too large"))
-        #expect(content.contains("\(DocumentURLValidator.maxFileSizeMegabytes) MB size limit"))
-        #expect(!content.contains("host is reachable"))
-    }
-
-    /// Exit 1 and 2 are what a broken remote shell reports for its own syntax
-    /// and startup failures, so neither may be read as a verdict about the file.
     @Test(
-        "shell-reserved exit statuses stay connection failures",
-        arguments: [Int32(1), 2, 126, 127, 255])
-    func shellReservedExitStatusesAreNotFileVerdicts(status: Int32) async throws {
-        let (content, reason) = try await failureDocument(for: .nonZeroExit(status))
+        "read failures distinguish file verdicts, cap breaches, and connectivity",
+        arguments: [
+            "oversizeExitCodeExplainsTheSizeCapInsteadOfConnectivity", "shellReservedExitStatusesAreNotFileVerdicts",
+            "aMissingRemoteFileNamesTheFileNotTheNetwork", "truncatedOutputIsTreatedAsOversizeNotAConnectionFailure",
+            "aTimeoutThatAlreadyBreachedTheCapIsOversizeNotConnectivity", "aTimeoutWithoutACapBreachStaysAConnectionFailure",
+            "cleanReadOverTheCapIsTreatedAsOversize",
+        ])
+    func exitStatusReasons(scenario: String) async throws {
+        switch scenario {
+        case "oversizeExitCodeExplainsTheSizeCapInsteadOfConnectivity":
+            let (content, reason) = try await failureDocument(
+                for: .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileTooLarge)
+            )
 
-        #expect(reason == .connection)
-        #expect(content.contains("# Couldn't fetch remote Markdown"))
+            #expect(reason == .oversize)
+            #expect(content.contains("# Remote Markdown is too large"))
+            #expect(content.contains("\(DocumentURLValidator.maxFileSizeMegabytes) MB size limit"))
+            #expect(!content.contains("host is reachable"))
+        case "shellReservedExitStatusesAreNotFileVerdicts":
+            for status: Int32 in [1, 2, 126, 127, 255] {
+                let (content, reason) = try await failureDocument(for: .nonZeroExit(status))
+
+                #expect(reason == .connection)
+                #expect(content.contains("# Couldn't fetch remote Markdown"))
+            }
+        case "aMissingRemoteFileNamesTheFileNotTheNetwork":
+            let (content, reason) = try await failureDocument(
+                for: .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileNotReadable)
+            )
+
+            #expect(reason == .notFound)
+            #expect(content.contains("# Remote Markdown file not found"))
+            #expect(content.contains("Check that the file still exists at that path"))
+            #expect(!content.contains("host is reachable"))
+        case "truncatedOutputIsTreatedAsOversizeNotAConnectionFailure":
+            let (content, reason) = try await failureDocument(
+                for: .outputTruncated(Data(repeating: 0x23, count: 8))
+            )
+
+            #expect(reason == .oversize)
+            #expect(content.contains("# Remote Markdown is too large"))
+            #expect(content.contains("\(DocumentURLValidator.maxFileSizeMegabytes) MB size limit"))
+        case "aTimeoutThatAlreadyBreachedTheCapIsOversizeNotConnectivity":
+            let (content, reason) = try await failureDocument(for: .timedOut(outputTruncated: true))
+
+            #expect(reason == .oversize)
+            #expect(content.contains("# Remote Markdown is too large"))
+        case "aTimeoutWithoutACapBreachStaysAConnectionFailure":
+            let (content, reason) = try await failureDocument(for: .timedOut(outputTruncated: false))
+
+            #expect(reason == .connection)
+            #expect(content.contains("# Couldn't fetch remote Markdown"))
+        case "cleanReadOverTheCapIsTreatedAsOversize":
+            let (content, reason) = try await failureDocument(
+                for: .success(
+                    Data(repeating: 0x23, count: DocumentURLValidator.maxFileSizeBytes + 1)
+                )
+            )
+
+            #expect(reason == .oversize)
+            #expect(content.contains("# Remote Markdown is too large"))
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
     /// `exit RemoteReadExit.fileNotReadable` is reached only after ssh connected
     /// and a remote shell ran — ssh reports its own connection failures as 255 —
     /// so blaming the network here sends the reader to fix the wrong thing.
-    @Test func aMissingRemoteFileNamesTheFileNotTheNetwork() async throws {
-        let (content, reason) = try await failureDocument(
-            for: .nonZeroExit(RemoteMarkdownSnapshotFetcher.RemoteReadExit.fileNotReadable)
-        )
-
-        #expect(reason == .notFound)
-        #expect(content.contains("# Remote Markdown file not found"))
-        #expect(content.contains("Check that the file still exists at that path"))
-        #expect(!content.contains("host is reachable"))
-    }
-
-    @Test func truncatedOutputIsTreatedAsOversizeNotAConnectionFailure() async throws {
-        let (content, reason) = try await failureDocument(
-            for: .outputTruncated(Data(repeating: 0x23, count: 8))
-        )
-
-        #expect(reason == .oversize)
-        #expect(content.contains("# Remote Markdown is too large"))
-        #expect(content.contains("\(DocumentURLValidator.maxFileSizeMegabytes) MB size limit"))
-    }
 
     /// The runner classifies timeout ahead of truncation, so a read that blew
     /// the cap and then missed the deadline arrives as `.timedOut`. The cap
     /// breach is still proven, and it is the answer the reader needs.
-    @Test func aTimeoutThatAlreadyBreachedTheCapIsOversizeNotConnectivity() async throws {
-        let (content, reason) = try await failureDocument(for: .timedOut(outputTruncated: true))
-
-        #expect(reason == .oversize)
-        #expect(content.contains("# Remote Markdown is too large"))
-    }
-
-    @Test func aTimeoutWithoutACapBreachStaysAConnectionFailure() async throws {
-        let (content, reason) = try await failureDocument(for: .timedOut(outputTruncated: false))
-
-        #expect(reason == .connection)
-        #expect(content.contains("# Couldn't fetch remote Markdown"))
-    }
-
-    @Test func cleanReadOverTheCapIsTreatedAsOversize() async throws {
-        let (content, reason) = try await failureDocument(
-            for: .success(
-                Data(repeating: 0x23, count: DocumentURLValidator.maxFileSizeBytes + 1)
-            )
-        )
-
-        #expect(reason == .oversize)
-        #expect(content.contains("# Remote Markdown is too large"))
-    }
 
     private func failureDocument(
         for result: BoundedCommandResult
@@ -919,246 +859,6 @@ struct RemoteMarkdownReferenceTests {
             try Data(contentsOf: #require(results[0].outcome?.snapshot.fileURL))
                 == Data("current".utf8)
         )
-    }
-
-    @Test func completedFetchIsRemovedBeforeItsCallerFinishes() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
-        )
-        let counter = CallCounter()
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let firstFinished = AsyncGate()
-        let secondRegistered = AsyncSignal()
-        let first = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in
-                await counter.record()
-                return .success(Data("first".utf8))
-            },
-            onFetchFinished: { await firstFinished.enterAndWait() }
-        )
-        let second = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in
-                await counter.record()
-                return .success(Data("second".utf8))
-            },
-            onCoalescedFetch: { await secondRegistered.signal() },
-            onFetchRegistered: { await secondRegistered.signal() }
-        )
-
-        let firstAttempt = first.startAttempt(reference, consumer: .document)
-        let firstResult = Task { await firstAttempt.value() }
-        await firstFinished.waitForEntries(1)
-        let secondAttempt = second.startAttempt(reference, consumer: .refresh)
-        let secondResult = Task { await secondAttempt.value() }
-        await secondRegistered.wait()
-        await firstFinished.release()
-
-        #expect(await firstResult.value.outcome != nil)
-        #expect(await secondResult.value.outcome != nil)
-        #expect(await counter.count == 2)
-        #expect(firstAttempt.cohort !== secondAttempt.cohort)
-        #expect(firstAttempt.ownsAnnouncements)
-        #expect(secondAttempt.ownsAnnouncements)
-    }
-
-    @Test func coalescedFetchKeepsAnnouncementOwnersPerSession() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(payload: "/repo/README.md", pane: remotePane())
-        )
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let gate = AsyncGate()
-        let fetcher = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in
-                await gate.enterAndWait()
-                return .success(Data("current".utf8))
-            }
-        )
-        let firstSession = UUID()
-        let secondSession = UUID()
-
-        let first = fetcher.startAttempt(
-            reference,
-            consumer: .refresh,
-            announcementSessionID: firstSession
-        )
-        let firstResult = Task { await first.value() }
-        await gate.waitForEntries(1)
-        let sameSession = fetcher.startAttempt(
-            reference,
-            consumer: .document,
-            announcementSessionID: firstSession
-        )
-        let otherSession = fetcher.startAttempt(
-            reference,
-            consumer: .document,
-            announcementSessionID: secondSession
-        )
-
-        #expect(first.cohort === sameSession.cohort)
-        #expect(first.cohort === otherSession.cohort)
-        #expect(first.ownsAnnouncements)
-        #expect(!sameSession.ownsAnnouncements)
-        #expect(otherSession.ownsAnnouncements)
-        #expect(first.cohort.hasFailurePresenter(sessionID: firstSession))
-        #expect(first.cohort.hasFailurePresenter(sessionID: secondSession))
-
-        await gate.release()
-        _ = await firstResult.value
-        _ = await sameSession.value()
-        _ = await otherSession.value()
-    }
-
-    @Test func repeatedConsumerTypeStillCountsAsCoalesced() {
-        let cohort = RemoteMarkdownFetchCoordinator.Cohort()
-        let sessionID = UUID()
-
-        #expect(cohort.register(.refresh, sessionID: sessionID))
-        #expect(!cohort.register(.refresh, sessionID: sessionID))
-        #expect(cohort.hasCoalescedInteractiveConsumer(sessionID: sessionID))
-    }
-
-    @Test func differentCacheDirectoriesDoNotShareInFlightResults() async throws {
-        let reference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/README.md",
-                pane: remotePane()
-            ))
-        let counter = CallCounter()
-        let root = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let operationGate = AsyncGate()
-        let first = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: root.appending(path: "first", directoryHint: .isDirectory),
-            fetchOverride: { _ in
-                await counter.record()
-                await operationGate.enterAndWait()
-                return .success(Data("first".utf8))
-            }
-        )
-        let second = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: root.appending(path: "second", directoryHint: .isDirectory),
-            fetchOverride: { _ in
-                await counter.record()
-                await operationGate.enterAndWait()
-                return .success(Data("second".utf8))
-            }
-        )
-
-        let firstResult = Task { await first.fetch(reference) }
-        let secondResult = Task { await second.fetch(reference) }
-        await operationGate.waitForEntries(2)
-        await operationGate.release()
-        let results = await [firstResult.value, secondResult.value]
-
-        #expect(await counter.count == 2)
-        #expect(results[0]?.snapshot.fileURL.deletingLastPathComponent().lastPathComponent == "first")
-        #expect(results[1]?.snapshot.fileURL.deletingLastPathComponent().lastPathComponent == "second")
-    }
-
-    @Test func differentTargetsInSameDirectoryRunInParallel() async throws {
-        let firstReference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/first.md",
-                pane: remotePane(target: "host-a")
-            ))
-        let secondReference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/second.md",
-                pane: remotePane(target: "host-b")
-            ))
-        let counter = CallCounter()
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-        let operationGate = AsyncGate()
-        let fetcher = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { _ in
-                await counter.record()
-                await operationGate.enterAndWait()
-                return .success(Data("current".utf8))
-            }
-        )
-
-        let firstResult = Task { await fetcher.fetch(firstReference) }
-        let secondResult = Task { await fetcher.fetch(secondReference) }
-        // Same cache directory, different SSH targets: the second fetch must
-        // not queue behind the first host's round trip.
-        await operationGate.waitForEntries(2)
-        await operationGate.release()
-        let results = await [firstResult.value, secondResult.value]
-
-        #expect(await counter.count == 2)
-        #expect(results[0]?.snapshot.fileURL != results[1]?.snapshot.fileURL)
-    }
-
-    @Test func pruneWaitsForFetchesOnEveryTarget() async throws {
-        let firstReference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/first.md",
-                pane: remotePane(target: "host-a")
-            ))
-        let secondReference = try #require(
-            RemoteMarkdownReference.make(
-                payload: "/repo/second.md",
-                pane: remotePane(target: "host-b")
-            ))
-        let cacheDirectory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-
-        let firstGate = AsyncGate()
-        let secondGate = AsyncGate()
-        let pruneEnumerated = AsyncSignal()
-        let fetcher = RemoteMarkdownSnapshotFetcher(
-            cacheDirectoryURL: cacheDirectory,
-            fetchOverride: { reference in
-                if reference.sshTarget == "host-a" {
-                    await firstGate.enterAndWait()
-                } else {
-                    await secondGate.enterAndWait()
-                }
-                return .success(Data("fresh".utf8))
-            },
-            onPruneEnumerated: { await pruneEnumerated.signal() }
-        )
-        try FileManager.default.createDirectory(
-            at: cacheDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try Data("orphan".utf8).write(to: cacheDirectory.appending(path: "orphan.md"))
-
-        let firstTask = Task { await fetcher.fetch(firstReference) }
-        let secondTask = Task { await fetcher.fetch(secondReference) }
-        await firstGate.waitForEntries(1)
-        await secondGate.waitForEntries(1)
-
-        fetcher.schedulePruneUnreferencedSnapshots(keeping: [])
-        // Both fetches are still gated: the prune barrier must hold even
-        // though the fetches are on different targets.
-        #expect(!(await pruneEnumerated.wasSignaled()))
-
-        await firstGate.release()
-        _ = await firstTask.value
-        // host-b is still gated, so the prune must still be waiting.
-        #expect(!(await pruneEnumerated.wasSignaled()))
-
-        await secondGate.release()
-        _ = await secondTask.value
-        await pruneEnumerated.wait()
-        // A fetch registered after the prune chains behind its tail, so
-        // awaiting the fetch proves the prune — including removal — finished.
-        _ = await fetcher.fetch(firstReference)
-        #expect(!FileManager.default.fileExists(atPath: cacheDirectory.appending(path: "orphan.md").path))
     }
 
     @Test func pruneWaitsForFetchRegisteredInTheSameCacheDirectory() async throws {

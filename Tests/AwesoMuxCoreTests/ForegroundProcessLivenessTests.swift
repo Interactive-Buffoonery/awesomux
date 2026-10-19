@@ -4,143 +4,70 @@ import Testing
 
 @Suite("ForegroundProcessLiveness.classify")
 struct ForegroundProcessLivenessTests {
-    @Test("exited process is exited regardless of foreground")
-    func exited() {
-        #expect(ForegroundProcessLiveness.classify(processExited: true, foregroundComm: "zsh", foregroundHasChildren: false) == .exited)
-        #expect(ForegroundProcessLiveness.classify(processExited: true, foregroundComm: nil, foregroundHasChildren: nil) == .exited)
-    }
-
-    @Test("unresolved foreground comm on a live surface is indeterminate")
-    func indeterminate() {
-        #expect(ForegroundProcessLiveness.classify(processExited: false, foregroundComm: nil, foregroundHasChildren: nil) == .indeterminate)
-    }
-
-    @Test("non-shell foreground is a live command")
-    func liveCommand() {
-        #expect(
-            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "vim", foregroundHasChildren: false) == .liveCommand)
-        #expect(
-            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "node", foregroundHasChildren: nil as Bool?)
-                == .liveCommand)
-    }
-
-    @Test("idle shell with no children")
-    func idleShell() {
-        #expect(
-            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "-zsh", foregroundHasChildren: false) == .idleShell)
-    }
-
-    @Test("shell with background children is busy (the npm-run-dev & hole)")
-    func busyShell() {
-        #expect(ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "zsh", foregroundHasChildren: true) == .busyShell)
-    }
-
-    @Test("shell foreground with unresolved child count is indeterminate, not idle")
-    func shellUnknownChildren() {
-        #expect(
-            ForegroundProcessLiveness.classify(processExited: false, foregroundComm: "bash", foregroundHasChildren: nil as Bool?)
-                == .indeterminate)
-    }
-
-    @Test("bridged shell distinguishes idle from child work")
-    func bridgedShell() {
-        #expect(ForegroundProcessLiveness.classifyBridged(rootComm: "-zsh", rootHasChildren: false) == .bridged)
-        #expect(ForegroundProcessLiveness.classifyBridged(rootComm: "-zsh", rootHasChildren: true) == .bridgedBusy)
-        #expect(ForegroundProcessLiveness.classifyBridged(rootComm: "sleep", rootHasChildren: false) == .bridgedBusy)
-    }
-
-    @Test("bridged root with unresolved comm is unverified, never silently idle")
-    func bridgedUnresolvedComm() {
-        #expect(
-            ForegroundProcessLiveness.classifyBridged(rootComm: nil, rootHasChildren: nil)
-                == .bridgedIndeterminate)
-    }
-
-    @Test("bridged shell with unresolved children is unverified, never silently idle")
-    func bridgedUnresolvedChildren() {
-        #expect(
-            ForegroundProcessLiveness.classifyBridged(rootComm: "-zsh", rootHasChildren: nil)
-                == .bridgedIndeterminate)
+    @Test(arguments: [
+        (false, true, "zsh" as String?, false as Bool?, ForegroundProcessLiveness.exited),
+        (false, true, nil, nil, .exited),
+        (false, false, nil, nil, .indeterminate),
+        (false, false, "vim", false, .liveCommand),
+        (false, false, "node", nil, .liveCommand),
+        (false, false, "-zsh", false, .idleShell),
+        (false, false, "zsh", true, .busyShell),
+        (false, false, "bash", nil, .indeterminate),
+        (true, false, "-zsh", false, .bridged),
+        (true, false, "-zsh", true, .bridgedBusy),
+        (true, false, "sleep", false, .bridgedBusy),
+        (true, false, nil, nil, .bridgedIndeterminate),
+        (true, false, "-zsh", nil, .bridgedIndeterminate),
+    ])
+    func classifiesForeground(bridged: Bool, exited: Bool, command: String?, children: Bool?, expected: ForegroundProcessLiveness) {
+        let actual =
+            bridged
+            ? ForegroundProcessLiveness.classifyBridged(rootComm: command, rootHasChildren: children)
+            : ForegroundProcessLiveness.classify(processExited: exited, foregroundComm: command, foregroundHasChildren: children)
+        #expect(actual == expected)
     }
 }
 
 @Suite("AgentLivenessPolicy.shouldResetAgentChrome (INT-552)")
 struct AgentLivenessPolicyTests {
+    enum Observation {
+        case local(ForegroundProcessLiveness)
+        case remote(RemoteForegroundLiveness)
+        case sshEntry(Bool)
+    }
+
     @Test(
-        "only an idle shell under an agent-tagged pane resets agent chrome",
-        arguments: [AgentKind.claudeCode, .codex, .openCode, .pi, .grok, .hermes, .generic]
-    )
-    func idleShellResetsEveryAgentKind(kind: AgentKind) {
-        #expect(AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, liveness: .idleShell))
-    }
-
-    @Test("verified idle bridged shell resets agent chrome")
-    func verifiedIdleBridgedShellResets() {
-        let liveness = ForegroundProcessLiveness.classifyBridged(
-            rootComm: "-zsh",
-            rootHasChildren: false
-        )
-
-        #expect(liveness == .bridged)
-        #expect(AgentLivenessPolicy.shouldResetAgentChrome(agentKind: .codex, liveness: liveness))
-    }
-
-    @Test("a shell pane never resets, even over an idle shell")
-    func shellKindNeverResets() {
-        for liveness: ForegroundProcessLiveness in [
-            .unsampled, .bridged, .bridgedBusy, .bridgedIndeterminate, .exited, .idleShell,
-            .busyShell, .liveCommand, .indeterminate,
-        ] {
-            #expect(!AgentLivenessPolicy.shouldResetAgentChrome(agentKind: .shell, liveness: liveness))
+        arguments: [AgentKind.claudeCode, .codex, .openCode, .pi, .grok, .hermes, .generic].map {
+            ($0, Observation.local(.idleShell), true)
         }
-    }
-
-    @Test(
-        "live or unproven liveness never resets an agent pane",
-        arguments: [
-            ForegroundProcessLiveness.unsampled, .bridgedBusy, .bridgedIndeterminate,
-            .exited, .busyShell, .liveCommand, .indeterminate,
-        ]
+            + [
+                ForegroundProcessLiveness.unsampled, .bridgedBusy, .bridgedIndeterminate,
+                .exited, .busyShell, .liveCommand, .indeterminate,
+            ].map {
+                (AgentKind.openCode, Observation.local($0), false)
+            }
+            + [
+                (.codex, .local(.bridged), true),
+                (.shell, .local(.idleShell), false),
+                (.claudeCode, .remote(.idleShell), true),
+                (.claudeCode, .remote(.liveCommand), false),
+                (.shell, .remote(.idleShell), false),
+                (.claudeCode, .sshEntry(true), true),
+                (.claudeCode, .sshEntry(false), false),
+                (.shell, .sshEntry(true), false),
+            ]
     )
-    func liveOrUnprovenLivenessDoesNotReset(liveness: ForegroundProcessLiveness) {
-        #expect(!AgentLivenessPolicy.shouldResetAgentChrome(agentKind: .openCode, liveness: liveness))
-    }
-
-    @Test("a remote idle shell resets leftover agent chrome")
-    func remoteIdleShellResetsAgentChrome() {
-        #expect(
-            AgentLivenessPolicy.shouldResetAgentChrome(
-                agentKind: .claudeCode,
-                remoteLiveness: .idleShell
-            ))
-        #expect(
-            !AgentLivenessPolicy.shouldResetAgentChrome(
-                agentKind: .claudeCode,
-                remoteLiveness: .liveCommand
-            ))
-        #expect(
-            !AgentLivenessPolicy.shouldResetAgentChrome(
-                agentKind: .shell,
-                remoteLiveness: .idleShell
-            ))
-    }
-
-    @Test("observing the local ssh client wipes leftover chrome once")
-    func sshForegroundObservationWipesOnce() {
-        #expect(
-            AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
-                agentKind: .claudeCode,
-                justObservedSSHClient: true
-            ))
-        #expect(
-            !AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
-                agentKind: .claudeCode,
-                justObservedSSHClient: false
-            ))
-        #expect(
-            !AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
-                agentKind: .shell,
-                justObservedSSHClient: true
-            ))
+    func resetsOnlyIdleAgent(kind: AgentKind, observation: Observation, expected: Bool) {
+        let actual: Bool
+        switch observation {
+        case .local(let liveness):
+            actual = AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, liveness: liveness)
+        case .remote(let liveness):
+            actual = AgentLivenessPolicy.shouldResetAgentChrome(agentKind: kind, remoteLiveness: liveness)
+        case .sshEntry(let justObserved):
+            actual = AgentLivenessPolicy.shouldResetAgentChromeOnSSHForegroundObservation(
+                agentKind: kind, justObservedSSHClient: justObserved)
+        }
+        #expect(actual == expected)
     }
 }

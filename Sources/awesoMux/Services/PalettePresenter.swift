@@ -150,14 +150,6 @@ final class PalettePresenter {
     }
 
     @discardableResult
-    func submitSelection(surface: PaletteQuickRunCommitSurface = .toast) -> Bool {
-        guard let result = selectedResult else {
-            return false
-        }
-        return perform(result, surface: surface)
-    }
-
-    @discardableResult
     func perform(_ result: PaletteResult, surface: PaletteQuickRunCommitSurface = .toast) -> Bool {
         switch result {
         case .session(let session):

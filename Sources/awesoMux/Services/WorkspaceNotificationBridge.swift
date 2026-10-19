@@ -406,23 +406,6 @@ final class WorkspaceNotificationBridge {
 
     // MARK: - Test seams
 
-    /// Forces the in-flight state without a real round trip, so coalescing
-    /// can be tested without driving `UNUserNotificationCenter` (which
-    /// requires a real app bundle and crashes an unbundled test process).
-    func beginAuthorizationRequestForTesting() {
-        isAuthorizationRequestInFlight = true
-    }
-
-    /// Seeds the cached status so `postWorkspaceNotification`'s routing can be
-    /// driven without a real `UNUserNotificationCenter` round trip.
-    func setAuthorizationStatusForTesting(_ status: UNAuthorizationStatus?) {
-        authorizationStatus = status
-    }
-
-    var pendingAuthorizationEventCountForTesting: Int { pendingAuthorizationEvents.count }
-
-    var authorizationStatusForTesting: UNAuthorizationStatus? { authorizationStatus }
-
     private(set) var explanationPresentationCountForTesting = 0
 }
 

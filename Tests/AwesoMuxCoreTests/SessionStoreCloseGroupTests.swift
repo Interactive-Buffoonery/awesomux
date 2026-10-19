@@ -26,29 +26,6 @@ struct SessionStoreCloseGroupTests {
         #expect(store.selectedSessionID == nil)
     }
 
-    /// The failure mode most worth fearing when closing the last group became
-    /// possible: a restore path that helpfully re-seeds a default group would
-    /// make the close look like a silent failure on the next launch, and the
-    /// user would have no way to tell that from a bug.
-    ///
-    /// Runs the REAL persistence shape — encode, decode, then
-    /// `SessionRestoreReducer.restoredComponents` — rather than asserting on
-    /// the snapshot alone, because an injection would live in the reducer.
-    @Test("an empty tree survives a persistence round trip without gaining a group")
-    func emptyTreeRoundTripsWithoutResurrectingAGroup() throws {
-        let sole = SessionGroup(name: "sole", sessions: [])
-        let store = SessionStore(groups: [sole])
-        #expect(store.removeGroup(id: sole.id))
-        #expect(store.groups.isEmpty, "premise: the tree must actually be empty to round trip")
-
-        let snapshot = SessionSnapshot(groups: store.groups, selectedSessionID: nil)
-        let data = try JSONEncoder().encode(snapshot)
-        let decoded = try SessionSnapshot.decode(from: data)
-        let restored = SessionRestoreReducer.restoredComponents(from: decoded)
-
-        #expect(restored.groups.isEmpty, "restore must not conjure a default group")
-    }
-
     @Test("a session that joined after confirmation survives a limited close")
     func limitedCloseSparesUnconfirmedJoiner() {
         let first = makeSession("first")

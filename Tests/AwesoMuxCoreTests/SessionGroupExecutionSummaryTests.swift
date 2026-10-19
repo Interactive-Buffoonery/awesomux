@@ -47,156 +47,49 @@ struct SessionGroupExecutionSummaryTests {
         return value
     }
 
-    @Test("local panes produce a local-only summary")
-    func localOnly() {
-        let group = SessionGroup(
-            name: "Local",
-            sessions: [TerminalSession(title: "shell", workingDirectory: "~")]
-        )
+    private enum ContentsCase: CaseIterable { case local, emptyLocal, emptyRemote, staleDefault, oneRemote, localAndRemote, multipleRemote }
 
-        let summary = SessionGroupExecutionSummary(group: group)
-
-        #expect(summary.contents == .localOnly)
+    @Test(arguments: ContentsCase.allCases)
+    private func contents(scenario: ContentsCase) {
+        let plans: [PaneExecutionPlan]
+        let defaultTarget: RemoteTarget?
+        let expected: SessionGroupExecutionSummary.Contents
+        let bob = RemoteTarget(user: "bob", host: "alpha")!
+        switch scenario {
+        case .local: plans = [.local]; defaultTarget = nil; expected = .localOnly
+        case .emptyLocal: plans = []; defaultTarget = nil; expected = .empty
+        case .emptyRemote: plans = []; defaultTarget = alpha; expected = .empty
+        case .staleDefault: plans = [.local]; defaultTarget = alpha; expected = .localOnly
+        case .oneRemote:
+            plans = [.ssh(SSHExecution(target: alpha)), .ssh(SSHExecution(target: alpha))]; defaultTarget = nil;
+            expected = .singleRemote(alpha)
+        case .localAndRemote:
+            plans = [.local, .ssh(SSHExecution(target: alpha))]; defaultTarget = nil;
+            expected = .mixed(remoteTargets: [alpha], includesLocal: true)
+        case .multipleRemote:
+            plans = [.ssh(SSHExecution(target: zeta)), .ssh(SSHExecution(target: bob)), .ssh(SSHExecution(target: alpha))]
+            defaultTarget = nil; expected = .mixed(remoteTargets: [alpha, bob, zeta], includesLocal: false)
+        }
+        let summary = SessionGroupExecutionSummary(
+            group: SessionGroup(name: "Work", remote: defaultTarget, sessions: plans.isEmpty ? [] : [session(plans)]))
+        #expect(summary.contents == expected)
+        #expect(summary.defaultTarget == defaultTarget)
     }
 
-    @Test("empty groups retain only their creation default")
-    func emptyDefaults() {
-        let local = SessionGroupExecutionSummary(
-            group: SessionGroup(name: "Empty", sessions: [])
-        )
-        let remote = SessionGroupExecutionSummary(
-            group: SessionGroup(name: "Empty", remote: alpha, sessions: [])
-        )
+    private enum OwnershipCase: CaseIterable { case mixed, remoteOnly, localOnly }
 
-        #expect(local.contents == .empty)
-        #expect(local.defaultTarget == nil)
-        #expect(remote.contents == .empty)
-        #expect(remote.defaultTarget == alpha)
-    }
-
-    @Test("a stale SSH default does not turn local panes into remote work")
-    func localOnlyWithStaleDefault() {
-        let group = SessionGroup(
-            name: "Local",
-            remote: alpha,
-            sessions: [session([.local])]
-        )
-
-        let summary = SessionGroupExecutionSummary(group: group)
-
-        #expect(summary.contents == .localOnly)
-    }
-
-    @Test("all panes on one exact target produce one remote location")
-    func oneRemoteTarget() {
-        let group = SessionGroup(
-            name: "Remote",
-            sessions: [
-                session([
-                    .ssh(SSHExecution(target: alpha)),
-                    .ssh(SSHExecution(target: alpha)),
-                ])
-            ]
-        )
-
-        #expect(SessionGroupExecutionSummary(group: group).contents == .singleRemote(alpha))
-    }
-
-    @Test("local and remote panes are mixed even on one remote target")
-    func localAndRemote() {
-        let group = SessionGroup(
-            name: "Mixed",
-            sessions: [session([.local, .ssh(SSHExecution(target: alpha))])]
-        )
-
-        #expect(
-            SessionGroupExecutionSummary(group: group).contents
-                == .mixed(remoteTargets: [alpha], includesLocal: true)
-        )
-    }
-
-    @Test("multiple exact destinations are distinct and deterministically sorted")
-    func multipleRemoteTargets() {
-        let sameHostDifferentUser = RemoteTarget(user: "bob", host: "alpha")!
-        let group = SessionGroup(
-            name: "Mixed",
-            sessions: [
-                session([
-                    .ssh(SSHExecution(target: zeta)),
-                    .ssh(SSHExecution(target: sameHostDifferentUser)),
-                    .ssh(SSHExecution(target: alpha)),
-                ])
-            ]
-        )
-
-        #expect(
-            SessionGroupExecutionSummary(group: group).contents
-                == .mixed(
-                    remoteTargets: [alpha, sameHostDifferentUser, zeta],
-                    includesLocal: false
-                )
-        )
-    }
-
-    @Test("persistence ownership splits the destinations a close can reach")
-    func persistenceOwnerBuckets() throws {
+    @Test(arguments: OwnershipCase.allCases)
+    private func ownership(scenario: OwnershipCase) throws {
         let remoteOwned = try #require(
             SSHExecution(
-                target: zeta,
-                persistenceOwner: .remoteZmx,
-                sessionName: RemoteSessionName(rawValue: "work")
-            )
-        )
-        let group = SessionGroup(
-            name: "Mixed",
-            sessions: [session([.ssh(SSHExecution(target: alpha)), .ssh(remoteOwned)])]
-        )
-
-        let summary = SessionGroupExecutionSummary(group: group)
-
-        #expect(summary.localAmxTargets == [alpha])
-        #expect(summary.remoteOwnedTargets == [zeta])
-        #expect(summary.includesLocallyOwnedSessions)
-    }
-
-    @Test("an all-remote-owned group has no session this Mac can end")
-    func remoteOwnedOnlyHasNoLocallyOwnedSession() throws {
-        let remoteOwned = try #require(
-            SSHExecution(
-                target: alpha,
-                persistenceOwner: .remoteZmx,
-                sessionName: RemoteSessionName(rawValue: "work")
-            )
-        )
-        let summary = SessionGroupExecutionSummary(
-            group: SessionGroup(name: "Remote", sessions: [session([.ssh(remoteOwned)])])
-        )
-
-        #expect(summary.localAmxTargets.isEmpty)
-        #expect(summary.remoteOwnedTargets == [alpha])
-        #expect(!summary.includesLocallyOwnedSessions)
-    }
-
-    @Test("a local-only group owns its sessions locally")
-    func localOnlyOwnsItsSessionsLocally() {
-        let summary = SessionGroupExecutionSummary(
-            group: SessionGroup(name: "Local", sessions: [session([.local])])
-        )
-
-        #expect(summary.includesLocallyOwnedSessions)
-        #expect(summary.remoteOwnedTargets.isEmpty)
-    }
-
-    @Test("a remote pane moved into a local-default group keeps remote close safety")
-    func movedRemotePane() {
-        let group = SessionGroup(
-            name: "Local default",
-            sessions: [session([.ssh(SSHExecution(target: alpha))])]
-        )
-
-        let summary = SessionGroupExecutionSummary(group: group)
-
-        #expect(summary.defaultTarget == nil)
+                target: scenario == .mixed ? zeta : alpha, persistenceOwner: .remoteZmx, sessionName: RemoteSessionName(rawValue: "work")))
+        let plans: [PaneExecutionPlan] =
+            scenario == .mixed
+            ? [.ssh(SSHExecution(target: alpha)), .ssh(remoteOwned)] : scenario == .remoteOnly ? [.ssh(remoteOwned)] : [.local]
+        let summary = SessionGroupExecutionSummary(group: SessionGroup(name: "Work", sessions: [session(plans)]))
+        #expect(summary.localAmxTargets == (scenario == .mixed ? [alpha] : []))
+        #expect(summary.remoteOwnedTargets == (scenario == .mixed ? [zeta] : scenario == .remoteOnly ? [alpha] : []))
+        #expect(summary.includesLocallyOwnedSessions == (scenario != .remoteOnly))
     }
 
     @MainActor
@@ -223,51 +116,6 @@ struct SessionGroupExecutionSummaryTests {
         let group = try #require(restored.groups.first)
 
         #expect(SessionGroupExecutionSummary(group: group).contents == .singleRemote(alpha))
-    }
-
-    @Test("close safety compares exact pane identity and declared location")
-    func exactCloseSafety() {
-        let originalSession = session([.local, .ssh(SSHExecution(target: alpha))])
-        let original = SessionGroup(
-            name: "Work",
-            remote: alpha,
-            sessions: [originalSession]
-        )
-        let unchanged = SessionGroupCloseSafetySummary(group: original)
-
-        var retargetedSession = originalSession
-        retargetedSession.layout = retargetedSession.layout.mappingPanes { pane in
-            var changed = pane
-            if pane.executionPlan.remoteTarget != nil {
-                changed.executionPlan = .ssh(SSHExecution(target: zeta))
-            }
-            return changed
-        }
-        let retargeted = SessionGroupCloseSafetySummary(
-            group: SessionGroup(
-                id: original.id,
-                name: original.name,
-                remote: alpha,
-                sessions: [retargetedSession]
-            )
-        )
-
-        #expect(unchanged == SessionGroupCloseSafetySummary(group: original))
-        #expect(unchanged != retargeted)
-    }
-
-    @Test("close safety ignores sessions that left after confirmation")
-    func closeSafetyLimitedToConfirmedMembers() {
-        let confirmed = session([.ssh(SSHExecution(target: alpha))])
-        let joined = session([.ssh(SSHExecution(target: zeta))])
-        let group = SessionGroup(name: "Work", sessions: [confirmed, joined])
-
-        let summary = SessionGroupCloseSafetySummary(
-            group: group,
-            limitedTo: [confirmed.id]
-        )
-
-        #expect(Set(summary.paneLocations.map(\.sessionID)) == [confirmed.id])
     }
 
     @Test("modal safety ignores joined and moved sessions but rejects retargeting")

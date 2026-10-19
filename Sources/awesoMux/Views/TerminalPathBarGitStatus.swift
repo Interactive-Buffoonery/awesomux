@@ -17,8 +17,6 @@ struct GitStatusInfo: Equatable, Sendable {
     /// `nil`/`"(detached)"` for detached HEAD.
     let branchHead: String?
 
-    var isClean: Bool { dirtyCount == 0 && ahead == 0 && behind == 0 }
-
     init(dirtyCount: Int, ahead: Int, behind: Int, branchHead: String? = nil) {
         self.dirtyCount = dirtyCount
         self.ahead = ahead

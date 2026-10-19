@@ -38,6 +38,8 @@ public struct SessionGroup: Identifiable, Hashable, Sendable {
     public private(set) var id: UUID
     public var name: String
     public var color: WorkspaceGroupColor?
+    /// Remembered separately so clearing a custom override restores this group's default.
+    public private(set) var automaticColor: WorkspaceGroupColor?
     /// SSH creation default and legacy restore source. Current pane execution
     /// locations come from each pane's durable `PaneExecutionPlan`.
     /// Additive & omitted-when-nil so old snapshots decode unchanged — no
@@ -50,14 +52,34 @@ public struct SessionGroup: Identifiable, Hashable, Sendable {
         id: UUID = UUID(),
         name: String,
         color: WorkspaceGroupColor? = nil,
+        automaticColor: WorkspaceGroupColor? = nil,
         remote: RemoteTarget? = nil,
         sessions: [TerminalSession]
     ) {
         self.id = id
         self.name = name
         self.color = color
+        self.automaticColor = automaticColor
         self.remote = remote
         self.sessions = sessions
+    }
+
+    public func resolvedColor(at index: Int) -> WorkspaceGroupColor {
+        color ?? automaticColor ?? Self.defaultColor(name: name, index: index)
+    }
+
+    mutating func rememberAutomaticColor(at index: Int) {
+        guard automaticColor == nil else { return }
+        automaticColor = Self.defaultColor(name: name, index: index)
+    }
+
+    private static func defaultColor(name: String, index: Int) -> WorkspaceGroupColor {
+        if name.range(of: "awesomux", options: .caseInsensitive) != nil {
+            return .mauve
+        }
+        // Preserve the existing cycle; peach is reserved for needs-attention chrome.
+        let palette: [WorkspaceGroupColor] = [.teal, .green, .blue, .pink, .yellow, .red, .gray]
+        return palette[max(0, index) % palette.count]
     }
 
     mutating func reassignIDForRestore(_ id: UUID) {
@@ -70,6 +92,7 @@ extension SessionGroup: Codable {
         case id
         case name
         case color
+        case automaticColor
         case remote
         case sessions
     }
@@ -79,11 +102,13 @@ extension SessionGroup: Codable {
         // Colors are cosmetic, so unknown or malformed values can fall back
         // to no tint without changing the group's transport behavior.
         let rawColor = (try? container.decodeIfPresent(String.self, forKey: .color)) ?? nil
+        let rawAutomaticColor = (try? container.decodeIfPresent(String.self, forKey: .automaticColor)) ?? nil
         let remote = try container.decodeIfPresent(RemoteTarget.self, forKey: .remote)
         self.init(
             id: try container.decode(UUID.self, forKey: .id),
             name: try container.decode(String.self, forKey: .name),
             color: rawColor.flatMap(WorkspaceGroupColor.init(rawValue:)),
+            automaticColor: rawAutomaticColor.flatMap(WorkspaceGroupColor.init(rawValue:)),
             remote: remote,
             sessions: try container.decode([TerminalSession].self, forKey: .sessions)
         )
@@ -94,6 +119,7 @@ extension SessionGroup: Codable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encodeIfPresent(color?.rawValue, forKey: .color)
+        try container.encodeIfPresent(automaticColor?.rawValue, forKey: .automaticColor)
         try container.encodeIfPresent(remote, forKey: .remote)
         try container.encode(sessions, forKey: .sessions)
     }

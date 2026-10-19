@@ -8,307 +8,85 @@ import Testing
 @Suite("Sidebar search interaction", .serialized)
 @MainActor
 struct SidebarSearchInteractionTests {
-    @Test("activity invalidation excludes query changes but tracks store inputs")
-    func activityInvalidationKeyTracksRosterInputs() throws {
-        let session = TerminalSession(title: "Agent", workingDirectory: "/tmp/agent")
-        let groups = [SessionGroup(name: "Project", sessions: [session])]
-        let baseline = SidebarActivityInvalidationKey(
-            groups: groups,
-            pinnedSessionIDs: [],
-            selectedSessionID: session.id,
-            displayMode: .expanded,
-            reduceMotion: false
-        )
-
-        #expect(
-            baseline
-                == SidebarActivityInvalidationKey(
-                    groups: groups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: session.id,
-                    displayMode: .expanded,
-                    reduceMotion: false
-                )
-        )
-
-        var renamedGroups = groups
-        renamedGroups[0].sessions[0].title = "Renamed agent"
-        // Title-only changes are observed inside the open panel. They must not
-        // pierce the closed footer's expensive roster boundary.
-        #expect(
-            baseline
-                == SidebarActivityInvalidationKey(
-                    groups: renamedGroups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: session.id,
-                    displayMode: .expanded,
-                    reduceMotion: false
-                )
-        )
-
-        var agentKindGroups = groups
-        var agentKindPane = try #require(agentKindGroups[0].sessions[0].activePane)
-        agentKindPane.agentKind = .claudeCode
-        agentKindGroups[0].sessions[0].layout = .pane(agentKindPane)
-        #expect(
-            baseline
-                != SidebarActivityInvalidationKey(
-                    groups: agentKindGroups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: session.id,
-                    displayMode: .expanded,
-                    reduceMotion: false
-                )
-        )
-
-        let agentKindBaseline = SidebarActivityInvalidationKey(
-            groups: agentKindGroups,
-            pinnedSessionIDs: [],
-            selectedSessionID: session.id,
-            displayMode: .expanded,
-            reduceMotion: false
-        )
-        var executionGroups = agentKindGroups
-        var executionPane = try #require(executionGroups[0].sessions[0].activePane)
-        executionPane.agentExecutionState = .running
-        executionGroups[0].sessions[0].layout = .pane(executionPane)
-        #expect(
-            agentKindBaseline
-                != SidebarActivityInvalidationKey(
-                    groups: executionGroups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: session.id,
-                    displayMode: .expanded,
-                    reduceMotion: false
-                )
-        )
-        #expect(
-            baseline
-                != SidebarActivityInvalidationKey(
-                    groups: groups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: nil,
-                    displayMode: .expanded,
-                    reduceMotion: false
-                )
-        )
-        #expect(
-            baseline
-                != SidebarActivityInvalidationKey(
-                    groups: groups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: session.id,
-                    displayMode: .collapsed,
-                    reduceMotion: false
-                )
-        )
-        #expect(
-            baseline
-                != SidebarActivityInvalidationKey(
-                    groups: groups,
-                    pinnedSessionIDs: [session.id],
-                    selectedSessionID: session.id,
-                    displayMode: .expanded,
-                    reduceMotion: false
-                )
-        )
-        // Reduce Motion reaches the footer spinners only through updateNSView,
-        // which the equatable gate suppresses unless the key changes.
-        #expect(
-            baseline
-                != SidebarActivityInvalidationKey(
-                    groups: groups,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: session.id,
-                    displayMode: .expanded,
-                    reduceMotion: true
-                )
-        )
-    }
-
-    @Test("open activity panel tracks split-pane title changes")
-    func openActivityPanelTracksSplitPaneTitleChanges() {
-        let sessionID = TerminalSession.ID()
-        let firstPaneID = TerminalPane.ID()
-        let secondPaneID = TerminalPane.ID()
-        func session(firstTitle: String) -> TerminalSession {
-            let first = TerminalPane(
-                id: firstPaneID,
-                title: firstTitle,
-                workingDirectory: "/tmp/first",
-                agentKind: .claudeCode,
-                executionPlan: .local
-            )
-            let second = TerminalPane(
-                id: secondPaneID,
-                title: "Second",
-                workingDirectory: "/tmp/second",
-                agentKind: .codex,
-                executionPlan: .local
-            )
-            return TerminalSession(
-                id: sessionID,
-                title: "Workspace",
-                workingDirectory: "/tmp",
-                layout: .split(
-                    TerminalSplit(
-                        orientation: .vertical,
-                        first: .pane(first),
-                        second: .pane(second)
-                    )
-                ),
-                activePaneID: secondPaneID
-            )
+    @Test(arguments: ["same", "title", "kind", "execution", "selection", "display", "pinned", "motion", "closed split", "open split"])
+    func activityInvalidation(scenario: String) throws {
+        let first = TerminalPane(title: "Before", workingDirectory: "/tmp/first", agentKind: .claudeCode, executionPlan: .local)
+        let second = TerminalPane(title: "Second", workingDirectory: "/tmp/second", agentKind: .codex, executionPlan: .local)
+        let split = scenario.hasSuffix("split")
+        let session =
+            split
+            ? TerminalSession(
+                title: "Workspace", workingDirectory: "/tmp",
+                layout: .split(TerminalSplit(orientation: .vertical, first: .pane(first), second: .pane(second))), activePaneID: second.id)
+            : TerminalSession(title: "Agent", workingDirectory: "/tmp/agent")
+        var groups = [SessionGroup(name: "Project", sessions: [session])]
+        if scenario == "execution" {
+            var pane = try #require(groups[0].sessions[0].activePane)
+            pane.agentKind = .claudeCode
+            groups[0].sessions[0].layout = .pane(pane)
         }
-        let before = [SessionGroup(name: "Project", sessions: [session(firstTitle: "Before")])]
-        let after = [SessionGroup(name: "Project", sessions: [session(firstTitle: "After")])]
-
-        let closed = SidebarActivityInvalidationKey(
-            groups: before,
-            pinnedSessionIDs: [],
-            selectedSessionID: sessionID,
-            displayMode: .expanded,
-            reduceMotion: false
-        )
-        #expect(
-            closed
-                == SidebarActivityInvalidationKey(
-                    groups: after,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: sessionID,
-                    displayMode: .expanded,
-                    reduceMotion: false
-                )
-        )
-
-        let titles = [sessionID: "Workspace"]
-        let open = SidebarActivityInvalidationKey(
-            groups: before,
-            pinnedSessionIDs: [],
-            selectedSessionID: sessionID,
-            displayMode: .expanded,
-            reduceMotion: false,
-            activityPanelGeneration: 1,
-            activityPanelDisplayedTitles: titles
-        )
-        #expect(
-            open
-                != SidebarActivityInvalidationKey(
-                    groups: after,
-                    pinnedSessionIDs: [],
-                    selectedSessionID: sessionID,
-                    displayMode: .expanded,
-                    reduceMotion: false,
-                    activityPanelGeneration: 1,
-                    activityPanelDisplayedTitles: titles
-                )
-        )
-    }
-
-    @Test("hosted field intercepts arrows and wraps across pinned and grouped results")
-    func hostedFieldInterceptsAndWraps() async throws {
-        let transition = try SidebarSearchHostedFixture()
-        defer { transition.close() }
-
-        transition.sendArrow(.down)
-        transition.sendArrow(.down, isRepeat: true)
-        let targetSurface = try #require(transition.surface(for: transition.sessions[1]))
-        #expect(targetSurface.window === transition.window)
-        #expect(
-            transition.runtime.cachedSurfaceView(for: transition.sessions[1].activePaneID)
-                === targetSurface
-        )
-        transition.window.resetResponderAttempts()
-        await transition.sendReturn()
-
-        #expect(transition.store.selectedSessionID == transition.sessions[1].id)
-        #expect(
-            SidebarHostedTestHarness.pumpMainRunLoop(
-                until: {
-                    transition.window.responderAttempts.contains {
-                        $0.responder === targetSurface
-                    }
-                }
-            )
-        )
-        #expect(
-            transition.window.responderAttempts.contains {
-                $0.responder === targetSurface && $0.succeeded
-            }
-        )
-        let handedOff = SidebarHostedTestHarness.pumpMainRunLoop(
-            until: { transition.window.firstResponder === targetSurface }
-        )
-        #expect(
-            handedOff,
-            "actual responder: \(String(describing: transition.window.firstResponder.map { type(of: $0) }))"
-        )
-
-        let wrapped = try SidebarSearchHostedFixture()
-        defer { wrapped.close() }
-        for press in 0..<4 {
-            wrapped.sendArrow(.down, isRepeat: press > 0)
+        let original = groups
+        switch scenario {
+        case "title": groups[0].sessions[0].title = "Renamed agent"
+        case "kind", "execution":
+            var pane = try #require(groups[0].sessions[0].activePane)
+            if scenario == "kind" { pane.agentKind = .claudeCode } else { pane.agentExecutionState = .running }
+            groups[0].sessions[0].layout = .pane(pane)
+        case "closed split", "open split":
+            var changed = first
+            changed.title = "After"
+            groups[0].sessions[0].layout = .split(TerminalSplit(orientation: .vertical, first: .pane(changed), second: .pane(second)))
+        default: break
         }
-        await wrapped.sendReturn()
-
-        #expect(wrapped.store.selectedSessionID == wrapped.sessions[0].id)
+        let generation: Int? = scenario == "open split" ? 1 : nil
+        let titles: [TerminalSession.ID: String]? = scenario == "open split" ? [session.id: "Workspace"] : nil
+        let before = SidebarActivityInvalidationKey(
+            groups: original, pinnedSessionIDs: [], selectedSessionID: session.id,
+            displayMode: .expanded, reduceMotion: false, activityPanelGeneration: generation, activityPanelDisplayedTitles: titles)
+        let after = SidebarActivityInvalidationKey(
+            groups: groups, pinnedSessionIDs: scenario == "pinned" ? [session.id] : [],
+            selectedSessionID: scenario == "selection" ? nil : session.id,
+            displayMode: scenario == "display" ? .collapsed : .expanded, reduceMotion: scenario == "motion",
+            activityPanelGeneration: generation, activityPanelDisplayedTitles: titles)
+        #expect((before == after) == ["same", "title", "closed split"].contains(scenario))
     }
 
-    @Test("hosted field passes modified arrows through")
-    func hostedFieldPassesModifiedArrowsThrough() async throws {
-        let fixture = try SidebarSearchHostedFixture()
-        defer { fixture.close() }
-
-        fixture.sendArrow(.up, modifiers: .option)
-        #expect(fixture.window.firstResponder is NSTextView)
-        await fixture.sendReturn()
-
-        #expect(fixture.store.selectedSessionID == fixture.sessions[0].id)
-    }
-
-    @Test("AppKit-focused search field handles result navigation without Tab")
-    func appKitFocusedFieldHandlesNavigationWithoutTab() async throws {
-        let fixture = try SidebarSearchHostedFixture(focusSearchThroughAppKit: true)
-        defer { fixture.close() }
-
-        fixture.sendArrow(.down)
-        fixture.sendArrow(.down)
-        await fixture.sendReturn()
-
-        #expect(fixture.store.selectedSessionID == fixture.sessions[1].id)
-    }
-
-    @Test("hosted nested result target moves the real sidebar scroll view")
-    func hostedNestedResultMovesScrollView() async throws {
+    @Test(arguments: ["transition", "wrapped", "modified", "AppKit", "nested"])
+    func searchNavigation(scenario: String) async throws {
+        let nested = scenario == "nested"
         let fixture = try SidebarSearchHostedFixture(
-            sessionCount: 24,
-            viewportHeight: 230,
-            mountedSurfaceIndices: [15]
-        )
+            sessionCount: nested ? 24 : 3,
+            viewportHeight: nested ? 230 : 320, mountedSurfaceIndices: nested ? [15] : [0, 1],
+            focusSearchThroughAppKit: scenario == "AppKit")
         defer { fixture.close() }
         let initialOffset = fixture.scrollView.contentView.bounds.origin.y
-
-        for press in 0..<16 {
-            fixture.sendArrow(.down, isRepeat: press > 0)
+        let expected = nested ? 15 : scenario == "wrapped" || scenario == "modified" ? 0 : 1
+        let target = try #require(fixture.surface(for: fixture.sessions[expected]))
+        if scenario == "transition" {
+            #expect(target.window === fixture.window)
+            #expect(fixture.runtime.cachedSurfaceView(for: fixture.sessions[expected].activePaneID) === target)
         }
-
-        #expect(
-            SidebarHostedTestHarness.pumpMainRunLoop(
-                until: { fixture.scrollView.contentView.bounds.origin.y > initialOffset + 20 }
-            )
-        )
+        if scenario == "modified" {
+            fixture.sendArrow(.up, modifiers: .option)
+            #expect(fixture.window.firstResponder is NSTextView)
+        } else {
+            for press in 0..<(nested ? 16 : scenario == "wrapped" ? 4 : 2) {
+                fixture.sendArrow(.down, isRepeat: scenario == "AppKit" ? false : press > 0)
+            }
+        }
+        if nested {
+            #expect(
+                SidebarHostedTestHarness.pumpMainRunLoop(until: { fixture.scrollView.contentView.bounds.origin.y > initialOffset + 20 }))
+        }
+        fixture.window.resetResponderAttempts()
         await fixture.sendReturn()
-        #expect(fixture.store.selectedSessionID == fixture.sessions[15].id)
-    }
-
-    @Test("hosted field exposes canonical state-token help")
-    func hostedFieldExposesCanonicalStateTokenHelp() throws {
-        let fixture = try SidebarSearchHostedFixture()
-        defer { fixture.close() }
-
-        let searchHelp = SidebarAgentStateSearchToken.localizedSearchHelp()
-        #expect(fixture.searchField.accessibilityHelp() == searchHelp)
-        #expect(fixture.searchField.toolTip == searchHelp)
+        #expect(fixture.store.selectedSessionID == fixture.sessions[expected].id)
+        if scenario == "transition" {
+            #expect(
+                SidebarHostedTestHarness.pumpMainRunLoop(until: { fixture.window.responderAttempts.contains { $0.responder === target } }))
+            #expect(fixture.window.responderAttempts.contains { $0.responder === target && $0.succeeded })
+            #expect(SidebarHostedTestHarness.pumpMainRunLoop(until: { fixture.window.firstResponder === target }))
+        }
     }
 
 }

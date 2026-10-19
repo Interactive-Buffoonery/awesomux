@@ -1,0 +1,10 @@
+{
+  "head": "c365b543d37dafc5e9e2de0d1cae7a6ca406abdc",
+  "sources": {
+    "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceMarkdownLinks.swift": "2740ce72ee10c4b0c5989c4c4bd544e7717cccbc011402ca1262b84fa53532e4",
+    "Sources/awesoMux/Views/GhosttySurface/GhosttySurfaceInputBridge.swift": "734cf7afb134a06c175699319a18a98abfd104ec8d42f6140cd435863ec5ebd8",
+    "Sources/awesoMux/Services/RemoteMarkdownReadRouting.swift": "79f1a3395444c6d59e0a108419c453d72e20346d936c8f9212dde094920cb67b",
+    "native/ghostty/link-paths.zig": "647801dd1ce5d98aa816fe4b17a72de65e1473b9daf6543fb6bf2855c5d82d83",
+    "vendor/ghostty/src/config/url.zig": "4fdeee2f4c749eb6aa1c971b9e360bae845a1220cbfe0ef82d6fb7db3ebd2a88"
+  }
+}

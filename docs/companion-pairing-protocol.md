@@ -1,7 +1,13 @@
 # awesoMux Companion pairing protocol
 
-This document is the complete Mac-to-iPhone pairing and read-only API contract.
+This document is the complete Mac-to-iPhone pairing, read-only API, and self-unpair contract.
 All integers are decimal unless a representation is stated explicitly.
+
+The v1 link and framed protocol below describe the current implementation.
+The v2 link and route metadata are the planned #782 contract, pending Mac
+listener/current-address support in #783 and corresponding phone support.
+Pairing frames retain `v: 1`; API requests and responses retain
+`schemaVersion: 1`. Link version 2 does not change either wire version.
 
 ## Cryptographic identities
 
@@ -15,12 +21,15 @@ production Mac profiles use different identities.
 P-256 point. A fingerprint is `SHA-256(SPKI)`.
 
 The phone must compare the Mac certificate's SPKI fingerprint with `fp` before
-sending the pairing secret. After pairing, both sides pin the other side's SPKI
-fingerprint. TLS is version 1.3 and requires certificates from both peers.
+sending the pairing secret or any API request, on every route. An identity
+failure must never update trust. After pairing, both sides pin the other side's
+SPKI fingerprint. TLS is version 1.3 and requires certificates from both peers.
 
 ## Pairing link
 
-The QR code and **Copy Link** action contain exactly this URL:
+### Legacy v1 (currently implemented)
+
+The QR code and **Copy Link** action currently contain exactly this URL:
 
 ```text
 awesomuxcompanion://pair?v=1&h=<host>&p=<port>&fp=<macFP>&s=<secret>&n=<macName>&t=<lan|tailscale>
@@ -40,8 +49,98 @@ awesomuxcompanion://pair?v=1&h=<host>&p=<port>&fp=<macFP>&s=<secret>&n=<macName>
 
 The phone must preserve the host, port, fingerprint, Mac name, and transport for
 the paired connection. The port is stable across Mac restarts for that pairing.
-The address can change when network configuration changes; a phone must be
-paired again if it can no longer reach the pinned endpoint.
+A persisted v1 pairing stays single-route and transport-scoped. Authorizing
+both routes requires explicit re-pairing with a v2 link, not a metadata update.
+An unreachable v1 saved endpoint still requires re-pairing.
+
+### v2 (planned)
+
+The QR code and **Copy Link** action will contain this fixed shape:
+
+```text
+awesomuxcompanion://pair?v=2&lan=<IPv4>&tailscale=<IPv4>&p=<port>&fp=<pin>&s=<secret>&n=<name>
+```
+
+- `v` is `2`. `lan` and `tailscale` are optional, with at most one of each;
+  at least one is required. Omit unavailable routes rather than using empty
+  values. These are IPv4 literals, not DNS names or endpoint lists.
+- `p` is one decimal TCP port in 1–65535, stable across Mac restarts for the
+  pairing and shared by both listeners. A port change requires re-pairing.
+- `fp`, `s`, and `n` have the same encoding and meaning as in v1. Both routes
+  share the Mac SPKI pin, phone identity, grant/connection ID, and exact profile.
+  Routes do not create separate pairings or authorization scopes.
+- `h` and `t` are v1-only fields. A v2 parser rejects duplicate fields, invalid
+  route values, missing required fields, and mixed v1/v2 route fields. A client
+  without v2 support must reject the link explicitly; it must not silently
+  downgrade it, reinterpret it as v1, or discard a route to manufacture a v1
+  pairing. Supporting v1 and v2 explicitly is allowed.
+
+The Mac accepts a v2 grant on either currently bound eligible route, regardless
+of which route completed pairing. Legacy v1 grants remain restricted to their
+stored `transport`; the Mac must not advertise or accept a second transport for
+them. Persist the distinction between v1 transport-scoped and v2 dual-route
+grants. Reading and saving existing `access.json` grants must preserve their
+fingerprints, connection IDs, ports, and transport restriction. Do not ignore
+the legacy `transport` field globally or infer v2 authorization from a newer
+phone, a status request, or the presence of another listener. Re-pairing uses
+the existing replacement/revocation rules; metadata cannot widen a grant.
+V1 and v2 grants may coexist within one runtime profile. All listeners and
+grants in that profile share one stable port, retaining the existing port
+while any grant remains. Adding a v2 pairing must not allocate a replacement
+port or require removing v1 phones. A legacy grant's transport check still
+applies even when a v2 grant authorizes the other listener.
+
+#### Eligible private interfaces and listener lifecycle
+
+The planned listeners retain the current IPv4 route-class boundaries:
+
+- Every address must be assigned to an UP, non-loopback interface and be
+  unicast. Never bind or advertise public, wildcard, loopback, link-local,
+  multicast, or broadcast addresses (including subnet broadcast addresses).
+- `lan` must be RFC1918: 10/8, 172.16/12, or 192.168/16. Exclude tunnel and
+  bridge interfaces, including names prefixed `utun`, `ipsec`, `ppp`, or
+  `bridge`, as in the current source rules.
+- `tailscale` must be 100.64/10 on a `utun` interface. This is an eligibility
+  convention, not proof that Tailscale owns that interface or address. A
+  100.64/10 address on a carrier hotspot/non-`utun` interface is ineligible;
+  other tunnel addresses and other VPN support are outside this contract.
+
+Choose at most one address per class. Preserve the existing `en0` preference,
+then sort by interface name, with numeric IPv4 address as the stable tie-break
+when an interface has multiple eligible addresses. Only successfully bound
+addresses may be advertised. Both listeners use the shared `p`; inability to
+bind a route never permits a wildcard or a different port for that route.
+Re-evaluate eligibility on network changes, stop binding/advertising removed
+addresses, and select eligible replacements deterministically. Listener
+lifetime remains limited to an open pairing sheet or an existing paired phone.
+IPv6, DNS, Bonjour, and arbitrary address discovery are not added.
+
+All listeners share one pairing session and one secret. Consumption is atomic
+across listeners: the first valid attempt consumes it, so simultaneous attempts
+cannot create multiple approvals or grants. Closing/expiring the session
+invalidates it everywhere. Revocation and self-unpair invalidate the same
+phone grant on all routes.
+
+#### Phone route selection and compatibility
+
+Persist the available route set and shared port with the existing pairing
+identity. Try LAN first, then Tailscale on failure. Before sending the secret
+or any API request to either address, verify the saved Mac SPKI pin. A stale
+LAN address belonging to a different machine receives neither. An identity
+failure makes that route unusable for that attempt, without removing it from
+the saved set or replacing the pin, identity, profile, or grant; another saved
+route must authenticate independently.
+A TLS rejection on one route falls through to the next saved route. TLS
+failures alone never prove revocation or cause automatic deletion of pairing
+state, even if all routes fail.
+
+When using Tailscale, reconsider LAN on network change or foreground, with a
+cooldown to avoid flapping. Exact retry timing and cooldown mechanics belong
+to #783 and the phone implementation, not this contract. Refresh routes only
+through the pinned, authenticated `get_connection_status` extension below.
+If every saved route is unreachable, remain offline until a saved route works
+or the person re-pairs; do not probe arbitrary addresses. A reachable alternate
+route can report a changed DHCP address without re-pairing.
 
 ## Framing
 
@@ -77,7 +176,8 @@ this frame and closes:
 {"v":1,"status":"denied"}
 ```
 
-A correct secret is consumed immediately. The Mac replies:
+A correct secret is consumed immediately (atomically across all listeners in
+v2). The Mac replies:
 
 ```json
 {"v":1,"status":"confirm"}
@@ -126,6 +226,7 @@ own exact profile. If `profile` is present, it must match that profile.
 Only these operations are accepted:
 
 - `get_connection_status`, with no operation arguments.
+- `unpair`, with no operation arguments; revokes only the authenticated phone.
 - `list_agents`, with no operation arguments.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
   optional non-empty `cursor` of at most 2,048 UTF-8 bytes.
@@ -172,7 +273,7 @@ phone must discard that incomplete frame.
 
 ### `get_connection_status`
 
-Success adds one field:
+Current success adds `connectionStatus`:
 
 ```json
 {"schemaVersion":1,"requestID":"<uuid>","profile":"<profile>","appInstanceID":"<uuid>","capturedAt":"<date>","connectionStatus":"connected"}
@@ -180,6 +281,98 @@ Success adds one field:
 
 `connected` means this exact app instance is reachable and the paired
 connection is still authorized.
+
+#### Planned v2 route metadata
+
+A successful Companion `get_connection_status` response for a v2 grant may additionally
+contain a `routes` object using the link vocabulary: `v` is `2`, `p` is the
+shared port, and optional `lan` and `tailscale` fields contain at most one IPv4
+literal each. Only current, eligible, successfully bound addresses are listed.
+At least one route is required when `routes` is present. A v1 grant's response
+omits `routes` and retains its original single-transport behavior.
+For example, the complete response with both routes is:
+
+```json
+{
+  "schemaVersion": 1,
+  "requestID": "01234567-89ab-cdef-0123-456789abcdef",
+  "profile": "development:012345abcdef",
+  "appInstanceID": "89abcdef-0123-4567-89ab-cdef01234567",
+  "capturedAt": "2026-10-18T18:20:00Z",
+  "connectionStatus": "connected",
+  "routes": {
+    "v": 2,
+    "p": 43123,
+    "lan": "192.168.1.20",
+    "tailscale": "100.100.20.30"
+  }
+}
+```
+
+The phone applies these rules as one atomic update:
+
+- Accept metadata only in a complete successful response to its own
+  `get_connection_status` request on the existing paired, mutually authenticated
+  connection, after verifying the saved Mac SPKI pin and matching `requestID`.
+  The Mac listener enforces its exact runtime profile as described above;
+  pairing links do not carry a profile for the phone to pin.
+- If `routes` is absent, retain the saved route set. This is the legacy Mac
+  behavior; absence does not remove routes or imply v2 support.
+- If present, validate the entire object before replacing the whole saved set,
+  never merging it. Require `v: 2`, an integer `p` equal to the saved shared
+  port, and valid addresses in the corresponding route-class ranges. Reject
+  duplicate keys, empty strings, wrong types, unsupported versions, or any
+  invalid entry as a whole; retain the previous set without applying a subset.
+  The Mac enforces interface eligibility; the phone cannot infer remote
+  interface ownership from an IPv4 literal.
+- An empty route set, such as `{"v":2,"p":43123}`, is invalid. Retain the
+  previous set so a transient interface removal/rebind cannot erase every
+  retry address. If no eligible listener is ready, the Mac omits `routes`.
+  Retaining an address permits only a later pinned connection attempt, never
+  bypassing authentication or discovering replacements.
+- Metadata never replaces the Mac pin, phone identity, connection ID, profile,
+  or shared port. An error, incomplete frame, authentication failure, or
+  profile mismatch cannot update any route or trust state.
+
+A v2-capable phone keeps a persisted v1 pairing single-route until the person
+explicitly re-pairs with a supported v2 link. It must not apply `routes` to a
+v1 pairing, guess a second address, or infer a grant upgrade. Older phones
+reject v2 links and continue using their existing v1 pairing.
+
+### `unpair`
+
+The phone asks to revoke its own grant with:
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"unpair","connectionID":"<paired-uuid>"}
+```
+
+The paired certificate must match this non-revoked connection ID, just as for
+`get_connection_status`. No target ID or operation arguments are accepted. A
+phone cannot revoke another phone, and this operation is not available on the
+local bearer-credential API.
+
+After revoking and saving the grant removal, success is the standard envelope
+with no additional fields:
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","profile":"<profile>","appInstanceID":"<uuid>","capturedAt":"<date>"}
+```
+
+The Mac's Companion settings update immediately. Other requests on that grant
+are denied or disconnected immediately; only this acknowledgement is allowed
+to finish on the requesting connection. The connection then closes. Subsequent
+connections fail TLS authentication (or are denied if a pairing window is open).
+A wrong connection ID returns `permission_denied`; operation arguments return
+`invalid_request`. Failure to save revocation returns `transport_failure` or
+closes the connection, and the Mac keeps the existing persistence warning.
+
+The phone waits at most three seconds for the entire attempt, including TLS.
+It always removes its local pairing and key afterwards. If no valid success
+arrives, it keeps a reminder to also choose Unpair in awesoMux Settings on the
+Mac. This includes an unreachable Mac, an interrupted reply, and an older Mac
+returning `unsupported_operation` or `permission_denied`. The older phone's
+local-only unpair still works; its Mac grant must be removed in Mac Settings.
 
 ### `list_agents`
 

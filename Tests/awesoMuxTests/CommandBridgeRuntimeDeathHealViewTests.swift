@@ -9,33 +9,6 @@ import Testing
 struct CommandBridgeRuntimeDeathHealViewTests {
     private let establishedMetadata = TerminalBackendMetadata(rawValue: "amx:v1:established")
 
-    @Test("status-driven daemon death evicts the stale cached surface view")
-    func daemonDeathHealEvictsCachedSurfaceView() throws {
-        let fixture = try makeSplitFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let staleView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.deadPane,
-            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
-        )
-
-        try driveDaemonDeathHeal(on: staleView, terminalSessionID: fixture.deadSessionID)
-
-        let healedSession = try #require(fixture.store.session(id: fixture.session.id))
-        let freshView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: healedSession,
-            pane: fixture.deadPane,
-            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
-        )
-
-        #expect(freshView !== staleView)
-        #expect(freshView.pane.id == fixture.deadPane.id)
-        #expect(freshView.pane.terminalSessionID == fixture.deadSessionID)
-        #expect(healedSession.layout == fixture.layout)
-    }
-
     @Test("late process-exit callback on evicted healed view does not collapse split")
     func lateProcessExitAfterHealDoesNotClosePane() throws {
         let fixture = try makeSplitFixture()
@@ -136,122 +109,25 @@ struct CommandBridgeRuntimeDeathHealViewTests {
         #expect(!activeView.ignoresProcessExitAfterCommandBridgeHeal)
     }
 
-    @Test("post-heal attached event classifies fresh and clears agent chrome")
-    func postHealAttachedEventClassifiesFreshAndClearsAgentChrome() throws {
+    @Test("first attach restores chrome only for the surviving daemon", arguments: [false, true])
+    func firstAttachChrome(created: Bool) throws {
         let fixture = try makeAgentFixture()
         let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let staleView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.agentPane,
-            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
-        )
-
-        staleView.commandBridgeSessionID = fixture.agentSessionID
-        staleView.handleCommandBridgeStatusEvents([
-            try #require(Self.attachedEvent(
-                token: "tok",
-                terminalSessionID: fixture.agentSessionID,
-                daemonPid: 100,
-                daemonCreatedAt: 1_700_000_000
-            ))
+        let view = runtime.surfaceView(
+            sessionStore: fixture.store, session: fixture.session, pane: fixture.agentPane,
+            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        view.commandBridgeSessionID = fixture.agentSessionID
+        view.handleCommandBridgeStatusEvents([
+            try #require(
+                Self.attachedEvent(
+                    token: "tok", terminalSessionID: fixture.agentSessionID, created: created, daemonPid: 100,
+                    daemonCreatedAt: 1_700_000_000
+                ))
         ])
-
-        let healed = try driveSessionEnd(
-            on: staleView,
-            terminalSessionID: fixture.agentSessionID,
-            reason: .daemonDied
-        )
-        #expect(healed)
-
-        let healedSession = try #require(fixture.store.session(id: fixture.session.id))
-        let freshView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: healedSession,
-            pane: fixture.agentPane,
-            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
-        )
-        freshView.commandBridgeSessionID = fixture.agentSessionID
-        freshView.handleCommandBridgeStatusEvents([
-            try #require(Self.attachedEvent(
-                token: "tok",
-                terminalSessionID: fixture.agentSessionID,
-                daemonPid: 200,
-                daemonCreatedAt: 1_700_000_100
-            ))
-        ])
-
-        let resetPane = try #require(
-            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.agentPane.id)
-        )
-        #expect(resetPane.agentKind == .shell)
-        #expect(resetPane.agentExecutionState == AgentKind.shell.initialSessionState.executionState ?? .idle)
-        #expect(resetPane.attentionReason == nil)
-    }
-
-    @Test("first attach with created:true after restore clears stale agent chrome")
-    func firstAttachCreatedAfterRestoreClearsStaleAgentChrome() throws {
-        // INT-672: launch restore preserved this pane's agent chrome, but the
-        // daemon died between quit and restore, so the first attach launches a
-        // NEW daemon (created:true). No prior incarnation → `.firstAttach`; the
-        // created flag is what marks the shell fresh and the chrome dead.
-        let fixture = try makeAgentFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let restoredView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.agentPane,
-            enabledAgentRuntimeFileDropSources: [],
-            grokIconEnabled: false
-        )
-
-        restoredView.commandBridgeSessionID = fixture.agentSessionID
-        restoredView.handleCommandBridgeStatusEvents([
-            try #require(Self.attachedEvent(
-                token: "tok",
-                terminalSessionID: fixture.agentSessionID,
-                daemonPid: 100,
-                daemonCreatedAt: 1_700_000_000
-            ))
-        ])
-
-        let resetPane = try #require(
-            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.agentPane.id)
-        )
-        #expect(resetPane.agentKind == .shell)
-        #expect(resetPane.agentExecutionState == AgentKind.shell.initialSessionState.executionState ?? .idle)
-        #expect(resetPane.attentionReason == nil)
-    }
-
-    @Test("first attach with created:false after restore preserves agent chrome")
-    func firstAttachReconnectedAfterRestorePreservesAgentChrome() throws {
-        let fixture = try makeAgentFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let restoredView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.agentPane,
-            enabledAgentRuntimeFileDropSources: [],
-            grokIconEnabled: false
-        )
-
-        restoredView.commandBridgeSessionID = fixture.agentSessionID
-        restoredView.handleCommandBridgeStatusEvents([
-            try #require(Self.attachedEvent(
-                token: "tok",
-                terminalSessionID: fixture.agentSessionID,
-                created: false,
-                daemonPid: 100,
-                daemonCreatedAt: 1_700_000_000
-            ))
-        ])
-
-        let preservedPane = try #require(
-            fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.agentPane.id)
-        )
-        #expect(preservedPane.agentKind == .codex)
-        #expect(preservedPane.agentExecutionState == .thinking)
-        #expect(preservedPane.attentionReason == .permissionPrompt)
+        let pane = try #require(fixture.store.session(id: fixture.session.id)?.layout.pane(id: fixture.agentPane.id))
+        #expect(pane.agentKind == (created ? .shell : .codex))
+        #expect(pane.agentExecutionState == (created ? (AgentKind.shell.initialSessionState.executionState ?? .idle) : .thinking))
+        #expect(pane.attentionReason == (created ? nil : .permissionPrompt))
     }
 
     @Test("ordinary command completion keeps the bridge surface mounted")
@@ -314,63 +190,66 @@ struct CommandBridgeRuntimeDeathHealViewTests {
         #expect(!view.ignoresProcessExitAfterCommandBridgeHeal)
     }
 
-    @Test("tearing down a healed-but-unmounted session frees its recovery record")
-    func sessionTeardownFreesPreservedRecoveryRecord() throws {
-        let fixture = try makeSplitFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let staleView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.deadPane,
-            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
-        )
+    @Test(
+        "closing healed sessions and pre-attach views frees recovery records",
+        arguments: ["sessionTeardownFreesPreservedRecoveryRecord", "closeBeforeReattachFreesPreservedRecoveryRecord"])
+    func closeFreesRecoveryRecord(scenario: String) async throws {
+        switch scenario {
+        case "sessionTeardownFreesPreservedRecoveryRecord":
+            let fixture = try makeSplitFixture()
+            let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+            let staleView = runtime.surfaceView(
+                sessionStore: fixture.store,
+                session: fixture.session,
+                pane: fixture.deadPane,
+                enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+            )
 
-        // A daemon-death heal on an unmounted view (nil scrollContainer) bails after
-        // `discardSurface` has already preserved the recovery record, so the record
-        // outlives the evicted surface — exactly the orphan a later true close must
-        // free rather than leak for the app's lifetime.
-        try driveDaemonDeathHeal(on: staleView, terminalSessionID: fixture.deadSessionID)
-        #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] != nil)
+            // A daemon-death heal on an unmounted view (nil scrollContainer) bails after
+            // `discardSurface` has already preserved the recovery record, so the record
+            // outlives the evicted surface — exactly the orphan a later true close must
+            // free rather than leak for the app's lifetime.
+            try driveDaemonDeathHeal(on: staleView, terminalSessionID: fixture.deadSessionID)
+            #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] != nil)
 
-        let healedSession = try #require(fixture.store.session(id: fixture.session.id))
-        runtime.discardSurfaces(for: healedSession)
+            let healedSession = try #require(fixture.store.session(id: fixture.session.id))
+            runtime.discardSurfaces(for: healedSession)
 
-        #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] == nil)
-        #expect(runtime.commandBridgeRecoveryRecords.isEmpty)
-    }
+            #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] == nil)
+            #expect(runtime.commandBridgeRecoveryRecords.isEmpty)
+        case "closeBeforeReattachFreesPreservedRecoveryRecord":
+            let fixture = try makeSplitFixture()
+            let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
+            let staleView = runtime.surfaceView(
+                sessionStore: fixture.store,
+                session: fixture.session,
+                pane: fixture.deadPane,
+                enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+            )
 
-    @Test("a genuine close frees the preserved record even before the view re-attaches")
-    func closeBeforeReattachFreesPreservedRecoveryRecord() throws {
-        let fixture = try makeSplitFixture()
-        let runtime = GhosttyRuntime(initialCommandBridgeEnabled: true)
-        let staleView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: fixture.session,
-            pane: fixture.deadPane,
-            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
-        )
+            // Heal preserves the record and evicts the stale surface.
+            try driveDaemonDeathHeal(on: staleView, terminalSessionID: fixture.deadSessionID)
 
-        // Heal preserves the record and evicts the stale surface.
-        try driveDaemonDeathHeal(on: staleView, terminalSessionID: fixture.deadSessionID)
+            // Re-foreground builds a fresh view. Until it mounts and the `.bridgeAttach`
+            // path runs, `commandBridgeSessionID` is still nil, so the record resolves
+            // only via the pane's terminalSessionID — the case the discard fallback
+            // covers. The record is still preserved from the heal.
+            let healedSession = try #require(fixture.store.session(id: fixture.session.id))
+            let freshView = runtime.surfaceView(
+                sessionStore: fixture.store,
+                session: healedSession,
+                pane: fixture.deadPane,
+                enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
+            )
+            #expect(freshView.commandBridgeSessionID == nil)
+            #expect(!freshView.ignoresProcessExitAfterCommandBridgeHeal)
+            #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] != nil)
 
-        // Re-foreground builds a fresh view. Until it mounts and the `.bridgeAttach`
-        // path runs, `commandBridgeSessionID` is still nil, so the record resolves
-        // only via the pane's terminalSessionID — the case the discard fallback
-        // covers. The record is still preserved from the heal.
-        let healedSession = try #require(fixture.store.session(id: fixture.session.id))
-        let freshView = runtime.surfaceView(
-            sessionStore: fixture.store,
-            session: healedSession,
-            pane: fixture.deadPane,
-            enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false
-        )
-        #expect(freshView.commandBridgeSessionID == nil)
-        #expect(!freshView.ignoresProcessExitAfterCommandBridgeHeal)
-        #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] != nil)
-
-        // A genuine single-pane close in that pre-attach window must still free it.
-        runtime.discardSurface(for: fixture.deadPane.id)
-        #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] == nil)
+            // A genuine single-pane close in that pre-attach window must still free it.
+            runtime.discardSurface(for: fixture.deadPane.id)
+            #expect(runtime.commandBridgeRecoveryRecords[fixture.deadSessionID] == nil)
+        default: Issue.record("Unknown scenario: \(scenario)")
+        }
     }
 
     private func driveDaemonDeathHeal(

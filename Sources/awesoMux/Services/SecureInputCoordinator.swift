@@ -100,10 +100,6 @@ final class SecureInputCoordinator {
         reconcile()
     }
 
-    func isFocusedForTesting(_ paneID: TerminalPane.ID) -> Bool {
-        focusedPaneIDs.contains(paneID)
-    }
-
     func removePane(_ paneID: TerminalPane.ID) {
         requestingPaneIDs.remove(paneID)
         focusedPaneIDs.remove(paneID)

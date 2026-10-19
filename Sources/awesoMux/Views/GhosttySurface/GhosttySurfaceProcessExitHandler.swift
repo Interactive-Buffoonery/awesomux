@@ -88,7 +88,8 @@ extension GhosttySurfaceNSView {
     /// libghostty's child-exited action. See `CommandBridgeEnactor.handleChildExited`.
     @MainActor
     func handleChildExited() -> Bool {
-        commandBridgeEnactor.handleChildExited()
+        clearNativeRemotePwd()
+        return commandBridgeEnactor.handleChildExited()
     }
 
     /// Forwarder retained for the existing view tests, which drive the bridge

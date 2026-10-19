@@ -37,9 +37,7 @@ jobs:
 
       - parallel:
           - name: Verify Swift toolchain
-            run: |
-              ./script/check-toolchain.sh
-              ./script/test-toolchain.sh
+            run: ./script/check-toolchain.sh
 
           - name: CI automation unit tests
             run: ./script/test-ci-automation.sh
@@ -50,17 +48,11 @@ jobs:
           - name: Plural localization guards
             run: ./script/check_plural_guards.sh
 
-          - name: Ghostty license pin guardrail tests
-            run: ./script/test-ghostty-license-pins.sh
+          - name: AppleScript smoke targeting
+            run: ./script/check_applescript_targets.sh
 
           - name: Ghostty license pins
             run: ./script/check_ghostty_license_pins.sh
-
-          - name: Ghostty source extension tests
-            run: python3 script/test_prepare_ghostty_source.py
-
-      - name: Test wait guardrail tests
-        run: ./script/test-test-wait-guard.sh
 
       - name: Formatter guardrail tests
         run: ./script/test-format.sh

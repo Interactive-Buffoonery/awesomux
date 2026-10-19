@@ -37,7 +37,6 @@ final class SidebarOverlayAnimator {
     private var fallbackTranslation: CGFloat = 0
 
     var requestedPresentedState: Bool? { requestedPresented }
-    var isAnimating: Bool { activeTargetTranslation != nil }
     var currentTranslation: CGFloat {
         finitePresentationTranslation ?? fallbackTranslation
     }

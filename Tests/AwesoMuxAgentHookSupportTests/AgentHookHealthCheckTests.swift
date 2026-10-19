@@ -30,193 +30,78 @@ struct AgentHookHealthCheckTests {
         #expect(AgentHookCommand.shouldReadStandardInput(arguments: ["--health-check"]) == false)
     }
 
-    @Test
-    func hookModeStillSilentlyIgnoresMissingEnvironment() {
-        var stdout: [String] = []
-        var stderr: [String] = []
-
-        let status = AgentHookCommand.run(
-            arguments: ["--provider", "codex"],
-            environment: [:],
-            stdin: Data(#"{"hook_event_name":"SessionStart"}"#.utf8),
-            output: { stdout.append($0) },
-            errorOutput: { stderr.append($0) }
-        )
-
-        #expect(status == 0)
-        #expect(stdout.isEmpty)
-        #expect(stderr.isEmpty)
-        #expect(AgentHookCommand.shouldReadStandardInput(arguments: ["--provider", "codex"]))
-    }
-
-    @Test
-    func missingEnvironmentReportsDiagnostics() {
-        let result = AgentHookHealthCheck.diagnose(environment: [:])
-
-        #expect(result.exitCode == 10)
-        #expect(result.message.contains("missing environment"))
-        #expect(result.message.contains("AWESOMUX_AGENT_EVENT_PROTOCOL"))
-        #expect(result.message.contains("AWESOMUX_SESSION_ID"))
-        #expect(result.message.contains("AWESOMUX_PANE_ID"))
-        #expect(result.message.contains("AWESOMUX_AGENT_EVENT_FILE"))
-    }
-
-    @Test
-    func badProtocolReportsDiagnostics() throws {
+    @Test(arguments: [
+        (
+            "missing", 10,
+            [
+                "missing environment", "AWESOMUX_AGENT_EVENT_PROTOCOL", "AWESOMUX_SESSION_ID", "AWESOMUX_PANE_ID",
+                "AWESOMUX_AGENT_EVENT_FILE",
+            ]
+        ),
+        ("protocol", 20, ["bad protocol", AgentRuntimeEvent.protocolName]),
+        ("session", 30, ["invalid UUID", "AWESOMUX_SESSION_ID"]),
+        ("pane", 31, ["invalid UUID", "AWESOMUX_PANE_ID"]),
+        ("stale", 40, ["stale pane/file mismatch"]),
+        ("absent", 50, ["missing event file"]),
+        ("directory", 51, ["non-regular event file"]),
+        ("owner", 52, ["wrong owner", "owner=502", "expected=501"]),
+        ("writable", 53, ["non-writable event file"]),
+        ("hook", 0, [String]()),
+    ])
+    func diagnosticFailure(kind: String, code: Int32, fragments: [String]) throws {
         let paneID = UUID()
-        let temp = try Self.temporaryEventFile(paneID: paneID)
+        let filePaneID = kind == "stale" ? UUID() : paneID
+        let temp =
+            try kind == "directory"
+            ? Self.temporaryEventDirectory(paneID: paneID)
+            : Self.temporaryEventFile(paneID: filePaneID, createFile: kind != "absent")
         defer { temp.remove() }
         var environment = Self.environment(paneID: paneID, eventFile: temp.file)
-        environment["AWESOMUX_AGENT_EVENT_PROTOCOL"] = "awesomux-agent-v0"
-
-        let result = AgentHookHealthCheck.diagnose(environment: environment)
-
-        #expect(result.exitCode == 20)
-        #expect(result.message.contains("bad protocol"))
-        #expect(result.message.contains(AgentRuntimeEvent.protocolName))
-    }
-
-    @Test
-    func invalidUUIDReportsDiagnostics() throws {
-        let paneID = UUID()
-        let temp = try Self.temporaryEventFile(paneID: paneID)
-        defer { temp.remove() }
-        var environment = Self.environment(paneID: paneID, eventFile: temp.file)
-        environment["AWESOMUX_SESSION_ID"] = "not-a-uuid"
-
-        let result = AgentHookHealthCheck.diagnose(environment: environment)
-
-        #expect(result.exitCode == 30)
-        #expect(result.message.contains("invalid UUID"))
-        #expect(result.message.contains("AWESOMUX_SESSION_ID"))
-    }
-
-    @Test
-    func invalidPaneIDReportsDiagnostics() throws {
-        let paneID = UUID()
-        let temp = try Self.temporaryEventFile(paneID: paneID)
-        defer { temp.remove() }
-        var environment = Self.environment(paneID: paneID, eventFile: temp.file)
-        environment["AWESOMUX_PANE_ID"] = "not-a-uuid"
-
-        let result = AgentHookHealthCheck.diagnose(environment: environment)
-
-        #expect(result.exitCode == 31)
-        #expect(result.message.contains("invalid UUID"))
-        #expect(result.message.contains("AWESOMUX_PANE_ID"))
-    }
-
-    @Test
-    func stalePaneFileMismatchReportsDiagnostics() throws {
-        let paneID = UUID()
-        let otherPaneID = UUID()
-        let temp = try Self.temporaryEventFile(paneID: otherPaneID)
-        defer { temp.remove() }
-
-        let result = AgentHookHealthCheck.diagnose(
-            environment: Self.environment(paneID: paneID, eventFile: temp.file)
-        )
-
-        #expect(result.exitCode == 40)
-        #expect(result.message.contains("stale pane/file mismatch"))
-        #expect(result.message.contains(paneID.uuidString))
-        #expect(result.message.contains(otherPaneID.uuidString))
-    }
-
-    @Test
-    func missingEventFileReportsDiagnostics() throws {
-        let paneID = UUID()
-        let temp = try Self.temporaryEventFile(paneID: paneID, createFile: false)
-        defer { temp.remove() }
-
-        let result = AgentHookHealthCheck.diagnose(
-            environment: Self.environment(paneID: paneID, eventFile: temp.file)
-        )
-
-        #expect(result.exitCode == 50)
-        #expect(result.message.contains("missing event file"))
-    }
-
-    @Test
-    func nonRegularPathReportsDiagnostics() throws {
-        let paneID = UUID()
-        let temp = try Self.temporaryEventDirectory(paneID: paneID)
-        defer { temp.remove() }
-
-        let result = AgentHookHealthCheck.diagnose(
-            environment: Self.environment(paneID: paneID, eventFile: temp.file)
-        )
-
-        #expect(result.exitCode == 51)
-        #expect(result.message.contains("non-regular event file"))
-    }
-
-    @Test
-    func wrongOwnerReportsDiagnostics() throws {
-        let paneID = UUID()
-        let temp = try Self.temporaryEventFile(paneID: paneID)
-        defer { temp.remove() }
-        let expectedUID = uid_t(501)
-        let ownerUID = uid_t(502)
-
-        let result = AgentHookHealthCheck.diagnose(
-            environment: Self.environment(paneID: paneID, eventFile: temp.file),
-            effectiveUID: expectedUID,
-            fileInfoProvider: { _ in
-                AgentHookHealthCheck.FileInfo(
-                    exists: true,
-                    isRegularFile: true,
-                    ownerUID: ownerUID,
-                    canOpenForAppend: true
-                )
-            }
-        )
-
-        #expect(result.exitCode == 52)
-        #expect(result.message.contains("wrong owner"))
-        #expect(result.message.contains("owner=\(ownerUID)"))
-        #expect(result.message.contains("expected=\(expectedUID)"))
-    }
-
-    @Test
-    func nonWritablePathReportsDiagnostics() throws {
-        let paneID = UUID()
-        let temp = try Self.temporaryEventFile(paneID: paneID)
-        defer { temp.remove() }
-
-        let result = AgentHookHealthCheck.diagnose(
-            environment: Self.environment(paneID: paneID, eventFile: temp.file),
-            fileInfoProvider: { _ in
-                AgentHookHealthCheck.FileInfo(
-                    exists: true,
-                    isRegularFile: true,
-                    ownerUID: Darwin.geteuid(),
-                    canOpenForAppend: false
-                )
-            }
-        )
-
-        #expect(result.exitCode == 53)
-        #expect(result.message.contains("non-writable event file"))
-    }
-
-    @Test
-    func healthCheckFailureWritesToStderr() {
-        var stdout: [String] = []
-        var stderr: [String] = []
-
-        let status = AgentHookCommand.run(
-            arguments: ["--health-check"],
-            environment: [:],
-            stdin: Data(),
-            output: { stdout.append($0) },
-            errorOutput: { stderr.append($0) }
-        )
-
-        #expect(status == 10)
-        #expect(stdout.isEmpty)
-        #expect(stderr.count == 1)
-        #expect(stderr[0].contains("health check failed"))
+        switch kind {
+        case "missing", "hook": environment = [:]
+        case "protocol": environment["AWESOMUX_AGENT_EVENT_PROTOCOL"] = "awesomux-agent-v0"
+        case "session": environment["AWESOMUX_SESSION_ID"] = "not-a-uuid"
+        case "pane": environment["AWESOMUX_PANE_ID"] = "not-a-uuid"
+        default: break
+        }
+        if kind == "hook" || kind == "missing" {
+            var stdout: [String] = []
+            var stderr: [String] = []
+            let arguments = kind == "hook" ? ["--provider", "codex"] : ["--health-check"]
+            let status = AgentHookCommand.run(
+                arguments: arguments, environment: environment,
+                stdin: Data(#"{"hook_event_name":"SessionStart"}"#.utf8),
+                output: { stdout.append($0) }, errorOutput: { stderr.append($0) }
+            )
+            #expect(status == code)
+            #expect(stdout.isEmpty)
+            #expect(AgentHookCommand.shouldReadStandardInput(arguments: arguments) == (kind == "hook"))
+            if kind == "hook" { #expect(stderr.isEmpty); return }
+            #expect(stderr.count == 1)
+            #expect(stderr.first?.contains("health check failed") == true)
+        }
+        let result: AgentHookHealthCheck.Result
+        if kind == "owner" || kind == "writable" {
+            result = AgentHookHealthCheck.diagnose(
+                environment: environment,
+                effectiveUID: kind == "owner" ? 501 : Darwin.geteuid(),
+                fileInfoProvider: { _ in
+                    .init(
+                        exists: true, isRegularFile: true,
+                        ownerUID: kind == "owner" ? 502 : Darwin.geteuid(),
+                        canOpenForAppend: kind != "writable"
+                    )
+                }
+            )
+        } else {
+            result = AgentHookHealthCheck.diagnose(environment: environment)
+        }
+        #expect(result.exitCode == code)
+        for fragment in fragments { #expect(result.message.contains(fragment)) }
+        if kind == "stale" {
+            #expect(result.message.contains(paneID.uuidString))
+            #expect(result.message.contains(filePaneID.uuidString))
+        }
     }
 
     private static func environment(

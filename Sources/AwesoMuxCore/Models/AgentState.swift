@@ -133,10 +133,6 @@ public enum AgentDisplayState: String, CaseIterable, Codable, Hashable, Sendable
         }
     }
 
-    public var triggersNotification: Bool {
-        self == .needsAttention
-    }
-
     /// Returns whether this state is at least as urgent as `other` using the
     /// explicit presentation policy in `priority`; lower priority values are
     /// more urgent.

@@ -1,582 +1,153 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
 
 @Suite struct MarkdownLinkInterceptTests {
-    private var existingMarkdownPath: String {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "README.md")
-            .path
+    @Test(arguments: [
+        ("file:///tmp/notes.md", true), ("file:///tmp/a.markdown", true),
+        ("https://x.com/a.md", false), ("file:///tmp/a.txt", false),
+        ("file:///Applications/Calculator.app", false), ("file:///tmp/evil.sh", false),
+        ("file:///tmp/x.dmg", false),
+    ])
+    func documentSchemeAndExtension(raw: String, expected: Bool) throws {
+        #expect(MarkdownLinkIntercept.shouldOpenAsDocument(try #require(URL(string: raw))) == expected)
     }
 
-    private func makeMarkdownFile(named name: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let fileURL = directory.appending(path: name)
-        try Data("# Notes".utf8).write(to: fileURL)
-        return fileURL
+    @Test(arguments: ["", ":12:5", ".", ",", "..", "?", "!", ":12:5.", "#install", "#install.", "/"])
+    func absoluteSchemelessPath(suffix: String) throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appending(path: "README.md")
+        let raw = suffix == "/" ? "/\(file.path)" : file.path + suffix
+        let url = try #require(MarkdownLinkIntercept.documentURL(forSchemelessPath: raw))
+        if suffix != "/" { #expect(url.path == file.path) }
+        #expect(url.host == nil)
+        #expect(url.fragment == (suffix.hasPrefix("#") ? "install" : nil))
     }
 
-    @Test func acceptsFileMarkdown() {
-        #expect(MarkdownLinkIntercept.shouldOpenAsDocument(URL(fileURLWithPath: "/tmp/notes.md")))
-        #expect(MarkdownLinkIntercept.shouldOpenAsDocument(URL(string: "file:///tmp/a.markdown")!))
-    }
-    @Test func rejectsNonMarkdownAndRemote() {
-        #expect(!MarkdownLinkIntercept.shouldOpenAsDocument(URL(string: "https://x.com/a.md")!))
-        #expect(!MarkdownLinkIntercept.shouldOpenAsDocument(URL(fileURLWithPath: "/tmp/a.txt")))
-    }
-
-    // Security boundary: non-markdown file:// URLs must not pass the document
-    // check. If they did, they could reach openURL and be launched without
-    // confirmation via NSWorkspace (OSC 8 arbitrary-local-exec vector).
-    @Test func rejectsNonMarkdownFileURLs() {
-        #expect(!MarkdownLinkIntercept.shouldOpenAsDocument(
-            URL(string: "file:///Applications/Calculator.app")!
-        ))
-        #expect(!MarkdownLinkIntercept.shouldOpenAsDocument(
-            URL(string: "file:///tmp/evil.sh")!
-        ))
-        #expect(!MarkdownLinkIntercept.shouldOpenAsDocument(
-            URL(string: "file:///tmp/x.dmg")!
-        ))
+    @Test(arguments: [
+        "~otheruser/notes.md", "notes.md", "./notes.md", "../notes.md", "/tmp/notes.txt",
+        "/tmp/\u{202E}notes.md", "/tmp/notes\n.md",
+    ])
+    func schemelessPathRefusals(raw: String) {
+        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: raw) == nil)
     }
 
-    // INT-622: libghostty's default link regex matches bare filesystem paths
-    // (no OSC 8, no scheme) and hands the raw string to embedders. These
-    // cover the schemeless-path gate independent of the OpenURLAction wiring.
-    @Test func schemelessAbsolutePathOpens() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: existingMarkdownPath)
-        #expect(url?.path == existingMarkdownPath)
+    @Test(arguments: ["", "."])
+    func currentUserTildePath(suffix: String) throws {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".awesomux-test-\(UUID().uuidString).md")
+        try Data("# Notes".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "~/\(file.lastPathComponent)" + suffix)?.path == file.path)
     }
 
-    @Test func schemelessCurrentUserTildePathOpens() throws {
-        let fileURL = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: ".awesomux-test-\(UUID().uuidString).md")
-        try Data("# Notes".utf8).write(to: fileURL)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "~/\(fileURL.lastPathComponent)"
-        )
-        #expect(url?.path == fileURL.path)
+    @Test(arguments: ["a%0A.md"])
+    func percentLookingCharactersStayLiteral(name: String) throws {
+        let directory = try TemporaryDirectory(prefix: "markdown-percent")
+        defer { withExtendedLifetime(directory) {} }
+        let file = directory.url.appending(path: name)
+        try Data("# Notes".utf8).write(to: file)
+        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: file.path)?.lastPathComponent == name)
     }
 
-    @Test func schemelessOtherUserTildeRejected() {
-        // Deliberately not supported — only the current-user `~/` shorthand
-        // is expanded, per INT-622's fix scope.
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "~otheruser/notes.md") == nil)
+    @Test(arguments: [
+        ("docs/spec.md#install", "/tmp/source-doc", "/tmp/source-doc/docs/spec.md", "install"),
+        ("docs/spec.md?raw=1", "/tmp/source-doc", nil, nil),
+        ("docs/spec.md:12:5", "/tmp/source-doc", "/tmp/source-doc/docs/spec.md", nil),
+        ("docs/spec:v2.md", "/tmp/source-doc", "/tmp/source-doc/docs/spec:v2.md", nil),
+        ("../secret.md", "/tmp/source-doc/docs", nil, nil),
+        ("docs/../spec.md", "/tmp/source-doc", "/tmp/source-doc/spec.md", nil),
+    ])
+    func markdownDestination(raw: String, base: String, path: String?, fragment: String?) {
+        let url = MarkdownLinkIntercept.documentURL(forMarkdownDestination: raw, relativeTo: URL(fileURLWithPath: base))
+        #expect(url?.path == path)
+        #expect(url?.fragment == fragment)
     }
 
-    @Test func schemelessRelativePathsRejected() {
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "notes.md") == nil)
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "./notes.md") == nil)
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "../notes.md") == nil)
-    }
-
-    @Test func schemelessNonMarkdownAbsolutePathRejected() {
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes.txt") == nil)
-    }
-
-    @Test func schemelessAbsolutePathWithUnsafeCodepointRejected() {
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/\u{202E}notes.md") == nil)
-    }
-
-    // C0 controls are the more common injection primitive than bidi overrides;
-    // lock in embedded-newline rejection explicitly, not just RTL.
-    @Test func schemelessAbsolutePathWithEmbeddedNewlineRejected() {
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/notes\n.md") == nil)
-    }
-
-    // A literal NUL scalar takes a DIFFERENT safe path than other C0 controls:
-    // URL(fileURLWithPath:) percent-encodes it to inert "%00" text rather than
-    // passing a real NUL through `.path`, so isUnsafePathScalar never sees it —
-    // but no actual NUL byte reaches the returned URL either. Assert the real
-    // safety property (no live NUL scalar survives) rather than assuming the
-    // codepoint filter is what's doing the rejecting here.
-    @Test func schemelessAbsolutePathWithNULByteNeverLeaksARealNUL() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/tmp/\u{0000}notes.md")
-        #expect(url?.path.unicodeScalars.contains(Unicode.Scalar(0)) != true)
-    }
-
-    // Raw strings from libghostty are never percent-decoded; a literal `%0A`
-    // in a filename must stay literal, not collapse into a control character.
-    @Test func schemelessPathWithPercentLookingCharactersStaysLiteral() throws {
-        let fileURL = try makeMarkdownFile(named: "a%0A.md")
-        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
-
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: fileURL.path)
-        #expect(url?.lastPathComponent == "a%0A.md")
-    }
-
-    // URL(fileURLWithPath:) treats a leading "//" as a local path, not a
-    // network authority — confirm no host sneaks in via a doubled slash.
-    @Test func schemelessDoubleSlashPathStaysLocal() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "/\(existingMarkdownPath)")
-        #expect(url != nil)
-        #expect(url?.host == nil)
-    }
-
-    @Test func schemelessAbsolutePathStripsLineSuffix() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath):12:5")
-        #expect(url?.path == existingMarkdownPath)
-    }
-
-    // libghostty's bare-path regex only excludes trailing `.`/`,` for
-    // scheme URLs (http://, mailto:, etc.), not for absolute/`~` paths
-    // (vendor/ghostty/src/config/url.zig's rooted_or_relative_path_branch
-    // has no no_trailing_punctuation guard) — a path mentioned at the end
-    // of a sentence hands us the trailing period as part of the match.
-    @Test func schemelessAbsolutePathStripsTrailingSentencePeriod() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath).")
-        #expect(url?.path == existingMarkdownPath)
-    }
-
-    @Test func schemelessAbsolutePathStripsTrailingSentenceComma() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath),")
-        #expect(url?.path == existingMarkdownPath)
-    }
-
-    @Test func schemelessAbsolutePathStripsMultipleTrailingPeriods() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)..")
-        #expect(url?.path == existingMarkdownPath)
-    }
-
-    @Test func schemelessTildePathStripsTrailingSentencePeriod() throws {
-        let fileURL = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: ".awesomux-test-\(UUID().uuidString).md")
-        try Data("# Notes".utf8).write(to: fileURL)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "~/\(fileURL.lastPathComponent)."
-        )
-        #expect(url?.path == fileURL.path)
-    }
-
-    // libghostty's path_chars ([\w\-.~:\/?#@!$&*+;=%]) includes `?` and `!`,
-    // unlike `,` — an agent's closing line ending "...notes.md?" or "...md!"
-    // hands us the trailing character as part of the bare-path match too.
-    @Test func schemelessAbsolutePathStripsTrailingQuestionMark() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)?")
-        #expect(url?.path == existingMarkdownPath)
-    }
-
-    @Test func schemelessAbsolutePathStripsTrailingExclamationMark() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)!")
-        #expect(url?.path == existingMarkdownPath)
-    }
-
-    @Test func schemelessAbsolutePathStripsLineSuffixThenTrailingPeriod() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath):12:5.")
-        #expect(url?.path == existingMarkdownPath)
-    }
-
-    @Test func schemelessAbsolutePathPreservesAnchorFragment() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)#install")
-        #expect(url?.path == existingMarkdownPath)
-        #expect(url?.fragment == "install")
-    }
-
-    @Test func schemelessAbsolutePathPreservesAnchorFragmentThenStripsTrailingPeriod() {
-        let url = MarkdownLinkIntercept.documentURL(forSchemelessPath: "\(existingMarkdownPath)#install.")
-        #expect(url?.path == existingMarkdownPath)
-        #expect(url?.fragment == "install")
-    }
-
-    @Test func markdownDestinationPreservesFragmentButRejectsQuery() {
-        let base = URL(fileURLWithPath: "/tmp/source-doc")
-        let withFragment = MarkdownLinkIntercept.documentURL(
-            forMarkdownDestination: "docs/spec.md#install",
-            relativeTo: base
-        )
-        let withQuery = MarkdownLinkIntercept.documentURL(
-            forMarkdownDestination: "docs/spec.md?raw=1",
-            relativeTo: base
-        )
-
-        #expect(withFragment?.path == "/tmp/source-doc/docs/spec.md")
-        #expect(withFragment?.fragment == "install")
-        #expect(withQuery == nil)
-    }
-
-    // Explicit `[text](destination)` markdown syntax is parenthesis-delimited,
-    // not swept up by libghostty's sentence-boundary-blind regex — a literal
-    // trailing period in the destination is part of what the author wrote,
-    // not an artifact to strip. Pins the asymmetry with the schemeless-path
-    // functions above as intentional, not an oversight a future edit should
-    // "fix" for consistency.
-    @Test func markdownDestinationDoesNotStripTrailingPeriod() {
-        let base = URL(fileURLWithPath: "/tmp/source-doc")
-        #expect(MarkdownLinkIntercept.documentURL(
-            forMarkdownDestination: "docs/spec.md.",
-            relativeTo: base
-        ) == nil)
-    }
-
-    @Test func markdownDestinationStripsLineSuffix() {
-        let base = URL(fileURLWithPath: "/tmp/source-doc")
-        let withLine = MarkdownLinkIntercept.documentURL(
-            forMarkdownDestination: "docs/spec.md:12:5",
-            relativeTo: base
-        )
-
-        #expect(withLine?.path == "/tmp/source-doc/docs/spec.md")
-    }
-
-    @Test func markdownDestinationKeepsNonNumericColonFilename() {
-        let base = URL(fileURLWithPath: "/tmp/source-doc")
-        let withColon = MarkdownLinkIntercept.documentURL(
-            forMarkdownDestination: "docs/spec:v2.md",
-            relativeTo: base
-        )
-
-        #expect(withColon?.path == "/tmp/source-doc/docs/spec:v2.md")
-    }
-
-    @Test func markdownDestinationCannotEscapeSourceDirectory() {
-        let base = URL(fileURLWithPath: "/tmp/source-doc/docs")
-        let escaped = MarkdownLinkIntercept.documentURL(
-            forMarkdownDestination: "../secret.md",
-            relativeTo: base
-        )
-
-        #expect(escaped == nil)
-    }
-
-    @Test func markdownDestinationAllowsContainedNormalization() {
-        let base = URL(fileURLWithPath: "/tmp/source-doc")
-        let resolved = MarkdownLinkIntercept.documentURL(
-            forMarkdownDestination: "docs/../spec.md",
-            relativeTo: base
-        )
-
-        #expect(resolved?.path == "/tmp/source-doc/spec.md")
-    }
-
-    @Test func resolvedDocumentPathSupportsTildeBasesWithContainment() {
-        let ok = MarkdownLinkIntercept.resolvedDocumentPath(
-            forMarkdownDestination: "guide.md",
-            relativeToDirectory: "~/repo/docs"
-        )
-        #expect(ok?.path == "~/repo/docs/guide.md")
-
-        let escaped = MarkdownLinkIntercept.resolvedDocumentPath(
-            forMarkdownDestination: "../secret.md",
-            relativeToDirectory: "~/repo/docs"
-        )
-        #expect(escaped == nil)
-    }
-
-    @Test func normalizedDocumentFilePathCollapsesParentSegments() {
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("/repo/docs/../secret.md")
-                == "/repo/secret.md"
-        )
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/docs/../secret.md")
-                == "~/repo/secret.md"
-        )
-        #expect(MarkdownLinkIntercept.normalizedDocumentFilePath("~/../secret.md") == nil)
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/docs/guide.md")
-                == "~/repo/docs/guide.md"
-        )
-        // Collapsing above the source directory is enforced by join/containment,
-        // not by rejecting every `..` that stays under `~/`.
-        #expect(
-            MarkdownLinkIntercept.normalizedDocumentFilePath("~/repo/../secret.md")
-                == "~/secret.md"
-        )
-    }
-}
-
-@Suite("Markdown document path join helpers")
-struct MarkdownDocumentPathJoinTests {
-    @Test func resolvedDocumentPathJoinsRelativeMarkdown() {
-        let resolved = MarkdownLinkIntercept.resolvedDocumentPath(
-            forMarkdownDestination: "docs/file.md",
-            relativeToDirectory: "/repo/source"
-        )
-        #expect(resolved?.path == "/repo/source/docs/file.md")
+    @Test(arguments: [
+        ("guide.md", "~/repo/docs", "~/repo/docs/guide.md"),
+        ("../secret.md", "~/repo/docs", nil),
+        ("docs/file.md", "/repo/source", "/repo/source/docs/file.md"),
+        ("../secret.md", "/repo/source", nil),
+        ("../../x.md", "~/repo/docs", nil),
+    ])
+    func resolvedDocumentPath(raw: String, base: String, path: String?) {
+        let resolved = MarkdownLinkIntercept.resolvedDocumentPath(forMarkdownDestination: raw, relativeToDirectory: base)
+        #expect(resolved?.path == path)
         #expect(resolved?.fragment == nil)
     }
 
-    @Test func resolvedDocumentPathRejectsParentEscape() {
-        #expect(
-            MarkdownLinkIntercept.resolvedDocumentPath(
-                forMarkdownDestination: "../secret.md",
-                relativeToDirectory: "/repo/source"
-            ) == nil
-        )
+    @Test(arguments: [("~/repo/docs", "~/repo/docs/guide.md"), ("~", "~/guide.md")])
+    func tildeDirectoryJoin(base: String, expected: String) {
+        #expect(MarkdownLinkIntercept.joinRelativeDocumentPath("guide.md", toDirectory: base) == expected)
     }
 
-    @Test func relativeMarkdownDestinationRejectsAbsoluteTildeAndBadExtension() {
-        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("/abs.md") == nil)
-        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("~/notes.md") == nil)
-        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("docs/file.txt") == nil)
-        #expect(MarkdownLinkIntercept.relativeMarkdownDestination("docs/file.md")?.path == "docs/file.md")
+    enum Base: Sendable { case fixture, omitted, absent, nonAbsolute, missing, unsafe, other }
+    struct RelativeCase: Sendable {
+        let raw: String
+        let base: Base
+        let expected: String?
+        let fragment: String?
+        init(_ raw: String, _ expected: String?, _ fragment: String? = nil) {
+            self.init(raw, .fixture, expected, fragment)
+        }
+        init(_ raw: String, _ base: Base, _ expected: String?, _ fragment: String? = nil) {
+            self.raw = raw; self.base = base; self.expected = expected; self.fragment = fragment
+        }
     }
 
-    @Test func joinRelativeDocumentPathRejectsAbsoluteRelativeForms() {
-        #expect(MarkdownLinkIntercept.joinRelativeDocumentPath("/abs.md", toDirectory: "/repo") == nil)
-        #expect(MarkdownLinkIntercept.joinRelativeDocumentPath("~/x.md", toDirectory: "/repo") == nil)
-        #expect(
-            MarkdownLinkIntercept.joinRelativeDocumentPath("docs/file.md", toDirectory: "/repo/source")
-                == "/repo/source/docs/file.md"
-        )
+    @Test(arguments: [
+        RelativeCase("docs/notes.md", "docs/notes.md"),
+        RelativeCase("docs/notes.md.", "docs/notes.md"),
+        RelativeCase("./docs/notes.md", "docs/notes.md"),
+        RelativeCase("claude+int-739/a+b.md", "claude+int-739/a+b.md"),
+        RelativeCase("docs/missing.md", nil),
+        RelativeCase("../../notes.md", .missing, nil),
+        RelativeCase("docs/notes.md", .omitted, nil),
+        RelativeCase("docs/notes.md", .absent, nil),
+        RelativeCase("docs/notes.md", .nonAbsolute, nil),
+        RelativeCase("script.sh", nil),
+        RelativeCase("docs/e\u{202E}vil.md", nil),
+        RelativeCase("~otheruser/notes.md", nil),
+        RelativeCase("docs/notes.md", .unsafe, nil),
+        RelativeCase("{parent}/docs/notes.md", "docs/notes.md"),
+        RelativeCase("{absolute}", .other, "docs/notes.md"),
+        RelativeCase("docs/notes.md:12", "docs/notes.md"),
+        RelativeCase("docs/notes.md#install", "docs/notes.md", "install"),
+    ])
+    func relativeResolution(testCase: RelativeCase) throws {
+        let directory = try TemporaryDirectory(prefix: "int740")
+        defer { withExtendedLifetime(directory) {} }
+        let root = directory.url
+        for name in ["docs/notes.md", "claude+int-739/a+b.md", "~otheruser/notes.md", "notes.md", "script.sh"] {
+            let file = root.appending(path: name)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("# hi".utf8).write(to: file)
+        }
+        let base: String?
+        switch testCase.base {
+        case .fixture: base = root.path
+        case .absent, .omitted: base = nil
+        case .nonAbsolute: base = "not/absolute"
+        case .missing: base = root.appending(path: "ghost/sub").path
+        case .unsafe: base = "/tmp/e\u{202E}vil"
+        case .other: base = "/private/tmp"
+        }
+        let raw = testCase.raw.replacingOccurrences(of: "{parent}", with: "../\(root.lastPathComponent)")
+            .replacingOccurrences(of: "{absolute}", with: root.appending(path: "docs/notes.md").path)
+        let url =
+            testCase.base == .omitted
+            ? MarkdownLinkIntercept.documentURL(forSchemelessPath: raw)
+            : MarkdownLinkIntercept.documentURL(forSchemelessPath: raw, relativeTo: base)
+        #expect(url?.resolvingSymlinksInPath().path == testCase.expected.map { root.appending(path: $0).resolvingSymlinksInPath().path })
+        #expect(url?.fragment == testCase.fragment)
     }
 
-    @Test func tildeDirectoryJoinNormalizesBaseAndRejectsEscape() {
-        #expect(
-            MarkdownLinkIntercept.joinRelativeDocumentPath("guide.md", toDirectory: "~/repo/docs")
-                == "~/repo/docs/guide.md"
-        )
-        #expect(
-            MarkdownLinkIntercept.joinRelativeDocumentPath("guide.md", toDirectory: "~")
-                == "~/guide.md"
-        )
-        #expect(
-            MarkdownLinkIntercept.resolvedDocumentPath(
-                forMarkdownDestination: "../secret.md",
-                relativeToDirectory: "~/repo/docs"
-            ) == nil
-        )
-        #expect(
-            MarkdownLinkIntercept.resolvedDocumentPath(
-                forMarkdownDestination: "../../x.md",
-                relativeToDirectory: "~/repo/docs"
-            ) == nil
-        )
-    }
-}
-
-// INT-740: bridge panes never emit OSC 7, so libghostty can't resolve
-// relative link clicks itself and hands us the raw relative string.
-// These pin the embedder-side resolution against the pane's tracked cwd.
-@Suite struct MarkdownLinkInterceptRelativeResolutionTests {
-    /// Creates a real temp directory tree containing `docs/notes.md` and
-    /// returns its root. Existence checking is part of the contract under
-    /// test, so these tests touch the real filesystem.
-    private func makeFixtureRoot() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("int740-\(UUID().uuidString)", isDirectory: true)
-        let docs = root.appendingPathComponent("docs", isDirectory: true)
-        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
-        try Data("# hi".utf8).write(to: docs.appendingPathComponent("notes.md"))
-        return root
-    }
-
-    @Test func resolvesRelativeMarkdownPathAgainstBase() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/notes.md",
-            relativeTo: root.path
-        )
-        // Compare with symlinks resolved on BOTH sides: the implementation's
-        // NSString.standardizingPath strips /private, URL.standardizedFileURL
-        // does not, and TMPDIR sits exactly on the /var↔/private/var firmlink
-        // seam. Resolving both sides keeps this test about resolution, not
-        // about which spelling of the temp dir macOS handed us.
-        let got = url?.resolvingSymlinksInPath().path
-        let want = root.appendingPathComponent("docs/notes.md").resolvingSymlinksInPath().path
-        #expect(got == want)
-    }
-
-    // The absolute/tilde branch strips before the early return; this pins
-    // the same behavior on the base-directory-joined branch, which does a
-    // real FileManager existence check the early-return branch doesn't.
-    @Test func resolvesRelativePathWithTrailingSentencePeriod() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/notes.md.",
-            relativeTo: root.path
-        )
-        let got = url?.resolvingSymlinksInPath().path
-        let want = root.appendingPathComponent("docs/notes.md").resolvingSymlinksInPath().path
-        #expect(got == want)
-    }
-
-    @Test func resolvesDotSlashPrefixedRelativePath() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "./docs/notes.md",
-            relativeTo: root.path
-        )
-        #expect(url != nil)
-    }
-
-    // INT-740 repro guard: the worktree dirname contained a literal `+`
-    // (`claude+int-739-group-close-badge`). `+` must survive resolution —
-    // no percent-decoding may turn it into a space or reject the path.
-    @Test func plusInBaseDirectoryAndFilenameSurvivesResolution() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let plusDir = root.appendingPathComponent("claude+int-739", isDirectory: true)
-        try FileManager.default.createDirectory(at: plusDir, withIntermediateDirectories: true)
-        try Data("# hi".utf8).write(to: plusDir.appendingPathComponent("a+b.md"))
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "claude+int-739/a+b.md",
-            relativeTo: root.path
-        )
-        #expect(url?.lastPathComponent == "a+b.md")
-    }
-
-    @Test func rejectsRelativePathWhenFileMissing() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        #expect(MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/missing.md",
-            relativeTo: root.path
-        ) == nil)
-    }
-
-    // A deleted base (merged-and-removed worktree) must not let the lexical
-    // `..` collapse land on a real file the pane never had anything to do
-    // with. Constructs the collision: base/ghost/sub never exists, but
-    // ../../notes.md collapses to a file that does.
-    @Test func rejectsRelativePathWhenBaseDirectoryMissing() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Data("# hi".utf8).write(to: root.appendingPathComponent("notes.md"))
-        let ghostBase = root.appendingPathComponent("ghost/sub", isDirectory: true).path
-        #expect(MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "../../notes.md",
-            relativeTo: ghostBase
-        ) == nil)
-    }
-
-    @Test func rejectsRelativePathWithoutBase() {
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "docs/notes.md") == nil)
-        #expect(MarkdownLinkIntercept.documentURL(forSchemelessPath: "docs/notes.md", relativeTo: nil) == nil)
-    }
-
-    @Test func rejectsRelativePathWithNonAbsoluteBase() {
-        #expect(MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/notes.md",
-            relativeTo: "not/absolute"
-        ) == nil)
-    }
-
-    @Test func rejectsNonMarkdownRelativePath() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Data("x".utf8).write(to: root.appendingPathComponent("script.sh"))
-        #expect(MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "script.sh",
-            relativeTo: root.path
-        ) == nil)
-    }
-
-    @Test func rejectsRelativePathWithUnsafeCodepoint() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        #expect(MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/e\u{202E}vil.md",
-            relativeTo: root.path
-        ) == nil)
-    }
-
-    // Pinned pre-existing scope (INT-622): `~otheruser/` is rejected. Without
-    // an explicit guard the relative branch would join it literally under the
-    // cwd and open it if a dir named "~otheruser" existed. (Cross-model
-    // review catch.)
-    @Test func rejectsOtherUserTildeEvenWithBase() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let literalTildeDir = root.appendingPathComponent("~otheruser", isDirectory: true)
-        try FileManager.default.createDirectory(at: literalTildeDir, withIntermediateDirectories: true)
-        try Data("# hi".utf8).write(to: literalTildeDir.appendingPathComponent("notes.md"))
-        #expect(MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "~otheruser/notes.md",
-            relativeTo: root.path
-        ) == nil)
-    }
-
-    // A malformed base (control characters) must be rejected by the existing
-    // unsafe-codepoint fence, which runs on the JOINED path — this pins that
-    // the fence covers the base, not just the clicked string.
-    @Test func rejectsBaseDirectoryWithUnsafeCodepoint() {
-        #expect(MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/notes.md",
-            relativeTo: "/tmp/e\u{202E}vil"
-        ) == nil)
-    }
-
-    @Test func candidateGateAcceptsRelativeMarkdownPaths() {
-        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/notes.md"))
-        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("./docs/notes.md"))
-        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("../notes.md"))
-        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/notes.md:12"))
-        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/notes.md#install"))
-    }
-
-    @Test func candidateGateAcceptsTopLevelFilenameWithLineSuffix() {
-        // README.md:12 has a colon before the first "/" (there is no "/"),
-        // so Foundation's URL parser reads scheme "README.md" unless the
-        // gate strips the line suffix before parsing.
-        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("README.md:12"))
-    }
-
-    @Test func candidateGateAcceptsTrailingSentencePeriod() {
-        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/notes.md."))
-    }
-
-    @Test func candidateGateRejectsNonCandidates() {
-        #expect(!MarkdownLinkIntercept.isRelativeDocumentCandidate(""))
-        #expect(!MarkdownLinkIntercept.isRelativeDocumentCandidate("https://example.com"))
-        #expect(!MarkdownLinkIntercept.isRelativeDocumentCandidate("/tmp/notes.md"))
-        #expect(!MarkdownLinkIntercept.isRelativeDocumentCandidate("~/notes.md"))
-        #expect(!MarkdownLinkIntercept.isRelativeDocumentCandidate("~otheruser/notes.md"))
-        #expect(!MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/script.sh"))
-        #expect(!MarkdownLinkIntercept.isRelativeDocumentCandidate("docs/e\u{202E}vil.md"))
-    }
-
-    // Parent traversal is allowed by design — libghostty's own resolver
-    // permits it, and absolute paths to anywhere are already accepted, so
-    // requiring containment would add friction without a security win.
-    @Test func resolvesParentTraversalWhenTargetExists() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "../\(root.lastPathComponent)/docs/notes.md",
-            relativeTo: root.path
-        )
-        #expect(url != nil)
-    }
-
-    // Absolute schemeless paths bypass the base-directory join while still
-    // requiring the target file to exist.
-    @Test func absolutePathBehaviorUnchangedByBaseParameter() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let fileURL = root.appending(path: "docs/notes.md")
-        let url = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: fileURL.path,
-            relativeTo: "/private/tmp"
-        )
-        #expect(url?.path == fileURL.path)
-    }
-
-    @Test func resolvesRelativeLineSuffixAndAnchorAgainstBase() throws {
-        let root = try makeFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let lineURL = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/notes.md:12",
-            relativeTo: root.path
-        )
-        let anchorURL = MarkdownLinkIntercept.documentURL(
-            forSchemelessPath: "docs/notes.md#install",
-            relativeTo: root.path
-        )
-        #expect(lineURL?.lastPathComponent == "notes.md")
-        #expect(anchorURL?.lastPathComponent == "notes.md")
-        #expect(anchorURL?.fragment == "install")
+    @Test(arguments: [
+        "docs/notes.md", "./docs/notes.md", "../notes.md", "docs/notes.md:12", "docs/notes.md#install",
+        "README.md:12", "docs/notes.md.",
+    ])
+    func relativeCandidate(raw: String) {
+        #expect(MarkdownLinkIntercept.isRelativeDocumentCandidate(raw))
     }
 }

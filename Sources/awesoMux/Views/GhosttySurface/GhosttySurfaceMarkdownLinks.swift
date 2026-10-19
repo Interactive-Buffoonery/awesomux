@@ -12,7 +12,8 @@ extension GhosttySurfaceNSView {
         guard bounds.contains(convert(event.locationInWindow, from: nil)),
             let surface, let surfaceIdentity = currentMouseSurfaceIdentity,
             let origin = RemoteMarkdownReadRouting.origin(sessionID: sessionID, paneID: paneID, store: sessionStore),
-            origin.remoteFileContext != nil,
+            let pane = sessionStore.session(id: sessionID)?.layout.pane(id: paneID),
+            RemoteMarkdownReadRouting.isRemoteFileContext(pane),
             event.modifierFlags.intersection([.control, .option, .shift]).isEmpty
         else { return nil }
 

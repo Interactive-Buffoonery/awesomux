@@ -377,25 +377,10 @@ final class CommandBridgeEnactor {
         )
     }
 
-    /// Current local process evidence only. It may deny a safety-sensitive
-    /// action, but never grants execution-location authority.
-    func foregroundExecutableMatch(
-        _ executable: String,
-        probe: (String, pid_t) -> ProcessLivenessProbe.ForegroundExecutableMatch = {
-            ProcessLivenessProbe.terminalForegroundExecutableMatch($0, daemonPID: $1)
-        }
-    ) -> ProcessLivenessProbe.ForegroundExecutableMatch {
-        guard sessionID != nil, !errorLatched,
-            let rawPID = respawnLedger.lastIncarnation?.pid,
-            let daemonPID = pid_t(exactly: rawPID)
-        else { return .unknown }
-        return probe(executable, daemonPID)
-    }
-
     /// The observed foreground process name itself, for callers that match
     /// against patterns rather than one exact executable (the document-nudge
-    /// prompt gate). Same evidence guards as `foregroundExecutableMatch`;
-    /// nil = no usable evidence, which every consumer must treat as deny.
+    /// prompt gate). Nil means no usable evidence, which every consumer
+    /// must treat as deny.
     /// Each deny names its guard in the log (INT-569 field diagnostics).
     func foregroundComm(
         probe: (pid_t) -> String? = {
