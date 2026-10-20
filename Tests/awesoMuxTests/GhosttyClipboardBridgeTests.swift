@@ -188,7 +188,7 @@ struct GhosttyClipboardBridgeTests {
         if payload.count == 10_000 { #expect(body.count < 400) }
     }
 
-    @Test(arguments: [("deploy pane", "deploy pane")])
+    @Test(arguments: [("", "This terminal"), ("   ", "This terminal"), ("deploy pane", "deploy pane")])
     func alertTitle(raw: String, expected: String) {
         #expect(GhosttyRuntime.sanitizedAlertTitle(raw) == "\u{2068}\(expected)\u{2069}")
     }

@@ -203,7 +203,8 @@ struct RemoteMarkdownReferenceTests {
     @Test(
         "document destinations stay within the source directory",
         arguments: [
-            "markdownDestinationResolvesAgainstSourceDocumentDirectory", "markdownDestinationRejectsQueryAndSupportsTildeSource",
+            "markdownDestinationResolvesAgainstSourceDocumentDirectory", "markdownDestinationCannotEscapeSourceDirectory",
+            "markdownDestinationRejectsQueryAndSupportsTildeSource",
         ])
     func destinations(scenario: String) async throws {
         switch scenario {
@@ -221,6 +222,17 @@ struct RemoteMarkdownReferenceTests {
             #expect(reference.remotePath == "/repo/docs/guide.md")
             #expect(reference.sshTarget == "my-purple")
             #expect(reference.identity.location == source.location)
+        case "markdownDestinationCannotEscapeSourceDirectory":
+            let source = ResourceIdentity(
+                location: .remote(RemoteTarget(parsing: "my-purple")!),
+                path: ResourcePath(rawValue: "/repo/docs/README.md")
+            )
+            #expect(
+                RemoteMarkdownReference.make(
+                    markdownDestination: "../secret.md",
+                    relativeTo: source
+                ) == nil
+            )
         case "markdownDestinationRejectsQueryAndSupportsTildeSource":
             let source = ResourceIdentity(
                 location: .remote(RemoteTarget(parsing: "alice@my-purple")!),

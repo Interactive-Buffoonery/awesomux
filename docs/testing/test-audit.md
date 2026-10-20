@@ -44,7 +44,9 @@ Changes made:
 No suite named in the `script/test.sh` shard patterns was emptied.
 
 The table above covers the first, per-suite pass. The second, per-case pass
-removed or merged 50 more cases; see "Second pass: per-case cull".
+removed or merged 50 listed entries; some entries cover several parameter rows,
+so verified cases fell by 54, from 1,126 after pass 1 to 1,072 after pass 2.
+See "Second pass: per-case cull".
 
 ## Review items
 
@@ -95,7 +97,7 @@ do not. Most cuts are therefore restatements and duplicates.
 | | Before audit | After pass 1 | After pass 2 | After review fixes |
 | --- | ---: | ---: | ---: | ---: |
 | `@Test` functions | 1,141 | 1,129 | 1,075 | 1,088 |
-| Verified test cases | 1,138 | 1,126 | 1,072 | 1,085 |
+| Verified test cases | 1,138 | 1,126 | 1,072 | 1,086 |
 
 What remains is mostly boundary and regression coverage: wire framing,
 untrusted paths and names, ownership and revalidation before destructive
