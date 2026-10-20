@@ -8,15 +8,15 @@ enum AgentHookPermission {
     static func run(payload: AgentHookPayload, environment: [String: String], output: (String) -> Bool) {
         guard let endpoint = LocalPermissionEndpoint.parse(environment[LocalPermissionEndpoint.environmentKey]),
             let session = payload.providerSessionID,
-            let tool = payload.toolName, let summary = payload.permissionSummary,
-            !summary.isEmpty, summary.utf8.count <= 1024, tool.utf8.count <= 128,
+            let rawTool = payload.toolName, let rawSummary = payload.permissionSummary,
+            let tool = LocalPermissionRequest.completeSummary(rawTool, bytes: 128),
+            let summary = LocalPermissionRequest.completeSummary(rawSummary),
             let birth = LocalPermissionFiles.processStartMicroseconds(getpid())
         else { return }
         let request = LocalPermissionRequest(
             target: endpoint.target, providerSessionID: session, invocationID: UUID(), toolUseID: payload.toolUseID,
             helperPID: getpid(), helperStartMicroseconds: birth, expiresAt: Date().addingTimeInterval(120),
-            tool: LocalPermissionRequest.boundedSummary(tool, bytes: 128),
-            summary: LocalPermissionRequest.boundedSummary(summary)
+            tool: tool, summary: summary
         )
         guard request.isValid(now: Date()) else { return }
         let deadline = ContinuousClock.now.advanced(by: .seconds(120))

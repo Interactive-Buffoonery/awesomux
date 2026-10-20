@@ -147,4 +147,77 @@ struct LocalPermissionDecisionCoreTests {
         #expect(!core.admit(request, now: now.addingTimeInterval(3), helperAlive: true))
     }
 
+    @Test(arguments: [
+        "echo " + String(repeating: "\u{2167}", count: 255) + "; touch /tmp/permission-review-example",
+        "echo \u{2167}; touch /tmp/example",
+        "echo e\u{301}",
+        "echo hello\n touch /tmp/example",
+        "echo\thello", "echo hello\r", "echo\u{0}hello",
+        "echo\u{200B}hello", "echo\u{202E}hello", "echo\u{200D}hello",
+        "echo\u{00A0}hello", " echo hello", "echo hello ",
+        String(repeating: "a", count: 1024) + "; touch /tmp/example",
+        String(repeating: "é", count: 513), "", "   ",
+    ])
+    func lossyOrOversizedConsentTextFallsThrough(summary: String) {
+        let (core, original) = fixture()
+        var request = original
+        request.summary = summary
+        #expect(LocalPermissionRequest.completeSummary(summary) == nil)
+        #expect(!request.isValid(now: now))
+        #expect(!core.admit(request, now: now, helperAlive: true))
+    }
+
+    @Test(arguments: ["echo hello; touch /tmp/example", String(repeating: "a", count: 1024), String(repeating: "é", count: 512)])
+    func completeConsentTextPreservesEveryByte(summary: String) throws {
+        let (core, original) = fixture()
+        let represented = try #require(LocalPermissionRequest.completeSummary(summary))
+        #expect(represented.utf8.elementsEqual(summary.utf8))
+        var request = original
+        request.summary = represented
+        #expect(core.admit(request, now: now, helperAlive: true))
+    }
+
+    @Test(arguments: ["Ba\nsh", "Ｂash", " Bash", String(repeating: "a", count: 129)])
+    func lossyOrOversizedToolTextFallsThrough(tool: String) {
+        let (core, original) = fixture()
+        var request = original
+        request.tool = tool
+        #expect(LocalPermissionRequest.completeSummary(tool, bytes: 128) == nil)
+        #expect(!core.admit(request, now: now, helperAlive: true))
+    }
+
+    @Test(arguments: [false, true])
+    func foreignSessionProgressCannotEraseCurrentCancellation(foreignArrivesFirst: Bool) {
+        let (core, request) = fixture()
+        if foreignArrivesFirst {
+            core.observeProgress(session: "foreign", target: request.target, at: now.addingTimeInterval(2))
+        }
+        core.observeProgress(session: request.providerSessionID, target: request.target, at: now.addingTimeInterval(1))
+        if !foreignArrivesFirst {
+            core.observeProgress(session: "foreign", target: request.target, at: now.addingTimeInterval(2))
+        }
+        core.observeProgress(session: request.providerSessionID, target: request.target, at: now.addingTimeInterval(-1))
+        #expect(!core.admit(request, now: now.addingTimeInterval(3), helperAlive: true))
+        #expect(core.commit(request.identity, choice: .allow, now: now.addingTimeInterval(3), helperAlive: true) == nil)
+    }
+
+    @Test func genericProgressSaturationRefusesIngressUntilAffectedHooksExpire() {
+        let (core, original) = fixture()
+        for index in 0..<LocalPermissionDecisionCore.capacity {
+            core.observeProgress(session: "foreign-\(index)", target: original.target, at: now.addingTimeInterval(1))
+        }
+        core.observeProgress(session: original.providerSessionID, target: original.target, at: now.addingTimeInterval(2))
+        #expect(!core.admit(original, now: now.addingTimeInterval(3), helperAlive: true))
+        let fresh = LocalPermissionRequest(
+            target: original.target, providerSessionID: original.providerSessionID, invocationID: UUID(), toolUseID: nil,
+            helperPID: 123, helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(124), tool: "Bash", summary: "fresh"
+        )
+        #expect(!core.admit(fresh, now: now.addingTimeInterval(4), helperAlive: true))
+        let recovered = LocalPermissionRequest(
+            target: original.target, providerSessionID: original.providerSessionID, invocationID: UUID(), toolUseID: nil,
+            helperPID: 123, helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(248), tool: "Bash", summary: "recovered"
+        )
+        #expect(core.admit(recovered, now: now.addingTimeInterval(128), helperAlive: true))
+    }
+
 }

@@ -70,9 +70,8 @@ public struct LocalPermissionRequest: Codable, Equatable, Sendable {
         revision == 1 && helperPID > 1 && helperStartMicroseconds > 0 && expiresAt > now && expiresAt.timeIntervalSince(now) <= 125
             && choices == [.allow, .deny]
             && Self.validIdentifier(providerSessionID) && (toolUseID.map(Self.validIdentifier) ?? true)
-            && !tool.isEmpty && tool.utf8.count <= 128 && summary.utf8.count <= 1024
-            && tool == Self.boundedSummary(tool, bytes: 128)
-            && summary == Self.boundedSummary(summary, bytes: 1024)
+            && Self.completeSummary(tool, bytes: 128) != nil
+            && Self.completeSummary(summary) != nil
     }
 
     private static func validIdentifier(_ value: String) -> Bool {
@@ -80,16 +79,20 @@ public struct LocalPermissionRequest: Codable, Equatable, Sendable {
             && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
     }
 
-    public static func boundedSummary(_ value: String, bytes: Int = 1024) -> String {
-        let clean = UnicodeHygiene.sanitize(value, maxLength: bytes).unicodeScalars.filter {
-            !CharacterSet.controlCharacters.contains($0) || $0 == "\n" || $0 == "\t"
-        }
-        var result = ""
-        for scalar in clean {
-            guard result.utf8.count + scalar.utf8.count <= bytes else { break }
-            result.unicodeScalars.append(scalar)
-        }
-        return result
+    /// Consent text must survive intact. Title normalization, trimming and
+    /// clipping can hide or change the action that an approval would execute.
+    public static func completeSummary(_ value: String, bytes: Int = 1024) -> String? {
+        guard !value.isEmpty, value.utf8.count <= bytes,
+            value.utf8.elementsEqual(value.precomposedStringWithCompatibilityMapping.utf8),
+            value.utf8.elementsEqual(value.trimmingCharacters(in: .whitespacesAndNewlines).utf8),
+            value.unicodeScalars.allSatisfy({
+                !CharacterSet.controlCharacters.contains($0)
+                    && !UnicodeHygiene.isUnsafePathScalar($0)
+                    && !UnicodeHygiene.isDisallowedScalar($0)
+            }),
+            UnicodeHygiene.containsVisibleScalar(value)
+        else { return nil }
+        return value
     }
 }
 
@@ -112,12 +115,11 @@ public final class LocalPermissionDecisionCore {
     private var sessions: [LocalPermissionTarget: String] = [:]
     private var sessionEvidenceAt: [LocalPermissionTarget: Date] = [:]
     private var entries: [UUID: Entry] = [:]
-    private struct Progress {
+    private struct ProgressKey: Hashable {
+        let target: LocalPermissionTarget
         let session: String
-        let timestamp: Date
-        let toolUseID: String?
     }
-    private var progress: [LocalPermissionTarget: Progress] = [:]
+    private var progress: [ProgressKey: Date] = [:]
     private struct NativeProgressKey: Hashable {
         let target: LocalPermissionTarget
         let session: String
@@ -138,7 +140,7 @@ public final class LocalPermissionDecisionCore {
         sessions.removeValue(forKey: target)
         sessionEvidenceAt.removeValue(forKey: target)
         seen.removeValue(forKey: target)
-        progress.removeValue(forKey: target)
+        progress = progress.filter { $0.key.target != target }
         nativeProgress = nativeProgress.filter { $0.key.target != target }
     }
 
@@ -160,8 +162,15 @@ public final class LocalPermissionDecisionCore {
                 // resolution. Fall through until all affected hooks have expired.
                 progressBlockedUntil = max(progressBlockedUntil ?? .distantPast, timestamp.addingTimeInterval(125))
             }
-        } else if timestamp >= (progress[target]?.timestamp ?? .distantPast) {
-            progress[target] = Progress(session: session, timestamp: timestamp, toolUseID: nil)
+        } else {
+            let key = ProgressKey(target: target, session: session)
+            if progress[key] != nil || progress.count < Self.capacity {
+                progress[key] = max(timestamp, progress[key] ?? .distantPast)
+            } else {
+                // Foreign sessions cannot evict cancellation evidence. If an
+                // event cannot be retained, refuse ingress through its lifetime.
+                progressBlockedUntil = max(progressBlockedUntil ?? .distantPast, timestamp.addingTimeInterval(125))
+            }
         }
         for entry in entries.values
         where entry.request.target == target
@@ -189,9 +198,8 @@ public final class LocalPermissionDecisionCore {
         {
             return false
         }
-        if let evidence = progress[request.target], evidence.session == request.providerSessionID,
-            evidence.timestamp >= request.issuedAt,
-            evidence.toolUseID == nil || evidence.toolUseID == request.toolUseID
+        if let timestamp = progress[ProgressKey(target: request.target, session: request.providerSessionID)],
+            timestamp >= request.issuedAt
         {
             return false
         }
@@ -264,6 +272,7 @@ public final class LocalPermissionDecisionCore {
     }
 
     public func sweep(now: Date) {
+        progress = progress.filter { $0.value.addingTimeInterval(125) > now }
         nativeProgress = nativeProgress.filter { $0.value.addingTimeInterval(125) > now }
         if let until = progressBlockedUntil, until <= now { progressBlockedUntil = nil }
         for entry in entries.values where entry.request.expiresAt <= now {
