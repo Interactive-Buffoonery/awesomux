@@ -27,38 +27,21 @@ struct MarkdownSelfWriteRegistryTests {
         #expect(results == expected)
     }
 
-    @Test("a stale entry is dropped by a later write to a different file")
-    func writeSweepsEntriesNoReaderWillEverExpire() {
+    @Test("writes sweep expired entries and retain the exact validity boundary", arguments: [false, true])
+    func writeSweepsEntriesNoReaderWillEverExpire(atBoundary: Bool) {
         var registry = MarkdownSelfWriteRegistry(validityInterval: .seconds(5))
         let closedTab = URL(fileURLWithPath: "/tmp/awesomux-closed.md")
         registry.record(fileURL: closedTab, source: "big source", at: now)
         #expect(registry.entryCountForTesting == 1)
 
-        registry.record(fileURL: url, source: "other", at: now.advanced(by: .seconds(6)))
+        let writeTime = now.advanced(by: .seconds(atBoundary ? 5 : 6))
+        registry.record(fileURL: url, source: "other", at: writeTime)
 
-        #expect(
-            registry.entryCountForTesting == 1,
-            "the stale entry should have been swept, leaving only the new write"
-        )
-    }
-
-    @Test("an entry aged exactly the validity interval survives both the sweep and the read")
-    func sweepAndReadAgreeAtTheBoundary() {
-        var registry = MarkdownSelfWriteRegistry(validityInterval: .seconds(5))
-        let other = URL(fileURLWithPath: "/tmp/awesomux-other.md")
-        registry.record(fileURL: other, source: "boundary", at: now)
-        let boundary = now.advanced(by: .seconds(5))
-
-        registry.record(fileURL: url, source: "new", at: boundary)
-
-        #expect(
-            registry.entryCountForTesting == 2,
-            "the sweep must not drop an entry aged exactly the validity interval"
-        )
-        #expect(
-            registry.context(fileURL: other, onDiskSource: "boundary", at: boundary)
-                == MarkdownSelfWriteContext(source: "boundary", isSelfWrite: true),
-            "the read must still honor an entry aged exactly the validity interval"
-        )
+        #expect(registry.entryCountForTesting == (atBoundary ? 2 : 1))
+        if atBoundary {
+            #expect(
+                registry.context(fileURL: closedTab, onDiskSource: "big source", at: writeTime)
+                    == MarkdownSelfWriteContext(source: "big source", isSelfWrite: true))
+        }
     }
 }

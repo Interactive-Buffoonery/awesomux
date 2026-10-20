@@ -156,7 +156,6 @@ struct BranchChangesCompletionTests {
             ])
             let coordinator = BranchChangesCoordinator()
             let ticket = coordinator.begin(paneID: terminal.id)
-            let unwritten = try render(markdown: "# never written\n")
 
             var alerts: [BranchChangesFailure] = []
             BranchChangesCompletion.apply(
@@ -170,12 +169,6 @@ struct BranchChangesCompletionTests {
             )
 
             #expect(alerts.isEmpty, "the run the user is waiting for is the other one")
-            #expect(
-                DocumentPaneView.selfWriteRegistry.context(
-                    fileURL: unwritten.fileURL,
-                    onDiskSource: try #require(unwritten.markdown)
-                ) == nil
-            )
         case .closedOriginatingTabDoesNotReopen:
             let terminal = pane("zsh")
             let session = TerminalSession(

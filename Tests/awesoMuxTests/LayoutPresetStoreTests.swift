@@ -136,28 +136,20 @@ import Testing
 
     // MARK: - Hostile file contents
 
-    @Test func loadRejectsOversizedFile() throws {
-        let root = try makeProjectRoot()
-        let layouts = root.appendingPathComponent(".awesomux/layouts", isDirectory: true)
-        try fileManager.createDirectory(at: layouts, withIntermediateDirectories: true)
-        let big = Data(repeating: UInt8(ascii: " "), count: LayoutPresetStore.maxPresetBytes + 1)
-        try big.write(to: layouts.appendingPathComponent("big.json"))
-
-        #expect(throws: LayoutPresetStore.PresetError.fileTooLarge) {
-            try LayoutPresetStore.load(named: "big", forWorkingDirectory: root.path)
-        }
-    }
-
-    @Test func loadRejectsNestingBombBeforeDecoding() throws {
+    @Test(arguments: [false, true])
+    func loadRejectsOversizedFile(nestingBomb: Bool) throws {
         let root = try makeProjectRoot()
         let layouts = root.appendingPathComponent(".awesomux/layouts", isDirectory: true)
         try fileManager.createDirectory(at: layouts, withIntermediateDirectories: true)
         let depth = LayoutPresetStore.maxPresetNestingDepth + 8
-        let bomb = String(repeating: "[", count: depth) + String(repeating: "]", count: depth)
-        try Data(bomb.utf8).write(to: layouts.appendingPathComponent("bomb.json"))
-
-        #expect(throws: LayoutPresetStore.PresetError.nestingTooDeep) {
-            try LayoutPresetStore.load(named: "bomb", forWorkingDirectory: root.path)
+        let contents =
+            nestingBomb
+            ? Data((String(repeating: "[", count: depth) + String(repeating: "]", count: depth)).utf8)
+            : Data(repeating: UInt8(ascii: " "), count: LayoutPresetStore.maxPresetBytes + 1)
+        try contents.write(to: layouts.appendingPathComponent("hostile.json"))
+        let expected: LayoutPresetStore.PresetError = nestingBomb ? .nestingTooDeep : .fileTooLarge
+        #expect(throws: expected) {
+            try LayoutPresetStore.load(named: "hostile", forWorkingDirectory: root.path)
         }
     }
 
