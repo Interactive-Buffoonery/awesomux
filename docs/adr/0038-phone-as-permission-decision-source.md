@@ -19,8 +19,8 @@ terminal. [ADR-0035](0035-awesomux-companion-pairing.md) currently allows only
 three status reads. This adds pending-decision reads and decision submission
 to that allowlist, both requiring a separate Decide grant. Pairing keys, mutual
 TLS, network routes, leases and revocation remain unchanged. The corresponding
-ADR-0035 scope amendment is recorded in that ADR under **Amended:** 2026-10-20
-(landing with ADR-0036, #854).
+ADR-0035 scope amendment is recorded in that ADR's Amendment (2026-10-20)
+section (landing with ADR-0036, #854).
 
 ## Options considered
 
@@ -30,7 +30,7 @@ ADR-0035 scope amendment is recorded in that ADR under **Amended:** 2026-10-20
 - **Allow every source and promise first human answer wins:** simple wording,
   but the native prompt is outside the app's transaction and may race the hook.
 - **One core for Mac cards and phone, explicit provider uncertainty
-  (recommended):** deterministic app decisions without inventing provider
+  (chosen):** deterministic app decisions without inventing provider
   confirmation. Native-prompt races remain a release gate.
 
 ## Decision
