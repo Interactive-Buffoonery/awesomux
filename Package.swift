@@ -78,7 +78,10 @@ import PackageDescription
             .library(name: "DesignSystem", targets: ["DesignSystem"]),
         ],
         dependencies: [
-            .package(url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git", exact: "0.1.0"),
+            .package(
+                url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git",
+                revision: "cdb6aedbcf410a68e91ef2ef5137c61ad770ace0"
+            ),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
             .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
             .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),

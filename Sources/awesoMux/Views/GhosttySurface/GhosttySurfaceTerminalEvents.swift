@@ -750,8 +750,15 @@ extension GhosttySurfaceNSView {
 
     func handleCommandFinished(
         exitCode: Int16,
+        durationNanoseconds: UInt64 = 0,
         finishedAt: TimeInterval = Date().timeIntervalSinceReferenceDate
     ) {
+        if let completion = ShellCommandCompletion(exitCode: exitCode, durationNanoseconds: durationNanoseconds) {
+            sessionStore.recordCommandCompletion(
+                sessionID: sessionID, paneID: paneID, terminalSessionID: pane.terminalSessionID, executionPlan: pane.executionPlan,
+                completion: completion, at: Date(timeIntervalSinceReferenceDate: finishedAt)
+            )
+        }
         // Cache the exit code for `closeAfterProcessExit` to consult. This event
         // fires after every shell command, so process-exit supervision must wait
         // for libghostty's separate close callback.

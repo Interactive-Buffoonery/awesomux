@@ -158,7 +158,7 @@ final class LocalAPIService {
                 do {
                     attentionEvents = try store.localAPIAttentionEvents(
                         cursor: request.cursor, limit: request.limit ?? 0, lease: lease,
-                        processIncarnations: sampledIncarnations
+                        includeCommandEvents: request.includeCommandEvents ?? false, processIncarnations: sampledIncarnations
                     )
                 } catch {
                     return LocalAPIResponse(requestID: request.requestID, error: error as? LocalAPIError ?? .transportFailure)

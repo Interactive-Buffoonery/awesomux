@@ -242,9 +242,13 @@ extension GhosttyRuntime {
             }
 
             let exitCode = action.action.command_finished.exit_code
+            let durationNanoseconds = action.action.command_finished.duration
             let finishedAt = Date().timeIntervalSinceReferenceDate
-            let capturedSessionID = view.sessionID
-            let capturedPaneID = view.paneID
+            let (capturedSessionID, capturedPaneID, capturedTerminalSessionID, capturedExecutionPlan, capturedSurfaceIdentity) =
+                onMainThreadSynchronously {
+                    // Capture identity only; no native surface calls under the callback lock.
+                    (view.sessionID, view.paneID, view.pane.terminalSessionID, view.pane.executionPlan, view.currentMouseSurfaceIdentity)
+                }
             // Left on `Task` rather than `onMainThreadSynchronously` because
             // `handleCommandFinished`'s synchronous call graph
             // (`refreshShellActivity` → `shellActivitySnapshot()`) reaches
@@ -261,9 +265,13 @@ extension GhosttyRuntime {
                         capturedPaneID: capturedPaneID,
                         currentSessionID: view.sessionID,
                         currentPaneID: view.paneID
-                    )
+                    ),
+                    view.pane.terminalSessionID == capturedTerminalSessionID,
+                    view.pane.executionPlan == capturedExecutionPlan,
+                    view.currentMouseSurfaceIdentity == capturedSurfaceIdentity
                 else { return }
-                view.handleCommandFinished(exitCode: exitCode, finishedAt: finishedAt)
+                view.handleCommandFinished(
+                    exitCode: exitCode, durationNanoseconds: durationNanoseconds, finishedAt: finishedAt)
             }
             return true
 

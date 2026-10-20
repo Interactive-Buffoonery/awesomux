@@ -29,7 +29,8 @@ extension LocalAPIResponse {
                             workspaceID: event.workspaceID.uuidString, provider: event.provider,
                             occurredAt: event.occurredAt, reason: event.reason,
                             providerSessionID: event.providerSessionID, targetVersion: event.targetVersion.uuidString,
-                            resolvedAt: event.resolvedAt
+                            resolvedAt: event.resolvedAt,
+                            exitCode: event.exitCode, durationSeconds: event.durationSeconds
                         )
                     },
                     nextCursor: page.nextCursor, cursorStatus: page.cursorStatus.rawValue,
