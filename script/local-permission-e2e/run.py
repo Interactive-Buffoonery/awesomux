@@ -48,15 +48,17 @@ def atomic(path, value):
     temporary.unlink()
 
 
-def run_case(name, choice='allow', fallback=False, drop=False, broken=False, timeout=False):
+def run_case(name, choice='allow', fallback=False, drop=False, broken=False, timeout=False, terminal=False, retire=False):
     with tempfile.TemporaryDirectory(prefix='amx-perm-', dir='/private/tmp') as temp:
         directory = Path(temp)
+        permissions = directory / 'permissions'
+        permissions.mkdir(mode=0o700)
         target = {key: str(uuid.uuid4()).upper() for key in ('runtimeID', 'workspaceID', 'paneID', 'version')}
         server = socket.socket(socket.AF_UNIX)
         server.settimeout(5)
         server.bind(str(directory / 'bridge.sock'))
         server.listen(2)
-        endpoint = {'target': target, 'directory': str(directory)}
+        endpoint = {'target': target, 'directory': str(permissions)}
         if not fallback:
             endpoint['socket'] = str(directory / 'bridge.sock')
         atomic(directory / 'endpoint.json', endpoint)
@@ -90,15 +92,23 @@ def run_case(name, choice='allow', fallback=False, drop=False, broken=False, tim
                 deadline = time.monotonic() + 5
                 requests = []
                 while time.monotonic() < deadline:
-                    requests = list(directory.glob('req-*.json'))
+                    requests = list(permissions.glob('req-*.json'))
                     if requests: break
                     time.sleep(.02)
                 assert len(requests) == 1
                 req = json.loads(requests[0].read_text())
                 if original:
                     assert req == original, 'fallback must retain the exact invocation and deadline'
-                if not timeout:
-                    atomic(directory / ('dec-' + req['invocationID'] + '.json'), response(req, choice))
+                if retire:
+                    permissions.rename(directory / 'retired-permissions')
+                elif not timeout:
+                    # An unrelated wake must never produce a decision for this invocation.
+                    atomic(permissions / ('dec-' + str(uuid.uuid4()).upper() + '.json'), response(req, 'deny'))
+                    outcome = response(req, choice)
+                    if terminal:
+                        outcome['state'] = 'cancelled'
+                        outcome.pop('choice')
+                    atomic(permissions / ('dec-' + req['invocationID'] + '.json'), outcome)
             else:
                 req = original
                 wire = (json.dumps(response(req, choice)) + '\n').encode()
@@ -109,14 +119,14 @@ def run_case(name, choice='allow', fallback=False, drop=False, broken=False, tim
             stdout = b'' if broken else process.stdout.read()
             stderr = process.stderr.read()
             assert status == 0 and not stderr
-            expected = b'' if broken or timeout else (json.dumps({'hookSpecificOutput': {
+            expected = b'' if broken or timeout or terminal or retire else (json.dumps({'hookSpecificOutput': {
                 'hookEventName': 'PermissionRequest', 'decision': {'behavior': choice}}}, separators=(',', ':')) + '\n').encode()
             assert stdout == expected, (stdout, expected)
             if fallback or drop:
-                acks = list(directory.glob('ack-*.json'))
-                assert len(acks) == (0 if broken or timeout else 1)
+                acks = list(permissions.glob('ack-*.json'))
+                assert len(acks) == (0 if broken or timeout or terminal or retire else 1)
                 if acks: assert json.loads(acks[0].read_text()) == identity(req)
-                assert not list(directory.glob('req-*.json')), 'helper exit must withdraw its request'
+                assert not list(permissions.glob('req-*.json')), 'helper exit must withdraw its request'
             else:
                 assert ack == (None if broken else identity(req)), 'ACK needs complete successful stdout'
             events = (directory / 'events.jsonl').read_text()
@@ -136,6 +146,8 @@ try:
     run_case('file fallback allow', fallback=True)
     run_case('file fallback deny', fallback=True, choice='deny')
     run_case('dropped bridge reply retains invocation', drop=True)
+    run_case('file terminal outcome emits no decision', fallback=True, terminal=True)
+    run_case('retired fallback directory wakes silent fallthrough', fallback=True, retire=True)
     run_case('bridge stdout failure has no ACK', broken=True)
     run_case('file stdout failure has no ACK', fallback=True, broken=True)
     if args.include_timeout:

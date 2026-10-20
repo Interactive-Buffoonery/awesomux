@@ -16,11 +16,13 @@ final class LocalPermissionCoordinator {
     private(set) var focusRequest: (paneID: UUID, token: UUID)?
     @ObservationIgnored private let core = LocalPermissionDecisionCore()
     @ObservationIgnored private let runtimeID = UUID()
+    @ObservationIgnored private let directoryScanCompleted: (LocalPermissionTarget) -> Void
     @ObservationIgnored private var endpoints: [UUID: LocalPermissionEndpoint] = [:]
     @ObservationIgnored private var endpointFiles: [UUID: URL] = [:]
+    @ObservationIgnored private var eventFiles: [UUID: URL] = [:]
     @ObservationIgnored private var installedAt: [UUID: Date] = [:]
     @ObservationIgnored private var clients: [Int32: Client] = [:]
-    @ObservationIgnored private var timer: Task<Void, Never>?
+    @ObservationIgnored private var timer: DispatchSourceTimer?
     @ObservationIgnored private var directory: BridgeListenerDirectory?
     @ObservationIgnored private var listener: Int32 = -1
     @ObservationIgnored private var fileRequests: Set<UUID> = []
@@ -40,7 +42,8 @@ final class LocalPermissionCoordinator {
         let connectedAt = Date()
     }
 
-    init() {
+    init(directoryScanCompleted: @escaping (LocalPermissionTarget) -> Void = { _ in }) {
+        self.directoryScanCompleted = directoryScanCompleted
         if let directory = try? BridgeListenerDirectory.create(socketName: "local-permission.sock"),
             var address = LocalPermissionFiles.address(directory.socketPath)
         {
@@ -95,21 +98,31 @@ final class LocalPermissionCoordinator {
             return nil
         }
         endpointFiles[paneID] = descriptor
+        eventFiles[paneID] = eventFile
         endpoints[paneID] = endpoint
         installedAt[paneID] = Date()
         core.install(target)
         watchDirectory(endpoint)
         dirtyDirectories.insert(paneID)
         if timer == nil {
-            timer = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    guard !Task.isCancelled, let self else { return }
-                    self.pump()
-                }
+            let source = DispatchSource.makeTimerSource(queue: .main)
+            source.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(100), leeway: .milliseconds(20))
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated { self?.pump() }
             }
+            timer = source
+            source.resume()
         }
         return endpoint
+    }
+
+    /// A surviving shell reads this same descriptor for each new invocation.
+    /// Its event stream stays installed; only permission authority is renewed.
+    func move(paneID: UUID, to workspaceID: UUID) {
+        guard let endpoint = endpoints[paneID], endpoint.target.workspaceID != workspaceID,
+            let eventFile = eventFiles[paneID]
+        else { return }
+        _ = install(workspaceID: workspaceID, paneID: paneID, eventFile: eventFile)
     }
 
     func retire(paneID: UUID) {
@@ -120,6 +133,7 @@ final class LocalPermissionCoordinator {
         core.retire(endpoint.target)
         if let file = endpointFiles.removeValue(forKey: paneID) { unlink(file.path) }
         installedAt.removeValue(forKey: paneID)
+        eventFiles.removeValue(forKey: paneID)
         for (fd, client) in clients where client.request?.target == endpoint.target { disconnect(fd) }
         try? FileManager.default.removeItem(atPath: endpoint.directory)
         cards.removeValue(forKey: paneID)
@@ -137,6 +151,9 @@ final class LocalPermissionCoordinator {
         else { return }
         if event.phase == .sessionStart {
             core.observeSession(session, target: endpoint.target, at: timestamp)
+            // Session evidence can make an unchanged rejected fallback eligible.
+            // Re-admission still checks the original identity, expiry and fences.
+            dirtyDirectories.insert(paneID)
         }
         // Session lifecycle/progress is conservative invalidation, never proof of
         // provider completion. Tool progress additionally needs an exact native
@@ -185,28 +202,38 @@ final class LocalPermissionCoordinator {
         for request in core.requests {
             let identity = request.identity
             guard let endpoint = endpoints[request.target.paneID], endpoint.target == request.target else { continue }
-            if fileRequests.contains(request.invocationID) {
-                // A helper may exit immediately after its successful stdout/ACK.
-                // Consume that receipt before considering exit or removed req.
-                if let ack = LocalPermissionFiles.read(LocalPermissionIdentity.self, at: endpoint.file("ack", id: request.invocationID)),
-                    ack == identity
-                {
-                    core.acknowledge(identity)
+            guard let state = core.outcome(identity)?.state else { continue }
+            let active = state == .pending || state == .recorded || state == .delivering
+            let usesFiles = fileRequests.contains(request.invocationID)
+            if active {
+                if usesFiles {
+                    // A helper may exit immediately after its successful stdout/ACK.
+                    // Consume that receipt before considering exit or removed req.
+                    if let ack = LocalPermissionFiles.read(
+                        LocalPermissionIdentity.self, at: endpoint.file("ack", id: request.invocationID)),
+                        ack == identity
+                    {
+                        core.acknowledge(identity)
+                    }
+                    // A receipt closes active servicing immediately.
+                    if core.outcome(identity)?.state != .delivered {
+                        let alive = LocalPermissionFiles.helperAlive(request)
+                        let reqURL = endpoint.file("req", id: request.invocationID)
+                        if !alive || LocalPermissionFiles.read(LocalPermissionRequest.self, at: reqURL) == nil {
+                            core.cancel(identity)
+                        }
+                        if core.outcome(identity)?.state == .recorded {
+                            _ = core.claimDelivery(identity, now: Date(), helperAlive: alive)
+                        }
+                    }
+                } else if !LocalPermissionFiles.helperAlive(request) {
+                    core.cancel(identity)
                 }
-                let reqURL = endpoint.file("req", id: request.invocationID)
-                if !LocalPermissionFiles.helperAlive(request)
-                    || LocalPermissionFiles.read(LocalPermissionRequest.self, at: reqURL) == nil
-                {
-                    core.cancel(request.identity)
-                }
-                if core.outcome(identity)?.state == .recorded {
-                    _ = core.claimDelivery(identity, now: Date(), helperAlive: LocalPermissionFiles.helperAlive(request))
-                }
-                if let outcome = core.outcome(identity), outcome.state != .pending && outcome.state != .recorded {
-                    publishDecision(outcome, endpoint: endpoint)
-                }
-            } else if !LocalPermissionFiles.helperAlive(request) {
-                core.cancel(request.identity)
+            }
+            // Retained outcomes do not service receipts or liveness. Publication
+            // has its own bounded retry budget even after a terminal transition.
+            if usesFiles, let outcome = core.outcome(identity), outcome.state != .pending && outcome.state != .recorded {
+                publishDecision(outcome, endpoint: endpoint)
             }
         }
         for fd in Array(clients.keys) { deliver(fd) }
@@ -338,6 +365,7 @@ final class LocalPermissionCoordinator {
                 else { continue }
                 self.fileRequests.insert(request.invocationID)
             }
+            self.directoryScanCompleted(endpoint.target)
             self.pump()
         }
     }
@@ -345,13 +373,13 @@ final class LocalPermissionCoordinator {
     private func publishDecision(_ outcome: LocalPermissionOutcome, endpoint: LocalPermissionEndpoint) {
         let id = outcome.identity.invocationID
         guard !publishedDecisions.contains(id) else { return }
+        let attempt = publicationAttempts[id]
+        guard (attempt?.count ?? 0) < 5, Date().timeIntervalSince(attempt?.last ?? .distantPast) >= 1 else { return }
         let file = endpoint.file("dec", id: id)
         if let existing = LocalPermissionFiles.read(LocalPermissionOutcome.self, at: file), existing.identity == outcome.identity {
             publishedDecisions.insert(id)
             return
         }
-        let attempt = publicationAttempts[id]
-        guard (attempt?.count ?? 0) < 5, Date().timeIntervalSince(attempt?.last ?? .distantPast) >= 1 else { return }
         var wire = outcome
         if wire.state != .delivering { wire.choice = nil }
         publicationAttempts[id] = ((attempt?.count ?? 0) + 1, Date())

@@ -75,8 +75,12 @@ struct LocalPermissionPromptView: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityFocused($accessibilityFocused)
-                .accessibilityAction(named: Text("Allow once")) { coordinator.decide(identity, choice: .allow) }
-                .accessibilityAction(named: Text("Deny once")) { coordinator.decide(identity, choice: .deny) }
+                .accessibilityActions {
+                    if card.outcome.state == .pending {
+                        Button("Allow once") { coordinator.decide(identity, choice: .allow) }
+                        Button("Deny once") { coordinator.decide(identity, choice: .deny) }
+                    }
+                }
                 .focusable(true)
                 .focusEffectDisabled()
                 .focused($focused)

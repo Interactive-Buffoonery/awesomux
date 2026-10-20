@@ -1,5 +1,6 @@
 import AwesoMuxCore
 import Darwin
+import Dispatch
 import Foundation
 
 /// One process, one invocation UUID, at most one stdout decision across both
@@ -21,6 +22,26 @@ enum AgentHookPermission {
         guard request.isValid(now: Date()) else { return }
         let deadline = ContinuousClock.now.advanced(by: .seconds(120))
         if bridge(request, endpoint: endpoint, deadline: deadline, output: output) { return }
+        // Arm readiness before publishing req: a fast decision must not race
+        // registration. Inspect before waiting so coalesced events stay safe.
+        let directoryFD = open(endpoint.directory, O_EVTONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard directoryFD >= 0 else { return }
+        var directoryInfo = stat()
+        guard fstat(directoryFD, &directoryInfo) == 0,
+            directoryInfo.st_mode & S_IFMT == S_IFDIR, directoryInfo.st_uid == geteuid(),
+            directoryInfo.st_mode & 0o077 == 0
+        else { close(directoryFD); return }
+        let changed = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: directoryFD, eventMask: [.write, .rename, .delete, .revoke], queue: .global(qos: .utility)
+        )
+        source.setEventHandler { changed.signal() }
+        source.setCancelHandler { close(directoryFD) }
+        source.resume()
+        defer { source.cancel() }
+        let remaining = ContinuousClock.now.duration(to: deadline).components
+        let seconds = Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18
+        let waitDeadline = DispatchTime.now() + max(0, seconds)
         let req = endpoint.file("req", id: request.invocationID)
         guard LocalPermissionFiles.write(request, at: req) else { return }
         defer {
@@ -39,7 +60,12 @@ enum AgentHookPermission {
                 }
                 return
             }
-            usleep(100_000)
+            var current = stat()
+            guard lstat(endpoint.directory, &current) == 0,
+                current.st_dev == directoryInfo.st_dev, current.st_ino == directoryInfo.st_ino,
+                current.st_mode & S_IFMT == S_IFDIR, current.st_mode & 0o077 == 0,
+                changed.wait(timeout: waitDeadline) == .success
+            else { return }
         }
     }
 
@@ -68,8 +94,22 @@ enum AgentHookPermission {
         }
         if connected != 0 {
             guard errno == EINPROGRESS || errno == EAGAIN || errno == EWOULDBLOCK else { return false }
-            var readiness = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-            guard poll(&readiness, 1, 1000) > 0 else { return false }
+            // The source owns a duplicate so asynchronous cancellation cannot
+            // race closure/reuse of the connection descriptor on return.
+            let readinessFD = dup(fd)
+            guard readinessFD >= 0 else { return false }
+            guard fcntl(readinessFD, F_SETFD, FD_CLOEXEC) == 0 else { close(readinessFD); return false }
+            let writable = DispatchSemaphore(value: 0)
+            let source = DispatchSource.makeWriteSource(fileDescriptor: readinessFD, queue: .global(qos: .utility))
+            source.setCancelHandler { close(readinessFD) }
+            source.setEventHandler { [weak source] in
+                source?.cancel()
+                writable.signal()
+            }
+            source.resume()
+            let ready = writable.wait(timeout: .now() + .seconds(1))
+            source.cancel()
+            guard ready == .success else { return false }
             var socketError: Int32 = 0
             var size = socklen_t(MemoryLayout<Int32>.size)
             guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &socketError, &size) == 0, socketError == 0 else { return false }

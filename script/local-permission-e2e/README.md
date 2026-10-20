@@ -18,9 +18,11 @@ python3 script/local-permission-e2e/run.py \
 The output directory must not exist. `result.json` lists completed cases;
 a nonzero runner exit means failure even if some cases already passed. The
 optional timeout case takes the actual 120-second helper budget. The remaining
-seven cases exercise bridge allow/deny, file allow/deny, bridge disconnect with
+nine cases exercise bridge allow/deny, file allow/deny, bridge disconnect with
 an unchanged invocation, fragmented socket responses, and broken stdout with
-no ACK on either transport. Fixture payloads include sentinel file-content and
+no ACK on either transport. File cases also cover a terminal no-decision record,
+unrelated directory notifications, immediate publication, and retirement of the
+watched directory waking silent fall-through. Fixture payloads include sentinel file-content and
 tool-response secrets; they must never appear in runtime telemetry or requests.
 Fixtures omit `tool_use_id`, as Claude's PermissionRequest contract does.
 
@@ -40,8 +42,19 @@ Runtime lifecycle JSONL is advisory evidence, never the authoritative queue.
 Directory readiness notifications discover fallback records; directory enumeration
 runs off the main actor, with at most four concurrent scans and a five-second
 backstop when a watch is unavailable. The common socket path does not poll file
-queues. Successful immutable decision publication is remembered; failures get
-at most five attempts, spaced at least one second apart.
+queues. The helper arms a directory DispatchSource before publishing its fallback
+request, reads on notification and waits on a semaphore bounded by the original
+monotonic deadline. Socket connection completion uses writable readiness with a
+one-second bound. The app pump uses a DispatchSourceTimer. Successful immutable decision publication is remembered; failures get
+at most five attempts, spaced at least one second apart. Retained terminal
+outcomes stop receipt/request-file reads and helper-liveness checks; outstanding
+publication retries retain their independent bounded budget.
+
+`LocalPermissionIntegrationTests` drives real coordinator directory sources and
+files with live PID/birth evidence: workspace moves/returns renew the stable
+descriptor, delayed session evidence retries an unchanged fallback, ACK is consumed
+before request withdrawal, and terminal publication recovers from a blocked path.
+These fixtures do not create a native terminal surface or run Claude.
 
 The app's in-memory core owns pending → recorded → delivering → delivered.
 Claiming delivery is atomic across both transports. A helper ACK is sent only
