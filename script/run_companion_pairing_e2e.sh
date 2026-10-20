@@ -19,6 +19,62 @@ APP_LOG="$ARTIFACT_DIR/app.log"
 E2E_LOG="$ARTIFACT_DIR/e2e.log"
 APP_BINARY="$ROOT_DIR/dist/awesoMux.app/Contents/MacOS/awesoMux"
 
+firewall_preflight() {
+  local firewall=/usr/libexec/ApplicationFirewall/socketfilterfw
+  local state block_all apps
+  [[ -e "$firewall" ]] || return 0
+
+  if ! state="$("$firewall" --getglobalstate)"; then
+    echo "error: could not query macOS firewall state" >&2
+    return 1
+  fi
+  case "$state" in
+    "Firewall is disabled. (State = 0)") return 0 ;;
+    "Firewall is enabled. (State = 1)") ;;
+    *) echo "error: unrecognized macOS firewall state: $state" >&2; return 1 ;;
+  esac
+  if ! block_all="$("$firewall" --getblockall)"; then
+    echo "error: could not query macOS firewall block-all state" >&2
+    return 1
+  fi
+  case "$block_all" in
+    "Firewall has block all state set to disabled.") ;;
+    "Firewall has block all state set to enabled.")
+      echo "error: turn off Block all incoming connections in System Settings > Network > Firewall > Options before running pairing E2E." >&2
+      return 1
+      ;;
+    *) echo "error: unrecognized macOS firewall block-all state: $block_all" >&2; return 1 ;;
+  esac
+  if ! apps="$("$firewall" --listapps)"; then
+    echo "error: could not query macOS firewall applications" >&2
+    return 1
+  fi
+  if ! AWESOMUX_FIREWALL_BINARY="$APP_BINARY" awk '
+    /^[0-9]+ : / {
+      path = $0
+      sub(/^[0-9]+ : /, "", path)
+      sub(/[[:space:]]+$/, "", path)
+      matches = (path == ENVIRON["AWESOMUX_FIREWALL_BINARY"])
+      next
+    }
+    matches {
+      sub(/^[[:space:]]+/, "")
+      sub(/[[:space:]]+$/, "")
+      if ($0 == "(Allow incoming connections)") allowed = 1
+      else denied = 1
+      matches = 0
+    }
+    END { exit !(allowed && !denied) }
+  ' <<< "$apps"; then
+    echo "error: macOS firewall must allow incoming connections for: $APP_BINARY" >&2
+    printf '  sudo %q --add %q\n' "$firewall" "$APP_BINARY" >&2
+    printf '  sudo %q --unblockapp %q\n' "$firewall" "$APP_BINARY" >&2
+    return 1
+  fi
+}
+
+firewall_preflight
+
 mkdir -p "$ARTIFACT_DIR"
 : > "$LINK_FILE"
 : > "$RESULT_FILE"
