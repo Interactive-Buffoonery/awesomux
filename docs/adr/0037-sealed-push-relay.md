@@ -1,7 +1,8 @@
 # 0037 — An opt-in sealed push relay
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-20
+- **Accepted:** 2026-10-20 — Sarah accepted the design as the direction for push; no relay is hosted or built for now
 - **Deciders:** Sarah
 - **Issue:** [#789](https://github.com/Interactive-Buffoonery/awesomux/issues/789)
 
@@ -10,13 +11,18 @@
 [ADR-0035](0035-awesomux-companion-pairing.md) defines direct pinned mutual TLS
 and pull-only delivery. iOS background reads cannot promise timely alerts.
 Push introduces a service outside the Mac, so custody and removal must be
-explicit. This is a proposed extension to that delivery boundary, not a change
-to the direct API transport or its allowed operations. Sarah must accept it first.
+explicit. This is an extension to that delivery boundary, not a change to the
+direct API transport or its allowed operations. Sarah accepted it on 2026-10-20
+as the design to use when push is added. **No relay service is hosted or built
+for now; alerts stay polling-only.** Relay implementation, including the
+security and unpairing work in #828, the sealed relay itself and phone receipt,
+waits until Sarah chooses to host a relay.
 
 ## Options considered
 
 - **Polling only:** no hosted custody or operating cost; alerts remain best-effort
-  while the app is suspended. Keep this as the fallback.
+  while the app is suspended. This is the shipped behavior for now and stays
+  the fallback once push exists.
 - **CloudKit:** uses Apple's infrastructure, but ties delivery to Apple account
   availability and adds a second synchronization model.
 - **Sealed APNs relay (recommended):** timely notification delivery without
@@ -24,7 +30,7 @@ to the direct API transport or its allowed operations. Sarah must accept it firs
 
 ## Decision
 
-**Recommendation:** make sealed push opt-in per pairing. The Mac chooses when
+**Decision:** when push is added, make sealed push opt-in per pairing. The Mac chooses when
 and what to notify; the relay authenticates, limits and forwards an encrypted
 envelope to APNs. It is content-blind, not literally stateless.
 
@@ -116,18 +122,29 @@ best-effort. Do not replay old alerts after recovery or widen notification conse
 
 ## Consequences
 
-The service needs abuse controls, credential rotation, a deletion path and an
-operator before release. Encryption limits content exposure, not traffic analysis
+Nothing is hosted now: alerts stay pull-only, so the ADR-0035 Alpha label and
+its late-alert caveat remain. When Sarah chooses to host a relay, the service
+needs abuse controls, credential rotation, a deletion path, a named operator and
+hosting provider, and a recorded client cost before release. Encryption limits content exposure, not traffic analysis
 or denial of service. Delivery, retention, unpairing while offline and locked-phone
 key access need future verification; this record supplies no runtime evidence.
 
 ## Open questions for Sarah
 
+Answered by Sarah on 2026-10-20; the design is accepted as written, with
+hosting deferred.
+
 1. Choose the opt-in sealed relay, keeping polling as the fallback?
+   **Decision:** yes, as the direction for when push is added.
 2. Accept five-minute alerts, no durable relay queue, 30-day registration expiry
    and seven-day aggregate metrics, including pending deletion while offline?
+   **Decision:** yes.
 3. Keep unlock-only keys and generic locked-phone previews, accepting that stale
    generic notifications may still appear? Accept token linkage across Macs and
    spoofed-push risk on relay compromise?
-4. Use phone-owned renewal (push pauses after 30 days away), and who owns the
-   service/hosting and its bounded operational metrics before release?
+   **Decision:** yes.
+4. Use phone-owned renewal (push pauses after 30 days away)?
+   **Decision:** yes. Service ownership and hosting are deferred: no relay is
+   hosted or built for now and alerts stay polling-only. Choosing an operator
+   and hosting provider is the first step if and when Sarah decides to host one;
+   #828 and the relay and phone-receipt implementation wait on that choice.
