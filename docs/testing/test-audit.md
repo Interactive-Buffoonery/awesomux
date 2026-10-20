@@ -43,36 +43,140 @@ Changes made:
 
 No suite named in the `script/test.sh` shard patterns was emptied.
 
+The table above covers the first, per-suite pass. The second, per-case pass
+removed or merged 66 more cases; see "Second pass: per-case cull".
+
 ## Review items
 
-- `GhosttyConfigEnvironmentTests.logFieldsContainsNoPII`: checks copied
-  formatting and paths the instance never received. Decide whether the log
-  field names are a supported diagnostics contract before deleting.
-- `BranchChangesIdentityTests.longSharedPrefixesStayDistinct`: the
-  `hashValue` inequality assertion isn't a `Hashable` guarantee. Keep the
-  identity and display assertions.
+The second pass settled every item the first pass left for review:
+
+- `GhosttyConfigEnvironmentTests.logFieldsContainsNoPII`: deleted. It only
+  copied log literals and never supplied PII to check.
+- `BranchChangesIdentityTests.longSharedPrefixesStayDistinct`: removed the
+  `hashValue` inequality assertion; the identity checks stay.
 - `PaneChangeClassificationTests.classificationCoversEveryAssignedField`:
-  matches source text rather than behavior. Remove once publication coverage
-  is confirmed elsewhere.
+  deleted. It matched source text, not behavior.
 - `AgentRuntimeEventBridgeTests.denseTrailingNewlinesUseBoundedTailScan`:
-  asserts only the final phase, not that the scan is bounded.
+  kept and renamed to match what it checks (buffered session-end authority).
 - `BranchChangesCompletionTests.obsoleteCompletion(.supersededFailureRegistersNothing)`:
-  the registry assertion uses a URL that is never passed to `apply`, so it
-  can't fail.
-- `MarkdownTableA11yTests`: `exposedCellsHaveFrames` could fold into
-  `clientAttachingAfterRender`, keeping the empty-row fixture.
-- `RemoteMarkdownTypedPathOpenTests`: `openFetchesAndAppliesRemoteTab` could
-  fold into `openAnnouncesLoadingBeforeFetch`.
-- `SessionPersistenceLoadTests.pathStateAtAcknowledgement`: three branches
-  repeat their whole bodies and could share one table.
-- `WorkspaceLayoutPresetTests` decoder-depth cases: keep for stack safety, but
-  they share the large-stack thread pattern flagged below.
-- Test-only seams kept because live tests use them:
+  kept the row and removed the assertion that could not fail.
+- `MarkdownTableA11yTests`: merged `exposedCellsHaveFrames` into
+  `clientAttachingAfterRender` as a second row.
+- `RemoteMarkdownTypedPathOpenTests`: merged the fetch-and-apply case into the
+  loading-order case.
+- `SessionPersistenceLoadTests.pathStateAtAcknowledgement`: the three repeated
+  branches now share one body.
+- `WorkspaceLayoutPresetTests` decoder-depth cases: kept as a parsing limit.
+- Test-only seams stay because live tests still use them:
   `SecureFileReader.read(afterOpen:)`,
   `AgentRuntimeEventBridge.drainRuntimeEventsForTesting`, the
   `GhosttySurfaceContainerView` `*ForTesting` hooks,
   `GhosttyRuntime.pendingClipboardWriteTextForTesting`, and
   `MarkdownSelfWriteRegistry.entryCountForTesting`.
+
+## Second pass: per-case cull
+
+The first pass judged whole suites, so a suite with one good test kept its
+weak ones too. The second pass judged every `@Test` function and every
+parameter row on its own. A case stayed only with evidence for one of:
+
+- **K1** a specific past regression (issue, PR, or fix commit).
+- **K2** a security or parsing boundary, or protection of saved user data.
+- **K3** real behavior that no E2E journey asserts.
+
+Everything else was deleted as a restatement of the implementation (D1),
+a characterization snapshot (D2), E2E overlap (D3), a mock-only test or dead
+seam (D4), trivial (D5), or a duplicate (D6), or merged into a table.
+
+An E2E coverage map came first. It found only five unit tests that duplicate
+an E2E assertion exactly, because most journeys drive paths the unit tests
+do not. Most cuts are therefore restatements and duplicates.
+
+| | Before audit | After pass 1 | After pass 2 |
+| --- | ---: | ---: | ---: |
+| `@Test` functions | 1,141 | 1,129 | 1,075 |
+| Verified test cases | 1,138 | 1,126 | 1,072 |
+
+What remains is mostly boundary and regression coverage: wire framing,
+untrusted paths and names, ownership and revalidation before destructive
+actions, consent gates, and persistence recovery. The earlier culls in #832
+and #833 had already removed most of the junk this pass looked for.
+
+Closest calls: the deleted `AgentHookEventMapperTests` cases restated the
+provider-to-state mapping table row by row, with no linked bug fix. That
+table maps real Claude, Codex, and Grok hook events, so restore cases there
+first if a mapping regression slips through.
+
+### Cases removed or merged
+
+| File | Test | Verdict | Criterion | Reason |
+| --- | --- | --- | --- | --- |
+| AgentHookCommandTests.swift | AgentHookCommandTests.nonRegularValidationFails | merge | K2 | Merged into unsafeFileMetadataIsRejected; nonregular owned metadata must still throw POSIXError. |
+| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.claudeCodeStopMapsDirectlyToWaiting | delete | D1 | Copies the Stop mapping and projects the same waiting state; history search finds seed/cull commits, no specific fix. |
+| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.codexPermissionRequestMapsToPermissionPromptWithoutExecution | delete | D6 | Codex PermissionRequest uses localAgentMapping inherited from the same baseMapping entry checked by the retained Claude PermissionRequest row. |
+| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.currentGrokStopWithoutReasonMapsToWaiting | delete | D1 | Directly copies the current Grok Stop/baseMapping tuple; seed/cull history supplies no specific regression. |
+| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.grokStopReasonSplitsTurnEndFromErrors | delete | D1 | All six rows mirror grokLegacyStopMapping reason branches; history traces to cb3545b6 seed without a fix. |
+| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.legacyGrokSnakeCaseEventsRemainAccepted | delete | D1 | All ten rows copy grokMapping/baseMapping output tuples and a passthrough ID; no specific regression found in history. |
+| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.legacyGrokStopWithoutReasonKeepsErrorBehavior | delete | D1 | Directly copies grokLegacyStopMapping nil-reason tuple; seed/cull history supplies no specific regression. |
+| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.localAgentNotificationsIgnoreNotificationType | delete | D1 | Both provider rows copy the localAgentMapping notification entry and ignored parameter behavior. |
+| AgentRuntimeEventReducerEdgeTests.swift | AgentRuntimeEventReducerEdgeTests.restoredWaitingPaneSeedsBetweenTurns | merge | K3 | Merged into trailingToolEndAfterStopKeepsWaiting(restored:true); preserves nil execution update and resulting waiting state. |
+| AgentRuntimeEventTests.swift | AgentRuntimeEventTests.invalidOpenDocumentEventsAreRejected | merge | K2 | Merge all 4 malformed open-document wire inputs into rejectedLines; same nil-parse assertion preserved. |
+| AgentRuntimeEventTests.swift | AgentRuntimeEventTests.touchedPathWithUnsafeScalarsIsDropped | merge | K2 | Merge into invalidTouchedPathIsDroppedButEventSurvives; same bidi JSON escape, toolEnd and nil path assertions retained. |
+| AgentTranscriptRendererTests.swift | AgentTranscriptRendererTests.headerFieldsCannotBecomeLinks | merge | K2 | Merged into headerFieldsAreSanitized second row; exact inert heading and no-link assertions preserved. |
+| AmxBackendTests.shellIntegrationEnvironment | 11: `statusOverloadInjectsShellIntegration` | delete | D1 | The status argument and integration resource are copied into the expected substring; one current attachCommand implementation appends these independently, and the executable zsh/status rows plus retained status scrub-order test cover their behavior. |
+| AmxBackendTests.shellIntegrationEnvironment | 2: `preservesInheritedZDOTDIR` | delete | D6 | Real-shell attachCommandPreservesShellArguments(zsh) already asserts the preserved inherited ZDOTDIR and injected integration path through the same attachCommand implementation. |
+| AmxBackendTests.shellIntegrationEnvironment | 6: `prependsInheritedXDGDataDirs` | delete | D6 | Real-shell attachCommandPreservesShellArguments(fish) already asserts prepending inherited XDG_DATA_DIRS through the same path. |
+| AmxBackendTests.swift | AmxBackendAttachCommandTests.createOrAttachCarriesRecoveryLabels | delete | D1 | Expected labels repeat production's identical sorted/map/join algorithm over the same encodedLabelAssignments; no independent recovery behavior asserted. |
+| AmxStatusEventTests.swift | AmxStatusEventTests.partialTrailingLineIgnored | merge | K2 | Merged into parseTwoCompleteLines(trailingNewline:false); one attached event and rejection of partial end retained. |
+| AnnotationSaveRecoveryTests.submissionGate | 1: `(false, true, false, AnnotationSaveOutcome.copyOnly, false)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
+| AnnotationSaveRecoveryTests.submissionGate | 2: `(false, true, false, .reloadAndRetry, true)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
+| AnnotationSaveRecoveryTests.submissionGate | 3: `(true, true, false, .copyAndReselect, false)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
+| AnnotationSaveRecoveryTests.submissionGate | 4: `(true, true, true, nil, false)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
+| AnnotationSaveRecoveryTests.submissionGate | 5: `(true, true, false, .reloadAndRetry, true)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
+| AnnotationSaveRecoveryTests.swift | AnnotationSaveRecoveryTests.invalidationTerminatesConflictWaits | merge | K3 | Merged into waitsForReloadCompletion(invalidated: true); both current-wait false and late-wait false assertions preserved. |
+| AnnotationSaveRecoveryTests.swift | AnnotationSaveRecoveryTests.submissionGate | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
+| BridgeFrameReaderTests.swift | BridgeFrameReaderTests.completeLineOverCapIsDroppedNotClosed | merge | K2 | Merged into completeGarbageLineAtOrOverCapDropsWithoutClosing; over-cap complete line still drops without closing or tail. |
+| BridgeFrameReaderTests.swift | BridgeFrameReaderTests.partialLineUnder10SecondsStaysOpen | merge | K2 | Merged 9.9-second case into partialLineWithinDeadlineStaysOpen, retaining held action and tail equality. |
+| BridgeFrameReaderTests.swift | BridgeFrameReaderTests.sessionMismatchDropsLineButKeepsConnectionOpen | merge | K2 | Merged wrong-session row into mismatchedIdentityDropsLineButKeepsConnectionOpen with empty-frame/open-connection assertions. |
+| BridgePendingRequestMapTests.swift | BridgePendingRequestMapTests.unknownIDNeverAdmittedResolvesUnknown | delete | D5 | An empty map lookup only returns unknown; kept late-event and first-terminal cases already exercise absent-ID resolution. |
+| DocumentRevisionMonitorTests.swift | DocumentRevisionMonitorTests.backgroundEditRecordsIndicator | merge | K3 | Merged into successiveEditsAccumulate; initial exact +2/-0 diff, one announcement and filename assertion all carried. |
+| DocumentRevisionMonitorTests.swift | DocumentRevisionMonitorTests.reconcileRecordsMissedEdit | merge | K3 | Merged into reconcileUsesCapturedBaseline with renderWinsRace=false; watcher-free selection reconcile still records exact +2/-0. |
+| GhosttyActionPaneRecycleAtomicityTests.swift | GhosttyActionPaneRecycleAtomicityTests.pendingTerminalTitleSurvivesTeardown | merge | K3 | Merged into flushedTerminalTitleDoesNotRefireAfterFlush; immediate flushed-title assertion carried before the next write. |
+| GhosttyActionPaneRecycleAtomicityTests.swift | GhosttyActionPaneRecycleAtomicityTests.terminalTitleSurvivesRecycle | delete | D6 | Deferred-terminal-title case already asserts identical view identity plus A/B title isolation through the same update/recycle path. |
+| GhosttyClipboardBridgeTests.swift | TerminalPasteboardSupportedContentTests.pasteboardTypes | delete | D1 | The seven expected types repeat supportedTypes; declaresSupportedContent only calls NSPasteboard.availableType and test does not assert metadata-only access/permission behavior. |
+| GhosttyConfigEnvironmentTests.swift | GhosttyConfigEnvironmentTests.logFieldsContainsNoPII | delete | D1 | Constructs only Int/Bool fields and copies log literals; absent username/path checks never supply PII or exercise snapshot resolution; history shows seed/culls, no privacy fix. |
+| GhosttyEventLoopWatchdogTests.swift | GhosttyEventLoopWatchdogTests.servicedWakeupWithoutTickDoesNotFire | merge | K3 | Merged into freshTickInvalidatesInFlightResult(recordTick:false), preserving the independent live-staleness check. |
+| GhosttyMarkdownClickProbeTests.swift | GhosttyMarkdownClickProbeTests.acceptsDelimiters | merge | K2 | Merged into rejectsJoinedNamesOnEitherSide; all 11 delimiters and original both-neighbor acceptance assertions retained. |
+| GhosttyMarkdownClickProbeTests.swift | GhosttyMarkdownClickProbeTests.rejectsAmbiguousNames | merge | K2 | Merged into acceptsStandaloneNames with accepted=false; all five refused filenames retained. |
+| GitWorktreeCreatePolicyTests.swift | GitWorktreeCreatePolicyTests.targetContainingLinkedWorktreeRejects | merge | K2 | Merged into targetInsideOtherWorktreeStillRejectsFromLinkedInvocationRoot(nested:false); ancestor-overlap assertion retained. |
+| LayoutPresetStoreTests.swift | LayoutPresetStoreTests.loadRejectsNestingBombBeforeDecoding | merge | K2 | Merged into loadRejectsOversizedFile(nestingBomb:true); original deep array payload and nestingTooDeep assertion retained. |
+| MarkdownLinkInterceptTests.swift | MarkdownLinkInterceptTests.tildeDirectoryJoin | merge | K2 | Merged into resolvedDocumentPath; both nested/root tilde paths still assert direct join output, root row transferred. |
+| MarkdownSelfWriteRegistryTests.swift | MarkdownSelfWriteRegistryTests.sweepAndReadAgreeAtTheBoundary | merge | K1 | cd57d99a (#251): merged into writeSweepsEntriesNoReaderWillEverExpire(atBoundary:true); entry count and self-write context retained. |
+| MarkdownTableA11yTests.swift | TableAXElementTreeTests.exposedCellsHaveFrames | merge | K3 | Merged into late-client table with emptyRow=true; same four-row fixture and every-cell positive width/height checks retained. |
+| PaneChangeClassificationTests.swift | PaneChangeClassificationTests.classificationCoversEveryAssignedField | delete | D1 | Source-text matching only compares assignment/comparison spelling. Runtime classifiesMutation remains; facade channel/publication assertions exist in SessionStoreLiveTitleChannelTests. |
+| PaneTitleFreezeRuleTests.swift | PaneTitleFreezeRuleTests.frozenPaneIgnoresLiveTitle | delete | D6 | Same rename/update path and assertions now covered by lonePinnedPaneWorkspaceTitleIgnoresLaterLiveTitle. |
+| PlanAnnotationWriterTests.swift | PlanAnnotationWriterTests.insertAvoidsExistingIDs | delete | D1 | Numeric legacy ID 3 cannot collide with an ID required to contain a letter; no collision is forced. Retain real deterministic collision test and legacy-ID scan in fencedExampleTextIsImmune. |
+| RemoteMarkdownTabRefreshTests.swift | RemoteMarkdownTabRefreshTests.nilFetchOnClosedTabIsSilent | merge | K3 | Merged into nilFetchOutcomeNotesPolicy(closeDuringFetch: true), retaining nil outcome and no-banner assertions. |
+| RemoteMarkdownTabRefreshTests.swift | RemoteMarkdownTabRefreshTests.nilFetchOutcomeNotesPolicy | merge | K3 | Merge open and mid-fetch-closed saved-tab rows; preserve live-path identity and banner suppression after closure. |
+| RemoteMarkdownTypedPathOpenTests.swift | RemoteMarkdownTypedPathOpenTests.openAnnouncesLoadingBeforeFetch | merge | K3 | Both absolute and home-relative inputs now assert loading/fetch/outcome order, fetched SSH target/path, remote tab identity, read-only state and cache URL. |
+| RemoteMarkdownTypedPathOpenTests.swift | RemoteMarkdownTypedPathOpenTests.openFetchesAndAppliesRemoteTab | merge | K3 | Merge into openAnnouncesLoadingBeforeFetch with absolute/home input table; preserve fetched SSH/path and every remote tab/cache/read-only assertion. |
+| RemoteProcessLivenessClassifierTests.swift | RemoteProcessLivenessClassifierTests.missingControllingTerminalIsConservative | merge | K2 | Merged absent controlling-terminal evidence into incompleteProcessEvidenceIsIndeterminate; remains indeterminate. |
+| RemoteProcessLivenessClassifierTests.swift | RemoteProcessLivenessClassifierTests.nestedForegroundShellIsConservative | merge | K2 | Merged nested foreground-shell evidence into incompleteProcessEvidenceIsIndeterminate; remains indeterminate. |
+| SessionPersistenceLoadTests.swift | SessionPersistenceLoadTests.explicitReplacement | merge | K2 | All 3 rows retained; false/true sanitized variants share setup; explicit symlink replacement preserves target bytes. |
+| SessionPersistenceLoadTests.swift | SessionPersistenceLoadTests.pathStateAtAcknowledgement | merge | K2 | All 5 warning/path rows retained; 0/1/2 bodies share code but still execute archived/conflict/sanitized warnings and all assertions. |
+| SessionPersistenceLoadTests.swift | SessionPersistenceLoadTests.sanitizedRestore | merge | K2 | Merge duplicate dirty-snapshot row into archive journey with every sanitizer assertion; retain real v6 mixed migration, exact private archive bytes and live cache preservation. |
+| SessionStoreLiftedOrderTests.swift | SessionStoreLiftedOrderTests.theMarkedSessionsOwnPromptAnswersItsTurn | merge | K3 | Merged into aNestedSessionsPromptDoesNotAnswerTheParentsTurn(ownPrompt: true), including apply success and empty-lift assertions. |
+| SessionStoreRestoreSanitizationSummaryTests.swift | SessionStoreRestoreSanitizationSummaryTests.cleanSnapshotHasEmptySummary | merge | K3 | Merged into benignNormalizationNotCounted(normalize: false), preserving selection and both no-warning predicates. |
+| SessionStoreWorkspaceGroupTests.swift | SessionStoreWorkspaceGroupTests.addSSHSessionDeclaresRemoteOwnedSession | merge | K2 | Merged as remoteOwned: true into addSSHSessionKeepsPaneOwnedIdentity; explicit target/sessionName assertions retained. |
+| SessionStoreWorkspaceGroupTests.swift | SessionStoreWorkspaceGroupTests.managedSSHConversionDeclaresRemoteOwnedSession | merge | K2 | Merged as remoteOwned: true into managedSSHConversionReplacesActivePaneInPlace; return ID and remote-owned target/name assertions retained. |
+| ShellActivityTests.swift | ShellActivityTests.busySamplesBeforeAnyPromptObservationStayIdle | delete | D6 | unseenSplitPaneCannotForceSessionRunning exercises the same untrusted-busy path plus per-pane isolation and later trust admission. |
+| SidebarNativeOutlineViewTests.swift | SidebarNativeOutlineViewTests.hostedControlsAndMenusKeepInputWhileRowDragsStayNative | delete | D1 | Copies HostedCell.routesPointerToContent's exact event/modifier/width-minus-36 branches without dispatching input. |
+| SidebarNativeOutlineViewTests.swift | SidebarNativeOutlineViewTests.internalMoveSourcesCannotBecomeTerminalText | delete | D1 | Copies the exact three-type disjunction in GhosttySurfaceNSView.isInternalMoveSource, without exercising a drag/drop consumer. |
+| SidebarSplitControllerTests.swift | SidebarSplitControllerTests.clamp | delete | D1 | Eight argument rows call a pure forwarding wrapper around SidebarWidthPolicy.constrainedLiveWidth with copied width/output constants; native hiddenWidthSelection/dividerDeadStrip retain behavior. |
+| VisibleTextAgentStateReducerTests.swift | VisibleTextAgentStateReducerTests.enteringWaitingAnnouncesOnceOnTransition | delete | D1 | Literal announcement branch mapping; git log -S finds only initial seed cb3545b6, no specific fix evidence. |
+| WorkspaceAttentionReducerTests.swift | WorkspaceAttentionReducerTests.paneErrorLandsOnNamedPane | delete | D6 | recordsExitErrorOnExitingPaneBeforeRemoval(false, 0) exercises the named inactive-pane error route and the same sibling-isolation assertions. |
+| WorkspaceNotificationTrackerTests.swift | WorkspaceNotificationTrackerTests.testTurnDoneSurvivesWhenSiblingNeedsAttentionIsToggledOff | merge | K3 | Merged as needsAttentionEnabled: false into sibling priority test with opposite tree order and exact turnDone-kind assertion. |
+| WorkspaceNotificationTrackerTests.swift | WorkspaceNotificationTrackerTests.testUnmutedWorkspaceEmitsForNewAttentionAfterUnmute | merge | K3 | Merged as newAttention: true into muted baseline test, preserving count/session identity and pane continuity. |
 
 ## Hang risks
 
