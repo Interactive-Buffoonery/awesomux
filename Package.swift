@@ -37,7 +37,7 @@ import PackageDescription
                 // only when a Linux-lane test target actually needs it, never
                 // merely because it would compile. Portable but deliberately
                 // absent today: ProcessBoundedWait.swift, ProcessOutputCapture.swift,
-                // RealSpawnTimeout.swift, ShellWait.swift, SourceContract.swift.
+                // RealSpawnTimeout.swift, ShellWait.swift.
                 sources: [
                     "AsyncGate.swift",
                     "EventRecorder.swift",
