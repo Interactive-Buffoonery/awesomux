@@ -150,6 +150,33 @@ struct VisibleTextAgentStateReducerTests {
         #expect(background.unreadNotificationDelta == 0)
     }
 
+    @Test("entering waiting announces once and only on the transition")
+    func enteringWaitingAnnouncesOnceOnTransition() {
+        #expect(reducer.announcementIntent(
+            priorDisplayState: .running,
+            newDisplayState: .waiting
+        ) == .waitingEntered)
+        #expect(reducer.announcementIntent(
+            priorDisplayState: .idle,
+            newDisplayState: .waiting
+        ) == .waitingEntered)
+        // First event ever seen for a pane (no prior state) still announces.
+        #expect(reducer.announcementIntent(
+            priorDisplayState: nil,
+            newDisplayState: .waiting
+        ) == .waitingEntered)
+        // Consecutive waiting events dedupe to silence.
+        #expect(reducer.announcementIntent(
+            priorDisplayState: .waiting,
+            newDisplayState: .waiting
+        ) == .none)
+        // Leaving waiting is silent.
+        #expect(reducer.announcementIntent(
+            priorDisplayState: .waiting,
+            newDisplayState: .thinking
+        ) == .none)
+    }
+
     @Test(arguments: [
         (AgentKind.grok, AgentExecutionState.thinking, AgentState.thinking, true),
         (.hermes, .thinking, .thinking, true),

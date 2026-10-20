@@ -16,39 +16,71 @@ struct RuntimeProfileScriptTests {
         #expect(first.output != second.output)
     }
 
-    @Test
-    func profilePaths() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "awesomux-profile-checkouts-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let primary = directory.appending(path: "primary", directoryHint: .isDirectory)
-        let linked = directory.appending(path: "linked", directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    enum ProfilePathsCase: String, CaseIterable {
+        case worktreeProfilePaths
+        case checkoutProfiles
+        case stableProfilePaths
+    }
 
-        let result = try run(
-            """
-            set -e
-            git init -q -b main "$2"
-            git -C "$2" config user.name test
-            git -C "$2" config user.email test@example.com
-            touch "$2/seed"
-            git -C "$2" add seed
-            git -C "$2" commit -q -m seed
-            git -C "$2" worktree add -q -b linked "$3"
-            awesomux_checkout_profile "$2"
-            awesomux_checkout_profile "$3"
-            """,
-            arguments: [primary.path, linked.path]
-        )
+    @Test(arguments: ProfilePathsCase.allCases)
+    func profilePaths(_ scenario: ProfilePathsCase) throws {
+        switch scenario {
+        case .worktreeProfilePaths:
+            let result = try run("awesomux_resolve_profile development:0123456789ab; awesomux_print_profile")
 
-        let profiles = result.output.split(separator: "\n").map(String.init)
-        #expect(result.status == 0)
-        #expect(profiles.first == "development")
-        #expect(
-            profiles.last?.range(
-                of: #"^development:[0-9a-f]{12}$"#,
-                options: .regularExpression
-            ) != nil)
+            #expect(result.status == 0)
+            let expectedOutput = [
+                "profile=development:0123456789ab",
+                "bundle=com.interactivebuffoonery.awesomux.dev.0123456789ab",
+                "display=awesoMux (dev 0123456)",
+                "support=awesoMux-dev-0123456789ab",
+                "config=awesomux-dev-0123456789ab",
+                "socket=051u7i0",
+            ].joined(separator: "\n")
+            #expect(result.output == expectedOutput)
+        case .checkoutProfiles:
+            let directory = FileManager.default.temporaryDirectory
+                .appending(path: "awesomux-profile-checkouts-\(UUID().uuidString)", directoryHint: .isDirectory)
+            let primary = directory.appending(path: "primary", directoryHint: .isDirectory)
+            let linked = directory.appending(path: "linked", directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+            let result = try run(
+                """
+                set -e
+                git init -q -b main "$2"
+                git -C "$2" config user.name test
+                git -C "$2" config user.email test@example.com
+                touch "$2/seed"
+                git -C "$2" add seed
+                git -C "$2" commit -q -m seed
+                git -C "$2" worktree add -q -b linked "$3"
+                awesomux_checkout_profile "$2"
+                awesomux_checkout_profile "$3"
+                """,
+                arguments: [primary.path, linked.path]
+            )
+
+            let profiles = result.output.split(separator: "\n").map(String.init)
+            #expect(result.status == 0)
+            #expect(profiles.first == "development")
+            #expect(
+                profiles.last?.range(
+                    of: #"^development:[0-9a-f]{12}$"#,
+                    options: .regularExpression
+                ) != nil)
+        case .stableProfilePaths:
+            let production = try run("awesomux_resolve_profile production; awesomux_print_profile")
+            let development = try run("awesomux_resolve_profile development; awesomux_print_profile")
+
+            #expect(production.output.contains("bundle=com.interactivebuffoonery.awesomux\n"))
+            #expect(production.output.contains("support=awesoMux\n"))
+            #expect(production.output.hasSuffix("socket=amx"))
+            #expect(development.output.contains("bundle=com.interactivebuffoonery.awesomux.dev\n"))
+            #expect(development.output.contains("support=awesoMux-dev\n"))
+            #expect(development.output.hasSuffix("socket=amx-dev"))
+        }
     }
 
     @Test("malformed worktree profiles fail closed")

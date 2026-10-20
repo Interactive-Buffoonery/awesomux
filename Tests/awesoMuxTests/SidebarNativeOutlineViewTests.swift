@@ -79,6 +79,13 @@ struct SidebarNativeOutlineViewTests {
         #expect(performed)
     }
 
+    @Test func internalMoveSourcesCannotBecomeTerminalText() {
+        #expect(GhosttySurfaceNSView.isInternalMoveSource(SidebarWorkspaceDragSource.DragSourceView()))
+        #expect(GhosttySurfaceNSView.isInternalMoveSource(SidebarNativeOutlineView.Outline()))
+        #expect(GhosttySurfaceNSView.isInternalMoveSource(PaneDragSource.DragSourceView()))
+        #expect(!GhosttySurfaceNSView.isInternalMoveSource(nil))
+        #expect(!GhosttySurfaceNSView.isInternalMoveSource(NSView()))
+    }
 
     @Test func nativeKeyboardRevealReachesTheOverflowingOuterViewport() {
         final class Document: NSView {
@@ -219,6 +226,14 @@ struct SidebarNativeOutlineViewTests {
         #expect(focusedGroups == [group])
     }
 
+    @Test func hostedControlsAndMenusKeepInputWhileRowDragsStayNative() {
+        typealias Cell = SidebarNativeOutlineView.HostedCell
+        #expect(!Cell.routesPointerToContent(x: 100, width: 276, eventType: .leftMouseDown, modifiers: []))
+        #expect(Cell.routesPointerToContent(x: 243, width: 276, eventType: .leftMouseDown, modifiers: []))
+        #expect(Cell.routesPointerToContent(x: 270, width: 276, eventType: .leftMouseDown, modifiers: []))
+        #expect(Cell.routesPointerToContent(x: 100, width: 276, eventType: .rightMouseDown, modifiers: []))
+        #expect(Cell.routesPointerToContent(x: 100, width: 276, eventType: .leftMouseDown, modifiers: [.control]))
+    }
 
     @Test(arguments: [0, 1, 2, -1])
     func groupDropIndex(sourceIndex: Int) {

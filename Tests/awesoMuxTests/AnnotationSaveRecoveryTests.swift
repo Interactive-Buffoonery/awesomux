@@ -80,6 +80,21 @@ struct AnnotationSaveRecoveryTests {
         }
     }
 
+    @Test(arguments: [
+        (false, true, false, AnnotationSaveOutcome.copyOnly, false),
+        (false, true, false, .reloadAndRetry, true),
+        (true, true, false, .copyAndReselect, false),
+        (true, true, true, nil, false),
+        (true, true, false, .reloadAndRetry, true),
+    ])
+    func submissionGate(new: Bool, valid: Bool, submitting: Bool, outcome: AnnotationSaveOutcome?, expected: Bool) {
+        let allowed =
+            new
+            ? AnnotationSaveRecovery.canSubmitNewAnnotation(hasValidDraft: valid, isSubmitting: submitting, outcome: outcome)
+            : AnnotationSaveRecovery.canSubmitExistingAnnotation(isSubmitting: submitting, outcome: outcome)
+        #expect(allowed == expected)
+    }
+
     private func document(
         source: String,
         annotationID: String,
