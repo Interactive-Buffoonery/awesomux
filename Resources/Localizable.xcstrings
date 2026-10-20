@@ -565,9 +565,6 @@
     "%arg@awesoMux ~/project\n❯ codex --model gpt-5.5\n✓ background preview text" : {
 
     },
-    "%lld enabled setups share this status hook." : {
-
-    },
     "%lld panes" : {
 
     },
@@ -772,10 +769,10 @@
     "Agent error" : {
       "comment" : "Agent error event in the companion away activity summary."
     },
-    "Agent setup" : {
-
+    "Agent integrations" : {
+      "comment" : "Agents settings title."
     },
-    "Agent setups" : {
+    "Agent setup" : {
 
     },
     "Agent setups launch local executables. Select a local pane and a local default workspace group." : {
@@ -976,9 +973,6 @@
     },
     "Answer recorded on Mac" : {
       "comment" : "The Mac recorded the decision; delivery to the hook is not yet confirmed."
-    },
-    "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using." : {
-      "comment" : "Outside app access same-user boundary disclosure."
     },
     "Apache License" : {
       "comment" : "Button opening an Apache license text"
@@ -1537,7 +1531,7 @@
 
     },
     "Collapsed" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is closed\nVoiceOver state for hidden remote connection details"
+      "comment" : "Accessibility value for the footer total button while the agent activity panel is closed\nDisclosure state.\nVoiceOver state for hidden remote connection details"
     },
     "Collecting" : {
       "comment" : "Diagnostics history state"
@@ -2466,7 +2460,7 @@
       "comment" : "Send-bar button on a branch changes tab that unfolds every file section"
     },
     "Expanded" : {
-      "comment" : "Accessibility value for the footer total button while the agent activity panel is open\nVoiceOver state for visible remote connection details"
+      "comment" : "Accessibility value for the footer total button while the agent activity panel is open\nDisclosure state.\nVoiceOver state for visible remote connection details"
     },
     "Expires in %@" : {
       "comment" : "Companion pairing countdown."
@@ -2894,6 +2888,9 @@
         }
       }
     },
+    "Launch setups" : {
+
+    },
     "Lavender" : {
       "comment" : "Workspace group tint color",
       "localizations" : {
@@ -2944,6 +2941,9 @@
     "Live processes" : {
       "comment" : "Diagnostics settings section title"
     },
+    "Live status from coding agents running in your panes." : {
+      "comment" : "Agents settings subtitle."
+    },
     "Loading Markdown files" : {
 
     },
@@ -2973,9 +2973,6 @@
     },
     "Local panes, SSH creation default %arg" : {
       "comment" : "VoiceOver location summary for local panes in a group that retains an SSH creation default."
-    },
-    "Local status hooks" : {
-      "comment" : "Agents settings title."
     },
     "Local · SSH default %arg" : {
       "comment" : "Location summary for local panes in a group that retains an SSH creation default."
@@ -3190,7 +3187,7 @@
     "Name" : {
       "comment" : "Diagnostics process table column"
     },
-    "Named launch choices for the command palette. Status hooks are shared by provider." : {
+    "Named launch choices for the command palette." : {
 
     },
     "Named, the remote host keeps this session running with its own amx or zmx, and awesoMux finds it there. Leave empty to keep the session on this Mac instead." : {
@@ -3472,17 +3469,11 @@
     "Off" : {
       "comment" : "Settings label when Open at Login is disabled."
     },
-    "Off — no app can see anything." : {
-      "comment" : "Outside app access toggle state."
-    },
     "Older activity unavailable" : {
       "comment" : "Warning in the companion away summary that older activity exceeded the retained history."
     },
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
-    },
-    "On — apps can see what's listed above." : {
-      "comment" : "Outside app access toggle state."
     },
     "One record larger than %arg could not be displayed." : {
       "comment" : "Notice for an agent transcript record so large that only its tail fell inside the window, so its size is a lower bound"
@@ -3490,8 +3481,8 @@
     "One record of %arg was too large to display." : {
       "comment" : "Notice naming the formatted byte size of one agent transcript record that was skipped"
     },
-    "Only add apps you trust" : {
-      "comment" : "Outside app access safety label."
+    "Only add apps you trust. Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using." : {
+      "comment" : "Outside app access same-user boundary disclosure."
     },
     "Only applies when macOS Increase Contrast is on: the active workspace border keeps its accent color instead of the neutral high-contrast gray. Off by default." : {
       "comment" : "Settings field hint for the tinted high-contrast workspace colors toggle"
@@ -3983,9 +3974,6 @@
     },
     "Provider" : {
 
-    },
-    "Provider-owned files that report identity and coarse runtime state." : {
-      "comment" : "Agents settings subtitle."
     },
     "Pull Request" : {
       "comment" : "Fallback tab title for a read-only pull request snapshot"
@@ -5257,6 +5245,9 @@
         }
       }
     },
+    "Technical details" : {
+      "comment" : "Agent integration paths disclosure."
+    },
     "Terminal" : {
       "comment" : "Diagnostics event category"
     },
@@ -6040,6 +6031,9 @@
     },
     "Used across the sidebar, panels, and settings. Unavailable fonts fall back to the system font. Choose System (SF Pro) to restore the standard font." : {
       "comment" : "Settings field hint for the app UI font picker, including how to recover from a missing font"
+    },
+    "Used by %lld enabled launch setups." : {
+      "comment" : "Enabled launch setups sharing an integration."
     },
     "Used by the libghostty terminal surface." : {
       "comment" : "Settings field hint for the terminal font picker"
