@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce Codex shared-server hook attribution with real TUIs and the real hook helper.
+"""Verify guarded Codex shared-server hook attribution with real TUIs and the real hook helper.
 
 Each scenario gets a fresh CODEX_HOME and HOME, a local mock Responses server,
 and two Codex TUIs in separate PTYs that stand in for awesoMux panes A and B.
@@ -217,7 +217,10 @@ d = json.loads(sys.argv[1])
 rec = {{"t": time.time(), "envPane": os.environ.get("AWESOMUX_PANE_ID"), "event": d.get("hook_event_name"),
        "thread": d.get("session_id"), "prompt": d.get("prompt")}}
 open(sys.argv[2], "a").write(json.dumps(rec) + "\\n")' "$payload" {shlex.quote(str(log))}
-printf '%s' "$payload" | exec {shlex.quote(str(helper))} "$@"
+printf '%s' "$payload" | {shlex.quote(str(helper))} "$@"
+status=$?
+printf '%s\n' "$status" >> {shlex.quote(str(log))}.exit
+exit "$status"
 ''')
     path.chmod(0o700)
 
@@ -314,6 +317,8 @@ trust_level = "trusted"
 
         def collect_evidence():
             result['hookInvocations'] = read_jsonl(invocations) or []
+            exits = Path(f'{invocations}.exit')
+            result['helperExitCodes'] = exits.read_text().split() if exits.exists() else []
             result['eventsAfterShutdown'] = {n: read_jsonl(f) for n, f in files.items()}
         cleanup_step('collect evidence', collect_evidence)
     return result
@@ -351,6 +356,8 @@ def verdict(result):
         'noSurvivingProcesses': not result.get('survivingProcesses'),
         'aTurnCompleted': turn_completed(calls, 'prompt from A'),
         'bTurnCompleted': turn_completed(calls, 'prompt from B'),
+        # Empty pane files only prove the guard when the helper itself succeeded.
+        'helperExitedZeroEveryCall': bool(calls) and result.get('helperExitCodes') == ['0'] * len(calls),
         'oneThreadPerClient': len(thread_a) == 1 and len(thread_b) == 1 and 'ambiguous' not in owners.values(),
     }
     before = result.get('eventsBeforeShutdown') or {}
@@ -369,25 +376,25 @@ def verdict(result):
             expected = 'PASS: each pane file holds only its own client thread'
         elif result['scenario'] == 'shared-daemon':
             checks['appServerRunning'] = bool(result.get('appServerProcesses'))
-            checks['threadAInFileA'] = turn <= turn_phases(a_events, ta)
-            checks['threadBInFileA'] = turn <= turn_phases(a_events, tb)
-            checks['fileAHasOnlyKnownThreadsAfterShutdown'] = only(after.get('A'), {ta, tb})
+            checks['fileAEmptyBeforeShutdown'] = a_events == []
+            checks['fileAEmptyAfterShutdown'] = after.get('A') == []
             checks['fileBEmptyBeforeShutdown'] = b_events == []
             checks['fileBEmptyAfterShutdown'] = after.get('B') == []
-            checks['threadBHooksSawPaneA'] = all(c['envPane'] == 'A' for c in calls if c['thread'] == tb)
-            expected = "REPRODUCED: B's thread lands in A's pane file with A's pane identity; B's file stays empty"
+            checks['bothThreadsHooksSawPaneA'] = all(c['envPane'] == 'A' for c in calls if c['thread'] in {ta, tb})
+            expected = 'PASS: daemon-hosted hooks run for both clients; both pane files stay empty'
         else:
             baseline = result.get('beforeFounderClosed') or {}
             second = [c for c in calls if c['event'] == 'UserPromptSubmit' and c['prompt'] == 'second prompt from B']
             checks['appServerRunning'] = bool(result.get('appServerProcesses'))
-            checks['baselineThreadBInFileA'] = turn <= turn_phases(baseline.get('A'), tb)
+            checks['baselineFilesEmpty'] = baseline.get('A') == [] and baseline.get('B') == []
+            checks['bothThreadsHooksSawPaneA'] = all(c['envPane'] == 'A' for c in calls if c['thread'] in {ta, tb})
             checks['bSecondTurnCompleted'] = turn_completed(calls, 'second prompt from B')
             checks['secondTurnHookRanWithPaneA'] = bool(second) and all(c['envPane'] == 'A' for c in second)
             checks['fileARemovedBeforeShutdown'] = a_events is None
             checks['fileARemovedAfterShutdown'] = after.get('A') is None
             checks['fileBEmptyBeforeShutdown'] = b_events == []
             checks['fileBEmptyAfterShutdown'] = after.get('B') == []
-            expected = "REPRODUCED: after A's pane closes, B's later hooks still run as pane A and are lost"
+            expected = "PASS: after A's pane closes, B's later hooks run; B's file stays empty and A's file stays removed"
     else:
         expected = 'INCONCLUSIVE'
     ok = all(checks.values())
