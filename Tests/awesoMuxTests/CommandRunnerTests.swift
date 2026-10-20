@@ -397,11 +397,10 @@ private final class SpawnObservation: @unchecked Sendable {
 
 private final class ProcessDelayGate: @unchecked Sendable {
     private typealias DelayContinuation = CheckedContinuation<Void, Error>
-    private typealias Continuation = CheckedContinuation<Void, Never>
 
     private let lock = NSLock()
     private var delayWaiters: [(id: UUID, continuation: DelayContinuation)] = []
-    private var requestWaiters: [(count: Int, continuation: Continuation)] = []
+    private var requestWaiters: [(count: Int, resumer: SignalResumer)] = []
     private var requests: [Duration] = []
 
     var requestedDurations: [Duration] {
@@ -418,13 +417,13 @@ private final class ProcessDelayGate: @unchecked Sendable {
                 requestWaiters.removeAll { requests.count >= $0.count }
                 guard !Task.isCancelled else {
                     lock.unlock()
-                    ready.forEach { $0.continuation.resume() }
+                    ready.forEach { $0.resumer.resume() }
                     continuation.resume(throwing: CancellationError())
                     return
                 }
                 delayWaiters.append((id, continuation))
                 lock.unlock()
-                ready.forEach { $0.continuation.resume() }
+                ready.forEach { $0.resumer.resume() }
             }
         } onCancel: {
             let continuation: DelayContinuation? = lock.withLock {
@@ -438,14 +437,14 @@ private final class ProcessDelayGate: @unchecked Sendable {
     }
 
     func waitForRequestCount(_ count: Int) async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { resumer in
             lock.lock()
             guard requests.count < count else {
                 lock.unlock()
-                continuation.resume()
+                resumer.resume()
                 return
             }
-            requestWaiters.append((count, continuation))
+            requestWaiters.append((count, resumer))
             lock.unlock()
         }
     }

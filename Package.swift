@@ -40,6 +40,7 @@ import PackageDescription
                 // RealSpawnTimeout.swift, ShellWait.swift.
                 sources: [
                     "AsyncGate.swift",
+                    "BoundedSignal.swift",
                     "EventRecorder.swift",
                     "TemporaryDirectory.swift",
                     "TestClock.swift",
