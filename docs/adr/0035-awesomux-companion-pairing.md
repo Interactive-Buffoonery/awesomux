@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-17
 - **Amended:** 2026-10-18 — one pairing with LAN and Tailscale routes (#782)
+- **Amended:** 2026-10-20 — per-device terminal, decision and transcript grants (see Amendment)
 
 ## Context
 
@@ -97,7 +98,8 @@ same framed v1 requests, limited to `get_connection_status`, `list_agents`,
 and `get_attention_events`, and applies the same bounds, leases, and per-write
 authorization. A paired phone's key replaces the bearer credential. The phone
 groups agents and drives its widget and Live Activity from those responses. No companion-specific status contract or relay
-exists on the Mac.
+exists on the Mac. The 2026-10-20 amendment below adds separately granted
+capabilities beyond these three status reads.
 
 **Delivery is pull-only in this stage.** The phone reads while open and when
 iOS grants background time, and posts local notifications for new alerts.
@@ -122,3 +124,22 @@ they change signing or data custody.
 - ADR-0019 is unchanged: the app is not sandboxed, so listening needs no
   entitlement. Physical-device and TestFlight builds of the iPhone app need
   Developer Team signing.
+
+## Amendment (2026-10-20): per-device capability grants
+
+The status-only operation limit above is extended by capabilities that each
+need a separate, default-off, Mac-approved grant per paired phone. Pairing
+identity, mutual TLS, route rules, leases and revocation are unchanged, and
+none of these grants is implied by pairing or by another grant:
+
+- **Terminal** ([ADR-0036](0036-multi-client-terminal-leadership.md)): Mac-approved
+  access to a specific pane, defaulting to Watch, with a separate input grant.
+- **Decide** (ADR-0038, #793):
+  pending-decision reads and once-only answers for Mac-selected workspaces.
+- **Transcript** (ADR-0039, #829):
+  `get_agent_context` with `source: transcript` for a Mac-selected workspace.
+
+Each grant is stored with the companion connection, is removed by unpairing or
+revocation, and is enforced on the Mac rather than by hiding phone controls.
+ADR-0038 and ADR-0039 land in their own pull requests; this amendment covers
+all three so the scope change is recorded once.

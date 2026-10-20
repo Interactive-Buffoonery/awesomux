@@ -1,7 +1,8 @@
 # 0036 — Many terminal clients, last typer leads
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-20
+- **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
 - **Deciders:** Sarah
 - **Issue:** [#784](https://github.com/Interactive-Buffoonery/awesomux/issues/784)
 
@@ -12,7 +13,7 @@ and resize authority open. A phone watches the same Mac-owned PTY; it does not
 create a second session. This proposal sets the policy for #826 (stream)
 and #827 (watch-only clients). Those issues implement the wire and daemon changes;
 this docs-only record neither implements them nor accepts ADR-0011 as a whole.
-Sarah must accept this record before it becomes policy.
+Sarah accepted this record on 2026-10-20; it is now policy for that work.
 
 The Companion [snapshot findings](https://github.com/Interactive-Buffoonery/awesomux-companion/blob/main/spikes/snapshot-reconnect/README.md)
 show retained cells but lost soft-wrap provenance, command marks and exit codes.
@@ -76,7 +77,8 @@ assumption that the current zmx Init/leader behavior already satisfies it.
   rules from [ADR-0035](0035-awesomux-companion-pairing.md) remain unchanged.
   Its status-only operation limit is extended by a new terminal capability:
   recommend Mac-approved, per-device access, defaulting to Watch, with a separate
-  input grant. Acceptance requires a corresponding ADR-0035 scope amendment.
+  input grant. The corresponding ADR-0035 scope amendment is recorded in
+  that ADR under **Amended:** 2026-10-20.
 
 ## Consequences
 
@@ -90,7 +92,7 @@ These are future acceptance checks, not results of this documentation change.
 Keeping the last size avoids disruptive fallback resizes but may leave a
 phone-sized grid after its disconnect. Even a sole Mac reattachment retains
 the old grid until input or Take over; this intentionally differs from current
-reattach resizing and needs Sarah's explicit approval. "Mac-sized Watch" is the
+reattach resizing and has Sarah's explicit approval (question 2 below). "Mac-sized Watch" is the
 M1 case; after takeover, Watch follows the last authoritative grid. Concurrent
 typers share one input stream;
 this is not collaborative editing. The Mac must show when another client leads.
@@ -98,12 +100,20 @@ Reflow and durable command history need separately proven formats.
 
 ## Open questions for Sarah
 
+Answered by Sarah on 2026-10-20; the recommendation is accepted as written.
+
 1. Confirm last-typer leadership, including an explicit Take over claim, rather
    than an exclusive writer lock?
+   **Decision:** yes. Last typer leads; Take over is an explicit claim.
 2. Keep the last grid with no leader after disconnect or return to Watch, until
    the next input/claim, including sole-Mac restore, rather than reverting to
    the Mac's size? This qualifies the plan's "Mac-sized Watch" wording after M2.
+   **Decision:** yes. Keep the last grid after the leader disconnects; no
+   automatic fallback resize.
 3. Accept concurrent input in daemon order with a visible leader indicator, or
    require an exclusive handoff before the input milestone? Alternating typers
    can repeatedly resize a TUI. Confirm Mac-approved per-device Watch access
    with a separate input grant?
+   **Decision:** concurrent input in daemon order with a leader indicator; no
+   exclusive handoff. Watch is Mac-approved per device and defaults on grant;
+   input is a separate grant.
