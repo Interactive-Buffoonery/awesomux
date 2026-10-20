@@ -44,7 +44,8 @@ struct SessionStoreWorkspaceGroupTests {
         let group = SessionGroup(name: "Current Group", sessions: [local])
         let store = SessionStore(groups: [group], selectedSessionID: local.id)
         let target = try #require(RemoteTarget(parsing: "my-server"))
-        let sessionName = remoteOwned ? try #require(RemoteSessionName(rawValue: "my-session")) : nil
+        let name = try #require(RemoteSessionName(rawValue: "my-session"))
+        let sessionName = remoteOwned ? name : nil
         let expected =
             remoteOwned
             ? try #require(SSHExecution(target: target, persistenceOwner: .remoteZmx, sessionName: sessionName))
@@ -87,7 +88,8 @@ struct SessionStoreWorkspaceGroupTests {
         let store = SessionStore(groups: [group], selectedSessionID: session.id)
         let target = try #require(RemoteTarget(parsing: "my-server"))
 
-        let sessionName = remoteOwned ? try #require(RemoteSessionName(rawValue: "my-session")) : nil
+        let name = try #require(RemoteSessionName(rawValue: "my-session"))
+        let sessionName = remoteOwned ? name : nil
         let expected =
             remoteOwned
             ? try #require(SSHExecution(target: target, persistenceOwner: .remoteZmx, sessionName: sessionName))
