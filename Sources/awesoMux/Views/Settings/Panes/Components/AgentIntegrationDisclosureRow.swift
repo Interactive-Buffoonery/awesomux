@@ -7,6 +7,8 @@ struct AgentIntegrationDisclosureRow<Status: View, EnableToggle: View, Content: 
     let subtitle: String
     let needsAttention: Bool
     let enabledSetupCount: Int
+    var headerNote: AnyView? = nil
+    var introduction: AnyView? = nil
     @ViewBuilder var status: Status
     @ViewBuilder var toggle: EnableToggle
     @ViewBuilder var content: Content
@@ -24,6 +26,7 @@ struct AgentIntegrationDisclosureRow<Status: View, EnableToggle: View, Content: 
             )
         ) {
             VStack(alignment: .leading, spacing: 14) {
+                introduction
                 if enabledSetupCount > 0 {
                     Text(
                         String.localizedStringWithFormat(
@@ -50,7 +53,7 @@ struct AgentIntegrationDisclosureRow<Status: View, EnableToggle: View, Content: 
                 Spacer(minLength: 12)
             }
         }
-        .disclosureGroupStyle(AgentIntegrationDisclosureStyle(status: status, toggle: toggle))
+        .disclosureGroupStyle(AgentIntegrationDisclosureStyle(status: status, toggle: toggle, headerNote: headerNote))
         .padding(14)
         .onChange(of: needsAttention, initial: true) { _, needsAttention in
             if needsAttention { attentionExpanded = true }
@@ -62,6 +65,7 @@ struct AgentIntegrationDisclosureRow<Status: View, EnableToggle: View, Content: 
 private struct AgentIntegrationDisclosureStyle<Status: View, EnableToggle: View>: DisclosureGroupStyle {
     let status: Status
     let toggle: EnableToggle
+    let headerNote: AnyView?
 
     func makeBody(configuration: Configuration) -> some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -87,6 +91,9 @@ private struct AgentIntegrationDisclosureStyle<Status: View, EnableToggle: View>
                         : String(localized: "Collapsed", comment: "Disclosure state."))
                 status
                 toggle
+            }
+            if let headerNote {
+                headerNote.padding(.leading, 20)
             }
             if configuration.isExpanded {
                 configuration.content

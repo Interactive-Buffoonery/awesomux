@@ -37,7 +37,9 @@ struct AgentPluginCard: View {
     var body: some View {
         AgentIntegrationDisclosureRow(
             title: state.title, subtitle: state.subtitle,
-            needsAttention: folders.contains { $0.needsAttention }, enabledSetupCount: enabledSetupCount
+            needsAttention: folders.contains { $0.needsAttention }, enabledSetupCount: enabledSetupCount,
+            headerNote: showsCodexPaneStatusNote ? AnyView(CodexPaneStatusNote.summary) : nil,
+            introduction: showsCodexPaneStatusNote ? AnyView(CodexPaneStatusNote()) : nil
         ) {
             statusBadge
         } toggle: {
@@ -162,6 +164,10 @@ struct AgentPluginCard: View {
             String(
                 localized: "Manage the \(state.title) status plugin in another \(state.configHomeLabel) folder",
                 comment: "Help for adding a config folder; arguments are the provider name and config home label."))
+    }
+
+    private var showsCodexPaneStatusNote: Bool {
+        state.provider == .codex && isEnabled
     }
 
     // MARK: Header
