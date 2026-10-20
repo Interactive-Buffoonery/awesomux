@@ -1,7 +1,8 @@
 # 0038 — The phone as a permission decision source
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-20
+- **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
 - **Deciders:** Sarah
 - **Issue:** [#793](https://github.com/Interactive-Buffoonery/awesomux/issues/793)
 
@@ -15,10 +16,11 @@ decision wins. Therefore a single Mac coordinator cannot promise a global
 
 The phone should use that same decision core, not type an approval into the
 terminal. [ADR-0035](0035-awesomux-companion-pairing.md) currently allows only
-three status reads. This proposes adding pending-decision reads and decision
-submission to that allowlist, both requiring a separate Decide grant. Pairing
-keys, mutual TLS, network routes, leases and revocation remain unchanged.
-Acceptance requires a corresponding ADR-0035 scope amendment.
+three status reads. This adds pending-decision reads and decision submission
+to that allowlist, both requiring a separate Decide grant. Pairing keys, mutual
+TLS, network routes, leases and revocation remain unchanged. The corresponding
+ADR-0035 scope amendment is recorded in that ADR under **Amended:** 2026-10-20
+(landing with ADR-0036, #854).
 
 ## Options considered
 
@@ -33,7 +35,7 @@ Acceptance requires a corresponding ADR-0035 scope amendment.
 
 ## Decision
 
-**Recommendation:** start with once-only allow/deny for a live, exactly
+**Decision:** start with once-only allow/deny for a live, exactly
 identified Claude permission hook. The first valid answer committed by the Mac
 core wins among app-controlled sources. Do not claim it wins against an
 unobserved answer in Claude's own prompt.
@@ -118,9 +120,14 @@ included in this decision record.
 
 ## Open questions for Sarah
 
+Answered by Sarah on 2026-10-20; the recommendation is accepted as written.
+
 1. Start with once-only Claude allow/deny and a separate per-device Decide grant
    limited to Mac-selected workspaces?
+   **Decision:** yes.
 2. Accept "first core commit wins" and keep remote decisions disabled wherever
    native-prompt races cannot be reconciled, rather than accept hook precedence?
+   **Decision:** yes. Hook precedence is not authorized by this record.
 3. Choose the proposed 60-second answer window and ten-minute retry retention,
    with device authentication for every approval interaction?
+   **Decision:** yes.
