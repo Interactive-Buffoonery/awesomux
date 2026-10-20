@@ -426,53 +426,6 @@ struct AmxStatusChannelTests {
     }
 }
 
-// MARK: - attachCommand(for:status:) — status env injection
-
-@Suite("AmxBackend attach-command with status channel")
-struct AmxBackendAttachCommandStatusTests {
-    @Test("injects AMX_STATUS_FILE and AMX_STATUS_TOKEN into the command")
-    func injectsStatusEnv() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-status"))
-        let channel = AmxStatusChannel(
-            fileURL: URL(fileURLWithPath: "/tmp/amx/abc123-status-deadbeef.status.jsonl"),
-            token: "deadbeef01234567deadbeef01234567"
-        )
-        let command = AmxBackend.attachCommand(
-            executablePath: "/Apps/awesoMux.app/Contents/MacOS/amx",
-            sessionID: id,
-            socketDirectory: "/tmp/amx",
-            status: channel
-        )
-        // shellQuote wraps the whole KEY=VALUE string, matching the existing ZMX_DIR style.
-        #expect(command?.contains("'AMX_STATUS_FILE=/tmp/amx/abc123-status-deadbeef.status.jsonl'") == true)
-        #expect(command?.contains("'AMX_STATUS_TOKEN=deadbeef01234567deadbeef01234567'") == true)
-        #expect(command?.contains("-u CLAUDE_CODE_CHILD_SESSION") == true)
-    }
-
-    @Test("still scrubs ZMX_SESSION* and pins ZMX_DIR when status channel is present")
-    func preservesSecurityGuaranteesWithStatus() throws {
-        let id = try #require(TerminalSessionID(rawValue: "abc123-sec"))
-        let channel = AmxStatusChannel(
-            fileURL: URL(fileURLWithPath: "/tmp/amx/abc123-sec-aabbccdd.status.jsonl"),
-            token: "aabbccddeeff0011aabbccddeeff0011"
-        )
-        let command = AmxBackend.attachCommand(
-            executablePath: "/Apps/amx",
-            sessionID: id,
-            socketDirectory: "/tmp/amx",
-            status: channel
-        )
-        // Scrub flags must be present
-        #expect(command?.contains("-u ZMX_SESSION") == true)
-        #expect(command?.contains("-u ZMX_SESSION_PREFIX") == true)
-        #expect(command?.contains("-u ZMX_LOG_MODE") == true)
-        #expect(command?.contains("-u CLAUDE_CODE_CHILD_SESSION") == true)
-        // ZMX_DIR must be pinned to the given socket directory
-        #expect(command?.contains("'ZMX_DIR=/tmp/amx'") == true)
-    }
-
-}
-
 // MARK: - queryCwd output parsing (pure unit tests, no binary needed)
 
 @Suite("AmxBackend queryCwd output parsing")

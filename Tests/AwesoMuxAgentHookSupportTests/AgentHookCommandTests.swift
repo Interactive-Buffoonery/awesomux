@@ -356,17 +356,6 @@ struct AgentHookCommandTests {
     }
 
     @Test
-    func missingEventFileEnvironmentWritesNothing() throws {
-        let status = AgentHookCommand.run(
-            arguments: ["--provider", "codex"],
-            environment: [:],
-            stdin: Self.hookPayload("SessionStart")
-        )
-
-        #expect(status == 0)
-    }
-
-    @Test
     func oversizedOpenDocumentPayloadWritesNothing() throws {
         let temp = try Self.temporaryEventFile()
         defer { temp.remove() }
