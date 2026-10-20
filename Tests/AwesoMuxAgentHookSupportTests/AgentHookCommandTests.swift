@@ -25,7 +25,8 @@ struct AgentHookCommandTests {
                     "AWESOMUX_AGENT_EVENT_FILE": temp.file.path,
                     "CLAUDE_CODE_CHILD_SESSION": "1",
                 ],
-                stdin: Self.hookPayload(hookName)
+                stdin: Self.hookPayload(hookName),
+                isSharedAppServer: { false }
             )
 
             #expect(status == 0)
@@ -49,7 +50,8 @@ struct AgentHookCommandTests {
             AgentHookCommand.run(
                 arguments: ["--provider", "codex"],
                 environment: environment,
-                stdin: Self.hookPayload("SessionStart", providerSessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
+                stdin: Self.hookPayload("SessionStart", providerSessionID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"),
+                isSharedAppServer: { false }
             ) == 0)
         #expect(try Data(contentsOf: temp.file).isEmpty)
         #expect(store.agentProviderSessionID(for: session.activePaneID) == nil)
@@ -59,7 +61,8 @@ struct AgentHookCommandTests {
             AgentHookCommand.run(
                 arguments: ["open-document", "--provider", "codex", "/tmp/notes.md"],
                 environment: environment,
-                stdin: Data()
+                stdin: Data(),
+                isSharedAppServer: { false }
             ) == 0)
         let documentEvent = try #require(try Self.readSingleEvent(from: temp.file))
         _ = store.applyAgentRuntimeEvent(documentEvent, to: session.id, paneID: session.activePaneID)
@@ -73,7 +76,8 @@ struct AgentHookCommandTests {
             AgentHookCommand.run(
                 arguments: ["--provider", "codex"],
                 environment: directEnvironment,
-                stdin: Self.hookPayload("SessionStart", providerSessionID: codexSessionID)
+                stdin: Self.hookPayload("SessionStart", providerSessionID: codexSessionID),
+                isSharedAppServer: { false }
             ) == 0)
         let startEvent = try #require(try Self.readEvents(from: temp.file).last)
         #expect(store.applyAgentRuntimeEvent(startEvent, to: session.id, paneID: session.activePaneID))
@@ -83,7 +87,8 @@ struct AgentHookCommandTests {
             AgentHookCommand.run(
                 arguments: ["--provider", "codex"],
                 environment: directEnvironment,
-                stdin: Self.hookPayload("SessionEnd", providerSessionID: codexSessionID)
+                stdin: Self.hookPayload("SessionEnd", providerSessionID: codexSessionID),
+                isSharedAppServer: { false }
             ) == 0)
         let endEvent = try #require(try Self.readEvents(from: temp.file).last)
         #expect(store.applyAgentRuntimeEvent(endEvent, to: session.id, paneID: session.activePaneID))
@@ -349,7 +354,8 @@ struct AgentHookCommandTests {
         let status = AgentHookCommand.run(
             arguments: arguments,
             environment: ["AWESOMUX_AGENT_EVENT_FILE": temp.file.path],
-            stdin: stdin
+            stdin: stdin,
+            isSharedAppServer: { false }
         )
         #expect(status == 0)
         #expect(try Data(contentsOf: temp.file).isEmpty)
@@ -365,7 +371,8 @@ struct AgentHookCommandTests {
         let status = AgentHookCommand.run(
             arguments: ["open-document", "--provider", "codex", path],
             environment: ["AWESOMUX_AGENT_EVENT_FILE": eventFile.path],
-            stdin: Data()
+            stdin: Data(),
+            isSharedAppServer: { false }
         )
 
         #expect(status == 0)
@@ -417,7 +424,8 @@ struct AgentHookCommandTests {
             _ = AgentHookCommand.run(
                 arguments: ["--provider", "codex"],
                 environment: environment,
-                stdin: payload
+                stdin: payload,
+                isSharedAppServer: { false }
             )
         }
 

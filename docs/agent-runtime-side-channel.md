@@ -342,6 +342,18 @@ Codex mapping:
 | `StopFailure` | `kind=Codex`, `execution=error`, `phase=stop` |
 | `Notification` | `kind=Codex`, `attentionReason=userInputRequired`, `phase=notification` |
 
+Codex 0.157+ can host hooks in a shared managed `codex app-server` daemon.
+That daemon keeps the environment of the pane that started it, so hooks from
+other panes inherit the founder's event file and pane identity
+(openai/codex#48500). For Codex payloads and `open-document --provider codex`,
+the helper walks up to eight ancestors and checks the nearest executable named
+`codex` or starting with `codex-`. If its first argument is `app-server`, the
+helper returns success without writing and logs `shared-app-server` at debug
+level. This also drops the founder pane's events; visible-text detection remains
+the fallback. `codex --no-daemon` retains per-pane hook routing. Unreadable
+ancestry fails open and preserves the existing behavior. The repeatable check is
+[`codex-shared-server-e2e`](../script/codex-shared-server-e2e/README.md).
+
 Codex currently emits `PreToolUse` before `PermissionRequest`, with no separate
 permission-resolved hook when an approved command begins running. awesoMux keeps
 the permission state while the prompt remains visible, then lets focused,
@@ -351,8 +363,9 @@ When Claude Code launches a nested `codex` command, current Claude Code marks
 that child with `CLAUDE_CODE_CHILD_SESSION=1`. The Codex helper drops automatic
 lifecycle-hook payloads only when that value is exactly `1`, before they can
 claim the enclosing Claude pane's event stream. Claude events and explicit Codex
-`open-document` commands continue to use the stream, subject to the existing app
-consent, provider, and lifecycle gates; an open-document event does not itself
+`open-document` commands continue to use the stream, subject to the shared-server
+guard and existing app consent, provider, and lifecycle gates; an open-document
+event does not itself
 claim agent identity. The app also removes this launcher provenance from fresh
 pane environments, and `amx attach` explicitly unsets it as boundary hygiene.
 
