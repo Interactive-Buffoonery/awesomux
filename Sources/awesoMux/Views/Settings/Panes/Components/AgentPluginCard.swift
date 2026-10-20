@@ -16,6 +16,7 @@ struct AgentPluginCard: View {
     let folders: [AgentPluginCardState]
     /// "Installed in N of M folders" once more than one folder is listed.
     let installSummary: String?
+    var enabledSetupCount: Int = 0
     @Binding var isEnabled: Bool
     @Binding var binaryPath: String
     @Binding var configHome: String
@@ -34,8 +35,14 @@ struct AgentPluginCard: View {
     var onForgetFolder: (AgentPluginTarget) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
+        AgentIntegrationDisclosureRow(
+            title: state.title, subtitle: state.subtitle,
+            needsAttention: folders.contains { $0.needsAttention }, enabledSetupCount: enabledSetupCount
+        ) {
+            statusBadge
+        } toggle: {
+            enableToggle
+        } content: {
             fieldGrid
                 .disabled(!isEnabled || state.isBusy)
             if let distWarning = state.distWarning {
@@ -58,12 +65,6 @@ struct AgentPluginCard: View {
                 )
             }
             addFolderButton
-        }
-        .padding(14)
-        .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.aw.border, lineWidth: 0.5)
         }
         .accessibilityElement(children: .contain)
     }
@@ -103,41 +104,30 @@ struct AgentPluginCard: View {
 
     // MARK: Header
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(state.title)
-                    .awFont(AwFont.UI.label)
-                    .foregroundStyle(Color.aw.text)
-                Text(state.subtitle)
-                    .awFont(AwFont.UI.meta)
-                    .foregroundStyle(Color.aw.text3)
-            }
-
-            Spacer(minLength: 12)
-
-            Toggle("Enable \(state.title)", isOn: $isEnabled)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .disabled(state.isBusy)
-                .help(isEnabled ? "Disable \(state.title)" : "Enable \(state.title)")
-                .accessibilityLabel("\(state.title) integration")
-                .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
-                .accessibilityHint(toggleAccessibilityHint)
-
-            if let installSummary {
-                AgentPluginStatusBadge(
-                    label: installSummary,
-                    color: Color.aw.textFaint,
-                    accessibilityLabel: String(
-                        localized: "\(state.title) status",
-                        comment: "Accessibility label for an agent plugin status badge; argument is the provider name."),
-                    accessibilityHint: ""
-                )
-            } else {
-                AgentPluginStatusBadge(state: state)
-            }
+    @ViewBuilder private var statusBadge: some View {
+        if let installSummary {
+            AgentPluginStatusBadge(
+                label: installSummary,
+                color: Color.aw.textFaint,
+                accessibilityLabel: String(
+                    localized: "\(state.title) status",
+                    comment: "Accessibility label for an agent plugin status badge; argument is the provider name."),
+                accessibilityHint: ""
+            )
+        } else {
+            AgentPluginStatusBadge(state: state)
         }
+    }
+
+    private var enableToggle: some View {
+        Toggle("Enable \(state.title)", isOn: $isEnabled)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .disabled(state.isBusy)
+            .help(isEnabled ? "Disable \(state.title)" : "Enable \(state.title)")
+            .accessibilityLabel("\(state.title) integration")
+            .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
+            .accessibilityHint(toggleAccessibilityHint)
     }
 
     private var toggleAccessibilityHint: String {
@@ -357,7 +347,7 @@ struct AgentPluginFolderSection: View {
     // MARK: Actions
 
     private var actionRow: some View {
-        HStack(alignment: .center, spacing: 10) {
+        AgentActionFlowLayout(spacing: 10) {
             actionButton("Enable", systemImage: "square.and.arrow.down", action: .enableOrInstall, enabled: state.allowsEnable)
             actionButton("Repair", systemImage: "arrow.clockwise", action: .repair, enabled: state.allowsRepair)
             actionButton("Disable", systemImage: "pause.circle", action: .disable, enabled: state.allowsDisable)
@@ -384,7 +374,6 @@ struct AgentPluginFolderSection: View {
                 ProgressView().controlSize(.small)
                     .accessibilityLabel("Working")
             }
-            Spacer(minLength: 0)
         }
     }
 
