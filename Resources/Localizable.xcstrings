@@ -5834,8 +5834,8 @@
     "Untitled Workspace" : {
       "comment" : "Dock menu label for a workspace that has no title."
     },
-    "Untrusted tool request · revision %lld" : {
-      "comment" : "Local once-only Claude permission card"
+    "Untrusted tool request · revision %arg" : {
+
     },
     "Up and Down arrow keys to navigate" : {
 
