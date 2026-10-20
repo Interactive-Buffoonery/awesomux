@@ -7,8 +7,9 @@
 
 ## Context
 
-awesoMux Companion is a read-only iPhone app showing agent status, alerts, a
-widget, and a Live Activity. Its prototype reached the Mac through a Python
+awesoMux Companion shows agent status, alerts, a widget, and a Live Activity
+on iPhone. Paired phones remain read-only unless the Mac user explicitly
+enables terminal-pane renaming for that phone. Its prototype reached the Mac through a Python
 relay that called `awesomux-agent` with a manually created Outside app access
 grant. That works, but pairing a phone should take one scan, not a grant
 editor, a connection UUID, and a script.
@@ -30,6 +31,18 @@ revocation, with a new all-workspaces status scope. Phones are managed only in
 the Companion pane: they do not appear under Outside app access and do not
 depend on its global switch, which is unreleased. Unpairing is revocation.
 Context sharing is not offered to phones.
+
+**Pane renaming is a separate opt-in.** The Mac's per-phone **Allow pane
+renaming** control stores an optional `paneRenameScope`; absent means denied,
+including existing and newly paired phones. A rename must satisfy both that
+scope and the phone's status scope. Preview permission never grants mutation
+authority. Only terminal panes can be renamed, using native pane and workspace
+UUIDs and `SessionStore.renamePane`; create, split, close, document-group rename,
+and workspace rename remain outside this layer (#795). Recheck the certificate
+and original revisioned lease at the synchronous MainActor mutation, holding the
+authority lock through the store change. Cancellation or an expired request
+deadline prevents a pending mutation. Policy changes invalidate outstanding
+leases before saving and deny the phone for the run if saving fails.
 
 **One pairing carries up to two routes.** The planned v2 pairing link carries
 one LAN IPv4 address and one Tailscale IPv4 address, omitting unavailable
@@ -94,8 +107,9 @@ concurrent attempts through different routes cannot create separate approvals
 or grants. Unpairing or revocation invalidates the shared grant on every route.
 
 **The wire is the existing contract.** Inside TLS the listener accepts the
-same framed v1 requests, limited to `get_connection_status`, `list_agents`,
-and `get_attention_events`, and applies the same bounds, leases, and per-write
+same framed v1 requests for `get_connection_status`, `list_agents`,
+`get_attention_events`, self-`unpair`, and separately opted-in `rename_pane`,
+and applies the same bounds, leases, and per-write
 authorization. A paired phone's key replaces the bearer credential. The phone
 groups agents and drives its widget and Live Activity from those responses. No companion-specific status contract or relay
 exists on the Mac. The 2026-10-20 amendment below adds separately granted

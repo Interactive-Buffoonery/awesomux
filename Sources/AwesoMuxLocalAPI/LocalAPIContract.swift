@@ -87,6 +87,8 @@ public enum LocalAPIError: String, Error, Codable, Sendable {
     case responseTooLarge = "response_too_large"
     case timeout
     case cancelled
+    case invalidTitle = "invalid_title"
+    case nonterminalTarget = "nonterminal_target"
     case staleTarget = "stale_target"
     case transportFailure = "transport_failure"
     case contextUnavailable = "context_unavailable"

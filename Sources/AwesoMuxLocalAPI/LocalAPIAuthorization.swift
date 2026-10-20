@@ -47,19 +47,22 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
     public let connectionRevision: UUID
     public let statusScope: LocalAPITargetScope
     public let contextGrant: LocalAPIContextGrant?
+    public let paneRenameScope: LocalAPITargetScope?
 
     public init(
         connectionID: UUID,
         globalRevision: UUID,
         connectionRevision: UUID,
         statusScope: LocalAPITargetScope,
-        contextGrant: LocalAPIContextGrant? = nil
+        contextGrant: LocalAPIContextGrant? = nil,
+        paneRenameScope: LocalAPITargetScope? = nil
     ) {
         self.connectionID = connectionID
         self.globalRevision = globalRevision
         self.connectionRevision = connectionRevision
         self.statusScope = statusScope
         self.contextGrant = contextGrant
+        self.paneRenameScope = paneRenameScope
     }
 }
 
