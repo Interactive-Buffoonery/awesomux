@@ -73,8 +73,6 @@ firewall_preflight() {
   fi
 }
 
-firewall_preflight
-
 mkdir -p "$ARTIFACT_DIR"
 : > "$LINK_FILE"
 : > "$RESULT_FILE"
@@ -93,6 +91,8 @@ if [[ ! -x "$APP_BINARY" ]]; then
   echo "error: staged development executable is missing: $APP_BINARY" >&2
   exit 1
 fi
+
+firewall_preflight
 
 AWESOMUX_COMPANION_AUTO_ALLOW=1 \
   AWESOMUX_COMPANION_E2E_LINK_FILE="$LINK_FILE" \

@@ -77,8 +77,8 @@ linked guides describe prerequisites and the limits of each proof.
 - Remote browser forwarding: `./script/test-remote-browser-e2e.sh`; [journey and UI follow-up](remote-browser-forwarding.md#real-ssh-end-to-end-check).
 - Read-only skill archive packaging: `python3 -B script/test-dot-skill-package.py`; retains a reproducible archive and `report.json` under `.build/dot-skill-e2e/`.
 
-The Companion pairing harness checks the macOS firewall before building or
-launching. With the firewall enabled, the exact staged executable path
+The Companion pairing harness checks the macOS firewall after staging the app and
+before launching. With the firewall enabled, the exact staged executable path
 (`dist/awesoMux.app/Contents/MacOS/awesoMux` in that checkout) must have an
 Allow incoming connections record, and Block all incoming connections must be
 off. Missing or blocked entries print shell-quoted commands for manual approval;
