@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-20
-- **Accepted:** 2026-10-20 — Sarah accepted with one change: consent is a workspace-wide grant, not per exact target
+- **Accepted:** 2026-10-20 — Sarah accepted with one change: workspace-wide consent
 - **Deciders:** Sarah
 - **Issue:** [#829](https://github.com/Interactive-Buffoonery/awesomux/issues/829)
 
@@ -19,14 +19,14 @@ provider identity, bounded secure reads and repeated authorization. This record
 amends [ADR-0035](0035-awesomux-companion-pairing.md): add `get_agent_context`
 to the companion allowlist only for `source: transcript` and a separate
 workspace-wide consent. The corresponding ADR-0035 scope amendment is recorded
-in that ADR under **Amended:** 2026-10-20 (landing with ADR-0036, #854);
+in that ADR's Amendment (2026-10-20) section (landing with ADR-0036, #854);
 this does not silently accept its other Proposed provisions. It grants no input or approval authority.
 Sarah accepted this record on 2026-10-20, changing the drafted per-target
 consent to a workspace-wide grant.
 
 ## Options considered
 
-- **Enable the current text operation with new consent (recommended):** smallest
+- **Enable the current text operation with new consent (chosen):** smallest
   useful Activity view, reuses exact-session reads and existing provider adapters;
   cannot promise bubbles, linked tool cards or complete history.
 - **A typed message/tool API now:** supports richer UI, but needs stable record
@@ -65,19 +65,21 @@ typed messages, tool cards and older-page navigation to a later contract.
   the response. These are safety checks that bind each read to one exact
   conversation and process, not consent events: a target change needs no new
   approval, but a read must never mix or carry over data across targets.
-  Moving a pane out of a granted workspace, or closing or deleting that
-  workspace, ends access to it immediately; expiry or revocation cancels reads.
+  Moving a pane out of a granted workspace ends access to it immediately;
+  deleting a granted workspace removes its grant. Expiry or revocation cancels
+  reads.
   Fail closed if the identity or process evidence is uncertain.
 - App restart does not require re-approval. The workspace grant is stored with
   the companion connection and persists like the pairing itself, because it
-  names a persisted workspace rather than a pane process or target version
-  that cannot survive a restart. After a restart the per-read checks above
-  still resolve a fresh exact target before any text is returned. Revocation
-  or unpairing is the only way to end a grant early.
+  names a persisted workspace ID (not its title) rather than a pane process or
+  target version that cannot survive a restart. After a restart the per-read
+  checks above still resolve a fresh exact target before any text is returned.
+  Otherwise a grant lasts until the user revokes it or unpairs the device.
 - Use the direct paired mutual-TLS connection and existing route rules. Do not
   send transcripts through push, analytics, a cloud assistant or a sync service.
   The phone keeps received text in memory only for this first version, clears it
-  on background/lock, disconnect, target change and revocation, and obscures app
+  on background/lock, disconnect, target change (to avoid mixing conversations;
+  no re-approval) and revocation, and obscures app
   switcher snapshots. Revocation cannot retract text already seen or copied.
   Never place transcript text in widgets, Live Activities, notifications, shared
   containers, Spotlight/Handoff, logs, crash reports or analytics. Fetch only
@@ -115,8 +117,9 @@ describes adapter reuse, not a promise that every tool record is represented.
 
 A later version must define stable message/part IDs, user/assistant/tool roles,
 tool-call/result correlation, unsupported-part markers, and completeness ranges
-for each provider. Paging must bind opaque cursors to the granted target,
-provider identity and source generation, reauthorize every page, bound bytes and
+for each provider. Paging must bind opaque cursors to the resolved exact target,
+provider identity and source generation, recheck the workspace grant and
+reauthorize every page, bound bytes and
 records, and explicitly expire after rotation/truncation rather than skip data.
 It must not infer tool success or consent from prose. These requirements are a
 follow-up boundary, not extra fields promised by this first version.
@@ -135,8 +138,10 @@ terminal-history sharing.
 The UI must acknowledge bounded history even when the response is not clipped.
 A workspace-wide grant removes re-approval friction when an agent restarts, at
 the cost of sharing whatever conversation later runs in that workspace; the
-granted workspace, not the exact target, is the consent boundary. Per-read
-identity checks still prevent a stale or mixed read.
+granted workspace, not the exact target, is the consent boundary. Moving a pane
+into a granted workspace, or starting a new agent there, makes it readable
+without a new prompt. Per-read identity checks still prevent a stale or mixed
+read.
 Future validation must cover every provider's limits, stale identities, revoke
 during response, session switches and malicious rendered text. This docs-only
 record does not claim those device paths exist or have passed tests.
@@ -150,7 +155,7 @@ Answered by Sarah on 2026-10-20; accepted with the consent change in question 2.
 2. Require both a device transcript switch and Mac-approved exact-target consent,
    renewed after a target or app restart, rather than a workspace-wide grant?
    **Decision:** no. Consent is a workspace-wide grant: the default-off
-   per-device transcript power plus Mac approval for a Mac-selected workspace.
+   per-device transcript power plus Mac approval for Mac-selected workspaces.
    Exact target resolution and the per-read identity and process rechecks stay
    as safety checks but do not require fresh consent per target. Moving a pane
    out of the granted workspace ends access. App restart does not require
