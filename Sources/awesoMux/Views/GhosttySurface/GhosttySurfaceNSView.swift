@@ -402,6 +402,9 @@ final class GhosttySurfaceNSView: NSView {
             clearCommandBridgeStateForLocalShellFallback()
             shouldRestartBridgePreflight = false
         }
+        if terminalSessionRepointed || bridgeExecutionPlanChanged || sessionID != session.id || paneID != pane.id {
+            runtime.localPermissionCoordinator.retire(paneID: paneID)
+        }
         self.sessionStore = sessionStore
         self.session = session
         self.sessionID = session.id

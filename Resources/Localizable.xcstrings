@@ -796,6 +796,22 @@
     "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:" : {
       "comment" : "Companion approval content disclosure."
     },
+    "Allow once" : {
+      "comment" : "Local once-only Claude permission card"
+    },
+    "Allow once recorded on Mac" : {
+      "comment" : "Recorded local permission choice, not provider execution"
+    },
+    "Allow once. Command-Return when focused." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow once. Command-Return when focused."
+          }
+        }
+      }
+    },
     "Allow outside apps" : {
       "comment" : "Outside app access toggle accessibility label.\nOutside app access toggle label."
     },
@@ -896,6 +912,22 @@
     },
     "Another awesoMux instance is changing agent integrations; try again." : {
       "comment" : "CLI agent plugin install state lock contention warning"
+    },
+    "Answer delivered to Claude hook" : {
+      "comment" : "Local once-only Claude permission card"
+    },
+    "Answer delivered to Claude hook. Tool execution is unconfirmed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Answer delivered to Claude hook. Tool execution is unconfirmed."
+          }
+        }
+      }
+    },
+    "Answer recorded on Mac" : {
+      "comment" : "Local once-only Claude permission card"
     },
     "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using." : {
       "comment" : "Outside app access same-user boundary disclosure."
@@ -1312,6 +1344,12 @@
     },
     "Chosen remote base directory" : {
       "comment" : "Accessibility label for the explicitly chosen remote base directory"
+    },
+    "Claude permission needed" : {
+      "comment" : "Local once-only Claude permission card"
+    },
+    "Claude’s own prompt may still be answered in the terminal." : {
+      "comment" : "Local once-only Claude permission card"
     },
     "Clean up" : {
 
@@ -1948,6 +1986,22 @@
     },
     "Deny (Escape when focused)" : {
       "comment" : "Tooltip for the deny button on the remote permission banner"
+    },
+    "Deny once" : {
+      "comment" : "Local once-only Claude permission card"
+    },
+    "Deny once recorded on Mac" : {
+      "comment" : "Recorded local permission choice, not provider execution"
+    },
+    "Deny once. Escape when focused." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deny once. Escape when focused."
+          }
+        }
+      }
     },
     "Deny permission request. Escape when focused." : {
       "comment" : "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
@@ -3605,6 +3659,9 @@
     "Per-workspace mute" : {
       "comment" : "Notification settings title."
     },
+    "Permission delivery unknown" : {
+      "comment" : "Local once-only Claude permission card"
+    },
     "Permission denied in %arg." : {
       "comment" : "VoiceOver announcement confirming the user denied a remote permission request in a named split pane\nVoiceOver announcement confirming the user denied a remote permission request, naming the workspace"
     },
@@ -3626,11 +3683,17 @@
     "Permission prompt focused." : {
       "comment" : "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner"
     },
+    "Permission request cancelled" : {
+      "comment" : "Local once-only Claude permission card"
+    },
     "Permission request cancelled in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled in a named split pane\nVoiceOver announcement when a remote permission prompt is cancelled, naming the workspace"
     },
     "Permission request cancelled." : {
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled"
+    },
+    "Permission request expired" : {
+      "comment" : "Local once-only Claude permission card"
     },
     "Permission request timed out in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt expires (denied) in a named split pane\nVoiceOver announcement when a remote permission prompt expires (denied), naming the workspace"
@@ -4474,6 +4537,9 @@
     },
     "Returned pane to its source workspace" : {
       "comment" : "VoiceOver announcement after returning a moved pane to the workspace it came from."
+    },
+    "Returning answer to Claude" : {
+      "comment" : "Local once-only Claude permission card"
     },
     "Reveal in Finder" : {
       "comment" : "Button title that reveals the saved layout preset in Finder."
@@ -5767,6 +5833,9 @@
     },
     "Untitled Workspace" : {
       "comment" : "Dock menu label for a workspace that has no title."
+    },
+    "Untrusted tool request · revision %lld" : {
+      "comment" : "Local once-only Claude permission card"
     },
     "Up and Down arrow keys to navigate" : {
 

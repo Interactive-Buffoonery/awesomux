@@ -1,0 +1,150 @@
+import Foundation
+import Testing
+@testable import AwesoMuxCore
+
+@Suite @MainActor
+struct LocalPermissionDecisionCoreTests {
+    let now = Date(timeIntervalSince1970: 1000)
+
+    func fixture() -> (LocalPermissionDecisionCore, LocalPermissionRequest) {
+        let core = LocalPermissionDecisionCore()
+        let target = LocalPermissionTarget(runtimeID: UUID(), workspaceID: UUID(), paneID: UUID(), version: UUID())
+        core.install(target)
+        core.observeSession("claude-session", target: target, at: now)
+        let request = LocalPermissionRequest(
+            target: target, providerSessionID: "claude-session", invocationID: UUID(), toolUseID: "tool-1", helperPID: 123,
+            helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(120), tool: "Bash", summary: "echo hello")
+        return (core, request)
+    }
+
+    @Test func firstCommitWinsAndFallbackDoesNotReopen() {
+        let (core, request) = fixture()
+        #expect(core.admit(request, now: now, helperAlive: true))
+        #expect(core.admit(request, now: now, helperAlive: true))
+        #expect(core.commit(request.identity, choice: .allow, now: now, helperAlive: true) == .recorded)
+        #expect(core.commit(request.identity, choice: .deny, now: now, helperAlive: true) == .recorded)
+        #expect(core.outcome(request.identity)?.choice == .allow)
+        #expect(core.claimDelivery(request.identity, now: now, helperAlive: true) == .allow)
+        #expect(core.claimDelivery(request.identity, now: now, helperAlive: true) == nil)
+        core.deliveryLost(request.identity)
+        #expect(core.admit(request, now: now, helperAlive: true))
+        #expect(core.outcome(request.identity)?.state == .unknown)
+        #expect(core.claimDelivery(request.identity, now: now, helperAlive: true) == nil)
+    }
+
+    @Test func acknowledgementRequiresClaimAndExactIdentity() {
+        let (core, request) = fixture()
+        #expect(core.admit(request, now: now, helperAlive: true))
+        core.acknowledge(request.identity)
+        #expect(core.outcome(request.identity)?.state == .pending)
+        _ = core.commit(request.identity, choice: .deny, now: now, helperAlive: true)
+        _ = core.claimDelivery(request.identity, now: now, helperAlive: true)
+        var wrong = request.identity
+        wrong.revision += 1
+        core.acknowledge(wrong)
+        #expect(core.outcome(request.identity)?.state == .delivering)
+        core.acknowledge(request.identity)
+        #expect(core.outcome(request.identity)?.state == .delivered)
+    }
+
+    @Test func expiryAndDeadHelperProduceNoDecision() {
+        for dead in [false, true] {
+            let (core, request) = fixture()
+            #expect(core.admit(request, now: now, helperAlive: true))
+            let instant = dead ? now : request.expiresAt
+            _ = core.commit(request.identity, choice: .allow, now: instant, helperAlive: !dead)
+            #expect(core.claimDelivery(request.identity, now: instant, helperAlive: !dead) == nil)
+            #expect(core.outcome(request.identity)?.state == (dead ? .cancelled : .expired))
+        }
+    }
+
+    @Test func targetAndSessionChangesInvalidateRecordedAnswers() {
+        let (core, request) = fixture()
+        #expect(core.admit(request, now: now, helperAlive: true))
+        _ = core.commit(request.identity, choice: .allow, now: now, helperAlive: true)
+        core.observeSession("replacement", target: request.target, at: now)
+        #expect(core.outcome(request.identity)?.state == .cancelled)
+        #expect(core.claimDelivery(request.identity, now: now, helperAlive: true) == nil)
+        core.retire(request.target)
+        #expect(!core.admit(request, now: now, helperAlive: true))
+    }
+
+    @Test func progressAfterClaimBecomesUnknown() {
+        let (core, request) = fixture()
+        #expect(core.admit(request, now: now, helperAlive: true))
+        _ = core.commit(request.identity, choice: .allow, now: now, helperAlive: true)
+        _ = core.claimDelivery(request.identity, now: now, helperAlive: true)
+        core.cancel(request.identity)
+        core.acknowledge(request.identity)
+        #expect(core.outcome(request.identity)?.state == .unknown)
+    }
+
+    @Test func changedIngressAndRetentionCannotRemint() {
+        let (core, request) = fixture()
+        #expect(core.admit(request, now: now, helperAlive: true))
+        var changed = request
+        changed.summary = "different"
+        #expect(!core.admit(changed, now: now, helperAlive: true))
+        core.sweep(now: request.expiresAt.addingTimeInterval(601))
+        #expect(core.outcome(request.identity) == nil)
+        #expect(!core.admit(request, now: request.expiresAt.addingTimeInterval(601), helperAlive: true))
+    }
+    @Test func cancellationIsExactAcrossConcurrentAndReplacedSessions() {
+        let (core, first) = fixture()
+        let older = LocalPermissionRequest(
+            target: first.target, providerSessionID: first.providerSessionID, invocationID: UUID(), toolUseID: nil,
+            helperPID: 123, helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(120), tool: "Bash", summary: "older"
+        )
+        let sibling = LocalPermissionRequest(
+            target: first.target, providerSessionID: first.providerSessionID, invocationID: UUID(), toolUseID: nil,
+            helperPID: 124, helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(120), tool: "Bash", summary: "sibling"
+        )
+        #expect(core.admit(older, now: now, helperAlive: true))
+        #expect(core.admit(sibling, now: now, helperAlive: true))
+        core.cancel(older.identity)
+        #expect(core.outcome(sibling.identity)?.state == .pending)
+        core.observeSession("new-session", target: first.target, at: now)
+        let replacement = LocalPermissionRequest(
+            target: first.target, providerSessionID: "new-session", invocationID: UUID(), toolUseID: nil,
+            helperPID: 125, helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(120), tool: "Bash", summary: "replacement"
+        )
+        #expect(core.admit(replacement, now: now, helperAlive: true))
+        // A delayed old event or file withdrawal names only its old identity.
+        core.cancel(older.identity)
+        #expect(core.outcome(replacement.identity)?.state == .pending)
+    }
+
+    @Test func delayedSessionStartCannotReplaceVerifiedIngress() {
+        let core = LocalPermissionDecisionCore()
+        let target = LocalPermissionTarget(runtimeID: UUID(), workspaceID: UUID(), paneID: UUID(), version: UUID())
+        core.install(target)
+        let request = LocalPermissionRequest(
+            target: target, providerSessionID: "current", invocationID: UUID(), toolUseID: nil,
+            helperPID: 123, helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(120), tool: "Bash", summary: "current"
+        )
+        #expect(core.admit(request, now: now, helperAlive: true))
+        core.observeSession("old", target: target, at: now.addingTimeInterval(-1))
+        #expect(core.commit(request.identity, choice: .allow, now: now, helperAlive: true) == .recorded)
+    }
+
+    @Test func progressBeforeIngressClosesOnlyTheMatchingLifetime() {
+        let (core, request) = fixture()
+        core.observeProgress(session: request.providerSessionID, target: request.target, at: now.addingTimeInterval(1))
+        #expect(!core.admit(request, now: now.addingTimeInterval(2), helperAlive: true))
+        let next = LocalPermissionRequest(
+            target: request.target, providerSessionID: request.providerSessionID, invocationID: UUID(), toolUseID: nil,
+            helperPID: 124, helperStartMicroseconds: 1, expiresAt: now.addingTimeInterval(123), tool: "Bash", summary: "next"
+        )
+        #expect(core.admit(next, now: now.addingTimeInterval(3), helperAlive: true))
+        core.observeProgress(session: next.providerSessionID, target: next.target, at: now.addingTimeInterval(1))
+        #expect(core.outcome(next.identity)?.state == .pending)
+    }
+
+    @Test func unrelatedToolProgressCannotEraseSessionInvalidation() {
+        let (core, request) = fixture()
+        core.observeProgress(session: request.providerSessionID, target: request.target, at: now.addingTimeInterval(1))
+        core.observeProgress(session: request.providerSessionID, target: request.target, at: now.addingTimeInterval(2), toolUseID: "other")
+        #expect(!core.admit(request, now: now.addingTimeInterval(3), helperAlive: true))
+    }
+
+}

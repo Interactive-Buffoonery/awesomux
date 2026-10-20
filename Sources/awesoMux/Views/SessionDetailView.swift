@@ -89,6 +89,18 @@ struct SessionDetailView: View {
                             .id(terminalSessionID)
                         }
 
+                        LocalPermissionPromptView(
+                            coordinator: ghosttyRuntime.localPermissionCoordinator,
+                            paneID: session.activePaneID,
+                            onFocusReturned: { [sessionID = session.id, paneID = session.activePaneID] in
+                                guard sessionStore.selectedSessionID == sessionID,
+                                    sessionStore.session(id: sessionID)?.activePaneID == paneID
+                                else { return }
+                                ghosttyRuntime.focusSurface(toPane: paneID)
+                            }
+                        )
+                        .id(session.activePaneID)
+
                         TerminalPaneView(
                             session: session,
                             sessionStore: sessionStore,

@@ -246,6 +246,7 @@ extension GhosttySurfaceNSView {
             sessionID: sessionID,
             paneID: paneID,
             enabledFileDropSources: enabledAgentRuntimeFileDropSources,
+            localPermissionsEnabled: pane.executionPlan.remoteTarget == nil,
             applyEvent: { [weak self] event in
                 self?.applyAgentRuntimeEvent(event)
             }

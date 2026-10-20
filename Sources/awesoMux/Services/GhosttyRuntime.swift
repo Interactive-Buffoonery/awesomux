@@ -238,6 +238,7 @@ final class GhosttyRuntime {
     /// live bridge generation's coordinator through here.
     @ObservationIgnored
     let bridgeCoordinatorStore = BridgeCoordinatorStore()
+    let localPermissionCoordinator = LocalPermissionCoordinator()
 
     private struct BridgeAttachPreflightEntry {
         let preflight: BridgeAttachPreflight
@@ -819,6 +820,7 @@ final class GhosttyRuntime {
             ?? surfaceView.pane.terminalSessionID
         let preservesRecoveryRecord = surfaceView.ignoresProcessExitAfterCommandBridgeHeal
 
+        localPermissionCoordinator.retire(paneID: paneID)
         agentRuntimeEventBridge.stopWatching(paneID: paneID)
         surfaceView.disposeNativeSurface()
         surfaceView.removeFromSuperview()
@@ -882,6 +884,7 @@ final class GhosttyRuntime {
         #if DEBUG
             logSurfaceCacheEvent("discard-all-start")
         #endif
+        localPermissionCoordinator.retireAll()
         agentRuntimeEventBridge.stopWatchingAll()
         for task in shellActivityLifecycleRefreshTasks.values {
             task.cancel()
@@ -1495,14 +1498,26 @@ final class GhosttyRuntime {
         sessionID: TerminalSession.ID,
         paneID: TerminalPane.ID,
         enabledFileDropSources: Set<AgentRuntimeSource>,
+        localPermissionsEnabled: Bool = false,
         applyEvent: @escaping (AgentRuntimeEvent) -> Void
     ) -> AgentRuntimeEnvironment {
-        agentRuntimeEventBridge.environment(
+        var environment = agentRuntimeEventBridge.environment(
             sessionID: sessionID,
             paneID: paneID,
             enabledFileDropSources: enabledFileDropSources,
-            applyEvent: applyEvent
+            applyEvent: { [weak self] event in
+                self?.localPermissionCoordinator.observe(event, paneID: paneID)
+                applyEvent(event)
+            }
         )
+        if localPermissionsEnabled {
+            environment.localPermissionEndpoint = localPermissionCoordinator.install(
+                workspaceID: sessionID, paneID: paneID, eventFile: environment.eventFileURL
+            )
+        } else {
+            localPermissionCoordinator.retire(paneID: paneID)
+        }
+        return environment
     }
 
     let scrollbackReadCoordinator = ScrollbackReadCoordinator()
