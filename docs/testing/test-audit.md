@@ -180,8 +180,20 @@ first if a mapping regression slips through.
 
 ## Hang risks
 
+**Cause of the nontiming hang (fixed).** On the hosted runner every
+`AwesoMuxCoreTests` case started and none finished. Swift Testing prints
+parameterized arguments in each case's name, and
+`DocumentLoaderTests.acceptedFiles` and `LineDiffCountTests.externalEdits`
+passed 2 MB strings, which produced 2 MB log lines. The runner's log pipe
+stalled on them, and every test blocked on writing its result. Earlier culls
+(`2f9d48b0`, `1edb5358`) had moved those inputs into the argument lists. The
+fix builds them in the test body, and the longest test output line is now
+about 10 KB. Keep large inputs out of `@Test(arguments:)`.
+
+The risks below are still real but did not cause this hang.
+
 No test in `Tests/` sets `.timeLimit`, so one stuck wait parks the whole shard
-until the job's 120-minute timeout. A time limit alone won't free a thread
+until the job timeout (now 40 minutes). A time limit alone won't free a thread
 blocked in a semaphore or a main-queue drain. Those waits also need deadlines.
 
 ### High risk, nontiming shard
@@ -190,7 +202,7 @@ blocked in a semaphore or a main-queue drain. Those waits also need deadlines.
 | --- | --- |
 | `AsyncGate.wait`, `TestScheduler.wait` (`AwesoMuxTestSupport`) | Continuations ignore cancellation and have no deadline. A missed `open()` parks the test forever. |
 | `drainMainQueue` (`Wait.swift:44`, `SidebarHostedTestHarness.swift:118`) | Waits for the main queue with no deadline. Blocks if the main thread is stuck in AppKit work. `PrimaryContentFocusRouterTests` reaches the sidebar harness copy from nontiming. |
-| `TerminalPanelWindowTests.mouseInputIsForwardedWithoutReadingKeyboardFields` (line 65) | Sends `leftMouseDown` with no matching `mouseUp`. AppKit can enter a mouse-tracking loop that never returns on a runner with no real input. Prime suspect for the hosted-runner hang. |
+| `TerminalPanelWindowTests.mouseInputIsForwardedWithoutReadingKeyboardFields` (line 65) | Sends `leftMouseDown` with no matching `mouseUp`. AppKit can enter a mouse-tracking loop that never returns on a runner with no real input. |
 | `TerminalPaneLayoutDecodeDepthTests.runOnLargeStack` (lines 55-60) | `done.wait()` on a semaphore with no timeout. |
 | `SessionPersistenceLoadTests` quit-during-replacement cases (lines 1557-1677) | Several semaphore waits; `9545f192` bounded only one. |
 | `AgentTranscriptStoreTests.commitGateIsEvaluatedUnderTheCacheLock` (line 171) | Semaphore wait with no timeout. |
