@@ -44,7 +44,7 @@ Changes made:
 No suite named in the `script/test.sh` shard patterns was emptied.
 
 The table above covers the first, per-suite pass. The second, per-case pass
-removed or merged 66 more cases; see "Second pass: per-case cull".
+removed or merged 50 more cases; see "Second pass: per-case cull".
 
 ## Review items
 
@@ -92,33 +92,29 @@ An E2E coverage map came first. It found only five unit tests that duplicate
 an E2E assertion exactly, because most journeys drive paths the unit tests
 do not. Most cuts are therefore restatements and duplicates.
 
-| | Before audit | After pass 1 | After pass 2 |
-| --- | ---: | ---: | ---: |
-| `@Test` functions | 1,141 | 1,129 | 1,075 |
-| Verified test cases | 1,138 | 1,126 | 1,072 |
+| | Before audit | After pass 1 | After pass 2 | After review fixes |
+| --- | ---: | ---: | ---: | ---: |
+| `@Test` functions | 1,141 | 1,129 | 1,075 | 1,088 |
+| Verified test cases | 1,138 | 1,126 | 1,072 | 1,085 |
 
 What remains is mostly boundary and regression coverage: wire framing,
 untrusted paths and names, ownership and revalidation before destructive
 actions, consent gates, and persistence recovery. The earlier culls in #832
 and #833 had already removed most of the junk this pass looked for.
 
-Closest calls: the deleted `AgentHookEventMapperTests` cases restated the
-provider-to-state mapping table row by row, with no linked bug fix. That
-table maps real Claude, Codex, and Grok hook events, so restore cases there
-first if a mapping regression slips through.
+A review of this branch put back cases it found still guarded behavior
+nothing else covers: all of `AgentHookEventMapperTests` (Grok and local agent
+mappings), `AnnotationSaveRecoveryTests.submissionGate`,
+`VisibleTextAgentStateReducerTests.enteringWaitingAnnouncesOnceOnTransition`,
+the two `SidebarNativeOutlineViewTests` input-routing cases, and the exact
+profile path cases in `RuntimeProfileScriptTests.profilePaths`. The table
+below lists only what stayed removed or merged.
 
 ### Cases removed or merged
 
 | File | Test | Verdict | Criterion | Reason |
 | --- | --- | --- | --- | --- |
 | AgentHookCommandTests.swift | AgentHookCommandTests.nonRegularValidationFails | merge | K2 | Merged into unsafeFileMetadataIsRejected; nonregular owned metadata must still throw POSIXError. |
-| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.claudeCodeStopMapsDirectlyToWaiting | delete | D1 | Copies the Stop mapping and projects the same waiting state; history search finds seed/cull commits, no specific fix. |
-| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.codexPermissionRequestMapsToPermissionPromptWithoutExecution | delete | D6 | Codex PermissionRequest uses localAgentMapping inherited from the same baseMapping entry checked by the retained Claude PermissionRequest row. |
-| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.currentGrokStopWithoutReasonMapsToWaiting | delete | D1 | Directly copies the current Grok Stop/baseMapping tuple; seed/cull history supplies no specific regression. |
-| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.grokStopReasonSplitsTurnEndFromErrors | delete | D1 | All six rows mirror grokLegacyStopMapping reason branches; history traces to cb3545b6 seed without a fix. |
-| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.legacyGrokSnakeCaseEventsRemainAccepted | delete | D1 | All ten rows copy grokMapping/baseMapping output tuples and a passthrough ID; no specific regression found in history. |
-| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.legacyGrokStopWithoutReasonKeepsErrorBehavior | delete | D1 | Directly copies grokLegacyStopMapping nil-reason tuple; seed/cull history supplies no specific regression. |
-| AgentHookEventMapperTests.swift | AgentHookEventMapperTests.localAgentNotificationsIgnoreNotificationType | delete | D1 | Both provider rows copy the localAgentMapping notification entry and ignored parameter behavior. |
 | AgentRuntimeEventReducerEdgeTests.swift | AgentRuntimeEventReducerEdgeTests.restoredWaitingPaneSeedsBetweenTurns | merge | K3 | Merged into trailingToolEndAfterStopKeepsWaiting(restored:true); preserves nil execution update and resulting waiting state. |
 | AgentRuntimeEventTests.swift | AgentRuntimeEventTests.invalidOpenDocumentEventsAreRejected | merge | K2 | Merge all 4 malformed open-document wire inputs into rejectedLines; same nil-parse assertion preserved. |
 | AgentRuntimeEventTests.swift | AgentRuntimeEventTests.touchedPathWithUnsafeScalarsIsDropped | merge | K2 | Merge into invalidTouchedPathIsDroppedButEventSurvives; same bidi JSON escape, toolEnd and nil path assertions retained. |
@@ -128,13 +124,7 @@ first if a mapping regression slips through.
 | AmxBackendTests.shellIntegrationEnvironment | 6: `prependsInheritedXDGDataDirs` | delete | D6 | Real-shell attachCommandPreservesShellArguments(fish) already asserts prepending inherited XDG_DATA_DIRS through the same path. |
 | AmxBackendTests.swift | AmxBackendAttachCommandTests.createOrAttachCarriesRecoveryLabels | delete | D1 | Expected labels repeat production's identical sorted/map/join algorithm over the same encodedLabelAssignments; no independent recovery behavior asserted. |
 | AmxStatusEventTests.swift | AmxStatusEventTests.partialTrailingLineIgnored | merge | K2 | Merged into parseTwoCompleteLines(trailingNewline:false); one attached event and rejection of partial end retained. |
-| AnnotationSaveRecoveryTests.submissionGate | 1: `(false, true, false, AnnotationSaveOutcome.copyOnly, false)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
-| AnnotationSaveRecoveryTests.submissionGate | 2: `(false, true, false, .reloadAndRetry, true)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
-| AnnotationSaveRecoveryTests.submissionGate | 3: `(true, true, false, .copyAndReselect, false)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
-| AnnotationSaveRecoveryTests.submissionGate | 4: `(true, true, true, nil, false)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
-| AnnotationSaveRecoveryTests.submissionGate | 5: `(true, true, false, .reloadAndRetry, true)` | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
 | AnnotationSaveRecoveryTests.swift | AnnotationSaveRecoveryTests.invalidationTerminatesConflictWaits | merge | K3 | Merged into waitsForReloadCompletion(invalidated: true); both current-wait false and late-wait false assertions preserved. |
-| AnnotationSaveRecoveryTests.swift | AnnotationSaveRecoveryTests.submissionGate | delete | D1 | Five rows restate the simple canSubmit boolean predicates with valid always true; no save/retry/UI operation or independent submission behavior is exercised. |
 | BridgeFrameReaderTests.swift | BridgeFrameReaderTests.completeLineOverCapIsDroppedNotClosed | merge | K2 | Merged into completeGarbageLineAtOrOverCapDropsWithoutClosing; over-cap complete line still drops without closing or tail. |
 | BridgeFrameReaderTests.swift | BridgeFrameReaderTests.partialLineUnder10SecondsStaysOpen | merge | K2 | Merged 9.9-second case into partialLineWithinDeadlineStaysOpen, retaining held action and tail equality. |
 | BridgeFrameReaderTests.swift | BridgeFrameReaderTests.sessionMismatchDropsLineButKeepsConnectionOpen | merge | K2 | Merged wrong-session row into mismatchedIdentityDropsLineButKeepsConnectionOpen with empty-frame/open-connection assertions. |
@@ -170,10 +160,7 @@ first if a mapping regression slips through.
 | SessionStoreWorkspaceGroupTests.swift | SessionStoreWorkspaceGroupTests.addSSHSessionDeclaresRemoteOwnedSession | merge | K2 | Merged as remoteOwned: true into addSSHSessionKeepsPaneOwnedIdentity; explicit target/sessionName assertions retained. |
 | SessionStoreWorkspaceGroupTests.swift | SessionStoreWorkspaceGroupTests.managedSSHConversionDeclaresRemoteOwnedSession | merge | K2 | Merged as remoteOwned: true into managedSSHConversionReplacesActivePaneInPlace; return ID and remote-owned target/name assertions retained. |
 | ShellActivityTests.swift | ShellActivityTests.busySamplesBeforeAnyPromptObservationStayIdle | delete | D6 | unseenSplitPaneCannotForceSessionRunning exercises the same untrusted-busy path plus per-pane isolation and later trust admission. |
-| SidebarNativeOutlineViewTests.swift | SidebarNativeOutlineViewTests.hostedControlsAndMenusKeepInputWhileRowDragsStayNative | delete | D1 | Copies HostedCell.routesPointerToContent's exact event/modifier/width-minus-36 branches without dispatching input. |
-| SidebarNativeOutlineViewTests.swift | SidebarNativeOutlineViewTests.internalMoveSourcesCannotBecomeTerminalText | delete | D1 | Copies the exact three-type disjunction in GhosttySurfaceNSView.isInternalMoveSource, without exercising a drag/drop consumer. |
 | SidebarSplitControllerTests.swift | SidebarSplitControllerTests.clamp | delete | D1 | Eight argument rows call a pure forwarding wrapper around SidebarWidthPolicy.constrainedLiveWidth with copied width/output constants; native hiddenWidthSelection/dividerDeadStrip retain behavior. |
-| VisibleTextAgentStateReducerTests.swift | VisibleTextAgentStateReducerTests.enteringWaitingAnnouncesOnceOnTransition | delete | D1 | Literal announcement branch mapping; git log -S finds only initial seed cb3545b6, no specific fix evidence. |
 | WorkspaceAttentionReducerTests.swift | WorkspaceAttentionReducerTests.paneErrorLandsOnNamedPane | delete | D6 | recordsExitErrorOnExitingPaneBeforeRemoval(false, 0) exercises the named inactive-pane error route and the same sibling-isolation assertions. |
 | WorkspaceNotificationTrackerTests.swift | WorkspaceNotificationTrackerTests.testTurnDoneSurvivesWhenSiblingNeedsAttentionIsToggledOff | merge | K3 | Merged as needsAttentionEnabled: false into sibling priority test with opposite tree order and exact turnDone-kind assertion. |
 | WorkspaceNotificationTrackerTests.swift | WorkspaceNotificationTrackerTests.testUnmutedWorkspaceEmitsForNewAttentionAfterUnmute | merge | K3 | Merged as newAttention: true into muted baseline test, preserving count/session identity and pane continuity. |
@@ -238,7 +225,9 @@ The timing and announcement shards have the same gate pattern in
 `ProcessCommandRunnerCompletionTests`, `BridgeAttachPreflightTests`,
 `BridgeGenerationRegistryTests`, `AgentTranscriptLiveRefreshWatchTests`, the
 `Sidebar*` drains, and the `RemoteMarkdownTypedPathOpen` and `TabRefresh`
-gates. `LocalAPIE2E` is excluded from the test target; it drains pipes before
+gates. `CommandRunnerTests` also waits on
+`waitForRequestCount` with no deadline; if the runner never asks for a delay,
+that case hangs instead of failing. `LocalAPIE2E` is excluded from the test target; it drains pipes before
 its waits begin and has an unbounded paging loop.
 
 ### Suggested fix
@@ -472,7 +461,7 @@ its waits begin and has an unbounded paging loop.
 | SidebarWorkspaceDragSourceTests.swift | SidebarWorkspaceDragSourceTests | keep | Original drag callback must finish exactly once and ordinary clicks must not start a drag; fix 0874f0d6 (#769). |
 | SidebarWorkspaceMoveIndexTests.swift | SidebarWorkspaceMoveIndexTests | keep | Visible-to-stored index translation preserves hidden/pinned rows and uses current order after removal; fix 0874f0d6 (#769). |
 | SidebarWorkspaceReorderPreviewTests.swift | SidebarWorkspaceReorderPreviewTests | keep | Gap hysteresis keeps the destination stable while variable-height rows move; distinct from stored-order index translation; fix 0874f0d6 (#769). |
-| SourceContract.swift | SourceContract helper | keep | Live consumer `PaneChangeClassificationTests` uses source loading and declaration extraction; deletion depends on that other chunk's verdict. |
+| SourceContract.swift | SourceContract helper | delete (done) | Its only consumer, `PaneChangeClassificationTests.classificationCoversEveryAssignedField`, was deleted in the second pass. |
 | SourceOffsetMapperTests.swift | SourceOffsetMapperTests | keep | Parser source locations use UTF-8 columns; multibyte and out-of-line bounds are distinct from rendered UTF-16 selection mapping. |
 | StableDataDigestTests.swift | StableDataDigestTests | keep | Missing snapshot must override digest deduplication or shutdown can leave no restore file; data-loss contract, not a hash self-test. |
 | SubprocessSafetyTests.swift | SubprocessSafetyTests | keep | Executes real shell quoting with substitution/newline/quote payloads and verifies oversized stdout/stderr fails instead of returning partial data. |
