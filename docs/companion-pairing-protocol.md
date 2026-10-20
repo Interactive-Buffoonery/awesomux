@@ -235,6 +235,10 @@ Only these operations are accepted:
 - `list_agents`, with no operation arguments.
 - `rename_pane`, with required `workspaceID`, `paneID`, and `title`; requires
   a separate Mac-approved rename scope.
+- `list_panes`, with no operation arguments.
+- `set_terminal_preview`, with required `terminalPreviewAllowed` JSON Boolean
+  and no other operation arguments. It changes only the authenticated phone's
+  permission; it cannot target another connection.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
   optional non-empty `cursor` of at most 2,048 UTF-8 bytes. Optional
   `includeCommandEvents` accepts a JSON boolean; omission or `null` defaults to
@@ -318,6 +322,107 @@ visibility intersection, stale and document targets, invalid titles, lease
 revocation, permission changes, cancellation, and deadline expiry. A native
 run must also verify the Mac settings toggle and roster update after an
 opted-in rename; direct tests do not establish those UI/network success paths.
+### Pane roster and terminal-content access
+
+Every paired phone can see workspace and pane status. Terminal previews are a
+separate per-phone permission, persisted as `terminalPreviewAllowed` in that
+phone's companion metadata. Old metadata without the field decodes to false;
+existing pairings receive the full roster/status with no `lastOutputLine`, and
+the Mac never reads a native surface for their requests while permission is off.
+New registrations default off; the current Mac pairing approval explicitly
+discloses and enables previews when the user clicks Allow. Terminal content may
+be sensitive, including secrets printed by programs. The named **Terminal
+previews for <phone>** switch in Mac Companion settings enables or disables it.
+
+An authenticated phone may deliberately enable or disable its own previews
+immediately with `set_terminal_preview`; no additional Mac approval is required.
+The request's connection ID must match its paired certificate grant. For example:
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"set_terminal_preview","connectionID":"<uuid>","terminalPreviewAllowed":true}
+```
+
+Missing, null, numeric, string, or unrelated arguments are rejected. The Boolean
+field is rejected on every other operation. The local bearer endpoint accepts
+neither this operation nor this argument. `get_connection_status` includes the
+current authenticated phone's `terminalPreviewAllowed` Boolean. A successful
+mutation acknowledgement includes the usual response envelope and that Boolean,
+with no roster, agents, or terminal content. Clients must read status again after
+reconnecting or returning to foreground because the Mac switch may have changed.
+An older Mac's absent status field means previews are unavailable/off; an
+`unsupported_operation` mutation must not be treated as consent or success.
+
+Permission changes rotate the connection revision and invalidate outstanding
+requests before saving. The phone mutation revalidates its original certificate
+and lease immediately before changing state, and its acknowledgement checks a
+fresh post-change lease on every write. Revocation or another permission change
+before the acknowledgement prevents that receipt. Repeating the current value
+is idempotent and does not rotate a healthy grant. If saving fails, the affected
+connection is denied for this run until Retry Save persists the requested
+policy, matching the existing scope-change failure behavior. Other phones and
+bearer grants retain their policy. Unpairing immediately revokes access.
+
+Release dependency: the phone-side terminal-content privacy gate (p16),
+including app-switcher blurring, must land before the phone list (p9) exposes
+terminal content. Its deliberate switch uses the self-only operation above.
+This change grants no live-terminal viewing scope. Watch access (m786) is
+separate.
+
+`list_panes` is Companion-only. It is absent from the local bearer API's
+operation catalog and capabilities. It reuses the paired certificate's status
+authorization, with scope filtering before terminal reads and the same
+revocation/revision checks before response writes. It does not grant bearer
+context, transcript, terminal history, document content, or input access;
+Companion connections retain a nil `contextGrant`.
+
+A successful response adds `workspaces`, in native sidebar group/workspace
+order. Each workspace has `workspaceID`, `name`, and `panes`, in layout leaf
+order. Every terminal leaf is included, including plain shells and split
+terminals. A tabbed document group is one `documentGroup` leaf, identified by
+its group ID; its title is the selected document's display title, or **Files**
+for an empty browser. Document tabs are not separate layout panes.
+
+```json
+{
+  "workspaces": [{
+    "workspaceID": "<uuid>", "name": "Project",
+    "panes": [{
+      "paneID": "<uuid>", "kind": "terminal", "title": "Shell",
+      "availability": "attached", "state": "idle",
+      "lastOutputLine": "Build complete"
+    }, {
+      "paneID": "<uuid>", "kind": "documentGroup", "title": "Notes",
+      "availability": "attached"
+    }]
+  }]
+}
+```
+
+`availability` reuses the native classifier: `awaitingHydration`, `attached`,
+`unavailable`, or `stale`. Terminal `state` reuses the native agent/shell
+projection. Document groups have no terminal `state` or `lastOutputLine`.
+Consumers should tolerate future kind, availability, and state values.
+
+`lastOutputLine` is the last nonblank line of the terminal's current active
+screen, independent of the Mac user's scrollback position. It may be a shell
+prompt or program UI rather than a completed output record. The existing
+Ghostty text reader reads only that screen, never scrollback or disk. Existing
+display-string Unicode hygiene removes unsafe display scalars; the result is
+capped at 512 UTF-8 bytes on a Character (extended grapheme cluster) boundary.
+Lines that sanitize to empty are skipped. There is no promise to
+recognize or redact secrets. A missing/detached surface, blank screen, or failed
+read omits the preview; the API does not mount panes or reconstruct old output.
+Only the sanitized, capped line (including an absent result) is cached per
+native surface for at most 500 ms to coalesce repeated text extraction. A new
+view, native-surface incarnation, or teardown discards the cached preview;
+raw screen text is never cached by Companion. Scope checks precede sampling,
+and cached previews still require certificate authorization and revocation
+checks on response writes. Workspace metadata, pane status, and availability
+are projected fresh on every request. The roster is a synchronous SessionStore
+projection, with no separate live model, persistence, selection, or
+attention-acknowledgment effects. The existing
+256 KiB response limit remains in force: an oversized roster returns
+`response_too_large` rather than silently omitting workspaces or panes.
 
 ### Response envelope
 

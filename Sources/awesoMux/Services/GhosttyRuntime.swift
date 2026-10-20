@@ -527,6 +527,10 @@ final class GhosttyRuntime {
         }
     }
 
+    func companionLastOutputLine(paneID: UUID) -> String? {
+        surfaceViews[paneID]?.companionLastOutputLine()
+    }
+
     func localAPIHistory(paneID: UUID, limit: Int) async throws -> String {
         guard let view = surfaceViews[paneID], let surface = view.surface else { throw LocalAPIError.contextUnavailable }
         let address = UInt(bitPattern: surface)

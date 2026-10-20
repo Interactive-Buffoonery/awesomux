@@ -211,6 +211,10 @@ final class CompanionPairingCoordinator {
             connectionID: phone.id, scope: allowed ? phone.statusScope : nil)
     }
 
+    func updateTerminalPreviewAllowed(_ allowed: Bool, for connectionID: UUID) throws {
+        try accessStore.updateCompanionTerminalPreviewAllowed(connectionID: connectionID, allowed: allowed)
+    }
+
     func unpair(_ connection: LocalAPIConnectionGrant) throws {
         defer {
             lastSeen.removeValue(forKey: connection.id)
@@ -391,7 +395,8 @@ final class CompanionPairingCoordinator {
                     certificateFingerprint: fingerprint,
                     transport: transport,
                     port: port,
-                    pairingVersion: 2
+                    pairingVersion: 2,
+                    terminalPreviewAllowed: true
                 )
                 self.servers.forEach { $0.refreshAuthorization() }
                 self.finishPairing(id: pairingID)
@@ -406,8 +411,15 @@ final class CompanionPairingCoordinator {
                 try service.renameCompanionPane(
                     request: request, lease: lease, certificateFingerprint: fingerprint, deadline: deadline)
             },
-            capture: { request, lease in
-                await service.companionResponse(request: request, lease: lease)
+            setTerminalPreview: { [weak self] connectionID, fingerprint, lease, allowed in
+                guard let self else { throw LocalAPIError.appUnavailable }
+                return try self.accessStore.setCompanionTerminalPreviewAllowed(
+                    connectionID: connectionID, allowed: allowed,
+                    certificateFingerprint: fingerprint, expectedLease: lease
+                )
+            },
+            capture: { request, lease, routes in
+                await service.companionResponse(request: request, lease: lease, routes: routes)
             },
             routes: { [weak self] in self?.currentRoutes },
             markSeen: { [weak self] connectionID in self?.lastSeen[connectionID] = Date() },
@@ -575,7 +587,8 @@ private final class CompanionNetworkServer {
     private let revoke: @MainActor (UUID) throws -> Void
     private let renamePane:
         @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void
-    private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse
+    private let setTerminalPreview: @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease
+    private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse
     private let routes: @MainActor () -> CompanionRoutes?
     private let markSeen: @MainActor (UUID) -> Void
     private let connectionFinished: @MainActor () -> Void
@@ -586,6 +599,7 @@ private final class CompanionNetworkServer {
     private var listener: NWListener?
     private var connections: [UUID: ActiveCompanionConnection] = [:]
     private var pendingRevocationReplies: Set<UUID> = []
+    private var pendingPermissionReplies: Set<UUID> = []
 
     var hasPendingRevocationReplies: Bool { !pendingRevocationReplies.isEmpty }
 
@@ -606,7 +620,8 @@ private final class CompanionNetworkServer {
         revoke: @escaping @MainActor (UUID) throws -> Void,
         renamePane:
             @escaping @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void,
-        capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse,
+        setTerminalPreview: @escaping @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease,
+        capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse,
         routes: @escaping @MainActor () -> CompanionRoutes?,
         markSeen: @escaping @MainActor (UUID) -> Void,
         connectionFinished: @escaping @MainActor () -> Void,
@@ -626,6 +641,7 @@ private final class CompanionNetworkServer {
         self.abortPairing = abortPairing
         self.register = register
         self.revoke = revoke
+        self.setTerminalPreview = setTerminalPreview
         self.capture = capture
         self.renamePane = renamePane
         self.routes = routes
@@ -708,7 +724,7 @@ private final class CompanionNetworkServer {
 
     func invalidate(connectionID: UUID?) {
         for (id, active) in connections where connectionID == nil || active.connectionID == connectionID {
-            if connectionID != nil, pendingRevocationReplies.contains(id) { continue }
+            if connectionID != nil, pendingRevocationReplies.contains(id) || pendingPermissionReplies.contains(id) { continue }
             active.worker?.cancel()
             active.connection.cancel()
             connections.removeValue(forKey: id)
@@ -835,6 +851,7 @@ private final class CompanionNetworkServer {
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "paneID", "targetVersion", "limit", "source",
                     "cursor", "includeCommandEvents", "workspaceID", "title",
+                    "terminalPreviewAllowed",
                 ])
             else { throw LocalAPIError.invalidRequest }
             requestID = (object["requestID"] as? String).flatMap(UUID.init(uuidString:))
@@ -863,23 +880,47 @@ private final class CompanionNetworkServer {
                 return
             }
             guard object["workspaceID"] == nil, object["title"] == nil else { throw LocalAPIError.invalidRequest }
-            // Self-unpair uses the same paired-certificate grant as status, but is
-            // deliberately absent from the local bearer API's operation catalog.
+            if object.keys.contains("terminalPreviewAllowed"),
+                request.operation != CompanionOperation.setTerminalPreview.rawValue
+            {
+                throw LocalAPIError.invalidRequest
+            }
             let isUnpair = request.operation == CompanionOperation.unpair.rawValue
-            guard let operation = isUnpair ? .connectionStatus : LocalAPIOperation(rawValue: request.operation) else {
-                throw LocalAPIError.unsupportedOperation
+            let operation = try CompanionRequestPolicy.authorizationOperation(for: request)
+            guard operation == .attentionEvents || object["includeCommandEvents"] == nil else {
+                throw LocalAPIError.invalidRequest
             }
-            guard operation == .connectionStatus || operation == .listAgents || operation == .attentionEvents else {
-                throw LocalAPIError.permissionDenied
-            }
-            guard operation == .attentionEvents || object["includeCommandEvents"] == nil,
-                Self.argumentsAreValid(request, operation: operation)
-            else { throw LocalAPIError.invalidRequest }
             let lease = try authority.authorizeCompanion(
                 connectionID: connectionID,
                 certificateFingerprint: fingerprint,
                 operation: operation
             ).get()
+            if request.operation == CompanionOperation.setTerminalPreview.rawValue {
+                guard let allowed = request.terminalPreviewAllowed else { throw LocalAPIError.invalidRequest }
+                // Keep this socket alive through its own invalidation; unlike
+                // self-unpair, the acknowledgement still requires a current lease.
+                pendingPermissionReplies.insert(id)
+                defer { pendingPermissionReplies.remove(id) }
+                let updatedLease: LocalAPIAuthorizationLease
+                do {
+                    updatedLease = try setTerminalPreview(connectionID, fingerprint, lease, allowed)
+                } catch let error as LocalAPIError {
+                    throw error
+                } catch {
+                    throw LocalAPIError.transportFailure
+                }
+                let receipt = CompanionAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID,
+                    capturedAt: Date(), terminalPreviewAllowed: updatedLease.terminalPreviewAllowed
+                )
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(receipt), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: updatedLease,
+                    responseProgress: responseProgress
+                )
+                markSeen(connectionID)
+                return
+            }
             if isUnpair {
                 pendingRevocationReplies.insert(id)
                 defer { pendingRevocationReplies.remove(id) }
@@ -902,11 +943,10 @@ private final class CompanionNetworkServer {
                 try await Self.sendFrame(try CompanionProtocol.encoder().encode(response.companionResponse), connection: connection)
                 return
             }
-            let response = await capture(request, lease)
             let metadata = pairedConnections().first { $0.id == connectionID }?.companion
-            let companionResponse = response.companionResponse(
-                routes: operation == .connectionStatus && metadata?.pairingVersion == 2 ? routes() : nil)
-            let encoded = try CompanionProtocol.encoder().encode(companionResponse)
+            let response = await capture(
+                request, lease, operation == .connectionStatus && metadata?.pairingVersion == 2 ? routes() : nil)
+            let encoded = try CompanionProtocol.encoder().encode(response)
             guard encoded.count <= LocalAPIContract.maximumResponseBytes else { throw LocalAPIError.responseTooLarge }
             try await sendAuthorizedFrame(
                 encoded,
@@ -1100,17 +1140,6 @@ private final class CompanionNetworkServer {
                 }), let certificate = box.certificate
         else { throw CompanionPairingError.invalidRequest }
         return try CompanionCertificate.subjectPublicKeyInfo(for: certificate)
-    }
-
-    private static func argumentsAreValid(_ request: LocalAPIRequest, operation: LocalAPIOperation) -> Bool {
-        if operation == .attentionEvents {
-            return request.paneID == nil && request.targetVersion == nil && request.source == nil
-                && (request.limit ?? 0) > 0
-                && (request.limit ?? 0) <= LocalAPIContract.maximumAttentionPageSize
-                && (request.cursor.map { !$0.isEmpty && $0.utf8.count <= 2048 } ?? true)
-        }
-        return request.paneID == nil && request.targetVersion == nil && request.source == nil
-            && request.limit == nil && request.cursor == nil && request.includeCommandEvents == nil
     }
 
     private static func remoteAddress(_ endpoint: NWEndpoint) -> String {

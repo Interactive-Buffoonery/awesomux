@@ -2,6 +2,7 @@ import AwesoMuxConfig
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPICredentials
 import CryptoKit
+import CoreFoundation
 import Darwin
 import Foundation
 import Observation
@@ -29,6 +30,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     public func allows(_ transport: LocalAPICompanionTransport) -> Bool {
         pairingVersion == 2 || self.transport == transport
     }
+    public var terminalPreviewAllowed: Bool
 
     public init(
         certificateFingerprint: Data,
@@ -36,7 +38,8 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         pairedAt: Date,
         port: UInt16,
         paneRenameScope: LocalAPITargetScope? = nil,
-        pairingVersion: Int? = nil
+        pairingVersion: Int? = nil,
+        terminalPreviewAllowed: Bool = false
     ) {
         self.certificateFingerprint = certificateFingerprint
         self.transport = transport
@@ -44,7 +47,24 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         self.port = port
         self.paneRenameScope = paneRenameScope
         self.pairingVersion = pairingVersion
+        self.terminalPreviewAllowed = terminalPreviewAllowed
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        certificateFingerprint = try values.decode(Data.self, forKey: .certificateFingerprint)
+        transport = try values.decode(LocalAPICompanionTransport.self, forKey: .transport)
+        pairedAt = try values.decode(Date.self, forKey: .pairedAt)
+        port = try values.decode(UInt16.self, forKey: .port)
+        paneRenameScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .paneRenameScope)
+        pairingVersion = try values.decodeIfPresent(Int.self, forKey: .pairingVersion)
+        terminalPreviewAllowed = try values.decodeIfPresent(Bool.self, forKey: .terminalPreviewAllowed) ?? false
+    }
+
 }
 
 public struct LocalAPIConnectionGrant: Codable, Equatable, Identifiable, Sendable {
@@ -208,7 +228,8 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 connectionRevision: connection.revision,
                 statusScope: connection.statusScope,
                 contextGrant: nil,
-                paneRenameScope: metadata.paneRenameScope
+                paneRenameScope: metadata.paneRenameScope,
+                terminalPreviewAllowed: metadata.terminalPreviewAllowed
             )
             guard expected == nil || expected == lease else { return .failure(.permissionDenied) }
             return .success(lease)
@@ -230,6 +251,7 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 connection.contextGrant == nil,
                 let metadata = connection.companion,
                 metadata.paneRenameScope == lease.paneRenameScope,
+                metadata.terminalPreviewAllowed == lease.terminalPreviewAllowed,
                 constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
             else { throw LocalAPIError.permissionDenied }
             return try body()
@@ -452,7 +474,8 @@ public final class LocalAPIAccessStore {
         transport: LocalAPICompanionTransport,
         port: UInt16,
         pairingVersion: Int? = nil,
-        pairedAt: Date = Date()
+        pairedAt: Date = Date(),
+        terminalPreviewAllowed: Bool = false
     ) throws -> LocalAPIConnectionGrant {
         try requireWritableAuthority()
         let phoneName = UnicodeHygiene.sanitize(rawPhoneName, maxLength: 80, stripInvisibleRoutingScalars: true)
@@ -475,7 +498,8 @@ public final class LocalAPIAccessStore {
                 transport: transport,
                 pairedAt: pairedAt,
                 port: port,
-                pairingVersion: pairingVersion
+                pairingVersion: pairingVersion,
+                terminalPreviewAllowed: terminalPreviewAllowed
             )
         )
         var candidate = state
@@ -526,6 +550,34 @@ public final class LocalAPIAccessStore {
         try updateConnection(connectionID: connectionID, kind: .companion) {
             $0.companion?.paneRenameScope = scope
         }
+    }
+
+    public func updateCompanionTerminalPreviewAllowed(connectionID: UUID, allowed: Bool) throws {
+        try requireWritableAuthority()
+        guard let connection = state.connections.first(where: { $0.id == connectionID }),
+            connection.kind == .companion, let metadata = connection.companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard metadata.terminalPreviewAllowed != allowed || persistenceFailureMessage != nil else { return }
+        try updateConnection(connectionID: connectionID, kind: .companion) {
+            $0.companion?.terminalPreviewAllowed = allowed
+        }
+    }
+
+    /// Revalidate on MainActor immediately before mutation, then retain the
+    /// refreshed lease for every acknowledgement write.
+    public func setCompanionTerminalPreviewAllowed(
+        connectionID: UUID, allowed: Bool, certificateFingerprint: Data,
+        expectedLease: LocalAPIAuthorizationLease
+    ) throws -> LocalAPIAuthorizationLease {
+        _ = try runtimeAuthority.authorizeCompanion(
+            connectionID: connectionID, certificateFingerprint: certificateFingerprint,
+            operation: .connectionStatus, matching: expectedLease
+        ).get()
+        try updateCompanionTerminalPreviewAllowed(connectionID: connectionID, allowed: allowed)
+        return try runtimeAuthority.authorizeCompanion(
+            connectionID: connectionID, certificateFingerprint: certificateFingerprint,
+            operation: .connectionStatus
+        ).get()
     }
 
     public func updateContextGrant(connectionID: UUID, contextGrant: LocalAPIContextGrant?) throws {
@@ -735,6 +787,10 @@ public final class LocalAPIAccessStore {
         if let scope = metadata["paneRenameScope"] {
             guard scopeShapeIsValid(scope) else { return false }
             keys.remove("paneRenameScope")
+        }
+        if let allowed = metadata["terminalPreviewAllowed"] {
+            guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+            keys.remove("terminalPreviewAllowed")
         }
         let legacy: Set<String> = ["certificateFingerprint", "transport", "pairedAt", "port"]
         if keys == legacy { return true }

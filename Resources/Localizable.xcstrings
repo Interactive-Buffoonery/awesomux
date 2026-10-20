@@ -793,6 +793,9 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
+    "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:" : {
+      "comment" : "Companion approval content disclosure."
+    },
     "Allow outside apps" : {
       "comment" : "Outside app access toggle accessibility label.\nOutside app access toggle label."
     },
@@ -811,7 +814,7 @@
     "Allow this iPhone?" : {
       "comment" : "Fallback Companion approval title."
     },
-    "Allow “%@” to see your agents?" : {
+    "Allow “%@” to see panes and terminal previews?" : {
       "comment" : "Companion approval title."
     },
     "Allowed" : {
@@ -1695,6 +1698,9 @@
     "Could not reload Ghostty configuration." : {
 
     },
+    "Could not save terminal preview access. Retry Save before restarting awesoMux." : {
+      "comment" : "Companion preview permission save error."
+    },
     "Could not save the pull request document." : {
       "comment" : "Reason a connected pull request document could not open"
     },
@@ -2354,6 +2360,9 @@
     },
     "File-read destination" : {
       "comment" : "Label for the independently authorized SSH file-read destination"
+    },
+    "Files" : {
+      "comment" : "Empty document pane title."
     },
     "Filled in from the terminal's reported directory. Check it, or replace the path with a full /… or ~/… path." : {
       "comment" : "Help for a remote relative link whose base directory was prefilled from the terminal's reported cwd"
@@ -3510,6 +3519,9 @@
     "Paired %@" : {
       "comment" : "Companion paired date."
     },
+    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. Pane renaming is available with your permission." : {
+      "comment" : "Companion settings description."
+    },
     "Paired phones" : {
       "comment" : "Companion paired-phone list label."
     },
@@ -4662,9 +4674,6 @@
     "Security warning: %arg" : {
       "comment" : "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
     },
-    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. Pane renaming is available with your permission." : {
-      "comment" : "Companion settings description."
-    },
     "Select All" : {
       "comment" : "Terminal context menu item that selects the whole terminal buffer"
     },
@@ -4804,6 +4813,9 @@
     },
     "Share Session Details…" : {
 
+    },
+    "Shares the last output line from every terminal. This iPhone can also change its own preview setting." : {
+      "comment" : "Companion terminal preview switch help."
     },
     "Shell" : {
       "comment" : "Corner tab command label when the companion runs a plain shell.\nDiagnostics process type\nGeneric agent name for a plain shell in an accessibility label.\nGeneric agent-kind display name for a plain shell session (not an AI agent brand name)",
@@ -5104,6 +5116,9 @@
           }
         }
       }
+    },
+    "Terminal previews for %@" : {
+      "comment" : "Per-phone Companion terminal preview switch."
     },
     "Terminal runtime failed to initialize" : {
       "comment" : "Diagnostics event summary"

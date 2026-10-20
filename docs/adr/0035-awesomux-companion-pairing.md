@@ -4,6 +4,7 @@
 - **Date:** 2026-10-17
 - **Amended:** 2026-10-18 — one pairing with LAN and Tailscale routes (#782)
 - **Amended:** 2026-10-20 — per-device terminal, decision and transcript grants (see Amendment)
+- **Amended:** 2026-10-20 — Companion-only pane roster and bounded previews (#785)
 
 ## Context
 
@@ -105,14 +106,23 @@ All listeners share one secret, consumed atomically by the first valid attempt;
 concurrent attempts through different routes cannot create separate approvals
 or grants. Unpairing or revocation invalidates the shared grant on every route.
 
-**The wire is the existing contract.** Inside TLS the listener accepts the
-same framed v1 requests for `get_connection_status`, `list_agents`,
-`get_attention_events`, self-`unpair`, and separately opted-in `rename_pane`,
-and applies the same bounds, leases, and per-write
-authorization. A paired phone's key replaces the bearer credential. The phone
-groups agents and drives its widget and Live Activity from those responses. No companion-specific status contract or relay
-exists on the Mac. The 2026-10-20 amendment below adds separately granted
-capabilities beyond these three status reads.
+**The wire reuses the existing framing and authorization.** Inside TLS the
+listener accepts framed v1 requests for `get_connection_status`, `unpair`,
+`list_agents`, `get_attention_events`, and Companion-only `list_panes` and
+`set_terminal_preview`, plus separately Mac-approved `rename_pane`, with the
+same bounds, leases, and per-write authorization. A paired phone's key replaces
+the bearer credential. The #785 amendment adds an ordered workspace/pane roster
+and a bounded last-output preview from each terminal's active screen; it does
+not expose previews through the local bearer API or grant context/history.
+The shared wire DTOs and current payload/privacy rules are defined in the
+[pairing protocol](../companion-pairing-protocol.md#pane-roster-and-terminal-content-access).
+Terminal previews default off for existing pairings. Explicit Mac pairing
+approval or the named per-phone Mac switch can enable them; an authenticated
+phone can also enable or disable only its own previews through
+`set_terminal_preview` without further Mac approval. Permission revisions and
+per-write authorization protect both previews and mutation acknowledgements.
+The phone-side content gate remains a release requirement there. No relay or parallel workspace model is introduced. The amendment below defines
+additional independently granted capabilities.
 
 **Delivery is pull-only in this stage.** The phone reads while open and when
 iOS grants background time, and posts local notifications for new alerts.

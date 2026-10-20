@@ -196,7 +196,7 @@ struct CompanionPairingE2E {
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile)
             try await verifyMacPin(link: link, identity: identity)
             var profile: String?
-            for operation in ["get_connection_status", "list_agents", "get_attention_events"] {
+            for operation in ["get_connection_status", "list_agents", "list_panes", "get_attention_events"] {
                 var request: [String: Any] = [
                     "schemaVersion": 1,
                     "requestID": UUID().uuidString.lowercased(),
@@ -213,8 +213,26 @@ struct CompanionPairingE2E {
                         link.advertisedRoutes.allSatisfy({ routes[$0.key] as? String == $0.value })
                     else { throw E2EFailure("status did not report the advertised v2 routes") }
                     print("advertised_routes=\(link.advertisedRoutes.keys.sorted().joined(separator: ","))")
+                    guard response["terminalPreviewAllowed"] as? Bool == true else {
+                        throw E2EFailure("new pairing did not retain disclosed preview consent")
+                    }
                 }
-                printJSON(label: operation, object: response)
+                if operation == "list_panes" {
+                    let encoded = try JSONSerialization.data(withJSONObject: response)
+                    let roster = try CompanionProtocol.decoder().decode(CompanionAPIResponse.self, from: encoded)
+                    guard let workspaces = roster.workspaces, !workspaces.isEmpty,
+                        workspaces.contains(where: { $0.panes.contains(where: { $0.kind == "terminal" }) })
+                    else { throw E2EFailure("list_panes did not return terminal workspaces") }
+                    for pane in workspaces.flatMap(\.panes) {
+                        guard pane.lastOutputLine.map({ !$0.contains(where: \.isNewline) && $0.utf8.count <= 512 }) ?? true,
+                            pane.kind == "terminal" || pane.lastOutputLine == nil
+                        else { throw E2EFailure("list_panes returned an invalid preview") }
+                    }
+                    // Do not retain terminal content in the E2E log.
+                    print("list_panes=validated workspaces=\(workspaces.count) panes=\(workspaces.flatMap(\.panes).count)")
+                } else {
+                    printJSON(label: operation, object: response)
+                }
             }
             let denied = try await call(
                 [
@@ -238,6 +256,42 @@ struct CompanionPairingE2E {
                     "operation": operation, "connectionID": id ?? connectionID,
                 ]
             }
+            for allowed in [false, true, true] {
+                var mutation = request("set_terminal_preview")
+                mutation["terminalPreviewAllowed"] = allowed
+                let receipt = try await call(mutation, link: link, identity: identity)
+                guard receipt["error"] == nil, receipt["terminalPreviewAllowed"] as? Bool == allowed,
+                    receipt["workspaces"] == nil, receipt["agents"] == nil
+                else { throw E2EFailure("self preview permission update was not acknowledged") }
+                let status = try await call(request("get_connection_status"), link: link, identity: identity)
+                guard status["terminalPreviewAllowed"] as? Bool == allowed else {
+                    throw E2EFailure("preview permission readback did not match")
+                }
+                let roster = try await call(request("list_panes"), link: link, identity: identity)
+                guard roster["error"] == nil, let workspaces = roster["workspaces"] as? [[String: Any]] else {
+                    throw E2EFailure("preview toggle lost status roster")
+                }
+                if !allowed {
+                    for pane in workspaces.flatMap({ $0["panes"] as? [[String: Any]] ?? [] }) {
+                        guard pane["lastOutputLine"] == nil else { throw E2EFailure("disabled phone received terminal preview") }
+                    }
+                }
+                print("set_terminal_preview=validated allowed=\(allowed)")
+            }
+            for invalidValue: Any in [NSNull(), 1, "true"] {
+                var malformed = request("set_terminal_preview")
+                malformed["terminalPreviewAllowed"] = invalidValue
+                let deniedMutation = try await call(malformed, link: link, identity: identity)
+                guard deniedMutation["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("malformed preview permission was accepted")
+                }
+            }
+            var wrongPhone = request("set_terminal_preview", id: UUID().uuidString)
+            wrongPhone["terminalPreviewAllowed"] = true
+            let deniedPhone = try await call(wrongPhone, link: link, identity: identity)
+            guard deniedPhone["error"] as? String == "permission_denied" else {
+                throw E2EFailure("preview permission changed another phone")
+            }
             for (operation, id, expected) in [
                 ("unpair", UUID().uuidString, "permission_denied"),
                 ("unknown_companion_operation", connectionID, "unsupported_operation"),
@@ -247,6 +301,12 @@ struct CompanionPairingE2E {
                     throw E2EFailure("\(operation) did not return \(expected)")
                 }
                 printJSON(label: "\(operation)_denied", object: response)
+            }
+            var invalidPaneList = request("list_panes")
+            invalidPaneList["limit"] = 1
+            let invalidRoster = try await call(invalidPaneList, link: link, identity: identity)
+            guard invalidRoster["error"] as? String == "invalid_request" else {
+                throw E2EFailure("list_panes arguments did not return invalid_request")
             }
             var invalidUnpair = request("unpair")
             invalidUnpair["limit"] = 1
@@ -310,7 +370,7 @@ struct CompanionPairingE2E {
             else { throw E2EFailure("self-unpair was not acknowledged") }
             printJSON(label: "self_unpair", object: unpaired)
             do {
-                let response = try await CompanionClient.exchange(request("list_agents"), connection: stale)
+                let response = try await CompanionClient.exchange(request("list_panes"), connection: stale)
                 guard response["error"] != nil else { throw E2EFailure("revoked connection returned data") }
                 printJSON(label: "revoked_connection", object: response)
             } catch let error as E2EFailure where error.description == "revoked connection returned data" {
@@ -319,7 +379,7 @@ struct CompanionPairingE2E {
                 print("revoked_connection=closed")
             }
             do {
-                let response = try await call(request("get_connection_status"), link: link, identity: identity)
+                let response = try await call(request("list_panes"), link: link, identity: identity)
                 guard response["error"] != nil else { throw E2EFailure("revoked phone reconnected") }
             } catch let error as E2EFailure where error.description == "revoked phone reconnected" {
                 throw error
