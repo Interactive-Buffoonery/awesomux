@@ -214,6 +214,11 @@ final class CompanionPairingCoordinator {
 
     func retryPersistence() throws { try accessStore.retryPersistence() }
 
+    func setPaneRenameAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
+        try accessStore.updateCompanionPaneRenameScope(
+            connectionID: phone.id, scope: allowed ? phone.statusScope : nil)
+    }
+
     func unpair(_ connection: LocalAPIConnectionGrant) throws {
         defer {
             lastSeen.removeValue(forKey: connection.id)
@@ -375,6 +380,10 @@ final class CompanionPairingCoordinator {
                 guard let self else { throw CompanionPairingError.connectionClosed }
                 defer { self.lastSeen.removeValue(forKey: connectionID) }
                 try self.accessStore.revoke(connectionID: connectionID)
+            },
+            renamePane: { request, lease, fingerprint, deadline in
+                try service.renameCompanionPane(
+                    request: request, lease: lease, certificateFingerprint: fingerprint, deadline: deadline)
             },
             capture: { request, lease in
                 await service.companionResponse(request: request, lease: lease)
@@ -593,6 +602,8 @@ private final class CompanionNetworkServer {
     private let abortPairing: @MainActor (UUID) -> Void
     private let register: @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant
     private let revoke: @MainActor (UUID) throws -> Void
+    private let renamePane:
+        @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void
     private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse
     private let markSeen: @MainActor (UUID) -> Void
     private let connectionFinished: @MainActor () -> Void
@@ -621,6 +632,8 @@ private final class CompanionNetworkServer {
         abortPairing: @escaping @MainActor (UUID) -> Void,
         register: @escaping @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant,
         revoke: @escaping @MainActor (UUID) throws -> Void,
+        renamePane:
+            @escaping @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void,
         capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse,
         markSeen: @escaping @MainActor (UUID) -> Void,
         connectionFinished: @escaping @MainActor () -> Void,
@@ -641,6 +654,7 @@ private final class CompanionNetworkServer {
         self.register = register
         self.revoke = revoke
         self.capture = capture
+        self.renamePane = renamePane
         self.markSeen = markSeen
         self.connectionFinished = connectionFinished
         self.listenerFailed = listenerFailed
@@ -827,6 +841,7 @@ private final class CompanionNetworkServer {
     }
 
     private func serveAuthorized(_ connection: NWConnection, id: UUID, data: Data, connectionID: UUID, fingerprint: Data) async throws {
+        let mutationDeadline = ContinuousClock.now.advanced(by: .seconds(LocalAPIContract.timeout))
         let deadline = Task { [delay] in
             try? await delay(.seconds(LocalAPIContract.timeout))
             guard !Task.isCancelled else { return }
@@ -839,9 +854,10 @@ private final class CompanionNetworkServer {
             guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "paneID", "targetVersion", "limit", "source",
-                    "cursor", "includeCommandEvents",
+                    "cursor", "includeCommandEvents", "workspaceID", "title",
                 ])
             else { throw LocalAPIError.invalidRequest }
+            requestID = (object["requestID"] as? String).flatMap(UUID.init(uuidString:))
             if object["profile"] == nil { object["profile"] = profile }
             let normalized = try JSONSerialization.data(withJSONObject: object)
             guard let request = try? LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: normalized) else {
@@ -851,6 +867,22 @@ private final class CompanionNetworkServer {
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == profile else { throw LocalAPIError.profileMismatch }
             guard request.connectionID == connectionID else { throw LocalAPIError.permissionDenied }
+            if request.operation == CompanionPaneRename.operation {
+                let mutation = try CompanionPaneRenameRequest.decode(object)
+                let lease = try authority.authorizeCompanion(
+                    connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                try renamePane(mutation, lease, fingerprint, mutationDeadline)
+                let response = LocalAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date())
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(response.companionResponse), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress)
+                markSeen(connectionID)
+                return
+            }
+            guard object["workspaceID"] == nil, object["title"] == nil else { throw LocalAPIError.invalidRequest }
             // Self-unpair uses the same paired-certificate grant as status, but is
             // deliberately absent from the local bearer API's operation catalog.
             let isUnpair = request.operation == CompanionOperation.unpair.rawValue

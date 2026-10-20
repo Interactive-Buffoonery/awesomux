@@ -51,6 +51,8 @@ enum LocalAPIProcessSource: Sendable, Equatable {
 final class LocalAPIService {
     private let server: LocalAPIServer
     private let capture: LocalAPIServer.Capture
+    private weak var renameStore: SessionStore?
+    private let renameAuthority: LocalAPIRuntimeAuthority
     private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPI")
 
     init(
@@ -174,6 +176,8 @@ final class LocalAPIService {
             )
         }
         self.capture = capture
+        renameStore = store
+        renameAuthority = accessStore.runtimeAuthority
         server = try LocalAPIServer(
             profile: profileValue,
             authorization: accessStore.runtimeAuthority.provider,
@@ -189,6 +193,16 @@ final class LocalAPIService {
     func stop() { server.stop() }
 
     var instanceID: UUID { server.instanceID }
+
+    func renameCompanionPane(
+        request: CompanionPaneRenameRequest, lease: LocalAPIAuthorizationLease,
+        certificateFingerprint: Data, deadline: ContinuousClock.Instant
+    ) throws {
+        guard let store = renameStore else { throw LocalAPIError.appUnavailable }
+        try CompanionPaneRename.apply(
+            request: request, store: store, authority: renameAuthority,
+            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
+    }
 
     func companionResponse(
         request: LocalAPIRequest,

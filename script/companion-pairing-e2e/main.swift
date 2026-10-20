@@ -259,6 +259,48 @@ struct CompanionPairingE2E {
             guard stillPaired["connectionStatus"] as? String == "connected" else {
                 throw E2EFailure("denied requests revoked the phone")
             }
+            var rename = request("rename_pane")
+            rename["workspaceID"] = UUID().uuidString
+            rename["paneID"] = UUID().uuidString
+            rename["title"] = "E2E pane"
+            let renameDenied = try await call(rename, link: link, identity: identity)
+            guard renameDenied["error"] as? String == "permission_denied" else {
+                throw E2EFailure("a newly paired phone could rename without Mac opt-in")
+            }
+            printJSON(label: "rename_default_denied", object: renameDenied)
+            for key in ["workspaceID", "paneID", "title"] {
+                for value in [NSNull(), 1, true] as [Any] {
+                    var malformed = rename
+                    malformed[key] = value
+                    let result = try await call(malformed, link: link, identity: identity)
+                    guard result["error"] as? String == "invalid_request" else {
+                        throw E2EFailure("rename accepted malformed \(key)")
+                    }
+                }
+                var missing = rename
+                missing.removeValue(forKey: key)
+                let result = try await call(missing, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("rename accepted missing \(key)")
+                }
+            }
+            for key in ["limit", "cursor", "targetVersion", "source"] {
+                var extra = rename
+                extra[key] = "unexpected"
+                let result = try await call(extra, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("rename accepted unrelated \(key)")
+                }
+            }
+            for operation in ["get_connection_status", "list_agents", "unpair"] {
+                var unrelated = request(operation)
+                unrelated["title"] = "E2E pane"
+                let result = try await call(unrelated, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("\(operation) accepted rename arguments")
+                }
+            }
+            print("rename_arguments=invalid_request")
             // Keep a TLS session open across revocation to exercise stale authorization too.
             let stale = try await CompanionClient.open(link: link, identity: identity).connection
             defer { stale.cancel() }
@@ -285,7 +327,9 @@ struct CompanionPairingE2E {
                 print("revoked_reconnect=denied")
             }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile, expectRevoked: true)
-            print("PASS: pairing, reads, context denial, invalid and unknown requests, self-unpair, and revoked access")
+            print(
+                "PASS: pairing, reads, context denial, invalid and unknown requests, rename opt-in denial and argument validation, self-unpair, and revoked access"
+            )
         } catch {
             FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
             Foundation.exit(1)

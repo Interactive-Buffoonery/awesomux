@@ -796,6 +796,12 @@
     "Allow outside apps" : {
       "comment" : "Outside app access toggle accessibility label.\nOutside app access toggle label."
     },
+    "Allow pane renaming" : {
+
+    },
+    "Allow pane renaming for %@" : {
+
+    },
     "Allow permission request. Command-Return when focused." : {
       "comment" : "Accessibility label for the allow button on the remote permission banner, including keyboard shortcut"
     },
@@ -2757,6 +2763,9 @@
     "Let awesoMux get my attention" : {
 
     },
+    "Lets this phone rename terminal panes within its visible workspaces." : {
+
+    },
     "License" : {
       "comment" : "About window link to the project's own MIT license\nAdvanced settings label.\nButton opening a bundled third-party license file"
     },
@@ -4656,7 +4665,7 @@
     "Security warning: %arg" : {
       "comment" : "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
     },
-    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. This feature is currently read-only." : {
+    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. Pane renaming is available with your permission." : {
       "comment" : "Companion settings description."
     },
     "Select All" : {
@@ -6084,6 +6093,9 @@
 
     },
     "awesoMux couldn't save the access setting." : {
+
+    },
+    "awesoMux couldn't save the pane rename permission." : {
 
     },
     "awesoMux couldn't save the rendered diff to its cache." : {

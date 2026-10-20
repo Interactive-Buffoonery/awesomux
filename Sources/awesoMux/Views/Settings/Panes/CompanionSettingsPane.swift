@@ -17,7 +17,7 @@ struct CompanionSettingsPane: View {
             title: String(localized: "awesoMux Companion", comment: "Companion settings title."),
             subtitle: String(
                 localized:
-                    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. This feature is currently read-only.",
+                    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. Pane renaming is available with your permission.",
                 comment: "Companion settings description."
             ),
             badge: String(localized: "Alpha", comment: "Companion prerelease badge.")
@@ -75,6 +75,14 @@ struct CompanionSettingsPane: View {
         }
         .sheet(isPresented: $showsPairing, onDismiss: coordinator.cancelPairing) {
             CompanionPairingSheet()
+        }
+        .onChange(of: visibleError) { _, message in
+            guard let message else { return }
+            let announcement =
+                coordinator.persistenceFailureMessage == nil
+                ? message
+                : message + " " + String(localized: "Retry Save", comment: "Retry Companion metadata save.")
+            AccessibilityNotification.Announcement(announcement).post()
         }
         .confirmationDialog(
             String(localized: "Unpair iPhone?", comment: "Companion unpair confirmation title."),
@@ -142,6 +150,25 @@ struct CompanionSettingsPane: View {
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text2)
             }
+            Toggle(
+                isOn: Binding(
+                    get: { phone.companion?.paneRenameScope != nil },
+                    set: { allowed in
+                        do {
+                            try coordinator.setPaneRenameAllowed(allowed, for: phone)
+                        } catch {
+                            errorMessage = String(localized: "awesoMux couldn't save the pane rename permission.")
+                        }
+                    }
+                )
+            ) {
+                Text(String(localized: "Allow pane renaming"))
+            }
+            .accessibilityLabel(
+                String.localizedStringWithFormat(String(localized: "Allow pane renaming for %@"), phone.label))
+            Text(String(localized: "Lets this phone rename terminal panes within its visible workspaces."))
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text3)
             Text(lastSeenText(phone.id))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)

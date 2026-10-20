@@ -1,6 +1,6 @@
 # awesoMux Companion pairing protocol
 
-This document is the complete Mac-to-iPhone pairing, read-only API, and self-unpair contract.
+This document is the complete Mac-to-iPhone pairing, status API, opt-in pane rename, and self-unpair contract.
 All integers are decimal unless a representation is stated explicitly.
 
 V1 wire DTOs, framing, link syntax, and confirmation words live in the root
@@ -233,6 +233,8 @@ Only these operations are accepted:
 - `get_connection_status`, with no operation arguments.
 - `unpair`, with no operation arguments; revokes only the authenticated phone.
 - `list_agents`, with no operation arguments.
+- `rename_pane`, with required `workspaceID`, `paneID`, and `title`; requires
+  a separate Mac-approved rename scope.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
   optional non-empty `cursor` of at most 2,048 UTF-8 bytes. Optional
   `includeCommandEvents` accepts a JSON boolean; omission or `null` defaults to
@@ -244,6 +246,78 @@ and bearer credentials are denied. The connection ID must be the value returned
 by `paired`, and the presented certificate fingerprint must still match that
 non-revoked connection. Unpairing revokes it immediately. Companion access is
 independent of the Mac's Outside app access switch.
+
+### Opt-in terminal-pane rename (#795, first layer)
+
+`rename_pane` is Companion-only and is absent from the local bearer operation
+catalog. It does not grant create, split, close, workspace rename, document
+rename, input, or context access. The existing paired certificate, connection ID,
+profile, and transport checks still apply.
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"rename_pane","connectionID":"<paired-uuid>","workspaceID":"<workspace-uuid>","paneID":"<terminal-pane-uuid>","title":"Backend"}
+```
+
+`workspaceID` is the native session UUID and `paneID` is the native terminal
+pane UUID, matching the pane roster identities (#785). Both are required;
+array positions, active selection, document tab IDs, and document-group IDs are
+not terminal identities. `title` must be a JSON string. No other operation
+arguments are accepted; missing, null, wrong-type, malformed UUID, and unrelated
+fields return `invalid_request`. Rename fields are rejected on other operations.
+The usual 8 KiB request bound applies.
+
+Each phone's optional persisted `paneRenameScope` is independent of status,
+context, and terminal-preview permissions. Missing means denied for both legacy
+and new grants. Only the Mac's **Allow pane renaming** control can enable or
+disable it; the phone cannot grant itself rename permission. Enabling captures
+that phone's current status scope. At mutation time both the status scope and
+rename scope must allow the exact target. Granting rename never widens status
+visibility. Turning the control off removes the grant. Every change rotates the
+connection revision and invalidates pending requests before saving; a failed
+save denies this phone for the run until Retry Save succeeds.
+
+The endpoint rechecks the original certificate and lease under the authority
+lock, then checks cancellation and its monotonic deadline before a synchronous
+MainActor `SessionStore` rename. The lock remains held with no suspension.
+A revoked, replaced, disabled, or scope-changed grant cannot perform a pending
+mutation. Response writes recheck the same lease too. A rename already applied
+before a disconnect/revocation may have no receipt; reconnect and read the pane
+roster to reconcile. Retrying the same target and title has the native idempotent
+result; request IDs are correlation IDs, not a durable deduplication journal.
+
+The native title sanitizer trims whitespace, removes unsafe display scalars,
+and caps titles at 200 Characters. A title that sanitizes to empty returns
+`invalid_title`; it never resets the native custom-title pin. A missing workspace
+or pane, or a pane no longer in the supplied workspace, returns `stale_target`.
+An existing document-group leaf returns `nonterminal_target`. Scope/grant denial
+returns `permission_denied` before target lookup. Cancellation and expiry return
+`cancelled` and `timeout` without mutating. Success is the standard envelope with
+`profile`, `appInstanceID`, and `capturedAt`, without roster or content. The native
+rename pins the title, persists through the usual session snapshot, and preserves
+selection and attention. Native lone-pane workspace-title behavior also applies.
+
+Release order: this Mac operation is additive; old phones remain unchanged and
+all existing grants stay denied until Mac opt-in. No shared-package pin change is
+needed for the Mac decoder and existing acknowledgement envelope. A typed phone
+request can later add the operation string and optional UUID/title fields to
+`CompanionAPIRequest` without changing wire version. Older Macs reject the new
+operation (`invalid_request` on implementations whose strict field allowlist
+predates rename, or `unsupported_operation`); neither is success. Clients must
+show that the Mac needs an update and must never fall back to another operation.
+
+Mac downgrade is a separate limitation: after rename permission is saved, an
+older Mac build using the same runtime profile rejects the newer access file's
+unknown `paneRenameScope` field. Its existing fail-closed loader preserves the
+file and disables all Local API access for that run, including other phones and
+Outside app grants. Return to a supporting Mac build to manage those grants;
+do not treat an older build's refusal as revocation or delete the access file.
+
+The pairing E2E harness covers default denial and malformed/unrelated arguments
+through TLS. `CompanionPaneRenameTests` covers native success/persistence,
+visibility intersection, stale and document targets, invalid titles, lease
+revocation, permission changes, cancellation, and deadline expiry. A native
+run must also verify the Mac settings toggle and roster update after an
+opted-in rename; direct tests do not establish those UI/network success paths.
 
 ### Response envelope
 
@@ -274,7 +348,7 @@ instance:
 The possible Companion error strings are `invalid_request`,
 `unsupported_version`, `unsupported_operation`, `profile_mismatch`,
 `permission_denied`, `request_too_large`, `response_too_large`, `timeout`,
-`cancelled`, `stale_target`, `invalid_cursor`, and `transport_failure`. A TLS
+`cancelled`, `stale_target`, `invalid_title`, `nonterminal_target`, `invalid_cursor`, and `transport_failure`. A TLS
 authentication failure closes during the handshake and has no JSON reply. A
 failure after part of a response has been written closes the connection; the
 phone must discard that incomplete frame.
