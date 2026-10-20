@@ -37,15 +37,25 @@ struct CompanionNetworkAddress: Equatable, Sendable {
                 as: UTF8.self
             )
             let bits = UInt32(bigEndian: ipv4.s_addr)
-            let netmask = entry.ifa_netmask.map {
-                UInt32(bigEndian: UnsafeRawPointer($0).assumingMemoryBound(to: sockaddr_in.self).pointee.sin_addr.s_addr)
-            }
+            let netmask = entry.ifa_netmask.map(Self.netmaskBits)
             let interfaceName = String(cString: entry.ifa_name)
             if let transport = eligibleTransport(interfaceName: interfaceName, bits: bits, flags: entry.ifa_flags, netmask: netmask) {
                 result.append(CompanionNetworkAddress(interfaceName: interfaceName, host: host, transport: transport))
             }
         }
         return result
+    }
+
+    // The kernel trims trailing zero bytes from netmask sockaddrs (a /8 mask has sa_len 5),
+    // so reading a full sockaddr_in can run past the allocation.
+    private static func netmaskBits(_ netmask: UnsafeMutablePointer<sockaddr>) -> UInt32 {
+        let addressOffset = MemoryLayout.offset(of: \sockaddr_in.sin_addr)!
+        let count = min(max(Int(netmask.pointee.sa_len) - addressOffset, 0), 4)
+        var raw: UInt32 = 0
+        withUnsafeMutableBytes(of: &raw) {
+            $0.copyMemory(from: UnsafeRawBufferPointer(start: UnsafeRawPointer(netmask) + addressOffset, count: count))
+        }
+        return UInt32(bigEndian: raw)
     }
 
     static func eligibleTransport(interfaceName: String, bits: UInt32, flags: UInt32, netmask: UInt32?) -> LocalAPICompanionTransport? {

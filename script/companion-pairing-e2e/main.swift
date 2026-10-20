@@ -18,6 +18,7 @@ private struct PairingLink {
     let secret: String
     let macName: String
     let transport: String
+    let advertisedRoutes: [String: String]
 
     init(_ rawValue: String) throws {
         let link = try CompanionPairingLinkV2(rawValue.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -34,6 +35,7 @@ private struct PairingLink {
         self.secret = link.secret
         self.macName = link.macName
         self.transport = transport
+        advertisedRoutes = ["lan": link.routes.lan, "tailscale": link.routes.tailscale].compactMapValues { $0 }
     }
 }
 
@@ -208,8 +210,9 @@ struct CompanionPairingE2E {
                     profile = response["profile"] as? String
                     guard let routes = response["routes"] as? [String: Any], routes["v"] as? Int == 2,
                         routes["p"] as? Int == Int(link.port.rawValue),
-                        routes[link.transport] as? String == String(describing: link.host)
-                    else { throw E2EFailure("status did not report the current v2 route") }
+                        link.advertisedRoutes.allSatisfy({ routes[$0.key] as? String == $0.value })
+                    else { throw E2EFailure("status did not report the advertised v2 routes") }
+                    print("advertised_routes=\(link.advertisedRoutes.keys.sorted().joined(separator: ","))")
                 }
                 printJSON(label: operation, object: response)
             }
@@ -483,19 +486,24 @@ private struct PairingLinkForPin {
             macFingerprint: fingerprint,
             secret: source.secret,
             macName: source.macName,
-            transport: source.transport
+            transport: source.transport,
+            advertisedRoutes: source.advertisedRoutes
         )
     }
 }
 
 private extension PairingLink {
-    init(host: NWEndpoint.Host, port: NWEndpoint.Port, macFingerprint: Data, secret: String, macName: String, transport: String) {
+    init(
+        host: NWEndpoint.Host, port: NWEndpoint.Port, macFingerprint: Data, secret: String, macName: String, transport: String,
+        advertisedRoutes: [String: String]
+    ) {
         self.host = host
         self.port = port
         self.macFingerprint = macFingerprint
         self.secret = secret
         self.macName = macName
         self.transport = transport
+        self.advertisedRoutes = advertisedRoutes
     }
 }
 

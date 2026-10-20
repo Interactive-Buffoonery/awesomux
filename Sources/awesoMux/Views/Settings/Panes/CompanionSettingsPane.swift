@@ -118,10 +118,15 @@ struct CompanionSettingsPane: View {
     private var listeningFooter: String? {
         let transports = coordinator.boundAddresses.map(\.transport)
         if transports.contains(.lan), transports.contains(.tailscale) {
-            return String(localized: "Listening on local network and Tailscale")
+            return String(
+                localized: "Listening on local network and Tailscale", comment: "Companion active LAN and Tailscale transports footer.")
         }
-        if transports.contains(.lan) { return String(localized: "Listening on local network only") }
-        if transports.contains(.tailscale) { return String(localized: "Listening on Tailscale only") }
+        if transports.contains(.lan) {
+            return String(localized: "Listening on local network only", comment: "Companion active LAN transport footer.")
+        }
+        if transports.contains(.tailscale) {
+            return String(localized: "Listening on Tailscale only", comment: "Companion active Tailscale transport footer.")
+        }
         return nil
     }
 
@@ -257,11 +262,32 @@ private struct CompanionPairingSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
+            } else if let session = coordinator.pairingSession {
+                Text(
+                    String(
+                        localized: "Waiting for a local network or Tailscale address…",
+                        comment: "Companion pairing waiting for a network route.")
+                )
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+                Text(expiryText(session.expiresAt))
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(Color.aw.text2)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else if let errorMessage {
                 Text(errorMessage)
                     .awFont(AwFont.UI.meta)
                     .foregroundStyle(Color.aw.status.needs)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Button(String(localized: "Try Again", comment: "Retry starting Companion pairing button.")) {
+                    Task { await startPairing() }
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity)
             } else {
                 ProgressView()
                     .accessibilityLabel(String(localized: "Creating pairing code"))
@@ -331,7 +357,10 @@ private struct CompanionPairingSheet: View {
             errorMessage = nil
             _ = try await coordinator.beginPairing()
         } catch CompanionPairingError.noLocalAddress {
-            errorMessage = String(localized: "This Mac doesn't currently have a local network address.")
+            errorMessage = String(
+                localized: "This Mac doesn't currently have a local network or Tailscale address.",
+                comment: "Companion pairing start error when no route exists."
+            )
         } catch {
             errorMessage = String(localized: "Companion pairing could not start.")
         }

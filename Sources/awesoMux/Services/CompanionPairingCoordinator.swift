@@ -230,6 +230,7 @@ final class CompanionPairingCoordinator {
         servers.forEach { $0.stop() }
         servers = []
         boundAddresses = []
+        stablePort = nil
     }
 
     private func expirePairing(id: UUID) {
@@ -265,7 +266,9 @@ final class CompanionPairingCoordinator {
     }
 
     private func scheduleListenerRecovery() {
-        guard pathMonitor != nil, (pairingSession != nil || !pairedPhones.isEmpty), recoveryTask == nil else { return }
+        guard pathMonitor != nil, pairingSession != nil || pairingGeneration != nil || !pairedPhones.isEmpty,
+            recoveryTask == nil
+        else { return }
         recoveryTask = Task { [weak self, delay] in
             try? await delay(.seconds(2))
             guard !Task.isCancelled, let self else { return }
@@ -315,13 +318,13 @@ final class CompanionPairingCoordinator {
 
     private func reconcileListeners(identity: CompanionIdentity, preferredPort: UInt16?) async throws {
         let addresses = CompanionNetworkAddress.selected(CompanionNetworkAddress.current())
-        guard !addresses.isEmpty else { throw CompanionPairingError.noLocalAddress }
         stablePort = preferredPort ?? stablePort
         for server in servers where !addresses.contains(server.address) {
             server.stop()
         }
         servers.removeAll { !addresses.contains($0.address) }
         updateBoundAddresses()
+        guard !addresses.isEmpty else { throw CompanionPairingError.noLocalAddress }
         defer { stopListenerIfIdle() }
         let lifecycle = listenerLifecycle
         for address in addresses where !servers.contains(where: { $0.address == address }) {
@@ -429,6 +432,7 @@ final class CompanionPairingCoordinator {
             throw CompanionPairingError.connectionClosed
         }
         newServer.pairingIsOpen = pairingSession != nil
+        newServer.refreshAuthorization()
         servers.append(newServer)
         stablePort = newServer.port
         updateBoundAddresses()
@@ -533,6 +537,7 @@ final class CompanionPairingCoordinator {
         servers.forEach { $0.stop() }
         servers = []
         boundAddresses = []
+        stablePort = nil
     }
 
     private static func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {

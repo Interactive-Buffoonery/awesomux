@@ -2779,7 +2779,7 @@
       "comment" : "Companion active Tailscale transport footer."
     },
     "Listening on local network and Tailscale" : {
-
+      "comment" : "Companion active LAN and Tailscale transports footer."
     },
     "Listening on local network only" : {
       "comment" : "Companion active LAN transport footer."
@@ -5435,8 +5435,8 @@
     "This Mac" : {
 
     },
-    "This Mac doesn't currently have a local network address." : {
-
+    "This Mac doesn't currently have a local network or Tailscale address." : {
+      "comment" : "Companion pairing start error when no route exists."
     },
     "This URL parses but has no host. Likely malformed." : {
       "comment" : "Body of the OSC 8 confirmation dialog for an http(s) URL with no host component."
@@ -5669,6 +5669,9 @@
     "Trust known tools without asking" : {
 
     },
+    "Try Again" : {
+      "comment" : "Retry starting Companion pairing button."
+    },
     "Try Replace Again" : {
       "comment" : "Retry action after a failed session recovery replacement"
     },
@@ -5846,6 +5849,9 @@
           }
         }
       }
+    },
+    "Waiting for a local network or Tailscale address…" : {
+      "comment" : "Companion pairing waiting for a network route."
     },
     "Warning" : {
       "comment" : "Diagnostics event severity"
