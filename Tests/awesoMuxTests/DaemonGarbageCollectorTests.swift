@@ -354,8 +354,12 @@ struct DaemonGarbageCollectorTests {
         case .orphanSignalRechecksIdentityBeforeKill:
             observations = [[stillExpected], [replacement]]
             expectedSignals = ["\(expected.pid):\(SIGTERM)"]
-        case .orphanSignalFailsClosedWhenKillSampleIsUnavailable, .orphanSignalSkipsEscalationWhenGraceWaitIsCancelled:
+        case .orphanSignalFailsClosedWhenKillSampleIsUnavailable:
             observations = [[stillExpected]]
+            expectedSignals = ["\(expected.pid):\(SIGTERM)"]
+        case .orphanSignalSkipsEscalationWhenGraceWaitIsCancelled:
+            // A second matching sample means only the cancellation can stop SIGKILL.
+            observations = [[stillExpected], [orphanSample(etimeSeconds: 3_602)]]
             expectedSignals = ["\(expected.pid):\(SIGTERM)"]
         case .orphanSignalEscalatesStableIdentity:
             observations = [[stillExpected], [orphanSample(etimeSeconds: 3_602)]]

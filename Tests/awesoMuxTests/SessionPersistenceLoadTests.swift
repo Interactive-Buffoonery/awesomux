@@ -1082,7 +1082,12 @@ extension SessionPersistenceSerializationDomainTests {
         func pathStateAtAcknowledgement(_ scenario: PathStateAtAcknowledgementCase) async throws {
             switch scenario {
             case .deletedSnapshotCanResumeSaving0, .deletedSnapshotCanResumeSaving1, .deletedSnapshotCanResumeSaving2:
-                let kind = PathStateAtAcknowledgementCase.allCases.firstIndex(of: scenario)!
+                let kind =
+                    switch scenario {
+                    case .deletedSnapshotCanResumeSaving0: 0
+                    case .deletedSnapshotCanResumeSaving1: 1
+                    default: 2
+                    }
                 try Self.withTemporarySupportDirectory { tempDir in
                     let snapshotURL = tempDir.appending(path: "session-state.json")
                     try Self.write(Self.snapshot(groupName: kind == 2 ? "ops\u{202E}" : "original"), to: tempDir)

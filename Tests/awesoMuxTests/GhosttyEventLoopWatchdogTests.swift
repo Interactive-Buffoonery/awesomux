@@ -75,8 +75,9 @@ struct GhosttyEventLoopWatchdogTests {
 
         let check = Task { @MainActor in await watchdog.checkForWedge() }
         await faultSource.waitForPendingQuery()
-        pendingAge = nil
-        if recordTick { watchdog.recordTick() }
+        // Each row clears exactly one staleness signal, so either check alone
+        // must stop the in-flight result from firing.
+        if recordTick { watchdog.recordTick() } else { pendingAge = nil }
         await faultSource.resume(returning: GhosttyEventLoopWatchdog.faultCountThreshold)
 
         #expect(await check.value == false)
