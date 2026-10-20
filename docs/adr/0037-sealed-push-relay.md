@@ -25,7 +25,7 @@ waits until Sarah chooses to host a relay.
   the fallback once push exists.
 - **CloudKit:** uses Apple's infrastructure, but ties delivery to Apple account
   availability and adds a second synchronization model.
-- **Sealed APNs relay (recommended):** timely notification delivery without
+- **Sealed APNs relay (chosen, hosting deferred):** timely notification delivery without
   plaintext at the relay; adds service operations and visible routing metadata.
 
 ## Decision
