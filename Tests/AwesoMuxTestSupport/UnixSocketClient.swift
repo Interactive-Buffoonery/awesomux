@@ -40,10 +40,17 @@ public final class UnixSocketClient: @unchecked Sendable {
     }
 
     public func write(_ line: String) throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(30))
+        var timeout = timeval(tv_sec: 30, tv_usec: 0)
+        guard setsockopt(fileDescriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
+            throw UnixSocketClientError.system
+        }
         let data = Data((line + "\n").utf8)
         try data.withUnsafeBytes { bytes in
             var offset = 0
             while offset < bytes.count {
+                guard clock.now < deadline else { throw UnixSocketClientError.timedOut }
                 let count = Darwin.write(
                     fileDescriptor,
                     bytes.baseAddress!.advanced(by: offset),
@@ -59,7 +66,10 @@ public final class UnixSocketClient: @unchecked Sendable {
     public func readLine(timeoutMilliseconds: Int32 = 2_000) throws -> String {
         setReceiveTimeout(milliseconds: timeoutMilliseconds)
         var bytes: [UInt8] = []
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(Int64(timeoutMilliseconds)))
         while true {
+            guard clock.now < deadline else { throw UnixSocketClientError.timedOut }
             var byte: UInt8 = 0
             let count = Darwin.read(fileDescriptor, &byte, 1)
             if count < 0, errno == EINTR { continue }
@@ -73,14 +83,15 @@ public final class UnixSocketClient: @unchecked Sendable {
     }
 
     public func readLine(timeoutMilliseconds: Int32 = 2_000) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+        let result = await awaitValue(fallback: Result<String, Error>.failure(UnixSocketClientError.timedOut)) { continuation in
             DispatchQueue.global().async {
                 continuation.resume(
-                    with: Result {
+                    returning: Result {
                         try self.readLine(timeoutMilliseconds: timeoutMilliseconds)
                     })
             }
         }
+        return try result.get()
     }
 
     public func disconnect() {
@@ -94,7 +105,7 @@ public final class UnixSocketClient: @unchecked Sendable {
     }
 
     public func waitForEOF(timeoutMilliseconds: Int32) async -> Bool {
-        await withCheckedContinuation { continuation in
+        await awaitValue(fallback: false) { continuation in
             DispatchQueue.global().async {
                 continuation.resume(returning: self.waitForEOF(timeoutMilliseconds: timeoutMilliseconds))
             }
@@ -108,7 +119,7 @@ public final class UnixSocketClient: @unchecked Sendable {
     }
 
     public func waitForReadable(timeoutMilliseconds: Int32) async -> Bool {
-        await withCheckedContinuation { continuation in
+        await awaitValue(fallback: false) { continuation in
             DispatchQueue.global().async {
                 continuation.resume(returning: self.waitForReadable(timeoutMilliseconds: timeoutMilliseconds))
             }

@@ -2,6 +2,7 @@ import AppKit
 import AwesoMuxBridgeProtocol
 import AwesoMuxConfig
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import awesoMux
@@ -314,7 +315,7 @@ struct BridgePreflightLifecycleTests {
     @Test("ready acknowledgment cannot replay an old command after repoint")
     func readyAcknowledgmentCannotReplayOldCommandAfterRepoint() async throws {
         let fixture = try makeFixture()
-        let acknowledgment = SuspendedStage<Void>()
+        let acknowledgment = SuspendedStage<Void>(fallback: ())
         fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
             resolveRemoteHome: { _, _ in "/Users/alice" },
             helperSupportsBridge: { _, _, _ in true },
@@ -368,7 +369,7 @@ struct BridgePreflightLifecycleTests {
         switch scenario {
         case "invalidationDuringHomeResolutionStopsBeforeHelper":
             let fixture = try makeFixture()
-            let home = SuspendedStage<String?>()
+            let home = SuspendedStage<String?>(fallback: nil)
             fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
                 resolveRemoteHome: { _, _ in await home.wait() },
                 helperSupportsBridge: { _, _, _ in
@@ -399,7 +400,7 @@ struct BridgePreflightLifecycleTests {
             #expect(fixture.view.lifecycleState.bridgePreflightTask == nil)
         case "invalidationDuringHelperProbeStopsBeforeAttach":
             let fixture = try makeFixture()
-            let helper = SuspendedStage<Bool>()
+            let helper = SuspendedStage<Bool>(fallback: false)
             fixture.view.lifecycleState.bridgePreflightDependencies = BridgePreflightDependencies(
                 resolveRemoteHome: { _, _ in "/Users/alice" },
                 helperSupportsBridge: { _, _, _ in await helper.wait() },
@@ -458,7 +459,7 @@ struct BridgePreflightLifecycleTests {
     }
 
     private func drainMainQueue() async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
     }
@@ -582,14 +583,14 @@ private final class PolicyBox {
 private final class SurfaceCommandRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var commands: [String?] = []
-    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var waiters: [(count: Int, continuation: SignalResumer)] = []
 
     var values: [String?] {
         lock.withLock { commands }
     }
 
     func record(_ command: String?) {
-        let ready = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+        let ready = lock.withLock { () -> [SignalResumer] in
             commands.append(command)
             let ready = waiters.filter { commands.count >= $0.count }.map(\.continuation)
             waiters.removeAll { commands.count >= $0.count }
@@ -599,7 +600,7 @@ private final class SurfaceCommandRecorder: @unchecked Sendable {
     }
 
     func waitForCount(_ count: Int) async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             let shouldResume = lock.withLock {
                 if commands.count >= count {
                     return true
@@ -616,16 +617,16 @@ private final class SurfaceCommandRecorder: @unchecked Sendable {
 
 private actor SuspendedPreflight {
     private struct RequestState {
-        let continuation: CheckedContinuation<BridgeAttachPreflight.Outcome, Never>
+        let continuation: ValueResumer<BridgeAttachPreflight.Outcome>
     }
 
     private var requests: [RequestState] = []
-    private var requestCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var requestCountWaiters: [(count: Int, continuation: SignalResumer)] = []
     private var completionCount = 0
-    private var completionCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var completionCountWaiters: [(count: Int, continuation: SignalResumer)] = []
 
     func attach(_ request: BridgeAttachPreflight.Request) async -> BridgeAttachPreflight.Outcome {
-        let outcome = await withCheckedContinuation {
+        let outcome = await awaitValue(fallback: .cancelled) {
             requests.append(RequestState(continuation: $0))
             resumeRequestCountWaiters()
         }
@@ -636,18 +637,22 @@ private actor SuspendedPreflight {
 
     func waitForRequestCount(_ count: Int) async {
         guard requests.count < count else { return }
-        await withCheckedContinuation {
+        await awaitSignal {
             requestCountWaiters.append((count, $0))
         }
     }
 
     func resumeRequest(_ index: Int, returning outcome: BridgeAttachPreflight.Outcome) {
+        guard requests.indices.contains(index) else {
+            Issue.record("Preflight request did not arrive before its deadline")
+            return
+        }
         requests[index].continuation.resume(returning: outcome)
     }
 
     func waitForCompletionCount(_ count: Int) async {
         guard completionCount < count else { return }
-        await withCheckedContinuation {
+        await awaitSignal {
             completionCountWaiters.append((count, $0))
         }
     }
@@ -666,13 +671,16 @@ private actor SuspendedPreflight {
 }
 
 private actor SuspendedStage<Value: Sendable> {
-    private var continuation: CheckedContinuation<Value, Never>?
-    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private let fallback: Value
+
+    init(fallback: Value) { self.fallback = fallback }
+    private var continuation: ValueResumer<Value>?
+    private var suspensionWaiters: [SignalResumer] = []
     private var completed = false
-    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completionWaiters: [SignalResumer] = []
 
     func wait() async -> Value {
-        let value = await withCheckedContinuation { continuation in
+        let value = await awaitValue(fallback: fallback) { continuation in
             self.continuation = continuation
             suspensionWaiters.forEach { $0.resume() }
             suspensionWaiters.removeAll()
@@ -685,7 +693,7 @@ private actor SuspendedStage<Value: Sendable> {
 
     func waitUntilSuspended() async {
         guard continuation == nil else { return }
-        await withCheckedContinuation { suspensionWaiters.append($0) }
+        await awaitSignal { suspensionWaiters.append($0) }
     }
 
     func resume(returning value: Value) {
@@ -695,13 +703,13 @@ private actor SuspendedStage<Value: Sendable> {
 
     func waitUntilCompleted() async {
         guard !completed else { return }
-        await withCheckedContinuation { completionWaiters.append($0) }
+        await awaitSignal { completionWaiters.append($0) }
     }
 }
 
 private actor BridgePreflightTeardownSignal {
     private var signalled = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [SignalResumer] = []
 
     var wasSignalled: Bool { signalled }
 
@@ -713,6 +721,6 @@ private actor BridgePreflightTeardownSignal {
 
     func wait() async {
         guard !signalled else { return }
-        await withCheckedContinuation { waiters.append($0) }
+        await awaitSignal { waiters.append($0) }
     }
 }

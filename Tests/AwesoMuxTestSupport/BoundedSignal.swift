@@ -54,7 +54,7 @@ public final class SignalResumer: @unchecked Sendable {
 public func awaitSignal(
     deadline: Duration = signalDeadline,
     isolation: isolated (any Actor)? = #isolation,
-    sourceLocation: SourceLocation = #_sourceLocation,
+    sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column),
     _ register: (SignalResumer) -> Void
 ) async -> Bool {
     let signalled = await withCheckedContinuation(isolation: isolation) { continuation in
@@ -66,4 +66,47 @@ public func awaitSignal(
         Issue.record("Signal did not arrive within \(deadline)", sourceLocation: sourceLocation)
     }
     return signalled
+}
+
+/// Carries a value through a bounded signal without double-resuming on late replies.
+public final class ValueResumer<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private let signal: SignalResumer
+    private var result: Value?
+    private var finished = false
+
+    fileprivate init(signal: SignalResumer) { self.signal = signal }
+
+    public func resume(returning value: Value) {
+        let accepted = lock.withLock {
+            guard !finished else { return false }
+            finished = true
+            result = value
+            return true
+        }
+        if accepted { signal.resume() }
+    }
+
+    fileprivate func value(or fallback: Value) -> Value {
+        lock.withLock {
+            finished = true
+            return result ?? fallback
+        }
+    }
+}
+
+public func awaitValue<Value: Sendable>(
+    fallback: Value,
+    deadline: Duration = signalDeadline,
+    isolation: isolated (any Actor)? = #isolation,
+    sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column),
+    _ register: (ValueResumer<Value>) -> Void
+) async -> Value {
+    var resumer: ValueResumer<Value>!
+    await awaitSignal(deadline: deadline, isolation: isolation, sourceLocation: sourceLocation) { signal in
+        let valueResumer = ValueResumer<Value>(signal: signal)
+        resumer = valueResumer
+        register(valueResumer)
+    }
+    return resumer.value(or: fallback)
 }

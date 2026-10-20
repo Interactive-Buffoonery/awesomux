@@ -396,7 +396,7 @@ private final class SpawnObservation: @unchecked Sendable {
 }
 
 private final class ProcessDelayGate: @unchecked Sendable {
-    private typealias DelayContinuation = CheckedContinuation<Void, Error>
+    private typealias DelayContinuation = ValueResumer<Result<Void, Error>>
 
     private let lock = NSLock()
     private var delayWaiters: [(id: UUID, continuation: DelayContinuation)] = []
@@ -410,7 +410,7 @@ private final class ProcessDelayGate: @unchecked Sendable {
     func wait(for duration: Duration) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: DelayContinuation) in
+            let result = await awaitValue(fallback: Result<Void, Error>.failure(CancellationError())) { continuation in
                 lock.lock()
                 requests.append(duration)
                 let ready = requestWaiters.filter { requests.count >= $0.count }
@@ -418,13 +418,14 @@ private final class ProcessDelayGate: @unchecked Sendable {
                 guard !Task.isCancelled else {
                     lock.unlock()
                     ready.forEach { $0.resumer.resume() }
-                    continuation.resume(throwing: CancellationError())
+                    continuation.resume(returning: .failure(CancellationError()))
                     return
                 }
                 delayWaiters.append((id, continuation))
                 lock.unlock()
                 ready.forEach { $0.resumer.resume() }
             }
+            try result.get()
         } onCancel: {
             let continuation: DelayContinuation? = lock.withLock {
                 guard let index = delayWaiters.firstIndex(where: { $0.id == id }) else {
@@ -432,7 +433,7 @@ private final class ProcessDelayGate: @unchecked Sendable {
                 }
                 return delayWaiters.remove(at: index).continuation
             }
-            continuation?.resume(throwing: CancellationError())
+            continuation?.resume(returning: .failure(CancellationError()))
         }
     }
 
@@ -455,7 +456,7 @@ private final class ProcessDelayGate: @unchecked Sendable {
             delayWaiters.removeAll()
             return continuations
         }
-        continuations.forEach { $0.continuation.resume() }
+        continuations.forEach { $0.continuation.resume(returning: .success(())) }
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxTestSupport
 import SwiftUI
 import Testing
 @testable import awesoMux
@@ -150,7 +151,7 @@ struct SidebarNativeOutlineViewTests {
         coordinator.finishDrag()
         if scenario == "new drag" { coordinator.source = SidebarNativeOutlineView.Node(.group(UUID())) }
         if scenario != "removed" { outline.hideRows(at: IndexSet(integer: 0), withAnimation: []) }
-        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        await awaitSignal { continuation in DispatchQueue.main.async { continuation.resume() } }
         if scenario == "removed" {
             #expect(ended)
             #expect(coordinator.dragActivity.kind == nil)

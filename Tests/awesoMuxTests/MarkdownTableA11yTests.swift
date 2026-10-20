@@ -1,5 +1,6 @@
 import AppKit
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import SwiftUI
 import Testing
 
@@ -158,7 +159,7 @@ struct WideTableOverflowTests {
         defer { NotificationCenter.default.removeObserver(coordinator) }
         scroll.setFrameSize(NSSize(width: 500, height: 400))
         // Geometry is queued on the common run loop; enqueue behind that pass.
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
         }
         let after = try #require(CommentBadgeOverlay.cellRectInTextView(range: range, in: text))

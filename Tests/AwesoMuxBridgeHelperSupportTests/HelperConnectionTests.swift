@@ -127,6 +127,8 @@ private final class TestUnixServer: @unchecked Sendable {
     }
 
     func acceptHelloAndAck(session: String = "session", proto: String = "awesomux-bridge-v1") throws {
+        var pending = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+        guard poll(&pending, 1, 30_000) > 0 else { throw TestSocketError.system }
         connection = accept(listener, nil, nil)
         guard connection >= 0 else { throw TestSocketError.system }
         let line = try readLine()
@@ -146,10 +148,17 @@ private final class TestUnixServer: @unchecked Sendable {
     /// Writes bytes verbatim — no frame-terminating newline. Used to stage
     /// buffer-exact patterns that must not form complete lines on the wire.
     func writeRaw(_ text: String) throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(30))
+        var timeout = timeval(tv_sec: 30, tv_usec: 0)
+        guard setsockopt(connection, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
+            throw TestSocketError.system
+        }
         let data = Data(text.utf8)
         try data.withUnsafeBytes { bytes in
             var offset = 0
             while offset < bytes.count {
+                guard clock.now < deadline else { throw TestSocketError.system }
                 #if canImport(Darwin)
                     let written = Darwin.write(connection, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
                 #elseif canImport(Glibc)
@@ -166,7 +175,12 @@ private final class TestUnixServer: @unchecked Sendable {
 
     private func readLine() throws -> String {
         var bytes: [UInt8] = []
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(30))
         while true {
+            guard clock.now < deadline else { throw TestSocketError.system }
+            var pending = pollfd(fd: connection, events: Int16(POLLIN), revents: 0)
+            guard poll(&pending, 1, 30_000) > 0 else { throw TestSocketError.system }
             var byte: UInt8 = 0
             let count = read(connection, &byte, 1)
             guard count == 1 else { throw TestSocketError.system }
