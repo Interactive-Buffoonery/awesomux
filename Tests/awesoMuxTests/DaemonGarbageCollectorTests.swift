@@ -337,113 +337,49 @@ struct DaemonGarbageCollectorTests {
 
     @Test(arguments: OrphanSignallingCase.allCases)
     func orphanSignalling(_ scenario: OrphanSignallingCase) async {
+        let expected = orphanSample(etimeSeconds: 3_600)
+        let stillExpected = orphanSample(etimeSeconds: 3_601)
+        let replacement = DaemonGCPlan.AttachProcessSample(
+            pid: expected.pid, ppid: 1, etimeSeconds: 1,
+            argv0: "unrelated", subcommand: nil, sessionArgument: nil)
+        let observations: [[DaemonGCPlan.AttachProcessSample]]
+        let expectedSignals: [String]
         switch scenario {
         case .orphanSignalFailsClosedWhenTermSampleIsUnavailable:
-            let expected = orphanSample(etimeSeconds: 3_600)
-            let samples = SampleSequence([])
-            let signals = SignalRecorder()
-
-            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-                [expected],
-                sampleProcesses: { _ in await samples.next() },
-                processExists: { _ in true },
-                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-                waitForGrace: { _ in }
-            )
-
-            #expect(signaled == 0)
-            #expect(await signals.events == [])
+            observations = []
+            expectedSignals = []
         case .orphanSignalRechecksIdentityBeforeTerm:
-            let expected = orphanSample(etimeSeconds: 3_600)
-            let replacement = DaemonGCPlan.AttachProcessSample(
-                pid: expected.pid, ppid: 1, etimeSeconds: 1,
-                argv0: "unrelated", subcommand: nil, sessionArgument: nil)
-            let samples = SampleSequence([[replacement]])
-            let signals = SignalRecorder()
-
-            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-                [expected],
-                sampleProcesses: { _ in await samples.next() },
-                processExists: { _ in true },
-                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-                waitForGrace: { _ in }
-            )
-
-            #expect(signaled == 0)
-            #expect(await signals.events == [])
+            observations = [[replacement]]
+            expectedSignals = []
         case .orphanSignalRechecksIdentityBeforeKill:
-            let expected = orphanSample(etimeSeconds: 3_600)
-            let stillExpected = orphanSample(etimeSeconds: 3_601)
-            let replacement = DaemonGCPlan.AttachProcessSample(
-                pid: expected.pid, ppid: 1, etimeSeconds: 1,
-                argv0: "unrelated", subcommand: nil, sessionArgument: nil)
-            let samples = SampleSequence([[stillExpected], [replacement]])
-            let signals = SignalRecorder()
-
-            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
+            observations = [[stillExpected], [replacement]]
+            expectedSignals = ["\(expected.pid):\(SIGTERM)"]
+        case .orphanSignalFailsClosedWhenKillSampleIsUnavailable, .orphanSignalSkipsEscalationWhenGraceWaitIsCancelled:
+            observations = [[stillExpected]]
+            expectedSignals = ["\(expected.pid):\(SIGTERM)"]
+        case .orphanSignalEscalatesStableIdentity:
+            observations = [[stillExpected], [orphanSample(etimeSeconds: 3_602)]]
+            expectedSignals = ["\(expected.pid):\(SIGTERM)", "\(expected.pid):\(SIGKILL)"]
+        }
+        let samples = SampleSequence(observations)
+        let signals = SignalRecorder()
+        let cancelGraceWait = scenario == .orphanSignalSkipsEscalationWhenGraceWaitIsCancelled
+        let task = Task {
+            await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
                 [expected],
                 sampleProcesses: { _ in await samples.next() },
                 processExists: { _ in true },
                 signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-                waitForGrace: { _ in }
-            )
-
-            #expect(signaled == 1)
-            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
-        case .orphanSignalFailsClosedWhenKillSampleIsUnavailable:
-            let expected = orphanSample(etimeSeconds: 3_600)
-            let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
-            let signals = SignalRecorder()
-
-            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-                [expected],
-                sampleProcesses: { _ in await samples.next() },
-                processExists: { _ in true },
-                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-                waitForGrace: { _ in }
-            )
-
-            #expect(signaled == 1)
-            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
-        case .orphanSignalSkipsEscalationWhenGraceWaitIsCancelled:
-            let expected = orphanSample(etimeSeconds: 3_600)
-            let samples = SampleSequence([[orphanSample(etimeSeconds: 3_601)]])
-            let signals = SignalRecorder()
-
-            let task = Task {
-                await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-                    [expected],
-                    sampleProcesses: { _ in await samples.next() },
-                    processExists: { _ in true },
-                    signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-                    waitForGrace: { _ in
+                waitForGrace: { _ in
+                    if cancelGraceWait {
                         withUnsafeCurrentTask { $0?.cancel() }
                         try Task.checkCancellation()
                     }
-                )
-            }
-
-            #expect(await task.value == 1)
-            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)"])
-        case .orphanSignalEscalatesStableIdentity:
-            let expected = orphanSample(etimeSeconds: 3_600)
-            let samples = SampleSequence([
-                [orphanSample(etimeSeconds: 3_601)],
-                [orphanSample(etimeSeconds: 3_602)],
-            ])
-            let signals = SignalRecorder()
-
-            let signaled = await DaemonGarbageCollector.signalConfirmedOrphanAttachClients(
-                [expected],
-                sampleProcesses: { _ in await samples.next() },
-                processExists: { _ in true },
-                signalProcess: { pid, signal in await signals.record(pid: pid, signal: signal) },
-                waitForGrace: { _ in }
+                }
             )
-
-            #expect(signaled == 1)
-            #expect(await signals.events == ["\(expected.pid):\(SIGTERM)", "\(expected.pid):\(SIGKILL)"])
         }
+        #expect(await task.value == (expectedSignals.isEmpty ? 0 : 1))
+        #expect(await signals.events == expectedSignals)
     }
 
     private func orphanSample(etimeSeconds: Int) -> DaemonGCPlan.AttachProcessSample {

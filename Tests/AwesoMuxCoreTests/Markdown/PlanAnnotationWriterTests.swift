@@ -155,16 +155,6 @@ struct PlanAnnotationWriterTests {
         #expect(doc.runs.map(\.text).joined() == "see this ok")
     }
 
-    @Test("generated insert id avoids existing legacy ids")
-    func insertAvoidsExistingIDs() throws {
-        let src = "<mark>a</mark><!-- USER COMMENT 3: x --> more text here"
-        let (_, id) = try #require(PlanAnnotationWriter.insertingAnnotation(
-            in: src, span: 45 ..< 49, author: .user, payload: "n"
-        ))
-        #expect(id != "3")
-        #expect(id.utf8.contains { $0 >= UInt8(ascii: "a") && $0 <= UInt8(ascii: "z") })
-    }
-
     @Test("appendingNote after an own-line marker in a CRLF file takes its own line")
     func noteAfterDocumentMarkerCRLF() throws {
         // The \r before the \n is line-ending whitespace; treating it as

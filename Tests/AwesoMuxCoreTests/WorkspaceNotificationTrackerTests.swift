@@ -189,7 +189,8 @@ import Testing
         #expect(event.notificationSubtitle(showWorkspaceDetails: true) == "agent · web")
     }
 
-    @Test func testMutedWorkspaceSwallowsBannerRatherThanDeferringToUnmute() {
+    @Test(arguments: [false, true])
+    func testMutedWorkspaceSwallowsBannerRatherThanDeferringToUnmute(newAttention: Bool) {
         // Mute advances the baseline, so unmuting later must not burst-fire a
         // banner for attention that arrived while muted (INT-598). Pin the pane
         // id: the baseline is per-pane, so the same pane must persist across the
@@ -229,61 +230,20 @@ import Testing
         // swallow — the production path mutates one pane in place.
         var unmutedAttentionSession = mutedAttentionSession
         unmutedAttentionSession.notificationsMuted = false
-        #expect(
-            tracker.notificationEvents(
-                afterUpdating: [
-                    SessionGroup(name: "awesoMux", sessions: [unmutedAttentionSession])
-                ],
-                selectedSessionID: nil,
-                isAppActive: false
-            ).isEmpty)
-    }
-
-    @Test func testUnmutedWorkspaceEmitsForNewAttentionAfterUnmute() {
-        // Unmute swallows the muted-era backlog but a fresh crossing after
-        // unmute is a new attention episode and must fire.
-        let session = makeSession(title: "agent", notificationsMuted: true)
-        var tracker = WorkspaceNotificationTracker(groups: [
-            SessionGroup(name: "awesoMux", sessions: [session])
-        ])
-
-        let mutedAttentionSession = makeSession(
-            id: session.id,
-            title: "agent",
-            state: .needsAttention,
-            unreadNotificationCount: 1,
-            notificationsMuted: true
-        )
-        _ = tracker.notificationEvents(
-            afterUpdating: [
-                SessionGroup(name: "awesoMux", sessions: [mutedAttentionSession])
-            ],
-            selectedSessionID: nil,
-            isAppActive: false
-        )
-
-        // Reuse the muted step's pane identity (value-copy + flag flip), then
-        // bump its unread to 2. This exercises the real crossing: the muted-era
-        // baseline carried at 1, and 1→2 after unmute is a new episode that must
-        // fire. A fresh makeSession would fire too, but only because a new pane's
-        // baseline starts at 0 — passing for the wrong reason.
-        var escalatedAfterUnmute = mutedAttentionSession
-        escalatedAfterUnmute.notificationsMuted = false
-        guard case .pane(var escalatedPane) = escalatedAfterUnmute.layout else {
-            Issue.record("expected single-pane layout from makeSession"); return
+        if newAttention {
+            guard case .pane(var pane) = unmutedAttentionSession.layout else {
+                Issue.record("expected single-pane layout from makeSession"); return
+            }
+            pane.unreadNotificationCount = 2
+            unmutedAttentionSession.layout = .pane(pane)
         }
-        escalatedPane.unreadNotificationCount = 2
-        escalatedAfterUnmute.layout = .pane(escalatedPane)
         let events = tracker.notificationEvents(
-            afterUpdating: [
-                SessionGroup(name: "awesoMux", sessions: [escalatedAfterUnmute])
-            ],
+            afterUpdating: [SessionGroup(name: "awesoMux", sessions: [unmutedAttentionSession])],
             selectedSessionID: nil,
             isAppActive: false
         )
-
-        #expect(events.count == 1)
-        #expect(events.first?.sessionID == session.id)
+        #expect(events.count == (newAttention ? 1 : 0))
+        if newAttention { #expect(events.first?.sessionID == session.id) }
     }
 
     @Test func testMutedSiblingDoesNotSuppressUnmutedWorkspace() {
@@ -320,7 +280,8 @@ import Testing
         #expect(events.map(\.sessionID) == [loud.id])
     }
 
-    @Test func testNeedsAttentionWinsWhenTurnDonePaneIsEarlierInTreeOrder() {
+    @Test(arguments: [false, true])
+    func testNeedsAttentionWinsWhenTurnDonePaneIsEarlierInTreeOrder(needsAttentionEnabled: Bool) {
         // A turn-done pane earlier in tree order than a needs-attention pane must
         // still yield a .needsAttention banner — "louder wins" cannot depend on
         // which pane the loop reaches first.
@@ -334,60 +295,21 @@ import Testing
             agentExecutionState: .waiting, attentionReason: .permissionPrompt,
             executionPlan: .local,
         )
-        let session = makeSplitSession(first: turnDone, second: needy)
+        let first = needsAttentionEnabled ? turnDone : needy
+        let second = needsAttentionEnabled ? needy : turnDone
+        let session = makeSplitSession(first: first, second: second)
         var tracker = WorkspaceNotificationTracker(groups: [
             SessionGroup(name: "awesoMux", sessions: [session])
         ])
-
-        let updated = makeSplitSession(
-            id: session.id,
-            first: bumpUnread(turnDone),
-            second: bumpUnread(needy)
-        )
+        let updated = makeSplitSession(id: session.id, first: bumpUnread(first), second: bumpUnread(second))
         let events = tracker.notificationEvents(
             afterUpdating: [SessionGroup(name: "awesoMux", sessions: [updated])],
             selectedSessionID: nil,
             isAppActive: false,
+            notifyOnNeedsAttention: needsAttentionEnabled,
             notifyOnTurnDone: true
         )
-
-        #expect(events.map(\.kind) == [.needsAttention])
-    }
-
-    @Test func testTurnDoneSurvivesWhenSiblingNeedsAttentionIsToggledOff() {
-        // needs-attention OFF, turn-done ON. A needs-attention pane crossing
-        // first must not (a) claim the banner as .needsAttention only to be
-        // dropped, nor (b) starve the deliverable turn-done sibling by advancing
-        // its own baseline and consuming the one-per-workspace slot.
-        let needy = TerminalPane(
-            title: "claude", workingDirectory: "~", agentKind: .claudeCode,
-            agentExecutionState: .waiting, attentionReason: .permissionPrompt,
-            executionPlan: .local
-        )
-        let turnDone = TerminalPane(
-            title: "codex", workingDirectory: "~", agentKind: .codex,
-            agentExecutionState: .waiting, attentionReason: nil,
-            executionPlan: .local
-        )
-        let session = makeSplitSession(first: needy, second: turnDone)
-        var tracker = WorkspaceNotificationTracker(groups: [
-            SessionGroup(name: "awesoMux", sessions: [session])
-        ])
-
-        let updated = makeSplitSession(
-            id: session.id,
-            first: bumpUnread(needy),
-            second: bumpUnread(turnDone)
-        )
-        let events = tracker.notificationEvents(
-            afterUpdating: [SessionGroup(name: "awesoMux", sessions: [updated])],
-            selectedSessionID: nil,
-            isAppActive: false,
-            notifyOnNeedsAttention: false,
-            notifyOnTurnDone: true
-        )
-
-        #expect(events.map(\.kind) == [.turnDone])
+        #expect(events.map(\.kind) == (needsAttentionEnabled ? [.needsAttention] : [.turnDone]))
     }
 
     private func bumpUnread(_ pane: TerminalPane) -> TerminalPane {

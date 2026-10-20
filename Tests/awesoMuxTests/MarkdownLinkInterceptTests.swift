@@ -66,6 +66,7 @@ import Testing
 
     @Test(arguments: [
         ("guide.md", "~/repo/docs", "~/repo/docs/guide.md"),
+        ("guide.md", "~", "~/guide.md"),
         ("../secret.md", "~/repo/docs", nil),
         ("docs/file.md", "/repo/source", "/repo/source/docs/file.md"),
         ("../secret.md", "/repo/source", nil),
@@ -75,11 +76,9 @@ import Testing
         let resolved = MarkdownLinkIntercept.resolvedDocumentPath(forMarkdownDestination: raw, relativeToDirectory: base)
         #expect(resolved?.path == path)
         #expect(resolved?.fragment == nil)
-    }
-
-    @Test(arguments: [("~/repo/docs", "~/repo/docs/guide.md"), ("~", "~/guide.md")])
-    func tildeDirectoryJoin(base: String, expected: String) {
-        #expect(MarkdownLinkIntercept.joinRelativeDocumentPath("guide.md", toDirectory: base) == expected)
+        if raw == "guide.md" {
+            #expect(MarkdownLinkIntercept.joinRelativeDocumentPath(raw, toDirectory: base) == path)
+        }
     }
 
     enum Base: Sendable { case fixture, omitted, absent, nonAbsolute, missing, unsafe, other }

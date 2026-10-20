@@ -9,19 +9,6 @@ struct PaneTitleFreezeRuleTests {
     }
 
     @Test
-    func frozenPaneIgnoresLiveTitle() throws {
-        var s = session()
-        let paneID = s.activePaneID
-        s = try #require(PaneLayoutReducer.renamePane(in: s, paneID: paneID, title: "My Backend"))
-        // A later OSC title must NOT overwrite the custom name.
-        s = try #require(PaneLayoutReducer.updatePane(
-            in: s, paneID: paneID, title: "zsh", workingDirectory: nil, localHostnames: []
-        ))
-        #expect(s.layout.pane(id: paneID)?.title == "My Backend")
-        #expect(s.layout.pane(id: paneID)?.isTitleUserEdited == true)
-    }
-
-    @Test
     func resetClearsFlagAndReadoptsLiveTitle() throws {
         var s = session()
         let paneID = s.activePaneID
@@ -57,6 +44,8 @@ struct PaneTitleFreezeRuleTests {
             in: s, paneID: paneID, title: "zsh", workingDirectory: nil, localHostnames: []
         ))
         #expect(s.title == "My Backend")
+        #expect(s.layout.pane(id: paneID)?.title == "My Backend")
+        #expect(s.layout.pane(id: paneID)?.isTitleUserEdited == true)
         #expect(s.layout.pane(id: paneID)?.liveTerminalTitle == "zsh")
     }
 

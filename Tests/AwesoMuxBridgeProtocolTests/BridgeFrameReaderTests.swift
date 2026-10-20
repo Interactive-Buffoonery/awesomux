@@ -106,28 +106,9 @@ struct BridgeFrameReaderTests {
 
     // MARK: - Exact 65,536-byte line boundary
 
-    @Test
-    func completeLineAtExactCapPassesThroughWithoutClosing() {
-        // 65,535 content bytes + 1 newline byte = exactly the 65,536 cap.
-        // Garbage content (not valid JSON) is fine here — this test asserts
-        // the size gate lets it through to parsing (drop, not close), not
-        // that garbage decodes successfully.
-        var data = Data(repeating: 0x61, count: BridgeFrameReader.maximumLineByteCount - 1)
-        data.append(0x0A)
-
-        let result = Self.consume(data)
-
-        #expect(result.frames.isEmpty)  // garbage, not valid JSON — dropped
-        #expect(result.action == .none)  // but NOT closed: size was within the cap
-        #expect(result.tail == .empty)
-    }
-
-    @Test
-    func completeLineOverCapIsDroppedNotClosed() {
-        // 65,536 content bytes + newline = 65,537 total: over the cap but
-        // newline-terminated, so per the spec's failure-mode table it's a
-        // silent drop — the close is reserved for the UNTERMINATED case.
-        var data = Data(repeating: 0x61, count: BridgeFrameReader.maximumLineByteCount)
+    @Test(arguments: [BridgeFrameReader.maximumLineByteCount - 1, BridgeFrameReader.maximumLineByteCount])
+    func completeGarbageLineAtOrOverCapDropsWithoutClosing(contentByteCount: Int) {
+        var data = Data(repeating: 0x61, count: contentByteCount)
         data.append(0x0A)
 
         let result = Self.consume(data)
@@ -186,24 +167,12 @@ struct BridgeFrameReaderTests {
 
     // MARK: - 10 s partial-frame deadline
 
-    @Test
-    func partialLineUnder10SecondsStaysOpen() {
+    @Test(arguments: [9.9, 10.0])
+    func partialLineWithinDeadlineStaysOpen(elapsed: TimeInterval) {
         let held = Self.consume(Data("{\"partial".utf8))
         #expect(held.action == .none)
 
-        let result = Self.consume(Data(), pendingTail: held.tail, now: Self.epoch.addingTimeInterval(9.9))
-
-        #expect(result.action == .none)
-        #expect(result.tail == held.tail)
-    }
-
-    @Test
-    func partialLineAtExactly10SecondsStaysOpen() {
-        // Spec says "older than 10 s" — strictly greater, so exactly 10.0
-        // is still within the deadline.
-        let held = Self.consume(Data("{\"partial".utf8))
-
-        let result = Self.consume(Data(), pendingTail: held.tail, now: Self.epoch.addingTimeInterval(10))
+        let result = Self.consume(Data(), pendingTail: held.tail, now: Self.epoch.addingTimeInterval(elapsed))
 
         #expect(result.action == .none)
         #expect(result.tail == held.tail)
@@ -243,20 +212,9 @@ struct BridgeFrameReaderTests {
 
     // MARK: - Token / session mismatch, unknown type — drop, stay open
 
-    @Test
-    func tokenMismatchDropsLineButKeepsConnectionOpen() throws {
-        let line = try Self.envelopeLine(token: "wrong-token")
-        let result = Self.consume(Data((line + "\n").utf8))
-
-        #expect(result.frames.isEmpty)
-        #expect(result.action == .none)
-    }
-
-    @Test
-    func sessionMismatchDropsLineButKeepsConnectionOpen() throws {
-        // An authenticated-but-confused (or hostile) helper claiming another
-        // pane's session id must not have its frame routed anywhere.
-        let line = try Self.envelopeLine(session: "some-other-pane")
+    @Test(arguments: [("wrong-token", "sess"), ("tok", "some-other-pane")])
+    func mismatchedIdentityDropsLineButKeepsConnectionOpen(token: String, session: String) throws {
+        let line = try Self.envelopeLine(token: token, session: session)
         let result = Self.consume(Data((line + "\n").utf8))
 
         #expect(result.frames.isEmpty)

@@ -77,7 +77,8 @@ import Testing
     /// through it. The reducer accepts them, so a pane-only mark would let the
     /// child's first prompt answer the parent's turn on the parent's behalf.
     /// Permanently: `idle_prompt` fires at most once per turn.
-    @Test func aNestedSessionsPromptDoesNotAnswerTheParentsTurn() throws {
+    @Test(arguments: [false, true])
+    func aNestedSessionsPromptDoesNotAnswerTheParentsTurn(ownPrompt: Bool) throws {
         let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
         let (store, _) = makeStore(groupOne: [alpha])
         let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
@@ -93,50 +94,19 @@ import Testing
             ))
         #expect(store.liftedSessionIDs == [alpha.id])
 
-        _ = store.applyAgentRuntimeEvent(
+        let applied = store.applyAgentRuntimeEvent(
             claudeEvent(
                 executionState: .thinking,
                 phase: .promptSubmit,
                 at: base.addingTimeInterval(1),
-                providerSessionID: child
+                providerSessionID: ownPrompt ? parent.lowercased() : child
             ),
             to: alpha.id,
             paneID: paneID
         )
 
-        #expect(store.liftedSessionIDs == [alpha.id])
-    }
-
-    /// The other half: the session that actually went unanswered still answers
-    /// it. Without this the identity check would just be a way to never retract.
-    @Test func theMarkedSessionsOwnPromptAnswersItsTurn() throws {
-        let alpha = TerminalSession(title: "alpha", workingDirectory: "~")
-        let (store, _) = makeStore(groupOne: [alpha])
-        let paneID = try #require(store.session(id: alpha.id)?.activePaneID)
-        let parent = UUID().uuidString
-        let base = Date()
-
-        #expect(
-            store.applyAgentRuntimeEvent(
-                idlePrompt(at: base, providerSessionID: parent),
-                to: alpha.id,
-                paneID: paneID
-            ))
-        #expect(store.liftedSessionIDs == [alpha.id])
-
-        #expect(
-            store.applyAgentRuntimeEvent(
-                claudeEvent(
-                    executionState: .thinking,
-                    phase: .promptSubmit,
-                    at: base.addingTimeInterval(1),
-                    providerSessionID: parent.lowercased()
-                ),
-                to: alpha.id,
-                paneID: paneID
-            ))
-
-        #expect(store.liftedSessionIDs.isEmpty)
+        if ownPrompt { #expect(applied) }
+        #expect(store.liftedSessionIDs == (ownPrompt ? [] : [alpha.id]))
     }
 
     @Test func pinningALiftedWorkspaceRemovesItFromTheSection() throws {

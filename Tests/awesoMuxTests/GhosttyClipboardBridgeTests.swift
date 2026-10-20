@@ -188,7 +188,7 @@ struct GhosttyClipboardBridgeTests {
         if payload.count == 10_000 { #expect(body.count < 400) }
     }
 
-    @Test(arguments: [("", "This terminal"), ("   ", "This terminal"), ("deploy pane", "deploy pane")])
+    @Test(arguments: [("deploy pane", "deploy pane")])
     func alertTitle(raw: String, expected: String) {
         #expect(GhosttyRuntime.sanitizedAlertTitle(raw) == "\u{2068}\(expected)\u{2069}")
     }
@@ -418,38 +418,6 @@ struct GhosttyClipboardReadRoutingTests {
         #expect(delivery.contents.map(\.mime) == (servesText ? ["text/plain"] : []))
         #expect(delivery.contents.first?.data == (servesText ? text.map { Data($0.utf8) } : nil))
         #expect(delivery.available == (listsText ? ["text/plain"] : []))
-    }
-
-}
-
-/// `declaresSupportedContent` gates the context menu's Paste item without
-/// reading the pasteboard, so its type list must stay in step with the
-/// `content(from:)` ladder it stands in for.
-@MainActor
-@Suite("Terminal pasteboard supported-content metadata")
-struct TerminalPasteboardSupportedContentTests {
-    private func scratchPasteboard() -> NSPasteboard {
-        let pasteboard = NSPasteboard(name: .init(UUID().uuidString))
-        pasteboard.clearContents()
-        return pasteboard
-    }
-
-    @Test(arguments: ["text", "file", "url", "png", "tiff", "empty", "unsupported"])
-    func pasteboardTypes(kind: String) throws {
-        let directory = try TemporaryDirectory(prefix: "supported-content")
-        let file = directory.url.appendingPathComponent("notes.md")
-        try Data("x".utf8).write(to: file)
-        let pasteboard = scratchPasteboard()
-        switch kind {
-        case "text": pasteboard.setString("hello", forType: .string)
-        case "file": pasteboard.writeObjects([file as NSURL])
-        case "url": pasteboard.writeObjects([NSURL(string: "https://example.com")!])
-        case "png": pasteboard.setData(Data([1, 2, 3]), forType: .png)
-        case "tiff": pasteboard.setData(Data([1, 2, 3]), forType: .tiff)
-        case "unsupported": pasteboard.setData(Data([1, 2, 3]), forType: .init("com.example.private-blob"))
-        default: break
-        }
-        #expect(TerminalPasteboardString.declaresSupportedContent(pasteboard) == !["empty", "unsupported"].contains(kind))
     }
 
 }

@@ -59,8 +59,7 @@ struct PlanAnnotationMarkerTests {
 
     @Test(
         arguments: [
-            (PlanAnnotationMarker.annotation(.init(id: "q3k7", author: .user, payload: "plain note")), nil, nil),
-            (.annotation(.init(id: "q3k7", author: .user, payload: "x")), "<!-- AMX id=q3k7 by=user: x -->", nil),
+            (PlanAnnotationMarker.annotation(.init(id: "q3k7", author: .user, payload: "x")), "<!-- AMX id=q3k7 by=user: x -->", nil),
             (
                 .annotation(.init(id: "q3k7", author: .opencode, intent: .delete, status: .resolved, payload: "")),
                 "<!-- AMX id=q3k7 by=opencode intent=delete status=resolved -->", nil

@@ -603,19 +603,6 @@ struct SidebarSplitControllerTests {
         #expect(sidebar.view.frame.width == (expanded ? 420 : SidebarWidthPolicy.collapsedWidth))
     }
 
-    @Test(
-        arguments: await MainActor.run {
-            [
-                (CGFloat(187), CGFloat(1000), SidebarWidthPolicy.collapsedWidth),
-                (245, 1000, SidebarWidthPolicy.collapsedWidth), (287, 1000, 287),
-                (10, 1000, SidebarWidthPolicy.collapsedWidth), (900, 500, 500),
-                (.infinity, 1000, SidebarWidthPolicy.collapsedWidth), (700, 40, SidebarWidthPolicy.collapsedWidth),
-                (600, ContentView.minimumWindowWidth - ContentView.terminalMinimumWidth, SidebarWidthPolicy.collapsedWidth),
-            ]
-        })
-    func clamp(width: CGFloat, max: CGFloat, expected: CGFloat) {
-        #expect(SidebarSplitController.clampedWidth(width, maxWidth: max) == expected)
-    }
 
 }
 

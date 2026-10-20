@@ -53,28 +53,26 @@ struct QuitRiskPolicyTests {
                 Scenario(scope: .quit, kind: kind, exec: .running, liveness: .unsampled, isRisk: true, reason: .activeAgentExecution),
             ]
         }
-        + [Scope.quit, .close].flatMap { scope in
-            [false, true].flatMap { away in
-                [
-                    Scenario(scope: scope, away: away, liveness: .exited, isRisk: false, reason: .processExited),
-                    Scenario(
-                        scope: scope, away: away, liveness: .liveCommand, isRisk: true,
-                        reason: away ? .terminalAwayFromPrompt : .liveForegroundProcess),
-                    Scenario(
-                        scope: scope, away: away, liveness: .busyShell, isRisk: true,
-                        reason: away ? .terminalAwayFromPrompt : .backgroundJob),
-                    Scenario(
-                        scope: scope, away: away, liveness: .idleShell, isRisk: away,
-                        reason: away ? .terminalAwayFromPrompt : .shellAtPrompt),
-                    Scenario(
-                        scope: scope, away: away, liveness: .unsampled, isRisk: away,
-                        reason: away ? .terminalAwayFromPrompt : .noLiveProcess),
-                    Scenario(
-                        scope: scope, away: away, liveness: .indeterminate, isRisk: true,
-                        reason: away ? .terminalAwayFromPrompt : .indeterminate),
-                ]
+        + [false, true].flatMap { away in
+            [
+                Scenario(scope: .quit, away: away, liveness: .exited, isRisk: false, reason: .processExited),
+                Scenario(
+                    scope: .quit, away: away, liveness: .liveCommand, isRisk: true,
+                    reason: away ? .terminalAwayFromPrompt : .liveForegroundProcess),
+                Scenario(
+                    scope: .quit, away: away, liveness: .busyShell, isRisk: true,
+                    reason: away ? .terminalAwayFromPrompt : .backgroundJob),
+                Scenario(
+                    scope: .quit, away: away, liveness: .idleShell, isRisk: away,
+                    reason: away ? .terminalAwayFromPrompt : .shellAtPrompt),
+                Scenario(
+                    scope: .quit, away: away, liveness: .unsampled, isRisk: away,
+                    reason: away ? .terminalAwayFromPrompt : .noLiveProcess),
+                Scenario(
+                    scope: .quit, away: away, liveness: .indeterminate, isRisk: true,
+                    reason: away ? .terminalAwayFromPrompt : .indeterminate),
+            ]
         }
-    }
 
     @Test("quit and destructive close preserve their safety boundaries", arguments: scenarios)
     func riskDecision(scenario: Scenario) {

@@ -466,31 +466,16 @@ struct AgentHookCommandTests {
         #expect(try String(contentsOf: target, encoding: .utf8) == "sentinel")
     }
 
-    @Test
-    func wrongOwnerValidationFails() throws {
-        let wrongOwner = AgentHookEventFileAppender.FileInfo(
-            isRegularFile: true,
-            ownerUID: geteuid() + 1
+    @Test(arguments: [(true, false), (false, true)])
+    func unsafeFileMetadataIsRejected(isRegularFile: Bool, owned: Bool) throws {
+        let fileInfo = AgentHookEventFileAppender.FileInfo(
+            isRegularFile: isRegularFile,
+            ownerUID: owned ? geteuid() : geteuid() + 1
         )
 
         #expect(throws: POSIXError.self) {
             try AgentHookEventFileAppender.validate(
-                fileInfo: wrongOwner,
-                effectiveUID: geteuid()
-            )
-        }
-    }
-
-    @Test
-    func nonRegularValidationFails() throws {
-        let directoryInfo = AgentHookEventFileAppender.FileInfo(
-            isRegularFile: false,
-            ownerUID: geteuid()
-        )
-
-        #expect(throws: POSIXError.self) {
-            try AgentHookEventFileAppender.validate(
-                fileInfo: directoryInfo,
+                fileInfo: fileInfo,
                 effectiveUID: geteuid()
             )
         }

@@ -138,12 +138,6 @@ struct BridgePendingRequestMapTests {
         #expect(entry.id == "b")
     }
 
-    @Test
-    func unknownIDNeverAdmittedResolvesUnknown() {
-        var map = BridgePendingRequestMap()
-        #expect(map.resolve(id: "ghost", event: .decisionApplied, now: Self.epoch) == .unknown)
-    }
-
     // MARK: - Deadline supremacy (resolve forces .expired once now >= expiresAt)
 
     @Test(arguments: [

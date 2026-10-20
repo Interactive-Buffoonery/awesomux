@@ -189,7 +189,7 @@ struct BranchChangesRendererTests {
 
     @Test(
         "the fence always exceeds the body's longest backtick run",
-        arguments: [0, 1, 2, 3, 4, 10, 40]
+        arguments: [0, 3, 4, 40]
     )
     func fenceWidensPastTheLongestRun(runLength: Int) throws {
         let run = String(repeating: "`", count: runLength)

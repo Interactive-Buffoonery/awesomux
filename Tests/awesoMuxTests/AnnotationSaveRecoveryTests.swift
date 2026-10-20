@@ -22,38 +22,30 @@ struct AnnotationSaveRecoveryTests {
     }
 
     @MainActor
-    @Test("reload wait completes only after the requested generation")
-    func waitsForReloadCompletion() async {
+    @Test("reload waits finish at their generation or invalidation", arguments: [false, true])
+    func waitsForReloadCompletion(invalidated: Bool) async {
         let completion = DocumentReloadCompletion()
         var didFinish = false
         let waiter = Task { @MainActor in
-            _ = await completion.wait(for: 2)
+            let result = await completion.wait(for: 2)
             didFinish = true
+            return result
         }
         await Task.yield()
 
-        completion.complete(1)
-        await Task.yield()
-        #expect(!didFinish)
+        if invalidated {
+            completion.invalidate()
+            #expect(await waiter.value == false)
+            #expect(await completion.wait(for: 3) == false)
+        } else {
+            completion.complete(1)
+            await Task.yield()
+            #expect(!didFinish)
 
-        completion.complete(2)
-        await waiter.value
-        #expect(didFinish)
-    }
-
-    @MainActor
-    @Test("invalidation releases current waits and rejects late conflict waits")
-    func invalidationTerminatesConflictWaits() async {
-        let completion = DocumentReloadCompletion()
-        let current = Task { @MainActor in
-            await completion.wait(for: 2)
+            completion.complete(2)
+            _ = await waiter.value
+            #expect(didFinish)
         }
-        await Task.yield()
-
-        completion.invalidate()
-
-        #expect(await current.value == false)
-        #expect(await completion.wait(for: 3) == false)
     }
 
     @Test(arguments: [false, true])
@@ -86,21 +78,6 @@ struct AnnotationSaveRecoveryTests {
             }
             #expect(try String(contentsOf: file, encoding: .utf8).contains("Keep this draft"))
         }
-    }
-
-    @Test(arguments: [
-        (false, true, false, AnnotationSaveOutcome.copyOnly, false),
-        (false, true, false, .reloadAndRetry, true),
-        (true, true, false, .copyAndReselect, false),
-        (true, true, true, nil, false),
-        (true, true, false, .reloadAndRetry, true),
-    ])
-    func submissionGate(new: Bool, valid: Bool, submitting: Bool, outcome: AnnotationSaveOutcome?, expected: Bool) {
-        let allowed =
-            new
-            ? AnnotationSaveRecovery.canSubmitNewAnnotation(hasValidDraft: valid, isSubmitting: submitting, outcome: outcome)
-            : AnnotationSaveRecovery.canSubmitExistingAnnotation(isSubmitting: submitting, outcome: outcome)
-        #expect(allowed == expected)
     }
 
     private func document(

@@ -123,8 +123,8 @@ extension SessionPersistenceSerializationDomainTests {
     }
 
     @MainActor
-    @Test("dense trailing empty records do not allocate or decode the whole file")
-    func denseTrailingNewlinesUseBoundedTailScan() throws {
+        @Test("dense trailing empty records preserve buffered session-end authority")
+        func denseTrailingNewlinesPreserveBufferedSessionEnd() throws {
         try Self.withTemporaryDirectory { directory in
             let paneID = TerminalPane.ID()
             let eventsDirectory = directory.appending(path: "runtime-events")
