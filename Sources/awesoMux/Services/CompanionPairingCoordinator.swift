@@ -839,7 +839,7 @@ private final class CompanionNetworkServer {
             guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "paneID", "targetVersion", "limit", "source",
-                    "cursor",
+                    "cursor", "includeCommandEvents",
                 ])
             else { throw LocalAPIError.invalidRequest }
             if object["profile"] == nil { object["profile"] = profile }
@@ -860,7 +860,9 @@ private final class CompanionNetworkServer {
             guard operation == .connectionStatus || operation == .listAgents || operation == .attentionEvents else {
                 throw LocalAPIError.permissionDenied
             }
-            guard Self.argumentsAreValid(request, operation: operation) else { throw LocalAPIError.invalidRequest }
+            guard operation == .attentionEvents || object["includeCommandEvents"] == nil,
+                Self.argumentsAreValid(request, operation: operation)
+            else { throw LocalAPIError.invalidRequest }
             let lease = try authority.authorizeCompanion(
                 connectionID: connectionID,
                 certificateFingerprint: fingerprint,
@@ -1093,7 +1095,7 @@ private final class CompanionNetworkServer {
                 && (request.cursor.map { !$0.isEmpty && $0.utf8.count <= 2048 } ?? true)
         }
         return request.paneID == nil && request.targetVersion == nil && request.source == nil
-            && request.limit == nil && request.cursor == nil
+            && request.limit == nil && request.cursor == nil && request.includeCommandEvents == nil
     }
 
     private static func remoteAddress(_ endpoint: NWEndpoint) -> String {

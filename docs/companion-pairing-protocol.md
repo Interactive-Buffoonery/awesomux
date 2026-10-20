@@ -234,7 +234,10 @@ Only these operations are accepted:
 - `unpair`, with no operation arguments; revokes only the authenticated phone.
 - `list_agents`, with no operation arguments.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
-  optional non-empty `cursor` of at most 2,048 UTF-8 bytes.
+  optional non-empty `cursor` of at most 2,048 UTF-8 bytes. Optional
+  `includeCommandEvents` accepts a JSON boolean; omission or `null` defaults to
+  false. Only this operation accepts the field, including when its value is
+  false or `null`.
 
 `get_agent_context`, `get_capabilities`, all input operations, context fields,
 and bearer credentials are denied. The connection ID must be the value returned
@@ -456,6 +459,23 @@ Success adds an `attentionEvents` page:
 attention-reason string recorded at the time of the event.
 
 #### Command completion facts
+
+Requests receive state-attention changes by default, protecting clients that
+track every raised event as an open alert. Clients that understand command facts
+must set `includeCommandEvents: true` on every page request to receive them
+alongside state alerts. Omission, `null`, and false exclude command facts before
+pagination, so they do not consume the requested page size or affect `hasMore`.
+Non-boolean, non-null values return `invalid_request`.
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"get_attention_events","connectionID":"<uuid>","limit":100,"includeCommandEvents":true}
+```
+
+Cursors bind the stream's `includeCommandEvents` mode as well as the connection.
+Omission and false use the same mode. Reusing a cursor with a different mode
+returns `invalid_cursor`; to change modes, start a new stream without a cursor.
+App-restart, access-change, and retained-history recovery keep their existing
+behavior. Filtering does not change authorization scope or journal retention.
 
 Shell integration also records completed commands, including ordinary shell
 panes. A known exit code of zero produces `reason: "commandFinished"`; a known

@@ -31,7 +31,9 @@ extension LocalAPIE2E {
         let server = try LocalAPIServer(profile: profile, authorization: access.runtimeAuthority.provider) { request, instance, lease in
             store.bindLocalAPIInstance(instance)
             do {
-                let page = try store.localAPIAttentionEvents(cursor: request.cursor, limit: request.limit ?? 100, lease: lease)
+                let page = try store.localAPIAttentionEvents(
+                    cursor: request.cursor, limit: request.limit ?? 100, lease: lease,
+                    includeCommandEvents: request.includeCommandEvents ?? false)
                 return LocalAPIResponse(
                     requestID: request.requestID, profile: profile, appInstanceID: instance, capturedAt: Date(), attentionEvents: page)
             } catch {
@@ -41,13 +43,19 @@ extension LocalAPIE2E {
         store.bindLocalAPIInstance(server.instanceID)
         server.start()
         defer { server.stop() }
-        func read(_ cursor: String? = nil, using registration: LocalAPIPendingRegistration? = nil) async throws -> LocalAPIResponse {
+        func read(
+            _ cursor: String? = nil, using registration: LocalAPIPendingRegistration? = nil,
+            includeCommandEvents: Bool? = true, limit: Int = 100,
+            operation: LocalAPIOperation = .attentionEvents
+        ) async throws -> LocalAPIResponse {
             let selectedClient = registration ?? client
             return try await Task.detached {
                 try LocalAPIClient.call(
                     LocalAPIRequest(
-                        profile: profile, operation: .attentionEvents, connectionID: selectedClient.connection.id,
-                        credential: LocalAPICredential.encode(selectedClient.credential), limit: 100, cursor: cursor))
+                        profile: profile, operation: operation, connectionID: selectedClient.connection.id,
+                        credential: LocalAPICredential.encode(selectedClient.credential),
+                        limit: operation == .attentionEvents ? limit : nil, cursor: cursor,
+                        includeCommandEvents: includeCommandEvents))
             }.value
         }
         func page(_ response: LocalAPIResponse) throws -> LocalAPIAttentionPage {
@@ -62,6 +70,23 @@ extension LocalAPIE2E {
                 sessionID: workspace.id, paneID: pane.id, terminalSessionID: pane.terminalSessionID,
                 executionPlan: pane.executionPlan, completion: completion)
         }
+        let decodeFixture = LocalAPIRequest(profile: profile, operation: .attentionEvents, limit: 1)
+        guard
+            var decodeObject = try JSONSerialization.jsonObject(
+                with: LocalAPIContract.encoder().encode(decodeFixture)) as? [String: Any]
+        else { throw E2EFailure(message: "Command request fixture must be an object") }
+        let invalidValues: [Any] = [1, "true", [String](), ["enabled": true]]
+        for invalidValue in invalidValues {
+            decodeObject["includeCommandEvents"] = invalidValue
+            let bytes = try JSONSerialization.data(withJSONObject: decodeObject)
+            try check(
+                (try? LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: bytes)) == nil,
+                "command opt-in decoder rejects non-boolean \(String(describing: invalidValue))")
+        }
+        decodeObject["includeCommandEvents"] = NSNull()
+        let nullRequest = try LocalAPIContract.decoder().decode(
+            LocalAPIRequest.self, from: JSONSerialization.data(withJSONObject: decodeObject))
+        try check(nullRequest.includeCommandEvents == nil, "null command opt-in follows optional request field conventions")
         let baseline = try page(try await read())
         finish(shell, code: -1, nanoseconds: 40_000_000_000)
         finish(shell, code: 256, nanoseconds: 40_000_000_000)
@@ -78,6 +103,32 @@ extension LocalAPIE2E {
         finish(shell, code: 0, nanoseconds: 30_000_000_001)
         finish(shell, code: 7, nanoseconds: 42_500_000_000)
         finish(agent, code: 1, nanoseconds: 40_000_000_000)
+        let omitted = try page(try await read(using: agentClient, includeCommandEvents: nil, limit: 1))
+        let excluded = try page(try await read(using: agentClient, includeCommandEvents: false, limit: 1))
+        try check(
+            omitted.events.map(\.reason) == ["permissionPrompt"] && !omitted.hasMore
+                && excluded.events.map(\.id) == omitted.events.map(\.id) && !excluded.hasMore,
+            "omitted and false opt-in preserve state alerts and filter command facts before pagination")
+        let fromOmitted = try page(try await read(omitted.nextCursor, using: agentClient, includeCommandEvents: false))
+        let fromFalse = try page(try await read(excluded.nextCursor, using: agentClient, includeCommandEvents: nil))
+        try check(
+            fromOmitted.events.isEmpty && fromFalse.events.isEmpty,
+            "omission and false share the same cursor mode")
+        for mode in [omitted.nextCursor, excluded.nextCursor] {
+            try check(
+                try await read(mode, using: agentClient).error == .invalidCursor,
+                "state-only cursor rejects command-inclusive mode")
+        }
+        try check(
+            try await read(baseline.nextCursor, includeCommandEvents: false).error == .invalidCursor,
+            "command-inclusive cursor rejects state-only mode")
+        for operation in [LocalAPIOperation.capabilities, .connectionStatus, .listAgents, .agentContext] {
+            for flag in [false, true] {
+                try check(
+                    try await read(includeCommandEvents: flag, operation: operation).error == .invalidRequest,
+                    "command opt-in is rejected for \(operation.rawValue) even when \(flag)")
+            }
+        }
         let response = try await read(baseline.nextCursor)
         let completed = try page(response)
         try check(completed.events.count == 3, "each shell command emits one fact and scope excludes the sibling")
@@ -112,7 +163,19 @@ extension LocalAPIE2E {
             try page(try await read(beforeRejected.nextCursor)).events.isEmpty,
             "a completion from a replaced terminal assignment is rejected")
         store.updatePermissionPromptAttention(sessionID: workspace.id, paneID: agent.id, countDelta: 0, hasPending: false)
-        let agentEvents = try page(try await read(using: agentClient)).events
+        let agentPage = try page(try await read(using: agentClient))
+        let agentEvents = agentPage.events
+        try check(
+            try await read(agentPage.nextCursor, using: client).error == .invalidCursor,
+            "command-inclusive cursor retains connection ownership")
+        let agentState = try page(try await read(using: agentClient, includeCommandEvents: nil, limit: 1))
+        let agentStateEnd = try page(
+            try await read(agentState.nextCursor, using: agentClient, includeCommandEvents: false, limit: 1))
+        try check(
+            agentState.events.map(\.change) == [.raised] && agentState.hasMore
+                && agentStateEnd.events.map(\.change) == [.resolved] && !agentStateEnd.hasMore
+                && agentStateEnd.events.first?.attentionID == agentState.events.first?.attentionID,
+            "state-only pagination retains both state transitions around excluded command facts")
         try check(
             agentEvents.map(\.reason) == ["permissionPrompt", "commandFailed", "permissionPrompt"]
                 && agentEvents.map(\.change) == [.raised, .raised, .resolved]
@@ -128,7 +191,10 @@ extension LocalAPIE2E {
         try check(
             gap.cursorStatus == .historyGap && gap.currentStateRecoveryRequired && gap.events.isEmpty,
             "command traffic uses bounded journal and existing gap recovery")
-        var retained = try page(try await read())
+        let stateOnly = try page(try await read(includeCommandEvents: nil, limit: 1))
+        try check(stateOnly.events.isEmpty && !stateOnly.hasMore, "retained command-only history leaves the default feed empty")
+        var retained = try page(try await read(limit: 1000))
+        try check(retained.events.count == 100 && retained.hasMore, "command-inclusive pages respect the maximum page size")
         var count = retained.events.count
         while retained.hasMore {
             retained = try page(try await read(retained.nextCursor))

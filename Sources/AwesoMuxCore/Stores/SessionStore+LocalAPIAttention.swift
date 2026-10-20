@@ -39,7 +39,7 @@ public extension SessionStore {
 
     func localAPIAttentionEvents(
         cursor: String?, limit: Int, lease: LocalAPIAuthorizationLease,
-        processIncarnations: [UUID: String] = [:]
+        includeCommandEvents: Bool = false, processIncarnations: [UUID: String] = [:]
     ) throws -> LocalAPIAttentionPage {
         _ = try localAPIProviders()
         guard let journal = localAPIAttentionJournal else { throw LocalAPIError.appUnavailable }
@@ -50,7 +50,9 @@ public extension SessionStore {
             }
             guard liveVersions[paneID] == grantedVersion else { throw LocalAPIError.staleTarget }
         }
-        return try journal.page(cursor: cursor, limit: limit, lease: lease, liveTargetVersions: liveVersions)
+        return try journal.page(
+            cursor: cursor, limit: limit, lease: lease, liveTargetVersions: liveVersions,
+            includeCommandEvents: includeCommandEvents)
     }
 }
 
