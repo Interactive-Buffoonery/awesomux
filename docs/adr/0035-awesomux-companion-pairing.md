@@ -137,7 +137,7 @@ none of these grants is implied by pairing or by another grant:
 - **Decide** (ADR-0038, #793):
   pending-decision reads and once-only answers for Mac-selected workspaces.
 - **Transcript** (ADR-0039, #829):
-  `get_agent_context` with `source: transcript` for a Mac-selected workspace.
+  `get_agent_context` with `source: transcript` for Mac-selected workspaces.
 
 Each grant is stored with the companion connection, is removed by unpairing or
 revocation, and is enforced on the Mac rather than by hiding phone controls.

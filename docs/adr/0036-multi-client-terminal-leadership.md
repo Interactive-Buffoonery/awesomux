@@ -25,7 +25,7 @@ Watching must preserve the authoritative grid, not invent device-width reflow.
 
 - **One writable client, explicit handoff:** prevents interleaved typing, but
   adds a lock and recovery UI to every move between desk and phone.
-- **Many clients, last typer leads (recommended):** matches the intended desk
+- **Many clients, last typer leads (chosen):** matches the intended desk
   handoff; simultaneous typing can interleave and resize the shared application.
 - **Mac always sets size:** steady at the desk, but makes phone takeover cramped
   and contradicts the intended last-typer behavior.
@@ -78,7 +78,7 @@ assumption that the current zmx Init/leader behavior already satisfies it.
   Its status-only operation limit is extended by a new terminal capability:
   recommend Mac-approved, per-device access, defaulting to Watch, with a separate
   input grant. The corresponding ADR-0035 scope amendment is recorded in
-  that ADR under **Amended:** 2026-10-20.
+  that ADR's Amendment (2026-10-20) section.
 
 ## Consequences
 
