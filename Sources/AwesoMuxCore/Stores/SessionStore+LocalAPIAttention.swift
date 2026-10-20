@@ -1,3 +1,4 @@
+import AwesoMuxBridgeProtocol
 import AwesoMuxLocalAPI
 import Foundation
 
@@ -13,6 +14,29 @@ struct LocalAPIActiveAttention {
 }
 
 public extension SessionStore {
+    func recordCommandCompletion(
+        sessionID: UUID, paneID: UUID, terminalSessionID: TerminalSessionID, executionPlan: PaneExecutionPlan,
+        completion: ShellCommandCompletion, at now: Date = Date()
+    ) {
+        guard completion.warrantsAttention, localAPIAttentionJournal != nil,
+            (try? localAPIProviders()) != nil,
+            let pane = session(id: sessionID)?.layout.pane(id: paneID),
+            pane.terminalSessionID == terminalSessionID, pane.executionPlan == executionPlan
+        else { return }
+        reconcileLocalAPIAssignments()
+        guard let target = localAPITargets[paneID] else { return }
+        // Completion is a fact, not a new pane state. It must not
+        // replace or acknowledge an independently active permission/state alert.
+        localAPIAttentionJournal?.append(
+            LocalAPIAttentionEvent(
+                attentionID: UUID(), change: .raised, paneID: paneID,
+                workspaceID: sessionID, provider: pane.agentKind.rawValue,
+                providerSessionID: target.providerSessionID, targetVersion: target.version,
+                occurredAt: now, reason: completion.attentionReason,
+                exitCode: completion.exitCode, durationSeconds: completion.durationSeconds
+            ))
+    }
+
     func localAPIAttentionEvents(
         cursor: String?, limit: Int, lease: LocalAPIAuthorizationLease,
         processIncarnations: [UUID: String] = [:]

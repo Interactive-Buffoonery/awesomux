@@ -18,11 +18,14 @@ public struct LocalAPIAttentionEvent: Codable, Sendable {
     public let occurredAt: Date
     public let reason: String
     public let resolvedAt: Date?
+    public let exitCode: Int?
+    public let durationSeconds: Double?
 
     public init(
         id: UUID = UUID(), attentionID: UUID, change: LocalAPIAttentionChange,
         paneID: UUID, workspaceID: UUID, provider: String, providerSessionID: String?,
-        targetVersion: UUID, occurredAt: Date, reason: String, resolvedAt: Date? = nil
+        targetVersion: UUID, occurredAt: Date, reason: String, resolvedAt: Date? = nil,
+        exitCode: Int? = nil, durationSeconds: Double? = nil
     ) {
         self.id = id
         self.attentionID = attentionID
@@ -35,6 +38,8 @@ public struct LocalAPIAttentionEvent: Codable, Sendable {
         self.occurredAt = occurredAt
         self.reason = reason
         self.resolvedAt = resolvedAt
+        self.exitCode = exitCode
+        self.durationSeconds = durationSeconds
     }
 }
 

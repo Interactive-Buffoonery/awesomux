@@ -5,7 +5,7 @@ All integers are decimal unless a representation is stated explicitly.
 
 V1 wire DTOs, framing, link syntax, and confirmation words live in the root
 `AwesoMuxCompanionProtocol` package in `awesomux-companion`. This app pins an exact
-package release in `Package.swift` and `Package.resolved`; TLS and authorization
+package revision in `Package.swift` and `Package.resolved`; TLS and authorization
 remain local. Package versions do not change wire versions.
 
 The v1 link and framed protocol below describe the current implementation.
@@ -454,6 +454,49 @@ Success adds an `attentionEvents` page:
 `resolved`. Raised and resolved records for the same alert share
 `attentionID`; a resolved record includes `resolvedAt`. `reason` is the
 attention-reason string recorded at the time of the event.
+
+#### Command completion facts
+
+Shell integration also records completed commands, including ordinary shell
+panes. A known exit code of zero produces `reason: "commandFinished"`; a known
+nonzero code produces `reason: "commandFailed"`. Only commands running strictly
+longer than 30 seconds qualify in this first layer. Unknown exit status, zero
+duration, and commands at or below the threshold produce no command event.
+Ghostty supplies the measured duration in nanoseconds; the host converts that
+measurement to seconds without using wall-clock differences. An initial prompt
+without a preceding command start does not produce a Ghostty completion.
+
+These events additionally contain `exitCode` (integer 0–255) and
+`durationSeconds` (positive JSON number, possibly fractional). Both fields are
+optional in the event schema and omitted for existing state-attention events.
+For example, the additional fields of a failed command event are:
+
+```json
+{"change":"raised","reason":"commandFailed","exitCode":7,"durationSeconds":42.5}
+```
+
+Each qualifying completion is a separate fact with a new `id` and `attentionID`,
+even when successive commands have the same status. It emits one `raised`
+record, with no automatic `resolved` record: completion does not imply that a
+person has acknowledged the alert. Consumers must not wait for a resolution or
+treat command facts as the pane's current state. Future acknowledgement or
+notification delivery is outside this contract.
+
+Command facts do not replace active state-attention alerts. Permission/state
+resolution continues to reference its own attention ID; unrelated state writes,
+focus changes, and target replacement do not resolve or replay command facts.
+Completions neither change Mac unread state nor depend on which pane is focused.
+Events retain the workspace, provider/session identity and target version at
+recording; a deferred callback from a replaced surface or terminal assignment is
+discarded. Existing scope filtering, cursor ownership and 512-change retention
+apply unchanged. History-gap recovery cannot reconstruct discarded command
+facts from `list_agents`; the phone must accept that historical gap.
+
+The existing `list_agents` operation still excludes ordinary shells in this
+layer. Shell completion events use provider `Shell`, no provider session ID,
+and the pane's target version. Persistent pane/workspace and Companion scopes
+can read these facts; this change does not broaden exact-agent-target grants
+or the roster. The pane-list layer supplies separate shell discovery.
 
 The first call omits `cursor`. Save `nextCursor` only after applying the page.
 When `hasMore` is true, immediately request another page with that cursor.
