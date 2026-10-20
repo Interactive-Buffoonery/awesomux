@@ -26,6 +26,7 @@ INPUTS = (
     ROOT / "native/ghostty/remote-pwd-surface.zig.inc",
     ROOT / "native/ghostty/remote-pwd-generation.zig.inc",
     ROOT / "native/ghostty/remote-pwd-capi.zig.inc",
+    ROOT / "native/shell-integration/awesomux-ssh.sh",
 )
 
 
@@ -103,6 +104,8 @@ def prepare(vendor, destination):
             INPUTS[7],
             staging / "src/shell-integration/fish/vendor_conf.d/awesomux-ssh-compat.fish",
         )
+        # Run as `/bin/sh <path>`: Ghostty installs resources without the executable bit.
+        shutil.copyfile(INPUTS[15], staging / "src/shell-integration/awesomux-ssh")
         with (integration / ".zshenv").open("a") as file:
             file.write(
                 '\nif [[ -o interactive ]]; then\n'
