@@ -400,8 +400,10 @@ The phone applies these rules as one atomic update:
   pairing links do not carry a profile for the phone to pin.
 - If `routes` is absent, retain the saved route set. This is the legacy Mac
   behavior; absence does not remove routes or imply v2 support.
-- If present, validate the entire object before replacing the whole saved set,
-  never merging it. Require `v: 2`, an integer `p` equal to the saved shared
+- If present, validate the entire object before applying any of it. Each
+  reported route kind replaces the saved route of that kind; a saved kind the
+  reply omits keeps its last-known address, so a reply sent while one interface
+  is still coming up cannot drop that route. Require `v: 2`, an integer `p` equal to the saved shared
   port, and valid addresses in the corresponding route-class ranges. Reject
   duplicate keys, empty strings, wrong types, unsupported versions, or any
   invalid entry as a whole; retain the previous set without applying a subset.

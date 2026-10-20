@@ -73,8 +73,8 @@ Bonjour, and other VPN support are outside this decision.
 The phone tries LAN first, then Tailscale, verifying the same SPKI pin on either
 route before sending a secret or API request. On network change or foreground,
 it prefers LAN again with a cooldown to prevent flapping. A pinned,
-authenticated `get_connection_status` response may replace the whole route set,
-so a DHCP change need not require re-pairing when another saved route is still
+authenticated `get_connection_status` response updates each route kind it
+reports and keeps the last-known address of any kind it omits, so a DHCP change need not require re-pairing when another saved route is still
 reachable. If all routes are unreachable, the phone remains offline; it does
 not discover arbitrary replacement addresses or change trust after an identity
 failure. The [pairing protocol](../companion-pairing-protocol.md) defines the
