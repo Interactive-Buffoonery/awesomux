@@ -476,6 +476,8 @@ Omission and false use the same mode. Reusing a cursor with a different mode
 returns `invalid_cursor`; to change modes, start a new stream without a cursor.
 App-restart, access-change, and retained-history recovery keep their existing
 behavior. Filtering does not change authorization scope or journal retention.
+Filtered command facts still count toward the shared 512-change limit and can
+cause `history_gap` recovery for state-only consumers.
 
 Shell integration also records completed commands, including ordinary shell
 panes. A known exit code of zero produces `reason: "commandFinished"`; a known
