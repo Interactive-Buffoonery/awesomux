@@ -1001,9 +1001,6 @@
     "Applied layout preset %arg" : {
       "comment" : "VoiceOver announcement after applying a layout preset."
     },
-    "Applies to new agent sessions." : {
-      "comment" : "Agents settings hint."
-    },
     "Applies when terminal output asks awesoMux to replace the clipboard, including SSH and agent sessions. Commands like pbcopy write to macOS directly." : {
       "comment" : "Terminal settings hint."
     },
@@ -1026,9 +1023,6 @@
       "comment" : "Argument position"
     },
     "Ask Before Installing" : {
-
-    },
-    "Ask before every agent tool use" : {
 
     },
     "Ask before terminal programs read the clipboard" : {
@@ -1167,9 +1161,6 @@
     },
     "CRT scanlines" : {
       "comment" : "Settings field label for the CRT scanlines toggle"
-    },
-    "Cache trust decisions per workspace once you have approved them." : {
-      "comment" : "Agents settings hint."
     },
     "Can read session details" : {
 
@@ -2729,9 +2720,6 @@
     "Host: ⁨%arg⁩" : {
       "comment" : "Line of the OSC 8 confirmation dialog body showing the bidi-isolated host of a URL flagged for path-content issues."
     },
-    "How awesoMux handles tool-use prompts from coding agents." : {
-      "comment" : "Agents settings subtitle."
-    },
     "IDE" : {
       "comment" : "Accessibility label for the IDE picker popup."
     },
@@ -3820,9 +3808,6 @@
     "Permission granted." : {
       "comment" : "VoiceOver announcement confirming the user allowed a remote permission request"
     },
-    "Permission posture" : {
-      "comment" : "Agents settings label."
-    },
     "Permission prompt focused in %arg." : {
       "comment" : "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to a named split pane's remote permission banner\nVoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner, naming the workspace"
     },
@@ -3869,9 +3854,6 @@
     },
     "Permission status" : {
       "comment" : "Notification settings label."
-    },
-    "Permissions" : {
-      "comment" : "Agents settings title."
     },
     "Pin" : {
       "comment" : "Sidebar workspace context-menu action that pins the workspace to the top of the sidebar."
@@ -4234,12 +4216,6 @@
 
     },
     "Reload from Disk" : {
-
-    },
-    "Remember allowed tools" : {
-      "comment" : "Agents settings label."
-    },
-    "Remember approvals per workspace" : {
 
     },
     "Remember choice for" : {
@@ -5934,9 +5910,6 @@
     },
     "Transfer file to declared SSH destination" : {
       "comment" : "VoiceOver label for approving remote clipboard handoff"
-    },
-    "Trust known tools without asking" : {
-
     },
     "Try Again" : {
       "comment" : "Retry starting Companion pairing button."
