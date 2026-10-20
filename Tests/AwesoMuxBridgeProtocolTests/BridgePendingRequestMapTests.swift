@@ -21,7 +21,7 @@ struct BridgePendingRequestMapTests {
     // MARK: - Admission + cap
 
     @Test
-    func concurrentEntriesAdmitUpToCap() {
+    func admissionBeyondCapOverflowsAndLeavesPendingUntouched() {
         var map = BridgePendingRequestMap()
         for index in 0..<Self.cap {
             let outcome = Self.admit(&map, id: "req-\(index)")
@@ -32,14 +32,6 @@ struct BridgePendingRequestMapTests {
             #expect(entry.id == "req-\(index)")
         }
         #expect(map.count == Self.cap)
-    }
-
-    @Test
-    func admissionBeyondCapOverflowsAndLeavesPendingUntouched() {
-        var map = BridgePendingRequestMap()
-        for index in 0..<Self.cap {
-            _ = Self.admit(&map, id: "req-\(index)")
-        }
 
         let overflowOutcome = Self.admit(&map, id: "req-\(Self.cap)")
         #expect(overflowOutcome == .overflow)

@@ -24,22 +24,6 @@ struct BridgeFrameReaderTests {
         BridgeFrameReader.consume(data, pendingTail: pendingTail, now: now, expectedToken: token, expectedSession: session)
     }
 
-    // MARK: - Partial-line hold + extraction
-
-    @Test
-    func partialLineIsHeldUntilNewlineArrives() throws {
-        let line = try Self.envelopeLine()
-        let splitIndex = line.utf8.count / 2
-        let firstHalf = Data(line.utf8.prefix(splitIndex))
-
-        let result = Self.consume(firstHalf)
-
-        #expect(result.frames.isEmpty)
-        #expect(result.tail.bytes == firstHalf)
-        #expect(result.tail.startedAt == Self.epoch)
-        #expect(result.action == .none)
-    }
-
     // MARK: - Split-line reassembly across two consumes
 
     @Test
@@ -48,8 +32,11 @@ struct BridgeFrameReaderTests {
         let full = Data((line + "\n").utf8)
         let splitIndex = full.count / 2
 
-        let first = Self.consume(Data(full.prefix(splitIndex)))
+        let firstHalf = Data(full.prefix(splitIndex))
+        let first = Self.consume(firstHalf)
         #expect(first.frames.isEmpty)
+        #expect(first.tail.bytes == firstHalf)
+        #expect(first.tail.startedAt == Self.epoch)
         #expect(first.action == .none)
 
         let second = Self.consume(Data(full.suffix(from: splitIndex)), pendingTail: first.tail)

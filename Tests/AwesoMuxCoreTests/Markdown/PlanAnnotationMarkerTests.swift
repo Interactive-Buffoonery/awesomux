@@ -60,6 +60,12 @@ struct PlanAnnotationMarkerTests {
     @Test(
         arguments: [
             (PlanAnnotationMarker.annotation(.init(id: "q3k7", author: .user, payload: "plain note")), nil, nil),
+            (.annotation(.init(id: "q3k7", author: .user, payload: "x")), "<!-- AMX id=q3k7 by=user: x -->", nil),
+            (
+                .annotation(.init(id: "q3k7", author: .opencode, intent: .delete, status: .resolved, payload: "")),
+                "<!-- AMX id=q3k7 by=opencode intent=delete status=resolved -->", nil
+            ),
+            (.note(.init(annotationID: "q3k7", author: .pi, payload: "done")), "<!-- AMX re=q3k7 by=pi: done -->", nil),
             (.annotation(.init(id: "a1b2", author: .claudeCode, intent: .replace, payload: "new text")), nil, nil),
             (.annotation(.init(id: "z9", author: .codex, intent: .delete, status: .resolved, payload: "")), nil, nil),
             (.annotation(.init(id: "w8p2", author: .user, payload: "x", extraKeys: [.init(key: "zz", value: "9")])), nil, nil),
@@ -106,18 +112,6 @@ struct PlanAnnotationMarkerTests {
         if let exact { #expect(serialized == exact) }
         #expect(!serialized.contains("\n"))
         #expect(PlanAnnotationMarker.parse(serialized) == (normalized ?? marker))
-    }
-
-    @Test(arguments: [
-        (PlanAnnotationMarker.annotation(.init(id: "q3k7", author: .user, payload: "x")), "<!-- AMX id=q3k7 by=user: x -->"),
-        (
-            .annotation(.init(id: "q3k7", author: .opencode, intent: .delete, status: .resolved, payload: "")),
-            "<!-- AMX id=q3k7 by=opencode intent=delete status=resolved -->"
-        ),
-        (.note(.init(annotationID: "q3k7", author: .pi, payload: "done")), "<!-- AMX re=q3k7 by=pi: done -->"),
-    ])
-    func onDiskFormat(marker: PlanAnnotationMarker, expected: String) throws {
-        #expect(try #require(marker.serialized()) == expected)
     }
 
     @Test(arguments: [
