@@ -12,71 +12,91 @@ struct E2EClientIdentity {
         let identifier = UUID().uuidString.lowercased()
         let label = "awesoMux Companion E2E \(identifier)"
         let tag = Data("com.interactivebuffoonery.awesomux.companion-e2e.\(identifier)".utf8)
-        var completed = false
-        defer {
-            if !completed {
-                SecItemDelete(
+        do {
+            var error: Unmanaged<CFError>?
+            guard
+                let privateKey = SecKeyCreateRandomKey(
                     [
-                        kSecClass as String: kSecClassCertificate,
-                        kSecAttrLabel as String: label,
-                    ] as CFDictionary)
-                SecItemDelete(
-                    [
-                        kSecClass as String: kSecClassKey,
-                        kSecAttrApplicationTag as String: tag,
                         kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-                    ] as CFDictionary)
+                        kSecAttrKeySizeInBits as String: 256,
+                        kSecAttrIsPermanent as String: true,
+                        kSecAttrApplicationTag as String: tag,
+                        kSecAttrLabel as String: label,
+                        kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                    ] as CFDictionary, &error)
+            else {
+                throw error?.takeRetainedValue() ?? E2EFailure("could not create the client key")
             }
-        }
-        var error: Unmanaged<CFError>?
-        guard
-            let privateKey = SecKeyCreateRandomKey(
+            guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
+                throw E2EFailure("could not read the client public key")
+            }
+            let spki = try E2ECertificate.subjectPublicKeyInfo(for: publicKey)
+            let der = try E2ECertificate.make(privateKey: privateKey, publicKey: publicKey, commonName: label)
+            guard let certificate = SecCertificateCreateWithData(nil, der as CFData) else {
+                throw E2EFailure("could not create the client certificate")
+            }
+            let status = SecItemAdd(
                 [
-                    kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-                    kSecAttrKeySizeInBits as String: 256,
-                    kSecAttrIsPermanent as String: true,
-                    kSecAttrApplicationTag as String: tag,
+                    kSecClass as String: kSecClassCertificate,
+                    kSecValueRef as String: certificate,
                     kSecAttrLabel as String: label,
-                    kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-                ] as CFDictionary, &error)
-        else {
-            throw error?.takeRetainedValue() ?? E2EFailure("could not create the client key")
+                ] as CFDictionary, nil)
+            guard status == errSecSuccess else { throw E2EFailure("could not store the client certificate: \(status)") }
+            var identity: SecIdentity?
+            guard SecIdentityCreateWithCertificate(nil, certificate, &identity) == errSecSuccess, let identity else {
+                throw E2EFailure("could not assemble the client identity")
+            }
+            return Self(identity: identity, spki: spki, keyTag: tag, certificateLabel: label)
+        } catch {
+            let constructionError = error
+            do {
+                try cleanup(keyTag: tag, certificateLabel: label)
+            } catch {
+                throw E2EFailure("client identity construction failed: \(constructionError); cleanup failed: \(error)")
+            }
+            throw constructionError
         }
-        guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
-            throw E2EFailure("could not read the client public key")
-        }
-        let spki = try E2ECertificate.subjectPublicKeyInfo(for: publicKey)
-        let der = try E2ECertificate.make(privateKey: privateKey, publicKey: publicKey, commonName: label)
-        guard let certificate = SecCertificateCreateWithData(nil, der as CFData) else {
-            throw E2EFailure("could not create the client certificate")
-        }
-        let status = SecItemAdd(
-            [
-                kSecClass as String: kSecClassCertificate,
-                kSecValueRef as String: certificate,
-                kSecAttrLabel as String: label,
-            ] as CFDictionary, nil)
-        guard status == errSecSuccess else { throw E2EFailure("could not store the client certificate: \(status)") }
-        var identity: SecIdentity?
-        guard SecIdentityCreateWithCertificate(nil, certificate, &identity) == errSecSuccess, let identity else {
-            throw E2EFailure("could not assemble the client identity")
-        }
-        completed = true
-        return Self(identity: identity, spki: spki, keyTag: tag, certificateLabel: label)
     }
 
-    func cleanup() {
-        SecItemDelete(
-            [
-                kSecClass as String: kSecClassCertificate,
-                kSecAttrLabel as String: certificateLabel,
-            ] as CFDictionary)
-        SecItemDelete(
-            [
+    func cleanup() throws {
+        try Self.cleanup(keyTag: keyTag, certificateLabel: certificateLabel)
+    }
+
+    private static func cleanup(keyTag: Data, certificateLabel: String) throws {
+        var queries: [(String, [String: Any])] = [
+            ("certificate", [kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: certificateLabel])
+        ]
+        for (name, keyClass) in [("private", kSecAttrKeyClassPrivate), ("public", kSecAttrKeyClassPublic)] {
+            let base: [String: Any] = [
                 kSecClass as String: kSecClassKey,
-                kSecAttrApplicationTag as String: keyTag,
                 kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            ] as CFDictionary)
+                kSecAttrKeyClass as String: keyClass,
+            ]
+            // Query both unique identifiers independently so an attribute mismatch
+            // cannot hide a retained key. Neither query reaches another run's keys.
+            var tagged = base
+            tagged[kSecAttrApplicationTag as String] = keyTag
+            queries.append(("\(name) key tag", tagged))
+            var labelled = base
+            labelled[kSecAttrLabel as String] = certificateLabel
+            queries.append(("\(name) key label", labelled))
+        }
+        var failures: [String] = []
+        for (name, query) in queries {
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound {
+                failures.append("\(name) delete: \(status)")
+            }
+        }
+        for (name, query) in queries {
+            let status = SecItemCopyMatching(query as CFDictionary, nil)
+            if status != errSecItemNotFound {
+                failures.append("\(name) absence check: \(status)")
+            }
+        }
+        guard failures.isEmpty else {
+            throw E2EFailure("client identity cleanup failed [\(certificateLabel)]: " + failures.joined(separator: "; "))
+        }
     }
 }
 

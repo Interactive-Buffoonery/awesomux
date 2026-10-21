@@ -176,6 +176,7 @@ private enum CompanionClient {
 struct CompanionPairingE2E {
     @MainActor
     static func main() async {
+        var ownedIdentity: E2EClientIdentity?
         do {
             if try handleFixtureCommand() { return }
             let invocation = try invocation()
@@ -188,7 +189,7 @@ struct CompanionPairingE2E {
             guard let expectedProfile = invocation.profile else { throw E2EFailure("development profile is missing") }
             let link = try PairingLink(rawLink)
             let identity = try E2EClientIdentity.make()
-            defer { identity.cleanup() }
+            ownedIdentity = identity
             print("endpoint=\(link.host):\(link.port) transport=\(link.transport) mac=\(link.macName)")
             print("client_spki_sha256=\(Data(SHA256.hash(data: identity.spki)).base64URL)")
 
@@ -401,10 +402,21 @@ struct CompanionPairingE2E {
                 print("revoked_reconnect=denied")
             }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile, expectRevoked: true)
+            ownedIdentity = nil
+            try identity.cleanup()
+            print("client_identity=removed_and_verified")
             print(
                 "PASS: pairing, reads, context denial, invalid and unknown requests, rename opt-in denial and argument validation, self-unpair, and revoked access"
             )
         } catch {
+            if let ownedIdentity {
+                do {
+                    try ownedIdentity.cleanup()
+                    print("client_identity=removed_and_verified")
+                } catch {
+                    FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
+                }
+            }
             FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
             Foundation.exit(1)
         }
@@ -440,6 +452,8 @@ struct CompanionPairingE2E {
             try paths.allSatisfy({ try physicalPath($0) == home }),
             try physicalPath(support.path) == home + "/Library/Application Support"
         else { throw E2EFailure("real HOME/Foundation Application Support mismatch") }
+        // Real HOME preserves Keychain access, but Ghostty may still load its
+        // normal Application Support config in addition to the fixture XDG config.
         // Only this exact profile directory outside the artifact run is owned;
         // the real HOME and its default Keychain remain unchanged.
         let profileSupport = support.appending(path: "awesoMux-dev-" + suffix, directoryHint: .isDirectory)
