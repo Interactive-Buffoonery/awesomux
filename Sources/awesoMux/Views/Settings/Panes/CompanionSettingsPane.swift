@@ -213,6 +213,8 @@ struct CompanionSettingsPane: View {
                             }))
                 }
             }
+            .accessibilityLabel(
+                String.localizedStringWithFormat(String(localized: "Decision workspaces for %@"), phone.label))
             Text(
                 String(
                     localized: "Remote decisions are not available yet. Workspace access starts off.")
