@@ -550,7 +550,7 @@ final class GhosttyRuntime {
         guard surfaceViews[paneID] === view, view.surface == surface else { throw LocalAPIError.staleTarget }
         switch result {
         case .loaded(let text): return text
-        case .tooLarge: throw LocalAPIError.contextTooLarge
+        case .tooLarge, .recent: throw LocalAPIError.contextTooLarge
         case .busy, .failed: throw LocalAPIError.contextUnavailable
         }
     }
