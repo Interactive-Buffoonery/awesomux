@@ -9,31 +9,29 @@ import SwiftUI
 /// file-drop `AgentIntegrationSettingsCard` layout (header + status badge,
 /// editable binary/config-home fields, path summary) and adds the CLI-specific
 /// surfaces: rendered plugin source row, resolved helper path row, dist/ warning
-/// banner, a status badge, an action row gated per `AgentPluginStatus`, a
-/// confirmation sheet, and an expandable diagnostics disclosure on failure.
+/// banner, and one `AgentPluginFolderSection` per config folder.
 struct AgentPluginCard: View {
+    /// The config field's folder; provider-wide fields come from it.
     let state: AgentPluginCardState
+    let folders: [AgentPluginCardState]
+    /// "Installed in N of M folders" once more than one folder is listed.
+    let installSummary: String?
     @Binding var isEnabled: Bool
     @Binding var binaryPath: String
     @Binding var configHome: String
     var focusedField: FocusState<AgentIntegrationSettingsFocusedField?>.Binding
     var onCommit: () -> Void
-    /// Asks for confirmation copy for the given action; the card stages it and
-    /// shows the sheet. Returning the payload (not performing) keeps the card from
-    /// owning the runner.
-    var confirmation: (AgentPluginAction) -> AgentPluginConfirmation
-    var onConfirmedAction: (AgentPluginAction) -> Void
-    /// Triggers a manual read-only status re-probe (#6). Enabled whenever the
-    /// provider is enabled and idle.
-    var onCheckStatus: () -> Void
+    /// Asks for confirmation copy for the given folder and action; the section
+    /// stages it and shows the sheet. Returning the payload (not performing)
+    /// keeps the card from owning the runner.
+    var confirmation: (AgentPluginTarget, AgentPluginAction) -> AgentPluginConfirmation
+    var onConfirmedAction: (AgentPluginTarget, AgentPluginAction) -> Void
+    /// Triggers a manual read-only status re-probe of one folder (#6).
+    var onCheckStatus: (AgentPluginTarget) -> Void
     /// Cancels an in-flight probe (#8). Only surfaced while a probe is running.
     var onCancel: () -> Void
-
-    @State private var pendingConfirmation: AgentPluginConfirmation?
-    @State private var diagnosticsExpanded = false
-    @State private var didAppear = false
-    @State private var lastAnnouncedStatusLabel: String?
-    @State private var lastAnnouncedFailureSummary: String?
+    var onAddFolder: (String) -> Void
+    var onForgetFolder: (AgentPluginTarget) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -47,11 +45,19 @@ struct AgentPluginCard: View {
                 warningBanner(note)
             }
             pathSummary
-            actionRow
-            guidanceRow
-            if state.diagnostics != nil {
-                diagnosticsDisclosure
+            ForEach(folders, id: \.target) { folder in
+                AgentPluginFolderSection(
+                    state: folder,
+                    isEnabled: isEnabled,
+                    showsFolderHeader: folders.count > 1,
+                    confirmation: { confirmation(folder.target, $0) },
+                    onConfirmedAction: { onConfirmedAction(folder.target, $0) },
+                    onCheckStatus: { onCheckStatus(folder.target) },
+                    onCancel: onCancel,
+                    onForget: { onForgetFolder(folder.target) }
+                )
             }
+            addFolderButton
         }
         .padding(14)
         .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: 8))
@@ -60,35 +66,39 @@ struct AgentPluginCard: View {
                 .stroke(Color.aw.border, lineWidth: 0.5)
         }
         .accessibilityElement(children: .contain)
-        .onAppear {
-            didAppear = true
-            lastAnnouncedStatusLabel = state.statusLabel
-            lastAnnouncedFailureSummary = state.failureSummary
+    }
+
+    private var addFolderButton: some View {
+        Button {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.allowsMultipleSelection = false
+            // Provider config folders such as ~/.claude-work are hidden.
+            panel.showsHiddenFiles = true
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            panel.prompt = String(localized: "Add", comment: "Confirm button for the agent config folder picker.")
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            onAddFolder(url.path)
+        } label: {
+            Label(
+                String(localized: "Add folder…", comment: "Button that opens a picker for another agent config folder."),
+                systemImage: "folder.badge.plus"
+            )
         }
-        .onChange(of: state.statusLabel) { _, newValue in
-            announceStatusChange(statusLabel: newValue, failureSummary: state.failureSummary)
-        }
-        .onChange(of: state.failureSummary) { _, newValue in
-            announceStatusChange(statusLabel: state.statusLabel, failureSummary: newValue)
-        }
-        .onChange(of: state.diagnostics) { _, _ in
-            // A fresh (or cleared) diagnostic starts collapsed so a later failure
-            // can't auto-reveal a different error's expanded contents.
-            diagnosticsExpanded = false
-        }
-        .confirmationDialog(
-            pendingConfirmation?.title ?? "",
-            isPresented: confirmationBinding,
-            titleVisibility: .visible,
-            presenting: pendingConfirmation
-        ) { payload in
-            Button(confirmActionLabel(payload.action), role: confirmRole(payload.action)) {
-                onConfirmedAction(payload.action)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { payload in
-            Text(confirmationMessage(payload))
-        }
+        .buttonStyle(.bordered)
+        .disabled(!isEnabled || state.isBusy)
+        .help(
+            String(
+                localized: "Manage the \(state.title) status plugin in another \(state.configHomeLabel) folder",
+                comment: "Help for adding a config folder; arguments are the provider name and config home label.")
+        )
+        .accessibilityLabel(String(localized: "Add folder", comment: "Accessibility label for the agent config folder picker button."))
+        .accessibilityHint(
+            String(
+                localized: "Manage the \(state.title) status plugin in another \(state.configHomeLabel) folder",
+                comment: "Help for adding a config folder; arguments are the provider name and config home label."))
     }
 
     // MARK: Header
@@ -115,31 +125,34 @@ struct AgentPluginCard: View {
                 .accessibilityValue(isEnabled ? "Enabled" : "Disabled")
                 .accessibilityHint(toggleAccessibilityHint)
 
-            statusBadge
+            if let installSummary {
+                AgentPluginStatusBadge(
+                    label: installSummary,
+                    color: Color.aw.textFaint,
+                    accessibilityLabel: String(
+                        localized: "\(state.title) status",
+                        comment: "Accessibility label for an agent plugin status badge; argument is the provider name."),
+                    accessibilityHint: ""
+                )
+            } else {
+                AgentPluginStatusBadge(state: state)
+            }
         }
     }
 
-    private var statusBadge: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
-                .accessibilityHidden(true)
-            Text(state.statusLabel)
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text2)
+    private var toggleAccessibilityHint: String {
+        if state.isBusy {
+            return String(
+                localized: "Unavailable while \(state.title) is checking or updating",
+                comment: "Accessibility hint for a busy agent integration toggle; argument is the provider name.")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.aw.surface.chrome, in: RoundedRectangle(cornerRadius: AwRadius.pill))
-        .overlay {
-            RoundedRectangle(cornerRadius: AwRadius.pill)
-                .stroke(Color.aw.border, lineWidth: 0.5)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(state.title) status")
-        .accessibilityValue(state.statusLabel)
-        .accessibilityHint(state.status.detail)
+        return isEnabled
+            ? String(
+                localized: "Disabling stops awesoMux from probing this provider",
+                comment: "Accessibility hint for an enabled agent integration toggle.")
+            : String(
+                localized: "Enabling allows status probes; installing the plugin is a separate step",
+                comment: "Accessibility hint for a disabled agent integration toggle.")
     }
 
     // MARK: Fields
@@ -232,22 +245,113 @@ struct AgentPluginCard: View {
     }
 
     private func warningBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.aw.peach)
-                .accessibilityHidden(true)
-            Text(message)
-                .awFont(AwFont.UI.meta)
-                .foregroundStyle(Color.aw.text2)
-                .fixedSize(horizontal: false, vertical: true)
+        AgentPluginWarningBanner(message: message)
+    }
+}
+
+// MARK: - AgentPluginFolderSection
+
+/// Status, actions, guidance, and diagnostics for one provider config folder.
+/// Each folder keeps its own confirmation sheet and VoiceOver announcements.
+struct AgentPluginFolderSection: View {
+    let state: AgentPluginCardState
+    let isEnabled: Bool
+    let showsFolderHeader: Bool
+    var confirmation: (AgentPluginAction) -> AgentPluginConfirmation
+    var onConfirmedAction: (AgentPluginAction) -> Void
+    var onCheckStatus: () -> Void
+    var onCancel: () -> Void
+    var onForget: () -> Void
+
+    @State private var pendingConfirmation: AgentPluginConfirmation?
+    @State private var diagnosticsExpanded = false
+    @State private var didAppear = false
+    @State private var lastAnnouncedStatusLabel: String?
+    @State private var lastAnnouncedFailureSummary: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if showsFolderHeader {
+                folderHeader
+            }
+            actionRow
+            guidanceRow
+            if state.diagnostics != nil {
+                diagnosticsDisclosure
+            }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.aw.surface.chrome, in: RoundedRectangle(cornerRadius: 6))
-        .accessibilityElement(children: .combine)
-        // The triangle icon and peach tint carry the "caution" signal visually;
-        // name the role so VoiceOver doesn't read it as ordinary body text.
-        .accessibilityLabel("Warning: \(message)")
+        .accessibilityElement(children: .contain)
+        .onAppear {
+            didAppear = true
+            lastAnnouncedStatusLabel = state.statusLabel
+            lastAnnouncedFailureSummary = state.failureSummary
+        }
+        .onChange(of: state.statusLabel) { _, newValue in
+            announceStatusChange(statusLabel: newValue, failureSummary: state.failureSummary)
+        }
+        .onChange(of: state.failureSummary) { _, newValue in
+            announceStatusChange(statusLabel: state.statusLabel, failureSummary: newValue)
+        }
+        .onChange(of: state.diagnostics) { _, _ in
+            // A fresh (or cleared) diagnostic starts collapsed so a later failure
+            // can't auto-reveal a different error's expanded contents.
+            diagnosticsExpanded = false
+        }
+        .confirmationDialog(
+            pendingConfirmation?.title ?? "",
+            isPresented: confirmationBinding,
+            titleVisibility: .visible,
+            presenting: pendingConfirmation
+        ) { payload in
+            Button(confirmActionLabel(payload.action), role: confirmRole(payload.action)) {
+                onConfirmedAction(payload.action)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { payload in
+            Text(confirmationMessage(payload))
+        }
+    }
+
+    private var folderHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "folder")
+                .foregroundStyle(Color.aw.text3)
+                .accessibilityHidden(true)
+            Text(verbatim: (state.folderPath as NSString).abbreviatingWithTildeInPath)
+                .awFont(AwFont.Mono.meta)
+                .foregroundStyle(Color.aw.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .accessibilityLabel(
+                    String(
+                        localized: "Folder \(state.folderPath)",
+                        comment: "Accessibility label for an agent config folder; argument is its path."))
+            Spacer(minLength: 8)
+            if state.canForget {
+                Button(action: onForget) {
+                    Label(
+                        String(localized: "Stop managing", comment: "Button to forget an additional agent config folder."),
+                        systemImage: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+                .disabled(state.isBusy)
+                .help(
+                    String(
+                        localized: "Remove this folder from the list. Remove the plugin first to uninstall it.",
+                        comment: "Help for forgetting an agent config folder without uninstalling its plugin.")
+                )
+                .accessibilityLabel(
+                    String(
+                        localized: "Stop managing folder", comment: "Accessibility label for forgetting an additional agent config folder.")
+                )
+                .accessibilityHint(
+                    String(
+                        localized: "Removes this folder from the list without changing it",
+                        comment: "Accessibility hint for forgetting an additional agent config folder."))
+            }
+            AgentPluginStatusBadge(state: state)
+        }
     }
 
     // MARK: Actions
@@ -264,11 +368,11 @@ struct AgentPluginCard: View {
             }
             if state.isCheckingInitialStatus {
                 HStack(spacing: 6) {
-                    // Only spin while a probe is actually running. A cancelled probe
-                    // keeps the neutral "Checking" *text* (the status is genuinely
-                    // unresolved until the next probe) but must not leave an animated
-                    // spinner with nothing behind it.
-                    if state.isBusy {
+                    // Only spin while a probe is actually running. A queued or
+                    // cancelled folder keeps the neutral "Checking" *text* (the status
+                    // is genuinely unresolved until the next probe) but must not show
+                    // an animated spinner with nothing behind it.
+                    if state.inflightOp != nil {
                         ProgressView().controlSize(.small)
                     }
                     Text("Checking")
@@ -276,7 +380,7 @@ struct AgentPluginCard: View {
                         .foregroundStyle(Color.aw.text3)
                 }
                 .accessibilityElement(children: .combine)
-            } else if state.isBusy {
+            } else if state.inflightOp != nil {
                 ProgressView().controlSize(.small)
                     .accessibilityLabel("Working")
             }
@@ -350,7 +454,7 @@ struct AgentPluginCard: View {
                 // A status whose detail is empty (e.g. an opaque underlying error)
                 // would otherwise render a blank row under the badge; fall back to
                 // the status label so there is always a visible explanation.
-                let detail = state.status.detail
+                let detail = state.statusDetail
                 Text(detail.isEmpty ? state.statusLabel : detail)
                     .awFont(AwFont.UI.meta)
                     .foregroundStyle(Color.aw.text3)
@@ -443,15 +547,6 @@ struct AgentPluginCard: View {
         return lines.joined(separator: "\n")
     }
 
-    private var toggleAccessibilityHint: String {
-        if state.isBusy {
-            return "Unavailable while \(state.title) is checking or updating"
-        }
-        return isEnabled
-            ? "Disabling stops awesoMux from probing this provider"
-            : "Enabling allows status probes; installing the plugin is a separate step"
-    }
-
     private func buttonHelp(title: String, enabled: Bool) -> String {
         enabled ? "\(title) \(state.title) status plugin" : "\(title) is unavailable for the current status"
     }
@@ -469,23 +564,43 @@ struct AgentPluginCard: View {
         lastAnnouncedStatusLabel = statusLabel
         lastAnnouncedFailureSummary = failureSummary
 
+        // Several folders can change at once, so every announcement names the
+        // provider and folder it is about.
+        let provider = state.title
+        let folder = state.folderPath
         let message: String
         let priority: NSAccessibilityPriorityLevel
         if let failureSummary {
-            message = errorText(failureSummary)
+            let detail =
+                failureSummary.hasPrefix("Error:")
+                ? String(failureSummary.dropFirst("Error:".count)).trimmingCharacters(in: .whitespaces)
+                : failureSummary
+            message = String(
+                localized: "\(provider) error in \(folder): \(detail)",
+                comment:
+                    "VoiceOver announcement when an agent plugin check or action fails; arguments are the provider name, the config folder path, and the failure detail"
+            )
             // A failure is more urgent than a routine status flip: raise it so
             // VoiceOver interrupts rather than queueing it behind other chatter.
             priority = .high
         } else {
             priority = .medium
-            let detail = state.status.detail
+            let detail = state.statusDetail
             // Speak operator guidance for any status that carries distinct detail
             // (needs review/repair/unsupported), not only needsReview — otherwise
             // VoiceOver only hears the short badge label on status flips.
             if !detail.isEmpty, detail != statusLabel {
-                message = "\(state.title) status: \(statusLabel). \(detail)"
+                message = String(
+                    localized: "\(provider) status in \(folder): \(statusLabel). \(detail)",
+                    comment:
+                        "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, the status, and its guidance"
+                )
             } else {
-                message = "\(state.title) status: \(statusLabel)."
+                message = String(
+                    localized: "\(provider) status in \(folder): \(statusLabel).",
+                    comment:
+                        "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, and the status"
+                )
             }
         }
 
@@ -498,9 +613,83 @@ struct AgentPluginCard: View {
             ]
         )
     }
+}
 
-    private var statusColor: Color {
-        switch state.status {
+// MARK: - Shared pieces
+
+struct AgentPluginWarningBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.aw.peach)
+                .accessibilityHidden(true)
+            Text(message)
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.aw.surface.chrome, in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .combine)
+        // The triangle icon and peach tint carry the "caution" signal visually;
+        // name the role so VoiceOver doesn't read it as ordinary body text.
+        .accessibilityLabel(
+            String(localized: "Warning: \(message)", comment: "Accessibility label for an agent plugin warning; argument is its message."))
+    }
+}
+
+struct AgentPluginStatusBadge: View {
+    let label: String
+    let color: Color
+    let accessibilityLabel: String
+    let accessibilityHint: String
+
+    init(label: String, color: Color, accessibilityLabel: String, accessibilityHint: String) {
+        self.label = label
+        self.color = color
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
+    }
+
+    init(state: AgentPluginCardState) {
+        self.init(
+            label: state.statusLabel,
+            color: Self.color(for: state.status),
+            accessibilityLabel: String(
+                localized: "\(state.title) status",
+                comment: "Accessibility label for an agent plugin status badge; argument is the provider name."),
+            accessibilityHint: state.statusDetail
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
+            Text(label)
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.aw.surface.chrome, in: RoundedRectangle(cornerRadius: AwRadius.pill))
+        .overlay {
+            RoundedRectangle(cornerRadius: AwRadius.pill)
+                .stroke(Color.aw.border, lineWidth: 0.5)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(label)
+        .accessibilityHint(accessibilityHint)
+    }
+
+    private static func color(for status: AgentPluginStatus) -> Color {
+        switch status {
         case .notConfigured, .notInstalled, .disabled:
             Color.aw.textFaint
         case .enabled:
