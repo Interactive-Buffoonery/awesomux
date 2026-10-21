@@ -24,8 +24,8 @@ ack budget to this record.
 other device powers: a default-off per-device switch plus Mac approval for
 explicitly selected workspaces, persisted with the pairing by workspace ID.
 ADR-0036 and the ADR-0035 amendment describe the Terminal grant as access to
-"a specific pane". This record has to settle that scope before #788 builds the
-input path.
+"a specific pane" with a separate input grant. This record defines that input
+grant before #788 builds the input path.
 
 A terminal is the whole Mac account. The phone is a real terminal emulator
 (libghostty, companion #30) re-emulating the daemon's bytes, so it knows the
@@ -41,12 +41,15 @@ need and ships none of them.
   down, but every new pane, split or recovered daemon needs a new Mac prompt,
   and the person at the phone cannot fix a build in a pane they did not
   foresee.
-- **Input grant for Mac-selected workspaces (chosen):** the same persisted
-  shape as Decide and Transcript, one consent model across the three powers,
-  and moving a pane out of the workspace ends access the same way.
-- **One device-wide input switch:** simplest to explain, but it grants typing
-  into every future pane with one click and has no counterpart in the other
-  grants.
+- **Input grant for Mac-selected workspaces:** the same persisted shape as
+  Decide and Transcript, one consent model across the three powers, and
+  moving a pane out of the workspace ends access the same way; but it adds a
+  second list to maintain next to the Terminal grant and a second place a
+  pane can silently stop being typeable.
+- **One device-wide input switch (chosen):** simplest to explain and to
+  revoke; it makes every pane the device may watch typeable with one click,
+  including panes granted later, and has no counterpart in the other grants.
+  Sarah chose it knowing those costs; they are recorded under Consequences.
 - **Phone-side paste checks only, Mac trusts the frame:** mirrors Ghostty's
   own rule, but a modified client could send anything. The Mac must bound
   size and frames; it cannot judge safety without a second emulator, so the
@@ -54,12 +57,12 @@ need and ships none of them.
 
 ## Decision
 
-**Recommendation:** a paired device types through the ADR-0040 interactive
-stream, claims leadership exactly as ADR-0036 says, and is authorized by a
-default-off per-device **Input** power plus a Mac-approved workspace list that
-mirrors ADR-0039. Paste is one input frame, bracketed when the application
-asked for it, confirmed on the phone when it could run commands, and bounded
-on the Mac. Revocation and reconnect never restore a claim.
+A paired device types through the ADR-0040 interactive stream, claims
+leadership exactly as ADR-0036 says, and is authorized by one default-off
+device-wide **Input** switch on the Mac that applies to every pane the
+device's Terminal grant covers. Paste is one input frame, bracketed when the
+application asked for it, confirmed on the phone when it could run commands,
+and bounded on the Mac. Revocation and reconnect never restore a claim.
 
 ### Taking over
 
@@ -80,20 +83,20 @@ on the Mac. Revocation and reconnect never restore a claim.
   driving"). The stream's role does not change; only leadership does. Until
   option B below ships, a lone Escape on the Mac does not claim (see that
   section), so the banner says "type a letter, arrow or Return to take it
-  back". The banner also offers **Stop**, which revokes that device's Input
-  power (see Revocation). Recommend a matching indicator on the sidebar row
-  and workspace while a device leads, and a "Last typed from iPhone at
-  14:02" note on the pane until the Mac user interacts with it, so typing
-  into an off-screen pane is never invisible (Decision 7). The follower Mac
+  back". The banner also offers **Disconnect**, which ends that device's
+  current stream without changing any grant (see Revocation). The sidebar
+  row and workspace show a matching indicator while a device leads, and the
+  pane keeps a "Last typed from iPhone at 14:02" note until the Mac user
+  interacts with it, so typing into an off-screen pane is never invisible
+  (decision 7). The follower Mac
   presentation itself (clipped or letterboxed grid, leader indicator) is
   #826/#788 work under ADR-0036, not redefined here.
 - Automation (`amx send`) and Watch streams never claim. A phone whose Input
-  grant does not cover the pane's workspace gets a Watch stream and no Take
-  over control; the Mac drops any `input`, `reply`, `claim` or `grid` frame
-  on a Watch stream as a protocol error (ADR-0040). The `watch_terminal`
-  reply names why the stream is Watch-only (`power_off`,
-  `workspace_not_granted`, `remote_pane`) so the phone can say "Typing is
-  not allowed for this workspace. Allow it on the Mac in Settings ›
+  switch is off gets a Watch stream and no Take over control; the Mac drops
+  any `input`, `reply`, `claim` or `grid` frame on a Watch stream as a
+  protocol error (ADR-0040). The `watch_terminal` reply names why the
+  stream is Watch-only (`power_off`, `remote_pane`) so the phone can say
+  "Typing from this iPhone is off. Allow it on the Mac in Settings ›
   Companion" instead of silently hiding the control.
 - Driving requires the phone-side content gate that ADR-0035 keeps as a
   release requirement to be satisfied; Take over adds no second biometric
@@ -106,39 +109,30 @@ on the Mac. Revocation and reconnect never restore a claim.
 
 ### Input authorization
 
-- Add a default-off **Input** power per paired device, with a Mac-approved
-  grant for explicitly selected workspaces, initiated on the Mac with no
-  all-workspaces default. Both are required. The Terminal (Watch) grant from
-  ADR-0036 is a prerequisite: each power keeps its own workspace list of the
-  same shape, and a workspace can be on the Input list only while it is on
-  the Terminal list. Input never widens Watch, and neither implies Decide or
-  Transcript. Status, previews, rename, transcript and decision access cannot
-  enable Input.
-- The grant covers every terminal pane that is in a granted workspace at
-  attach time, including panes created or recovered later in that workspace.
-  It is persisted with the companion connection by workspace ID, survives
-  app restart and lasts until revoked or unpaired, exactly as ADR-0039. The
-  phone names a pane; the Mac resolves its workspace, live zmx session and
-  role. Moving a pane out of a granted workspace, or deleting the workspace,
-  ends its streams. Any change that moves an open stream between Watch and
-  Input (Input power toggled, workspace added to or removed from the Input
-  list, pane moved between an Input-granted and a Watch-only workspace) ends
-  the stream with `role_changed`; the phone reattaches and the handshake
-  assigns the new role. Losing Terminal coverage of the pane's workspace
-  (workspace removed from the Terminal list, pane moved out of every
-  Terminal-granted workspace, Terminal grant removed), revoking the lease or
-  unpairing ends the stream with `revoked` and there is no reattach.
-  Removing a workspace from the Terminal list also removes it from the Input
-  list, keeping the subset rule.
-- Relation to ADR-0039: the two grants are independent switches over the
-  same workspace list shape. Granting Input does not grant Transcript, and
-  the Mac stores and rechecks them separately. On acceptance, the ADR-0035
-  amendment, ADR-0036 and ADR-0040 get a one-line change from "a specific
-  pane" / "that device and pane" to "panes in Mac-selected workspaces". That
-  moves the Terminal (Watch) grant to workspace scope as well; existing
-  per-pane Watch grants are not widened automatically and need re-approval
-  on the Mac.
-- The Mac rechecks the lease revision, Input grant, workspace assignment,
+- Add a default-off **Input** switch per paired device, turned on only on
+  the Mac in Settings › Companion. It has no per-workspace or per-pane list:
+  while it is on, the device may type into every pane its Terminal (Watch)
+  grant covers, now and later. The Terminal grant from ADR-0036 keeps its
+  own scope and stays the prerequisite, so Input is always a subset of
+  Terminal and never widens Watch. Input implies neither Decide nor
+  Transcript, and status, previews, rename, transcript and decision access
+  cannot enable it.
+- The switch is persisted with the companion connection, survives app
+  restart and lasts until turned off or unpaired. The phone names a pane;
+  the Mac resolves its live zmx session and role from the Terminal grant
+  and the switch. Turning the switch on or off ends every open stream of
+  that device with `role_changed`; the phone reattaches and the handshake
+  assigns the new role. Losing the Terminal grant for the pane, revoking the
+  lease or unpairing ends the stream with `revoked` and there is no
+  reattach. Revoking is done in the grant settings on the Mac, never from
+  the pane banner.
+- Relation to ADR-0039: Input is a different shape from Decide and
+  Transcript, which are Mac-approved workspace lists. The Mac stores and
+  rechecks it separately; granting Input changes nothing about the other
+  powers. ADR-0035, ADR-0036 and ADR-0040 keep their "a specific pane" /
+  "that device and pane" Terminal wording; this record only fills in the
+  separate input grant they name.
+- The Mac rechecks the lease revision, Terminal grant, Input switch,
   target version and zmx session before every inbound `input`, `claim` and
   `reply` frame it forwards, extending the recheck ADR-0040 requires before
   every frame the Mac writes. A phone-sent `grid` is applied only with that
@@ -226,16 +220,16 @@ on the Mac. Revocation and reconnect never restore a claim.
 
 ### Revocation and reconnect
 
-- Turning the Input power off, removing a workspace from a list, revoking
-  the lease or unpairing ends every affected stream with `role_changed` or
+- Turning the Input switch off, removing the Terminal grant, revoking the
+  lease or unpairing ends every affected stream with `role_changed` or
   `revoked` as set out above, detaches the relay's zmx client and drops its
   queued bytes. The daemon's close-connection cleanup clears that client's
   leadership only if it was the leader, invalidates its queued replies and
   retains the grid (ADR-0036). If the phone was leading, the pane is then
   leaderless at the phone's grid until the next Mac keystroke or Take over
   and the banner reads "No one is driving · 40×24 · type a letter, arrow or
-  Return to take back" (same Escape caveat as above), with no Stop action;
-  if the Mac had already taken back, nothing changes.
+  Return to take back" (same Escape caveat as above), with no Disconnect
+  action; if the Mac had already taken back, nothing changes.
   The same leaderless banner applies to lock, dismissal and a dropped
   connection, where the Mac learns of the drop from the socket or the
   heartbeat deadline (ADR-0040) and the banner can lag by that much.
@@ -247,12 +241,15 @@ on the Mac. Revocation and reconnect never restore a claim.
   even an acknowledged paste. Letting a started batch drain before the rest
   is dropped is a zmx fork follow-up; until then the truncation is a
   documented limitation and a required #788 test.
-- **Stop** on the Mac banner is that revocation: it turns the device's Input
-  power off, persists that before sending `end` so a concurrent reconnect
-  cannot pass the handshake, keeps the workspace list for re-enabling, and
-  ends all of that device's streams. The phone reattaches as Watch and says
-  "Typing was turned off on the Mac". Taking leadership back without
-  revoking is simply typing on the Mac.
+- **Disconnect** on the Mac banner is not a revocation: it ends only that
+  device's current stream to that pane with `closed` (ADR-0040) and changes
+  no grant. The daemon-side effect is the same as any close, so the pane is
+  leaderless at the phone's grid until the Mac types. The phone shows
+  "Disconnected from the Mac" with a Reconnect control; reconnecting is a
+  new attach as a follower, so the device cannot resume driving without
+  another Take over or keystroke. Taking leadership back without ending the
+  stream is simply typing on the Mac; turning typing off for good is the
+  Input switch in Settings.
 - A reconnect, route change or app restart is a new attach with a new
   generation and a new daemon attachment ID; the phone attaches as a
   follower with the same grant and must Take over or type again (ADR-0040).
@@ -295,10 +292,15 @@ own issue; #788 covers device input and the banner.
 #788 can build the Mac input path and banner on the ADR-0040 frames plus the
 handshake reason, the `inputFrameMax` capability, the authority epoch on
 leadership changes and `reply`, and the three delivery states above, with
-the grant stored like Decide and Transcript. One workspace list per power
-keeps Settings consistent, at the cost that a pane created later in a
-granted workspace is typeable without a new prompt. The
-phone owns paste encoding and confirmation because it is the emulator; the
+the Input switch stored next to the Terminal grant. The device-wide switch
+has costs Sarah accepted: every pane the device may watch becomes typeable
+with one click, including panes granted later, with no per-pane prompt; the
+Input switch uses a different scope model from the ADR-0039 workspace lists,
+so Settings shows one switch next to two lists; and a lost phone that
+passes its content gate can type into every watchable pane until the Mac
+turns the switch off or unpairs it. Banner Disconnect ending only the
+stream means the Mac user has to open Settings to stop a device for good.
+The phone owns paste encoding and confirmation because it is the emulator; the
 Mac owns the limits because it is the trust boundary. A revoked or
 disconnected driver leaves the pane at the phone's grid, which is the
 ADR-0036 trade-off and is visible on the Mac banner. Three zmx fork
@@ -313,31 +315,25 @@ and empty frames, a full daemon queue, revocation and lock mid-paste
 the phone drives, and a leaderless reattach against real TUIs. These are
 future acceptance checks; this record provides no runtime evidence.
 
-## Decisions for Sarah
+## Decisions
 
-1. Scope both the Terminal (Watch) and the Input grant to Mac-selected
-   workspaces, mirroring ADR-0039, with Input a subset of Terminal, rather
-   than per pane as ADR-0036 wrote or one device-wide switch? Existing
-   per-pane Watch grants would need re-approval.
-2. Make **Stop** on the Mac banner a persisted revocation of that device's
-   Input power across all its streams, with typing on the Mac as the
-   non-revoking way to take back, rather than a one-time end of the stream
-   the phone can reattach past? Suggested label: "Turn off typing from
-   iPhone".
-3. Adopt Ghostty's paste safety rule as the confirmation trigger (terminator
-   always; line terminators only when bracketed paste is off), rather than
-   confirming every multi-line paste regardless of mode?
-4. Cap an input frame, and therefore a paste, at 64 KiB with a phone-side
-   refusal above it, rather than allowing up to the daemon's 256 KiB queue?
-   And accept that `ack` means forwarded, not accepted, until the zmx fork
-   gains a per-batch receipt?
-5. For Escape and query replies while the Mac pane is not the leader, take
-   option B (typed seam for the Mac client) before #788 ships, with C as a
-   follow-up, rather than keeping the limitation or letting a sole Mac client
-   claim on reattach?
-6. Require only the ADR-0035 phone-side content gate before Take over, with
-   no additional biometric prompt per takeover?
-7. Show a driving indicator beyond the pane (sidebar row and workspace)
-   while a device leads, and keep a "Last typed from iPhone at 14:02" note on
-   the pane until the Mac user interacts with it, so typing into an
-   off-screen pane is never invisible?
+Recorded on 2026-10-21.
+
+1. **Grant scope:** one device-wide Input switch, not a per-workspace list
+   and not per pane. Input remains a subset of the Terminal grant, whose
+   scope is unchanged. The tradeoffs are recorded under Consequences.
+2. **Banner Disconnect:** ends the current stream only. It is not a
+   persisted revocation and the phone can reattach; revoking stays in the
+   grant settings.
+3. **Paste confirmation:** Ghostty's safety rule (terminator always; line
+   terminators only when bracketed paste is off), not a confirmation for
+   every multi-line paste.
+4. **Frame cap:** 64 KiB per input frame with a refusal on the phone, and
+   `ack` means forwarded, not accepted, until the zmx fork adds a per-batch
+   receipt.
+5. **Escape and query replies:** build option B (typed seam for the Mac
+   client) before #788 ships, with C as a follow-up.
+6. **Take over gate:** only the ADR-0035 phone-side content gate, with no
+   extra biometric prompt per takeover.
+7. **Driving indicator:** show the sidebar row and workspace indicator while
+   a device leads, plus the "Last typed from iPhone" note on the pane.
