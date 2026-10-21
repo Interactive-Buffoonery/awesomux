@@ -38,9 +38,9 @@ need and ships none of them.
 ## Options considered
 
 - **Input grant per pane:** the narrowest consent and what ADR-0036 wrote
-  down, but every new pane, split or recovered daemon needs a new Mac prompt,
-  and the person at the phone cannot fix a build in a pane they did not
-  foresee.
+  down, but every new pane, split or recovered daemon needs a second Mac
+  prompt on top of its Watch approval, and the person at the phone cannot
+  fix a build in a pane they did not foresee.
 - **Input grant for Mac-selected workspaces:** the same persisted shape as
   Decide and Transcript, one consent model across the three powers, and
   moving a pane out of the workspace ends access the same way; but it adds a
@@ -66,8 +66,9 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
 
 ### Taking over
 
-- A device with the Input grant attaches its stream in the interactive role
-  (ADR-0040) but starts as a follower: attaching never claims or resizes.
+- A device whose Input switch is on attaches its stream in the interactive
+  role (ADR-0040) but starts as a follower: attaching never claims or
+  resizes.
   The phone shows the leader's grid, scaled and pannable, with a **Take
   over** control. Take over sends a `claim` frame carrying the phone's
   requested grid; the Mac forwards it as a typed `TakeOver` so leadership
@@ -95,7 +96,7 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   switch is off gets a Watch stream and no Take over control; the Mac drops
   any `input`, `reply`, `claim` or `grid` frame on a Watch stream as a
   protocol error (ADR-0040). The `watch_terminal` reply names why the
-  stream is Watch-only (`power_off`, `remote_pane`) so the phone can say
+  stream is Watch-only (`input_off`, `remote_pane`) so the phone can say
   "Typing from this iPhone is off. Allow it on the Mac in Settings ›
   Companion" instead of silently hiding the control.
 - Driving requires the phone-side content gate that ADR-0035 keeps as a
@@ -103,9 +104,10 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   prompt. The gate is checked
   again whenever the terminal view returns to the foreground, which is also
   when a new stream starts. The phone's key proves the device, not the
-  person, so the Mac banner and the Mac-side grant remain the controls that
-  matter. Device input keeps working while the Mac display is locked or
-  asleep; being away from the desk is the use case.
+  person, so the Mac-side Input switch, Terminal grant and pairing remain
+  the controls that matter; the banner only ends the current stream.
+  Device input keeps working while the Mac display is locked or asleep;
+  being away from the desk is the use case.
 
 ### Input authorization
 
@@ -120,12 +122,13 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
 - The switch is persisted with the companion connection, survives app
   restart and lasts until turned off or unpaired. The phone names a pane;
   the Mac resolves its live zmx session and role from the Terminal grant
-  and the switch. Turning the switch on or off ends every open stream of
-  that device with `role_changed`; the phone reattaches and the handshake
-  assigns the new role. Losing the Terminal grant for the pane, revoking the
-  lease or unpairing ends the stream with `revoked` and there is no
-  reattach. Revoking is done in the grant settings on the Mac, never from
-  the pane banner.
+  and the switch. Turning the switch on or off ends each stream of that
+  device whose authorized role changes with `role_changed`; the phone
+  reattaches and the handshake assigns the new role. A remote-pane Watch
+  stream stays Watch either way and is left open. Losing the Terminal grant
+  for the pane, revoking the lease or unpairing ends the stream with
+  `revoked` and there is no reattach. Revoking is done in the grant
+  settings on the Mac, never from the pane banner.
 - Relation to ADR-0039: Input is a different shape from Decide and
   Transcript, which are Mac-approved workspace lists. The Mac stores and
   rechecks it separately; granting Input changes nothing about the other
@@ -243,8 +246,10 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   documented limitation and a required #788 test.
 - **Disconnect** on the Mac banner is not a revocation: it ends only that
   device's current stream to that pane with `closed` (ADR-0040) and changes
-  no grant. The daemon-side effect is the same as any close, so the pane is
-  leaderless at the phone's grid until the Mac types. The phone shows
+  no grant. The daemon-side effect is the same as any close: if that device
+  was still leading, the pane is leaderless at its retained grid until the
+  Mac types; otherwise the current leader and grid are unchanged. The phone
+  shows
   "Disconnected from the Mac" with a Reconnect control; reconnecting is a
   new attach as a follower, so the device cannot resume driving without
   another Take over or keystroke. Taking leadership back without ending the
@@ -277,12 +282,12 @@ frames carry provenance, so a phone `ESC` is user input and claims.
 | Option | Behavior | Cost |
 | --- | --- | --- |
 | A. Keep the limitation | Document it; a C0 control other than ESC, DEL, a printable key, arrow, Shift-Tab or Home/End claims | Lone ESC and CPR/DSR replies lost until then; vim and TUIs misbehave on every handback |
-| B. Typed seam for the Mac client (recommended) | The Mac pane attaches with `AttachRole` interactive and sends `UserBatch`/`TerminalReply`, so ESC is unambiguous and a reply is a reply | Native input seam in the Mac client; LEADERSHIP.md already names it as the missing piece |
+| B. Typed seam for the Mac client (chosen) | The Mac pane attaches with `AttachRole` interactive and sends `UserBatch`/`TerminalReply`, so ESC is unambiguous and a reply is a reply | Native input seam in the Mac client; LEADERSHIP.md already names it as the missing piece |
 | C. Daemon answers from its own model while leaderless | Extend the DA fallback to CPR, DSR and mode reports the daemon can compute | zmx fork change; color and clipboard queries still need a real client |
 | D. Sole Mac client claims on reattach with the retained grid | `TakeOver` using the current rows and columns restores reply authority without a resize | Later Mac window resizes then apply, which bends the ADR-0036 keep-last-grid decision |
 
-Recommend B before #788 ships device input, and C as a follow-up to make a
-leaderless pane answer the queries it can. B does not elect a leader or
+B ships before #788 ships device input, and C follows to make a leaderless
+pane answer the queries it can. B does not elect a leader or
 resize; it only removes the ambiguity, so ADR-0036's no-guessing rule holds.
 Do not add a timeout or heuristic to elect on ESC. B and C each need their
 own issue; #788 covers device input and the banner.
@@ -294,9 +299,10 @@ handshake reason, the `inputFrameMax` capability, the authority epoch on
 leadership changes and `reply`, and the three delivery states above, with
 the Input switch stored next to the Terminal grant. The device-wide switch
 has costs Sarah accepted: every pane the device may watch becomes typeable
-with one click, including panes granted later, with no per-pane prompt; the
-Input switch uses a different scope model from the ADR-0039 workspace lists,
-so Settings shows one switch next to two lists; and a lost phone that
+with one click, including panes granted for Watch later, with no separate
+Input prompt; the Input switch uses a different scope model from the
+ADR-0039 workspace lists, so Settings shows one switch next to per-pane
+Terminal grants and the Decide and Transcript lists; and a lost phone that
 passes its content gate can type into every watchable pane until the Mac
 turns the switch off or unpairs it. Banner Disconnect ending only the
 stream means the Mac user has to open Settings to stop a device for good.
