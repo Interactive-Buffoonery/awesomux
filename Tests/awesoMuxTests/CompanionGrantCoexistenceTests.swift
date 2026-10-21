@@ -11,12 +11,14 @@ struct CompanionGrantCoexistenceTests {
         let metadata = LocalAPICompanionMetadata(
             certificateFingerprint: Data(repeating: 5, count: 32), transport: .lan,
             pairedAt: Date(timeIntervalSince1970: 0), port: 1234,
-            paneRenameScope: scope, terminalPreviewAllowed: true
+            paneRenameScope: scope, pairingVersion: 2, terminalPreviewAllowed: true
         )
         let decoded = try JSONDecoder().decode(LocalAPICompanionMetadata.self, from: JSONEncoder().encode(metadata))
         #expect(decoded == metadata)
         #expect(decoded.paneRenameScope == scope)
         #expect(decoded.terminalPreviewAllowed)
+        #expect(decoded.pairingVersion == 2)
+        #expect(decoded.allows(.lan) && decoded.allows(.tailscale))
     }
 
     @Test func independentTogglesPreserveOtherGrantAndInvalidateOldLease() throws {
@@ -25,7 +27,7 @@ struct CompanionGrantCoexistenceTests {
         var access: LocalAPIAccessStore? = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
         let fingerprint = Data(repeating: 5, count: 32)
         let phone = try #require(access).registerCompanion(
-            phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1234)
+            phoneName: "Phone", certificateFingerprint: fingerprint, transport: .lan, port: 1234, pairingVersion: 2)
         func lease(_ store: LocalAPIAccessStore) throws -> LocalAPIAuthorizationLease {
             try store.runtimeAuthority.authorizeCompanion(
                 connectionID: phone.id, certificateFingerprint: fingerprint, operation: .connectionStatus
@@ -65,5 +67,6 @@ struct CompanionGrantCoexistenceTests {
         let restored = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
         #expect(restored.loadFailure == nil)
         #expect(try lease(restored) == renameAgain)
+        #expect(restored.connections.first?.companion?.pairingVersion == 2)
     }
 }
