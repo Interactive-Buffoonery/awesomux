@@ -915,8 +915,11 @@ extension GhosttySurfaceNSView {
         // The stored kind and observed-context latch can outlive Codex. Only
         // its current foreground process may lend context to bannerless output.
         if liveKindForGate == .codex {
-            guard let command = documentNudgeForegroundComm(),
-                AgentProcessRecognition.agentKind(forCommand: command) == .codex
+            let command =
+                sessionStore.session(id: sessionID)?
+                .layout.pane(id: paneID)?.freshRemoteForegroundComm()
+                ?? documentNudgeForegroundComm()
+            guard AgentProcessRecognition.agentKind(forCommand: command) == .codex
             else { return }
         }
 
