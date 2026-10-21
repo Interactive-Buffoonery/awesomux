@@ -79,6 +79,33 @@ struct LocalPermissionDecisionCoreTests {
         #expect(core.outcome(request.identity)?.state == .unknown)
     }
 
+    @Test(arguments: [0, 1, 2, 3], [LocalPermissionChoice.allow, .deny])
+    func nativeProgressRacingMacDecisionCannotProduceAnotherAnswer(progressStage: Int, choice: LocalPermissionChoice) {
+        let (core, request) = fixture()
+        #expect(core.admit(request, now: now, helperAlive: true))
+        let instant = now.addingTimeInterval(1)
+        func nativeProgress() {
+            core.observeProgress(
+                session: request.providerSessionID, target: request.target,
+                at: instant, toolUseID: request.toolUseID
+            )
+        }
+        if progressStage == 0 { nativeProgress() }
+        #expect(core.commit(request.identity, choice: choice, now: instant, helperAlive: true) == (progressStage == 0 ? .cancelled : .recorded))
+        if progressStage == 1 { nativeProgress() }
+        #expect(core.claimDelivery(request.identity, now: instant, helperAlive: true) == (progressStage < 2 ? nil : choice))
+        if progressStage == 2 { nativeProgress() }
+        core.acknowledge(request.identity)
+        if progressStage == 3 { nativeProgress() }
+        let expected: LocalPermissionState = progressStage < 2 ? .cancelled : (progressStage == 2 ? .unknown : .delivered)
+        #expect(core.outcome(request.identity)?.state == expected)
+        #expect(core.admit(request, now: instant, helperAlive: true))
+        let competing: LocalPermissionChoice = choice == .allow ? .deny : .allow
+        #expect(core.commit(request.identity, choice: competing, now: instant, helperAlive: true) == expected)
+        #expect(core.claimDelivery(request.identity, now: instant, helperAlive: true) == nil)
+        #expect(core.outcome(request.identity)?.choice == (progressStage == 0 ? nil : choice))
+    }
+
     @Test func changedIngressAndRetentionCannotRemint() {
         let (core, request) = fixture()
         #expect(core.admit(request, now: now, helperAlive: true))
