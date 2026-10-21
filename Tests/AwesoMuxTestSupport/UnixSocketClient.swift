@@ -83,7 +83,10 @@ public final class UnixSocketClient: @unchecked Sendable {
     }
 
     public func readLine(timeoutMilliseconds: Int32 = 2_000) async throws -> String {
-        let result = await awaitValue(fallback: Result<String, Error>.failure(UnixSocketClientError.timedOut)) { continuation in
+        let result = await awaitValue(
+            fallback: Result<String, Error>.failure(UnixSocketClientError.timedOut),
+            deadline: waitDeadline(covering: timeoutMilliseconds)
+        ) { continuation in
             DispatchQueue.global().async {
                 continuation.resume(
                     returning: Result {
@@ -105,7 +108,7 @@ public final class UnixSocketClient: @unchecked Sendable {
     }
 
     public func waitForEOF(timeoutMilliseconds: Int32) async -> Bool {
-        await awaitValue(fallback: false) { continuation in
+        await awaitValue(fallback: false, deadline: waitDeadline(covering: timeoutMilliseconds)) { continuation in
             DispatchQueue.global().async {
                 continuation.resume(returning: self.waitForEOF(timeoutMilliseconds: timeoutMilliseconds))
             }
@@ -119,11 +122,16 @@ public final class UnixSocketClient: @unchecked Sendable {
     }
 
     public func waitForReadable(timeoutMilliseconds: Int32) async -> Bool {
-        await awaitValue(fallback: false) { continuation in
+        await awaitValue(fallback: false, deadline: waitDeadline(covering: timeoutMilliseconds)) { continuation in
             DispatchQueue.global().async {
                 continuation.resume(returning: self.waitForReadable(timeoutMilliseconds: timeoutMilliseconds))
             }
         }
+    }
+
+    /// The socket timeout reports a miss itself; the signal deadline only backs it up.
+    private func waitDeadline(covering timeoutMilliseconds: Int32) -> Duration {
+        max(signalDeadline, .milliseconds(Int64(timeoutMilliseconds)) + .seconds(5))
     }
 
     private func setReceiveTimeout(milliseconds: Int32) {

@@ -23,10 +23,12 @@ public final class SignalResumer: @unchecked Sendable {
     }
 
     fileprivate func arm(_ deadline: Duration) {
-        let timer = Task { [weak self] in
+        // Strong capture: a registrant may drop the resumer, and the timer must
+        // still end the wait. `finish` clears `timer`, breaking the cycle.
+        let timer = Task {
             try? await Task.sleep(for: deadline)
             guard !Task.isCancelled else { return }
-            _ = self?.finish(returning: false)
+            _ = self.finish(returning: false)
         }
         // The signal can fire inside `register`, before the timer exists.
         let alreadyFinished = lock.withLock {
