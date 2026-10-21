@@ -1026,3 +1026,39 @@ preference arguments and self-only access over pinned mutual TLS. Its isolated
 store fixture retains its diagnostic directory and prints the path. These host
 cases do not prove native focus, visibility or lock transitions; exercise those
 with the worktree app separately.
+## Scoped permission decisions
+
+`list_pending_decisions` and `decide` are Companion-only operations, separate
+from the bearer local API. They require a default-off Decide grant on the Mac
+for explicitly selected workspace IDs. Pairing, previews, status and pane
+renaming never grant decision access. Grant changes rotate the connection
+revision; deleting a workspace removes its grant.
+
+The shared protocol's `CompanionDecisionIdentity` binds runtime instance,
+workspace, pane, target version, provider session, hook invocation and request
+revision. `decide` accepts `decisionAnswer` containing that complete identity,
+a once-only `allow`/`deny` choice and UUID retry ID. Unknown fields and unrelated
+operation arguments are rejected. Pending projections come from the authoritative
+core, including queued hooks that are not the currently displayed Mac card.
+Only bounded review text from verified hook ingress is shared.
+
+The core commits the first valid app answer atomically. Retry IDs bind device,
+identity and choice. An identical retry returns the original `decisionReceipt`;
+conflicting reuse and losing answers cannot overwrite the winner. Fresh lists
+return retained `decisionOutcomes` for later recorded/delivery/terminal state.
+The remote deadline is fixed at issuance, at most 60 seconds, with a helper
+return reserve. Remote expiry leaves the Mac answer window intact. Bounded
+receipts survive until hook expiry plus ten minutes; eviction never recreates
+a request. Recorded means the core accepted an answer; delivered requires a
+helper ACK and does not prove provider execution.
+
+Scope, exact target, device certificate and revisioned grant are checked before
+commit, each response chunk, actual socket delivery and every file publication
+attempt. Revocation cancels a known-unsent remote answer; an answer that may
+have escaped becomes unknown. Neither state reopens for a second answer.
+
+**Release gate:** no provider/version is enabled for real remote decisions.
+ADR-0038 requires interactive native-prompt races in both orders before that
+can change. The pairing harness uses a separate synthetic coordinator with no
+provider hook consumer. Its list/answer fixtures cannot enable production
+requests, establish Claude race behavior or prove iPhone UI.

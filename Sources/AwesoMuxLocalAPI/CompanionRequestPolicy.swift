@@ -29,6 +29,7 @@ public enum CompanionRequestPolicy {
         case .connectionStatus, .unpair, .setTerminalPreview: return .connectionStatus
         case .listAgents, .listPanes: return .listAgents
         case .attentionEvents: return .attentionEvents
+        case .pendingDecisions, .answerDecision: throw LocalAPIError.permissionDenied
         case .getAlertPreferences, .setAlertPreferences: throw LocalAPIError.unsupportedOperation
         }
     }

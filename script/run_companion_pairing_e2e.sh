@@ -282,6 +282,7 @@ firewall_preflight
 fixture_launched=1
 "${fixture_environment[@]}" AWESOMUX_COMPANION_AUTO_ALLOW=1 \
   AWESOMUX_COMPANION_E2E_LINK_FILE="$LINK_FILE" \
+  AWESOMUX_COMPANION_DECISION_FIXTURE="$ARTIFACT_DIR" \
   "$APP_BINARY" > "$APP_LOG" 2>&1 &
 app_pid=$!
 

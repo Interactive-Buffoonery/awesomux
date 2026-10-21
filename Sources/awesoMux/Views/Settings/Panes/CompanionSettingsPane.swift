@@ -196,6 +196,29 @@ struct CompanionSettingsPane: View {
             Text(String(localized: "Lets this phone rename terminal panes within its visible workspaces."))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
+            Menu(String(localized: "Decision workspaces")) {
+                ForEach(coordinator.decisionWorkspaces, id: \.id) { workspace in
+                    Toggle(
+                        workspace.name,
+                        isOn: Binding(
+                            get: {
+                                coordinator.pairedPhones.first { $0.id == phone.id }?.companion?.decideWorkspaceIDs?.contains(workspace.id)
+                                    == true
+                            },
+                            set: { allowed in
+                                do {
+                                    try coordinator.setDecisionWorkspace(workspace.id, allowed: allowed, for: phone.id)
+                                    errorMessage = nil
+                                } catch { errorMessage = String(localized: "Could not save decision access.") }
+                            }))
+                }
+            }
+            Text(
+                String(
+                    localized: "Remote decisions are not available yet. Workspace access starts off.")
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text3)
             Text(lastSeenText(phone.id))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)

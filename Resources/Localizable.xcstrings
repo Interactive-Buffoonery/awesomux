@@ -816,6 +816,9 @@
     "Allow once recorded on Mac" : {
       "comment" : "The Mac recorded a one-time allow; delivery to the hook is not yet confirmed."
     },
+    "Allow once recorded on paired device %arg" : {
+      "comment" : "A named paired device recorded an allow; provider execution is unconfirmed."
+    },
     "Allow once. Command-Return when focused." : {
       "comment" : "Accessible allow action; Command-Return acts only after deliberate permission-card focus.",
       "localizations" : {
@@ -1761,6 +1764,9 @@
     "Could not reload Ghostty configuration." : {
 
     },
+    "Could not save decision access." : {
+
+    },
     "Could not save terminal preview access. Retry Save before restarting awesoMux." : {
       "comment" : "Companion preview permission save error."
     },
@@ -1979,6 +1985,9 @@
     "Daemon" : {
       "comment" : "Diagnostics process type"
     },
+    "Decision workspaces" : {
+
+    },
     "Default" : {
       "comment" : "Pane title-bar color submenu item that clears a custom pane color."
     },
@@ -2023,6 +2032,9 @@
     },
     "Deny once recorded on Mac" : {
       "comment" : "The Mac recorded a one-time deny; delivery to the hook is not yet confirmed."
+    },
+    "Deny once recorded on paired device %arg" : {
+      "comment" : "A named paired device recorded a deny; provider execution is unconfirmed."
     },
     "Deny once. Escape when focused." : {
       "comment" : "Accessible deny action; Escape acts only after deliberate permission-card focus.",
@@ -4184,6 +4196,9 @@
     },
     "Remote connection details" : {
       "comment" : "VoiceOver label for the remote connection details panel"
+    },
+    "Remote decisions are not available yet. Workspace access starts off." : {
+
     },
     "Remote file transfer cancelled" : {
       "comment" : "Remote handoff cancellation accessibility status"
