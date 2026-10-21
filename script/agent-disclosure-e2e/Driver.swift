@@ -35,6 +35,8 @@ struct Driver {
         app.setActivationPolicy(.accessory)
         setbuf(stdout, nil)
         app.finishLaunching()
+        // SwiftUI builds its accessibility tree on demand. Enable it for this fixture only.
+        app.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
         let window = NSWindow(
             contentRect: NSRect(x: 100, y: 100, width: 620, height: 250),
             styleMask: [.titled], backing: .buffered, defer: false
@@ -56,28 +58,38 @@ struct Driver {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.01))
             }
         }
-        // SwiftUI accessibility nodes expose the informal AppKit attributes but
-        // do not conform to NSAccessibilityProtocol.
+        // SwiftUI nodes implement the accessibility selectors without declaring
+        // NSAccessibilityProtocol conformance.
+        func attribute(_ element: NSObject, _ name: NSAccessibility.Attribute) -> Any? {
+            let selectors: [NSAccessibility.Attribute: String] = [
+                .children: "accessibilityChildren", .role: "accessibilityRole", .value: "accessibilityValue",
+            ]
+            let selector = NSSelectorFromString(selectors[name]!)
+            if element.responds(to: selector) {
+                return element.perform(selector)?.takeUnretainedValue()
+            }
+            // AppKit's title-cell proxies still use the informal attributes.
+            return element.accessibilityAttributeValue(name)
+        }
         func elements(_ object: Any) -> [NSObject] {
             guard let element = object as? NSObject else { return [] }
-            let children = element.accessibilityAttributeValue(.children) as? [Any] ?? []
+            let children = attribute(element, .children) as? [Any] ?? []
             return [element] + children.flatMap { elements($0) }
         }
         func header() -> NSObject {
             guard
                 let result = elements(window).first(where: {
-                    $0.accessibilityAttributeValue(.role) as? String == "AXButton"
-                        && ["Expanded", "Collapsed"].contains($0.accessibilityAttributeValue(.value) as? String ?? "")
+                    attribute($0, .role) as? String == "AXDisclosureTriangle"
                 })
-            else { fatalError("Missing disclosure button") }
+            else { fatalError("Missing disclosure control") }
             return result
         }
         func expect(_ expanded: Bool, _ message: String) {
             settle()
-            guard header().accessibilityAttributeValue(.value) as? String == (expanded ? "Expanded" : "Collapsed") else {
+            guard (attribute(header(), .value) as? NSNumber)?.boolValue == expanded else {
                 fatalError(message)
             }
-            let hasEditor = elements(window).contains { $0.accessibilityAttributeValue(.role) as? String == "AXTextField" }
+            let hasEditor = elements(window).contains { attribute($0, .role) as? String == "AXTextField" }
             guard hasEditor == expanded else { fatalError("Content visibility: \(message)") }
             print("PASS: \(message)")
         }
@@ -89,16 +101,25 @@ struct Driver {
             return scenario
         }
         func pressHeader() {
-            header().accessibilityPerformAction(.press)
+            let button = header()
+            let selector = NSSelectorFromString("accessibilityPerformPress")
+            guard button.responds(to: selector) else { fatalError("Disclosure has no press action") }
+            typealias Press = @convention(c) (NSObject, Selector) -> Bool
+            let press = unsafeBitCast(button.method(for: selector), to: Press.self)
+            guard press(button, selector) else { fatalError("Disclosure press failed") }
             settle()
         }
 
         let initial = mount(attention: true)
         expect(true, "Initial attention opens row")
-        guard let editor = elements(window).first(where: { $0.accessibilityAttributeValue(.role) as? String == "AXTextField" }) else {
+        guard let editor = elements(window).first(where: { attribute($0, .role) as? String == "AXTextField" }) else {
             fatalError("Missing draft editor")
         }
-        editor.accessibilitySetValue(true, forAttribute: .focused)
+        let selector = NSSelectorFromString("setAccessibilityFocused:")
+        guard editor.responds(to: selector) else { fatalError("Editor cannot receive focus") }
+        typealias Focus = @convention(c) (NSObject, Selector, Bool) -> Void
+        let focus = unsafeBitCast(editor.method(for: selector), to: Focus.self)
+        focus(editor, selector, true)
         settle()
         guard let responder = window.firstResponder as? NSTextView else { fatalError("Editor did not receive focus") }
         responder.insertText(" edited", replacementRange: NSRange(location: responder.string.count, length: 0))
