@@ -96,30 +96,66 @@ if [[ ! -x "$APP_BINARY" ]]; then
   exit 1
 fi
 
-# Match the native lifecycle harness: the app restores a real SessionSnapshot
-# inside a disposable HOME, with a unique bundle/profile for sockets and keys.
+# Retain the real HOME/default Keychain; isolate the run through a unique
+# app profile and private shell/XDG/working-directory fixtures instead.
 runtime_profile="development:$(awesomux_worktree_id "$ARTIFACT_DIR")"
 awesomux_resolve_profile "$runtime_profile"
-fixture_home="$ARTIFACT_DIR/home"
+runtime_home="$HOME"
 fixture_snapshot="$ARTIFACT_DIR/native-fixture.json"
+fixture_shell="$ARTIFACT_DIR/shell"
+fixture_xdg="$ARTIFACT_DIR/xdg-config"
+fixture_working_directory="$ARTIFACT_DIR/workspace"
+fixture_support="$runtime_home/Library/Application Support/$AWESOMUX_PROFILE_SUPPORT_NAME"
+fixture_config="$runtime_home/.config/$AWESOMUX_PROFILE_CONFIG_NAME"
+fixture_defaults="$runtime_home/Library/Preferences/$AWESOMUX_PROFILE_BUNDLE_ID.plist"
 fixture_tmp="$(getconf DARWIN_USER_TEMP_DIR)"
 fixture_socket="${fixture_tmp%/}/$AWESOMUX_PROFILE_SOCKET_NAME"
-if [[ -e "$fixture_home" || -L "$fixture_home" || -e "$fixture_socket" || -L "$fixture_socket" ]]; then
-  echo "error: disposable fixture path already exists; refusing to reuse it" >&2
-  exit 1
-fi
-mkdir -m 700 "$fixture_home"
+profile_digest="$(printf '%s' "$runtime_profile" | shasum -a 256 | cut -c1-24)"
+fixture_api="/private/tmp/awesomux-api-$(id -u)-$profile_digest"
 app_pid=""
 fixture_launched=0
 fixture_profile_owned=0
 fixture_restamped=0
+owned_paths=()
+owned_path_count=0
 
-fixture_environment=(env -u ZMX_SESSION_PREFIX -u ZMX_SESSION -u ZMX_DIR
-  "HOME=$fixture_home" "CFFIXED_USER_HOME=$fixture_home"
-  "XDG_CONFIG_HOME=$fixture_home/.config" "ZDOTDIR=$fixture_home"
+fixture_environment=(env -u ZMX_SESSION_PREFIX -u ZMX_SESSION -u ZMX_DIR -u CFFIXED_USER_HOME
+  "XDG_CONFIG_HOME=$fixture_xdg" "ZDOTDIR=$fixture_shell"
   SHELL=/bin/zsh "TMPDIR=$fixture_tmp")
 fixture_run() {
   "${fixture_environment[@]}" "$@"
+}
+
+preferences_count() {
+  fixture_run defaults export "$AWESOMUX_PROFILE_BUNDLE_ID" - > "$ARTIFACT_DIR/preferences-export.plist" 2>> "$E2E_LOG" || return 1
+  python3 - "$ARTIFACT_DIR/preferences-export.plist" <<'PYPREFERENCES'
+import plistlib
+import sys
+from pathlib import Path
+
+value = plistlib.loads(Path(sys.argv[1]).read_bytes())
+if not isinstance(value, dict):
+    raise ValueError("Owned preferences export must be a dictionary")
+print(len(value))
+PYPREFERENCES
+}
+
+cleanup_preferences() {
+  local count
+  count="$(preferences_count)" || return 1
+  if [[ "$count" -ne 0 ]]; then
+    fixture_run defaults delete "$AWESOMUX_PROFILE_BUNDLE_ID" >> "$E2E_LOG" 2>&1 || return 1
+    count="$(preferences_count)" || return 1
+    if [[ "$count" -ne 0 ]]; then
+      echo "error: owned preferences remain after deletion" >> "$E2E_LOG"
+      return 1
+    fi
+  fi
+  # defaults read/export can succeed for an empty domain that delete rejects.
+  # Only a verified empty export permits this idempotent cleanup.
+  if [[ -e "$fixture_defaults" || -L "$fixture_defaults" ]]; then
+    trash "$fixture_defaults" || return 1
+  fi
 }
 
 cleanup() {
@@ -145,20 +181,15 @@ cleanup() {
     fi
   fi
   if [[ "$fixture_profile_owned" -eq 1 ]]; then
-    fixture_run "$client" --fixture-home "$fixture_home" --profile "$runtime_profile" --cleanup-identity \
+    fixture_run "$client" --fixture-run "$ARTIFACT_DIR" --home "$runtime_home" --profile "$runtime_profile" --cleanup-identity \
       >> "$E2E_LOG" 2>&1 || cleanup_failed=1
-    if defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1; then
-      defaults delete "$AWESOMUX_PROFILE_BUNDLE_ID" >> "$E2E_LOG" 2>&1 || cleanup_failed=1
-    fi
-    if fixture_run defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1; then
-      fixture_run defaults delete "$AWESOMUX_PROFILE_BUNDLE_ID" >> "$E2E_LOG" 2>&1 || cleanup_failed=1
-    fi
+    cleanup_preferences || cleanup_failed=1
   fi
-  if [[ "$cleanup_failed" -eq 0 ]]; then
-    trash "$fixture_home" || cleanup_failed=1
-    if [[ -d "$fixture_socket" && ! -L "$fixture_socket" ]]; then
-      trash "$fixture_socket" || cleanup_failed=1
-    fi
+  if [[ "$cleanup_failed" -eq 0 && "$owned_path_count" -gt 0 ]]; then
+    local owned
+    for owned in "${owned_paths[@]}"; do
+      trash "$owned" || cleanup_failed=1
+    done
   fi
   if [[ "$cleanup_failed" -ne 0 ]]; then
     echo "error: owned fixture cleanup failed; retained artifacts at $ARTIFACT_DIR" >&2
@@ -177,24 +208,40 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Fail closed before writing a snapshot or launching an app if Foundation would
-# resolve HOME/Application Support outside this run's private directory.
-fixture_run "$client" --fixture-home "$fixture_home" --profile "$runtime_profile" >> "$STAGE_LOG" 2>&1
-# Match the native lifecycle harness: neither preferences environment may reuse
-# an existing domain, and cleanup may delete only a domain claimed here.
-fixture_defaults="$fixture_home/Library/Preferences/$AWESOMUX_PROFILE_BUNDLE_ID.plist"
-if [[ -e "$fixture_defaults" || -L "$fixture_defaults" ]] || \
-  defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1 || \
-  fixture_run defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1; then
+for owned in "$fixture_support" "$fixture_config" "$fixture_socket" "$fixture_api" "$fixture_defaults"; do
+  if [[ -e "$owned" || -L "$owned" ]]; then
+    echo "error: disposable profile path already exists; refusing to reuse: $owned" >&2
+    exit 1
+  fi
+done
+# Verify real HOME/Foundation paths and absence of this run's exact key names
+# before claiming anything outside the artifact directory.
+fixture_run "$client" --fixture-run "$ARTIFACT_DIR" --home "$runtime_home" --profile "$runtime_profile" >> "$STAGE_LOG" 2>&1
+preference_count="$(preferences_count)"
+if [[ "$preference_count" -ne 0 ]]; then
   echo "error: disposable preferences domain already exists; refusing to reuse it" >&2
   exit 1
 fi
 fixture_profile_owned=1
-mkdir -p "$fixture_home/Library/Application Support/$AWESOMUX_PROFILE_SUPPORT_NAME" \
-  "$fixture_home/.config/$AWESOMUX_PROFILE_CONFIG_NAME"
-fixture_run "$seed_client" --seed-native "$fixture_home" > "$fixture_snapshot" 2>> "$STAGE_LOG"
-cp "$fixture_snapshot" "$fixture_home/Library/Application Support/$AWESOMUX_PROFILE_SUPPORT_NAME/session-state.json"
-cat > "$fixture_home/.config/$AWESOMUX_PROFILE_CONFIG_NAME/config.toml" <<'EOF'
+for owned in "$fixture_support" "$fixture_config" "$fixture_socket" "$fixture_api"; do
+  mkdir -m 700 "$owned"
+  owned_paths+=("$owned")
+  owned_path_count=$((owned_path_count + 1))
+  printf 'fixture_claimed=%s\n' "$owned" >> "$STAGE_LOG"
+done
+printf 'fixture_preferences=%s\nfixture_key_label=awesoMux Companion %s\n' "$fixture_defaults" "$profile_digest" >> "$STAGE_LOG"
+for owned in "$fixture_shell" "$fixture_xdg" "$fixture_working_directory"; do
+  mkdir -m 700 "$owned"
+  owned_paths+=("$owned")
+  owned_path_count=$((owned_path_count + 1))
+  printf 'fixture_claimed=%s\n' "$owned" >> "$STAGE_LOG"
+done
+mkdir -m 700 "$fixture_xdg/ghostty"
+# Prevent Ghostty from creating a default config outside the private XDG tree.
+: > "$fixture_xdg/ghostty/config.ghostty"
+fixture_run "$seed_client" --seed-native "$fixture_working_directory" > "$fixture_snapshot" 2>> "$STAGE_LOG"
+cp "$fixture_snapshot" "$fixture_support/session-state.json"
+cat > "$fixture_config/config.toml" <<'EOF'
 [general]
 restore_workspaces = true
 [terminal]
@@ -202,7 +249,7 @@ command_bridge_enabled = true
 [notifications]
 muted = true
 EOF
-cat > "$fixture_home/.zshrc" <<'EOF'
+cat > "$fixture_shell/.zshrc" <<'EOF'
 PS1='COMPANION_E2E_READY '
 RPS1=''
 EOF

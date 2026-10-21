@@ -418,51 +418,62 @@ struct CompanionPairingE2E {
 
     private static func handleFixtureCommand() throws -> Bool {
         let arguments = Array(CommandLine.arguments.dropFirst())
-        guard arguments.first == "--fixture-home" else { return false }
-        guard arguments.count == 4 || (arguments.count == 5 && arguments[4] == "--cleanup-identity"),
-            arguments[2] == "--profile"
+        guard arguments.first == "--fixture-run" else { return false }
+        guard arguments.count == 6 || (arguments.count == 7 && arguments[6] == "--cleanup-identity"),
+            arguments[2] == "--home", arguments[4] == "--profile"
         else { throw E2EFailure("invalid fixture command") }
-        let home = URL(fileURLWithPath: arguments[1], isDirectory: true).resolvingSymlinksInPath()
         // Darwin realpath matches the shell's pwd -P; Foundation may preserve
         // /tmp while the shell hashes /private/tmp on macOS.
-        let runPath = try physicalPath(home.deletingLastPathComponent().path)
+        let runPath = try physicalPath(arguments[1])
         let artifactRootPath = try physicalPath("/tmp/companion-pairing-e2e")
         let runParentPath = try physicalPath((runPath as NSString).deletingLastPathComponent)
         let suffix = SHA256.hash(data: Data(runPath.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         let profile = "development:" + suffix
-        guard home.lastPathComponent == "home", (runPath as NSString).lastPathComponent.hasPrefix("run."),
-            runParentPath == artifactRootPath, arguments[3] == profile
+        guard (runPath as NSString).lastPathComponent.hasPrefix("run."),
+            runParentPath == artifactRootPath, arguments[5] == profile
         else { throw E2EFailure("refusing a non-owned fixture profile") }
+        let home = try physicalPath(arguments[3])
         let environment = ProcessInfo.processInfo.environment
-        let paths = [
-            FileManager.default.homeDirectoryForCurrentUser.path, NSHomeDirectory(),
-            environment["HOME"] ?? "", environment["CFFIXED_USER_HOME"] ?? "",
-        ]
+        let paths = [FileManager.default.homeDirectoryForCurrentUser.path, NSHomeDirectory(), environment["HOME"] ?? ""]
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        guard paths.allSatisfy({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path == home.path }),
-            support.resolvingSymlinksInPath().path == home.appending(path: "Library/Application Support", directoryHint: .isDirectory).path
-        else { throw E2EFailure("disposable HOME/Foundation path isolation mismatch") }
-        if arguments.count == 5 {
-            // Match CompanionIdentityStore's profile namespace; this command is
-            // restricted to the run-derived disposable profile above.
-            let namespace = SHA256.hash(data: Data(profile.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
-            for query: [String: Any] in [
-                [kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: "awesoMux Companion " + namespace],
-                [
-                    kSecClass as String: kSecClassKey,
-                    kSecAttrApplicationTag as String: Data(("com.interactivebuffoonery.awesomux.companion." + namespace).utf8),
-                    kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-                ],
-            ] {
+        guard environment["CFFIXED_USER_HOME"] == nil,
+            try paths.allSatisfy({ try physicalPath($0) == home }),
+            try physicalPath(support.path) == home + "/Library/Application Support"
+        else { throw E2EFailure("real HOME/Foundation Application Support mismatch") }
+        // Only this exact profile directory outside the artifact run is owned;
+        // the real HOME and its default Keychain remain unchanged.
+        let profileSupport = support.appending(path: "awesoMux-dev-" + suffix, directoryHint: .isDirectory)
+        if FileManager.default.fileExists(atPath: profileSupport.path) {
+            guard try physicalPath(profileSupport.path) == home + "/Library/Application Support/awesoMux-dev-" + suffix else {
+                throw E2EFailure("invalid fixture support directory")
+            }
+        }
+        // Match CompanionIdentityStore's profile namespace; these queries never
+        // return private key material and are restricted to the derived profile.
+        let namespace = SHA256.hash(data: Data(profile.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let queries: [[String: Any]] = [
+            [kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: "awesoMux Companion " + namespace],
+            [
+                kSecClass as String: kSecClassKey,
+                kSecAttrApplicationTag as String: Data(("com.interactivebuffoonery.awesomux.companion." + namespace).utf8),
+                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            ],
+        ]
+        for query in queries {
+            if arguments.count == 7 {
                 let status = SecItemDelete(query as CFDictionary)
                 guard status == errSecSuccess || status == errSecItemNotFound else {
                     throw E2EFailure("fixture identity cleanup failed: \(status)")
                 }
+            } else {
+                let status = SecItemCopyMatching(query as CFDictionary, nil)
+                guard status == errSecItemNotFound else {
+                    throw E2EFailure(
+                        status == errSecSuccess ? "fixture identity already exists" : "fixture identity collision check failed: \(status)")
+                }
             }
-            print("fixture_identity=removed")
-        } else {
-            print("fixture_home=verified")
         }
+        print(arguments.count == 7 ? "fixture_identity=removed" : "fixture_home=verified identity=unclaimed")
         return true
     }
 
