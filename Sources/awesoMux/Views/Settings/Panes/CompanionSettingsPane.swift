@@ -196,7 +196,11 @@ struct CompanionSettingsPane: View {
             Text(String(localized: "Lets this phone rename terminal panes within its visible workspaces."))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
-            Menu(String(localized: "Decision workspaces")) {
+            Menu(
+                String(
+                    localized: "Decision workspaces",
+                    comment: "Menu for selecting which workspaces this paired phone may answer permission requests for.")
+            ) {
                 ForEach(coordinator.decisionWorkspaces, id: \.id) { workspace in
                     Toggle(
                         workspace.name,
@@ -209,15 +213,24 @@ struct CompanionSettingsPane: View {
                                 do {
                                     try coordinator.setDecisionWorkspace(workspace.id, allowed: allowed, for: phone.id)
                                     errorMessage = nil
-                                } catch { errorMessage = String(localized: "Could not save decision access.") }
+                                } catch {
+                                    errorMessage = String(
+                                        localized: "Could not save decision access.",
+                                        comment: "Error shown when saving a paired phone’s workspace decision permission fails.")
+                                }
                             }))
                 }
             }
             .accessibilityLabel(
-                String.localizedStringWithFormat(String(localized: "Decision workspaces for %@"), phone.label))
+                String.localizedStringWithFormat(
+                    String(
+                        localized: "Decision workspaces for %@",
+                        comment: "Accessibility label for a paired phone’s decision workspace menu. Argument is the phone’s name."),
+                    phone.label))
             Text(
                 String(
-                    localized: "Remote decisions are not available yet. Workspace access starts off.")
+                    localized: "Remote decisions are not available yet. Workspace access starts off.",
+                    comment: "Explains that remote permission decisions are not released and workspace access is disabled by default.")
             )
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text3)
