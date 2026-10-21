@@ -14,6 +14,29 @@ struct LocalAPIActiveAttention {
 }
 
 public extension SessionStore {
+    func beginCompanionAwayPeriod() {
+        localAPIAttentionJournal?.beginAwayPeriod()
+    }
+
+    func recordAuthenticatedCompanionActivity() {
+        localAPIAttentionJournal?.recordAuthenticatedCompanionActivity()
+    }
+
+    func endCompanionAwayPeriod() {
+        guard let summary = localAPIAttentionJournal?.endAwayPeriod() else { return }
+        pendingWhileAwaySummary = pendingWhileAwaySummary?.merging(summary) ?? summary
+    }
+
+    func presentWhileAwaySummaryIfReady() {
+        guard let pending = pendingWhileAwaySummary else { return }
+        whileAwaySummary = whileAwaySummary?.merging(pending) ?? pending
+        pendingWhileAwaySummary = nil
+    }
+
+    func dismissWhileAwaySummary() {
+        whileAwaySummary = nil
+    }
+
     func recordCommandCompletion(
         sessionID: UUID, paneID: UUID, terminalSessionID: TerminalSessionID, executionPlan: PaneExecutionPlan,
         completion: ShellCommandCompletion, at now: Date = Date()

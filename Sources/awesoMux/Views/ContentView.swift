@@ -376,6 +376,10 @@ struct ContentView: View {
                 hostPresentation: hostPresentation
             )
 
+            if let summary = sessionStore.whileAwaySummary {
+                WhileAwaySummaryView(store: sessionStore, summary: summary)
+            }
+
             SidebarSplitView(
                 terminalMinimumWidth: Self.terminalMinimumWidth,
                 initialWidth: sidebarWidth,

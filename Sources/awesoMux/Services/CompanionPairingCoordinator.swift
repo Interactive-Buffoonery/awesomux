@@ -426,6 +426,7 @@ final class CompanionPairingCoordinator {
                 await service.companionResponse(request: request, lease: lease, routes: routes)
             },
             routes: { [weak self] in self?.currentRoutes },
+            markActivity: { [weak self] in self?.service?.recordAuthenticatedCompanionActivity() },
             markSeen: { [weak self] connectionID in self?.lastSeen[connectionID] = Date() },
             connectionFinished: { [weak self] in self?.stopListenerIfIdle() },
             listenerFailed: { [weak self] in
@@ -595,6 +596,7 @@ private final class CompanionNetworkServer {
     private let setTerminalPreview: @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease
     private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse
     private let routes: @MainActor () -> CompanionRoutes?
+    private let markActivity: @MainActor () -> Void
     private let markSeen: @MainActor (UUID) -> Void
     private let connectionFinished: @MainActor () -> Void
     private let listenerFailed: @MainActor () -> Void
@@ -630,6 +632,7 @@ private final class CompanionNetworkServer {
         setTerminalPreview: @escaping @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease,
         capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse,
         routes: @escaping @MainActor () -> CompanionRoutes?,
+        markActivity: @escaping @MainActor () -> Void,
         markSeen: @escaping @MainActor (UUID) -> Void,
         connectionFinished: @escaping @MainActor () -> Void,
         listenerFailed: @escaping @MainActor () -> Void
@@ -653,6 +656,7 @@ private final class CompanionNetworkServer {
         self.capture = capture
         self.renamePane = renamePane
         self.routes = routes
+        self.markActivity = markActivity
         self.markSeen = markSeen
         self.connectionFinished = connectionFinished
         self.listenerFailed = listenerFailed
@@ -886,6 +890,7 @@ private final class CompanionNetworkServer {
                 var lease = try authority.authorizeCompanion(
                     connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
                 ).get()
+                markActivity()
                 defer { pendingPreferenceReplies.remove(id) }
                 if isSet {
                     guard let payload = object["alertPreferences"] as? [String: Any], Set(payload.keys) == ["categories"],
@@ -923,6 +928,7 @@ private final class CompanionNetworkServer {
                 let lease = try authority.authorizeCompanion(
                     connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
                 ).get()
+                markActivity()
                 if case .cancelled = connection.state { throw LocalAPIError.cancelled }
                 try renamePane(mutation, lease, fingerprint, mutationDeadline)
                 let response = LocalAPIResponse(
@@ -949,6 +955,7 @@ private final class CompanionNetworkServer {
                 certificateFingerprint: fingerprint,
                 operation: operation
             ).get()
+            markActivity()
             if request.operation == CompanionOperation.setTerminalPreview.rawValue {
                 guard let allowed = request.terminalPreviewAllowed else { throw LocalAPIError.invalidRequest }
                 // Keep this socket alive through its own invalidation; unlike

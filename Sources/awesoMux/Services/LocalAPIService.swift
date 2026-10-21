@@ -50,6 +50,7 @@ enum LocalAPIProcessSource: Sendable, Equatable {
 
 @MainActor
 final class LocalAPIService {
+    private var awayMonitor: CompanionAwayMonitor?
     private let server: LocalAPIServer
     private let capture: LocalAPIServer.Capture
     private weak var renameStore: SessionStore?
@@ -197,10 +198,18 @@ final class LocalAPIService {
             runtime?.companionAlertIsSuppressed(paneID: paneID) ?? false
         }
         store.bindLocalAPIInstance(server.instanceID)
+        awayMonitor = CompanionAwayMonitor(store: store)
         server.start()
     }
 
-    func stop() { server.stop() }
+    func stop() {
+        awayMonitor = nil
+        server.stop()
+    }
+
+    func recordAuthenticatedCompanionActivity() {
+        awayMonitor?.recordAuthenticatedActivity()
+    }
 
     var instanceID: UUID { server.instanceID }
 

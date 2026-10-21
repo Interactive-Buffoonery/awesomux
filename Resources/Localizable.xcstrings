@@ -753,6 +753,9 @@
     "Agent activity panel opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
     },
+    "Agent error" : {
+
+    },
     "Agent setup" : {
 
     },
@@ -1013,6 +1016,9 @@
     },
     "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting." : {
       "comment" : "Terminal settings hint."
+    },
+    "Attention requested" : {
+
     },
     "Auto-clean up at launch" : {
       "comment" : "Terminal settings label."
@@ -1522,6 +1528,12 @@
     "Command activity visible in the sidebar" : {
       "comment" : "Benefit listed in the additional SSH features prompt"
     },
+    "Command failed (exit %arg)" : {
+
+    },
+    "Command finished" : {
+
+    },
     "Command name" : {
 
     },
@@ -1988,6 +2000,12 @@
     "Delete annotation intent" : {
       "comment" : "Accessibility label for the delete annotation intent option"
     },
+    "Deleted pane" : {
+
+    },
+    "Deleted workspace" : {
+
+    },
     "Delivery" : {
       "comment" : "Notification settings title."
     },
@@ -2022,6 +2040,9 @@
     },
     "Description" : {
       "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Desktop notification" : {
+
     },
     "Destination" : {
       "comment" : "Label for the exact SSH destination in the file-read preview\nRemote helper detail label"
@@ -2104,6 +2125,9 @@
     },
     "Dismiss revision indicator" : {
       "comment" : "Tooltip and accessibility label for the button that hides the document revision indicator"
+    },
+    "Dismiss while you were away summary" : {
+
     },
     "Dismisses this message" : {
 
@@ -2688,6 +2712,9 @@
     },
     "Inline Review Comments" : {
       "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Input requested" : {
+
     },
     "Insert Checkout Command" : {
 
@@ -3384,6 +3411,9 @@
     "Off — no app can see anything." : {
       "comment" : "Outside app access toggle state."
     },
+    "Older activity unavailable" : {
+
+    },
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
     },
@@ -3714,6 +3744,9 @@
     },
     "Permission request timed out." : {
       "comment" : "VoiceOver announcement when a remote permission prompt expires and is denied"
+    },
+    "Permission requested" : {
+
     },
     "Permission requested in %arg." : {
       "comment" : "VoiceOver announcement when a remote agent asks for a permission decision in a named split pane\nVoiceOver announcement when a remote agent asks for a permission decision, naming the workspace"
@@ -4439,6 +4472,9 @@
     "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
     },
+    "Resolved" : {
+
+    },
     "Resolved annotations hidden" : {
       "comment" : "VoiceOver announcement when the resolved-annotations filter turns on"
     },
@@ -4950,6 +4986,9 @@
     "Show Welcome Tour" : {
 
     },
+    "Show activity by workspace and pane" : {
+
+    },
     "Show awesoMux in the menu bar when a workspace needs input" : {
       "comment" : "Accessibility label for the needs-input menu bar choice"
     },
@@ -5178,6 +5217,9 @@
 
     },
     "Terminal background source" : {
+
+    },
+    "Terminal bell" : {
 
     },
     "Terminal font size" : {
@@ -5998,6 +6040,9 @@
     },
     "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘." : {
       "comment" : "Settings field hint for the sidebar jump numbers toggle"
+    },
+    "While you were away" : {
+
     },
     "Whitespace, control characters, and bidi overrides are normalized on commit." : {
       "comment" : "Workspace settings hint."
