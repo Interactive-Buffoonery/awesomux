@@ -80,7 +80,7 @@ import PackageDescription
         dependencies: [
             .package(
                 url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git",
-                revision: "dbe7857e4d5d38c0bf63bbe8fb769d9e9b20d6b4"
+                revision: "76da4e0383c447104fcab4027d6314843f0160ac"
             ),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
             .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
