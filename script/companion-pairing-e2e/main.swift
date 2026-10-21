@@ -341,9 +341,17 @@ struct CompanionPairingE2E {
                 guard let payload = response["alertPreferences"] as? [String: Any],
                     payload["categories"] as? [String] == expectedCategories
                 else { throw E2EFailure("preferences response did not match saved categories") }
-                for field in ["paneID", "workspaceID", "limit", "cursor", "includeCommandEvents", "source", "targetVersion", "title"] {
+                let extraFields: [(String, Any)] = [
+                    ("paneID", UUID().uuidString), ("workspaceID", UUID().uuidString),
+                    ("limit", 1), ("cursor", "unexpected"), ("includeCommandEvents", true),
+                    ("source", LocalAPIContextSource.transcript.rawValue), ("targetVersion", UUID().uuidString),
+                    ("title", "Unexpected title"), ("terminalPreviewAllowed", true),
+                ]
+                for (field, value) in extraFields {
                     var invalid = valid
-                    invalid[field] = field == "limit" ? 1 : "unexpected"
+                    invalid[field] = value
+                    let encoded = try JSONSerialization.data(withJSONObject: invalid)
+                    _ = try LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: encoded)
                     let denied = try await call(invalid, link: link, identity: identity)
                     guard denied["error"] as? String == "invalid_request" else {
                         throw E2EFailure("preferences accepted argument \(field)")
@@ -388,7 +396,7 @@ struct CompanionPairingE2E {
             guard let unchangedPage = unchanged["attentionEvents"] as? [String: Any],
                 unchangedPage["cursorStatus"] as? String == "current"
             else { throw E2EFailure("identical effective set invalidated cursor") }
-            print("alert_preferences_wire=passed cases=31")
+            print("alert_preferences_wire=passed cases=33")
             for (operation, id, expected) in [
                 ("unpair", UUID().uuidString, "permission_denied"),
                 ("unknown_companion_operation", connectionID, "unsupported_operation"),
