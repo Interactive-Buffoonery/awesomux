@@ -31,8 +31,9 @@ A terminal is the whole Mac account. The phone is a real terminal emulator
 (libghostty, companion #30) re-emulating the daemon's bytes, so it knows the
 application's modes, including bracketed paste. The Mac relay does not parse
 the byte stream (ADR-0040). Sarah's standing decisions apply: direct
-LAN/Tailscale first, no hosted relay. This is a docs-only decision; no
-listener, frame or daemon change ships with it.
+LAN/Tailscale first, no hosted relay. This is a docs-only decision; it
+names the listener, frame and zmx fork changes #788 and its follow-ups
+need and ships none of them.
 
 ## Options considered
 
@@ -68,161 +69,260 @@ on the Mac. Revocation and reconnect never restore a claim.
   over** control. Take over sends a `claim` frame carrying the phone's
   requested grid; the Mac forwards it as a typed `TakeOver` so leadership
   moves without a dummy keystroke. The first `input` frame from a follower
-  claims the same way, with the phone's last `grid` applied before its bytes
-  (ADR-0036). Both paths are one tap or one keystroke apart, as the plan asks.
+  claims the same way, with the phone's last `grid` applied before its bytes,
+  or the handshake's preferred grid if no `grid` frame was sent (ADR-0036).
+  Both paths are one tap or one keystroke apart.
 - While a device leads, the Mac pane shows a banner naming the device and
-  grid, for example "iPhone is driving · 40×24 · type here to take it back".
-  The Mac pane never hides or blocks local typing; a Mac keystroke claims
-  leadership back in daemon order and the phone drops to follower
-  presentation with "Mac is driving". The stream's role does not change;
-  only leadership does. The banner also offers **Stop**, which revokes that
-  device's Input power (see Revocation). The follower Mac presentation itself
-  (clipped or letterboxed grid, leader indicator) is #826/#788 work under
-  ADR-0036, not redefined here.
+  grid (columns × rows), for example "iPhone is driving · 40×24 · type here
+  to take it back". The Mac pane never hides or blocks local typing; a Mac
+  keystroke claims leadership back in daemon order and the phone drops to
+  follower presentation naming the new leader ("Mac is driving", "iPad is
+  driving"). The stream's role does not change; only leadership does. Until
+  option B below ships, a lone Escape on the Mac does not claim (see that
+  section), so the banner says "type a letter, arrow or Return to take it
+  back". The banner also offers **Stop**, which revokes that device's Input
+  power (see Revocation). The follower Mac presentation itself (clipped or
+  letterboxed grid, leader indicator) is #826/#788 work under ADR-0036, not
+  redefined here.
 - Automation (`amx send`) and Watch streams never claim. A phone whose Input
   grant does not cover the pane's workspace gets a Watch stream and no Take
-  over control; the Mac drops any `input`, `claim` or `grid` frame on a
-  Watch stream as a protocol error (ADR-0040).
-- Driving requires the M1 terminal unlock gate on the phone to be satisfied;
-  Take over adds no second biometric prompt. The phone's key proves the
-  device, not the person, so the Mac banner and the Mac-side grant remain
-  the controls that matter.
+  over control; the Mac drops any `input`, `reply`, `claim` or `grid` frame
+  on a Watch stream as a protocol error (ADR-0040). The `watch_terminal`
+  reply names why the stream is Watch-only (`power_off`,
+  `workspace_not_granted`, `remote_pane`) so the phone can say "Typing is
+  not allowed for this workspace. Allow it on the Mac in Settings ›
+  Companion" instead of silently hiding the control.
+- Driving requires the phone-side content gate that ADR-0035 keeps as a
+  release requirement (device unlock plus the app's own terminal gate) to be
+  satisfied; Take over adds no second biometric prompt. The gate is checked
+  again whenever the terminal view returns to the foreground, which is also
+  when a new stream starts. The phone's key proves the device, not the
+  person, so the Mac banner and the Mac-side grant remain the controls that
+  matter. Device input keeps working while the Mac display is locked or
+  asleep; being away from the desk is the use case.
 
 ### Input authorization
 
 - Add a default-off **Input** power per paired device, with a Mac-approved
   grant for explicitly selected workspaces, initiated on the Mac with no
   all-workspaces default. Both are required. The Terminal (Watch) grant from
-  ADR-0036 is a prerequisite and uses the same workspace list; Input never
-  widens Watch, and neither implies Decide or Transcript. Status, previews,
-  rename, transcript and decision access cannot enable Input.
+  ADR-0036 is a prerequisite: each power keeps its own workspace list of the
+  same shape, and a workspace can be on the Input list only while it is on
+  the Terminal list. Input never widens Watch, and neither implies Decide or
+  Transcript. Status, previews, rename, transcript and decision access cannot
+  enable Input.
 - The grant covers every terminal pane that is in a granted workspace at
   attach time, including panes created or recovered later in that workspace.
   It is persisted with the companion connection by workspace ID, survives
   app restart and lasts until revoked or unpaired, exactly as ADR-0039. The
   phone names a pane; the Mac resolves its workspace, live zmx session and
   role. Moving a pane out of a granted workspace, or deleting the workspace,
-  ends its streams.
+  ends its streams. Any change that would change an open stream's role in
+  either direction (power toggled, workspace added to or removed from a
+  list, pane moved into or out of a granted workspace) ends the stream with
+  `role_changed`; the phone reattaches and the handshake assigns the new
+  role. Removing the Terminal grant, revoking the lease or unpairing ends the
+  stream with `revoked` and there is no reattach.
 - Relation to ADR-0039: the two grants are independent switches over the
   same workspace list shape. Granting Input does not grant Transcript, and
   the Mac stores and rechecks them separately. On acceptance, the ADR-0035
-  amendment and ADR-0036 get a one-line change from "a specific pane" to
-  "panes in Mac-selected workspaces".
+  amendment, ADR-0036 and ADR-0040 get a one-line change from "a specific
+  pane" / "that device and pane" to "panes in Mac-selected workspaces". That
+  moves the Terminal (Watch) grant to workspace scope as well; existing
+  per-pane Watch grants are not widened automatically and need re-approval
+  on the Mac.
 - The Mac rechecks the lease revision, Input grant, workspace assignment,
-  target version and zmx session before every forwarded `input`, `claim`,
-  `reply` and `grid` frame, as ADR-0040 already requires before every write.
-  Remote-owned panes (`PersistenceOwner.remoteZmx`) have no local daemon and
-  are not typeable from a device in this version.
+  target version and zmx session before every inbound `input`, `claim` and
+  `reply` frame it forwards, extending the recheck ADR-0040 requires before
+  every frame the Mac writes. A phone-sent `grid` is applied only with that
+  phone's next accepted `input` or `claim` (ADR-0040). Remote-owned panes
+  (`PersistenceOwner.remoteZmx`) have no local daemon and are not typeable
+  from a device in this version; the handshake reports `remote_pane`.
 
 ### Safe paste
 
 - **One paste is one `input` frame**, and one frame is one daemon
   `UserBatch`. The daemon never interleaves a competing batch inside it
-  (ADR-0036). The composer's optional Enter is a trailing carriage return in
-  the same frame, so it cannot land after a Mac keystroke.
-- **Bracketed paste follows the application.** The phone's emulator tracks
-  mode 2004 from the same bytes the Mac sees. When set, the phone wraps the
-  text in `ESC [200~` and `ESC [201~` and leaves line terminators intact;
-  when not set, it converts newlines to carriage returns and sends plain
-  text. This is Ghostty's own encoding rule (`src/input/paste.zig`), reused
-  on the phone rather than reimplemented on the Mac.
-- **Confirmation uses Ghostty's safety rule.** A bracketed paste is unsafe
-  only if it contains the bracket terminator; an unbracketed paste is unsafe
-  if it contains a newline, carriage return or the terminator. Unsafe text
-  shows a confirmation on the phone with the reason and a preview; the
-  person can send it anyway or cancel. Text containing the terminator is
-  confirmed with that reason rather than silently edited, matching the Mac
-  app's `clipboard-paste-protection` behavior. Typed keystrokes and quick-key
-  bar keys never confirm.
-- **Size limits are enforced on the Mac.** An `input` frame is at most
-  64 KiB, the same cap as output frames (ADR-0040). The phone refuses a
-  larger paste before sending and says so; the Mac ends a stream that sends
-  one with `protocol_error`. A frame the daemon's operation queue rejects
-  (256 KiB of pending payload or 4096 operations, LEADERSHIP.md) is reported
-  in the next `ack` as `rejected: [seq]`; the phone marks it not delivered
-  and the person resends by hand. No frame is retried automatically.
+  (ADR-0036). Anything inserted as more than one key event, whatever its
+  source (paste menu, hardware Cmd-V, keyboard extension, dictation, drag
+  and drop, Universal Clipboard, the composer), is a paste; a keystroke is a
+  single key's bytes. Only keystrokes and quick-key bar keys skip the rules
+  below.
+- **The phone encodes with Ghostty's text-insertion paste path**
+  (`vendor/ghostty/src/input/paste.zig`, never the clipboard paste-event
+  path for mode 5522, whose follow-up clipboard read the phone renderer
+  ignores). That encoder first replaces the xterm strip set (NUL, BS, ENQ,
+  EOT, ESC, DEL and the tty control characters such as Ctrl-C, Ctrl-U,
+  Ctrl-Z, Ctrl-O) with spaces in both modes, then frames the text in
+  `ESC [200~` and `ESC [201~` when the application set mode 2004 and leaves
+  line terminators intact, or converts newlines to carriage returns when it
+  did not. The phone's emulator tracks mode 2004 from the same bytes the Mac
+  sees. The Mac does not parse the stream and relies on this encoding plus
+  the limits below.
+- **Confirmation uses Ghostty's safety rule** (`isSafeWith`) on the text
+  before encoding. A bracketed paste is unsafe only if it contains the
+  bracket terminator; an unbracketed paste is unsafe if it contains a
+  newline, carriage return or the terminator. Unsafe text shows a
+  confirmation on the phone with the reason and a preview of the encoded
+  text; the person can send it anyway or cancel. A confirmed terminator
+  still has its ESC replaced by a space, as the Mac app does with
+  `clipboard-paste-protection`, so a confirmed paste never closes the
+  bracket early. Paste is disabled until `snapshot_end`, because mode 2004
+  is unknown before it, and an open confirmation is discarded when the
+  generation changes.
+- **The composer's optional Enter** is one carriage return appended after
+  encoding, outside the closing bracket, in the same frame, so it cannot land
+  after a Mac keystroke and does run the pasted line. The safety check sees
+  the composer text alone. Enter is not added when unbracketed text already
+  ends in a line terminator, and the preview says "will press Enter".
+- **Size limits are enforced on the Mac.** An `input` frame carries at most
+  64 KiB of encoded terminal bytes, counted in UTF-8 after stripping,
+  bracketing and the trailing Enter, excluding the frame header; exactly the
+  cap is allowed. It is the same cap as output frames (ADR-0040) and is
+  advertised in `get_capabilities` as `inputFrameMax`. The phone refuses a
+  larger paste before sending: "Too large to paste (64 KB). Copy it to a
+  file on the Mac instead." The Mac ends a stream that sends one with
+  `protocol_error`, as it does for an empty `input` frame; an Enter-only
+  submit is the one-byte frame `\r`.
+- **Delivery state.** `ack` keeps its ADR-0040 meaning: the highest input
+  sequence the Mac wrote to the daemon socket. The current zmx fork gives no
+  per-batch receipt and rejects a `UserBatch` from a full queue (256 KiB of
+  pending payload or 4096 operations, LEADERSHIP.md) with only a log line,
+  so the Mac cannot tell acceptance from rejection and the ADR does not
+  promise it. The phone therefore shows three states: **sent** (acked),
+  **not sent** (refused on the phone or ended before forwarding; safe to
+  send again) and **may have run** (no ack within the budget or at
+  disconnect; check the terminal before sending again). A late `ack` in the
+  same generation moves "may have run" to "sent". Recommend an ack budget of
+  two seconds. Composer text is kept on the phone in all three states with a
+  manual Send again; nothing is retried automatically. The Mac forwards one
+  paste at a time per stream and never forwards a second paste while the
+  first is unacked. A typed per-batch accept/reject receipt and a
+  per-attachment queue cap are the zmx fork follow-ups that would turn "may
+  have run" into a definite answer and keep one device from filling the
+  shared queue; #788 should not depend on them.
 - Keystrokes typed within a short window may be coalesced into one frame;
-  a paste is never merged with keystrokes or with another paste. Recommend
-  an ack budget of two seconds: an `input` frame not acknowledged within it
-  is shown as delivery unknown, which ADR-0040 already defines.
+  a paste is never merged with keystrokes or with another paste, and a lone
+  ESC is never coalesced: it ends the current frame and goes alone, so
+  `ESC` then `j` is not delivered as Alt-j.
+- **Reply provenance.** The Mac forwards a phone `reply` only while that
+  stream leads, in stream order, stamped with the authority epoch from the
+  latest daemon `Authority` message; the daemon rejects any reply stamped
+  with a stale epoch (LEADERSHIP.md). Frames on one stream arrive in order,
+  so a reply can never overtake the claim that follows it.
 
 ### Revocation and reconnect
 
-- Turning the Input power off, removing a workspace from its list, revoking
+- Turning the Input power off, removing a workspace from a list, revoking
   the lease or unpairing ends every affected stream with `role_changed` or
-  `revoked`, detaches the relay's zmx client and drops queued bytes. The
-  daemon's close-connection cleanup clears that client's leadership and
-  invalidates its queued replies while retaining the grid (ADR-0036). The
-  pane is then leaderless at the phone's grid until the next Mac keystroke
-  or Take over; the Mac banner changes to "No one is driving · 40×24 · type
-  to take back". Bytes already forwarded cannot be withdrawn.
+  `revoked` as set out above, detaches the relay's zmx client and drops its
+  queued bytes. The daemon's close-connection cleanup clears that client's
+  leadership only if it was the leader, invalidates its queued replies and
+  retains the grid (ADR-0036). If the phone was leading, the pane is then
+  leaderless at the phone's grid until the next Mac keystroke or Take over
+  and the banner reads "No one is driving · 40×24 · type to take back",
+  with no Stop action; if the Mac had already taken back, nothing changes.
+  The same leaderless banner applies to lock, dismissal and a dropped
+  connection, where the Mac learns of the drop from the socket or the
+  heartbeat deadline (ADR-0040) and the banner can lag by that much.
+- Closing the relay client also discards a partially written batch: the
+  fork's `dropSource` removes a started operation, so a 64 KiB paste that
+  is stalled on a slow reader can land truncated, including without its
+  closing `ESC [201~`. Bytes already written cannot be withdrawn. The phone
+  keeps the stream open after a lock or background until its last paste is
+  acked or the ack budget expires. Letting a started batch drain before the
+  rest is dropped is a zmx fork follow-up; until then the truncation is a
+  documented limitation and a required #788 test.
 - **Stop** on the Mac banner is that revocation: it turns the device's Input
-  power off and persists it, so the phone cannot reattach as interactive
-  until re-enabled in Settings. Taking leadership back without revoking is
-  simply typing on the Mac.
+  power off, persists that before sending `end` so a concurrent reconnect
+  cannot pass the handshake, keeps the workspace list for re-enabling, and
+  ends all of that device's streams. The phone reattaches as Watch and says
+  "Typing was turned off on the Mac". Taking leadership back without
+  revoking is simply typing on the Mac.
 - A reconnect, route change or app restart is a new attach with a new
   generation and a new daemon attachment ID; the phone attaches as a
   follower with the same grant and must Take over or type again (ADR-0040).
-  Input unacknowledged at disconnect is shown as delivery unknown and never
-  resent. The phone ends the stream the moment the terminal view leaves the
-  foreground, on lock and on dismissal, which also ends its leadership.
+  Input unacknowledged at disconnect is shown as "may have run" and never
+  resent automatically. The phone ends the stream when the terminal view
+  leaves the foreground, on lock and on dismissal, subject to the paste
+  drain above, which also ends its leadership. Copying from another app and
+  returning is therefore a reattach as follower.
 - Granting Input to a device that currently holds a Watch stream ends that
   stream with `role_changed`; the phone reattaches and receives the
   interactive role in the handshake. There is no in-stream upgrade.
 
-### Escape and query replies after a leaderless reattach
+### Escape and query replies while the Mac pane is not the leader
 
 #863 left this open. The Mac's own pane client still uses the legacy
 `attach` stream, where a standalone `ESC` from a non-leader is ambiguous
-with a terminal reply prefix, so after a leaderless reattach the daemon drops
-it and answers only DA queries until recognized input or takeover
-(LEADERSHIP.md). A paired device is unaffected: its `input` and `reply`
+with a terminal reply prefix, so the daemon drops it and answers only DA
+queries while no typed leader exists (LEADERSHIP.md). This applies whenever
+the Mac pane is not the leader: while a phone drives, after the phone
+leaves and the pane is leaderless, and after a leaderless reattach. In
+practice, Sarah presses Escape in vim on the Mac to take back from the phone
+and the key is lost. A paired device is unaffected: its `input` and `reply`
 frames carry provenance, so a phone `ESC` is user input and claims.
 
 | Option | Behavior | Cost |
 | --- | --- | --- |
-| A. Keep the limitation | Document it; first printable key or arrow claims | Lone ESC and CPR/DSR replies lost until then; vim and TUIs misbehave after reopen |
+| A. Keep the limitation | Document it; a C0 control other than ESC, DEL, a printable key, arrow, Shift-Tab or Home/End claims | Lone ESC and CPR/DSR replies lost until then; vim and TUIs misbehave on every handback |
 | B. Typed seam for the Mac client (recommended) | The Mac pane attaches with `AttachRole` interactive and sends `UserBatch`/`TerminalReply`, so ESC is unambiguous and a reply is a reply | Native input seam in the Mac client; LEADERSHIP.md already names it as the missing piece |
-| C. Daemon answers from its own model while leaderless | Extend the DA fallback to CPR, DSR and mode reports the daemon can compute | zmx fork change; colour and clipboard queries still need a real client |
+| C. Daemon answers from its own model while leaderless | Extend the DA fallback to CPR, DSR and mode reports the daemon can compute | zmx fork change; color and clipboard queries still need a real client |
 | D. Sole Mac client claims on reattach with the retained grid | `TakeOver` using the current rows and columns restores reply authority without a resize | Later Mac window resizes then apply, which bends the ADR-0036 keep-last-grid decision |
 
-Recommend B now and C as a follow-up to make a leaderless pane answer the
-queries it can. B does not elect a leader or resize; it only removes the
-ambiguity, so ADR-0036's no-guessing rule holds. Do not add a timeout or
-heuristic to elect on ESC.
+Recommend B before #788 ships device input, and C as a follow-up to make a
+leaderless pane answer the queries it can. B does not elect a leader or
+resize; it only removes the ambiguity, so ADR-0036's no-guessing rule holds.
+Do not add a timeout or heuristic to elect on ESC. B and C each need their
+own issue; #788 covers device input and the banner.
 
 ## Consequences
 
-#788 can build the Mac input path and banner on frames ADR-0040 already
-defines, with the grant stored like Decide and Transcript. One workspace list
-per power keeps Settings consistent, at the cost that a pane created later in
-a granted workspace is typeable without a new prompt. The phone owns paste
-encoding and confirmation because it is the emulator; the Mac owns the limits
-because it is the trust boundary. A revoked or disconnected driver leaves the
-pane at the phone's grid, which is the ADR-0036 trade-off and is visible on
-the Mac banner. Option B adds a native input seam to the Mac client before
-the Escape gap closes; until then the limitation stays documented.
+#788 can build the Mac input path and banner on the ADR-0040 frames plus the
+handshake reason, the `inputFrameMax` capability and the three delivery
+states above, with the grant stored like Decide and Transcript. One
+workspace list per power keeps Settings consistent, at the cost that a pane
+created later in a granted workspace is typeable without a new prompt. The
+phone owns paste encoding and confirmation because it is the emulator; the
+Mac owns the limits because it is the trust boundary. A revoked or
+disconnected driver leaves the pane at the phone's grid, which is the
+ADR-0036 trade-off and is visible on the Mac banner. Three zmx fork
+follow-ups are named and not required: a per-batch receipt, a
+per-attachment queue cap, and draining a started batch on close. Option B
+adds a native input seam to the Mac client before the Escape gap closes.
 
-Implementation must test concurrent typing from Mac and phone, paste with and
-without mode 2004, the terminator confirmation, oversized and queue-rejected
-frames, revocation mid-paste, reconnect with unacknowledged input, and a
-leaderless reattach against real TUIs. These are future acceptance checks;
-this record provides no runtime evidence.
+Implementation must test concurrent typing from Mac and phone, paste with
+and without mode 2004, the strip set and terminator confirmation, oversized
+and empty frames, a full daemon queue, revocation and lock mid-paste
+(truncation), reconnect with unacknowledged input, Escape on the Mac while
+the phone drives, and a leaderless reattach against real TUIs. These are
+future acceptance checks; this record provides no runtime evidence.
 
 ## Decisions for Sarah
 
-1. Scope the Input grant to Mac-selected workspaces, mirroring ADR-0039,
-   rather than per pane as ADR-0036 wrote or one device-wide switch?
+1. Scope both the Terminal (Watch) and the Input grant to Mac-selected
+   workspaces, mirroring ADR-0039, with Input a subset of Terminal, rather
+   than per pane as ADR-0036 wrote or one device-wide switch? Existing
+   per-pane Watch grants would need re-approval.
 2. Make **Stop** on the Mac banner a persisted revocation of that device's
-   Input power, with typing on the Mac as the non-revoking way to take back,
-   rather than a one-time end of the stream the phone can reattach past?
+   Input power across all its streams, with typing on the Mac as the
+   non-revoking way to take back, rather than a one-time end of the stream
+   the phone can reattach past? Suggested label: "Turn off typing from
+   iPhone".
 3. Adopt Ghostty's paste safety rule as the confirmation trigger (terminator
    always; line terminators only when bracketed paste is off), rather than
    confirming every multi-line paste regardless of mode?
 4. Cap an input frame, and therefore a paste, at 64 KiB with a phone-side
    refusal above it, rather than allowing up to the daemon's 256 KiB queue?
-5. For Escape and query replies after a leaderless reattach, take option B
-   (typed seam for the Mac client) now with C as a follow-up, rather than
-   keeping the limitation or letting a sole Mac client claim on reattach?
-6. Require only the M1 terminal unlock gate before Take over, with no
-   additional biometric prompt per takeover?
+   And accept that `ack` means forwarded, not accepted, until the zmx fork
+   gains a per-batch receipt?
+5. For Escape and query replies while the Mac pane is not the leader, take
+   option B (typed seam for the Mac client) before #788 ships, with C as a
+   follow-up, rather than keeping the limitation or letting a sole Mac client
+   claim on reattach?
+6. Require only the ADR-0035 phone-side content gate before Take over, with
+   no additional biometric prompt per takeover?
+7. Show a driving indicator beyond the pane (sidebar row and workspace)
+   while a device leads, and keep a "Last typed from iPhone at 14:02" note on
+   the pane until the Mac user interacts with it, so typing into an
+   off-screen pane is never invisible?
