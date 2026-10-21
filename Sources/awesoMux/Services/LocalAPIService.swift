@@ -281,7 +281,8 @@ final class LocalAPIService {
         let response = CompanionAPIResponse(
             requestID: requestID, profile: profileValue,
             appInstanceID: server.instanceID, capturedAt: Date(), pendingDecisions: result.pending,
-            decisionOutcomes: result.outcomes, decisionReceipt: result.receipt, remoteDecisionsEnabled: true)
+            decisionOutcomes: result.outcomes, decisionReceipt: result.receipt,
+            remoteDecisionsEnabled: LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "claudeCode", version: nil))
         let identities = result.pending.map(\.identity) + result.outcomes.map(\.identity) + (result.receipt.map { [$0.identity] } ?? [])
         return CompanionDecisionResponse(
             response: response,

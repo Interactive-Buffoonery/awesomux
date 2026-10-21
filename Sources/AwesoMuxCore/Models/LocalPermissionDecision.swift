@@ -162,6 +162,7 @@ public final class LocalPermissionDecisionCore {
     }
     private var retries: [RetryKey: Retry] = [:]
     public static let retryCapacity = 512
+    public static let retryCapacityPerDevice = 128
     public static let capacity = 128
 
     private let monotonicNow: () -> ContinuousClock.Instant
@@ -304,7 +305,9 @@ public final class LocalPermissionDecisionCore {
             }
             return retry.receipt
         }
-        guard retries.count < Self.retryCapacity else { return .init(result: .capacityExceeded, outcome: nil) }
+        guard retries.count < Self.retryCapacity,
+            retries.keys.lazy.filter({ $0.deviceID == deviceID }).count < Self.retryCapacityPerDevice
+        else { return .init(result: .capacityExceeded, outcome: nil) }
         guard let entry = entries[identity.invocationID], entry.request.identity == identity else {
             let receipt = LocalPermissionRemoteReceipt(result: .unknown, outcome: nil)
             retries[key] = Retry(

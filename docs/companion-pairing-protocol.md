@@ -1046,22 +1046,32 @@ The core commits the first valid app answer atomically. Retry IDs bind device,
 identity and choice. An identical retry returns the original `decisionReceipt`;
 conflicting reuse and losing answers cannot overwrite the winner. Fresh lists
 return retained `decisionOutcomes` for later recorded/delivery/terminal state.
+`alreadyAnswered` covers any retained non-pending outcome, including cancelled,
+expired and unknown; the `state` field distinguishes them.
 The remote deadline keeps its wire date and a monotonic bound on the remaining
 window at admission, at most 60 elapsed seconds, with a helper return reserve.
 Both deadlines must remain live; clock rollback cannot extend device authority.
 Remote expiry leaves the Mac answer window intact. Bounded receipts survive
 until hook expiry plus ten minutes. Unknown identities also bind their retry
 ID for at most ten minutes, bounded by both wall and monotonic clocks; capacity
-exhaustion refuses new retry IDs. Cache expiry never recreates a request. Recorded means the core accepted an answer; delivered requires a
-helper ACK and does not prove provider execution.
+exhaustion refuses new retry IDs. The cache holds at most 512 tuples globally
+and 128 per authenticated device; cached retries still work at either limit.
+Cache expiry never recreates a request. Recorded means the core accepted an
+answer; delivered requires a helper ACK and does not prove provider execution.
 
 Scope, exact target, device certificate and revisioned grant are checked before
 commit, each response chunk, actual socket delivery and every file publication
-attempt. Revocation cancels a known-unsent remote answer; an answer that may
-have escaped becomes unknown. Neither state reopens for a second answer.
+attempt. Every grant edit rotates the lease, including workspace scope expansion,
+and conservatively cancels an in-flight answer recorded under the prior lease. Revocation cancels a known-unsent remote answer; an answer that may
+have escaped becomes unknown. Choice-free terminal replies still reach the exact
+hook after device revocation; they never carry an allow or deny. File publication
+replaces an earlier escaped choice with the terminal state. Neither state reopens
+for a second answer. Potentially escaped output remains unknown even if a late
+helper ACK arrives; terminal uncertainty never reopens or becomes delivered.
 
 **Release gate:** no provider/version is enabled for real remote decisions.
 ADR-0038 requires interactive native-prompt races in both orders before that
 can change. The pairing harness uses a separate synthetic coordinator with no
-provider hook consumer. Its list/answer fixtures cannot enable production
+provider hook consumer. Status and decision responses report the actual production
+gate, including false in the synthetic fixture. Its list/answer fixtures cannot enable production
 requests, establish Claude race behavior or prove iPhone UI.

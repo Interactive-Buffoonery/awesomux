@@ -179,4 +179,82 @@ import Testing
             ).result == .unknown)
     }
 
+    // One authenticated device must not monopolize the shared retry cache.
+    @Test(arguments: [false, true]) func retryQuotaIsPerDeviceAndReclaimsExpiredTuples(unknownIdentity: Bool) {
+        var instant = ContinuousClock.now
+        let core = LocalPermissionDecisionCore(monotonicNow: { instant })
+        let (_, request) = fixture.fixture()
+        core.install(request.target)
+        #expect(core.admit(request, now: fixture.now, helperAlive: true))
+        var cachedIdentity = request.identity
+        if unknownIdentity {
+            cachedIdentity.revision += 1
+        } else {
+            _ = core.commit(request.identity, choice: .deny, now: fixture.now, helperAlive: true)
+        }
+        let deviceA = UUID(), deviceB = UUID(), firstRetry = UUID()
+        let first = core.commitRemote(
+            cachedIdentity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: firstRetry,
+            now: fixture.now, helperAlive: true)
+        #expect(first.result == (unknownIdentity ? .unknown : .alreadyAnswered))
+        for _ in 1..<LocalPermissionDecisionCore.retryCapacityPerDevice {
+            #expect(
+                core.commitRemote(
+                    cachedIdentity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: UUID(),
+                    now: fixture.now, helperAlive: true
+                ).result == first.result)
+        }
+        #expect(
+            core.commitRemote(
+                cachedIdentity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: UUID(),
+                now: fixture.now, helperAlive: true
+            ).result == .capacityExceeded)
+        #expect(
+            core.commitRemote(
+                cachedIdentity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: firstRetry,
+                now: fixture.now, helperAlive: true) == first)
+        #expect(LocalPermissionDecisionCore.retryCapacityPerDevice < LocalPermissionDecisionCore.retryCapacity)
+        let newRequest = LocalPermissionRequest(
+            target: request.target, providerSessionID: request.providerSessionID,
+            invocationID: UUID(), toolUseID: nil, helperPID: request.helperPID, helperStartMicroseconds: request.helperStartMicroseconds,
+            expiresAt: request.expiresAt, tool: "Bash", summary: "second request")
+        #expect(core.admit(newRequest, now: fixture.now, helperAlive: true))
+        #expect(
+            core.commitRemote(
+                newRequest.identity, choice: .allow, deviceID: deviceB, deviceName: "B", retryID: UUID(),
+                now: fixture.now, helperAlive: true
+            ).result == .recorded)
+        let reclaimedAt = request.expiresAt.addingTimeInterval(600)
+        instant = instant.advanced(by: .seconds(720))
+        #expect(
+            core.commitRemote(
+                cachedIdentity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: UUID(),
+                now: reclaimedAt, helperAlive: true
+            ).result == .unknown)
+    }
+
+    // Replacing an escaped file must only remove choice authority for the exact
+    // invocation. A generic overwriting writer could replay/substitute choices.
+    @Test func terminalFileReplacementCannotChangeIdentityOrPublishChoice() throws {
+        let (_, request) = fixture.fixture()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("terminal-decision-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("decision.json")
+        let original = LocalPermissionOutcome(identity: request.identity, state: .delivering, choice: .allow)
+        #expect(LocalPermissionFiles.write(original, at: file))
+        #expect(!LocalPermissionFiles.replaceWithTerminalOutcome(original, at: file))
+        let foreign = LocalPermissionIdentity(
+            target: request.target, providerSessionID: request.providerSessionID,
+            invocationID: UUID(), revision: 1)
+        #expect(!LocalPermissionFiles.replaceWithTerminalOutcome(.init(identity: foreign, state: .unknown), at: file))
+        #expect(LocalPermissionFiles.read(LocalPermissionOutcome.self, at: file) == original)
+        let terminal = LocalPermissionOutcome(identity: request.identity, state: .unknown)
+        #expect(LocalPermissionFiles.replaceWithTerminalOutcome(terminal, at: file))
+        #expect(LocalPermissionFiles.read(LocalPermissionOutcome.self, at: file) == terminal)
+        #expect(
+            !LocalPermissionFiles.replaceWithTerminalOutcome(.init(identity: request.identity, state: .unknown, choice: .deny), at: file))
+        #expect(LocalPermissionFiles.read(LocalPermissionOutcome.self, at: file) == terminal)
+    }
+
 }

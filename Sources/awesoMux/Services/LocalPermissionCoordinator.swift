@@ -67,8 +67,8 @@ final class LocalPermissionCoordinator {
     @ObservationIgnored private var dirtyDirectories: Set<UUID> = []
     @ObservationIgnored private var scanTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var lastBackstop = Date.distantPast
-    @ObservationIgnored private var publishedDecisions: Set<UUID> = []
-    @ObservationIgnored private var publicationAttempts: [UUID: (count: Int, last: Date)] = [:]
+    @ObservationIgnored private var publishedDecisions: [UUID: LocalPermissionState] = [:]
+    @ObservationIgnored private var publicationAttempts: [UUID: (state: LocalPermissionState, count: Int, last: Date)] = [:]
     @ObservationIgnored private let announcement: (String) -> Void
     @ObservationIgnored private var presentationContexts: [UUID: (LocalPermissionTarget) -> LocalPermissionPresentation.Context?] = [:]
     @ObservationIgnored private var invocationNumbers: [UUID: Int] = [:]
@@ -338,16 +338,32 @@ final class LocalPermissionCoordinator {
         } catch { core.cancel(identity) }
     }
 
-    private func withDeliveryAuthority(_ identity: LocalPermissionIdentity, body: () throws -> Void) -> Bool {
-        do {
-            if case .device? = core.outcome(identity)?.source {
-                guard let authorize = remoteAuthorities[identity.invocationID] else { throw LocalAPIError.permissionDenied }
-                try authorize {
-                    core.markOutputAttempted(identity)
-                    try body()
-                }
+    private func withDeliveryAuthority(
+        _ identity: LocalPermissionIdentity, body: (LocalPermissionOutcome) throws -> Void
+    ) -> Bool {
+        func writeCurrentOutcome() throws {
+            guard endpoints[identity.target.paneID]?.target == identity.target,
+                var wire = core.outcome(identity), wire.state != .pending, wire.state != .recorded
+            else { throw LocalAPIError.permissionDenied }
+            // Build the wire value at the write boundary. A failed authorization
+            // must never leave a captured delivering choice available to send.
+            if wire.state == .delivering {
+                core.markOutputAttempted(identity)
             } else {
-                try body()
+                wire.choice = nil
+            }
+            try body(wire)
+        }
+        do {
+            if let outcome = core.outcome(identity), outcome.state == .delivering,
+                outcome.choice != nil, case .device? = outcome.source
+            {
+                guard let authorize = remoteAuthorities[identity.invocationID] else { throw LocalAPIError.permissionDenied }
+                try authorize { try writeCurrentOutcome() }
+            } else {
+                // Choice-free terminal replies wake the exact hook even after
+                // its winning device loses access. They confer no authority.
+                try writeCurrentOutcome()
             }
             return true
         } catch {
@@ -489,27 +505,27 @@ final class LocalPermissionCoordinator {
         if core.outcome(identity)?.state == .recorded {
             _ = core.claimDelivery(identity, now: Date(), helperAlive: LocalPermissionFiles.helperAlive(request))
         }
-        guard var outcome = core.outcome(identity), outcome.state != .pending else { return }
+        guard let outcome = core.outcome(identity), outcome.state != .pending else { return }
         // A second connection or fallback cannot retrieve an answer after the
         // first transport claimed it. Only the claiming fd may write it below.
         if outcome.state == .delivering {
             guard !clients.contains(where: { $0.key != fd && $0.value.request?.identity == identity && $0.value.sent }),
                 !fileRequests.contains(request.invocationID)
             else { return }
-        } else {
-            outcome.choice = nil
         }
-        guard var data = try? JSONEncoder().encode(outcome) else { disconnect(fd); return }
-        data.append(10)
         var count = -1
+        var expectedCount = 0
         guard
             withDeliveryAuthority(
                 identity,
-                body: {
+                body: { wire in
+                    var data = try JSONEncoder().encode(wire)
+                    data.append(10)
+                    expectedCount = data.count
                     count = data.withUnsafeBytes { Darwin.send(fd, $0.baseAddress, $0.count, 0) }
                 })
         else { return }
-        guard count == data.count else { core.deliveryLost(identity); disconnect(fd); return }
+        guard count == expectedCount else { core.deliveryLost(identity); disconnect(fd); return }
         client.sent = true
         clients[fd] = client
     }
@@ -574,27 +590,35 @@ final class LocalPermissionCoordinator {
 
     private func publishDecision(_ outcome: LocalPermissionOutcome, endpoint: LocalPermissionEndpoint) {
         let id = outcome.identity.invocationID
-        guard !publishedDecisions.contains(id) else { return }
-        let attempt = publicationAttempts[id]
+        guard publishedDecisions[id] != outcome.state else { return }
+        let prior = publicationAttempts[id]
+        let attempt = prior?.state == outcome.state ? prior : nil
         guard (attempt?.count ?? 0) < 5, Date().timeIntervalSince(attempt?.last ?? .distantPast) >= 1 else { return }
         let file = endpoint.file("dec", id: id)
-        if let existing = LocalPermissionFiles.read(LocalPermissionOutcome.self, at: file), existing.identity == outcome.identity {
-            publishedDecisions.insert(id)
+        if let existing = LocalPermissionFiles.read(LocalPermissionOutcome.self, at: file), existing.identity == outcome.identity,
+            existing.state == outcome.state, existing.choice == (outcome.state == .delivering ? outcome.choice : nil)
+        {
+            publishedDecisions[id] = outcome.state
             return
         }
-        var wire = outcome
-        if wire.state != .delivering { wire.choice = nil }
-        publicationAttempts[id] = ((attempt?.count ?? 0) + 1, Date())
+        // A terminal transition gets its own bounded publication attempts and
+        // replaces an earlier escaped choice with the current choice-free state.
+        publicationAttempts[id] = (outcome.state, (attempt?.count ?? 0) + 1, Date())
         var wrote = false
+        var writtenState: LocalPermissionState?
         guard
             withDeliveryAuthority(
                 outcome.identity,
-                body: {
+                body: { wire in
                     wrote = LocalPermissionFiles.write(wire, at: file)
+                    if !wrote, wire.state != .delivering {
+                        wrote = LocalPermissionFiles.replaceWithTerminalOutcome(wire, at: file)
+                    }
+                    writtenState = wire.state
                 })
         else { return }
         if wrote {
-            publishedDecisions.insert(id)
+            publishedDecisions[id] = writtenState
         } else if publicationAttempts[id]?.count == 5 {
             core.deliveryLost(outcome.identity)
         }
@@ -692,7 +716,7 @@ final class LocalPermissionCoordinator {
         if cards != next { cards = next }
         let retained = Set(core.requests.map(\.invocationID))
         fileRequests.formIntersection(retained)
-        publishedDecisions.formIntersection(retained)
+        publishedDecisions = publishedDecisions.filter { retained.contains($0.key) }
         publicationAttempts = publicationAttempts.filter { retained.contains($0.key) }
         announcedStates = announcedStates.filter { retained.contains($0.key) }
         invocationNumbers = invocationNumbers.filter { retained.contains($0.key) }

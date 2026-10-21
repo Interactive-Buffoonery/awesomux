@@ -299,7 +299,8 @@ struct CompanionPairingE2E {
                 let outsideIdentity = identities["outside"] as? [String: Any]
             else { throw E2EFailure("synthetic decision identities are missing") }
             let pending = try await call(request("list_pending_decisions"), link: link, identity: identity)
-            guard pending["error"] == nil, let decisions = pending["pendingDecisions"] as? [[String: Any]], decisions.count == 2,
+            guard pending["error"] == nil, pending["remoteDecisionsEnabled"] as? Bool == false,
+                let decisions = pending["pendingDecisions"] as? [[String: Any]], decisions.count == 2,
                 let live = decisions.first?["identity"] as? [String: Any]
             else { throw E2EFailure("scoped pending decisions fixture did not list both queued live requests") }
             func answer(_ identity: [String: Any], choice: String, retry: String) throws -> sending [String: Any] {
@@ -322,7 +323,9 @@ struct CompanionPairingE2E {
             guard malformedReply["error"] as? String == "invalid_request" else { throw E2EFailure("decision extra fields were accepted") }
             let retry = UUID().uuidString
             let accepted = try await call(answer(live, choice: "allow", retry: retry), link: link, identity: identity)
-            guard let original = accepted["decisionReceipt"] as? [String: Any], original["result"] as? String == "recorded" else {
+            guard accepted["remoteDecisionsEnabled"] as? Bool == false,
+                let original = accepted["decisionReceipt"] as? [String: Any], original["result"] as? String == "recorded"
+            else {
                 throw E2EFailure("fixture answer was not recorded")
             }
             let repeated = try await call(answer(live, choice: "allow", retry: retry), link: link, identity: identity)
