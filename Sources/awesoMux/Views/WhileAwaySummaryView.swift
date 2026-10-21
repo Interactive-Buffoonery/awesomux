@@ -39,7 +39,7 @@ struct WhileAwaySummaryView: View {
         }
         .padding(AwSpacing.panelPadding)
         .background(.regularMaterial)
-        .onAppear {
+        .onChange(of: summary.events.map(\.id), initial: true) { _, _ in
             TerminalAccessibilityAnnouncer.announce(
                 String(
                     localized: "While you were away",
