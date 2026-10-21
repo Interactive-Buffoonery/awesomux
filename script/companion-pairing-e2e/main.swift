@@ -2,6 +2,7 @@ import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import CryptoKit
+import Darwin
 import Foundation
 import Network
 import Security
@@ -409,6 +410,12 @@ struct CompanionPairingE2E {
         }
     }
 
+    private static func physicalPath(_ path: String) throws -> String {
+        guard let resolved = Darwin.realpath(path, nil) else { throw E2EFailure("cannot resolve the physical fixture path") }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     private static func handleFixtureCommand() throws -> Bool {
         let arguments = Array(CommandLine.arguments.dropFirst())
         guard arguments.first == "--fixture-home" else { return false }
@@ -416,12 +423,15 @@ struct CompanionPairingE2E {
             arguments[2] == "--profile"
         else { throw E2EFailure("invalid fixture command") }
         let home = URL(fileURLWithPath: arguments[1], isDirectory: true).resolvingSymlinksInPath()
-        let run = home.deletingLastPathComponent()
-        let artifactRoot = URL(fileURLWithPath: "/tmp/companion-pairing-e2e", isDirectory: true).resolvingSymlinksInPath()
-        let suffix = SHA256.hash(data: Data(run.path.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        // Darwin realpath matches the shell's pwd -P; Foundation may preserve
+        // /tmp while the shell hashes /private/tmp on macOS.
+        let runPath = try physicalPath(home.deletingLastPathComponent().path)
+        let artifactRootPath = try physicalPath("/tmp/companion-pairing-e2e")
+        let runParentPath = try physicalPath((runPath as NSString).deletingLastPathComponent)
+        let suffix = SHA256.hash(data: Data(runPath.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         let profile = "development:" + suffix
-        guard home.lastPathComponent == "home", run.lastPathComponent.hasPrefix("run."),
-            run.deletingLastPathComponent() == artifactRoot, arguments[3] == profile
+        guard home.lastPathComponent == "home", (runPath as NSString).lastPathComponent.hasPrefix("run."),
+            runParentPath == artifactRootPath, arguments[3] == profile
         else { throw E2EFailure("refusing a non-owned fixture profile") }
         let environment = ProcessInfo.processInfo.environment
         let paths = [

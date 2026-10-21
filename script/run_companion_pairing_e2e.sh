@@ -111,6 +111,8 @@ fi
 mkdir -m 700 "$fixture_home"
 app_pid=""
 fixture_launched=0
+fixture_profile_owned=0
+fixture_restamped=0
 
 fixture_environment=(env -u ZMX_SESSION_PREFIX -u ZMX_SESSION -u ZMX_DIR
   "HOME=$fixture_home" "CFFIXED_USER_HOME=$fixture_home"
@@ -142,8 +144,16 @@ cleanup() {
       cleanup_failed=1
     fi
   fi
-  fixture_run "$client" --fixture-home "$fixture_home" --profile "$runtime_profile" --cleanup-identity \
-    >> "$E2E_LOG" 2>&1 || cleanup_failed=1
+  if [[ "$fixture_profile_owned" -eq 1 ]]; then
+    fixture_run "$client" --fixture-home "$fixture_home" --profile "$runtime_profile" --cleanup-identity \
+      >> "$E2E_LOG" 2>&1 || cleanup_failed=1
+    if defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1; then
+      defaults delete "$AWESOMUX_PROFILE_BUNDLE_ID" >> "$E2E_LOG" 2>&1 || cleanup_failed=1
+    fi
+    if fixture_run defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1; then
+      fixture_run defaults delete "$AWESOMUX_PROFILE_BUNDLE_ID" >> "$E2E_LOG" 2>&1 || cleanup_failed=1
+    fi
+  fi
   if [[ "$cleanup_failed" -eq 0 ]]; then
     trash "$fixture_home" || cleanup_failed=1
     if [[ -d "$fixture_socket" && ! -L "$fixture_socket" ]]; then
@@ -158,6 +168,9 @@ cleanup() {
   echo "E2E log: $E2E_LOG"
   echo "App log: $APP_LOG"
   echo "Stage log: $STAGE_LOG"
+  if [[ "$fixture_restamped" -eq 1 ]]; then
+    echo "note: dist uses the disposable fixture identity; restage with ./script/build_and_run.sh --stage-local-api-e2e before reusing it."
+  fi
   exit "$result"
 }
 trap cleanup EXIT
@@ -167,6 +180,16 @@ trap 'exit 143' TERM
 # Fail closed before writing a snapshot or launching an app if Foundation would
 # resolve HOME/Application Support outside this run's private directory.
 fixture_run "$client" --fixture-home "$fixture_home" --profile "$runtime_profile" >> "$STAGE_LOG" 2>&1
+# Match the native lifecycle harness: neither preferences environment may reuse
+# an existing domain, and cleanup may delete only a domain claimed here.
+fixture_defaults="$fixture_home/Library/Preferences/$AWESOMUX_PROFILE_BUNDLE_ID.plist"
+if [[ -e "$fixture_defaults" || -L "$fixture_defaults" ]] || \
+  defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1 || \
+  fixture_run defaults read "$AWESOMUX_PROFILE_BUNDLE_ID" >/dev/null 2>&1; then
+  echo "error: disposable preferences domain already exists; refusing to reuse it" >&2
+  exit 1
+fi
+fixture_profile_owned=1
 mkdir -p "$fixture_home/Library/Application Support/$AWESOMUX_PROFILE_SUPPORT_NAME" \
   "$fixture_home/.config/$AWESOMUX_PROFILE_CONFIG_NAME"
 fixture_run "$seed_client" --seed-native "$fixture_home" > "$fixture_snapshot" 2>> "$STAGE_LOG"
@@ -186,6 +209,7 @@ EOF
 
 # Staging owns dist; retain its executable path for the firewall allowlist while
 # giving this launch a run-specific identity, as the native lifecycle harness does.
+fixture_restamped=1
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $AWESOMUX_PROFILE_BUNDLE_ID" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $AWESOMUX_PROFILE_DISPLAY_NAME" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName $AWESOMUX_PROFILE_DISPLAY_NAME" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
