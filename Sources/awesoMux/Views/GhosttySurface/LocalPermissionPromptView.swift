@@ -48,7 +48,7 @@ struct LocalPermissionPromptView: View {
                     }
                     ConsentTextView(text: card.request.summary, maximumHeight: 120)
                         .awFont(AwFont.Mono.meta)
-                        .foregroundStyle(Color.aw.text2)
+                        .foregroundStyle(Color.aw.text)
                     if let choice = card.outcome.choice {
                         Text(
                             choice == .allow
@@ -58,10 +58,10 @@ struct LocalPermissionPromptView: View {
                     }
                     Text("Untrusted tool request · revision \(identity.revision)")
                         .awFont(AwFont.Mono.meta)
-                        .foregroundStyle(Color.aw.text2)
+                        .foregroundStyle(Color.aw.text)
                     Text("Claude’s own prompt may still be answered in the terminal.")
                         .awFont(AwFont.Mono.meta)
-                        .foregroundStyle(Color.aw.text2)
+                        .foregroundStyle(Color.aw.text)
                 }
                 .id(identity)
                 .padding(.vertical, 8)

@@ -2,6 +2,36 @@ import AwesoMuxCore
 import Darwin
 import Foundation
 import Observation
+import UnicodeHygiene
+
+@MainActor
+enum LocalPermissionPresentation {
+    struct Context {
+        let workspaceName: String
+        let panePosition: Int
+
+        init?(workspaceName: String, panePosition: Int) {
+            let name = UnicodeHygiene.sanitize(workspaceName, maxLength: 80, stripInvisibleRoutingScalars: true)
+            guard !name.isEmpty, panePosition > 0 else { return nil }
+            self.workspaceName = name
+            self.panePosition = panePosition
+        }
+    }
+
+    static func isEligible(executionPlan: PaneExecutionPlan, compactTerminalKind: CompactTerminalKind?) -> Bool {
+        executionPlan.remoteTarget == nil && compactTerminalKind == nil
+    }
+
+    static func context(for target: LocalPermissionTarget, in store: SessionStore) -> Context? {
+        guard let session = store.session(id: target.workspaceID),
+            let pane = session.layout.pane(id: target.paneID),
+            isEligible(executionPlan: pane.executionPlan, compactTerminalKind: store.compactTerminalKind),
+            let position = session.layout.paneIDs.firstIndex(of: target.paneID),
+            let name = store.sidebarResolvedTitle(for: session.id)
+        else { return nil }
+        return Context(workspaceName: name, panePosition: position + 1)
+    }
+}
 
 /// ADR-0028 local routing lane. It borrows the command bridge's secure socket
 /// directory, but never enters its remote legacy connection/policy lane.
@@ -33,6 +63,10 @@ final class LocalPermissionCoordinator {
     @ObservationIgnored private var lastBackstop = Date.distantPast
     @ObservationIgnored private var publishedDecisions: Set<UUID> = []
     @ObservationIgnored private var publicationAttempts: [UUID: (count: Int, last: Date)] = [:]
+    @ObservationIgnored private let announcement: (String) -> Void
+    @ObservationIgnored private var presentationContexts: [UUID: (LocalPermissionTarget) -> LocalPermissionPresentation.Context?] = [:]
+    @ObservationIgnored private var invocationNumbers: [UUID: Int] = [:]
+    @ObservationIgnored private var nextInvocationNumber = 1
     @ObservationIgnored private var announcedStates: [UUID: LocalPermissionState] = [:]
 
     private struct Client {
@@ -42,8 +76,12 @@ final class LocalPermissionCoordinator {
         let connectedAt = Date()
     }
 
-    init(directoryScanCompleted: @escaping (LocalPermissionTarget) -> Void = { _ in }) {
+    init(
+        directoryScanCompleted: @escaping (LocalPermissionTarget) -> Void = { _ in },
+        announcement: @escaping (String) -> Void = { TerminalAccessibilityAnnouncer.announce($0) }
+    ) {
         self.directoryScanCompleted = directoryScanCompleted
+        self.announcement = announcement
         if let directory = try? BridgeListenerDirectory.create(socketName: "local-permission.sock"),
             var address = LocalPermissionFiles.address(directory.socketPath)
         {
@@ -82,7 +120,10 @@ final class LocalPermissionCoordinator {
         for endpoint in endpoints.values { try? FileManager.default.removeItem(atPath: endpoint.directory) }
     }
 
-    func install(workspaceID: UUID, paneID: UUID, eventFile: URL) -> LocalPermissionEndpoint? {
+    func install(
+        workspaceID: UUID, paneID: UUID, eventFile: URL,
+        presentationContext: @escaping (LocalPermissionTarget) -> LocalPermissionPresentation.Context? = { _ in nil }
+    ) -> LocalPermissionEndpoint? {
         retire(paneID: paneID)
         let target = LocalPermissionTarget(runtimeID: runtimeID, workspaceID: workspaceID, paneID: paneID, version: UUID())
         let path = eventFile.deletingLastPathComponent().appendingPathComponent("permissions-\(target.version.uuidString)").path
@@ -100,6 +141,7 @@ final class LocalPermissionCoordinator {
         endpointFiles[paneID] = descriptor
         eventFiles[paneID] = eventFile
         endpoints[paneID] = endpoint
+        presentationContexts[paneID] = presentationContext
         installedAt[paneID] = Date()
         core.install(target)
         watchDirectory(endpoint)
@@ -120,9 +162,9 @@ final class LocalPermissionCoordinator {
     /// Its event stream stays installed; only permission authority is renewed.
     func move(paneID: UUID, to workspaceID: UUID) {
         guard let endpoint = endpoints[paneID], endpoint.target.workspaceID != workspaceID,
-            let eventFile = eventFiles[paneID]
+            let eventFile = eventFiles[paneID], let presentationContext = presentationContexts[paneID]
         else { return }
-        _ = install(workspaceID: workspaceID, paneID: paneID, eventFile: eventFile)
+        _ = install(workspaceID: workspaceID, paneID: paneID, eventFile: eventFile, presentationContext: presentationContext)
     }
 
     func retire(paneID: UUID) {
@@ -131,6 +173,7 @@ final class LocalPermissionCoordinator {
         scanTasks.removeValue(forKey: paneID)?.cancel()
         dirtyDirectories.remove(paneID)
         core.retire(endpoint.target)
+        presentationContexts.removeValue(forKey: paneID)
         if let file = endpointFiles.removeValue(forKey: paneID) { unlink(file.path) }
         installedAt.removeValue(forKey: paneID)
         eventFiles.removeValue(forKey: paneID)
@@ -391,6 +434,9 @@ final class LocalPermissionCoordinator {
     }
 
     private func announce(_ outcome: LocalPermissionOutcome) {
+        guard let context = presentationContexts[outcome.identity.target.paneID]?(outcome.identity.target),
+            let invocationNumber = invocationNumbers[outcome.identity.invocationID]
+        else { return }
         let message: String
         switch outcome.state {
         case .pending: message = String(localized: "Claude permission needed")
@@ -403,7 +449,7 @@ final class LocalPermissionCoordinator {
         case .cancelled: message = String(localized: "Permission request cancelled")
         case .delivering: return
         }
-        TerminalAccessibilityAnnouncer.announce(message)
+        announcement(String(localized: "\(context.workspaceName), pane \(context.panePosition), request \(invocationNumber). \(message)"))
     }
 
     private func publish() {
@@ -412,6 +458,11 @@ final class LocalPermissionCoordinator {
             guard endpoints[request.target.paneID]?.target == request.target,
                 let outcome = core.outcome(request.identity)
             else { continue }
+            // Keep the label stable even if another invocation arrives later.
+            if invocationNumbers[request.invocationID] == nil {
+                invocationNumbers[request.invocationID] = nextInvocationNumber
+                nextInvocationNumber += 1
+            }
             if announcedStates[request.invocationID] != outcome.state {
                 announce(outcome)
                 announcedStates[request.invocationID] = outcome.state
@@ -440,6 +491,7 @@ final class LocalPermissionCoordinator {
         publishedDecisions.formIntersection(retained)
         publicationAttempts = publicationAttempts.filter { retained.contains($0.key) }
         announcedStates = announcedStates.filter { retained.contains($0.key) }
+        invocationNumbers = invocationNumbers.filter { retained.contains($0.key) }
         displayedAt = displayedAt.filter { retained.contains($0.key) }
     }
 }
