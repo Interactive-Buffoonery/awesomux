@@ -82,6 +82,7 @@ If `$ZMX_SESSION` is unset, you are not in a daemon-backed pane (see
 | `amx history <name> [--vt\|--html]` | optional — defaults to `$ZMX_SESSION` | Dump the pane's scrollback |
 | `amx list [--short]` | n/a | List sessions in `$ZMX_DIR` |
 | `amx attach --existing <name>` | **required** | Attach only if the named daemon is already responsive; never create or replace it |
+| `amx watch <name>` | **required** | Watch an existing session without input or resize authority; requires typed capability acceptance |
 | `amx cwd <name>` | **required** | Print the active terminal job's cwd, falling back to the session root shell |
 | `amx wait <name>` | **required** | Block until an `amx run -d` **task** completes — see below |
 
@@ -146,7 +147,8 @@ backend when updating its pin.
 
 The fork provides an additive typed attachment protocol and `amx watch NAME`
 for an existing local session. Watch requires positive capability acceptance;
-old daemons time out without a legacy Init/input fallback. Watch cannot claim,
+old daemons fail after one elapsed monotonic second without a legacy Init/input
+fallback. SessionEnd before acceptance also fails. Watch cannot claim,
 resize, reply to terminal queries, send input or use legacy mutation messages.
 Authority notifications identify the leader attachment and authoritative grid.
 The fork's `LEADERSHIP.md` specifies payloads and queue semantics.
@@ -157,7 +159,14 @@ leader clears authority while retaining that grid. The next accepted interactive
 user batch or explicit typed takeover applies its validated dimensions before
 its bytes. Automation does neither. The existing Mac `attach` stream still uses
 a legacy heuristic to distinguish user input from replies; coalesced arbitrary
-stdin cannot provide the typed protocol's provenance guarantees.
+stdin cannot provide the typed protocol's provenance guarantees. C0 controls
+except ESC, DEL and ordinary CSI arrows can claim before a legacy leader exists.
+Standalone ESC before leadership remains an explicit legacy limitation; no
+timeout or guessing heuristic is used. The daemon answers DA queries while
+leaderless, including with legacy clients attached; other terminal queries may
+remain unanswered until leadership is claimed. Unchanged-grid input from the
+same leader preserves pending typed replies; explicit takeover and real
+leader/grid changes invalidate them.
 
 This is a local daemon contract. Paired-device grants, relay transport, safe
 remote rendering, follower layout and native leader presentation remain
