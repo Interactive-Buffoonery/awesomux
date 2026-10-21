@@ -7,7 +7,7 @@ struct SidebarDuplicateDisambiguation: Equatable {
     let total: Int
 
     var visibleLabel: String {
-        "\(ordinal)"
+        ordinal.formatted()
     }
 
     var accessibilitySuffix: String {
