@@ -87,10 +87,11 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
   stream with an error rather than being skipped.
 - Stream frames reuse the four-byte big-endian length prefix. The first byte
   of each frame is its type. Control frames (`snapshot_begin`, `snapshot_end`,
-  `grid`, `leader`, `heartbeat`, `end`, and `ack`) carry UTF-8 JSON. Data frames
-  (`snapshot` chunk, `output`, `input`, `reply`) carry the four-byte generation
-  ID, an eight-byte sequence number and raw bytes; terminal bytes are never
-  base64-encoded or re-framed as JSON. `input` is what the person typed or
+  `grid`, `leader`, `claim`, `heartbeat`, `end`, and `ack`) carry UTF-8 JSON.
+  Data frames (`snapshot` chunk, `output`, `input`, `reply`) carry an
+  eight-byte sequence number and raw bytes; terminal bytes are never
+  base64-encoded or re-framed as JSON. Every frame after `snapshot_begin`, in
+  both directions, carries the four-byte generation ID. `input` is what the person typed or
   pasted; `reply` is a terminal-generated answer to a query (for example DSR).
   Only `input` can claim leadership; the Mac forwards a `reply` only from the
   current leader's stream and drops queued replies when the leader or the
@@ -118,10 +119,18 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
 - `grid` and `leader` control frames are sent at snapshot and whenever the
   daemon reports a change, in order with output. The phone presents the
   authoritative grid with scaling and panning; rotation never sends a resize.
-  A Watch stream carries no `input` or `reply` frames; the Mac drops any it
-  receives and ends the stream as a protocol error. A data frame whose
-  generation ID is not the stream's current one is dropped before any
-  forwarding, so input delayed across an overflow resync cannot reach the PTY.
+  A phone with the interactive role sends its requested dimensions in a `grid`
+  frame; the Mac applies them only with that phone's next accepted `input` or
+  explicit `claim` (Take over, ADR-0036), never on receipt. A Watch stream
+  carries no `input`, `reply`, `claim` or phone-sent `grid` frames; the Mac
+  drops any it receives and ends the stream as a protocol error. Any frame
+  whose generation ID is not the stream's current one is dropped before any
+  forwarding, so input or a grid delayed across an overflow resync cannot
+  reach the PTY.
+- A stream's role is fixed at attach from the device's grants. Granting or
+  revoking the input grant ends every stream for that device with
+  `role_changed`; the phone attaches again and receives its new role in the
+  handshake reply. There is no in-stream role upgrade.
 
 ### Buffers and a slow phone
 
@@ -133,8 +142,12 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
 - When a stream's pending buffer would overflow, the Mac discards the buffered
   output, detaches that stream's zmx client and, once the socket drains,
   attaches a new one so the phone receives a new generation beginning with a
-  snapshot. Output lost between generations is reported as incomplete history,
-  never silently skipped inside one generation.
+  snapshot. The restart is bounded: if the buffer overflows again before the
+  new generation's `snapshot_end` is written, or more than three times within
+  one minute, the Mac ends the stream with `overflow` and the phone must
+  reconnect, so a phone that cannot keep up sees a closed stream rather than
+  an empty generation. Output lost between generations is reported as
+  incomplete history, never silently skipped inside one generation.
 - The Mac sends `heartbeat` every 15 seconds while idle and closes a stream
   with no readable frame or TCP progress for 45 seconds. The phone keeps a
   stream open only while the terminal view is foreground and visible and ends
@@ -146,7 +159,7 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
 
 - Either side ends a stream with an `end` frame naming a reason (`closed`,
   `superseded`, `revoked`, `pane_unavailable`, `session_ended`,
-  `protocol_error`, `overflow`) or by closing TLS. A new `watch_terminal` for
+  `role_changed`, `protocol_error`, `overflow`) or by closing TLS. A new `watch_terminal` for
   the same device and pane supersedes the previous stream; the old one ends.
 - Before every frame it writes, the Mac rechecks the device's lease revision,
   Terminal grant and role, the pane's workspace assignment, the pane's target
