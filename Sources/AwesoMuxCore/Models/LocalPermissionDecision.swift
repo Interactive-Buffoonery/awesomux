@@ -208,7 +208,7 @@ public final class LocalPermissionDecisionCore {
         // requires an observed session transition; delayed telemetry cannot mint it.
         guard sessions[request.target] == nil || sessions[request.target] == request.providerSessionID else { return false }
         sessions[request.target] = request.providerSessionID
-        sessionEvidenceAt[request.target] = now
+        sessionEvidenceAt[request.target] = max(sessionEvidenceAt[request.target] ?? .distantPast, request.issuedAt)
         seen[request.target, default: []].insert(request.invocationID)
         entries[request.invocationID] = Entry(request: request, outcome: .init(identity: request.identity, state: .pending))
         return true

@@ -91,6 +91,45 @@ struct LocalPermissionIntegrationTests {
         #expect(await waitUntilEventually { coordinator.cards[pane]?.outcome.state == .delivered })
     }
 
+    @Test("delayed old admission preserves session ordering and rediscovers unchanged fallback")
+    func delayedAdmissionAndUnchangedFallback() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var completedScans = 0
+        let coordinator = LocalPermissionCoordinator(directoryScanCompleted: { _ in completedScans += 1 })
+        defer { coordinator.retireAll() }
+        let pane = UUID()
+        let endpoint = try #require(
+            coordinator.install(workspaceID: UUID(), paneID: pane, eventFile: root.appendingPathComponent("events.jsonl")))
+        try #require(await waitUntilEventually { completedScans > 0 })
+        coordinator.observe(.init(source: .claudeCode, phase: .sessionStart, providerSessionID: "A", timestamp: Date()), paneID: pane)
+        let old = try request(endpoint, session: "A")
+        let sessionStart = old.issuedAt.addingTimeInterval(0.01)
+        // B starts after A's issuance, but its telemetry remains buffered.
+        try #require(await waitUntilEventually { Date() > sessionStart })
+        let successor = try request(endpoint, session: "B")
+        let successorFile = endpoint.file("req", id: successor.invocationID)
+        let scansBeforeSuccessor = completedScans
+        #expect(LocalPermissionFiles.write(successor, at: successorFile))
+        let unchanged = try Data(contentsOf: successorFile)
+        try #require(await waitUntilEventually { completedScans > scansBeforeSuccessor })
+        #expect(coordinator.cards[pane] == nil)
+
+        // Only now admit the still-live A hook: T1 < B's start T2 < admission T3.
+        #expect(LocalPermissionFiles.write(old, at: endpoint.file("req", id: old.invocationID)))
+        try #require(await waitUntilEventually { coordinator.cards[pane]?.request == old })
+        #expect(coordinator.cards[pane]?.outcome.state == .pending)
+        coordinator.observe(.init(source: .claudeCode, phase: .sessionStart, providerSessionID: "B", timestamp: sessionStart), paneID: pane)
+        #expect(
+            await waitUntilEventually(deadline: .seconds(2)) {
+                coordinator.cards[pane]?.request == successor && coordinator.cards[pane]?.outcome.state == .pending
+                    && LocalPermissionFiles.read(LocalPermissionOutcome.self, at: endpoint.file("dec", id: old.invocationID))?.state
+                        == .cancelled
+            })
+        #expect(try Data(contentsOf: successorFile) == unchanged)
+        #expect(LocalPermissionFiles.read(LocalPermissionOutcome.self, at: endpoint.file("dec", id: old.invocationID))?.choice == nil)
+    }
+
     @Test("terminal fallback publication retries after a blocked path without reopening")
     func terminalPublicationRetry() async throws {
         let root = try directory()

@@ -127,6 +127,39 @@ struct LocalPermissionDecisionCoreTests {
         #expect(core.commit(request.identity, choice: .allow, now: now, helperAlive: true) == .recorded)
     }
 
+    @Test func delayedAdmissionDoesNotHideNewerSessionStart() {
+        let (core, old) = fixture()
+        let sessionStart = now.addingTimeInterval(1)
+        let admission = now.addingTimeInterval(2)
+        #expect(old.issuedAt < sessionStart && sessionStart < admission)
+        #expect(core.admit(old, now: admission, helperAlive: true))
+        core.observeSession("replacement", target: old.target, at: sessionStart)
+        #expect(core.outcome(old.identity)?.state == .cancelled)
+        #expect(core.commit(old.identity, choice: .allow, now: admission, helperAlive: true) == .cancelled)
+        #expect(core.claimDelivery(old.identity, now: admission, helperAlive: true) == nil)
+        let replacement = LocalPermissionRequest(
+            target: old.target, providerSessionID: "replacement", invocationID: UUID(), toolUseID: nil,
+            helperPID: 124, helperStartMicroseconds: 1, expiresAt: sessionStart.addingTimeInterval(120),
+            tool: "Bash", summary: "replacement"
+        )
+        #expect(core.admit(replacement, now: admission, helperAlive: true))
+        #expect(core.commit(replacement.identity, choice: .deny, now: admission, helperAlive: true) == .recorded)
+    }
+
+    @Test func olderIngressPreservesNewerExplicitSessionEvidence() {
+        let (core, request) = fixture()
+        let explicitStart = now.addingTimeInterval(2)
+        let admission = now.addingTimeInterval(4)
+        core.observeSession(request.providerSessionID, target: request.target, at: explicitStart)
+        #expect(core.admit(request, now: admission, helperAlive: true))
+        core.observeSession("stale", target: request.target, at: now.addingTimeInterval(1))
+        #expect(core.outcome(request.identity)?.state == .pending)
+        #expect(core.commit(request.identity, choice: .allow, now: admission, helperAlive: true) == .recorded)
+        core.observeSession("replacement", target: request.target, at: now.addingTimeInterval(3))
+        #expect(core.outcome(request.identity)?.state == .cancelled)
+        #expect(core.claimDelivery(request.identity, now: admission, helperAlive: true) == nil)
+    }
+
     @Test func progressBeforeIngressClosesOnlyTheMatchingLifetime() {
         let (core, request) = fixture()
         core.observeProgress(session: request.providerSessionID, target: request.target, at: now.addingTimeInterval(1))
