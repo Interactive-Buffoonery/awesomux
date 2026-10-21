@@ -80,6 +80,7 @@ private struct AgentIntegrationDisclosureStyle<Status: View, EnableToggle: View>
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("agent-integration-disclosure")
                 .accessibilityValue(
                     configuration.isExpanded
                         ? String(localized: "Expanded", comment: "Disclosure state.")

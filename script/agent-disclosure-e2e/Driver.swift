@@ -63,6 +63,7 @@ struct Driver {
         func attribute(_ element: NSObject, _ name: NSAccessibility.Attribute) -> Any? {
             let selectors: [NSAccessibility.Attribute: String] = [
                 .children: "accessibilityChildren", .role: "accessibilityRole", .value: "accessibilityValue",
+                .identifier: "accessibilityIdentifier",
             ]
             let selector = NSSelectorFromString(selectors[name]!)
             if element.responds(to: selector) {
@@ -79,14 +80,18 @@ struct Driver {
         func header() -> NSObject {
             guard
                 let result = elements(window).first(where: {
-                    attribute($0, .role) as? String == "AXDisclosureTriangle"
+                    attribute($0, .role) as? String == "AXButton"
+                        && attribute($0, .identifier) as? String == "agent-integration-disclosure"
                 })
             else { fatalError("Missing disclosure control") }
             return result
         }
         func expect(_ expanded: Bool, _ message: String) {
             settle()
-            guard (attribute(header(), .value) as? NSNumber)?.boolValue == expanded else {
+            let expectedValue = expanded
+                ? String(localized: "Expanded", comment: "Disclosure state.")
+                : String(localized: "Collapsed", comment: "Disclosure state.")
+            guard attribute(header(), .value) as? String == expectedValue else {
                 fatalError(message)
             }
             let hasEditor = elements(window).contains { attribute($0, .role) as? String == "AXTextField" }
