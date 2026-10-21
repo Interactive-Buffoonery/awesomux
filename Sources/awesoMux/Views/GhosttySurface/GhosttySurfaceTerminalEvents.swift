@@ -912,6 +912,14 @@ extension GhosttySurfaceNSView {
             return
         }
 
+        // The stored kind and observed-context latch can outlive Codex. Only
+        // its current foreground process may lend context to bannerless output.
+        if liveKindForGate == .codex {
+            guard let command = documentNudgeForegroundComm(),
+                AgentProcessRecognition.agentKind(forCommand: command) == .codex
+            else { return }
+        }
+
         guard
             let detection = terminalEventState.agentOutputDetector.detectedOutput(
                 in: visibleText,
@@ -934,7 +942,11 @@ extension GhosttySurfaceNSView {
         guard let delivered = terminalEventState.codexHooksDelivered,
             delivered.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
         else { return false }
-        return delivered.incarnation == documentNudgeForegroundGeneration()
+        guard let current = documentNudgeForegroundGeneration() else {
+            // An unavailable sample does not prove the hooked process changed.
+            return true
+        }
+        return delivered.incarnation == current
     }
 
     func shouldSuppressVisibleTextState(_ detectedState: AgentState, now: TimeInterval) -> Bool {
@@ -1214,10 +1226,12 @@ extension GhosttySurfaceNSView {
         if event.phase == .sessionEnd {
             terminalEventState.hasObservedAgentActivity = false
             terminalEventState.codexHooksDelivered = nil
-        } else if event.source == .codex {
-            terminalEventState.codexHooksDelivered = documentNudgeForegroundGeneration().map {
-                (PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), $0)
-            }
+        } else if event.source == .codex,
+            let incarnation = documentNudgeForegroundGeneration()
+        {
+            terminalEventState.codexHooksDelivered = (
+                PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), incarnation
+            )
         }
 
         // Only state-bearing events suppress the visible-text detector,

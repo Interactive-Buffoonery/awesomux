@@ -115,8 +115,13 @@ class Client:
         self.name, self.out, self.fd = name, b'', None
         self.pid, fd = pty.fork()
         if self.pid == 0:
-            os.chdir(work)
-            os.execve(CODEX, [CODEX] + extra_args, env)
+            try:
+                os.chdir(work)
+                os.execve(CODEX, [CODEX, *extra_args], env)
+            except BaseException as error:
+                os.write(2, f'exec failed: {error}\n'.encode())
+            finally:
+                os._exit(127)
         self.fd = fd
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
         CLIENTS.append(self)
