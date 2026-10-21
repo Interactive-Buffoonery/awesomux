@@ -224,7 +224,9 @@ final class CompanionPairingCoordinator {
             do {
                 try accessStore.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: retained.isEmpty ? nil : retained)
             } catch {
-                listenerErrorMessage = String(localized: "Could not save decision access.")
+                listenerErrorMessage = String(
+                    localized: "Could not save decision access.",
+                    comment: "Error shown when saving a paired phone’s workspace decision permission fails.")
             }
         }
     }
