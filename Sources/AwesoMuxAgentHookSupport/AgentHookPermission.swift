@@ -51,13 +51,12 @@ enum AgentHookPermission {
         }
         while ContinuousClock.now < deadline, Date() < request.expiresAt {
             if let outcome = LocalPermissionFiles.read(LocalPermissionOutcome.self, at: endpoint.file("dec", id: request.invocationID)),
-                outcome.identity == request.identity
-            {
-                if outcome.state == .delivering, let choice = outcome.choice {
-                    if outputDecision(choice, output: output) {
+                consumeResponse(
+                    outcome, request: request, deadline: deadline, output: output,
+                    acknowledge: {
                         _ = LocalPermissionFiles.write(request.identity, at: endpoint.file("ack", id: request.invocationID))
-                    }
-                }
+                    })
+            {
                 return
             }
             var current = stat()
@@ -71,6 +70,22 @@ enum AgentHookPermission {
 
     private static func outputDecision(_ choice: LocalPermissionChoice, output: (String) -> Bool) -> Bool {
         output("{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"\(choice.rawValue)\"}}}")
+    }
+
+    /// A matching response consumes the invocation even if it expired during
+    /// reception. Returning true prevents bridge fallback from renewing it.
+    static func consumeResponse(
+        _ outcome: LocalPermissionOutcome, request: LocalPermissionRequest,
+        deadline: ContinuousClock.Instant, wallNow: () -> Date = { Date() },
+        monotonicNow: () -> ContinuousClock.Instant = { ContinuousClock.now },
+        output: (String) -> Bool, acknowledge: () -> Void
+    ) -> Bool {
+        guard outcome.identity == request.identity else { return false }
+        if outcome.state == .delivering, let choice = outcome.choice {
+            guard monotonicNow() < deadline, wallNow() < request.expiresAt else { return true }
+            if outputDecision(choice, output: output) { acknowledge() }
+        }
+        return true
     }
 
     /// A successful response (including a terminal no-decision outcome) ends
@@ -124,13 +139,13 @@ enum AgentHookPermission {
             accumulated.append(contentsOf: bytes.prefix(count))
             guard accumulated.count <= LocalPermissionFiles.maximumBytes else { return false }
             if let newline = accumulated.firstIndex(of: 10) {
-                guard let outcome = try? JSONDecoder().decode(LocalPermissionOutcome.self, from: accumulated[..<newline]),
-                    outcome.identity == request.identity
+                guard let outcome = try? JSONDecoder().decode(LocalPermissionOutcome.self, from: accumulated[..<newline])
                 else { return false }
-                if outcome.state == .delivering, let choice = outcome.choice {
-                    if outputDecision(choice, output: output) { _ = send(request.identity, fd: fd) }
-                }
-                return true
+                return consumeResponse(
+                    outcome, request: request, deadline: deadline, output: output,
+                    acknowledge: {
+                        _ = send(request.identity, fd: fd)
+                    })
             }
         }
         return true
