@@ -28,6 +28,8 @@ public extension SessionStore {
         localAPITracking = true
         localAPITargets.removeAll()
         reconcileLocalAPIAssignments()
+        whileAwaySummary = nil
+        pendingWhileAwaySummary = nil
         localAPIAttentionJournal = LocalAPIAttentionJournal(instanceID: instanceID)
         localAPIActiveAttention.removeAll()
         recordLocalAPIAttentionChanges()

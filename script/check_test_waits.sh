@@ -56,11 +56,19 @@ check_line() {
     # a gate is exactly what goes missing in awesomux#207.
     [[ "$file" == Tests/AwesoMuxTestSupport/Wait.swift ]] && return
     [[ "$file" == Tests/AwesoMuxTestSupport/ProcessBoundedWait.swift ]] && return
+    # BoundedSignal's deadline timer is what bounds every gate and drain wait.
+    [[ "$file" == Tests/AwesoMuxTestSupport/BoundedSignal.swift ]] && return
     # Recursive on purpose, and not obvious: in `[[ ]]` pattern matching `*`
     # crosses `/`, so this exempts nested directories (`Bridge/`, …) as well as
     # direct children. That matches the rule's intent — the whole system-test
     # bucket is exempt — but the line reads as if it were scoped to one level.
     [[ "$file" == Tests/awesoMuxTests/*.swift ]] && return
+    # macOS accept() ignores SO_RCVTIMEO, so the test server bounds it with a
+    # 30 s readiness wait; the accepted socket uses socket timeouts instead.
+    if [[ "$file" == Tests/AwesoMuxBridgeHelperSupportTests/HelperConnectionTests.swift ]] \
+        && [[ "${content#"${content%%[![:space:]]*}"}" == 'guard poll(&pending, 1, 30_000) > 0 else { throw TestSocketError.system }' ]]; then
+        return
+    fi
     # Runtime pipe backpressure requires kernel readiness, not a test delay.
     # This exact bounded call rechecks closure every 25 ms on the writer queue.
     if [[ "$file" == Sources/awesoMux/Services/ProcessCodexAppServerTransport.swift ]] \
@@ -84,6 +92,8 @@ check_unbounded_wait() {
     local content="$3"
 
     [[ "$file" == Tests/AwesoMuxTestSupport/ProcessBoundedWait.swift ]] && return
+    # BoundedSignal's deadline timer is what bounds every gate and drain wait.
+    [[ "$file" == Tests/AwesoMuxTestSupport/BoundedSignal.swift ]] && return
     [[ "$file" == Tests/awesoMuxTests/ProcessWaitBoundedGuardTests.swift ]] && return
     # BridgeGenerationRegistry's existing app-quit wait is deliberate and needs
     # no exemption: this check only sees changed lines, so the untouched call

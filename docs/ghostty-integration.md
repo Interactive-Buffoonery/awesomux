@@ -4,23 +4,21 @@ awesoMux vendors Ghostty as a pinned git submodule:
 
 - Path: `vendor/ghostty`
 - Upstream: `https://github.com/ghostty-org/ghostty.git`
-- Current pin: `6301810a48aaa3426887a4316668f18833a40138` (untagged `origin/main`, post-`v1.3.1`)
+- Current pin: `f44c67817d1869cd1ff3cbd648552e4c7ac9ba23` (untagged `origin/main`, post-`v1.3.1`)
 - License: MIT
 
-> The current pin includes upstream terminal fixes for word selection across
-> wide characters and hard line breaks, reverse-wrap cursor jumps, and a tmux
-> `list-windows` use-after-free. It adds overscan support to `RenderState` with
-> the matching libghostty C API, window resizing through `CSI 8 t` (including
-> macOS), glyph cache keys packed into a `u64`, and batched special-graphics
-> writes. The renderer also gained a synchronized-output render hold effect
-> (mode 2026). The GTK/OpenGL changes in this range are Linux-only.
+> This update adds upstream fixes for a
+> [scrollback cursor-page use-after-free](https://github.com/ghostty-org/ghostty/commit/65ff54c67),
+> [PTY and terminal resize synchronization](https://github.com/ghostty-org/ghostty/pull/14706),
+> and [mouse-button release reporting at prompts](https://github.com/ghostty-org/ghostty/pull/14710).
+> These changes affect awesoMux's terminal engine; upstream's macOS application
+> changes do not replace awesoMux's own window and command handling.
 >
-> The `uucode` package pin moved from Ghostty's `deps.files.ghostty.org` mirror
-> to the upstream GitHub archive at revision
-> `9d55524551411b493cca41ca06363625d90aff1e`. uucode produces generated tables
-> only, so the audited ReleaseFast archive-member inventory is unchanged at 277
-> members with digest
+> The generated awesoMux scrollback and path-link extensions build against this
+> pin and pass their native regression suites. The ReleaseFast archive inventory
+> remains at 277 members with digest
 > `dfa93db126aceae926ead3d0ebffe43728882a65cda659a81a539269219d1f82`.
+> The bundled Ghostty license is byte-identical to the file at this revision.
 >
 > Pinned past `v1.3.1` to pick up upstream resize/reflow fixes (notably
 > `#12653` "preserve shell prompts on resize") and the VT throughput work
@@ -151,6 +149,54 @@ All native fragments and regression cases participate in the source fingerprint.
 `script/verify_remote_pwd_injection.py --vendor /path/to/pinned/ghostty` verifies
 exact insertion counts and preservation of upstream source without compiling.
 The native build also runs the `awesomux-remote-pwd` bounded-copy regressions.
+
+## Command completion status fidelity
+
+The generated source preserves unknown OSC 133 command status. In the pinned
+upstream stream handler, an omitted/malformed exit code becomes zero and a value
+outside 0–255 becomes one. `prepare_ghostty_source.py` replaces only that exact
+conversion block with `native/ghostty/command-status.zig`, failing if the anchor
+is absent or duplicated. Vendor source and its pin remain unchanged.
+
+The helper retains `?u8`: explicit zero is success, 1–255 remain known exits,
+and absent, malformed, negative or oversized values remain `null`. The existing
+surface mailbox and completion action preserve that optional status; the C
+export maps `null` to `-1`. The Swift exit cache clears prior evidence when an
+unknown completion arrives, so it cannot later signal a failed process close
+or sibling-pane alert. Agent completion detection already ignores negative
+status; only explicit zero clears a stale execution error.
+
+The helper, regression fragment and preparation script participate in the native
+artifact fingerprint. Ordinary `build_ghostty_xcframework.sh` rebuilds execute
+the `awesomux-command-status` native regression before publishing artifacts.
+The test parses OSC 133 C followed by statusless D, explicit D;0/D;1/D;7/D;255,
+and invalid D values, passes the actual helper result through the surface
+message payload and completion C export, and checks status and duration. It
+does not drive a real terminal stream, surface timer, mailbox delivery, or Swift
+callback, so live OSC133/PTY behavior remains a separate runtime check.
+
+Source-only verification (no compilation or vendor writes):
+
+```sh
+python3 script/verify_command_status_injection.py --vendor vendor/ghostty
+```
+
+Focused native regression, with `AWESOMUX_ZIG` set to the compatible Zig binary
+used by the standard native build:
+
+```sh
+heavy-gate -- sh -c '
+  set -eu
+  generated_source=$(python3 script/prepare_ghostty_source.py)
+  cd "$generated_source"
+  "$AWESOMUX_ZIG" build test -Dapp-runtime=none -Demit-macos-app=false \
+    -Dtest-filter=awesomux-command-status --summary all
+'
+```
+
+The existing `CommandBridgeRuntimeDeathHealViewTests` command-completion case
+also covers known success and unknown status replacing a cached failure. Run
+that Swift regression through the gate after refreshing native artifacts.
 
 ## Bounded Show Scrollback read
 

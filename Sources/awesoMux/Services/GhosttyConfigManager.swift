@@ -330,7 +330,7 @@ struct GhosttyConfigManager {
         loadOverlay(contents, into: config, filePrefix: filePrefix, failureMode: failureMode) == .applied
     }
 
-    // TODO(INT-389): replace with a direct `ghostty_config_load_string`
+    // TODO(#800): replace with a direct `ghostty_config_load_string`
     // call once libghostty upstream exposes one. The temp-file dance is
     // CWE-377-adjacent and adds two synchronous main-actor disk writes
     // per config build.

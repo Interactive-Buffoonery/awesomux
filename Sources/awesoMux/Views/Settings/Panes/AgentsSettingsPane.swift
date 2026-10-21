@@ -114,28 +114,32 @@ struct AgentsSettingsPane: View {
                                 onUninstall: { uninstall(provider) }
                             )
                         } else if let pluginProvider = display.pluginProvider {
+                            let pluginSetup = pluginDraftSetup(for: pluginProvider)
+                            let folders = pluginViewModel.targets(provider: pluginProvider, setup: pluginSetup)
+                                .map { pluginViewModel.cardState(target: $0, setup: pluginSetup) }
                             AgentPluginCard(
-                                state: pluginViewModel.cardState(
-                                    provider: pluginProvider,
-                                    setup: pluginDraftSetup(for: pluginProvider)
-                                ),
+                                state: folders[0],
+                                folders: folders,
+                                installSummary: pluginViewModel.installSummary(provider: pluginProvider, setup: pluginSetup),
                                 isEnabled: pluginEnabledBinding(provider: pluginProvider),
                                 binaryPath: pluginDraftBinding(provider: pluginProvider, keyPath: \.binaryPath),
                                 configHome: pluginDraftBinding(provider: pluginProvider, keyPath: \.configHome),
                                 focusedField: $focusedField,
                                 onCommit: { commitPluginSetup(pluginProvider) },
-                                confirmation: { action in
+                                confirmation: { target, action in
                                     pluginViewModel.confirmation(
                                         for: action,
-                                        provider: pluginProvider,
+                                        target: target,
                                         setup: pluginDraftSetup(for: pluginProvider)
                                     )
                                 },
-                                onConfirmedAction: { action in
-                                    performPluginAction(action, provider: pluginProvider)
+                                onConfirmedAction: { target, action in
+                                    performPluginAction(action, target: target)
                                 },
-                                onCheckStatus: { refreshPluginStatus(pluginProvider) },
-                                onCancel: { cancelPluginTask(pluginProvider) }
+                                onCheckStatus: { refreshPluginStatus($0) },
+                                onCancel: { cancelPluginTask(pluginProvider) },
+                                onAddFolder: { addPluginFolder($0, provider: pluginProvider) },
+                                onForgetFolder: { forgetPluginFolder($0) }
                             )
                         }
                     }
@@ -278,8 +282,26 @@ struct AgentsSettingsPane: View {
 
             guard pluginTasks[provider] == nil else { continue }
             pluginViewModel.clearCachedState(for: provider)
-            startPluginTask(provider: provider) { setup in
-                await pluginViewModel.refreshStatus(provider: provider, setup: setup)
+            probePluginFolders(provider)
+        }
+    }
+
+    /// Probes a provider's folders two at a time, publishing each folder as it
+    /// lands. Probes are read-only; mutations still wait for the whole sweep.
+    private func probePluginFolders(_ provider: AgentPluginProvider) {
+        let model = pluginViewModel
+        startPluginTask(provider: provider) { setup in
+            var pending = model.targets(provider: provider, setup: setup)[...]
+            await withTaskGroup(of: Void.self) { group in
+                func startNext() {
+                    guard !Task.isCancelled, let target = pending.popFirst() else { return }
+                    group.addTask { await model.refreshStatus(target: target, setup: setup) }
+                }
+                startNext()
+                startNext()
+                while await group.next() != nil {
+                    startNext()
+                }
             }
         }
     }
@@ -312,9 +334,7 @@ struct AgentsSettingsPane: View {
                 commitPluginSetup(provider)
                 // Enabling is consent for read-only probes (decision 1); disabling
                 // stops them. Refresh status accordingly.
-                startPluginTask(provider: provider) { setup in
-                    await pluginViewModel.refreshStatus(provider: provider, setup: setup)
-                }
+                probePluginFolders(provider)
             }
         )
     }
@@ -324,7 +344,8 @@ struct AgentsSettingsPane: View {
         let normalized = AgentIntegrationSetup(
             enabled: draft.enabled,
             binaryPath: normalizedOptional(draft.binaryPath),
-            configHome: normalizedOptional(draft.configHome)
+            configHome: normalizedOptional(draft.configHome),
+            additionalConfigHomes: draft.additionalConfigHomes.flatMap { $0.isEmpty ? nil : $0 }
         )
         pluginDraftSetups[provider] = normalized
 
@@ -350,21 +371,51 @@ struct AgentsSettingsPane: View {
     private func probeEnabledPluginProviders() {
         for provider in AgentPluginProvider.allCases where pluginTasks[provider] == nil {
             if pluginDraftSetup(for: provider).enabled {
-                startPluginTask(provider: provider) { setup in
-                    await pluginViewModel.refreshStatus(provider: provider, setup: setup)
-                }
+                probePluginFolders(provider)
             }
         }
     }
 
     /// Manual "Check status" from the card. Same busy-skip as the auto-probe: a
     /// mutation in flight is never interrupted by a status refresh.
-    private func refreshPluginStatus(_ provider: AgentPluginProvider) {
-        guard pluginTasks[provider] == nil else { return }
-        guard pluginDraftSetup(for: provider).enabled else { return }
-        startPluginTask(provider: provider) { setup in
-            await pluginViewModel.refreshStatus(provider: provider, setup: setup)
+    private func refreshPluginStatus(_ target: AgentPluginTarget) {
+        guard pluginTasks[target.provider] == nil else { return }
+        guard pluginDraftSetup(for: target.provider).enabled else { return }
+        startPluginTask(provider: target.provider) { setup in
+            await pluginViewModel.refreshStatus(target: target, setup: setup)
         }
+    }
+
+    private func addPluginFolder(_ path: String, provider: AgentPluginProvider) {
+        guard pluginTasks[provider] == nil else { return }
+        var draft = pluginDraftSetup(for: provider)
+        let target = AgentPluginTarget(provider: provider, configHome: path)
+        let resolved = pluginViewModel.resolvedFolderPath(target, setup: draft)
+        let alreadyListed = (draft.additionalConfigHomes ?? []).contains { home in
+            pluginViewModel.resolvedFolderPath(
+                AgentPluginTarget(provider: provider, configHome: home), setup: draft
+            ) == resolved
+        }
+        if !alreadyListed {
+            draft.additionalConfigHomes = (draft.additionalConfigHomes ?? []) + [path]
+        }
+        pluginDraftSetups[provider] = draft
+        probePluginFolders(provider)
+    }
+
+    /// Drops a folder from the list only; an install there stays visible
+    /// through its install record until it is removed.
+    private func forgetPluginFolder(_ target: AgentPluginTarget) {
+        guard pluginTasks[target.provider] == nil else { return }
+        var draft = pluginDraftSetup(for: target.provider)
+        let resolved = pluginViewModel.resolvedFolderPath(target, setup: draft)
+        draft.additionalConfigHomes = draft.additionalConfigHomes?.filter { home in
+            pluginViewModel.resolvedFolderPath(
+                AgentPluginTarget(provider: target.provider, configHome: home), setup: draft
+            ) != resolved
+        }
+        pluginDraftSetups[target.provider] = draft
+        commitPluginSetup(target.provider)
     }
 
     /// Cancel the in-flight task for a single provider. The card only exposes this
@@ -376,7 +427,8 @@ struct AgentsSettingsPane: View {
         pluginTaskIDs[provider] = nil
     }
 
-    private func performPluginAction(_ action: AgentPluginAction, provider: AgentPluginProvider) {
+    private func performPluginAction(_ action: AgentPluginAction, target: AgentPluginTarget) {
+        let provider = target.provider
         // A mutation must run to completion: the CLI op is not cancellation-aware,
         // so cancel-and-restart would discard a finished install's result while it
         // keeps running. The view model already refuses overlapping work and the
@@ -385,7 +437,7 @@ struct AgentsSettingsPane: View {
         guard pluginTasks[provider] == nil else { return }
         commitPluginSetup(provider)
         startPluginTask(provider: provider) { setup in
-            await pluginViewModel.perform(action: action, provider: provider, setup: setup)
+            await pluginViewModel.perform(action: action, target: target, setup: setup)
         }
     }
 

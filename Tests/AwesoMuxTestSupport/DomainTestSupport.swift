@@ -30,5 +30,4 @@ public extension TerminalSession {
     var shellActivity: ShellActivity { activePane?.shellActivity ?? .idle }
     var needsTerminalQuitConfirmation: Bool { activePane?.needsTerminalQuitConfirmation ?? false }
     var lastAgentStateChangeAt: Date { activePane?.lastAgentStateChangeAt ?? Date() }
-    static var staleAgentActivityThreshold: TimeInterval { TerminalPane.staleAgentActivityThreshold }
 }

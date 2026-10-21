@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Dispatch
 import Foundation
 import Testing
@@ -10,8 +11,8 @@ import Testing
 struct RemoteMarkdownTabRefreshTests {
     private final class FetchGate: @unchecked Sendable {
         private let lock = NSLock()
-        private var started: CheckedContinuation<Void, Never>?
-        private var release: CheckedContinuation<Void, Never>?
+        private var started: SignalResumer?
+        private var release: SignalResumer?
         private var hasStarted = false
         private var isReleased = false
 
@@ -21,7 +22,7 @@ struct RemoteMarkdownTabRefreshTests {
         }
 
         func waitUntilStarted() async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await awaitSignal { continuation in
                 lock.lock()
                 if hasStarted {
                     lock.unlock()
@@ -52,7 +53,7 @@ struct RemoteMarkdownTabRefreshTests {
         }
 
         private func waitForRelease() async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await awaitSignal { continuation in
                 lock.lock()
                 if isReleased {
                     lock.unlock()
@@ -390,8 +391,8 @@ struct RemoteMarkdownTabRefreshTests {
         #expect(RemoteSnapshotStalePolicy.bannerKind(path: failurePath) == nil)
     }
 
-    @Test("a nil fetch outcome notes refresh-failed for the stale banner")
-    func nilFetchOutcomeNotesPolicy() async throws {
+    @Test("a nil fetch notes failure only while the saved tab remains open", arguments: [false, true])
+    func nilFetchOutcomeNotesPolicy(closeDuringFetch: Bool) async throws {
         let identity = remoteIdentity()
         let path = "/tmp/awesomux-refresh-nil-\(UUID().uuidString).md"
         defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
@@ -407,42 +408,20 @@ struct RemoteMarkdownTabRefreshTests {
             associatedWith: nil,
             sessionStore: store,
             selectingTab: true,
-            announceOutcome: false,
-            fetch: { _ in nil }
-        )
-
-        #expect(outcome == nil)
-        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == .remoteRefreshFailed)
-        #expect(
-            store.session(id: sessionID)?.layout.firstDocumentGroup?
-                .tab(forRemoteResource: identity)?.fileURL.standardizedFileURL.path == path)
-    }
-
-    @Test("a nil fetch after the tab closed does not note policy")
-    func nilFetchOnClosedTabIsSilent() async throws {
-        let identity = remoteIdentity()
-        let path = "/tmp/awesomux-refresh-nil-closed-\(UUID().uuidString).md"
-        defer { RemoteSnapshotStalePolicy.note(nil, path: path) }
-        let (store, sessionID, tabID) = try storeWithRemoteTab(
-            identity: identity,
-            cacheURL: URL(fileURLWithPath: path)
-        )
-
-        let outcome = await RemoteMarkdownTabRefresh.refresh(
-            identity: identity,
-            documentID: tabID,
-            in: sessionID,
-            associatedWith: nil,
-            sessionStore: store,
-            selectingTab: true,
+            announceOutcome: closeDuringFetch,
             fetch: { _ in
-                store.closeDocumentPane(documentID: tabID, in: sessionID)
+                if closeDuringFetch { store.closeDocumentPane(documentID: tabID, in: sessionID) }
                 return nil
             }
         )
 
         #expect(outcome == nil)
-        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == nil)
+        #expect(RemoteSnapshotStalePolicy.bannerKind(path: path) == (closeDuringFetch ? nil : .remoteRefreshFailed))
+        if !closeDuringFetch {
+            #expect(
+                store.session(id: sessionID)?.layout.firstDocumentGroup?
+                    .tab(forRemoteResource: identity)?.fileURL.standardizedFileURL.path == path)
+        }
     }
 
     @Test("scheduleRestoreRefresh kicks one fetch per remote tab")
@@ -481,7 +460,7 @@ struct RemoteMarkdownTabRefreshTests {
         final class Box: @unchecked Sendable {
             private let lock = NSLock()
             private var values: [ResourceIdentity] = []
-            private var waiters: [CheckedContinuation<Void, Never>] = []
+            private var waiters: [SignalResumer] = []
 
             func add(_ identity: ResourceIdentity) {
                 lock.lock()
@@ -502,7 +481,7 @@ struct RemoteMarkdownTabRefreshTests {
             }
 
             func waitUntilTwo() async {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                await awaitSignal { continuation in
                     lock.lock()
                     if values.count >= 2 {
                         lock.unlock()

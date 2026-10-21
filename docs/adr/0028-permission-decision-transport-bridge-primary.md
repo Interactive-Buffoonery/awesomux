@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted (INT-628, feeds INT-110).
+Accepted (INT-628, feeds #822).
 
 ## Context
 
-INT-110 gives agent tool calls an in-pane permission card. The provider side
+#822 gives agent tool calls an in-pane permission card. The provider side
 is a blocking `PermissionRequest` hook: the hook process holds the tool call
 open until it writes a decision JSON
 (`hookSpecificOutput.decision.behavior: allow|deny`) to stdout, or writes
@@ -58,7 +58,31 @@ always the helper's choice, never the provider killing the hook.
   trust-store layers above are transport-agnostic.
 - The provider's native dialog renders in the pane *while* the hook blocks
   and remains answerable; the hook decision wins if returned. The card UI
-  (INT-110) must account for that duplication — this ADR only fixes the
+  (#822) must account for that duplication — this ADR only fixes the
   transport.
 - Headless `claude -p` never fires the hook (calls are auto-denied first on
   2.1.200), so integration tests must drive the interactive TUI.
+
+## Implementation refinement (2026-10-20)
+
+The local bridge uses a dedicated app-owned request-routing lane, sharing the
+existing command bridge's secure listener-directory infrastructure. The legacy
+remote lane replaces its active connection on promotion and applies reviewed
+remote automatic-deny/session policy. Independent concurrent local hook requests
+therefore cannot safely reuse that lane. This refines the `amx` socket/message
+wording above: the app routes bounded typed local requests directly to the one
+in-memory decision core, with independent connections and no daemon dependency.
+The remote wire protocol and semantics remain unchanged; the pinned zmx
+submodule is untouched. Phone decisions remain disabled under ADR-0038.
+
+Both local transports retain the same hook invocation and expiry. The file pair
+is a distinct request/decision record in the runtime-event directory, not the
+telemetry stream. A helper acknowledgement follows a complete successful stdout
+write; recording or claiming an answer alone does not prove delivery. Failure or
+timeout still emits no decision and exits 0. The implementation budgets 120 s
+for the helper and configures the Claude PermissionRequest hook for 150 s,
+reserving time for the helper's own fall-through.
+
+The native-prompt and headless observations above describe the 2.1.200 spike.
+Interactive validation against the installed provider remains required; newer
+hook documentation alone does not establish native-prompt race behavior.

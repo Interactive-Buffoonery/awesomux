@@ -14,7 +14,7 @@ behavior by inspecting concrete payloads (`if case .documentGroup`,
 `pane.executionPlan.remoteTarget != nil`, `document.isReadOnlySnapshot`).
 
 Three planned features build directly on this layout model: named layout presets
-(INT-757), pane-level reopen (INT-425), and a read-only artifact pane (INT-809),
+(INT-757), pane-level reopen (#801), and a read-only artifact pane (INT-809),
 with a sidebar header (INT-810) reading pane metadata. Each needs a stable seam:
 presets must serialize *reusable layout intent* without live-only state; reopen
 must distinguish reattaching an existing terminal from recreating a leaf; the

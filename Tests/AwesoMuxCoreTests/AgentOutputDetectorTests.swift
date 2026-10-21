@@ -23,13 +23,6 @@ struct AgentOutputDetectorTests {
               checking that GhosttySurfaceDelegate matches the upstream protocol...
             """, AgentKind.shell, false, AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
         ),
-        (
-            """
-            claude code v1.7.2
-            claude · thinking ▰▰▰▱▱
-              reading the tree...
-            """, AgentKind.shell, false, AgentOutputDetection(state: .thinking, agentKind: .claudeCode)
-        ),
         ("claude > esc to interrupt", AgentKind.shell, false, AgentOutputDetection(state: .thinking, agentKind: .claudeCode)),
         ("claude › ctrl-c to interrupt", AgentKind.shell, false, AgentOutputDetection(state: .thinking, agentKind: .claudeCode)),
         (

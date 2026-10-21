@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import CryptoKit
@@ -11,15 +12,8 @@ import UnicodeHygiene
 
 typealias CompanionDelay = @Sendable (Duration) async throws -> Void
 
-struct CompanionNetworkAddress: Equatable, Sendable {
-    let interfaceName: String
-    let host: String
-    let transport: LocalAPICompanionTransport
-}
-
 struct CompanionPairingSession: Identifiable, Equatable, Sendable {
     let id: UUID
-    let transport: LocalAPICompanionTransport
     let link: String
     let expiresAt: Date
 }
@@ -43,11 +37,8 @@ enum CompanionPairingResult: Equatable, Sendable {
 
 enum CompanionPairingError: Error {
     case noLocalAddress
-    case noTailscaleAddress
-    case transportInUse
     case identityUnavailable
     case listenerUnavailable
-    case invalidWords
     case invalidRequest
     case timeout
     case connectionClosed
@@ -59,7 +50,7 @@ final class CompanionPairingCoordinator {
     private(set) var pairingSession: CompanionPairingSession?
     private(set) var pairingResult: CompanionPairingResult?
     private(set) var approvalPrompt: CompanionApprovalPrompt?
-    private(set) var activeTransport: LocalAPICompanionTransport?
+    private(set) var boundAddresses: [CompanionNetworkAddress] = []
     private(set) var listenerErrorMessage: String?
     private(set) var lastSeen: [UUID: Date] = [:]
 
@@ -68,7 +59,8 @@ final class CompanionPairingCoordinator {
     @ObservationIgnored private let delay: CompanionDelay
     @ObservationIgnored private var identity: CompanionIdentity?
     @ObservationIgnored private var service: LocalAPIService?
-    @ObservationIgnored private var server: CompanionNetworkServer?
+    @ObservationIgnored private var servers: [CompanionNetworkServer] = []
+    @ObservationIgnored private var stablePort: UInt16?
     @ObservationIgnored private var secret: Data?
     @ObservationIgnored private var expiryTask: Task<Void, Never>?
     @ObservationIgnored private var pendingApproval: PendingApproval?
@@ -94,24 +86,29 @@ final class CompanionPairingCoordinator {
         accessStore.state.connections.filter { $0.kind == .companion }
     }
 
-    var availableTransports: [LocalAPICompanionTransport] {
-        let addresses = Self.interfaceAddresses()
-        var transports: [LocalAPICompanionTransport] = [.lan]
-        if addresses.contains(where: { $0.transport == .tailscale }) { transports.append(.tailscale) }
-        return transports
+    private var currentRoutes: CompanionRoutes? {
+        guard let port = stablePort, !boundAddresses.isEmpty else { return nil }
+        return CompanionRoutes(
+            p: port,
+            lan: boundAddresses.first { $0.transport == .lan }?.host,
+            tailscale: boundAddresses.first { $0.transport == .tailscale }?.host
+        )
     }
+
+    var currentPairingLink: String? { boundAddresses.isEmpty ? nil : pairingSession?.link }
 
     var persistenceFailureMessage: String? { accessStore.persistenceFailureMessage }
 
     func configure(service: LocalAPIService) {
         guard self.service == nil else { return }
         self.service = service
+        reconcileDecisionWorkspaces()
         accessStore.setCompanionInvalidationHandler { [weak self] connectionID in
             Task { @MainActor in self?.invalidateConnections(connectionID: connectionID) }
         }
         if let mostRecent = pairedPhones.last, let metadata = mostRecent.companion {
             startWatchingNetwork()
-            Task { await startListener(transport: metadata.transport, preferredPort: metadata.port) }
+            Task { await startListener(preferredPort: metadata.port) }
         }
         #if DEBUG
             let environment = ProcessInfo.processInfo.environment
@@ -125,7 +122,7 @@ final class CompanionPairingCoordinator {
                             try CompanionIdentityStore.reset(profile: profile.environmentValue)
                             identity = nil
                         }
-                        let session = try await beginPairing(transport: .lan)
+                        let session = try await beginPairing()
                         try Data((session.link + "\n").utf8).write(to: URL(fileURLWithPath: linkPath), options: .atomic)
                     } catch {
                         listenerErrorMessage = String(localized: "Companion pairing could not start.")
@@ -135,10 +132,7 @@ final class CompanionPairingCoordinator {
         #endif
     }
 
-    func beginPairing(transport: LocalAPICompanionTransport) async throws -> CompanionPairingSession {
-        guard pairedPhones.allSatisfy({ $0.companion?.transport == transport }) else {
-            throw CompanionPairingError.transportInUse
-        }
+    func beginPairing() async throws -> CompanionPairingSession {
         cancelPairing()
         pairingResult = nil
         let generation = UUID()
@@ -150,7 +144,6 @@ final class CompanionPairingCoordinator {
             }
         }
         startWatchingNetwork()
-        let address = try Self.address(for: transport)
         let loadedIdentity: CompanionIdentity
         do {
             loadedIdentity = try identity ?? CompanionIdentityStore.loadOrCreate(profile: profile.environmentValue)
@@ -159,11 +152,11 @@ final class CompanionPairingCoordinator {
         }
         identity = loadedIdentity
         let preferredPort = pairedPhones.last?.companion?.port
-        try await replaceListener(identity: loadedIdentity, address: address, preferredPort: preferredPort)
+        try await replaceListeners(identity: loadedIdentity, preferredPort: preferredPort)
         guard pairingGeneration == generation, !Task.isCancelled else {
             throw CompanionPairingError.connectionClosed
         }
-        guard let port = server?.port else { throw CompanionPairingError.listenerUnavailable }
+        guard let routes = currentRoutes else { throw CompanionPairingError.listenerUnavailable }
         var generatedSecret = Data(count: LocalAPICredential.byteCount)
         guard
             generatedSecret.withUnsafeMutableBytes({ bytes in
@@ -174,22 +167,15 @@ final class CompanionPairingCoordinator {
         let id = UUID()
         let expiresAt = Date().addingTimeInterval(5 * 60)
         let macName = Host.current().localizedName ?? String(localized: "This Mac")
-        var components = URLComponents()
-        components.scheme = "awesomuxcompanion"
-        components.host = "pair"
-        components.queryItems = [
-            URLQueryItem(name: "v", value: "1"),
-            URLQueryItem(name: "h", value: address.host),
-            URLQueryItem(name: "p", value: String(port)),
-            URLQueryItem(name: "fp", value: loadedIdentity.fingerprint.companionBase64URL),
-            URLQueryItem(name: "s", value: generatedSecret.companionBase64URL),
-            URLQueryItem(name: "n", value: macName),
-            URLQueryItem(name: "t", value: transport.rawValue),
-        ]
-        guard let link = components.string else { throw CompanionPairingError.invalidRequest }
-        let session = CompanionPairingSession(id: id, transport: transport, link: link, expiresAt: expiresAt)
+        let link = try CompanionPairingLinkV2(
+            routes: routes,
+            macFingerprint: loadedIdentity.fingerprint.companionBase64URL,
+            secret: generatedSecret.companionBase64URL,
+            macName: macName
+        ).string()
+        let session = CompanionPairingSession(id: id, link: link, expiresAt: expiresAt)
         pairingSession = session
-        server?.pairingIsOpen = true
+        servers.forEach { $0.pairingIsOpen = true }
         expiryTask = Task { [weak self] in
             try? await self?.delay(.seconds(5 * 60))
             guard !Task.isCancelled else { return }
@@ -204,7 +190,7 @@ final class CompanionPairingCoordinator {
         expiryTask = nil
         secret = nil
         pairingSession = nil
-        server?.pairingIsOpen = false
+        servers.forEach { $0.pairingIsOpen = false }
         pairingGeneration = nil
         resolveApproval(allowed: false)
         if !hadPendingApproval { stopListenerIfIdle() }
@@ -220,6 +206,44 @@ final class CompanionPairingCoordinator {
     func clearListenerError() { listenerErrorMessage = nil }
 
     func retryPersistence() throws { try accessStore.retryPersistence() }
+
+    func setPaneRenameAllowed(_ allowed: Bool, for phone: LocalAPIConnectionGrant) throws {
+        try accessStore.updateCompanionPaneRenameScope(
+            connectionID: phone.id, scope: allowed ? phone.statusScope : nil)
+    }
+
+    func reconcileDecisionWorkspaces() {
+        guard let service else { return }
+        let phones = pairedPhones.filter { $0.companion?.decideWorkspaceIDs != nil }
+        guard !phones.isEmpty else { return }
+        let live = Set(service.companionDecisionWorkspaces.map(\.id))
+        for phone in phones {
+            guard let previous = phone.companion?.decideWorkspaceIDs else { continue }
+            let retained = previous.filter { live.contains($0) }
+            guard retained != previous else { continue }
+            do {
+                try accessStore.updateCompanionDecideWorkspaces(connectionID: phone.id, workspaceIDs: retained.isEmpty ? nil : retained)
+            } catch {
+                listenerErrorMessage = String(
+                    localized: "Could not save decision access.",
+                    comment: "Error shown when saving a paired phone’s workspace decision permission fails.")
+            }
+        }
+    }
+
+    var decisionWorkspaces: [(id: UUID, name: String)] { service?.companionDecisionWorkspaces ?? [] }
+
+    func setDecisionWorkspace(_ workspaceID: UUID, allowed: Bool, for phoneID: UUID) throws {
+        guard decisionWorkspaces.contains(where: { $0.id == workspaceID }) else { throw LocalAPIError.permissionDenied }
+        var ids = pairedPhones.first { $0.id == phoneID }?.companion?.decideWorkspaceIDs ?? []
+        ids.removeAll { $0 == workspaceID }
+        if allowed { ids.append(workspaceID) }
+        try accessStore.updateCompanionDecideWorkspaces(connectionID: phoneID, workspaceIDs: ids.isEmpty ? nil : ids)
+    }
+
+    func updateTerminalPreviewAllowed(_ allowed: Bool, for connectionID: UUID) throws {
+        try accessStore.updateCompanionTerminalPreviewAllowed(connectionID: connectionID, allowed: allowed)
+    }
 
     func unpair(_ connection: LocalAPIConnectionGrant) throws {
         defer {
@@ -237,9 +261,10 @@ final class CompanionPairingCoordinator {
         listenerStartID = nil
         listenerLifecycle = UUID()
         listenerGeneration = UUID()
-        server?.stop()
-        server = nil
-        activeTransport = nil
+        servers.forEach { $0.stop() }
+        servers = []
+        boundAddresses = []
+        stablePort = nil
     }
 
     private func expirePairing(id: UUID) {
@@ -270,12 +295,14 @@ final class CompanionPairingCoordinator {
     }
 
     private func restoreListener() async {
-        guard pathMonitor != nil, let metadata = pairedPhones.last?.companion else { return }
-        await startListener(transport: metadata.transport, preferredPort: metadata.port)
+        guard pathMonitor != nil, pairingSession != nil || pairingGeneration != nil || !pairedPhones.isEmpty else { return }
+        await startListener(preferredPort: pairedPhones.last?.companion?.port ?? stablePort)
     }
 
     private func scheduleListenerRecovery() {
-        guard pathMonitor != nil, !pairedPhones.isEmpty, recoveryTask == nil else { return }
+        guard pathMonitor != nil, pairingSession != nil || pairingGeneration != nil || !pairedPhones.isEmpty,
+            recoveryTask == nil
+        else { return }
         recoveryTask = Task { [weak self, delay] in
             try? await delay(.seconds(2))
             guard !Task.isCancelled, let self else { return }
@@ -284,17 +311,13 @@ final class CompanionPairingCoordinator {
         }
     }
 
-    private func startListener(transport: LocalAPICompanionTransport, preferredPort: UInt16) async {
-        guard pathMonitor != nil, !pairedPhones.isEmpty else { return }
+    private func startListener(preferredPort: UInt16?) async {
+        guard pathMonitor != nil else { return }
         let lifecycle = listenerLifecycle
         do {
             let loadedIdentity = try identity ?? CompanionIdentityStore.loadOrCreate(profile: profile.environmentValue)
             identity = loadedIdentity
-            try await replaceListener(
-                identity: loadedIdentity,
-                address: try Self.address(for: transport),
-                preferredPort: preferredPort
-            )
+            try await replaceListeners(identity: loadedIdentity, preferredPort: preferredPort)
         } catch {
             guard listenerLifecycle == lifecycle else { return }
             listenerErrorMessage = String(localized: "Companion is not listening. Open Settings and try pairing again.")
@@ -302,9 +325,8 @@ final class CompanionPairingCoordinator {
         }
     }
 
-    private func replaceListener(
+    private func replaceListeners(
         identity: CompanionIdentity,
-        address: CompanionNetworkAddress,
         preferredPort: UInt16?
     ) async throws {
         let lifecycle = listenerLifecycle
@@ -315,7 +337,7 @@ final class CompanionPairingCoordinator {
             guard listenerLifecycle == lifecycle, !Task.isCancelled else {
                 throw CompanionPairingError.connectionClosed
             }
-            try await startReplacementListener(identity: identity, address: address, preferredPort: preferredPort)
+            try await reconcileListeners(identity: identity, preferredPort: preferredPort)
         }
         listenerStartTask = task
         listenerStartID = requestID
@@ -328,23 +350,52 @@ final class CompanionPairingCoordinator {
         try await task.value
     }
 
+    private func reconcileListeners(identity: CompanionIdentity, preferredPort: UInt16?) async throws {
+        let addresses = CompanionNetworkAddress.selected(CompanionNetworkAddress.current())
+        stablePort = preferredPort ?? stablePort
+        for server in servers where !addresses.contains(server.address) {
+            server.stop()
+        }
+        servers.removeAll { !addresses.contains($0.address) }
+        updateBoundAddresses()
+        guard !addresses.isEmpty else { throw CompanionPairingError.noLocalAddress }
+        defer { stopListenerIfIdle() }
+        let lifecycle = listenerLifecycle
+        for address in addresses where !servers.contains(where: { $0.address == address }) {
+            do {
+                try await startReplacementListener(identity: identity, address: address, preferredPort: stablePort)
+            } catch {
+                guard listenerLifecycle == lifecycle else { throw CompanionPairingError.connectionClosed }
+                scheduleListenerRecovery()
+            }
+        }
+        updateBoundAddresses()
+        guard !servers.isEmpty else { throw CompanionPairingError.listenerUnavailable }
+        listenerErrorMessage = nil
+    }
+
+    private func updateBoundAddresses() {
+        boundAddresses = servers.map(\.address)
+        guard let session = pairingSession, let routes = currentRoutes else { return }
+        do {
+            let previous = try CompanionPairingLinkV2(session.link)
+            let link = try CompanionPairingLinkV2(
+                routes: routes, macFingerprint: previous.macFingerprint,
+                secret: previous.secret, macName: previous.macName
+            ).string()
+            pairingSession = CompanionPairingSession(id: session.id, link: link, expiresAt: session.expiresAt)
+        } catch {
+            endPairing(result: .denied)
+        }
+    }
+
     private func startReplacementListener(
         identity: CompanionIdentity,
         address: CompanionNetworkAddress,
         preferredPort: UInt16?
     ) async throws {
-        if let server, server.address == address, preferredPort == nil || server.port == preferredPort {
-            activeTransport = address.transport
-            listenerErrorMessage = nil
-            return
-        }
-        if pairingSession != nil { endPairing(result: .denied) }
-        server?.stop()
-        server = nil
-        activeTransport = nil
         guard let service else { throw CompanionPairingError.listenerUnavailable }
-        let generation = UUID()
-        listenerGeneration = generation
+        let generation = listenerGeneration
         let newServer = CompanionNetworkServer(
             identity: identity,
             address: address,
@@ -373,8 +424,16 @@ final class CompanionPairingCoordinator {
                     phoneName: phoneName,
                     certificateFingerprint: fingerprint,
                     transport: transport,
-                    port: port
+                    port: port,
+                    pairingVersion: 2,
+                    terminalPreviewAllowed: true
                 )
+                #if DEBUG
+                    if let workspaceID = service.decisionFixtureWorkspaceID {
+                        try self.accessStore.updateCompanionDecideWorkspaces(connectionID: grant.id, workspaceIDs: [workspaceID])
+                    }
+                #endif
+                self.servers.forEach { $0.refreshAuthorization() }
                 self.finishPairing(id: pairingID)
                 return grant
             },
@@ -383,22 +442,40 @@ final class CompanionPairingCoordinator {
                 defer { self.lastSeen.removeValue(forKey: connectionID) }
                 try self.accessStore.revoke(connectionID: connectionID)
             },
-            capture: { request, lease in
-                await service.companionResponse(request: request, lease: lease)
+            setAlertPreferences: { [weak accessStore] connectionID, preferences in
+                guard let accessStore else { throw LocalAPIError.appUnavailable }
+                try accessStore.updateCompanionAlertPreferences(connectionID: connectionID, preferences: preferences)
             },
+            renamePane: { request, lease, fingerprint, deadline in
+                try service.renameCompanionPane(
+                    request: request, lease: lease, certificateFingerprint: fingerprint, deadline: deadline)
+            },
+            setTerminalPreview: { [weak self] connectionID, fingerprint, lease, allowed in
+                guard let self else { throw LocalAPIError.appUnavailable }
+                return try self.accessStore.setCompanionTerminalPreviewAllowed(
+                    connectionID: connectionID, allowed: allowed,
+                    certificateFingerprint: fingerprint, expectedLease: lease
+                )
+            },
+            capture: { request, lease, routes in
+                await service.companionResponse(request: request, lease: lease, routes: routes)
+            },
+            routes: { [weak self] in self?.currentRoutes },
+            markActivity: { [weak self] in self?.service?.recordAuthenticatedCompanionActivity() },
             markSeen: { [weak self] connectionID in self?.lastSeen[connectionID] = Date() },
             connectionFinished: { [weak self] in self?.stopListenerIfIdle() },
+            decisions: { [weak self] answer, lease, fingerprint, requestID in
+                guard let self else { throw LocalAPIError.appUnavailable }
+                let name = self.pairedPhones.first { $0.id == lease.connectionID }?.label ?? "iPhone"
+                return try service.companionDecisions(
+                    answer: answer, lease: lease, fingerprint: fingerprint,
+                    authority: self.accessStore.runtimeAuthority, deviceName: name, requestID: requestID)
+            },
             listenerFailed: { [weak self] in
                 guard let self, self.listenerGeneration == generation else { return }
-                if self.pairingSession != nil {
-                    self.endPairing(result: .denied)
-                } else {
-                    self.resolveApproval(allowed: false)
-                }
-                self.server?.stop()
-                self.server = nil
-                self.activeTransport = nil
-                self.listenerErrorMessage = String(localized: "Companion is not listening. Open Settings and try pairing again.")
+                self.servers.filter { $0.address == address }.forEach { $0.stop() }
+                self.servers.removeAll { $0.address == address }
+                self.updateBoundAddresses()
                 self.scheduleListenerRecovery()
                 self.stopListenerIfIdle()
             }
@@ -413,21 +490,26 @@ final class CompanionPairingCoordinator {
             newServer.stop()
             throw CompanionPairingError.connectionClosed
         }
-        server = newServer
-        activeTransport = address.transport
+        newServer.pairingIsOpen = pairingSession != nil
+        newServer.refreshAuthorization()
+        servers.append(newServer)
+        stablePort = newServer.port
+        updateBoundAddresses()
         listenerErrorMessage = nil
     }
 
     private func claimSecret(_ candidate: Data, phoneSPKI: Data) -> ClaimedCompanionPairing? {
         guard let pairingSession, pairingSession.expiresAt > Date(),
             let secret, Self.constantTimeEqual(candidate, secret),
-            let identity,
-            let words = try? Self.confirmationWords(macSPKI: identity.subjectPublicKeyInfo, phoneSPKI: phoneSPKI)
+            let identity
         else { return nil }
         self.secret = nil
         expiryTask?.cancel()
         expiryTask = nil
-        return ClaimedCompanionPairing(id: pairingSession.id, words: words)
+        return ClaimedCompanionPairing(
+            id: pairingSession.id,
+            words: CompanionPairingWords.words(macSPKI: identity.subjectPublicKeyInfo, phoneSPKI: phoneSPKI)
+        )
     }
 
     private func finishPairing(id: UUID) {
@@ -453,7 +535,7 @@ final class CompanionPairingCoordinator {
         secret = nil
         pairingSession = nil
         pairingGeneration = nil
-        server?.pairingIsOpen = false
+        servers.forEach { $0.pairingIsOpen = false }
     }
 
     private func requestApproval(id: UUID, phoneName: String, words: [String]) async -> Bool {
@@ -500,84 +582,21 @@ final class CompanionPairingCoordinator {
     }
 
     private func invalidateConnections(connectionID: UUID?) {
-        server?.invalidate(connectionID: connectionID)
-        if connectionID == nil { server?.stop() }
+        servers.forEach { $0.invalidate(connectionID: connectionID) }
+        if connectionID == nil { stop() }
     }
 
     private func stopListenerIfIdle() {
         guard pairedPhones.isEmpty, pairingSession == nil, pairingGeneration == nil,
-            server?.hasPendingRevocationReplies != true
+            !servers.contains(where: { $0.hasPendingRevocationReplies })
         else { return }
         stopWatchingNetwork()
         listenerLifecycle = UUID()
         listenerGeneration = UUID()
-        server?.stop()
-        server = nil
-        activeTransport = nil
-    }
-
-    private static func confirmationWords(macSPKI: Data, phoneSPKI: Data) throws -> [String] {
-        let words = try pairingWords()
-        let digest = SHA256.hash(data: macSPKI + phoneSPKI)
-        return digest.prefix(3).map { words[Int($0)] }
-    }
-
-    private static func pairingWords() throws -> [String] {
-        guard let url = Bundle.main.url(forResource: "companion-pairing-words", withExtension: "txt"),
-            let text = try? String(contentsOf: url, encoding: .utf8)
-        else { throw CompanionPairingError.invalidWords }
-        let words = text.split(whereSeparator: \.isNewline).map(String.init)
-        guard words.count == 256, Set(words).count == 256 else { throw CompanionPairingError.invalidWords }
-        return words
-    }
-
-    private static func address(for transport: LocalAPICompanionTransport) throws -> CompanionNetworkAddress {
-        let addresses = interfaceAddresses().filter { $0.transport == transport }
-        guard
-            let address = addresses.sorted(by: { lhs, rhs in
-                if lhs.interfaceName == "en0" { return true }
-                if rhs.interfaceName == "en0" { return false }
-                return lhs.interfaceName < rhs.interfaceName
-            }).first
-        else {
-            throw transport == .tailscale ? CompanionPairingError.noTailscaleAddress : CompanionPairingError.noLocalAddress
-        }
-        return address
-    }
-
-    private static func interfaceAddresses() -> [CompanionNetworkAddress] {
-        var pointer: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&pointer) == 0, let first = pointer else { return [] }
-        defer { freeifaddrs(pointer) }
-        var result: [CompanionNetworkAddress] = []
-        var current: UnsafeMutablePointer<ifaddrs>? = first
-        while let entry = current?.pointee {
-            defer { current = entry.ifa_next }
-            guard let address = entry.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
-                entry.ifa_flags & UInt32(IFF_UP) != 0,
-                entry.ifa_flags & UInt32(IFF_LOOPBACK) == 0
-            else { continue }
-            var ipv4 = UnsafeRawPointer(address).assumingMemoryBound(to: sockaddr_in.self).pointee.sin_addr
-            var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-            guard inet_ntop(AF_INET, &ipv4, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else { continue }
-            let host = String(
-                decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-                as: UTF8.self
-            )
-            let bits = UInt32(bigEndian: ipv4.s_addr)
-            let interfaceName = String(cString: entry.ifa_name)
-            let isTunnel = ["utun", "ipsec", "ppp", "bridge"].contains { interfaceName.hasPrefix($0) }
-            // Carrier hotspots also hand out 100.64/10, so Tailscale must also be on a utun tunnel.
-            let isTailscale = bits & 0xFFC0_0000 == 0x6440_0000 && interfaceName.hasPrefix("utun")
-            let isPrivate =
-                bits & 0xFF00_0000 == 0x0A00_0000 || bits & 0xFFF0_0000 == 0xAC10_0000 || bits & 0xFFFF_0000 == 0xC0A8_0000
-            if isTailscale {
-                result.append(CompanionNetworkAddress(interfaceName: interfaceName, host: host, transport: .tailscale))
-            } else if isPrivate, !isTunnel {
-                result.append(CompanionNetworkAddress(interfaceName: interfaceName, host: host, transport: .lan))
-            }
-        }
-        return result
+        servers.forEach { $0.stop() }
+        servers = []
+        boundAddresses = []
+        stablePort = nil
     }
 
     private static func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
@@ -612,8 +631,15 @@ private final class CompanionNetworkServer {
     private let cancelApproval: @MainActor (UUID) -> Void
     private let abortPairing: @MainActor (UUID) -> Void
     private let register: @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant
+    private let setAlertPreferences: @MainActor (UUID, CompanionAlertPreferences) throws -> Void
     private let revoke: @MainActor (UUID) throws -> Void
-    private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse
+    private let renamePane:
+        @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void
+    private let setTerminalPreview: @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease
+    private let decisions: @MainActor (CompanionDecisionAnswer?, LocalAPIAuthorizationLease, Data, UUID) throws -> CompanionDecisionResponse
+    private let capture: @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse
+    private let routes: @MainActor () -> CompanionRoutes?
+    private let markActivity: @MainActor () -> Void
     private let markSeen: @MainActor (UUID) -> Void
     private let connectionFinished: @MainActor () -> Void
     private let listenerFailed: @MainActor () -> Void
@@ -623,6 +649,8 @@ private final class CompanionNetworkServer {
     private var listener: NWListener?
     private var connections: [UUID: ActiveCompanionConnection] = [:]
     private var pendingRevocationReplies: Set<UUID> = []
+    private var pendingPermissionReplies: Set<UUID> = []
+    private var pendingPreferenceReplies: Set<UUID> = []
 
     var hasPendingRevocationReplies: Bool { !pendingRevocationReplies.isEmpty }
 
@@ -641,9 +669,17 @@ private final class CompanionNetworkServer {
         abortPairing: @escaping @MainActor (UUID) -> Void,
         register: @escaping @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant,
         revoke: @escaping @MainActor (UUID) throws -> Void,
-        capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease) async -> LocalAPIResponse,
+        setAlertPreferences: @escaping @MainActor (UUID, CompanionAlertPreferences) throws -> Void,
+        renamePane:
+            @escaping @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void,
+        setTerminalPreview: @escaping @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease,
+        capture: @escaping @MainActor (LocalAPIRequest, LocalAPIAuthorizationLease, CompanionRoutes?) async -> CompanionAPIResponse,
+        routes: @escaping @MainActor () -> CompanionRoutes?,
+        markActivity: @escaping @MainActor () -> Void,
         markSeen: @escaping @MainActor (UUID) -> Void,
         connectionFinished: @escaping @MainActor () -> Void,
+        decisions:
+            @escaping @MainActor (CompanionDecisionAnswer?, LocalAPIAuthorizationLease, Data, UUID) throws -> CompanionDecisionResponse,
         listenerFailed: @escaping @MainActor () -> Void
     ) {
         self.identity = identity
@@ -660,7 +696,13 @@ private final class CompanionNetworkServer {
         self.abortPairing = abortPairing
         self.register = register
         self.revoke = revoke
+        self.setTerminalPreview = setTerminalPreview
+        self.setAlertPreferences = setAlertPreferences
+        self.decisions = decisions
         self.capture = capture
+        self.renamePane = renamePane
+        self.routes = routes
+        self.markActivity = markActivity
         self.markSeen = markSeen
         self.connectionFinished = connectionFinished
         self.listenerFailed = listenerFailed
@@ -702,7 +744,7 @@ private final class CompanionNetworkServer {
                     case .failed, .cancelled:
                         if resumed.claim() {
                             continuation.resume(throwing: CompanionPairingError.listenerUnavailable)
-                        } else {
+                        } else if self?.listener === listener {
                             self?.listenerFailed()
                         }
                     // Starts are serialized, so a start parked in .waiting would block every later recovery.
@@ -723,6 +765,8 @@ private final class CompanionNetworkServer {
     }
 
     func stop() {
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
         listener?.cancel()
         listener = nil
         for active in connections.values {
@@ -732,9 +776,17 @@ private final class CompanionNetworkServer {
         connections.removeAll()
     }
 
+    func refreshAuthorization() {
+        verifier.replaceFingerprints(activeFingerprints())
+    }
+
     func invalidate(connectionID: UUID?) {
         for (id, active) in connections where connectionID == nil || active.connectionID == connectionID {
-            if connectionID != nil, pendingRevocationReplies.contains(id) { continue }
+            if connectionID != nil,
+                pendingRevocationReplies.contains(id) || pendingPermissionReplies.contains(id) || pendingPreferenceReplies.contains(id)
+            {
+                continue
+            }
             active.worker?.cancel()
             active.connection.cancel()
             connections.removeValue(forKey: id)
@@ -801,7 +853,7 @@ private final class CompanionNetworkServer {
             let phoneSPKI = try Self.peerSPKI(connection)
             let fingerprint = Data(SHA256.hash(data: phoneSPKI))
             let pairedAtHandshake = pairedConnections().first {
-                $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
+                $0.companion?.certificateFingerprint == fingerprint && $0.companion?.allows(address.transport) == true
             }
             connections[id]?.connectionID = pairedAtHandshake?.id
             let isPaired = pairedAtHandshake != nil
@@ -828,7 +880,7 @@ private final class CompanionNetworkServer {
             if pairingIsOpen, object?["op"] as? String == "pair" {
                 try await servePairing(connection, data: data, remote: remote, phoneSPKI: phoneSPKI, fingerprint: fingerprint)
             } else if let paired = pairedConnections().first(where: {
-                $0.companion?.certificateFingerprint == fingerprint && $0.companion?.transport == address.transport
+                $0.companion?.certificateFingerprint == fingerprint && $0.companion?.allows(address.transport) == true
             }) {
                 connections[id]?.connectionID = paired.id
                 try await serveAuthorized(connection, id: id, data: data, connectionID: paired.id, fingerprint: fingerprint)
@@ -847,6 +899,7 @@ private final class CompanionNetworkServer {
     }
 
     private func serveAuthorized(_ connection: NWConnection, id: UUID, data: Data, connectionID: UUID, fingerprint: Data) async throws {
+        let mutationDeadline = ContinuousClock.now.advanced(by: .seconds(LocalAPIContract.timeout))
         let deadline = Task { [delay] in
             try? await delay(.seconds(LocalAPIContract.timeout))
             guard !Task.isCancelled else { return }
@@ -859,9 +912,11 @@ private final class CompanionNetworkServer {
             guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "paneID", "targetVersion", "limit", "source",
-                    "cursor",
+                    "cursor", "includeCommandEvents", "workspaceID", "title", "terminalPreviewAllowed", "alertPreferences",
+                    "decisionAnswer",
                 ])
             else { throw LocalAPIError.invalidRequest }
+            requestID = (object["requestID"] as? String).flatMap(UUID.init(uuidString:))
             if object["profile"] == nil { object["profile"] = profile }
             let normalized = try JSONSerialization.data(withJSONObject: object)
             guard let request = try? LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: normalized) else {
@@ -871,21 +926,151 @@ private final class CompanionNetworkServer {
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == profile else { throw LocalAPIError.profileMismatch }
             guard request.connectionID == connectionID else { throw LocalAPIError.permissionDenied }
-            // Self-unpair uses the same paired-certificate grant as status, but is
-            // deliberately absent from the local bearer API's operation catalog.
-            let isUnpair = request.operation == "unpair"
-            guard let operation = isUnpair ? .connectionStatus : LocalAPIOperation(rawValue: request.operation) else {
-                throw LocalAPIError.unsupportedOperation
+            if request.operation == CompanionOperation.getAlertPreferences.rawValue
+                || request.operation == CompanionOperation.setAlertPreferences.rawValue
+            {
+                let isSet = request.operation == CompanionOperation.setAlertPreferences.rawValue
+                let required: Set<String> = ["schemaVersion", "requestID", "operation", "connectionID", "profile"]
+                guard Set(object.keys) == (isSet ? required.union(["alertPreferences"]) : required) else {
+                    throw LocalAPIError.invalidRequest
+                }
+                var lease = try authority.authorizeCompanion(
+                    connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                markActivity()
+                defer { pendingPreferenceReplies.remove(id) }
+                if isSet {
+                    guard let payload = object["alertPreferences"] as? [String: Any], Set(payload.keys) == ["categories"],
+                        let data = try? JSONSerialization.data(withJSONObject: payload),
+                        let preferences = try? CompanionProtocol.decoder().decode(CompanionAlertPreferences.self, from: data)
+                    else { throw LocalAPIError.invalidRequest }
+                    guard !Task.isCancelled else { throw LocalAPIError.cancelled }
+                    guard ContinuousClock.now < mutationDeadline else { throw LocalAPIError.timeout }
+                    if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                    // The setter invalidates old requests. This receipt uses the
+                    // replacement lease and still rechecks authority before every chunk.
+                    pendingPreferenceReplies.insert(id)
+                    do {
+                        try setAlertPreferences(connectionID, preferences)
+                    } catch {
+                        pendingPreferenceReplies.remove(id)
+                        throw LocalAPIError.transportFailure
+                    }
+                    lease = try authority.authorizeCompanion(
+                        connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                    ).get()
+                }
+                let response = CompanionAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date(),
+                    alertPreferences: lease.companionAlertPreferences)
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(response), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress)
+                markSeen(connectionID)
+                return
             }
-            guard operation == .connectionStatus || operation == .listAgents || operation == .attentionEvents else {
-                throw LocalAPIError.permissionDenied
+            guard object["alertPreferences"] == nil else { throw LocalAPIError.invalidRequest }
+            if request.operation == CompanionOperation.pendingDecisions.rawValue
+                || request.operation == CompanionOperation.answerDecision.rawValue
+            {
+                let base: Set<String> = ["schemaVersion", "requestID", "profile", "operation", "connectionID"]
+                let isAnswer = request.operation == CompanionOperation.answerDecision.rawValue
+                guard Set(object.keys) == (isAnswer ? base.union(["decisionAnswer"]) : base) else { throw LocalAPIError.invalidRequest }
+                let answer: CompanionDecisionAnswer?
+                if isAnswer {
+                    guard let payload = object["decisionAnswer"] as? [String: Any],
+                        Set(payload.keys) == ["identity", "choice", "retryID"],
+                        let identity = payload["identity"] as? [String: Any],
+                        Set(identity.keys) == [
+                            "runtimeID", "workspaceID", "paneID", "targetVersion", "providerSessionID", "invocationID", "revision",
+                        ]
+                    else { throw LocalAPIError.invalidRequest }
+                    guard
+                        let decoded = try? CompanionProtocol.decoder().decode(
+                            CompanionDecisionAnswer.self,
+                            from: JSONSerialization.data(withJSONObject: payload))
+                    else { throw LocalAPIError.invalidRequest }
+                    answer = decoded
+                    guard let answer, answer.identity.revision > 0,
+                        !answer.identity.providerSessionID.isEmpty, answer.identity.providerSessionID.utf8.count <= 256
+                    else { throw LocalAPIError.invalidRequest }
+                } else {
+                    answer = nil
+                }
+                let lease = try authority.authorizeCompanion(
+                    connectionID: connectionID,
+                    certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                let projection = try decisions(answer, lease, fingerprint, request.requestID)
+                let encoded = try CompanionProtocol.encoder().encode(projection.response)
+                guard encoded.count <= LocalAPIContract.maximumResponseBytes else { throw LocalAPIError.responseTooLarge }
+                try await sendAuthorizedFrame(
+                    encoded, connection: connection, connectionID: connectionID,
+                    fingerprint: fingerprint, lease: lease, responseProgress: responseProgress, validate: projection.validate)
+                markSeen(connectionID)
+                return
             }
-            guard Self.argumentsAreValid(request, operation: operation) else { throw LocalAPIError.invalidRequest }
+            guard object["decisionAnswer"] == nil else { throw LocalAPIError.invalidRequest }
+            if request.operation == CompanionPaneRename.operation {
+                let mutation = try CompanionPaneRenameRequest.decode(object)
+                let lease = try authority.authorizeCompanion(
+                    connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                markActivity()
+                if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                try renamePane(mutation, lease, fingerprint, mutationDeadline)
+                let response = LocalAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date())
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(response.companionResponse), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress)
+                markSeen(connectionID)
+                return
+            }
+            guard object["workspaceID"] == nil, object["title"] == nil else { throw LocalAPIError.invalidRequest }
+            if object.keys.contains("terminalPreviewAllowed"),
+                request.operation != CompanionOperation.setTerminalPreview.rawValue
+            {
+                throw LocalAPIError.invalidRequest
+            }
+            let isUnpair = request.operation == CompanionOperation.unpair.rawValue
+            let operation = try CompanionRequestPolicy.authorizationOperation(for: request)
+            guard operation == .attentionEvents || object["includeCommandEvents"] == nil else {
+                throw LocalAPIError.invalidRequest
+            }
             let lease = try authority.authorizeCompanion(
                 connectionID: connectionID,
                 certificateFingerprint: fingerprint,
                 operation: operation
             ).get()
+            markActivity()
+            if request.operation == CompanionOperation.setTerminalPreview.rawValue {
+                guard let allowed = request.terminalPreviewAllowed else { throw LocalAPIError.invalidRequest }
+                // Keep this socket alive through its own invalidation; unlike
+                // self-unpair, the acknowledgement still requires a current lease.
+                pendingPermissionReplies.insert(id)
+                defer { pendingPermissionReplies.remove(id) }
+                let updatedLease: LocalAPIAuthorizationLease
+                do {
+                    updatedLease = try setTerminalPreview(connectionID, fingerprint, lease, allowed)
+                } catch let error as LocalAPIError {
+                    throw error
+                } catch {
+                    throw LocalAPIError.transportFailure
+                }
+                let receipt = CompanionAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID,
+                    capturedAt: Date(), terminalPreviewAllowed: updatedLease.terminalPreviewAllowed
+                )
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(receipt), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: updatedLease,
+                    responseProgress: responseProgress
+                )
+                markSeen(connectionID)
+                return
+            }
             if isUnpair {
                 pendingRevocationReplies.insert(id)
                 defer { pendingRevocationReplies.remove(id) }
@@ -905,11 +1090,13 @@ private final class CompanionNetworkServer {
                         LocalAPIResponse(requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date())
                     }
                 responseProgress.markStarted()
-                try await Self.sendFrame(try LocalAPIContract.encoder().encode(response), connection: connection)
+                try await Self.sendFrame(try CompanionProtocol.encoder().encode(response.companionResponse), connection: connection)
                 return
             }
-            let response = await capture(request, lease)
-            let encoded = try LocalAPIContract.encoder().encode(response)
+            let metadata = pairedConnections().first { $0.id == connectionID }?.companion
+            let response = await capture(
+                request, lease, operation == .connectionStatus && metadata?.pairingVersion == 2 ? routes() : nil)
+            let encoded = try CompanionProtocol.encoder().encode(response)
             guard encoded.count <= LocalAPIContract.maximumResponseBytes else { throw LocalAPIError.responseTooLarge }
             try await sendAuthorizedFrame(
                 encoded,
@@ -923,7 +1110,7 @@ private final class CompanionNetworkServer {
         } catch let error as LocalAPIError {
             guard !responseProgress.started else { return }
             try? await Self.sendFrame(
-                try LocalAPIContract.encoder().encode(LocalAPIResponse(requestID: requestID, error: error)),
+                try CompanionProtocol.encoder().encode(LocalAPIResponse(requestID: requestID, error: error).companionResponse),
                 connection: connection
             )
         }
@@ -1000,10 +1187,8 @@ private final class CompanionNetworkServer {
         try await Self.sendFrame(
             Self.pairingReply(
                 status: "paired",
-                additions: [
-                    "connectionID": grant.id.uuidString.lowercased(),
-                    "macName": macName,
-                ]
+                connectionID: grant.id,
+                macName: macName
             ),
             connection: connection
         )
@@ -1015,15 +1200,15 @@ private final class CompanionNetworkServer {
         connectionID: UUID,
         fingerprint: Data,
         lease: LocalAPIAuthorizationLease,
-        responseProgress: ResponseProgress
+        responseProgress: ResponseProgress,
+        validate: @MainActor () throws -> Void = {}
     ) async throws {
-        var length = UInt32(payload.count).bigEndian
-        var frame = withUnsafeBytes(of: &length) { Data($0) }
-        frame.append(payload)
+        let frame = try CompanionFrame.encode(payload, maximum: CompanionProtocol.maximumResponseBytes)
         var offset = 0
         while offset < frame.count {
             let end = min(offset + 16 * 1024, frame.count)
             let chunk = frame[offset..<end]
+            try validate()
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 do {
                     _ = try authority.commitCompanion(
@@ -1050,8 +1235,12 @@ private final class CompanionNetworkServer {
     private static func readFrame(_ connection: NWConnection, maximum: Int) async throws -> Data {
         let header = try await receive(connection, minimum: 4, maximum: 4)
         guard header.count == 4 else { throw CompanionPairingError.connectionClosed }
-        let length = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        guard length > 0, length <= maximum else { throw LocalAPIError.requestTooLarge }
+        let length: Int
+        do {
+            length = try CompanionFrame.payloadLength(header, maximum: maximum)
+        } catch {
+            throw LocalAPIError.requestTooLarge
+        }
         let body = try await receive(connection, minimum: Int(length), maximum: Int(length))
         guard body.count == Int(length) else { throw CompanionPairingError.connectionClosed }
         return body
@@ -1074,9 +1263,7 @@ private final class CompanionNetworkServer {
     }
 
     private static func sendFrame(_ payload: Data, connection: NWConnection) async throws {
-        var length = UInt32(payload.count).bigEndian
-        var frame = withUnsafeBytes(of: &length) { Data($0) }
-        frame.append(payload)
+        let frame = try CompanionFrame.encode(payload, maximum: CompanionProtocol.maximumResponseBytes)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.send(
                 content: frame,
@@ -1086,10 +1273,10 @@ private final class CompanionNetworkServer {
         }
     }
 
-    private static func pairingReply(status: String, additions: [String: String] = [:]) -> Data {
-        var object = ["v": 1, "status": status] as [String: Any]
-        object.merge(additions) { _, new in new }
-        return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+    private static func pairingReply(status: String, connectionID: UUID? = nil, macName: String? = nil) -> Data {
+        (try? CompanionProtocol.encoder().encode(
+            CompanionPairingReply(status: status, connectionID: connectionID, macName: macName)
+        )) ?? Data()
     }
 
     private static func peerSPKI(_ connection: NWConnection) throws -> Data {
@@ -1105,17 +1292,6 @@ private final class CompanionNetworkServer {
                 }), let certificate = box.certificate
         else { throw CompanionPairingError.invalidRequest }
         return try CompanionCertificate.subjectPublicKeyInfo(for: certificate)
-    }
-
-    private static func argumentsAreValid(_ request: LocalAPIRequest, operation: LocalAPIOperation) -> Bool {
-        if operation == .attentionEvents {
-            return request.paneID == nil && request.targetVersion == nil && request.source == nil
-                && (request.limit ?? 0) > 0
-                && (request.limit ?? 0) <= LocalAPIContract.maximumAttentionPageSize
-                && (request.cursor.map { !$0.isEmpty && $0.utf8.count <= 2048 } ?? true)
-        }
-        return request.paneID == nil && request.targetVersion == nil && request.source == nil
-            && request.limit == nil && request.cursor == nil
     }
 
     private static func remoteAddress(_ endpoint: NWEndpoint) -> String {
@@ -1138,7 +1314,7 @@ private final class CompanionNetworkServer {
 
     private func activeFingerprints() -> [Data] {
         pairedConnections().compactMap { connection in
-            guard connection.companion?.transport == address.transport else { return nil }
+            guard connection.companion?.allows(address.transport) == true else { return nil }
             return connection.companion?.certificateFingerprint
         }
     }

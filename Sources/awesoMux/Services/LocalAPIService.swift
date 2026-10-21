@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import Darwin
@@ -48,9 +49,25 @@ enum LocalAPIProcessSource: Sendable, Equatable {
 }
 
 @MainActor
+struct CompanionDecisionResponse {
+    let response: CompanionAPIResponse
+    let validate: @MainActor () throws -> Void
+}
+
+@MainActor
 final class LocalAPIService {
+    private var awayMonitor: CompanionAwayMonitor?
+    #if DEBUG
+        private var decisionFixture: CompanionDecisionFixture?
+        var decisionFixtureWorkspaceID: UUID? { decisionFixture?.workspaceID }
+    #endif
     private let server: LocalAPIServer
     private let capture: LocalAPIServer.Capture
+    private weak var renameStore: SessionStore?
+    private let renameAuthority: LocalAPIRuntimeAuthority
+    private let profileValue: String
+    private weak var store: SessionStore?
+    private weak var runtime: GhosttyRuntime?
     private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPI")
 
     init(
@@ -158,7 +175,7 @@ final class LocalAPIService {
                 do {
                     attentionEvents = try store.localAPIAttentionEvents(
                         cursor: request.cursor, limit: request.limit ?? 0, lease: lease,
-                        processIncarnations: sampledIncarnations
+                        includeCommandEvents: request.includeCommandEvents ?? false, processIncarnations: sampledIncarnations
                     )
                 } catch {
                     return LocalAPIResponse(requestID: request.requestID, error: error as? LocalAPIError ?? .transportFailure)
@@ -173,7 +190,12 @@ final class LocalAPIService {
                 attentionEvents: attentionEvents
             )
         }
+        self.profileValue = profileValue
+        self.store = store
+        self.runtime = runtime
         self.capture = capture
+        renameStore = store
+        renameAuthority = accessStore.runtimeAuthority
         server = try LocalAPIServer(
             profile: profileValue,
             authorization: accessStore.runtimeAuthority.provider,
@@ -182,19 +204,120 @@ final class LocalAPIService {
         accessStore.setInvalidationHandler { [weak server] connectionID in
             server?.invalidate(connectionID: connectionID)
         }
+        store.companionAlertIsSuppressed = { [weak runtime] paneID in
+            runtime?.companionAlertIsSuppressed(paneID: paneID) ?? false
+        }
         store.bindLocalAPIInstance(server.instanceID)
+        awayMonitor = CompanionAwayMonitor(store: store)
+        #if DEBUG
+            if case .development = profile,
+                let path = ProcessInfo.processInfo.environment["AWESOMUX_COMPANION_DECISION_FIXTURE"],
+                let session = store.groups.flatMap(\.sessions).first
+            {
+                decisionFixture = try CompanionDecisionFixture(directory: URL(fileURLWithPath: path), workspaceID: session.id)
+            }
+        #endif
         server.start()
     }
 
-    func stop() { server.stop() }
+    func stop() {
+        awayMonitor = nil
+        server.stop()
+    }
+
+    func recordAuthenticatedCompanionActivity() {
+        awayMonitor?.recordAuthenticatedActivity()
+    }
 
     var instanceID: UUID { server.instanceID }
 
+    func renameCompanionPane(
+        request: CompanionPaneRenameRequest, lease: LocalAPIAuthorizationLease,
+        certificateFingerprint: Data, deadline: ContinuousClock.Instant
+    ) throws {
+        guard let store = renameStore else { throw LocalAPIError.appUnavailable }
+        try CompanionPaneRename.apply(
+            request: request, store: store, authority: renameAuthority,
+            certificateFingerprint: certificateFingerprint, lease: lease, deadline: deadline)
+    }
+
+    var companionDecisionWorkspaces: [(id: UUID, name: String)] {
+        store?.groups.flatMap(\.sessions).map { ($0.id, store?.sidebarResolvedTitle(for: $0.id) ?? $0.title) } ?? []
+    }
+
+    func companionDecisions(
+        answer: CompanionDecisionAnswer?, lease: LocalAPIAuthorizationLease,
+        fingerprint: Data, authority: LocalAPIRuntimeAuthority, deviceName: String,
+        requestID: UUID
+    ) throws -> CompanionDecisionResponse {
+        guard let store, let runtime, let workspaces = lease.decideWorkspaceIDs, !workspaces.isEmpty else {
+            throw LocalAPIError.permissionDenied
+        }
+        #if DEBUG
+            let coordinator = decisionFixture?.coordinator ?? runtime.localPermissionCoordinator
+            let fixture = decisionFixture != nil
+        #else
+            let coordinator = runtime.localPermissionCoordinator
+            let fixture = false
+        #endif
+        let eligible: (LocalPermissionTarget) -> Bool = { [weak self, weak store] target in
+            #if DEBUG
+                if let fixture = self?.decisionFixture {
+                    return target.workspaceID == fixture.workspaceID
+                }
+            #endif
+            guard let store, let session = store.session(id: target.workspaceID),
+                let pane = session.layout.pane(id: target.paneID)
+            else { return false }
+            return LocalPermissionPresentation.isEligible(
+                executionPlan: pane.executionPlan, compactTerminalKind: store.compactTerminalKind)
+        }
+        let result = try coordinator.remoteResponse(
+            answer: answer, deviceID: lease.connectionID, deviceName: deviceName, workspaceIDs: workspaces,
+            authorize: { body in
+                try authority.performCompanionDecision(certificateFingerprint: fingerprint, lease: lease, body: body)
+            },
+            eligible: eligible, fixture: fixture)
+        let response = CompanionAPIResponse(
+            requestID: requestID, profile: profileValue,
+            appInstanceID: server.instanceID, capturedAt: Date(), pendingDecisions: result.pending,
+            decisionOutcomes: result.outcomes, decisionReceipt: result.receipt,
+            remoteDecisionsEnabled: LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "claudeCode", version: nil))
+        let identities = result.pending.map(\.identity) + result.outcomes.map(\.identity) + (result.receipt.map { [$0.identity] } ?? [])
+        return CompanionDecisionResponse(
+            response: response,
+            validate: {
+                try coordinator.validateRemoteTargets(identities, workspaceIDs: workspaces, eligible: eligible)
+            })
+    }
+
     func companionResponse(
         request: LocalAPIRequest,
-        lease: LocalAPIAuthorizationLease
-    ) async -> LocalAPIResponse {
-        await capture(request, server.instanceID, lease)
+        lease: LocalAPIAuthorizationLease,
+        routes: CompanionRoutes? = nil
+    ) async -> CompanionAPIResponse {
+        if request.operation == CompanionOperation.connectionStatus.rawValue {
+            return CompanionAPIResponse(
+                requestID: request.requestID, profile: profileValue,
+                appInstanceID: server.instanceID, capturedAt: Date(), connectionStatus: "connected", routes: routes,
+                terminalPreviewAllowed: lease.terminalPreviewAllowed,
+                remoteDecisionsEnabled: LocalPermissionCoordinator.remoteDecisionsEnabled(provider: "claudeCode", version: nil)
+            )
+        }
+        if request.operation == CompanionOperation.listPanes.rawValue {
+            guard let store, let runtime else {
+                return CompanionAPIResponse(requestID: request.requestID, error: LocalAPIError.appUnavailable.rawValue)
+            }
+            let workspaces = store.companionWorkspaces(scope: lease.statusScope, terminalPreviewAllowed: lease.terminalPreviewAllowed) {
+                paneID in
+                runtime.companionLastOutputLine(paneID: paneID)
+            }
+            return CompanionAPIResponse(
+                requestID: request.requestID, profile: profileValue,
+                appInstanceID: server.instanceID, capturedAt: Date(), workspaces: workspaces
+            )
+        }
+        return await capture(request, server.instanceID, lease).companionResponse
     }
 
     static func start(
@@ -256,3 +379,29 @@ final class LocalAPIService {
         }
     }
 }
+
+#if DEBUG
+    /// Pairing transport proof only. This coordinator has no real hook or shell
+    /// targets, and cannot enable the production provider/version release gate.
+    @MainActor
+    private final class CompanionDecisionFixture {
+        let coordinator = LocalPermissionCoordinator(announcement: { _ in })
+        let workspaceID: UUID
+        init(directory: URL, workspaceID: UUID) throws {
+            self.workspaceID = workspaceID
+            var identities: [String: CompanionDecisionIdentity] = [:]
+            let paneID = UUID()
+            for (name, workspace, expiry) in [
+                ("live", workspaceID, 120.0), ("queued", workspaceID, 120.0), ("expired", workspaceID, 59.0), ("outside", UUID(), 120.0),
+            ] {
+                let event = directory.appendingPathComponent("decision-fixture-\(name).jsonl")
+                identities[name] = try coordinator.seedRemoteFixture(
+                    workspaceID: workspace, paneID: workspace == workspaceID ? paneID : UUID(), eventFile: event,
+                    expiresIn: expiry
+                ).companionIdentity
+            }
+            try CompanionProtocol.encoder().encode(identities).write(
+                to: directory.appendingPathComponent("decision-identities.json"), options: .atomic)
+        }
+    }
+#endif

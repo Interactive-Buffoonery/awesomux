@@ -1,3 +1,4 @@
+import AwesoMuxCompanionProtocol
 import CryptoKit
 import Foundation
 
@@ -18,11 +19,16 @@ public struct LocalAPIAttentionEvent: Codable, Sendable {
     public let occurredAt: Date
     public let reason: String
     public let resolvedAt: Date?
+    public let exitCode: Int?
+    public let durationSeconds: Double?
+
+    public var isCommandEvent: Bool { exitCode != nil }
 
     public init(
         id: UUID = UUID(), attentionID: UUID, change: LocalAPIAttentionChange,
         paneID: UUID, workspaceID: UUID, provider: String, providerSessionID: String?,
-        targetVersion: UUID, occurredAt: Date, reason: String, resolvedAt: Date? = nil
+        targetVersion: UUID, occurredAt: Date, reason: String, resolvedAt: Date? = nil,
+        exitCode: Int? = nil, durationSeconds: Double? = nil
     ) {
         self.id = id
         self.attentionID = attentionID
@@ -35,6 +41,8 @@ public struct LocalAPIAttentionEvent: Codable, Sendable {
         self.occurredAt = occurredAt
         self.reason = reason
         self.resolvedAt = resolvedAt
+        self.exitCode = exitCode
+        self.durationSeconds = durationSeconds
     }
 }
 
@@ -70,6 +78,7 @@ public struct LocalAPIAttentionJournal {
     private struct Entry {
         let position: UInt64
         let event: LocalAPIAttentionEvent
+        let companionSuppressed: Bool
     }
 
     private struct Cursor: Codable {
@@ -77,6 +86,33 @@ public struct LocalAPIAttentionJournal {
         let globalRevision: UUID
         let connectionRevision: UUID
         let position: String
+        let includeCommandEvents: Bool
+    }
+
+    private struct AwayCheckpoint {
+        let position: UInt64
+        var hasAuthenticatedActivity = false
+    }
+
+    private var awayCheckpoint: AwayCheckpoint?
+
+    public mutating func beginAwayPeriod() {
+        guard awayCheckpoint == nil else { return }
+        awayCheckpoint = AwayCheckpoint(position: position)
+    }
+
+    public mutating func recordAuthenticatedCompanionActivity() {
+        awayCheckpoint?.hasAuthenticatedActivity = true
+    }
+
+    public mutating func endAwayPeriod() -> LocalAPIWhileAwaySummary? {
+        guard let checkpoint = awayCheckpoint else { return nil }
+        awayCheckpoint = nil
+        guard checkpoint.hasAuthenticatedActivity else { return nil }
+        let events = entries.filter { $0.position > checkpoint.position }.map(\.event)
+        let gap = checkpoint.position < (entries.first.map { $0.position - 1 } ?? position)
+        guard !events.isEmpty || gap else { return nil }
+        return LocalAPIWhileAwaySummary(events: events, olderActivityUnavailable: gap)
     }
 
     private let instanceID: UUID
@@ -88,9 +124,9 @@ public struct LocalAPIAttentionJournal {
         self.instanceID = instanceID
     }
 
-    public mutating func append(_ event: LocalAPIAttentionEvent) {
+    public mutating func append(_ event: LocalAPIAttentionEvent, companionSuppressed: Bool = false) {
         position += 1
-        entries.append(Entry(position: position, event: event))
+        entries.append(Entry(position: position, event: event, companionSuppressed: companionSuppressed))
         if entries.count > LocalAPIContract.maximumAttentionEvents {
             entries.removeFirst(entries.count - LocalAPIContract.maximumAttentionEvents)
         }
@@ -98,7 +134,7 @@ public struct LocalAPIAttentionJournal {
 
     public func page(
         cursor value: String?, limit: Int, lease: LocalAPIAuthorizationLease,
-        liveTargetVersions: [UUID: UUID]
+        liveTargetVersions: [UUID: UUID], includeCommandEvents: Bool = false
     ) throws -> LocalAPIAttentionPage {
         guard limit > 0 else { throw LocalAPIError.invalidRequest }
         var start = entries.first.map { $0.position - 1 } ?? position
@@ -118,7 +154,8 @@ public struct LocalAPIAttentionJournal {
                     let data = try AES.GCM.open(box, using: cursorKey)
                     cursor = try LocalAPIContract.decoder().decode(Cursor.self, from: data)
                 } catch { throw LocalAPIError.invalidCursor }
-                guard cursor.connectionID == lease.connectionID, cursor.position.utf8.count == 16,
+                guard cursor.connectionID == lease.connectionID, cursor.includeCommandEvents == includeCommandEvents,
+                    cursor.position.utf8.count == 16,
                     let cursorPosition = UInt64(cursor.position, radix: 16), cursorPosition <= position
                 else {
                     throw LocalAPIError.invalidCursor
@@ -135,17 +172,21 @@ public struct LocalAPIAttentionJournal {
         }
         if status != .initial && status != .current {
             return LocalAPIAttentionPage(
-                events: [], nextCursor: try encodeCursor(position: position, lease: lease),
+                events: [], nextCursor: try encodeCursor(position: position, lease: lease, includeCommandEvents: includeCommandEvents),
                 cursorStatus: status, hasMore: false
             )
         }
         let authorized = entries.filter { entry in
             let event = entry.event
-            guard entry.position > start,
+            guard entry.position > start, includeCommandEvents || !event.isCommandEvent,
                 lease.statusScope.allows(
                     paneID: event.paneID, workspaceID: event.workspaceID, targetVersion: event.targetVersion
                 )
             else { return false }
+            if let preferences = lease.companionAlertPreferences, event.change == .raised {
+                guard !entry.companionSuppressed else { return false }
+                if let category = Self.category(for: event.reason), !preferences.categories.contains(category) { return false }
+            }
             if case .exactTarget = lease.statusScope {
                 return liveTargetVersions[event.paneID] == event.targetVersion
             }
@@ -155,18 +196,50 @@ public struct LocalAPIAttentionJournal {
         let hasMore = authorized.count > selected.count
         let end = hasMore ? selected.last!.position : position
         return LocalAPIAttentionPage(
-            events: selected.map(\.event), nextCursor: try encodeCursor(position: end, lease: lease),
+            events: selected.map(\.event),
+            nextCursor: try encodeCursor(position: end, lease: lease, includeCommandEvents: includeCommandEvents),
             cursorStatus: status, hasMore: hasMore
         )
     }
 
-    private func encodeCursor(position: UInt64, lease: LocalAPIAuthorizationLease) throws -> String {
+    private static func category(for reason: String) -> CompanionAlertCategory? {
+        switch reason {
+        case "permissionPrompt": .permission
+        case "userInputRequired", "waitingForInput": .waiting
+        case "processError", "agentError": .error
+        case "commandFailed": .commandFailed
+        case "commandFinished": .commandCompleted
+        default: nil
+        }
+    }
+
+    private func encodeCursor(
+        position: UInt64, lease: LocalAPIAuthorizationLease, includeCommandEvents: Bool
+    ) throws -> String {
         let data = try LocalAPIContract.encoder().encode(
             Cursor(
                 connectionID: lease.connectionID, globalRevision: lease.globalRevision,
-                connectionRevision: lease.connectionRevision, position: String(format: "%016llx", position)
+                connectionRevision: lease.connectionRevision, position: String(format: "%016llx", position),
+                includeCommandEvents: includeCommandEvents
             ))
         guard let sealed = try AES.GCM.seal(data, using: cursorKey).combined else { throw LocalAPIError.transportFailure }
         return instanceID.uuidString.lowercased() + "." + sealed.base64EncodedString()
+    }
+}
+
+/// A bounded presentation derived from the shared journal, never a second log.
+public struct LocalAPIWhileAwaySummary: Sendable {
+    public let events: [LocalAPIAttentionEvent]
+    public let olderActivityUnavailable: Bool
+
+    public init(events: [LocalAPIAttentionEvent], olderActivityUnavailable: Bool) {
+        self.events = Array(events.suffix(LocalAPIContract.maximumAttentionEvents))
+        self.olderActivityUnavailable = olderActivityUnavailable || events.count > LocalAPIContract.maximumAttentionEvents
+    }
+
+    public func merging(_ other: Self) -> Self {
+        var identities = Set<UUID>()
+        let combined = (events + other.events).filter { identities.insert($0.id).inserted }
+        return Self(events: combined, olderActivityUnavailable: olderActivityUnavailable || other.olderActivityUnavailable)
     }
 }

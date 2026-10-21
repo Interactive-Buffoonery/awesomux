@@ -1,6 +1,14 @@
 {
-  "originHash" : "baa20500fa2f49f5916b8b2dc6817862b9313444f138dd8d94ed91b9466e9416",
+  "originHash" : "5a6a8553e4dba168dc615c8ae458676345fd7ceaa48ae3b1c67423df3d361548",
   "pins" : [
+    {
+      "identity" : "awesomux-companion",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Interactive-Buffoonery/awesomux-companion.git",
+      "state" : {
+        "revision" : "3feac537ddde26aee05548ce768c77e9d6f72eb5"
+      }
+    },
     {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
