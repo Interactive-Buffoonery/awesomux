@@ -459,6 +459,16 @@
     "%arg, on the don’t-ask list" : {
       "comment" : "Accessibility label for a destination row in the don’t-ask list"
     },
+    "%arg, pane %arg, request %arg. %arg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, pane %2$arg, request %3$arg. %4$arg"
+          }
+        }
+      }
+    },
     "%arg. %arg" : {
       "comment" : "VoiceOver value combining the Open at Login status with its latest error.",
       "localizations" : {

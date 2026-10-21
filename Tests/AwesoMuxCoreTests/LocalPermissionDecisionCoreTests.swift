@@ -91,7 +91,9 @@ struct LocalPermissionDecisionCoreTests {
             )
         }
         if progressStage == 0 { nativeProgress() }
-        #expect(core.commit(request.identity, choice: choice, now: instant, helperAlive: true) == (progressStage == 0 ? .cancelled : .recorded))
+        #expect(
+            core.commit(request.identity, choice: choice, now: instant, helperAlive: true)
+                == (progressStage == 0 ? .cancelled : .recorded))
         if progressStage == 1 { nativeProgress() }
         #expect(core.claimDelivery(request.identity, now: instant, helperAlive: true) == (progressStage < 2 ? nil : choice))
         if progressStage == 2 { nativeProgress() }
