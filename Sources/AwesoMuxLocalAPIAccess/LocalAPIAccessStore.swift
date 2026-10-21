@@ -58,7 +58,8 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences, decideWorkspaceIDs
+        case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences,
+            decideWorkspaceIDs
     }
 
     public init(from decoder: Decoder) throws {
