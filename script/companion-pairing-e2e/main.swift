@@ -187,6 +187,7 @@ struct CompanionPairingE2E {
             }
             if try handleFixtureCommand() { return }
             if Array(CommandLine.arguments.dropFirst()) == ["--alert-preferences-only"] {
+                try verifyAlertPreferenceWireFixtures()
                 try verifyAlertPreferenceStorageAndJournal()
                 try verifyAlertPresenceSamplingInStore()
                 return
@@ -341,17 +342,7 @@ struct CompanionPairingE2E {
                 guard let payload = response["alertPreferences"] as? [String: Any],
                     payload["categories"] as? [String] == expectedCategories
                 else { throw E2EFailure("preferences response did not match saved categories") }
-                let extraFields: [(String, Any)] = [
-                    ("paneID", UUID().uuidString), ("workspaceID", UUID().uuidString),
-                    ("limit", 1), ("cursor", "unexpected"), ("includeCommandEvents", true),
-                    ("source", LocalAPIContextSource.transcript.rawValue), ("targetVersion", UUID().uuidString),
-                    ("title", "Unexpected title"), ("terminalPreviewAllowed", true),
-                ]
-                for (field, value) in extraFields {
-                    var invalid = valid
-                    invalid[field] = value
-                    let encoded = try JSONSerialization.data(withJSONObject: invalid)
-                    _ = try LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: encoded)
+                for (field, invalid) in try alertPreferenceExtraFieldRequests(valid, expectedProfile: expectedProfile) {
                     let denied = try await call(invalid, link: link, identity: identity)
                     guard denied["error"] as? String == "invalid_request" else {
                         throw E2EFailure("preferences accepted argument \(field)")

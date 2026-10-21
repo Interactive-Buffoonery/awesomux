@@ -4,6 +4,41 @@ import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import Foundation
 
+func alertPreferenceExtraFieldRequests(
+    _ request: [String: Any], expectedProfile: String
+) throws -> [(String, [String: Any])] {
+    let extraFields: [(String, Any)] = [
+        ("paneID", UUID().uuidString), ("workspaceID", UUID().uuidString),
+        ("limit", 1), ("cursor", "unexpected"), ("includeCommandEvents", true),
+        ("source", LocalAPIContextSource.transcript.rawValue), ("targetVersion", UUID().uuidString),
+        ("title", "Unexpected title"), ("terminalPreviewAllowed", true),
+    ]
+    return try extraFields.map { field, value in
+        var invalid = request
+        invalid[field] = value
+        var probe = invalid
+        probe["profile"] = expectedProfile
+        let encoded = try JSONSerialization.data(withJSONObject: probe)
+        _ = try LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: encoded)
+        return (field, invalid)
+    }
+}
+
+func verifyAlertPreferenceWireFixtures() throws {
+    for operation in ["get_alert_preferences", "set_alert_preferences"] {
+        var request: [String: Any] = [
+            "schemaVersion": LocalAPIContract.version, "requestID": UUID().uuidString,
+            "operation": operation, "connectionID": UUID().uuidString,
+        ]
+        if operation == "set_alert_preferences" { request["alertPreferences"] = ["categories": ["permission", "commandFailed"]] }
+        let fixtures = try alertPreferenceExtraFieldRequests(request, expectedProfile: "development")
+        guard fixtures.count == 9, fixtures.allSatisfy({ $0.1["profile"] == nil }) else {
+            throw E2EFailure("strict-key fixtures changed the wire profile")
+        }
+    }
+    print("alert_preferences_wire_fixtures=passed cases=18 tls=unverified")
+}
+
 @MainActor
 func verifyAlertPreferenceStorageAndJournal() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: "companion-alerts-\(UUID())")
