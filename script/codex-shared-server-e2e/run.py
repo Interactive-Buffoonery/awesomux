@@ -197,7 +197,9 @@ def owned_processes(codex_home):
         if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
             table[int(parts[0])] = (int(parts[1]), parts[2])
     prefix = str(codex_home) + '/'
-    owned = {pid for pid, (_, cmd) in table.items() if cmd.split(' ', 1)[0].startswith(prefix)}
+    # argv[0] leads args; match the prefix on the whole string because the
+    # path itself can contain spaces.
+    owned = {pid for pid, (_, cmd) in table.items() if cmd.startswith(prefix)}
     grew = True
     while grew:
         children = {pid for pid, (ppid, _) in table.items() if ppid in owned and pid not in owned}
