@@ -127,8 +127,10 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   reattaches and the handshake assigns the new role. A remote-pane Watch
   stream stays Watch either way and is left open. Losing the Terminal grant
   for the pane, revoking the lease or unpairing ends the stream with
-  `revoked` and there is no reattach. Revoking is done in the grant
-  settings on the Mac, never from the pane banner.
+  `revoked` and there is no reattach. A pane that becomes unavailable ends
+  the stream with `pane_unavailable`; a zmx session that ends uses
+  `session_ended`, preserving ADR-0040's end reasons. Revoking is done in
+  the grant settings on the Mac, never from the pane banner.
 - Relation to ADR-0039: Input is a different shape from Decide and
   Transcript, which are Mac-approved workspace lists. The Mac stores and
   rechecks it separately; granting Input changes nothing about the other
@@ -223,11 +225,13 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
 
 ### Revocation and reconnect
 
-- Turning the Input switch off, removing the Terminal grant, revoking the
-  lease or unpairing ends every affected stream with `role_changed` or
-  `revoked` as set out above, detaches the relay's zmx client and drops its
-  queued bytes. The daemon's close-connection cleanup clears that client's
-  leadership only if it was the leader, invalidates its queued replies and
+- Turning the Input switch off ends streams whose authorized role changes
+  with `role_changed`; remote-pane Watch streams stay open. Removing the
+  Terminal grant, revoking the lease or unpairing ends every affected stream
+  with `revoked`, never `role_changed`. Each ended stream detaches the
+  relay's zmx client and drops its queued bytes. The daemon's
+  close-connection cleanup clears that client's leadership only if it was
+  the leader, invalidates its queued replies and
   retains the grid (ADR-0036). If the phone was leading, the pane is then
   leaderless at the phone's grid until the next Mac keystroke or Take over
   and the banner reads "No one is driving · 40×24 · type a letter, arrow or
