@@ -936,6 +936,14 @@ extension GhosttySurfaceNSView {
         applyDetectedAgentOutput(detection)
     }
 
+    func liveAgentHooksDelivered(for liveAgentKind: AgentKind) -> Bool {
+        guard liveAgentKind.requiresDeliveredHooksForAuthority else { return true }
+        guard let delivered = terminalEventState.codexHooksDelivered,
+            delivered.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID)
+        else { return false }
+        return delivered.incarnation == documentNudgeForegroundGeneration()
+    }
+
     func shouldSuppressVisibleTextState(_ detectedState: AgentState, now: TimeInterval) -> Bool {
         terminalEventState.visibleTextAgentStateReducer.shouldSuppressVisibleTextState(
             detectedState: detectedState,
@@ -1083,6 +1091,7 @@ extension GhosttySurfaceNSView {
             detectedAgentKind: detection.agentKind,
             detectedKindIsAuthoritative: detection.agentKindIsAuthoritative,
             liveAgentKind: liveAgentKind,
+            liveAgentHooksDelivered: liveAgentHooksDelivered(for: liveAgentKind),
             liveExecutionState: liveExecutionState,
             liveDisplayState: liveDisplayState,
             terminalIsActiveForAttention: sessionIsSelectedInKeyWindow || terminalIsFocused
@@ -1211,6 +1220,11 @@ extension GhosttySurfaceNSView {
         // visible-text heuristic's own scope, not suppressed here.
         if event.phase == .sessionEnd {
             terminalEventState.hasObservedAgentActivity = false
+            terminalEventState.codexHooksDelivered = nil
+        } else if event.source == .codex {
+            terminalEventState.codexHooksDelivered = documentNudgeForegroundGeneration().map {
+                (PaneStoreWriteKey(sessionID: sessionID, paneID: paneID), $0)
+            }
         }
 
         // Only state-bearing events suppress the visible-text detector,

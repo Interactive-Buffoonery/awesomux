@@ -279,7 +279,10 @@ corresponding scraped state because a subagent's transcript rendered in the
 shared pane can echo completion or permission-prompt phrasing the scraper would
 otherwise misread as the top-level agent needing the user (INT-714). Pi's
 installed integration currently reports lifecycle only, so Pi and plain shells
-keep scraped attention as a fallback.
+keep scraped attention as a fallback. Codex
+(`AgentKind.requiresDeliveredHooksForAuthority`) holds this authority only after
+the pane has received a provider hook since its last session end, because hooks
+from a shared app-server never arrive (see below).
 
 ### Read model
 
@@ -349,8 +352,9 @@ other panes inherit the founder's event file and pane identity
 the helper walks up to eight ancestors and checks the nearest executable named
 `codex` or starting with `codex-`. If its first argument is `app-server`, the
 helper returns success without writing and logs `shared-app-server` at debug
-level. This also drops the founder pane's events; visible-text detection remains
-the fallback. `codex --no-daemon` retains per-pane hook routing. Unreadable
+level. This also drops the founder pane's events. Until a pane receives a Codex
+hook, the app reads done, attention, and waiting from its visible text, including
+Codex's approval prompts. `codex --no-daemon` retains per-pane hook routing. Unreadable
 ancestry fails open and preserves the existing behavior. The repeatable check is
 [`codex-shared-server-e2e`](../script/codex-shared-server-e2e/README.md).
 

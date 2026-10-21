@@ -434,6 +434,7 @@ final class GhosttySurfaceNSView: NSView {
             // the freshly observed foreground process), but keeps the ivar
             // from ever holding another pane's identity.
             terminalEventState.verifiedWaitingForegroundIncarnation = nil
+            terminalEventState.codexHooksDelivered = nil
         }
         self.pane = pane
         self.paneID = pane.id
