@@ -1,5 +1,6 @@
 import AwesoMuxBridgeProtocol
 import AwesoMuxCore
+import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import Darwin
@@ -53,6 +54,9 @@ final class LocalAPIService {
     private let capture: LocalAPIServer.Capture
     private weak var renameStore: SessionStore?
     private let renameAuthority: LocalAPIRuntimeAuthority
+    private let profileValue: String
+    private weak var store: SessionStore?
+    private weak var runtime: GhosttyRuntime?
     private static let logger = Logger(subsystem: "com.interactivebuffoonery.awesomux", category: "LocalAPI")
 
     init(
@@ -175,6 +179,9 @@ final class LocalAPIService {
                 attentionEvents: attentionEvents
             )
         }
+        self.profileValue = profileValue
+        self.store = store
+        self.runtime = runtime
         self.capture = capture
         renameStore = store
         renameAuthority = accessStore.runtimeAuthority
@@ -206,9 +213,30 @@ final class LocalAPIService {
 
     func companionResponse(
         request: LocalAPIRequest,
-        lease: LocalAPIAuthorizationLease
-    ) async -> LocalAPIResponse {
-        await capture(request, server.instanceID, lease)
+        lease: LocalAPIAuthorizationLease,
+        routes: CompanionRoutes? = nil
+    ) async -> CompanionAPIResponse {
+        if request.operation == CompanionOperation.connectionStatus.rawValue {
+            return CompanionAPIResponse(
+                requestID: request.requestID, profile: profileValue,
+                appInstanceID: server.instanceID, capturedAt: Date(), connectionStatus: "connected", routes: routes,
+                terminalPreviewAllowed: lease.terminalPreviewAllowed
+            )
+        }
+        if request.operation == CompanionOperation.listPanes.rawValue {
+            guard let store, let runtime else {
+                return CompanionAPIResponse(requestID: request.requestID, error: LocalAPIError.appUnavailable.rawValue)
+            }
+            let workspaces = store.companionWorkspaces(scope: lease.statusScope, terminalPreviewAllowed: lease.terminalPreviewAllowed) {
+                paneID in
+                runtime.companionLastOutputLine(paneID: paneID)
+            }
+            return CompanionAPIResponse(
+                requestID: request.requestID, profile: profileValue,
+                appInstanceID: server.instanceID, capturedAt: Date(), workspaces: workspaces
+            )
+        }
+        return await capture(request, server.instanceID, lease).companionResponse
     }
 
     static func start(

@@ -150,6 +150,7 @@ final class GhosttySurfaceNSView: NSView {
     /// `GhosttySurfaceAccessibilityScreenContentsCache` for why this exists
     /// and its invalidation triggers.
     var terminalAccessibilityScreenContentsCache = GhosttySurfaceAccessibilityScreenContentsCache()
+    var companionPreviewCache = GhosttyCompanionPreviewCache()
 
     // Native callbacks can precede their MainActor UI updates. Keep click
     // routing synchronized without touching AppKit under Ghostty's lock.
@@ -178,7 +179,10 @@ final class GhosttySurfaceNSView: NSView {
     @MainActor
     var surface: ghostty_surface_t? {
         get { unsafeSurface }
-        set { unsafeSurface = newValue }
+        set {
+            companionPreviewCache.invalidate()
+            unsafeSurface = newValue
+        }
     }
     var contentSize: NSSize {
         get { lifecycleState.contentSizeBacking ?? frame.size }
@@ -328,6 +332,7 @@ final class GhosttySurfaceNSView: NSView {
         // otherwise cache an empty read that outlives the surface it was
         // taken from, into the next surface's life.
         terminalAccessibilityScreenContentsCache.invalidate()
+        companionPreviewCache.invalidate()
         // Both of sampleAgentStateFromVisibleText()'s dedupe gates must
         // reset together: `terminalEventState.lastDetectedVisibleText` is checked FIRST and
         // returns early on a match, so resetting only

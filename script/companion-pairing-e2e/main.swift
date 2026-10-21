@@ -2,6 +2,7 @@ import AwesoMuxCompanionProtocol
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPIAccess
 import CryptoKit
+import Darwin
 import Foundation
 import Network
 import Security
@@ -175,7 +176,16 @@ private enum CompanionClient {
 struct CompanionPairingE2E {
     @MainActor
     static func main() async {
+        var ownedIdentity: E2EClientIdentity?
         do {
+            let arguments = Array(CommandLine.arguments.dropFirst())
+            if arguments.first == "--cleanup-client-identity" {
+                guard arguments.count == 2 else { throw E2EFailure("invalid client cleanup command") }
+                try E2EClientIdentity.cleanup(receiptPath: arguments[1])
+                print("client_identity=removed_and_verified")
+                return
+            }
+            if try handleFixtureCommand() { return }
             let invocation = try invocation()
             if let cleanupResult = invocation.cleanupResult {
                 try cleanup(resultFile: cleanupResult)
@@ -185,18 +195,19 @@ struct CompanionPairingE2E {
             guard let rawLink = invocation.link else { throw E2EFailure("pairing link is missing") }
             guard let expectedProfile = invocation.profile else { throw E2EFailure("development profile is missing") }
             let link = try PairingLink(rawLink)
-            let identity = try E2EClientIdentity.make()
-            defer { identity.cleanup() }
+            guard let resultFile = invocation.resultFile else { throw E2EFailure("the result file is missing") }
+            let receiptPath = URL(fileURLWithPath: resultFile).deletingLastPathComponent().appending(path: "client-identity.json").path
+            let identity = try E2EClientIdentity.make(receiptPath: receiptPath)
+            ownedIdentity = identity
             print("endpoint=\(link.host):\(link.port) transport=\(link.transport) mac=\(link.macName)")
             print("client_spki_sha256=\(Data(SHA256.hash(data: identity.spki)).base64URL)")
 
             try await verifyWrongSecretIsDenied(link: link, identity: identity)
             let connectionID = try await pair(link: link, identity: identity)
-            guard let resultFile = invocation.resultFile else { throw E2EFailure("the result file is missing") }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile)
             try await verifyMacPin(link: link, identity: identity)
             var profile: String?
-            for operation in ["get_connection_status", "list_agents", "get_attention_events"] {
+            for operation in ["get_connection_status", "list_agents", "list_panes", "get_attention_events"] {
                 var request: [String: Any] = [
                     "schemaVersion": 1,
                     "requestID": UUID().uuidString.lowercased(),
@@ -213,8 +224,38 @@ struct CompanionPairingE2E {
                         link.advertisedRoutes.allSatisfy({ routes[$0.key] as? String == $0.value })
                     else { throw E2EFailure("status did not report the advertised v2 routes") }
                     print("advertised_routes=\(link.advertisedRoutes.keys.sorted().joined(separator: ","))")
+                    guard response["terminalPreviewAllowed"] as? Bool == true else {
+                        throw E2EFailure("new pairing did not retain disclosed preview consent")
+                    }
                 }
-                printJSON(label: operation, object: response)
+                if operation == "list_panes" {
+                    let encoded = try JSONSerialization.data(withJSONObject: response)
+                    let roster = try CompanionProtocol.decoder().decode(CompanionAPIResponse.self, from: encoded)
+                    guard let workspaces = roster.workspaces, !workspaces.isEmpty,
+                        workspaces.contains(where: { $0.panes.contains(where: { $0.kind == "terminal" }) })
+                    else { throw E2EFailure("list_panes did not return terminal workspaces") }
+                    if let fixtureSnapshot = invocation.fixtureSnapshot {
+                        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: fixtureSnapshot)))
+                        guard let snapshot = object as? [String: Any], let groups = snapshot["groups"] as? [[String: Any]] else {
+                            throw E2EFailure("native fixture snapshot is invalid")
+                        }
+                        let sessions = groups.flatMap { $0["sessions"] as? [[String: Any]] ?? [] }
+                        let expectedIDs = sessions.compactMap { ($0["id"] as? String).flatMap(UUID.init(uuidString:)) }
+                        guard expectedIDs.count == 2,
+                            workspaces.compactMap({ UUID(uuidString: $0.workspaceID) }) == expectedIDs,
+                            workspaces.allSatisfy({ $0.panes.count == 1 && $0.panes[0].kind == "terminal" })
+                        else { throw E2EFailure("pane roster did not match the two owned native fixtures") }
+                    }
+                    for pane in workspaces.flatMap(\.panes) {
+                        guard pane.lastOutputLine.map({ !$0.contains(where: \.isNewline) && $0.utf8.count <= 512 }) ?? true,
+                            pane.kind == "terminal" || pane.lastOutputLine == nil
+                        else { throw E2EFailure("list_panes returned an invalid preview") }
+                    }
+                    // Do not retain terminal content in the E2E log.
+                    print("list_panes=validated workspaces=\(workspaces.count) panes=\(workspaces.flatMap(\.panes).count)")
+                } else {
+                    printJSON(label: operation, object: response)
+                }
             }
             let denied = try await call(
                 [
@@ -238,6 +279,42 @@ struct CompanionPairingE2E {
                     "operation": operation, "connectionID": id ?? connectionID,
                 ]
             }
+            for allowed in [false, true, true] {
+                var mutation = request("set_terminal_preview")
+                mutation["terminalPreviewAllowed"] = allowed
+                let receipt = try await call(mutation, link: link, identity: identity)
+                guard receipt["error"] == nil, receipt["terminalPreviewAllowed"] as? Bool == allowed,
+                    receipt["workspaces"] == nil, receipt["agents"] == nil
+                else { throw E2EFailure("self preview permission update was not acknowledged") }
+                let status = try await call(request("get_connection_status"), link: link, identity: identity)
+                guard status["terminalPreviewAllowed"] as? Bool == allowed else {
+                    throw E2EFailure("preview permission readback did not match")
+                }
+                let roster = try await call(request("list_panes"), link: link, identity: identity)
+                guard roster["error"] == nil, let workspaces = roster["workspaces"] as? [[String: Any]] else {
+                    throw E2EFailure("preview toggle lost status roster")
+                }
+                if !allowed {
+                    for pane in workspaces.flatMap({ $0["panes"] as? [[String: Any]] ?? [] }) {
+                        guard pane["lastOutputLine"] == nil else { throw E2EFailure("disabled phone received terminal preview") }
+                    }
+                }
+                print("set_terminal_preview=validated allowed=\(allowed)")
+            }
+            for invalidValue: Any in [NSNull(), 1, "true"] {
+                var malformed = request("set_terminal_preview")
+                malformed["terminalPreviewAllowed"] = invalidValue
+                let deniedMutation = try await call(malformed, link: link, identity: identity)
+                guard deniedMutation["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("malformed preview permission was accepted")
+                }
+            }
+            var wrongPhone = request("set_terminal_preview", id: UUID().uuidString)
+            wrongPhone["terminalPreviewAllowed"] = true
+            let deniedPhone = try await call(wrongPhone, link: link, identity: identity)
+            guard deniedPhone["error"] as? String == "permission_denied" else {
+                throw E2EFailure("preview permission changed another phone")
+            }
             for (operation, id, expected) in [
                 ("unpair", UUID().uuidString, "permission_denied"),
                 ("unknown_companion_operation", connectionID, "unsupported_operation"),
@@ -247,6 +324,12 @@ struct CompanionPairingE2E {
                     throw E2EFailure("\(operation) did not return \(expected)")
                 }
                 printJSON(label: "\(operation)_denied", object: response)
+            }
+            var invalidPaneList = request("list_panes")
+            invalidPaneList["limit"] = 1
+            let invalidRoster = try await call(invalidPaneList, link: link, identity: identity)
+            guard invalidRoster["error"] as? String == "invalid_request" else {
+                throw E2EFailure("list_panes arguments did not return invalid_request")
             }
             var invalidUnpair = request("unpair")
             invalidUnpair["limit"] = 1
@@ -310,7 +393,7 @@ struct CompanionPairingE2E {
             else { throw E2EFailure("self-unpair was not acknowledged") }
             printJSON(label: "self_unpair", object: unpaired)
             do {
-                let response = try await CompanionClient.exchange(request("list_agents"), connection: stale)
+                let response = try await CompanionClient.exchange(request("list_panes"), connection: stale)
                 guard response["error"] != nil else { throw E2EFailure("revoked connection returned data") }
                 printJSON(label: "revoked_connection", object: response)
             } catch let error as E2EFailure where error.description == "revoked connection returned data" {
@@ -319,7 +402,7 @@ struct CompanionPairingE2E {
                 print("revoked_connection=closed")
             }
             do {
-                let response = try await call(request("get_connection_status"), link: link, identity: identity)
+                let response = try await call(request("list_panes"), link: link, identity: identity)
                 guard response["error"] != nil else { throw E2EFailure("revoked phone reconnected") }
             } catch let error as E2EFailure where error.description == "revoked phone reconnected" {
                 throw error
@@ -327,13 +410,93 @@ struct CompanionPairingE2E {
                 print("revoked_reconnect=denied")
             }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile, expectRevoked: true)
+            ownedIdentity = nil
+            try identity.cleanup()
+            print("client_identity=removed_and_verified")
             print(
                 "PASS: pairing, reads, context denial, invalid and unknown requests, rename opt-in denial and argument validation, self-unpair, and revoked access"
             )
         } catch {
+            if let ownedIdentity {
+                do {
+                    try ownedIdentity.cleanup()
+                    print("client_identity=removed_and_verified")
+                } catch {
+                    FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
+                }
+            }
             FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
             Foundation.exit(1)
         }
+    }
+
+    private static func physicalPath(_ path: String) throws -> String {
+        guard let resolved = Darwin.realpath(path, nil) else { throw E2EFailure("cannot resolve the physical fixture path") }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    private static func handleFixtureCommand() throws -> Bool {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard arguments.first == "--fixture-run" else { return false }
+        guard arguments.count == 6 || (arguments.count == 7 && arguments[6] == "--cleanup-identity"),
+            arguments[2] == "--home", arguments[4] == "--profile"
+        else { throw E2EFailure("invalid fixture command") }
+        // Darwin realpath matches the shell's pwd -P; Foundation may preserve
+        // /tmp while the shell hashes /private/tmp on macOS.
+        let runPath = try physicalPath(arguments[1])
+        let artifactRootPath = try physicalPath("/tmp/companion-pairing-e2e")
+        let runParentPath = try physicalPath((runPath as NSString).deletingLastPathComponent)
+        let suffix = SHA256.hash(data: Data(runPath.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        let profile = "development:" + suffix
+        guard (runPath as NSString).lastPathComponent.hasPrefix("run."),
+            runParentPath == artifactRootPath, arguments[5] == profile
+        else { throw E2EFailure("refusing a non-owned fixture profile") }
+        let home = try physicalPath(arguments[3])
+        let environment = ProcessInfo.processInfo.environment
+        let paths = [FileManager.default.homeDirectoryForCurrentUser.path, NSHomeDirectory(), environment["HOME"] ?? ""]
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard environment["CFFIXED_USER_HOME"] == nil,
+            try paths.allSatisfy({ try physicalPath($0) == home }),
+            try physicalPath(support.path) == home + "/Library/Application Support"
+        else { throw E2EFailure("real HOME/Foundation Application Support mismatch") }
+        // Real HOME preserves Keychain access, but Ghostty may still load its
+        // normal Application Support config in addition to the fixture XDG config.
+        // Only this exact profile directory outside the artifact run is owned;
+        // the real HOME and its default Keychain remain unchanged.
+        let profileSupport = support.appending(path: "awesoMux-dev-" + suffix, directoryHint: .isDirectory)
+        if FileManager.default.fileExists(atPath: profileSupport.path) {
+            guard try physicalPath(profileSupport.path) == home + "/Library/Application Support/awesoMux-dev-" + suffix else {
+                throw E2EFailure("invalid fixture support directory")
+            }
+        }
+        // Match CompanionIdentityStore's profile namespace; these queries never
+        // return private key material and are restricted to the derived profile.
+        let namespace = SHA256.hash(data: Data(profile.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let queries: [[String: Any]] = [
+            [kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: "awesoMux Companion " + namespace],
+            [
+                kSecClass as String: kSecClassKey,
+                kSecAttrApplicationTag as String: Data(("com.interactivebuffoonery.awesomux.companion." + namespace).utf8),
+                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            ],
+        ]
+        for query in queries {
+            if arguments.count == 7 {
+                let status = SecItemDelete(query as CFDictionary)
+                guard status == errSecSuccess || status == errSecItemNotFound else {
+                    throw E2EFailure("fixture identity cleanup failed: \(status)")
+                }
+            } else {
+                let status = SecItemCopyMatching(query as CFDictionary, nil)
+                guard status == errSecItemNotFound else {
+                    throw E2EFailure(
+                        status == errSecSuccess ? "fixture identity already exists" : "fixture identity collision check failed: \(status)")
+                }
+            }
+        }
+        print(arguments.count == 7 ? "fixture_identity=removed" : "fixture_home=verified identity=unclaimed")
+        return true
     }
 
     private struct Invocation {
@@ -341,6 +504,7 @@ struct CompanionPairingE2E {
         let resultFile: String?
         let profile: String?
         let cleanupResult: String?
+        var fixtureSnapshot: String? = nil
     }
 
     private static func invocation() throws -> Invocation {
@@ -348,18 +512,19 @@ struct CompanionPairingE2E {
         if arguments.count == 2, arguments[0] == "--cleanup-result" {
             return Invocation(link: nil, resultFile: nil, profile: nil, cleanupResult: arguments[1])
         }
-        if arguments.count == 6, arguments[0] == "--link-file", arguments[2] == "--result-file",
-            arguments[4] == "--profile"
+        if (arguments.count == 6 || (arguments.count == 8 && arguments[6] == "--fixture-snapshot")),
+            arguments[0] == "--link-file", arguments[2] == "--result-file", arguments[4] == "--profile"
         {
             return Invocation(
                 link: try String(contentsOfFile: arguments[1], encoding: .utf8),
                 resultFile: arguments[3],
                 profile: arguments[5],
-                cleanupResult: nil
+                cleanupResult: nil,
+                fixtureSnapshot: arguments.count == 8 ? arguments[7] : nil
             )
         }
         throw E2EFailure(
-            "usage: companion-pairing-e2e --link-file path --result-file path --profile development-profile | --cleanup-result path"
+            "usage: companion-pairing-e2e --link-file path --result-file path --profile development-profile [--fixture-snapshot path] | --cleanup-result path"
         )
     }
 

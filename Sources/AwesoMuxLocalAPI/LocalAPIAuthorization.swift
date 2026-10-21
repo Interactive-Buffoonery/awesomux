@@ -48,6 +48,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
     public let statusScope: LocalAPITargetScope
     public let contextGrant: LocalAPIContextGrant?
     public let paneRenameScope: LocalAPITargetScope?
+    public let terminalPreviewAllowed: Bool
 
     public init(
         connectionID: UUID,
@@ -55,7 +56,8 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         connectionRevision: UUID,
         statusScope: LocalAPITargetScope,
         contextGrant: LocalAPIContextGrant? = nil,
-        paneRenameScope: LocalAPITargetScope? = nil
+        paneRenameScope: LocalAPITargetScope? = nil,
+        terminalPreviewAllowed: Bool = false
     ) {
         self.connectionID = connectionID
         self.globalRevision = globalRevision
@@ -63,6 +65,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         self.statusScope = statusScope
         self.contextGrant = contextGrant
         self.paneRenameScope = paneRenameScope
+        self.terminalPreviewAllowed = terminalPreviewAllowed
     }
 }
 

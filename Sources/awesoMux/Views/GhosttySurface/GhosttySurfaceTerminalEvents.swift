@@ -976,6 +976,27 @@ extension GhosttySurfaceNSView {
         return readTerminalText(surface: surface, selection: selection)
     }
 
+    /// Active screen only: scrolling the Mac viewport must not expose history
+    /// through Companion's last-output preview.
+    func companionLastOutputLine() -> String? {
+        guard let surface else {
+            companionPreviewCache.invalidate()
+            return nil
+        }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0, y: 0),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0, y: 0),
+            rectangle: false
+        )
+        return companionPreviewCache.get(source: lifecycleState.mouseSurfaceIncarnationID) {
+            readTerminalText(surface: surface, selection: selection)
+        }
+    }
+
     private func sampleUnmanagedSSHAgentIdentity(now: TimeInterval) {
         guard let observation = terminalEventState.sshForegroundObservation,
             observation.pane == PaneStoreWriteKey(sessionID: sessionID, paneID: paneID),

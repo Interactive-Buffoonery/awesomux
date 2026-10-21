@@ -17,7 +17,7 @@ struct CompanionSettingsPane: View {
             title: String(localized: "awesoMux Companion", comment: "Companion settings title."),
             subtitle: String(
                 localized:
-                    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. Pane renaming is available with your permission.",
+                    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. Pane renaming is available with your permission.",
                 comment: "Companion settings description."
             ),
             badge: String(localized: "Alpha", comment: "Companion prerelease badge.")
@@ -144,6 +144,29 @@ struct CompanionSettingsPane: View {
                     String.localizedStringWithFormat(String(localized: "Unpair %@"), phone.label)
                 )
             }
+            Toggle(
+                String.localizedStringWithFormat(
+                    String(localized: "Terminal previews for %@", comment: "Per-phone Companion terminal preview switch."), phone.label
+                ),
+                isOn: Binding(
+                    get: { coordinator.pairedPhones.first(where: { $0.id == phone.id })?.companion?.terminalPreviewAllowed ?? false },
+                    set: { allowed in
+                        do {
+                            try coordinator.updateTerminalPreviewAllowed(allowed, for: phone.id)
+                            errorMessage = nil
+                        } catch {
+                            errorMessage = String(
+                                localized: "Could not save terminal preview access. Retry Save before restarting awesoMux.",
+                                comment: "Companion preview permission save error.")
+                        }
+                    }
+                )
+            )
+            .toggleStyle(.switch)
+            .help(
+                String(
+                    localized: "Shares the last output line from every terminal. This iPhone can also change its own preview setting.",
+                    comment: "Companion terminal preview switch help."))
             if let pairedAt = phone.companion?.pairedAt {
                 Text(
                     String.localizedStringWithFormat(
@@ -327,7 +350,13 @@ private struct CompanionPairingSheet: View {
                 coordinator.allowPendingPhone()
             }
         } message: { prompt in
-            Text(prompt.words.joined(separator: "   "))
+            Text(
+                String(
+                    localized:
+                        "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:",
+                    comment: "Companion approval content disclosure.")
+                    + "\n\n" + prompt.words.joined(separator: "   ")
+            )
         }
     }
 
@@ -336,7 +365,7 @@ private struct CompanionPairingSheet: View {
             return String(localized: "Allow this iPhone?", comment: "Fallback Companion approval title.")
         }
         return String.localizedStringWithFormat(
-            String(localized: "Allow “%@” to see your agents?", comment: "Companion approval title."),
+            String(localized: "Allow “%@” to see panes and terminal previews?", comment: "Companion approval title."),
             prompt.phoneName
         )
     }
