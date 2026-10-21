@@ -198,12 +198,18 @@ change provides no runtime evidence.
 
 ## Open questions for Sarah
 
+Questions 1 and 2 answered by Sarah on 2026-10-20; questions 3 and 4 remain
+open, so this record stays Proposed.
+
 1. Confirm the slow-phone policy: the Mac never stalls the pane, discards the
    stream's pending buffer at the 4 MiB bound and restarts the stream with a
    fresh snapshot, rather than pausing output or buffering without limit?
+   **Decision:** yes. Drop the pending buffer at 4 MiB and restart with a
+   fresh snapshot; never stall the pane or buffer without limit.
 2. Confirm that every reconnect, including a LAN-to-Tailscale route change, is
    a new attach with a new snapshot and "earlier history incomplete", with no
    resume token or replay journal on the Mac?
+   **Decision:** yes. Every reconnect is a new attach with no replay.
 3. Accept raw daemon bytes on the stream, relying on the phone renderer to
    suppress replies and ignore host-effect sequences, instead of Mac-side
    filtering that would need a second emulator in the relay?
