@@ -88,10 +88,10 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
 - Stream frames reuse the four-byte big-endian length prefix. The first byte
   of each frame is its type. Control frames (`snapshot_begin`, `snapshot_end`,
   `grid`, `leader`, `claim`, `heartbeat`, `end`, and `ack`) carry UTF-8 JSON.
-  Data frames (`snapshot` chunk, `output`, `input`, `reply`) carry an
-  eight-byte sequence number and raw bytes; terminal bytes are never
-  base64-encoded or re-framed as JSON. Every frame after `snapshot_begin`, in
-  both directions, carries the four-byte generation ID. `input` is what the person typed or
+  Data frames (`snapshot` chunk, `output`, `input`, `reply`) carry an eight-byte
+  sequence number and raw bytes; terminal bytes are never base64-encoded or
+  re-framed as JSON. Every frame after `snapshot_begin`, in both directions,
+  carries the four-byte generation ID. `input` is what the person typed or
   pasted; `reply` is a terminal-generated answer to a query (for example DSR).
   Only `input` can claim leadership; the Mac forwards a `reply` only from the
   current leader's stream and drops queued replies when the leader or the
@@ -150,16 +150,16 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
   incomplete history, never silently skipped inside one generation.
 - The Mac sends `heartbeat` every 15 seconds while idle and closes a stream
   with no readable frame or TCP progress for 45 seconds. The phone keeps a
-  stream open only while the terminal view is foreground and visible and ends
-  it the moment the view leaves the foreground, on lock or on dismissal, with
-  no grace period, matching ADR-0039's memory-only posture. Received bytes are not written to disk, widgets, notifications,
-  logs or analytics.
+  stream open only while the terminal view is foreground and visible and ends it
+  the moment the view leaves the foreground, on lock or on dismissal, with no
+  grace period, matching ADR-0039's memory-only posture. Received bytes are not
+  written to disk, widgets, notifications, logs or analytics.
 
 ### Cancel, revocation and every write
 
 - Either side ends a stream with an `end` frame naming a reason (`closed`,
-  `superseded`, `revoked`, `pane_unavailable`, `session_ended`,
-  `role_changed`, `protocol_error`, `overflow`) or by closing TLS. A new `watch_terminal` for
+  `superseded`, `revoked`, `pane_unavailable`, `session_ended`, `role_changed`,
+  `protocol_error`, `overflow`) or by closing TLS. A new `watch_terminal` for
   the same device and pane supersedes the previous stream; the old one ends.
 - Before every frame it writes, the Mac rechecks the device's lease revision,
   Terminal grant and role, the pane's workspace assignment, the pane's target
