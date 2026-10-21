@@ -50,6 +50,7 @@ public extension SessionStore {
         guard let target = localAPITargets[paneID] else { return }
         // Completion is a fact, not a new pane state. It must not
         // replace or acknowledge an independently active permission/state alert.
+        reconcileCompanionAwayState()
         localAPIAttentionJournal?.append(
             LocalAPIAttentionEvent(
                 attentionID: UUID(), change: .raised, paneID: paneID,
@@ -114,6 +115,7 @@ extension SessionStore {
                     providerSessionID: target.providerSessionID, targetVersion: target.version,
                     occurredAt: now, reason: reason
                 )
+                reconcileCompanionAwayState()
                 localAPIAttentionJournal?.append(event, companionSuppressed: companionAlertIsSuppressed(pane.id))
                 localAPIActiveAttention[pane.id] = LocalAPIActiveAttention(
                     assignmentVersion: target.assignmentVersion, runtimeEpoch: target.runtimeEpoch, event: event
@@ -127,6 +129,7 @@ extension SessionStore {
 
     private func resolveLocalAPIAttention(paneID: UUID, at now: Date) {
         guard let prior = localAPIActiveAttention.removeValue(forKey: paneID)?.event else { return }
+        reconcileCompanionAwayState()
         localAPIAttentionJournal?.append(
             LocalAPIAttentionEvent(
                 attentionID: prior.attentionID, change: .resolved,

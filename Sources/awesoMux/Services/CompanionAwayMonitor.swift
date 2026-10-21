@@ -2,10 +2,17 @@ import AppKit
 import AwesoMuxCore
 import Foundation
 
-/// Serializes console/lock signals with the journal's main-actor writes.
+/// Reconciles console state on the same actor as journal writes.
 @MainActor
 final class CompanionAwayMonitor {
-    // The owner writes on the main actor; notification removal is thread-safe.
+    private final class SignalObserver: NSObject, @unchecked Sendable {
+        let action: @MainActor () -> Void
+        init(action: @escaping @MainActor () -> Void) { self.action = action }
+        @objc func receive(_ notification: Notification) {
+            Task { @MainActor [weak self] in self?.action() }
+        }
+    }
+
     private final class Observations: @unchecked Sendable {
         var tokens: [(NotificationCenter, NSObjectProtocol)] = []
         deinit {
@@ -15,69 +22,62 @@ final class CompanionAwayMonitor {
 
     private weak var store: SessionStore?
     private let observations = Observations()
-    private var locked: Bool
-    private var onConsole: Bool
-    private var isAway: Bool { locked || !onConsole }
+    private let consoleIsAway: @MainActor () -> Bool?
+    private let appIsActive: @MainActor () -> Bool
+    private var isAway = false
 
-    init(store: SessionStore) {
+    init(
+        store: SessionStore,
+        consoleIsAway: @escaping @MainActor () -> Bool? = CompanionAwayMonitor.currentConsoleIsAway,
+        appIsActive: @escaping @MainActor () -> Bool = { NSApp?.isActive == true }
+    ) {
         self.store = store
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        locked = session?["CGSSessionScreenIsLocked"] as? Bool ?? false
-        onConsole = session?[kCGSessionOnConsoleKey as String] as? Bool ?? false
-        if isAway { store.beginCompanionAwayPeriod() }
-        observe(DistributedNotificationCenter.default(), name: .init("com.apple.screenIsLocked")) { monitor in
-            monitor.transition { monitor.locked = true }
+        self.consoleIsAway = consoleIsAway
+        self.appIsActive = appIsActive
+        store.reconcileCompanionAwayState = { [weak self] in self?.reconcile() }
+        reconcile()
+        let distributed = DistributedNotificationCenter.default()
+        let observer = SignalObserver { [weak self] in self?.reconcile() }
+        for name in ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"] {
+            distributed.addObserver(
+                observer, selector: #selector(SignalObserver.receive(_:)),
+                name: .init(name), object: nil, suspensionBehavior: .deliverImmediately)
         }
-        observe(DistributedNotificationCenter.default(), name: .init("com.apple.screenIsUnlocked")) { monitor in
-            monitor.transition { monitor.locked = false }
-        }
-        observe(NSWorkspace.shared.notificationCenter, name: NSWorkspace.sessionDidResignActiveNotification) { monitor in
-            monitor.transition { monitor.onConsole = false }
-        }
-        observe(NSWorkspace.shared.notificationCenter, name: NSWorkspace.sessionDidBecomeActiveNotification) { monitor in
-            monitor.transition { monitor.onConsole = true }
-        }
-        observe(NotificationCenter.default, name: NSApplication.didBecomeActiveNotification) { monitor in
-            monitor.presentIfReady()
-        }
+        observations.tokens.append((distributed, observer))
+        observe(NSWorkspace.shared.notificationCenter, name: NSWorkspace.sessionDidResignActiveNotification)
+        observe(NSWorkspace.shared.notificationCenter, name: NSWorkspace.sessionDidBecomeActiveNotification)
+        observe(NotificationCenter.default, name: NSApplication.didBecomeActiveNotification)
+    }
+
+    private static func currentConsoleIsAway() -> Bool? {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+            let onConsole = session[kCGSessionOnConsoleKey as String] as? Bool
+        else { return nil }
+        return !onConsole || (session["CGSSessionScreenIsLocked"] as? Bool ?? false)
     }
 
     func recordAuthenticatedActivity() {
-        // Requests can reach the main actor before a queued lock/return signal.
-        // Reconcile the live console state before qualifying this interval.
-        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
-            let onConsole = session[kCGSessionOnConsoleKey as String] as? Bool
-        else { return }
-        transition {
-            self.onConsole = onConsole
-            locked = session["CGSSessionScreenIsLocked"] as? Bool ?? false
-        }
+        guard reconcile() else { return }
         store?.recordAuthenticatedCompanionActivity()
     }
 
-    private func observe(
-        _ center: NotificationCenter, name: Notification.Name,
-        action: @escaping @MainActor (CompanionAwayMonitor) -> Void
-    ) {
+    private func observe(_ center: NotificationCenter, name: Notification.Name) {
         let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                action(self)
-            }
+            MainActor.assumeIsolated { self?.reconcile() }
         }
         observations.tokens.append((center, token))
     }
 
-    private func transition(_ update: () -> Void) {
+    @discardableResult
+    func reconcile() -> Bool {
+        // Notifications are wakeups, never state: an old queued signal must not
+        // reverse a newer console sample. Failed samples preserve the interval.
+        guard let away = consoleIsAway() else { return false }
         let wasAway = isAway
-        update()
+        isAway = away
         if !wasAway, isAway { store?.beginCompanionAwayPeriod() }
         if wasAway, !isAway { store?.endCompanionAwayPeriod() }
-        presentIfReady()
-    }
-
-    private func presentIfReady() {
-        guard !isAway, NSApp.isActive else { return }
-        store?.presentWhileAwaySummaryIfReady()
+        if !isAway, appIsActive() { store?.presentWhileAwaySummaryIfReady() }
+        return true
     }
 }
