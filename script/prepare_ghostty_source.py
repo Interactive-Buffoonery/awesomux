@@ -101,6 +101,7 @@ KITTY_CLEAR_REPLACEMENT = """    if (comptime build_options.kitty_graphics) {
 
 
 def inject_kitty_clear(staging):
+    """Install history-image cleanup in generated source after checking all anchors."""
     screen = staging / "src/terminal/Screen.zig"
     storage = staging / "src/terminal/kitty/graphics_storage.zig"
     source = screen.read_text()

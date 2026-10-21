@@ -13,6 +13,7 @@ spec.loader.exec_module(prepare)
 
 
 def verify(vendor):
+    """Verify exact cleanup injection and reject anchor drift without vendor writes."""
     paths = ("src/terminal/Screen.zig", "src/terminal/kitty/graphics_storage.zig", "src/renderer/image.zig")
     originals = {name: (vendor / name).read_text() for name in paths}
     fragment = ROOT / "native/ghostty/kitty-clear.zig.inc"

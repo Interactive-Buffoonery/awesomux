@@ -104,7 +104,15 @@ test "awesomux-kitty-clear no-scrollback resize removes erased anchors" {
             t.setCursorPos(row, 1);
             try t.printString("line");
         }
+        try s.addImage(io, alloc, t.screens.active, .{ .id = 2, .width = 1, .height = 1 });
+        try s.addPlacement(io, alloc, t.screens.active, 2, 1, .{
+            .location = .{ .pin = try t.screens.active.pages.trackPin(t.screens.active.cursor.page_pin.*) },
+            .columns = 1,
+            .rows = 1,
+        });
         try t.resize(alloc, .{ .cols = 80, .rows = 4 });
-        try testing.expectEqual(@as(usize, 0), s.placements.count());
+        try testing.expectEqual(@as(usize, 1), s.placements.count());
+        var keys = s.placements.keyIterator();
+        try testing.expectEqual(@as(u32, 2), keys.next().?.image_id);
     }
 }
