@@ -1499,6 +1499,7 @@ final class GhosttyRuntime {
         paneID: TerminalPane.ID,
         enabledFileDropSources: Set<AgentRuntimeSource>,
         localPermissionsEnabled: Bool = false,
+        localPermissionDescriptorEnabled: Bool = false,
         localPermissionContext: @escaping (LocalPermissionTarget) -> LocalPermissionPresentation.Context? = { _ in nil },
         applyEvent: @escaping (AgentRuntimeEvent) -> Void
     ) -> AgentRuntimeEnvironment {
@@ -1511,8 +1512,9 @@ final class GhosttyRuntime {
                 applyEvent(event)
             }
         )
-        if localPermissionsEnabled {
-            environment.localPermissionEndpoint = localPermissionCoordinator.install(
+        environment.localPermissionDescriptorEnabled = localPermissionDescriptorEnabled
+        if localPermissionsEnabled && localPermissionDescriptorEnabled {
+            _ = localPermissionCoordinator.install(
                 workspaceID: sessionID, paneID: paneID, eventFile: environment.eventFileURL,
                 presentationContext: localPermissionContext
             )

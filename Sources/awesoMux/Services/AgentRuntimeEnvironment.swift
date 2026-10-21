@@ -57,7 +57,7 @@ struct AgentRuntimeConsent: Equatable, Sendable {
 }
 
 struct AgentRuntimeEnvironment {
-    var localPermissionEndpoint: LocalPermissionEndpoint?
+    var localPermissionDescriptorEnabled = false
 
     static let hookExecutableName = "awesoMuxAgentHook"
 
@@ -110,7 +110,7 @@ struct AgentRuntimeEnvironment {
         if let amxURL {
             values[AgentRuntimeEnvironmentKey.amx] = amxURL.path
         }
-        if localPermissionEndpoint != nil {
+        if localPermissionDescriptorEnabled {
             values[LocalPermissionEndpoint.environmentKey] = LocalPermissionEndpoint.environmentFile(for: eventFileURL).path
         }
         return values

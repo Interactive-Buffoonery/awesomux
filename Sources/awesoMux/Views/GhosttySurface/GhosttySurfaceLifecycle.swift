@@ -242,21 +242,7 @@ extension GhosttySurfaceNSView {
                 false
             }
         terminalPromptObserved = false
-        var environment = runtime.agentRuntimeEnvironment(
-            sessionID: sessionID,
-            paneID: paneID,
-            enabledFileDropSources: enabledAgentRuntimeFileDropSources,
-            localPermissionsEnabled: LocalPermissionPresentation.isEligible(
-                executionPlan: pane.executionPlan, compactTerminalKind: sessionStore.compactTerminalKind
-            ),
-            localPermissionContext: { [weak store = sessionStore] target in
-                guard let store else { return nil }
-                return LocalPermissionPresentation.context(for: target, in: store)
-            },
-            applyEvent: { [weak self] event in
-                self?.applyAgentRuntimeEvent(event)
-            }
-        ).environment
+        var environment = agentRuntimeEnvironment().environment
         environment = CompactTerminalKind.applyingSpawnMarkers(
             to: environment,
             kind: sessionStore.compactTerminalKind
@@ -298,6 +284,28 @@ extension GhosttySurfaceNSView {
         sizeDidChange(contentSize)
         needsDisplay = true
         return createdSurface != nil
+    }
+
+    func agentRuntimeEnvironment() -> AgentRuntimeEnvironment {
+        localPermissionPresentationEligible = LocalPermissionPresentation.isEligible(
+            executionPlan: pane.executionPlan, compactTerminalKind: sessionStore.compactTerminalKind
+        )
+        let environment = runtime.agentRuntimeEnvironment(
+            sessionID: sessionID,
+            paneID: paneID,
+            enabledFileDropSources: enabledAgentRuntimeFileDropSources,
+            localPermissionsEnabled: localPermissionPresentationEligible,
+            localPermissionDescriptorEnabled: pane.executionPlan.remoteTarget == nil,
+            localPermissionContext: { [weak store = sessionStore] target in
+                guard let store else { return nil }
+                return LocalPermissionPresentation.context(for: target, in: store)
+            },
+            applyEvent: { [weak self] event in
+                self?.applyAgentRuntimeEvent(event)
+            }
+        )
+        localPermissionLaunchEnvironment = environment
+        return environment
     }
 
     /// Store-side bookkeeping for a surface that actually spawned. Split from

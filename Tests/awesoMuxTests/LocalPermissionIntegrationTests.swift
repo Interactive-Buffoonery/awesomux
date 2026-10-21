@@ -1,4 +1,4 @@
-import AwesoMuxCore
+@testable import AwesoMuxCore
 import AwesoMuxTestSupport
 import Darwin
 import Foundation
@@ -30,6 +30,130 @@ struct LocalPermissionIntegrationTests {
             remote
             ? .ssh(SSHExecution(target: try #require(RemoteTarget(user: "fixture", host: "example.test")))) : .local
         #expect(LocalPermissionPresentation.isEligible(executionPlan: plan, compactTerminalKind: compact) == (!remote && compact == nil))
+    }
+
+    @Test(
+        "cached compact shell gains fresh authority on promotion and loses it on return",
+        arguments: [CompactTerminalKind.floatingPanel, .popUpTerminal], [false, true])
+    func cachedSurfacePromotion(compact: CompactTerminalKind, sameStore: Bool) async throws {
+        let session = TerminalSession(title: "Promoted", workingDirectory: "/tmp")
+        let pane = try #require(session.layout.pane(id: session.activePaneID))
+        let compactStore = SessionStore(groups: [SessionGroup(name: "Compact", sessions: [session])], selectedSessionID: session.id)
+        compactStore.compactTerminalKind = compact
+        let mainStore =
+            sameStore
+            ? compactStore : SessionStore(groups: [SessionGroup(name: "Main", sessions: [session])], selectedSessionID: session.id)
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        let view = runtime.surfaceView(
+            sessionStore: compactStore, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        let launch = view.agentRuntimeEnvironment()
+        let shellEnvironment = launch.environment
+        let descriptor = LocalPermissionEndpoint.environmentFile(for: launch.eventFileURL)
+        #expect(shellEnvironment[LocalPermissionEndpoint.environmentKey] == descriptor.path)
+        #expect(!FileManager.default.fileExists(atPath: descriptor.path))
+        #expect(view.surface == nil)
+
+        mainStore.compactTerminalKind = nil
+        let promoted = runtime.surfaceView(
+            sessionStore: mainStore, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        #expect(promoted === view)
+        #expect(promoted.surface == nil)
+        let endpoint = try #require(LocalPermissionEndpoint.parse(shellEnvironment[LocalPermissionEndpoint.environmentKey]))
+        #expect(endpoint.target.workspaceID == session.id && endpoint.target.paneID == pane.id)
+        let old = try request(endpoint, session: "A")
+        #expect(LocalPermissionFiles.write(old, at: endpoint.file("req", id: old.invocationID)))
+        try #require(await waitUntilEventually { runtime.localPermissionCoordinator.cards[pane.id]?.request == old })
+        _ = runtime.surfaceView(
+            sessionStore: mainStore, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        #expect(LocalPermissionEndpoint.parse(shellEnvironment[LocalPermissionEndpoint.environmentKey])?.target == endpoint.target)
+
+        compactStore.compactTerminalKind = compact
+        _ = runtime.surfaceView(
+            sessionStore: compactStore, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        #expect(!FileManager.default.fileExists(atPath: descriptor.path))
+        #expect(!FileManager.default.fileExists(atPath: endpoint.directory))
+        #expect(runtime.localPermissionCoordinator.cards[pane.id] == nil)
+        mainStore.compactTerminalKind = nil
+        _ = runtime.surfaceView(
+            sessionStore: mainStore, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        let renewed = try #require(LocalPermissionEndpoint.parse(shellEnvironment[LocalPermissionEndpoint.environmentKey]))
+        #expect(renewed.target.version != endpoint.target.version)
+        #expect(LocalPermissionFiles.write(old, at: renewed.file("req", id: old.invocationID)))
+        let fresh = try request(renewed, session: "B")
+        #expect(LocalPermissionFiles.write(fresh, at: renewed.file("req", id: fresh.invocationID)))
+        try #require(await waitUntilEventually { runtime.localPermissionCoordinator.cards[pane.id]?.request == fresh })
+        #expect(
+            runtime.localPermissionCoordinator.queuedCounts[pane.id] == nil || runtime.localPermissionCoordinator.queuedCounts[pane.id] == 0
+        )
+    }
+
+    @Test(
+        "cached surface renews authority for owner and identity changes", arguments: ["owner", "workspace", "terminal", "pane", "remote"])
+    func cachedSurfaceAuthorityReplacement(change: String) async throws {
+        var session = TerminalSession(title: "Original", workingDirectory: "/tmp")
+        var pane = try #require(session.layout.pane(id: session.activePaneID))
+        let store = SessionStore(groups: [SessionGroup(name: "Main", sessions: [session])], selectedSessionID: session.id)
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        let view = runtime.surfaceView(
+            sessionStore: store, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        let shellEnvironment = view.agentRuntimeEnvironment().environment
+        let descriptor = try #require(shellEnvironment[LocalPermissionEndpoint.environmentKey])
+        let first = try #require(LocalPermissionEndpoint.parse(descriptor))
+        let old = try request(first, session: "A")
+        #expect(LocalPermissionFiles.write(old, at: first.file("req", id: old.invocationID)))
+        try #require(await waitUntilEventually { runtime.localPermissionCoordinator.cards[pane.id]?.request == old })
+        let oldPaneID = pane.id
+        var destination = store
+        switch change {
+        case "owner":
+            session.title = "New owner"
+            destination = SessionStore(groups: [SessionGroup(name: "Other", sessions: [session])], selectedSessionID: session.id)
+        case "workspace":
+            session = TerminalSession(title: "Destination", workingDirectory: "/tmp", layout: .pane(pane), activePaneID: pane.id)
+            destination = SessionStore(groups: [SessionGroup(name: "Other", sessions: [session])], selectedSessionID: session.id)
+        case "terminal": pane.terminalSessionID = .generate()
+        case "pane": pane = TerminalPane(title: "Replacement", workingDirectory: "/tmp", executionPlan: .local)
+        case "remote":
+            pane.executionPlan = .ssh(SSHExecution(target: try #require(RemoteTarget(user: "fixture", host: "example.test"))))
+        default: Issue.record("Unexpected replacement case")
+        }
+        view.update(sessionStore: destination, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        #expect(!FileManager.default.fileExists(atPath: first.directory))
+        #expect(runtime.localPermissionCoordinator.cards[oldPaneID] == nil)
+        if change == "remote" || change == "pane" {
+            #expect(LocalPermissionEndpoint.parse(descriptor) == nil)
+            if change == "pane" { return }
+            pane.executionPlan = .local
+            view.update(
+                sessionStore: destination, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        }
+        let replacement = try #require(LocalPermissionEndpoint.parse(descriptor))
+        #expect(replacement.target.version != first.target.version)
+        #expect(replacement.target.workspaceID == session.id)
+        #expect(LocalPermissionFiles.write(old, at: replacement.file("req", id: old.invocationID)))
+        let fresh = try request(replacement, session: "B")
+        #expect(LocalPermissionFiles.write(fresh, at: replacement.file("req", id: fresh.invocationID)))
+        try #require(await waitUntilEventually { runtime.localPermissionCoordinator.cards[pane.id]?.request == fresh })
+    }
+
+    @Test("remote launch has no local descriptor or permission authority")
+    func remoteSurfaceDescriptor() throws {
+        let session = TerminalSession(title: "Remote", workingDirectory: "/tmp")
+        var pane = try #require(session.layout.pane(id: session.activePaneID))
+        pane.executionPlan = .ssh(SSHExecution(target: try #require(RemoteTarget(user: "fixture", host: "example.test"))))
+        let store = SessionStore(groups: [SessionGroup(name: "Remote", sessions: [session])], selectedSessionID: session.id)
+        let runtime = GhosttyRuntime()
+        defer { runtime.discardAllSurfaces() }
+        let view = runtime.surfaceView(
+            sessionStore: store, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        let launch = view.agentRuntimeEnvironment()
+        #expect(launch.environment[LocalPermissionEndpoint.environmentKey] == nil)
+        #expect(!FileManager.default.fileExists(atPath: LocalPermissionEndpoint.environmentFile(for: launch.eventFileURL).path))
+        pane.executionPlan = .local
+        view.update(sessionStore: store, session: session, pane: pane, enabledAgentRuntimeFileDropSources: [], grokIconEnabled: false)
+        #expect(!FileManager.default.fileExists(atPath: LocalPermissionEndpoint.environmentFile(for: launch.eventFileURL).path))
     }
 
     @Test("announcement context resolves current workspace and pane position, or suppresses")
