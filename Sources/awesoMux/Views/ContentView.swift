@@ -456,6 +456,7 @@ struct ContentView: View {
                     .overlay(alignment: .top) {
                         if let summary = sessionStore.whileAwaySummary {
                             WhileAwaySummaryView(store: sessionStore, summary: summary)
+                                .liveTitleChannels(from: sessionStore)
                         }
                     }
                     .environment(appSettingsStore)
