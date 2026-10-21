@@ -453,12 +453,6 @@ struct ContentView: View {
                         edgeTabVisibilitySource: sidebarPresentation.visibilitySource,
                         sidebarPosition: sidebarPosition
                     )
-                    .overlay(alignment: .top) {
-                        if let summary = sessionStore.whileAwaySummary {
-                            WhileAwaySummaryView(store: sessionStore, summary: summary)
-                                .liveTitleChannels(from: sessionStore)
-                        }
-                    }
                     .environment(appSettingsStore)
                     .environment(documentTabActions)
                     .environment(branchChangesCoordinator)

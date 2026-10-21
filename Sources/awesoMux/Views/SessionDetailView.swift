@@ -107,6 +107,9 @@ struct SessionDetailView: View {
                             ghosttyRuntime: ghosttyRuntime,
                             onManagedSSHWorkspaceOffer: onManagedSSHWorkspaceOffer
                         )
+                        .overlay(alignment: .top) {
+                            whileAwaySummary
+                        }
                         .overlay(alignment: sidebarPosition == .left ? .leading : .trailing) {
                             SidebarEdgeTab(
                                 style: edgeTabStyle,
@@ -227,9 +230,20 @@ struct SessionDetailView: View {
                     terminalBackground: Color.aw.surface.terminal
                 )
             }
+            .overlay(alignment: .top) {
+                whileAwaySummary
+            }
             .onAppear {
                 onFooterHeightChange(0)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var whileAwaySummary: some View {
+        if let summary = sessionStore.whileAwaySummary {
+            WhileAwaySummaryView(store: sessionStore, summary: summary)
+                .liveTitleChannels(from: sessionStore)
         }
     }
 
