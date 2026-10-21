@@ -753,6 +753,9 @@
     "Agent activity panel opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
     },
+    "Agent error" : {
+      "comment" : "Agent error event in the companion away activity summary."
+    },
     "Agent setup" : {
 
     },
@@ -1013,6 +1016,9 @@
     },
     "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting." : {
       "comment" : "Terminal settings hint."
+    },
+    "Attention requested" : {
+      "comment" : "Fallback event description in the companion away activity summary."
     },
     "Auto-clean up at launch" : {
       "comment" : "Terminal settings label."
@@ -1522,6 +1528,12 @@
     "Command activity visible in the sidebar" : {
       "comment" : "Benefit listed in the additional SSH features prompt"
     },
+    "Command failed (exit %arg)" : {
+      "comment" : "Failed command in the companion away activity summary; the number is the process exit code."
+    },
+    "Command finished" : {
+      "comment" : "Completed command event in the companion away activity summary."
+    },
     "Command name" : {
 
     },
@@ -1988,6 +2000,12 @@
     "Delete annotation intent" : {
       "comment" : "Accessibility label for the delete annotation intent option"
     },
+    "Deleted pane" : {
+      "comment" : "Pane heading fallback in the companion away summary when the pane no longer exists."
+    },
+    "Deleted workspace" : {
+      "comment" : "Workspace heading fallback in the companion away summary when the original workspace no longer exists."
+    },
     "Delivery" : {
       "comment" : "Notification settings title."
     },
@@ -2022,6 +2040,9 @@
     },
     "Description" : {
       "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Desktop notification" : {
+      "comment" : "Desktop notification event in the companion away activity summary."
     },
     "Destination" : {
       "comment" : "Label for the exact SSH destination in the file-read preview\nRemote helper detail label"
@@ -2105,6 +2126,9 @@
     "Dismiss revision indicator" : {
       "comment" : "Tooltip and accessibility label for the button that hides the document revision indicator"
     },
+    "Dismiss while you were away summary" : {
+      "comment" : "Accessibility label for dismissing the companion away activity summary banner."
+    },
     "Dismisses this message" : {
 
     },
@@ -2148,7 +2172,7 @@
       "comment" : "Deny Companion pairing button."
     },
     "Done" : {
-      "comment" : "Agent state label\nWelcome tour button closing the tour on the last beat",
+      "comment" : "Agent state label\nButton that closes the companion away activity summary details.\nWelcome tour button closing the tour on the last beat",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2688,6 +2712,9 @@
     },
     "Inline Review Comments" : {
       "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Input requested" : {
+      "comment" : "Event requesting user input in the companion away activity summary."
     },
     "Insert Checkout Command" : {
 
@@ -3384,6 +3411,9 @@
     "Off — no app can see anything." : {
       "comment" : "Outside app access toggle state."
     },
+    "Older activity unavailable" : {
+      "comment" : "Warning in the companion away summary that older activity exceeded the retained history."
+    },
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
     },
@@ -3714,6 +3744,9 @@
     },
     "Permission request timed out." : {
       "comment" : "VoiceOver announcement when a remote permission prompt expires and is denied"
+    },
+    "Permission requested" : {
+      "comment" : "Permission request event in the companion away activity summary."
     },
     "Permission requested in %arg." : {
       "comment" : "VoiceOver announcement when a remote agent asks for a permission decision in a named split pane\nVoiceOver announcement when a remote agent asks for a permission decision, naming the workspace"
@@ -4439,6 +4472,9 @@
     "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
     },
+    "Resolved" : {
+      "comment" : "Status of an attention request that was resolved during the companion away interval."
+    },
     "Resolved annotations hidden" : {
       "comment" : "VoiceOver announcement when the resolved-annotations filter turns on"
     },
@@ -4950,6 +4986,9 @@
     "Show Welcome Tour" : {
 
     },
+    "Show activity by workspace and pane" : {
+      "comment" : "Accessibility hint for opening companion away activity summary details."
+    },
     "Show awesoMux in the menu bar when a workspace needs input" : {
       "comment" : "Accessibility label for the needs-input menu bar choice"
     },
@@ -5179,6 +5218,9 @@
     },
     "Terminal background source" : {
 
+    },
+    "Terminal bell" : {
+      "comment" : "Terminal bell event in the companion away activity summary."
     },
     "Terminal font size" : {
 
@@ -5998,6 +6040,9 @@
     },
     "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘." : {
       "comment" : "Settings field hint for the sidebar jump numbers toggle"
+    },
+    "While you were away" : {
+      "comment" : "Title of the companion away activity summary banner and details, also announced when the banner appears."
     },
     "Whitespace, control characters, and bidi overrides are normalized on commit." : {
       "comment" : "Workspace settings hint."

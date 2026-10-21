@@ -433,9 +433,12 @@ public final class SessionStore {
     /// Runtime-only; arrival order is not persisted (a relaunch rebuilds it in
     /// group order from the two attention reasons `SessionRestoreReducer` keeps).
     @ObservationIgnored var localAPITargets: [UUID: LocalAPITargetRecord] = [:]
+    @ObservationIgnored public var reconcileCompanionAwayState: () -> Void = {}
     @ObservationIgnored public var companionAlertIsSuppressed: (UUID) -> Bool = { _ in false }
     @ObservationIgnored var localAPITracking = false
     @ObservationIgnored var localAPIInstanceID: UUID?
+    public internal(set) var whileAwaySummary: LocalAPIWhileAwaySummary?
+    @ObservationIgnored var pendingWhileAwaySummary: LocalAPIWhileAwaySummary?
     @ObservationIgnored var localAPIAttentionJournal: LocalAPIAttentionJournal?
     @ObservationIgnored var localAPIActiveAttention: [UUID: LocalAPIActiveAttention] = [:]
 
