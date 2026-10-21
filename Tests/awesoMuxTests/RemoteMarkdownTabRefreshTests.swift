@@ -1,4 +1,5 @@
 import AwesoMuxCore
+import AwesoMuxTestSupport
 import Dispatch
 import Foundation
 import Testing
@@ -10,8 +11,8 @@ import Testing
 struct RemoteMarkdownTabRefreshTests {
     private final class FetchGate: @unchecked Sendable {
         private let lock = NSLock()
-        private var started: CheckedContinuation<Void, Never>?
-        private var release: CheckedContinuation<Void, Never>?
+        private var started: SignalResumer?
+        private var release: SignalResumer?
         private var hasStarted = false
         private var isReleased = false
 
@@ -21,7 +22,7 @@ struct RemoteMarkdownTabRefreshTests {
         }
 
         func waitUntilStarted() async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await awaitSignal { continuation in
                 lock.lock()
                 if hasStarted {
                     lock.unlock()
@@ -52,7 +53,7 @@ struct RemoteMarkdownTabRefreshTests {
         }
 
         private func waitForRelease() async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await awaitSignal { continuation in
                 lock.lock()
                 if isReleased {
                     lock.unlock()
@@ -459,7 +460,7 @@ struct RemoteMarkdownTabRefreshTests {
         final class Box: @unchecked Sendable {
             private let lock = NSLock()
             private var values: [ResourceIdentity] = []
-            private var waiters: [CheckedContinuation<Void, Never>] = []
+            private var waiters: [SignalResumer] = []
 
             func add(_ identity: ResourceIdentity) {
                 lock.lock()
@@ -480,7 +481,7 @@ struct RemoteMarkdownTabRefreshTests {
             }
 
             func waitUntilTwo() async {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                await awaitSignal { continuation in
                     lock.lock()
                     if values.count >= 2 {
                         lock.unlock()

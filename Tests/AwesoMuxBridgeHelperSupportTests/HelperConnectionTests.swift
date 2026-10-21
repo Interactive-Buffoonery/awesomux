@@ -127,8 +127,15 @@ private final class TestUnixServer: @unchecked Sendable {
     }
 
     func acceptHelloAndAck(session: String = "session", proto: String = "awesomux-bridge-v1") throws {
+        var pending = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+        guard poll(&pending, 1, 30_000) > 0 else { throw TestSocketError.system }
         connection = accept(listener, nil, nil)
         guard connection >= 0 else { throw TestSocketError.system }
+        var timeout = timeval(tv_sec: 30, tv_usec: 0)
+        let size = socklen_t(MemoryLayout<timeval>.size)
+        guard setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, size) == 0,
+            setsockopt(connection, SOL_SOCKET, SO_SNDTIMEO, &timeout, size) == 0
+        else { throw TestSocketError.system }
         let line = try readLine()
         guard case .hello = BridgeHandshake.parse(line: line) else { throw TestSocketError.invalidFrame }
         try write(BridgeHandshake.helloAck(session: session, proto: proto, ts: Date().timeIntervalSince1970).encodedLine())

@@ -1,3 +1,4 @@
+import AwesoMuxTestSupport
 import Foundation
 import Testing
 @testable import AwesoMuxCore
@@ -19,8 +20,8 @@ struct RemoteMarkdownReferenceTests {
 
     private actor AsyncGate {
         private var entryCount = 0
-        private var entryWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+        private var entryWaiters: [(count: Int, continuation: SignalResumer)] = []
+        private var releaseWaiters: [SignalResumer] = []
         private var isReleased = false
 
         func enterAndWait() async {
@@ -29,12 +30,12 @@ struct RemoteMarkdownReferenceTests {
             entryWaiters.removeAll { entryCount >= $0.count }
             ready.forEach { $0.continuation.resume() }
             guard !isReleased else { return }
-            await withCheckedContinuation { releaseWaiters.append($0) }
+            await awaitSignal { releaseWaiters.append($0) }
         }
 
         func waitForEntries(_ count: Int) async {
             guard entryCount < count else { return }
-            await withCheckedContinuation { continuation in
+            await awaitSignal { continuation in
                 entryWaiters.append((count, continuation))
             }
         }
@@ -49,7 +50,7 @@ struct RemoteMarkdownReferenceTests {
 
     private actor AsyncSignal {
         private var isSignaled = false
-        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var waiters: [SignalResumer] = []
 
         func signal() {
             isSignaled = true
@@ -60,7 +61,7 @@ struct RemoteMarkdownReferenceTests {
 
         func wait() async {
             guard !isSignaled else { return }
-            await withCheckedContinuation { waiters.append($0) }
+            await awaitSignal { waiters.append($0) }
         }
 
         func wasSignaled() -> Bool {

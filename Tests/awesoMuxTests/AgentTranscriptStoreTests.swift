@@ -168,8 +168,14 @@ extension SessionPersistenceSerializationDomainTests {
                     competitorFinished.signal()
                 }
 
-                superseded.wait()
-                competitor.wait()
+                guard superseded.wait(timeout: .now() + 30) == .success else {
+                    Issue.record("superseded did not finish within 30 seconds")
+                    return
+                }
+                guard competitor.wait(timeout: .now() + 30) == .success else {
+                    Issue.record("competitor did not finish within 30 seconds")
+                    return
+                }
 
                 let contents = try String(
                     contentsOf: store.fileURL(agentKind: .claudeCode, sessionID: sessionID),

@@ -52,25 +52,31 @@ import Testing
     /// Runs `body` on a thread with a production-sized stack, so a thrown
     /// `DecodingError` (the guard firing) surfaces to the test rather than the
     /// near-cap recursion aborting the whole process on a shallow pool thread.
-    private func runOnLargeStack(_ body: @escaping @Sendable () -> Void) {
+    private func runOnLargeStack(_ body: @escaping @Sendable () -> Void) -> Bool {
         let done = DispatchSemaphore(value: 0)
         let thread = Thread { body(); done.signal() }
         thread.stackSize = 8 * 1024 * 1024
         thread.start()
-        done.wait()
+        let completed = done.wait(timeout: .now() + 30) == .success
+        #expect(completed)
+        return completed
     }
 
     private func decodeLayout(_ json: String) -> Result<TerminalPaneLayout, Error> {
         let data = Data(json.utf8)
         let box = ResultBox<TerminalPaneLayout>()
-        runOnLargeStack { box.result = Result { try JSONDecoder().decode(TerminalPaneLayout.self, from: data) } }
+        guard runOnLargeStack({ box.result = Result { try JSONDecoder().decode(TerminalPaneLayout.self, from: data) } }) else {
+            return .failure(CancellationError())
+        }
         return box.result!
     }
 
     private func decodeSnapshot(_ json: String) -> Result<SessionSnapshot, Error> {
         let data = Data(json.utf8)
         let box = ResultBox<SessionSnapshot>()
-        runOnLargeStack { box.result = Result { try SessionSnapshot.decode(from: data) } }
+        guard runOnLargeStack({ box.result = Result { try SessionSnapshot.decode(from: data) } }) else {
+            return .failure(CancellationError())
+        }
         return box.result!
     }
 
