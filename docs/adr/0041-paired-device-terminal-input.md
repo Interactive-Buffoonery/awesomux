@@ -199,15 +199,22 @@ and bounded on the Mac. Revocation and reconnect never restore a claim.
   **not sent** (never left the phone: refused on the phone or still queued
   locally when the stream ended; safe to send again) and **may have run**
   (no ack within the budget or at disconnect; check the terminal before
-  sending again). A late `ack` in the same generation moves "may have run"
-  to "sent". Recommend an ack budget of two seconds. Composer text is kept
+  sending again). Any input that left the phone and has no `ack` covering
+  its sequence in the current generation within two seconds of sending
+  moves to "may have run"; so does unacknowledged input when the stream
+  ends. An `ack` from an earlier generation is ignored. A late `ack` in the
+  same generation moves "may have run" to "sent". Composer text is kept
   on the phone in all three states with a manual Send again; nothing is
   retried automatically. The phone sends one paste at a time per stream and
   does not send a second until the first is acked or shown as may have run.
   A typed per-batch accept/reject receipt and a
   per-attachment queue cap are the zmx fork follow-ups that would turn "may
   have run" into a definite answer and keep one device from filling the
-  shared queue; #788 should not depend on them.
+  shared queue; #788 should not depend on them. Until that cap exists,
+  a device sending many small input frames can fill the shared operation
+  queue and starve Mac input or other paired devices. This is an accepted
+  limitation for #788, which must test that case; the frame-size cap and
+  one-paste-at-a-time rule do not prevent it.
 - Keystrokes typed within a short window may be coalesced into one frame;
   a paste is never merged with keystrokes or with another paste, and a lone
   ESC is never coalesced: it ends the current frame and goes alone. PTY
