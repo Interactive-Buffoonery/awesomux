@@ -469,7 +469,7 @@ final class BridgePermissionKeyMonitor {
 /// focus-safety requirement (see `PaneCloseButton` for the same pattern and the
 /// blank-surface gotcha it avoids). Deliberately NOT the app's default button:
 /// no key equivalent, so Return can never trigger Allow.
-private struct PermissionActionButton: NSViewRepresentable {
+struct PermissionActionButton: NSViewRepresentable {
     let title: String
     let accessibilityLabel: String
     let tint: Color

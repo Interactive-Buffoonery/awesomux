@@ -459,6 +459,17 @@
     "%arg, on the don’t-ask list" : {
       "comment" : "Accessibility label for a destination row in the don’t-ask list"
     },
+    "%arg, pane %arg, request %arg. %arg" : {
+      "comment" : "Permission announcement: workspace name, one-based pane position, stable request number, then decision or delivery state.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, pane %2$arg, request %3$arg. %4$arg"
+          }
+        }
+      }
+    },
     "%arg. %arg" : {
       "comment" : "VoiceOver value combining the Open at Login status with its latest error.",
       "localizations" : {
@@ -796,6 +807,23 @@
     "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:" : {
       "comment" : "Companion approval content disclosure."
     },
+    "Allow once" : {
+      "comment" : "Allow this Claude permission request only; do not remember a grant."
+    },
+    "Allow once recorded on Mac" : {
+      "comment" : "The Mac recorded a one-time allow; delivery to the hook is not yet confirmed."
+    },
+    "Allow once. Command-Return when focused." : {
+      "comment" : "Accessible allow action; Command-Return acts only after deliberate permission-card focus.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow once. Command-Return when focused."
+          }
+        }
+      }
+    },
     "Allow outside apps" : {
       "comment" : "Outside app access toggle accessibility label.\nOutside app access toggle label."
     },
@@ -896,6 +924,23 @@
     },
     "Another awesoMux instance is changing agent integrations; try again." : {
       "comment" : "CLI agent plugin install state lock contention warning"
+    },
+    "Answer delivered to Claude hook" : {
+      "comment" : "The hook acknowledged the answer; this does not confirm tool execution."
+    },
+    "Answer delivered to Claude hook. Tool execution is unconfirmed." : {
+      "comment" : "Permission announcement after hook acknowledgement; delivery does not confirm tool execution.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Answer delivered to Claude hook. Tool execution is unconfirmed."
+          }
+        }
+      }
+    },
+    "Answer recorded on Mac" : {
+      "comment" : "The Mac recorded the decision; delivery to the hook is not yet confirmed."
     },
     "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using." : {
       "comment" : "Outside app access same-user boundary disclosure."
@@ -1312,6 +1357,12 @@
     },
     "Chosen remote base directory" : {
       "comment" : "Accessibility label for the explicitly chosen remote base directory"
+    },
+    "Claude permission needed" : {
+      "comment" : "A local Claude hook is waiting for a one-time permission decision."
+    },
+    "Claude’s own prompt may still be answered in the terminal." : {
+      "comment" : "Local once-only Claude permission card"
     },
     "Clean up" : {
 
@@ -1948,6 +1999,23 @@
     },
     "Deny (Escape when focused)" : {
       "comment" : "Tooltip for the deny button on the remote permission banner"
+    },
+    "Deny once" : {
+      "comment" : "Deny this Claude permission request only; do not remember a grant."
+    },
+    "Deny once recorded on Mac" : {
+      "comment" : "The Mac recorded a one-time deny; delivery to the hook is not yet confirmed."
+    },
+    "Deny once. Escape when focused." : {
+      "comment" : "Accessible deny action; Escape acts only after deliberate permission-card focus.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deny once. Escape when focused."
+          }
+        }
+      }
     },
     "Deny permission request. Escape when focused." : {
       "comment" : "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
@@ -3605,6 +3673,9 @@
     "Per-workspace mute" : {
       "comment" : "Notification settings title."
     },
+    "Permission delivery unknown" : {
+      "comment" : "Delivery of the recorded decision is uncertain; do not retry or imply tool execution."
+    },
     "Permission denied in %arg." : {
       "comment" : "VoiceOver announcement confirming the user denied a remote permission request in a named split pane\nVoiceOver announcement confirming the user denied a remote permission request, naming the workspace"
     },
@@ -3626,11 +3697,17 @@
     "Permission prompt focused." : {
       "comment" : "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner"
     },
+    "Permission request cancelled" : {
+      "comment" : "The local permission request was cancelled and cannot receive another decision."
+    },
     "Permission request cancelled in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled in a named split pane\nVoiceOver announcement when a remote permission prompt is cancelled, naming the workspace"
     },
     "Permission request cancelled." : {
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled"
+    },
+    "Permission request expired" : {
+      "comment" : "The local permission request expired; the hook falls through to the native prompt."
     },
     "Permission request timed out in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt expires (denied) in a named split pane\nVoiceOver announcement when a remote permission prompt expires (denied), naming the workspace"
@@ -4474,6 +4551,9 @@
     },
     "Returned pane to its source workspace" : {
       "comment" : "VoiceOver announcement after returning a moved pane to the workspace it came from."
+    },
+    "Returning answer to Claude" : {
+      "comment" : "The recorded decision is being delivered to the Claude hook."
     },
     "Reveal in Finder" : {
       "comment" : "Button title that reveals the saved layout preset in Finder."
@@ -5767,6 +5847,9 @@
     },
     "Untitled Workspace" : {
       "comment" : "Dock menu label for a workspace that has no title."
+    },
+    "Untrusted tool request · revision %arg" : {
+
     },
     "Up and Down arrow keys to navigate" : {
 

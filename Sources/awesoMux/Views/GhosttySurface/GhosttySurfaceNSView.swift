@@ -42,6 +42,8 @@ final class GhosttySurfaceNSView: NSView {
     var paneID: TerminalPane.ID
     var remoteMarkdownFetchProgressIndicator: NSProgressIndicator?
     var enabledAgentRuntimeFileDropSources: Set<AgentRuntimeSource>
+    var localPermissionLaunchEnvironment: AgentRuntimeEnvironment?
+    var localPermissionPresentationEligible = false
     /// Whether a text-detected `grok` session may adopt the Grok agent kind (and
     /// thus its sidebar icon). The same setting gates Grok runtime events.
     /// Refreshed from settings on every `update(…)`, like the sources set above.
@@ -374,6 +376,11 @@ final class GhosttySurfaceNSView: NSView {
     ) {
         let terminalSessionRepointed = self.pane.terminalSessionID != pane.terminalSessionID
         let bridgeExecutionPlanChanged = self.pane.executionPlan != pane.executionPlan
+        let localPermissionEligibility = LocalPermissionPresentation.isEligible(
+            executionPlan: pane.executionPlan, compactTerminalKind: sessionStore.compactTerminalKind
+        )
+        let localPermissionPresentationChanged =
+            self.sessionStore !== sessionStore || localPermissionPresentationEligible != localPermissionEligibility
         let bridgePreflightIdentityChanged =
             sessionID != session.id
             || paneID != pane.id
@@ -402,6 +409,13 @@ final class GhosttySurfaceNSView: NSView {
             clearCommandBridgeStateForLocalShellFallback()
             shouldRestartBridgePreflight = false
         }
+        let permissionIdentityChanged = bridgePreflightIdentityChanged
+        if permissionIdentityChanged || localPermissionPresentationChanged {
+            runtime.localPermissionCoordinator.retire(paneID: paneID)
+        }
+        if paneID != pane.id {
+            localPermissionLaunchEnvironment = nil
+        }
         self.sessionStore = sessionStore
         self.session = session
         self.sessionID = session.id
@@ -423,6 +437,19 @@ final class GhosttySurfaceNSView: NSView {
         }
         self.pane = pane
         self.paneID = pane.id
+        localPermissionPresentationEligible = localPermissionEligibility
+        if permissionIdentityChanged || localPermissionPresentationChanged,
+            let environment = localPermissionLaunchEnvironment,
+            environment.localPermissionDescriptorEnabled, localPermissionEligibility
+        {
+            _ = runtime.localPermissionCoordinator.install(
+                workspaceID: session.id, paneID: pane.id, eventFile: environment.eventFileURL,
+                presentationContext: { [weak store = sessionStore] target in
+                    guard let store else { return nil }
+                    return LocalPermissionPresentation.context(for: target, in: store)
+                }
+            )
+        }
         if fetchProgressIdentityChanged {
             RemoteMarkdownFetchProgressCoordinator.shared.registerSurface(
                 self,

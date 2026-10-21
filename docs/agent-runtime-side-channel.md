@@ -316,10 +316,15 @@ notification can fall through to the missing/unknown row
 (`attentionReason=userInputRequired`) instead. Treat the dedicated
 `PermissionRequest` hook, not the notification subtype, as load-bearing.
 
-This channel carries permission *attention* only — no command content and no
-decision return. For what a bidirectional permission channel (in-pane
-Allow/Deny cards, #822) would take on top of it, see
-[`docs/reference/int-110-implementation-research.md`](reference/int-110-implementation-research.md).
+This JSONL channel carries permission *attention* only, without command content
+or decision returns. Local Claude permission cards use a separate app-owned
+decision core with a local bridge lane and file-pair fallback. See
+[ADR-0028](adr/0028-permission-decision-transport-bridge-primary.md),
+[ADR-0038](adr/0038-phone-as-permission-decision-source.md), and the
+[local permission helper fixtures](../script/local-permission-e2e/README.md)
+for the implemented identity, fall-through, and delivery contract. The earlier
+[implementation research](reference/int-110-implementation-research.md) is
+historical context.
 
 Codex mapping:
 
