@@ -82,9 +82,18 @@ enum SidebarDuplicateDisambiguator {
         ]
         var folderTitle = title
         if RemoteSessionDetector.detect(title: title, localNames: localHostnames) == .local,
-            let colon = title.firstIndex(of: ":")
+            let at = title.firstIndex(of: "@")
         {
-            folderTitle = String(title[title.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            let hostAndPath = title[title.index(after: at)...]
+            let hostEnd: String.Index?
+            if hostAndPath.first == "[" {
+                hostEnd = hostAndPath.firstIndex(of: "]").map { title.index(after: $0) }
+            } else {
+                hostEnd = hostAndPath.firstIndex { $0 == ":" || $0.isWhitespace }
+            }
+            if let colon = hostEnd, colon < title.endIndex, title[colon] == ":" {
+                folderTitle = String(title[title.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            }
         }
         let matchesDirectory = spellings.contains {
             UnicodeHygiene.sanitize($0, maxLength: identityKeyMaxLength) == folderTitle
