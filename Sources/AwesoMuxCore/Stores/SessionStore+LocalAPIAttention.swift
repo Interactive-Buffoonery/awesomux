@@ -34,7 +34,7 @@ public extension SessionStore {
                 providerSessionID: target.providerSessionID, targetVersion: target.version,
                 occurredAt: now, reason: completion.attentionReason,
                 exitCode: completion.exitCode, durationSeconds: completion.durationSeconds
-            ))
+            ), companionSuppressed: companionAlertIsSuppressed(paneID))
     }
 
     func localAPIAttentionEvents(
@@ -91,7 +91,7 @@ extension SessionStore {
                     providerSessionID: target.providerSessionID, targetVersion: target.version,
                     occurredAt: now, reason: reason
                 )
-                localAPIAttentionJournal?.append(event)
+                localAPIAttentionJournal?.append(event, companionSuppressed: companionAlertIsSuppressed(pane.id))
                 localAPIActiveAttention[pane.id] = LocalAPIActiveAttention(
                     assignmentVersion: target.assignmentVersion, runtimeEpoch: target.runtimeEpoch, event: event
                 )

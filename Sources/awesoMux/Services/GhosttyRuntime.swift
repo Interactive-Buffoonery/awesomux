@@ -555,6 +555,19 @@ final class GhosttyRuntime {
         }
     }
 
+    func companionAlertIsSuppressed(paneID: UUID) -> Bool {
+        guard NSApp.isActive, !NSApp.isHidden,
+            let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+            session[kCGSessionOnConsoleKey as String] as? Bool == true,
+            session["CGSSessionScreenIsLocked"] as? Bool != true,
+            let view = surfaceViews[paneID], view.hasNativeSurface,
+            !view.isHiddenOrHasHiddenAncestor, !view.visibleRect.isEmpty,
+            let window = view.window, window.isVisible, !window.isMiniaturized,
+            view.windowIsVisible, view.terminalIsFocused
+        else { return false }
+        return true
+    }
+
     func localAPIProcessSources() -> [UUID: LocalAPIProcessSource] {
         surfaceViews.compactMapValues { $0.localAPIProcessSource() }
     }

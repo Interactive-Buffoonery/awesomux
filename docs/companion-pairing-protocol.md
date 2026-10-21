@@ -233,6 +233,11 @@ Only these operations are accepted:
 - `get_connection_status`, with no operation arguments.
 - `unpair`, with no operation arguments; revokes only the authenticated phone.
 - `list_agents`, with no operation arguments.
+- `get_alert_preferences`, with no operation arguments; reads only the
+  authenticated pairing's preferences.
+- `set_alert_preferences`, with exactly one `alertPreferences` object containing
+  the replacement `categories` array; changes only the authenticated pairing's
+  preferences. Pane, cursor, scope, and command-event arguments are rejected.
 - `rename_pane`, with required `workspaceID`, `paneID`, and `title`; requires
   a separate Mac-approved rename scope.
 - `list_panes`, with no operation arguments.
@@ -986,3 +991,38 @@ spruce
 squash
 stable
 ```
+
+## Per-device alert delivery (#791)
+
+The shared [alert preference contract](https://github.com/Interactive-Buffoonery/awesomux-companion/blob/850c0c923543c4161bd78dbce651ad5739bc9bbe/docs/protocol/alert-preferences.md)
+adds `get_alert_preferences` and `set_alert_preferences` to the certificate-authenticated
+listener. Both address only the authenticated pairing. Get accepts no operation
+arguments; set accepts only `alertPreferences: {"categories": [...]}`. The categories
+are `permission`, `waiting`, `error`, `commandFailed`, and `commandCompleted`.
+An empty set disables these categories; generic bell, desktop-notification and
+unknown reasons remain eligible. Command events still require `includeCommandEvents`.
+
+Preferences are optional in the paired grant metadata in `access.json`; missing
+means all categories. An effective change saves the grant before publishing a new
+revision and invalidating outstanding requests. Save failure preserves the previous
+preferences and authority. An identical set does not rotate the revision. Existing
+attention cursors recover with `access_changed` after an effective change.
+
+At event creation the Mac samples the actual pane surface: only a visible, focused
+terminal on the active, visible app and unlocked console suppresses a raised event
+for companions. Hidden, minimized, occluded, unfocused and inactive surfaces remain
+eligible. This sample stays in the runtime journal and is not recomputed when a
+phone polls. Category and presence filtering consume journal positions even for
+empty pages. Resolutions remain available so previously shown alerts can clear.
+Local bearer consumers retain the complete journal under their existing scopes.
+
+Delivery uses direct LAN/Tailscale polling. Phone settings UI and push delivery
+remain follow-up work.
+
+For focused persistence, journal and event-time store verification, run
+`heavy-gate swift run companion-pairing-e2e --alert-preferences-only`.
+The full `heavy-gate ./script/run_companion_pairing_e2e.sh` also checks strict
+preference arguments and self-only access over pinned mutual TLS. Its isolated
+store fixture retains its diagnostic directory and prints the path. These host
+cases do not prove native focus, visibility or lock transitions; exercise those
+with the worktree app separately.

@@ -186,12 +186,20 @@ struct CompanionPairingE2E {
                 return
             }
             if try handleFixtureCommand() { return }
+            if Array(CommandLine.arguments.dropFirst()) == ["--alert-preferences-only"] {
+                try verifyAlertPreferenceWireFixtures()
+                try verifyAlertPreferenceStorageAndJournal()
+                try verifyAlertPresenceSamplingInStore()
+                return
+            }
             let invocation = try invocation()
             if let cleanupResult = invocation.cleanupResult {
                 try cleanup(resultFile: cleanupResult)
                 print("cleanup=revoked")
                 return
             }
+            try verifyAlertPreferenceStorageAndJournal()
+            try verifyAlertPresenceSamplingInStore()
             guard let rawLink = invocation.link else { throw E2EFailure("pairing link is missing") }
             guard let expectedProfile = invocation.profile else { throw E2EFailure("development profile is missing") }
             let link = try PairingLink(rawLink)
@@ -315,6 +323,71 @@ struct CompanionPairingE2E {
             guard deniedPhone["error"] as? String == "permission_denied" else {
                 throw E2EFailure("preview permission changed another phone")
             }
+            var attentionRequest = request("get_attention_events")
+            attentionRequest["limit"] = 100
+            let beforePreferences = try await call(attentionRequest, link: link, identity: identity)
+            guard let beforePage = beforePreferences["attentionEvents"] as? [String: Any],
+                let beforeCursor = beforePage["nextCursor"] as? String
+            else { throw E2EFailure("preferences cursor fixture is missing") }
+            for operation in ["get_alert_preferences", "set_alert_preferences"] {
+                var valid = request(operation)
+                if operation == "set_alert_preferences" { valid["alertPreferences"] = ["categories": ["permission", "commandFailed"]] }
+                let response = try await call(valid, link: link, identity: identity)
+                guard response["error"] == nil, response["alertPreferences"] is [String: Any] else {
+                    throw E2EFailure("alert preferences operation failed")
+                }
+                let expectedCategories =
+                    operation == "get_alert_preferences"
+                    ? CompanionAlertCategory.allCases.map(\.rawValue) : ["permission", "commandFailed"]
+                guard let payload = response["alertPreferences"] as? [String: Any],
+                    payload["categories"] as? [String] == expectedCategories
+                else { throw E2EFailure("preferences response did not match saved categories") }
+                for (field, invalid) in try alertPreferenceExtraFieldRequests(valid, expectedProfile: expectedProfile) {
+                    let denied = try await call(invalid, link: link, identity: identity)
+                    guard denied["error"] as? String == "invalid_request" else {
+                        throw E2EFailure("preferences accepted argument \(field)")
+                    }
+                }
+                var other = valid
+                other["connectionID"] = UUID().uuidString
+                let denied = try await call(other, link: link, identity: identity)
+                guard denied["error"] as? String == "permission_denied" else { throw E2EFailure("preferences accepted another pairing") }
+            }
+            for payload: Any in [
+                NSNull(), ["categories": ["bogus"]], ["categories": "permission"], ["categories": ["permission"], "scope": "all"], [:],
+            ] {
+                var malformed = request("set_alert_preferences")
+                malformed["alertPreferences"] = payload
+                let response = try await call(malformed, link: link, identity: identity)
+                guard response["error"] as? String == "invalid_request" else { throw E2EFailure("malformed alert preferences accepted") }
+            }
+            var missingPreferences = request("set_alert_preferences")
+            let missingResponse = try await call(missingPreferences, link: link, identity: identity)
+            guard missingResponse["error"] as? String == "invalid_request" else { throw E2EFailure("missing preferences accepted") }
+            missingPreferences["operation"] = "get_alert_preferences"
+            missingPreferences["alertPreferences"] = ["categories": [] as [String]]
+            let unexpectedResponse = try await call(missingPreferences, link: link, identity: identity)
+            guard unexpectedResponse["error"] as? String == "invalid_request" else { throw E2EFailure("get accepted preferences payload") }
+            let savedPreferences = try await call(request("get_alert_preferences"), link: link, identity: identity)
+            guard let savedPayload = savedPreferences["alertPreferences"] as? [String: Any],
+                savedPayload["categories"] as? [String] == ["permission", "commandFailed"]
+            else { throw E2EFailure("get did not return saved preferences") }
+            attentionRequest["cursor"] = beforeCursor
+            let changedPreferences = try await call(attentionRequest, link: link, identity: identity)
+            guard let changedPage = changedPreferences["attentionEvents"] as? [String: Any],
+                changedPage["cursorStatus"] as? String == "access_changed",
+                let changedCursor = changedPage["nextCursor"] as? String
+            else { throw E2EFailure("TLS preference change did not invalidate cursor") }
+            var identical = request("set_alert_preferences")
+            identical["alertPreferences"] = ["categories": ["commandFailed", "permission", "permission"]]
+            let noOp = try await call(identical, link: link, identity: identity)
+            guard noOp["error"] == nil else { throw E2EFailure("identical effective preferences failed") }
+            attentionRequest["cursor"] = changedCursor
+            let unchanged = try await call(attentionRequest, link: link, identity: identity)
+            guard let unchangedPage = unchanged["attentionEvents"] as? [String: Any],
+                unchangedPage["cursorStatus"] as? String == "current"
+            else { throw E2EFailure("identical effective set invalidated cursor") }
+            print("alert_preferences_wire=passed cases=33")
             for (operation, id, expected) in [
                 ("unpair", UUID().uuidString, "permission_denied"),
                 ("unknown_companion_operation", connectionID, "unsupported_operation"),

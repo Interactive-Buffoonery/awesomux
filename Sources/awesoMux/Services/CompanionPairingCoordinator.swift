@@ -407,6 +407,10 @@ final class CompanionPairingCoordinator {
                 defer { self.lastSeen.removeValue(forKey: connectionID) }
                 try self.accessStore.revoke(connectionID: connectionID)
             },
+            setAlertPreferences: { [weak accessStore] connectionID, preferences in
+                guard let accessStore else { throw LocalAPIError.appUnavailable }
+                try accessStore.updateCompanionAlertPreferences(connectionID: connectionID, preferences: preferences)
+            },
             renamePane: { request, lease, fingerprint, deadline in
                 try service.renameCompanionPane(
                     request: request, lease: lease, certificateFingerprint: fingerprint, deadline: deadline)
@@ -584,6 +588,7 @@ private final class CompanionNetworkServer {
     private let cancelApproval: @MainActor (UUID) -> Void
     private let abortPairing: @MainActor (UUID) -> Void
     private let register: @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant
+    private let setAlertPreferences: @MainActor (UUID, CompanionAlertPreferences) throws -> Void
     private let revoke: @MainActor (UUID) throws -> Void
     private let renamePane:
         @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void
@@ -600,6 +605,7 @@ private final class CompanionNetworkServer {
     private var connections: [UUID: ActiveCompanionConnection] = [:]
     private var pendingRevocationReplies: Set<UUID> = []
     private var pendingPermissionReplies: Set<UUID> = []
+    private var pendingPreferenceReplies: Set<UUID> = []
 
     var hasPendingRevocationReplies: Bool { !pendingRevocationReplies.isEmpty }
 
@@ -618,6 +624,7 @@ private final class CompanionNetworkServer {
         abortPairing: @escaping @MainActor (UUID) -> Void,
         register: @escaping @MainActor (UUID, String, Data, LocalAPICompanionTransport, UInt16) throws -> LocalAPIConnectionGrant,
         revoke: @escaping @MainActor (UUID) throws -> Void,
+        setAlertPreferences: @escaping @MainActor (UUID, CompanionAlertPreferences) throws -> Void,
         renamePane:
             @escaping @MainActor (CompanionPaneRenameRequest, LocalAPIAuthorizationLease, Data, ContinuousClock.Instant) throws -> Void,
         setTerminalPreview: @escaping @MainActor (UUID, Data, LocalAPIAuthorizationLease, Bool) throws -> LocalAPIAuthorizationLease,
@@ -642,6 +649,7 @@ private final class CompanionNetworkServer {
         self.register = register
         self.revoke = revoke
         self.setTerminalPreview = setTerminalPreview
+        self.setAlertPreferences = setAlertPreferences
         self.capture = capture
         self.renamePane = renamePane
         self.routes = routes
@@ -724,7 +732,11 @@ private final class CompanionNetworkServer {
 
     func invalidate(connectionID: UUID?) {
         for (id, active) in connections where connectionID == nil || active.connectionID == connectionID {
-            if connectionID != nil, pendingRevocationReplies.contains(id) || pendingPermissionReplies.contains(id) { continue }
+            if connectionID != nil,
+                pendingRevocationReplies.contains(id) || pendingPermissionReplies.contains(id) || pendingPreferenceReplies.contains(id)
+            {
+                continue
+            }
             active.worker?.cancel()
             active.connection.cancel()
             connections.removeValue(forKey: id)
@@ -850,8 +862,7 @@ private final class CompanionNetworkServer {
             guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "paneID", "targetVersion", "limit", "source",
-                    "cursor", "includeCommandEvents", "workspaceID", "title",
-                    "terminalPreviewAllowed",
+                    "cursor", "includeCommandEvents", "workspaceID", "title", "terminalPreviewAllowed", "alertPreferences",
                 ])
             else { throw LocalAPIError.invalidRequest }
             requestID = (object["requestID"] as? String).flatMap(UUID.init(uuidString:))
@@ -864,6 +875,49 @@ private final class CompanionNetworkServer {
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == profile else { throw LocalAPIError.profileMismatch }
             guard request.connectionID == connectionID else { throw LocalAPIError.permissionDenied }
+            if request.operation == CompanionOperation.getAlertPreferences.rawValue
+                || request.operation == CompanionOperation.setAlertPreferences.rawValue
+            {
+                let isSet = request.operation == CompanionOperation.setAlertPreferences.rawValue
+                let required: Set<String> = ["schemaVersion", "requestID", "operation", "connectionID", "profile"]
+                guard Set(object.keys) == (isSet ? required.union(["alertPreferences"]) : required) else {
+                    throw LocalAPIError.invalidRequest
+                }
+                var lease = try authority.authorizeCompanion(
+                    connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                ).get()
+                defer { pendingPreferenceReplies.remove(id) }
+                if isSet {
+                    guard let payload = object["alertPreferences"] as? [String: Any], Set(payload.keys) == ["categories"],
+                        let data = try? JSONSerialization.data(withJSONObject: payload),
+                        let preferences = try? CompanionProtocol.decoder().decode(CompanionAlertPreferences.self, from: data)
+                    else { throw LocalAPIError.invalidRequest }
+                    guard !Task.isCancelled else { throw LocalAPIError.cancelled }
+                    guard ContinuousClock.now < mutationDeadline else { throw LocalAPIError.timeout }
+                    if case .cancelled = connection.state { throw LocalAPIError.cancelled }
+                    // The setter invalidates old requests. This receipt uses the
+                    // replacement lease and still rechecks authority before every chunk.
+                    pendingPreferenceReplies.insert(id)
+                    do {
+                        try setAlertPreferences(connectionID, preferences)
+                    } catch {
+                        pendingPreferenceReplies.remove(id)
+                        throw LocalAPIError.transportFailure
+                    }
+                    lease = try authority.authorizeCompanion(
+                        connectionID: connectionID, certificateFingerprint: fingerprint, operation: .connectionStatus
+                    ).get()
+                }
+                let response = CompanionAPIResponse(
+                    requestID: request.requestID, profile: profile, appInstanceID: instanceID, capturedAt: Date(),
+                    alertPreferences: lease.companionAlertPreferences)
+                try await sendAuthorizedFrame(
+                    try CompanionProtocol.encoder().encode(response), connection: connection,
+                    connectionID: connectionID, fingerprint: fingerprint, lease: lease, responseProgress: responseProgress)
+                markSeen(connectionID)
+                return
+            }
+            guard object["alertPreferences"] == nil else { throw LocalAPIError.invalidRequest }
             if request.operation == CompanionPaneRename.operation {
                 let mutation = try CompanionPaneRenameRequest.decode(object)
                 let lease = try authority.authorizeCompanion(
