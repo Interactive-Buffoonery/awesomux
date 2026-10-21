@@ -55,17 +55,9 @@ struct LocalPermissionPromptView: View {
                     ConsentTextView(text: card.request.summary, maximumHeight: 120)
                         .awFont(AwFont.Mono.meta)
                         .foregroundStyle(Color.aw.text)
-                    if let choice = card.outcome.choice {
-                        Text(
-                            choice == .allow
-                                ? String(
-                                    localized: "Allow once recorded on Mac",
-                                    comment: "The Mac recorded a one-time allow; delivery to the hook is not yet confirmed.")
-                                : String(
-                                    localized: "Deny once recorded on Mac",
-                                    comment: "The Mac recorded a one-time deny; delivery to the hook is not yet confirmed.")
-                        )
-                        .awFont(AwFont.Mono.meta)
+                    if card.outcome.choice != nil {
+                        Text(LocalPermissionCoordinator.recordedMessage(card.outcome))
+                            .awFont(AwFont.Mono.meta)
                     }
                     Text("Untrusted tool request · revision \(identity.revision)")
                         .awFont(AwFont.Mono.meta)

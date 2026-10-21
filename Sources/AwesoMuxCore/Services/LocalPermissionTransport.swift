@@ -58,6 +58,19 @@ public enum LocalPermissionFiles {
         return count == data.count && link(temporary.path, url.path) == 0
     }
 
+    /// Terminal publication may revoke an escaped choice, never replace it
+    /// with another choice or a different invocation. Rename keeps reads whole.
+    @discardableResult
+    public static func replaceWithTerminalOutcome(_ outcome: LocalPermissionOutcome, at url: URL) -> Bool {
+        guard outcome.choice == nil, [.cancelled, .expired, .unknown, .delivered].contains(outcome.state),
+            let existing = read(LocalPermissionOutcome.self, at: url), existing.identity == outcome.identity
+        else { return false }
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString)")
+        defer { unlink(temporary.path) }
+        guard write(outcome, at: temporary) else { return false }
+        return rename(temporary.path, url.path) == 0
+    }
+
     public static func processStartMicroseconds(_ pid: Int32) -> UInt64? {
         guard pid > 1 else { return nil }
         var info = proc_bsdinfo()
