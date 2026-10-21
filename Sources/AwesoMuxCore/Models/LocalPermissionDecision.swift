@@ -131,6 +131,7 @@ public final class LocalPermissionDecisionCore {
     private struct Entry {
         let request: LocalPermissionRequest
         let remoteExpiresAt: Date
+        let remoteDeadline: ContinuousClock.Instant
         var outcome: LocalPermissionOutcome
         var outputAttempted = false
     }
@@ -157,12 +158,17 @@ public final class LocalPermissionDecisionCore {
         let choice: LocalPermissionChoice
         let receipt: LocalPermissionRemoteReceipt
         let retainUntil: Date
+        let negativeDeadline: ContinuousClock.Instant?
     }
     private var retries: [RetryKey: Retry] = [:]
     public static let retryCapacity = 512
     public static let capacity = 128
 
-    public init() {}
+    private let monotonicNow: () -> ContinuousClock.Instant
+
+    public init(monotonicNow: @escaping () -> ContinuousClock.Instant = { .now }) {
+        self.monotonicNow = monotonicNow
+    }
 
     public func install(_ target: LocalPermissionTarget) { targets.insert(target) }
 
@@ -242,8 +248,10 @@ public final class LocalPermissionDecisionCore {
         sessions[request.target] = request.providerSessionID
         sessionEvidenceAt[request.target] = max(sessionEvidenceAt[request.target] ?? .distantPast, request.issuedAt)
         seen[request.target, default: []].insert(request.invocationID)
+        let remoteExpiresAt = min(request.remoteExpiresAt, now.addingTimeInterval(60))
         entries[request.invocationID] = Entry(
-            request: request, remoteExpiresAt: min(request.remoteExpiresAt, now.addingTimeInterval(60)),
+            request: request, remoteExpiresAt: remoteExpiresAt,
+            remoteDeadline: monotonicNow().advanced(by: .seconds(max(0, remoteExpiresAt.timeIntervalSince(now)))),
             outcome: .init(identity: request.identity, state: .pending))
         return true
     }
@@ -262,6 +270,7 @@ public final class LocalPermissionDecisionCore {
 
     public func remoteExpiry(_ identity: LocalPermissionIdentity) -> Date? {
         guard let entry = entries[identity.invocationID], entry.request.identity == identity else { return nil }
+        guard monotonicNow() < entry.remoteDeadline else { return nil }
         return entry.remoteExpiresAt
     }
 
@@ -295,14 +304,18 @@ public final class LocalPermissionDecisionCore {
             }
             return retry.receipt
         }
-        guard let entry = entries[identity.invocationID], entry.request.identity == identity else {
-            return .init(result: .unknown, outcome: nil)
-        }
         guard retries.count < Self.retryCapacity else { return .init(result: .capacityExceeded, outcome: nil) }
+        guard let entry = entries[identity.invocationID], entry.request.identity == identity else {
+            let receipt = LocalPermissionRemoteReceipt(result: .unknown, outcome: nil)
+            retries[key] = Retry(
+                identity: identity, choice: choice, receipt: receipt, retainUntil: now.addingTimeInterval(600),
+                negativeDeadline: monotonicNow().advanced(by: .seconds(600)))
+            return receipt
+        }
         let result: LocalPermissionRemoteReceipt.Result
         if entry.outcome.state != .pending {
             result = .alreadyAnswered
-        } else if now >= entry.remoteExpiresAt {
+        } else if now >= entry.remoteExpiresAt || monotonicNow() >= entry.remoteDeadline {
             result = .expired
         } else {
             _ = commit(identity, choice: choice, now: now, helperAlive: helperAlive)
@@ -317,7 +330,7 @@ public final class LocalPermissionDecisionCore {
         let receipt = LocalPermissionRemoteReceipt(result: result, outcome: outcome(identity))
         retries[key] = Retry(
             identity: identity, choice: choice, receipt: receipt,
-            retainUntil: entry.request.expiresAt.addingTimeInterval(600))
+            retainUntil: entry.request.expiresAt.addingTimeInterval(600), negativeDeadline: nil)
         return receipt
     }
 
@@ -364,7 +377,10 @@ public final class LocalPermissionDecisionCore {
     }
 
     public func sweep(now: Date) {
-        retries = retries.filter { $0.value.retainUntil > now }
+        let instant = monotonicNow()
+        retries = retries.filter {
+            $0.value.retainUntil > now && ($0.value.negativeDeadline.map { instant < $0 } ?? true)
+        }
         progress = progress.filter { $0.value.addingTimeInterval(125) > now }
         nativeProgress = nativeProgress.filter { $0.value.addingTimeInterval(125) > now }
         if let until = progressBlockedUntil, until <= now { progressBlockedUntil = nil }

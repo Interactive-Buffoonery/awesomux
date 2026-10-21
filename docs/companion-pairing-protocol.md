@@ -1046,10 +1046,13 @@ The core commits the first valid app answer atomically. Retry IDs bind device,
 identity and choice. An identical retry returns the original `decisionReceipt`;
 conflicting reuse and losing answers cannot overwrite the winner. Fresh lists
 return retained `decisionOutcomes` for later recorded/delivery/terminal state.
-The remote deadline is fixed at issuance, at most 60 seconds, with a helper
-return reserve. Remote expiry leaves the Mac answer window intact. Bounded
-receipts survive until hook expiry plus ten minutes; eviction never recreates
-a request. Recorded means the core accepted an answer; delivered requires a
+The remote deadline keeps its wire date and a monotonic bound on the remaining
+window at admission, at most 60 elapsed seconds, with a helper return reserve.
+Both deadlines must remain live; clock rollback cannot extend device authority.
+Remote expiry leaves the Mac answer window intact. Bounded receipts survive
+until hook expiry plus ten minutes. Unknown identities also bind their retry
+ID for at most ten minutes, bounded by both wall and monotonic clocks; capacity
+exhaustion refuses new retry IDs. Cache expiry never recreates a request. Recorded means the core accepted an answer; delivered requires a
 helper ACK and does not prove provider execution.
 
 Scope, exact target, device certificate and revisioned grant are checked before
