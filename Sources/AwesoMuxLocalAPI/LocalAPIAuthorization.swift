@@ -1,3 +1,4 @@
+import AwesoMuxCompanionProtocol
 import Foundation
 
 public enum LocalAPITargetScope: Codable, Equatable, Sendable {
@@ -47,6 +48,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
     public let connectionRevision: UUID
     public let statusScope: LocalAPITargetScope
     public let contextGrant: LocalAPIContextGrant?
+    public let companionAlertPreferences: CompanionAlertPreferences?
     public let paneRenameScope: LocalAPITargetScope?
     public let terminalPreviewAllowed: Bool
 
@@ -57,7 +59,8 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         statusScope: LocalAPITargetScope,
         contextGrant: LocalAPIContextGrant? = nil,
         paneRenameScope: LocalAPITargetScope? = nil,
-        terminalPreviewAllowed: Bool = false
+        terminalPreviewAllowed: Bool = false,
+        companionAlertPreferences: CompanionAlertPreferences? = nil
     ) {
         self.connectionID = connectionID
         self.globalRevision = globalRevision
@@ -66,6 +69,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         self.contextGrant = contextGrant
         self.paneRenameScope = paneRenameScope
         self.terminalPreviewAllowed = terminalPreviewAllowed
+        self.companionAlertPreferences = companionAlertPreferences
     }
 }
 

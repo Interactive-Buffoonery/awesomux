@@ -1,3 +1,4 @@
+import AwesoMuxCompanionProtocol
 import AwesoMuxConfig
 import AwesoMuxLocalAPI
 import AwesoMuxLocalAPICredentials
@@ -26,6 +27,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
     public let port: UInt16
     public var paneRenameScope: LocalAPITargetScope?
     public let pairingVersion: Int?
+    public var alertPreferences: CompanionAlertPreferences?
 
     public func allows(_ transport: LocalAPICompanionTransport) -> Bool {
         pairingVersion == 2 || self.transport == transport
@@ -39,7 +41,8 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         port: UInt16,
         paneRenameScope: LocalAPITargetScope? = nil,
         pairingVersion: Int? = nil,
-        terminalPreviewAllowed: Bool = false
+        terminalPreviewAllowed: Bool = false,
+        alertPreferences: CompanionAlertPreferences? = nil
     ) {
         self.certificateFingerprint = certificateFingerprint
         self.transport = transport
@@ -48,10 +51,11 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         self.paneRenameScope = paneRenameScope
         self.pairingVersion = pairingVersion
         self.terminalPreviewAllowed = terminalPreviewAllowed
+        self.alertPreferences = alertPreferences
     }
 
     private enum CodingKeys: String, CodingKey {
-        case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed
+        case certificateFingerprint, transport, pairedAt, port, paneRenameScope, pairingVersion, terminalPreviewAllowed, alertPreferences
     }
 
     public init(from decoder: Decoder) throws {
@@ -63,6 +67,7 @@ public struct LocalAPICompanionMetadata: Codable, Equatable, Sendable {
         paneRenameScope = try values.decodeIfPresent(LocalAPITargetScope.self, forKey: .paneRenameScope)
         pairingVersion = try values.decodeIfPresent(Int.self, forKey: .pairingVersion)
         terminalPreviewAllowed = try values.decodeIfPresent(Bool.self, forKey: .terminalPreviewAllowed) ?? false
+        alertPreferences = try values.decodeIfPresent(CompanionAlertPreferences.self, forKey: .alertPreferences)
     }
 
 }
@@ -229,7 +234,8 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 statusScope: connection.statusScope,
                 contextGrant: nil,
                 paneRenameScope: metadata.paneRenameScope,
-                terminalPreviewAllowed: metadata.terminalPreviewAllowed
+                terminalPreviewAllowed: metadata.terminalPreviewAllowed,
+                companionAlertPreferences: metadata.alertPreferences ?? CompanionAlertPreferences()
             )
             guard expected == nil || expected == lease else { return .failure(.permissionDenied) }
             return .success(lease)
@@ -252,6 +258,7 @@ public final class LocalAPIRuntimeAuthority: @unchecked Sendable {
                 let metadata = connection.companion,
                 metadata.paneRenameScope == lease.paneRenameScope,
                 metadata.terminalPreviewAllowed == lease.terminalPreviewAllowed,
+                (metadata.alertPreferences ?? CompanionAlertPreferences()) == lease.companionAlertPreferences,
                 constantTimeEqual(certificateFingerprint, metadata.certificateFingerprint)
             else { throw LocalAPIError.permissionDenied }
             return try body()
@@ -580,6 +587,21 @@ public final class LocalAPIAccessStore {
         ).get()
     }
 
+    public func updateCompanionAlertPreferences(connectionID: UUID, preferences: CompanionAlertPreferences) throws {
+        try requireWritableAuthority()
+        guard let index = state.connections.firstIndex(where: { $0.id == connectionID }),
+            state.connections[index].kind == .companion,
+            let metadata = state.connections[index].companion
+        else { throw LocalAPIAccessFailure.connectionNotFound }
+        guard (metadata.alertPreferences ?? CompanionAlertPreferences()) != preferences else { return }
+        var candidate = state
+        candidate.connections[index].companion?.alertPreferences = preferences
+        candidate.connections[index].revision = UUID()
+        let directorySynced = try persist(candidate)
+        publish(candidate, invalidating: .connection(connectionID))
+        recordDurabilityWarningIfNeeded(directorySynced)
+    }
+
     public func updateContextGrant(connectionID: UUID, contextGrant: LocalAPIContextGrant?) throws {
         try updateConnection(connectionID: connectionID) { $0.contextGrant = contextGrant }
     }
@@ -791,6 +813,13 @@ public final class LocalAPIAccessStore {
         if let allowed = metadata["terminalPreviewAllowed"] {
             guard let number = allowed as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
             keys.remove("terminalPreviewAllowed")
+        }
+        if let preferences = metadata["alertPreferences"] {
+            guard let object = preferences as? [String: Any], Set(object.keys) == ["categories"],
+                let categories = object["categories"] as? [String],
+                categories.allSatisfy({ CompanionAlertCategory(rawValue: $0) != nil })
+            else { return false }
+            keys.remove("alertPreferences")
         }
         let legacy: Set<String> = ["certificateFingerprint", "transport", "pairedAt", "port"]
         if keys == legacy { return true }

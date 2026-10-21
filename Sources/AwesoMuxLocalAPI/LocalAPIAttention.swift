@@ -1,3 +1,4 @@
+import AwesoMuxCompanionProtocol
 import CryptoKit
 import Foundation
 
@@ -77,6 +78,7 @@ public struct LocalAPIAttentionJournal {
     private struct Entry {
         let position: UInt64
         let event: LocalAPIAttentionEvent
+        let companionSuppressed: Bool
     }
 
     private struct Cursor: Codable {
@@ -96,9 +98,9 @@ public struct LocalAPIAttentionJournal {
         self.instanceID = instanceID
     }
 
-    public mutating func append(_ event: LocalAPIAttentionEvent) {
+    public mutating func append(_ event: LocalAPIAttentionEvent, companionSuppressed: Bool = false) {
         position += 1
-        entries.append(Entry(position: position, event: event))
+        entries.append(Entry(position: position, event: event, companionSuppressed: companionSuppressed))
         if entries.count > LocalAPIContract.maximumAttentionEvents {
             entries.removeFirst(entries.count - LocalAPIContract.maximumAttentionEvents)
         }
@@ -155,6 +157,10 @@ public struct LocalAPIAttentionJournal {
                     paneID: event.paneID, workspaceID: event.workspaceID, targetVersion: event.targetVersion
                 )
             else { return false }
+            if let preferences = lease.companionAlertPreferences, event.change == .raised {
+                guard !entry.companionSuppressed else { return false }
+                if let category = Self.category(for: event.reason), !preferences.categories.contains(category) { return false }
+            }
             if case .exactTarget = lease.statusScope {
                 return liveTargetVersions[event.paneID] == event.targetVersion
             }
@@ -168,6 +174,17 @@ public struct LocalAPIAttentionJournal {
             nextCursor: try encodeCursor(position: end, lease: lease, includeCommandEvents: includeCommandEvents),
             cursorStatus: status, hasMore: hasMore
         )
+    }
+
+    private static func category(for reason: String) -> CompanionAlertCategory? {
+        switch reason {
+        case "permissionPrompt": .permission
+        case "userInputRequired", "waitingForInput": .waiting
+        case "processError", "agentError": .error
+        case "commandFailed": .commandFailed
+        case "commandFinished": .commandCompleted
+        default: nil
+        }
     }
 
     private func encodeCursor(

@@ -117,6 +117,7 @@ import PackageDescription
             .target(
                 name: "AwesoMuxLocalAPIAccess",
                 dependencies: [
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                     "AwesoMuxConfig",
                     "AwesoMuxLocalAPI",
                     "AwesoMuxLocalAPICredentials",
@@ -136,6 +137,7 @@ import PackageDescription
             .executableTarget(
                 name: "companion-pairing-e2e",
                 dependencies: [
+                    "AwesoMuxCore",
                     "AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess",
                     .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                 ],

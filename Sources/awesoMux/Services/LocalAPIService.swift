@@ -193,6 +193,9 @@ final class LocalAPIService {
         accessStore.setInvalidationHandler { [weak server] connectionID in
             server?.invalidate(connectionID: connectionID)
         }
+        store.companionAlertIsSuppressed = { [weak runtime] paneID in
+            runtime?.companionAlertIsSuppressed(paneID: paneID) ?? false
+        }
         store.bindLocalAPIInstance(server.instanceID)
         server.start()
     }
