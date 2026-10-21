@@ -13,23 +13,37 @@ struct WhileAwaySummaryView: View {
             Button {
                 showingDetails = true
             } label: {
-                Label(String(localized: "While you were away"), systemImage: "clock.arrow.circlepath")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Label(
+                    String(
+                        localized: "While you were away",
+                        comment: "Title of the companion away activity summary banner and details, also announced when the banner appears."),
+                    systemImage: "clock.arrow.circlepath"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
-            .accessibilityHint(String(localized: "Show activity by workspace and pane"))
+            .accessibilityHint(
+                String(
+                    localized: "Show activity by workspace and pane",
+                    comment: "Accessibility hint for opening companion away activity summary details."))
             Button {
                 store.dismissWhileAwaySummary()
             } label: {
                 Image(systemName: "xmark")
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel(String(localized: "Dismiss while you were away summary"))
+            .accessibilityLabel(
+                String(
+                    localized: "Dismiss while you were away summary",
+                    comment: "Accessibility label for dismissing the companion away activity summary banner."))
         }
         .padding(AwSpacing.panelPadding)
         .background(.regularMaterial)
         .onAppear {
-            TerminalAccessibilityAnnouncer.announce(String(localized: "While you were away"))
+            TerminalAccessibilityAnnouncer.announce(
+                String(
+                    localized: "While you were away",
+                    comment: "Title of the companion away activity summary banner and details, also announced when the banner appears."))
         }
         .sheet(isPresented: $showingDetails) {
             WhileAwayDetailsView(store: store, summary: summary)
@@ -78,11 +92,19 @@ private struct WhileAwayDetailsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(String(localized: "While you were away"))
-                .font(.title2)
-                .accessibilityAddTraits(.isHeader)
+            Text(
+                String(
+                    localized: "While you were away",
+                    comment: "Title of the companion away activity summary banner and details, also announced when the banner appears.")
+            )
+            .font(.title2)
+            .accessibilityAddTraits(.isHeader)
             if summary.olderActivityUnavailable {
-                Label(String(localized: "Older activity unavailable"), systemImage: "exclamationmark.triangle")
+                Label(
+                    String(
+                        localized: "Older activity unavailable",
+                        comment: "Warning in the companion away summary that older activity exceeded the retained history."),
+                    systemImage: "exclamationmark.triangle")
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -90,7 +112,11 @@ private struct WhileAwayDetailsView: View {
                         LiveTitleScope(sessionID: workspaceID, reads: .workspaceTitle) { titles in
                             Text(
                                 store.session(id: workspaceID).map { titles.workspaceTitle(for: $0) }
-                                    ?? String(localized: "Deleted workspace")
+                                    ?? String(
+                                        localized: "Deleted workspace",
+                                        comment:
+                                            "Workspace heading fallback in the companion away summary when the original workspace no longer exists."
+                                    )
                             )
                             .font(.headline)
                             .accessibilityAddTraits(.isHeader)
@@ -103,7 +129,12 @@ private struct WhileAwayDetailsView: View {
                                         Text(Self.description(event))
                                         Spacer()
                                         if event.change == .resolved {
-                                            Text(String(localized: "Resolved"))
+                                            Text(
+                                                String(
+                                                    localized: "Resolved",
+                                                    comment:
+                                                        "Status of an attention request that was resolved during the companion away interval."
+                                                ))
                                         }
                                         Text(event.occurredAt, style: .time)
                                             .foregroundStyle(.secondary)
@@ -119,7 +150,7 @@ private struct WhileAwayDetailsView: View {
             }
             HStack {
                 Spacer()
-                Button(String(localized: "Done")) { dismiss() }
+                Button(String(localized: "Done", comment: "Button that closes the companion away activity summary details.")) { dismiss() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -139,22 +170,34 @@ private struct WhileAwayDetailsView: View {
                     .accessibilityAddTraits(.isHeader)
             }
         } else {
-            Text(String(localized: "Deleted pane"))
-                .font(.subheadline.bold())
-                .accessibilityAddTraits(.isHeader)
+            Text(
+                String(
+                    localized: "Deleted pane",
+                    comment: "Pane heading fallback in the companion away summary when the pane no longer exists.")
+            )
+            .font(.subheadline.bold())
+            .accessibilityAddTraits(.isHeader)
         }
     }
 
     private static func description(_ event: LocalAPIAttentionEvent) -> String {
         switch event.reason {
-        case "bell": String(localized: "Terminal bell")
-        case "desktopNotification": String(localized: "Desktop notification")
-        case "permissionPrompt": String(localized: "Permission requested")
-        case "userInputRequired", "waitingForInput": String(localized: "Input requested")
-        case "processError", "agentError": String(localized: "Agent error")
-        case "commandFailed": String(localized: "Command failed (exit \(event.exitCode ?? 0))")
-        case "commandFinished": String(localized: "Command finished")
-        default: String(localized: "Attention requested")
+        case "bell": String(localized: "Terminal bell", comment: "Terminal bell event in the companion away activity summary.")
+        case "desktopNotification":
+            String(localized: "Desktop notification", comment: "Desktop notification event in the companion away activity summary.")
+        case "permissionPrompt":
+            String(localized: "Permission requested", comment: "Permission request event in the companion away activity summary.")
+        case "userInputRequired", "waitingForInput":
+            String(localized: "Input requested", comment: "Event requesting user input in the companion away activity summary.")
+        case "processError", "agentError":
+            String(localized: "Agent error", comment: "Agent error event in the companion away activity summary.")
+        case "commandFailed":
+            String(
+                localized: "Command failed (exit \(event.exitCode ?? 0))",
+                comment: "Failed command in the companion away activity summary; the number is the process exit code.")
+        case "commandFinished":
+            String(localized: "Command finished", comment: "Completed command event in the companion away activity summary.")
+        default: String(localized: "Attention requested", comment: "Fallback event description in the companion away activity summary.")
         }
     }
 }
