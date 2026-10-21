@@ -67,6 +67,68 @@ struct AgentPluginCard: View {
             addFolderButton
         }
         .accessibilityElement(children: .contain)
+        .onChange(of: folders) { previous, current in
+            // The card survives disclosure collapse; folder content does not.
+            for folder in current {
+                guard let old = previous.first(where: { $0.target == folder.target }),
+                    old.statusLabel != folder.statusLabel || old.failureSummary != folder.failureSummary
+                else { continue }
+                announceStatusChange(folder)
+            }
+        }
+    }
+
+    private func announceStatusChange(_ state: AgentPluginCardState) {
+        let statusLabel = state.statusLabel
+        let failureSummary = state.failureSummary
+        // Several folders can change at once, so every announcement names the
+        // provider and folder it is about.
+        let provider = state.title
+        let folder = state.folderPath
+        let message: String
+        let priority: NSAccessibilityPriorityLevel
+        if let failureSummary {
+            let detail =
+                failureSummary.hasPrefix("Error:")
+                ? String(failureSummary.dropFirst("Error:".count)).trimmingCharacters(in: .whitespaces)
+                : failureSummary
+            message = String(
+                localized: "\(provider) error in \(folder): \(detail)",
+                comment:
+                    "VoiceOver announcement when an agent plugin check or action fails; arguments are the provider name, the config folder path, and the failure detail"
+            )
+            // A failure is more urgent than a routine status flip: raise it so
+            // VoiceOver interrupts rather than queueing it behind other chatter.
+            priority = .high
+        } else {
+            priority = .medium
+            let detail = state.statusDetail
+            // Speak operator guidance for any status that carries distinct detail
+            // (needs review/repair/unsupported), not only needsReview — otherwise
+            // VoiceOver only hears the short badge label on status flips.
+            if !detail.isEmpty, detail != statusLabel {
+                message = String(
+                    localized: "\(provider) status in \(folder): \(statusLabel). \(detail)",
+                    comment:
+                        "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, the status, and its guidance"
+                )
+            } else {
+                message = String(
+                    localized: "\(provider) status in \(folder): \(statusLabel).",
+                    comment:
+                        "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, and the status"
+                )
+            }
+        }
+
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: priority.rawValue,
+            ]
+        )
     }
 
     private var addFolderButton: some View {
@@ -242,7 +304,7 @@ struct AgentPluginCard: View {
 // MARK: - AgentPluginFolderSection
 
 /// Status, actions, guidance, and diagnostics for one provider config folder.
-/// Each folder keeps its own confirmation sheet and VoiceOver announcements.
+/// Each folder keeps its own confirmation sheet.
 struct AgentPluginFolderSection: View {
     let state: AgentPluginCardState
     let isEnabled: Bool
@@ -255,9 +317,6 @@ struct AgentPluginFolderSection: View {
 
     @State private var pendingConfirmation: AgentPluginConfirmation?
     @State private var diagnosticsExpanded = false
-    @State private var didAppear = false
-    @State private var lastAnnouncedStatusLabel: String?
-    @State private var lastAnnouncedFailureSummary: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -271,17 +330,6 @@ struct AgentPluginFolderSection: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .onAppear {
-            didAppear = true
-            lastAnnouncedStatusLabel = state.statusLabel
-            lastAnnouncedFailureSummary = state.failureSummary
-        }
-        .onChange(of: state.statusLabel) { _, newValue in
-            announceStatusChange(statusLabel: newValue, failureSummary: state.failureSummary)
-        }
-        .onChange(of: state.failureSummary) { _, newValue in
-            announceStatusChange(statusLabel: state.statusLabel, failureSummary: newValue)
-        }
         .onChange(of: state.diagnostics) { _, _ in
             // A fresh (or cleared) diagnostic starts collapsed so a later failure
             // can't auto-reveal a different error's expanded contents.
@@ -542,65 +590,6 @@ struct AgentPluginFolderSection: View {
 
     private func errorText(_ summary: String) -> String {
         summary.hasPrefix("Error:") ? summary : "Error: \(summary)"
-    }
-
-    private func announceStatusChange(statusLabel: String, failureSummary: String?) {
-        guard didAppear else { return }
-        if lastAnnouncedStatusLabel == statusLabel,
-           lastAnnouncedFailureSummary == failureSummary {
-            return
-        }
-        lastAnnouncedStatusLabel = statusLabel
-        lastAnnouncedFailureSummary = failureSummary
-
-        // Several folders can change at once, so every announcement names the
-        // provider and folder it is about.
-        let provider = state.title
-        let folder = state.folderPath
-        let message: String
-        let priority: NSAccessibilityPriorityLevel
-        if let failureSummary {
-            let detail =
-                failureSummary.hasPrefix("Error:")
-                ? String(failureSummary.dropFirst("Error:".count)).trimmingCharacters(in: .whitespaces)
-                : failureSummary
-            message = String(
-                localized: "\(provider) error in \(folder): \(detail)",
-                comment:
-                    "VoiceOver announcement when an agent plugin check or action fails; arguments are the provider name, the config folder path, and the failure detail"
-            )
-            // A failure is more urgent than a routine status flip: raise it so
-            // VoiceOver interrupts rather than queueing it behind other chatter.
-            priority = .high
-        } else {
-            priority = .medium
-            let detail = state.statusDetail
-            // Speak operator guidance for any status that carries distinct detail
-            // (needs review/repair/unsupported), not only needsReview — otherwise
-            // VoiceOver only hears the short badge label on status flips.
-            if !detail.isEmpty, detail != statusLabel {
-                message = String(
-                    localized: "\(provider) status in \(folder): \(statusLabel). \(detail)",
-                    comment:
-                        "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, the status, and its guidance"
-                )
-            } else {
-                message = String(
-                    localized: "\(provider) status in \(folder): \(statusLabel).",
-                    comment:
-                        "VoiceOver announcement when an agent plugin folder status changes; arguments are the provider name, the config folder path, and the status"
-                )
-            }
-        }
-
-        NSAccessibility.post(
-            element: NSApplication.shared,
-            notification: .announcementRequested,
-            userInfo: [
-                .announcement: message,
-                .priority: priority.rawValue
-            ]
-        )
     }
 }
 
