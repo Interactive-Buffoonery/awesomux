@@ -158,7 +158,7 @@ public final class LocalPermissionDecisionCore {
         let choice: LocalPermissionChoice
         let receipt: LocalPermissionRemoteReceipt
         let retainUntil: Date
-        let negativeDeadline: ContinuousClock.Instant?
+        let retentionDeadline: ContinuousClock.Instant
     }
     private var retries: [RetryKey: Retry] = [:]
     public static let retryCapacity = 512
@@ -312,7 +312,7 @@ public final class LocalPermissionDecisionCore {
             let receipt = LocalPermissionRemoteReceipt(result: .unknown, outcome: nil)
             retries[key] = Retry(
                 identity: identity, choice: choice, receipt: receipt, retainUntil: now.addingTimeInterval(600),
-                negativeDeadline: monotonicNow().advanced(by: .seconds(600)))
+                retentionDeadline: monotonicNow().advanced(by: .seconds(600)))
             return receipt
         }
         let result: LocalPermissionRemoteReceipt.Result
@@ -331,9 +331,10 @@ public final class LocalPermissionDecisionCore {
             }
         }
         let receipt = LocalPermissionRemoteReceipt(result: result, outcome: outcome(identity))
+        let retainUntil = entry.request.expiresAt.addingTimeInterval(600)
         retries[key] = Retry(
-            identity: identity, choice: choice, receipt: receipt,
-            retainUntil: entry.request.expiresAt.addingTimeInterval(600), negativeDeadline: nil)
+            identity: identity, choice: choice, receipt: receipt, retainUntil: retainUntil,
+            retentionDeadline: monotonicNow().advanced(by: .seconds(max(0, retainUntil.timeIntervalSince(now)))))
         return receipt
     }
 
@@ -382,7 +383,7 @@ public final class LocalPermissionDecisionCore {
     public func sweep(now: Date) {
         let instant = monotonicNow()
         retries = retries.filter {
-            $0.value.retainUntil > now && ($0.value.negativeDeadline.map { instant < $0 } ?? true)
+            $0.value.retainUntil > now && instant < $0.value.retentionDeadline
         }
         progress = progress.filter { $0.value.addingTimeInterval(125) > now }
         nativeProgress = nativeProgress.filter { $0.value.addingTimeInterval(125) > now }

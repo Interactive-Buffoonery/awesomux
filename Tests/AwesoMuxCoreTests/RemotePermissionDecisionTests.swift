@@ -257,4 +257,64 @@ import Testing
         #expect(LocalPermissionFiles.read(LocalPermissionOutcome.self, at: file) == terminal)
     }
 
+    // Positive receipts must release per-device capacity after the remaining
+    // hook lifetime plus ten minutes even when Date moves backward.
+    @Test(arguments: [0, 50]) func positiveRetryRetentionUsesMonotonicExpiry(createdAfterSeconds: Int) {
+        let start = ContinuousClock.now
+        var instant = start
+        let core = LocalPermissionDecisionCore(monotonicNow: { instant })
+        let (_, request) = fixture.fixture()
+        core.install(request.target)
+        #expect(core.admit(request, now: fixture.now, helperAlive: true))
+        instant = start.advanced(by: .seconds(createdAfterSeconds))
+        let createdAt = fixture.now.addingTimeInterval(Double(createdAfterSeconds))
+        let deviceA = UUID(), deviceB = UUID(), firstRetry = UUID(), retryB = UUID()
+        let first = core.commitRemote(
+            request.identity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: firstRetry,
+            now: createdAt, helperAlive: true)
+        #expect(first.result == .recorded)
+        #expect(core.claimDelivery(request.identity, now: createdAt, helperAlive: true) == .allow)
+        core.acknowledge(request.identity)
+        for _ in 1..<LocalPermissionDecisionCore.retryCapacityPerDevice {
+            #expect(
+                core.commitRemote(
+                    request.identity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: UUID(),
+                    now: createdAt, helperAlive: true
+                ).result == .alreadyAnswered)
+        }
+        let other = LocalPermissionRequest(
+            target: request.target, providerSessionID: request.providerSessionID,
+            invocationID: UUID(), toolUseID: nil, helperPID: request.helperPID, helperStartMicroseconds: request.helperStartMicroseconds,
+            expiresAt: request.expiresAt, tool: "Bash", summary: "other device")
+        #expect(core.admit(other, now: createdAt, helperAlive: true))
+        let firstB = core.commitRemote(
+            other.identity, choice: .deny, deviceID: deviceB, deviceName: "B", retryID: retryB,
+            now: createdAt, helperAlive: true)
+        #expect(firstB.result == .recorded)
+        instant = start.advanced(by: .seconds(720) - .milliseconds(1))
+        let rolledBackWall = fixture.now.addingTimeInterval(20)
+        #expect(
+            core.commitRemote(
+                request.identity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: firstRetry,
+                now: rolledBackWall, helperAlive: true) == first)
+        #expect(
+            core.commitRemote(
+                other.identity, choice: .deny, deviceID: deviceB, deviceName: "B", retryID: retryB,
+                now: rolledBackWall, helperAlive: true) == firstB)
+        #expect(
+            core.commitRemote(
+                request.identity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: UUID(),
+                now: rolledBackWall, helperAlive: true
+            ).result == .capacityExceeded)
+        instant = start.advanced(by: .seconds(720))
+        let afterExpiry = core.commitRemote(
+            request.identity, choice: .allow, deviceID: deviceA, deviceName: "A", retryID: firstRetry,
+            now: rolledBackWall, helperAlive: true)
+        #expect(afterExpiry.result == .alreadyAnswered)
+        #expect(afterExpiry.outcome?.state == .delivered)
+        #expect(afterExpiry.outcome?.choice == .allow)
+        #expect(core.claimDelivery(request.identity, now: rolledBackWall, helperAlive: true) == nil)
+        #expect(core.outcome(request.identity)?.state == .delivered)
+    }
+
 }

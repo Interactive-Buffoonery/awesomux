@@ -1052,7 +1052,8 @@ The remote deadline keeps its wire date and a monotonic bound on the remaining
 window at admission, at most 60 elapsed seconds, with a helper return reserve.
 Both deadlines must remain live; clock rollback cannot extend device authority.
 Remote expiry leaves the Mac answer window intact. Bounded receipts survive
-until hook expiry plus ten minutes. Unknown identities also bind their retry
+until hook expiry plus ten minutes, bounded by both wall and monotonic clocks
+using the remaining interval at receipt creation. Unknown identities also bind their retry
 ID for at most ten minutes, bounded by both wall and monotonic clocks; capacity
 exhaustion refuses new retry IDs. The cache holds at most 512 tuples globally
 and 128 per authenticated device; cached retries still work at either limit.
