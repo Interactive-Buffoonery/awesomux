@@ -460,6 +460,7 @@
       "comment" : "Accessibility label for a destination row in the don’t-ask list"
     },
     "%arg, pane %arg, request %arg. %arg" : {
+      "comment" : "Permission announcement: workspace name, one-based pane position, stable request number, then decision or delivery state.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -807,12 +808,13 @@
       "comment" : "Companion approval content disclosure."
     },
     "Allow once" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "Allow this Claude permission request only; do not remember a grant."
     },
     "Allow once recorded on Mac" : {
-      "comment" : "Recorded local permission choice, not provider execution"
+      "comment" : "The Mac recorded a one-time allow; delivery to the hook is not yet confirmed."
     },
     "Allow once. Command-Return when focused." : {
+      "comment" : "Accessible allow action; Command-Return acts only after deliberate permission-card focus.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -924,9 +926,10 @@
       "comment" : "CLI agent plugin install state lock contention warning"
     },
     "Answer delivered to Claude hook" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "The hook acknowledged the answer; this does not confirm tool execution."
     },
     "Answer delivered to Claude hook. Tool execution is unconfirmed." : {
+      "comment" : "Permission announcement after hook acknowledgement; delivery does not confirm tool execution.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -937,7 +940,7 @@
       }
     },
     "Answer recorded on Mac" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "The Mac recorded the decision; delivery to the hook is not yet confirmed."
     },
     "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using." : {
       "comment" : "Outside app access same-user boundary disclosure."
@@ -1356,7 +1359,7 @@
       "comment" : "Accessibility label for the explicitly chosen remote base directory"
     },
     "Claude permission needed" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "A local Claude hook is waiting for a one-time permission decision."
     },
     "Claude’s own prompt may still be answered in the terminal." : {
       "comment" : "Local once-only Claude permission card"
@@ -1998,12 +2001,13 @@
       "comment" : "Tooltip for the deny button on the remote permission banner"
     },
     "Deny once" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "Deny this Claude permission request only; do not remember a grant."
     },
     "Deny once recorded on Mac" : {
-      "comment" : "Recorded local permission choice, not provider execution"
+      "comment" : "The Mac recorded a one-time deny; delivery to the hook is not yet confirmed."
     },
     "Deny once. Escape when focused." : {
+      "comment" : "Accessible deny action; Escape acts only after deliberate permission-card focus.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3670,7 +3674,7 @@
       "comment" : "Notification settings title."
     },
     "Permission delivery unknown" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "Delivery of the recorded decision is uncertain; do not retry or imply tool execution."
     },
     "Permission denied in %arg." : {
       "comment" : "VoiceOver announcement confirming the user denied a remote permission request in a named split pane\nVoiceOver announcement confirming the user denied a remote permission request, naming the workspace"
@@ -3694,7 +3698,7 @@
       "comment" : "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner"
     },
     "Permission request cancelled" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "The local permission request was cancelled and cannot receive another decision."
     },
     "Permission request cancelled in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled in a named split pane\nVoiceOver announcement when a remote permission prompt is cancelled, naming the workspace"
@@ -3703,7 +3707,7 @@
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled"
     },
     "Permission request expired" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "The local permission request expired; the hook falls through to the native prompt."
     },
     "Permission request timed out in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt expires (denied) in a named split pane\nVoiceOver announcement when a remote permission prompt expires (denied), naming the workspace"
@@ -4549,7 +4553,7 @@
       "comment" : "VoiceOver announcement after returning a moved pane to the workspace it came from."
     },
     "Returning answer to Claude" : {
-      "comment" : "Local once-only Claude permission card"
+      "comment" : "The recorded decision is being delivered to the Claude hook."
     },
     "Reveal in Finder" : {
       "comment" : "Button title that reveals the saved layout preset in Finder."
