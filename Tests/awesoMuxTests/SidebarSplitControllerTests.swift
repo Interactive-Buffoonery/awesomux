@@ -1,6 +1,7 @@
-import CoreGraphics
 import AppKit
 import AwesoMuxConfig
+import AwesoMuxTestSupport
+import CoreGraphics
 import Foundation
 import SwiftUI
 import Testing
@@ -489,7 +490,7 @@ struct SidebarSplitControllerTests {
     }
 
     private func drainMainQueue() async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             DispatchQueue.main.async {
                 continuation.resume()
             }

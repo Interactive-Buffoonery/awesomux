@@ -185,6 +185,11 @@ struct CompanionPairingE2E {
                 print("client_identity=removed_and_verified")
                 return
             }
+            if arguments == ["--decision-outcomes-only"] {
+                try verifyDecisionOutcomeOrdering()
+                print("decision_outcome_ordering=passed")
+                return
+            }
             if try handleFixtureCommand() { return }
             if Array(CommandLine.arguments.dropFirst()) == ["--alert-preferences-only"] {
                 try verifyAlertPreferenceWireFixtures()
@@ -287,6 +292,73 @@ struct CompanionPairingE2E {
                     "operation": operation, "connectionID": id ?? connectionID,
                 ]
             }
+            // Synthetic decisions use a separate coordinator and cannot reach
+            // a real provider. Production gate rejection is checked separately.
+            let productionStatus = try await call(request("get_connection_status"), link: link, identity: identity)
+            guard productionStatus["remoteDecisionsEnabled"] as? Bool == false else {
+                throw E2EFailure("synthetic transport fixture enabled the production provider gate")
+            }
+            let fixtureURL = URL(fileURLWithPath: resultFile).deletingLastPathComponent().appendingPathComponent("decision-identities.json")
+            guard let identities = try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any],
+                let expiredIdentity = identities["expired"] as? [String: Any],
+                let outsideIdentity = identities["outside"] as? [String: Any]
+            else { throw E2EFailure("synthetic decision identities are missing") }
+            let pending = try await call(request("list_pending_decisions"), link: link, identity: identity)
+            guard pending["error"] == nil, pending["remoteDecisionsEnabled"] as? Bool == false,
+                let decisions = pending["pendingDecisions"] as? [[String: Any]], decisions.count == 2,
+                let live = decisions.first?["identity"] as? [String: Any]
+            else { throw E2EFailure("scoped pending decisions fixture did not list both queued live requests") }
+            func answer(_ identity: [String: Any], choice: String, retry: String) throws -> sending [String: Any] {
+                var value = request("decide")
+                value["decisionAnswer"] = ["identity": identity, "choice": choice, "retryID": retry]
+                // Detach reused fixture identities before crossing the async client boundary.
+                let data = try JSONSerialization.data(withJSONObject: value)
+                return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            }
+            var staleDecision = live
+            staleDecision["revision"] = 999
+            let staleReply = try await call(
+                answer(staleDecision, choice: "allow", retry: UUID().uuidString), link: link, identity: identity)
+            guard (staleReply["decisionReceipt"] as? [String: Any])?["result"] as? String == "unknown" else {
+                throw E2EFailure("stale revision was accepted")
+            }
+            var malformedDecision = try answer(live, choice: "allow", retry: UUID().uuidString)
+            malformedDecision["summary"] = "device-supplied authority"
+            let malformedReply = try await call(malformedDecision, link: link, identity: identity)
+            guard malformedReply["error"] as? String == "invalid_request" else { throw E2EFailure("decision extra fields were accepted") }
+            let retry = UUID().uuidString
+            let accepted = try await call(answer(live, choice: "allow", retry: retry), link: link, identity: identity)
+            guard accepted["remoteDecisionsEnabled"] as? Bool == false,
+                let original = accepted["decisionReceipt"] as? [String: Any], original["result"] as? String == "recorded"
+            else {
+                throw E2EFailure("fixture answer was not recorded")
+            }
+            let repeated = try await call(answer(live, choice: "allow", retry: retry), link: link, identity: identity)
+            guard let replay = repeated["decisionReceipt"] as? [String: Any], NSDictionary(dictionary: replay).isEqual(to: original) else {
+                throw E2EFailure("identical retry did not return the original receipt")
+            }
+            for (choice, retryID, expected) in [("deny", retry, "retryConflict"), ("deny", UUID().uuidString, "alreadyAnswered")] {
+                let response = try await call(answer(live, choice: choice, retry: retryID), link: link, identity: identity)
+                guard (response["decisionReceipt"] as? [String: Any])?["result"] as? String == expected else {
+                    throw E2EFailure("duplicate/conflicting answer was not rejected")
+                }
+            }
+            let refreshedDecisions = try await call(request("list_pending_decisions"), link: link, identity: identity)
+            try verifyRefreshedDecisionList(refreshedDecisions, live: live, connectionID: connectionID)
+            let expired = try await call(
+                answer(expiredIdentity, choice: "deny", retry: UUID().uuidString), link: link, identity: identity)
+            guard (expired["decisionReceipt"] as? [String: Any])?["result"] as? String == "expired" else {
+                throw E2EFailure("remote-expired fixture accepted an answer")
+            }
+            let outside = try await call(
+                answer(outsideIdentity, choice: "allow", retry: UUID().uuidString), link: link, identity: identity)
+            guard outside["error"] as? String == "permission_denied" else { throw E2EFailure("out-of-scope decision was not denied") }
+            let wrongDecisionPhone = try await call(
+                request("list_pending_decisions", id: UUID().uuidString), link: link, identity: identity)
+            guard wrongDecisionPhone["error"] as? String == "permission_denied" else {
+                throw E2EFailure("decision authentication failed open")
+            }
+            print("decisions=list,answer,scope,auth,expiry,duplicate,retry-conflict,stable-retry fixture-only")
             for allowed in [false, true, true] {
                 var mutation = request("set_terminal_preview")
                 mutation["terminalPreviewAllowed"] = allowed

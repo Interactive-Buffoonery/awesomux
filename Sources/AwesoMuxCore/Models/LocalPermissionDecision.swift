@@ -20,6 +20,13 @@ public struct LocalPermissionIdentity: Codable, Hashable, Sendable {
     public let providerSessionID: String
     public let invocationID: UUID
     public var revision: Int
+
+    public init(target: LocalPermissionTarget, providerSessionID: String, invocationID: UUID, revision: Int) {
+        self.target = target
+        self.providerSessionID = providerSessionID
+        self.invocationID = invocationID
+        self.revision = revision
+    }
 }
 
 public enum LocalPermissionChoice: String, Codable, Sendable, CaseIterable {
@@ -44,6 +51,7 @@ public struct LocalPermissionRequest: Codable, Equatable, Sendable {
     public var summary: String
 
     public var issuedAt: Date { expiresAt.addingTimeInterval(-120) }
+    public var remoteExpiresAt: Date { min(issuedAt.addingTimeInterval(60), expiresAt.addingTimeInterval(-5)) }
 
     public var identity: LocalPermissionIdentity {
         .init(target: target, providerSessionID: providerSessionID, invocationID: invocationID, revision: revision)
@@ -96,11 +104,24 @@ public struct LocalPermissionRequest: Codable, Equatable, Sendable {
     }
 }
 
+public enum LocalPermissionAnswerSource: Codable, Equatable, Sendable {
+    case mac
+    case device(id: UUID, name: String)
+}
+
 public struct LocalPermissionOutcome: Codable, Equatable, Sendable {
     public let identity: LocalPermissionIdentity
     public var state: LocalPermissionState
     public var choice: LocalPermissionChoice?
-    public var source: String?  // Local-only. Remote authority is deliberately absent.
+    public var source: LocalPermissionAnswerSource?
+}
+
+public struct LocalPermissionRemoteReceipt: Equatable, Sendable {
+    public enum Result: String, Sendable {
+        case recorded, alreadyAnswered, expired, unknown, retryConflict, capacityExceeded
+    }
+    public let result: Result
+    public let outcome: LocalPermissionOutcome?
 }
 
 /// The single authority shared by local bridge ingress and file fallback.
@@ -109,7 +130,10 @@ public struct LocalPermissionOutcome: Codable, Equatable, Sendable {
 public final class LocalPermissionDecisionCore {
     private struct Entry {
         let request: LocalPermissionRequest
+        let remoteExpiresAt: Date
+        let remoteDeadline: ContinuousClock.Instant
         var outcome: LocalPermissionOutcome
+        var outputAttempted = false
     }
     private var targets: Set<LocalPermissionTarget> = []
     private var sessions: [LocalPermissionTarget: String] = [:]
@@ -128,9 +152,24 @@ public final class LocalPermissionDecisionCore {
     private var nativeProgress: [NativeProgressKey: Date] = [:]
     private var progressBlockedUntil: Date?
     private var seen: [LocalPermissionTarget: Set<UUID>] = [:]
+    private struct RetryKey: Hashable { let deviceID: UUID; let retryID: UUID }
+    private struct Retry {
+        let identity: LocalPermissionIdentity
+        let choice: LocalPermissionChoice
+        let receipt: LocalPermissionRemoteReceipt
+        let retainUntil: Date
+        let retentionDeadline: ContinuousClock.Instant
+    }
+    private var retries: [RetryKey: Retry] = [:]
+    public static let retryCapacity = 512
+    public static let retryCapacityPerDevice = 128
     public static let capacity = 128
 
-    public init() {}
+    private let monotonicNow: () -> ContinuousClock.Instant
+
+    public init(monotonicNow: @escaping () -> ContinuousClock.Instant = { .now }) {
+        self.monotonicNow = monotonicNow
+    }
 
     public func install(_ target: LocalPermissionTarget) { targets.insert(target) }
 
@@ -210,7 +249,11 @@ public final class LocalPermissionDecisionCore {
         sessions[request.target] = request.providerSessionID
         sessionEvidenceAt[request.target] = max(sessionEvidenceAt[request.target] ?? .distantPast, request.issuedAt)
         seen[request.target, default: []].insert(request.invocationID)
-        entries[request.invocationID] = Entry(request: request, outcome: .init(identity: request.identity, state: .pending))
+        let remoteExpiresAt = min(request.remoteExpiresAt, now.addingTimeInterval(60))
+        entries[request.invocationID] = Entry(
+            request: request, remoteExpiresAt: remoteExpiresAt,
+            remoteDeadline: monotonicNow().advanced(by: .seconds(max(0, remoteExpiresAt.timeIntervalSince(now)))),
+            outcome: .init(identity: request.identity, state: .pending))
         return true
     }
 
@@ -226,6 +269,12 @@ public final class LocalPermissionDecisionCore {
         return entry.outcome
     }
 
+    public func remoteExpiry(_ identity: LocalPermissionIdentity) -> Date? {
+        guard let entry = entries[identity.invocationID], entry.request.identity == identity else { return nil }
+        guard monotonicNow() < entry.remoteDeadline else { return nil }
+        return entry.remoteExpiresAt
+    }
+
     @discardableResult
     public func commit(
         _ identity: LocalPermissionIdentity, choice: LocalPermissionChoice, now: Date,
@@ -236,10 +285,57 @@ public final class LocalPermissionDecisionCore {
         if entry.outcome.state == .pending, entry.request.choices.contains(choice) {
             entry.outcome.state = .recorded
             entry.outcome.choice = choice
-            entry.outcome.source = "Mac"
+            entry.outcome.source = .mac
             entries[identity.invocationID] = entry
         }
         return entry.outcome.state
+    }
+
+    /// MainActor serializes expiry and both local/remote commits. A remote
+    /// deadline affects only device actions, never the remaining Mac window.
+    public func commitRemote(
+        _ identity: LocalPermissionIdentity, choice: LocalPermissionChoice,
+        deviceID: UUID, deviceName: String, retryID: UUID, now: Date, helperAlive: Bool
+    ) -> LocalPermissionRemoteReceipt {
+        validate(identity, now: now, helperAlive: helperAlive)
+        let key = RetryKey(deviceID: deviceID, retryID: retryID)
+        if let retry = retries[key] {
+            guard retry.identity == identity, retry.choice == choice else {
+                return .init(result: .retryConflict, outcome: nil)
+            }
+            return retry.receipt
+        }
+        guard retries.count < Self.retryCapacity,
+            retries.keys.lazy.filter({ $0.deviceID == deviceID }).count < Self.retryCapacityPerDevice
+        else { return .init(result: .capacityExceeded, outcome: nil) }
+        guard let entry = entries[identity.invocationID], entry.request.identity == identity else {
+            let receipt = LocalPermissionRemoteReceipt(result: .unknown, outcome: nil)
+            retries[key] = Retry(
+                identity: identity, choice: choice, receipt: receipt, retainUntil: now.addingTimeInterval(600),
+                retentionDeadline: monotonicNow().advanced(by: .seconds(600)))
+            return receipt
+        }
+        let result: LocalPermissionRemoteReceipt.Result
+        if entry.outcome.state != .pending {
+            result = .alreadyAnswered
+        } else if now >= entry.remoteExpiresAt || monotonicNow() >= entry.remoteDeadline {
+            result = .expired
+        } else {
+            _ = commit(identity, choice: choice, now: now, helperAlive: helperAlive)
+            if var winner = entries[identity.invocationID], winner.outcome.state == .recorded {
+                winner.outcome.source = .device(id: deviceID, name: deviceName)
+                entries[identity.invocationID] = winner
+                result = .recorded
+            } else {
+                result = .alreadyAnswered
+            }
+        }
+        let receipt = LocalPermissionRemoteReceipt(result: result, outcome: outcome(identity))
+        let retainUntil = entry.request.expiresAt.addingTimeInterval(600)
+        retries[key] = Retry(
+            identity: identity, choice: choice, receipt: receipt, retainUntil: retainUntil,
+            retentionDeadline: monotonicNow().advanced(by: .seconds(max(0, retainUntil.timeIntervalSince(now)))))
+        return receipt
     }
 
     public func claimDelivery(_ identity: LocalPermissionIdentity, now: Date, helperAlive: Bool) -> LocalPermissionChoice? {
@@ -252,6 +348,14 @@ public final class LocalPermissionDecisionCore {
         return entry.outcome.choice
     }
 
+    public func markOutputAttempted(_ identity: LocalPermissionIdentity) {
+        guard var entry = entries[identity.invocationID], entry.request.identity == identity,
+            entry.outcome.state == .delivering
+        else { return }
+        entry.outputAttempted = true
+        entries[identity.invocationID] = entry
+    }
+
     public func acknowledge(_ identity: LocalPermissionIdentity) {
         transition(identity, from: [.delivering], to: .delivered)
     }
@@ -261,6 +365,11 @@ public final class LocalPermissionDecisionCore {
     }
 
     public func cancel(_ identity: LocalPermissionIdentity) {
+        if let entry = entries[identity.invocationID], entry.request.identity == identity,
+            case .device? = entry.outcome.source, !entry.outputAttempted
+        {
+            transition(identity, from: [.delivering], to: .cancelled)
+        }
         transition(identity, from: [.pending, .recorded], to: .cancelled)
         transition(identity, from: [.delivering], to: .unknown)
     }
@@ -272,10 +381,17 @@ public final class LocalPermissionDecisionCore {
     }
 
     public func sweep(now: Date) {
+        let instant = monotonicNow()
+        retries = retries.filter {
+            $0.value.retainUntil > now && instant < $0.value.retentionDeadline
+        }
         progress = progress.filter { $0.value.addingTimeInterval(125) > now }
         nativeProgress = nativeProgress.filter { $0.value.addingTimeInterval(125) > now }
         if let until = progressBlockedUntil, until <= now { progressBlockedUntil = nil }
         for entry in entries.values where entry.request.expiresAt <= now {
+            if case .device? = entry.outcome.source, !entry.outputAttempted {
+                transition(entry.request.identity, from: [.delivering], to: .expired)
+            }
             transition(entry.request.identity, from: [.pending, .recorded], to: .expired)
             transition(entry.request.identity, from: [.delivering], to: .unknown)
         }
@@ -284,12 +400,11 @@ public final class LocalPermissionDecisionCore {
         entries = entries.filter { $0.value.request.expiresAt.addingTimeInterval(600) > now }
     }
 
-    private func validate(_ identity: LocalPermissionIdentity, now: Date, helperAlive: Bool) {
+    public func validate(_ identity: LocalPermissionIdentity, now: Date, helperAlive: Bool) {
         sweep(now: now)
         guard let entry = entries[identity.invocationID], entry.request.identity == identity else { return }
         if !helperAlive || !targets.contains(identity.target) || sessions[identity.target] != identity.providerSessionID {
-            transition(identity, from: [.pending, .recorded], to: .cancelled)
-            transition(identity, from: [.delivering], to: .unknown)
+            cancel(identity)
         }
     }
 

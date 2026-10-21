@@ -431,8 +431,8 @@ private final class CommandRecorder: @unchecked Sendable {
 
 private actor RemoteCleanupGate {
     private(set) var commands: [String] = []
-    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var countWaiter: (expected: Int, continuation: CheckedContinuation<Void, Never>)?
+    private var releaseWaiters: [SignalResumer] = []
+    private var countWaiter: (expected: Int, continuation: SignalResumer)?
 
     func block(_ command: String) async {
         commands.append(command)
@@ -440,12 +440,12 @@ private actor RemoteCleanupGate {
             self.countWaiter = nil
             countWaiter.continuation.resume()
         }
-        await withCheckedContinuation { releaseWaiters.append($0) }
+        await awaitSignal { releaseWaiters.append($0) }
     }
 
     func waitForCount(_ expected: Int) async {
         guard commands.count < expected else { return }
-        await withCheckedContinuation { countWaiter = (expected, $0) }
+        await awaitSignal { countWaiter = (expected, $0) }
     }
 
     func release() {

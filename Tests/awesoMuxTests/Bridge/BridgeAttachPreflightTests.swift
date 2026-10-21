@@ -665,9 +665,9 @@ private actor ListenerCounter {
 /// it — making cancel-and-restart deterministic without sleeps or yield races.
 private actor AttachGate {
     private var armed = false
-    private var waiter: CheckedContinuation<Void, Never>?
+    private var waiter: SignalResumer?
     private var isWaiting = false
-    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var entryWaiters: [SignalResumer] = []
     private var released = false
 
     func arm() { armed = true }
@@ -676,7 +676,7 @@ private actor AttachGate {
         guard armed, command.contains("-O forward") else { return }
         armed = false
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await awaitSignal { continuation in
                 if released {
                     continuation.resume()
                     return
@@ -694,7 +694,7 @@ private actor AttachGate {
 
     func awaitWaiting() async {
         guard !isWaiting else { return }
-        await withCheckedContinuation { entryWaiters.append($0) }
+        await awaitSignal { entryWaiters.append($0) }
     }
 
     func release() {
@@ -705,14 +705,14 @@ private actor AttachGate {
 }
 
 private actor PublishGate {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var continuation: SignalResumer?
+    private var suspensionWaiters: [SignalResumer] = []
     private var hasWaited = false
 
     func waitOnce() async {
         guard !hasWaited else { return }
         hasWaited = true
-        await withCheckedContinuation { continuation in
+        await awaitSignal { continuation in
             self.continuation = continuation
             suspensionWaiters.forEach { $0.resume() }
             suspensionWaiters.removeAll()
@@ -721,7 +721,7 @@ private actor PublishGate {
 
     func waitUntilSuspended() async {
         guard continuation == nil else { return }
-        await withCheckedContinuation { suspensionWaiters.append($0) }
+        await awaitSignal { suspensionWaiters.append($0) }
     }
 
     func release() {

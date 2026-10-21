@@ -80,6 +80,23 @@ struct ScrollbackDumpSheet: View {
             ScrollbackDumpTextView(text: text)
                 .id(revision)
 
+        case let .recent(text):
+            VStack(alignment: .leading, spacing: 0) {
+                Text(
+                    String(
+                        localized:
+                            "Showing recent output. Older output is omitted. This snapshot does not update as the terminal changes. The first line may be incomplete.",
+                        comment: "Notice above a bounded recent terminal snapshot; the notice is not part of the copied terminal text"
+                    )
+                )
+                .awFont(AwFont.UI.body)
+                .foregroundStyle(Color.aw.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(16)
+                ScrollbackDumpTextView(text: text)
+                    .id(revision)
+            }
+
         case let .blocked(reason):
             blockedContent(reason: reason)
 
@@ -135,8 +152,8 @@ struct ScrollbackDumpSheet: View {
         case .tooLarge, .nativeResultTooLarge:
             String(
                 localized:
-                    "This pane’s scrollback is too large to open safely. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history.",
-                comment: "Explanation shown when Show Scrollback blocks a large terminal history"
+                    "This pane’s newest output could not fit within the safe read limits. Choose Done, then scroll in the terminal or choose Pane > Find in Pane to search its history.",
+                comment: "Explanation when even a bounded recent terminal snapshot cannot be read safely"
             )
         case .unknownSize:
             String(
@@ -193,6 +210,11 @@ private extension ScrollbackDumpPresentation {
                 localized: "Scrollback is ready.",
                 comment: "VoiceOver announcement when Show Scrollback finishes loading terminal history"
             )
+        case .recent:
+            String(
+                localized: "Recent output is ready. Older output is omitted. The first line may be incomplete.",
+                comment: "VoiceOver announcement when Show Scrollback finishes loading a bounded recent snapshot"
+            )
         case let .blocked(reason):
             blockedMessage(for: reason)
         case .failed:
@@ -207,8 +229,8 @@ private extension ScrollbackDumpPresentation {
         switch reason {
         case .tooLarge, .nativeResultTooLarge:
             String(
-                localized: "Scrollback was not opened because it is too large.",
-                comment: "VoiceOver announcement when Show Scrollback blocks a large terminal history"
+                localized: "Scrollback was not opened because the newest output exceeds the safe read limits.",
+                comment: "VoiceOver announcement when a bounded recent snapshot cannot be read safely"
             )
         case .unknownSize:
             String(

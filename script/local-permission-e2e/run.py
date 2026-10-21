@@ -37,7 +37,7 @@ def identity(req):
 
 
 def response(req, choice):
-    return {'identity': identity(req), 'state': 'delivering', 'choice': choice, 'source': 'Mac'}
+    return {'identity': identity(req), 'state': 'delivering', 'choice': choice, 'source': {'mac': {}}}
 
 
 def atomic(path, value):

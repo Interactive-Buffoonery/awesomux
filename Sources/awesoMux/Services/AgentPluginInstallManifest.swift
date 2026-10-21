@@ -63,8 +63,8 @@ enum AgentPluginMarketplaceRefError: Error, Equatable, Sendable {
 
 // MARK: - AgentPluginInstallRecord
 
-/// One CLI-driven provider's install record. Keyed by `AgentPluginProvider` (one
-/// install per provider), it pins the paths and refs the modified-file safety
+/// One CLI-driven provider's install record. Keyed by `AgentPluginProvider` and
+/// `configHome` (one install per provider config folder), it pins the paths and refs the modified-file safety
 /// invariant on uninstall/repair reads back (contract §3): the executable used,
 /// the resolved config home, the rendered marketplace root, the baked helper
 /// path, and the marketplace/plugin refs.
@@ -99,13 +99,25 @@ struct AgentPluginInstallManifest: AgentInstallManifest, Equatable, Sendable {
     var version: Int
     var records: [AgentPluginInstallRecord]
 
-    static let currentVersion = 1
+    /// Version 2 keys records by provider and config folder. A version 1 writer
+    /// keyed by provider alone and would drop every other folder's record on its
+    /// next save, so version 1 builds must see this format as unsupported. Version
+    /// 1 manifests still decode unchanged and are rewritten as version 2.
+    static let currentVersion = 2
     static let empty = AgentPluginInstallManifest(
         version: currentVersion,
         records: []
     )
 
-    func record(for provider: AgentPluginProvider) -> AgentPluginInstallRecord? {
-        records.first { $0.provider == provider }
+    func record(for provider: AgentPluginProvider, configHome: String) -> AgentPluginInstallRecord? {
+        records.first { $0.provider == provider && Self.sameFolder($0.configHome, configHome) }
+    }
+
+    mutating func removeRecord(provider: AgentPluginProvider, configHome: String) {
+        records.removeAll { $0.provider == provider && Self.sameFolder($0.configHome, configHome) }
+    }
+
+    private static func sameFolder(_ lhs: String, _ rhs: String) -> Bool {
+        URL(fileURLWithPath: lhs).resolvingSymlinksInPath().path == URL(fileURLWithPath: rhs).resolvingSymlinksInPath().path
     }
 }

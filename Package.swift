@@ -40,6 +40,7 @@ import PackageDescription
                 // RealSpawnTimeout.swift, ShellWait.swift.
                 sources: [
                     "AsyncGate.swift",
+                    "BoundedSignal.swift",
                     "EventRecorder.swift",
                     "TemporaryDirectory.swift",
                     "TestClock.swift",
@@ -80,7 +81,7 @@ import PackageDescription
         dependencies: [
             .package(
                 url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git",
-                revision: "76da4e0383c447104fcab4027d6314843f0160ac"
+                revision: "3feac537ddde26aee05548ce768c77e9d6f72eb5"
             ),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
             .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),

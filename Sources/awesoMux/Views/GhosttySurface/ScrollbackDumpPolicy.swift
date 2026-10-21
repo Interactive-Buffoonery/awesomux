@@ -3,6 +3,9 @@ import Foundation
 struct ScrollbackDumpPolicy {
     // Includes decompressed terminal pages, not just the output string.
     static let maximumNativePageBytes = 16 * 1_024 * 1_024
+    // The sheet's immutable recent snapshot has its own text-layout budget.
+    // Whole-history API consumers retain their existing limits.
+    static let maximumRecentTextBytes = 256 * 1_024
 
     struct Limits: Equatable {
         let maximumEstimatedBytes: UInt64

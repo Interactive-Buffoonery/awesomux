@@ -396,12 +396,11 @@ private final class SpawnObservation: @unchecked Sendable {
 }
 
 private final class ProcessDelayGate: @unchecked Sendable {
-    private typealias DelayContinuation = CheckedContinuation<Void, Error>
-    private typealias Continuation = CheckedContinuation<Void, Never>
+    private typealias DelayContinuation = ValueResumer<Result<Void, Error>>
 
     private let lock = NSLock()
     private var delayWaiters: [(id: UUID, continuation: DelayContinuation)] = []
-    private var requestWaiters: [(count: Int, continuation: Continuation)] = []
+    private var requestWaiters: [(count: Int, resumer: SignalResumer)] = []
     private var requests: [Duration] = []
 
     var requestedDurations: [Duration] {
@@ -411,21 +410,22 @@ private final class ProcessDelayGate: @unchecked Sendable {
     func wait(for duration: Duration) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: DelayContinuation) in
+            let result = await awaitValue(fallback: Result<Void, Error>.failure(CancellationError())) { continuation in
                 lock.lock()
                 requests.append(duration)
                 let ready = requestWaiters.filter { requests.count >= $0.count }
                 requestWaiters.removeAll { requests.count >= $0.count }
                 guard !Task.isCancelled else {
                     lock.unlock()
-                    ready.forEach { $0.continuation.resume() }
-                    continuation.resume(throwing: CancellationError())
+                    ready.forEach { $0.resumer.resume() }
+                    continuation.resume(returning: .failure(CancellationError()))
                     return
                 }
                 delayWaiters.append((id, continuation))
                 lock.unlock()
-                ready.forEach { $0.continuation.resume() }
+                ready.forEach { $0.resumer.resume() }
             }
+            try result.get()
         } onCancel: {
             let continuation: DelayContinuation? = lock.withLock {
                 guard let index = delayWaiters.firstIndex(where: { $0.id == id }) else {
@@ -433,19 +433,19 @@ private final class ProcessDelayGate: @unchecked Sendable {
                 }
                 return delayWaiters.remove(at: index).continuation
             }
-            continuation?.resume(throwing: CancellationError())
+            continuation?.resume(returning: .failure(CancellationError()))
         }
     }
 
     func waitForRequestCount(_ count: Int) async {
-        await withCheckedContinuation { continuation in
+        await awaitSignal { resumer in
             lock.lock()
             guard requests.count < count else {
                 lock.unlock()
-                continuation.resume()
+                resumer.resume()
                 return
             }
-            requestWaiters.append((count, continuation))
+            requestWaiters.append((count, resumer))
             lock.unlock()
         }
     }
@@ -456,7 +456,7 @@ private final class ProcessDelayGate: @unchecked Sendable {
             delayWaiters.removeAll()
             return continuations
         }
-        continuations.forEach { $0.continuation.resume() }
+        continuations.forEach { $0.continuation.resume(returning: .success(())) }
     }
 }
 

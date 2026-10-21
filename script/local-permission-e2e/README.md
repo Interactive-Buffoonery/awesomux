@@ -102,3 +102,12 @@ observation; documentation does not establish native-prompt race behavior. Remot
 are a verification recipe, not a claim those journeys passed.
 
 Provider contract: https://code.claude.com/docs/en/hooks#permissionrequest-input
+
+Companion transport uses this same core, with a typed Mac/device winning source,
+a fixed remote deadline and bounded device retry receipts. Production remote
+decisions remain disabled by ADR-0038. Pairing fixtures own a separate synthetic
+coordinator; their result is transport evidence only. Delivery authorization
+checks surround actual socket writes and file publication retries. Revoking a
+winning device before any output cancels its answer; possible escaped output
+remains unknown and cannot reopen. `CompanionDecisionIntegrationTests` covers
+revocation between core recording and fallback publication.

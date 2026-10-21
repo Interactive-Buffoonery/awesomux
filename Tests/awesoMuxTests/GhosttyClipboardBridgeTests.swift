@@ -11,13 +11,13 @@ import Testing
 @MainActor
 private final class ClipboardDialogRecorder {
     private(set) var promptedTexts: [String] = []
-    private(set) var openPrompts: [String: CheckedContinuation<Bool, Never>] = [:]
+    private(set) var openPrompts: [String: ValueResumer<Bool>] = [:]
 
     var openPrompt: String? { openPrompts.keys.first }
 
     func present(_ text: String) async -> Bool {
         promptedTexts.append(text)
-        return await withCheckedContinuation { openPrompts[text] = $0 }
+        return await awaitValue(fallback: false) { openPrompts[text] = $0 }
     }
 
     func close(_ text: String, confirmed: Bool) {
