@@ -7,6 +7,64 @@ import Testing
 @MainActor
 @Suite("Companion pane list")
 struct CompanionPaneListTests {
+    @Test func firstUnboundReadInitializesExactTargets() throws {
+        let session = TerminalSession(title: "Work", workingDirectory: "~")
+        let pane = try #require(session.panes.first)
+        let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
+        #expect(store.localAPIInstanceID == nil)
+        #expect(store.localAPITargets.isEmpty)
+        _ = store.companionWorkspaces(scope: .allWorkspaces) { _ in nil }
+        let target = try #require(store.localAPITargets[pane.id])
+        #expect(target.workspaceID == session.id)
+        #expect(target.terminalSessionID == pane.terminalSessionID.rawValue)
+        let scope = LocalAPITargetScope.exactTarget(paneID: pane.id, targetVersion: target.version)
+        for _ in 0..<2 {
+            let roster = store.companionWorkspaces(scope: scope) { _ in nil }
+            #expect(roster.first?.panes.map(\.paneID) == [pane.id.uuidString])
+            #expect(store.localAPITargets[pane.id]?.version == target.version)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func nativeMutationsInvalidateExactTargetsBeforeAnotherRead(bound: Bool) throws {
+        let session = TerminalSession(title: "Work", workingDirectory: "~")
+        let pane = try #require(session.panes.first)
+        let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
+        if bound { store.bindLocalAPIInstance(UUID()) }
+        _ = store.companionWorkspaces(scope: .allWorkspaces) { _ in nil }
+        let original = try #require(store.localAPITargets[pane.id]?.version)
+        #expect(
+            store.applyDetectedAgentState(
+                id: session.id, paneID: pane.id, detectedState: nil, agentKind: .codex, clearsAttention: false))
+        let providerVersion = try #require(store.localAPITargets[pane.id]?.version)
+        #expect(providerVersion != original)
+        #expect(store.localAPITargets[pane.id]?.provider == .codex)
+        let sibling = try #require(store.splitActivePane(orientation: .horizontal, in: session.id))
+        #expect(store.localAPITargets[sibling]?.workspaceID == session.id)
+        let movedWorkspace = try #require(store.movePaneToNewWorkspace(id: pane.id, in: session.id))
+        let moved = try #require(store.localAPITargets[pane.id])
+        #expect(moved.workspaceID == movedWorkspace)
+        #expect(moved.version != providerVersion)
+        #expect(store.returnPaneToSourceWorkspace(sessionID: movedWorkspace))
+        let returned = try #require(store.localAPITargets[pane.id])
+        #expect(returned.workspaceID == session.id)
+        #expect(returned.version != moved.version)
+        for stale in [original, providerVersion, moved.version] {
+            let roster = store.companionWorkspaces(
+                scope: .exactTarget(paneID: pane.id, targetVersion: stale), terminalPreviewAllowed: true
+            ) { _ in
+                Issue.record("Stale target must not sample a native surface")
+                return nil
+            }
+            #expect(roster.isEmpty)
+        }
+        let current = store.companionWorkspaces(scope: .exactTarget(paneID: pane.id, targetVersion: returned.version)) { _ in nil }
+        #expect(current.first?.panes.map(\.paneID) == [pane.id.uuidString])
+        #expect(store.closePane(id: pane.id, in: session.id) != nil)
+        #expect(store.localAPITargets[pane.id] == nil)
+        #expect(store.localAPITargets[sibling] != nil)
+    }
+
     @Test func includesShellsSplitsAndDocumentLeavesInOrder() throws {
         let shell = TerminalPane(title: "Shell", workingDirectory: "~", executionPlan: .local)
         let agent = TerminalPane(title: "Agent", workingDirectory: "~", agentKind: .codex, executionPlan: .local)

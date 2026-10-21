@@ -34,8 +34,11 @@ public extension SessionStore {
         terminalPreviewAllowed: Bool = false,
         preview: (UUID) -> String?
     ) -> [CompanionAPIResponse.Workspace] {
-        localAPITracking = true
-        reconcileLocalAPIAssignments()
+        // Binding and native mutations maintain targets after initialization.
+        if !localAPITracking {
+            localAPITracking = true
+            reconcileLocalAPIAssignments()
+        }
         let titles = sidebarResolvedTitles()
         return groups.flatMap(\.sessions).compactMap { session in
             let panes = session.layout.leaves.compactMap { leaf -> CompanionAPIResponse.Pane? in
