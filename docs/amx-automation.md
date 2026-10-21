@@ -153,9 +153,11 @@ resize, reply to terminal queries, send input or use legacy mutation messages.
 Authority notifications identify the leader attachment and authoritative grid.
 The fork's `LEADERSHIP.md` specifies payloads and queue semantics.
 
-Under [ADR-0036](adr/0036-multi-client-terminal-leadership.md), attach and
-reattach retain the current grid without electing a leader. Disconnecting the
-leader clears authority while retaining that grid. The next accepted interactive
+Under [ADR-0036](adr/0036-multi-client-terminal-leadership.md), the client that
+creates a new session is its first leader. Its resizes and terminal replies
+apply immediately, before its first keystroke. Attaching to an existing session
+retains the current grid without electing a leader. Disconnecting the leader
+clears authority while retaining that grid. The next accepted interactive
 user batch or explicit typed takeover applies its validated dimensions before
 its bytes. Automation does neither. The existing Mac `attach` stream still uses
 a legacy heuristic to distinguish user input from replies; coalesced arbitrary
