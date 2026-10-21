@@ -176,6 +176,7 @@ struct CompanionPairingE2E {
     @MainActor
     static func main() async {
         do {
+            if try handleFixtureCommand() { return }
             let invocation = try invocation()
             if let cleanupResult = invocation.cleanupResult {
                 try cleanup(resultFile: cleanupResult)
@@ -223,6 +224,18 @@ struct CompanionPairingE2E {
                     guard let workspaces = roster.workspaces, !workspaces.isEmpty,
                         workspaces.contains(where: { $0.panes.contains(where: { $0.kind == "terminal" }) })
                     else { throw E2EFailure("list_panes did not return terminal workspaces") }
+                    if let fixtureSnapshot = invocation.fixtureSnapshot {
+                        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: fixtureSnapshot)))
+                        guard let snapshot = object as? [String: Any], let groups = snapshot["groups"] as? [[String: Any]] else {
+                            throw E2EFailure("native fixture snapshot is invalid")
+                        }
+                        let sessions = groups.flatMap { $0["sessions"] as? [[String: Any]] ?? [] }
+                        let expectedIDs = sessions.compactMap { ($0["id"] as? String).flatMap(UUID.init(uuidString:)) }
+                        guard expectedIDs.count == 2,
+                            workspaces.compactMap({ UUID(uuidString: $0.workspaceID) }) == expectedIDs,
+                            workspaces.allSatisfy({ $0.panes.count == 1 && $0.panes[0].kind == "terminal" })
+                        else { throw E2EFailure("pane roster did not match the two owned native fixtures") }
+                    }
                     for pane in workspaces.flatMap(\.panes) {
                         guard pane.lastOutputLine.map({ !$0.contains(where: \.isNewline) && $0.utf8.count <= 512 }) ?? true,
                             pane.kind == "terminal" || pane.lastOutputLine == nil
@@ -396,11 +409,59 @@ struct CompanionPairingE2E {
         }
     }
 
+    private static func handleFixtureCommand() throws -> Bool {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard arguments.first == "--fixture-home" else { return false }
+        guard arguments.count == 4 || (arguments.count == 5 && arguments[4] == "--cleanup-identity"),
+            arguments[2] == "--profile"
+        else { throw E2EFailure("invalid fixture command") }
+        let home = URL(fileURLWithPath: arguments[1], isDirectory: true).resolvingSymlinksInPath()
+        let run = home.deletingLastPathComponent()
+        let artifactRoot = URL(fileURLWithPath: "/tmp/companion-pairing-e2e", isDirectory: true).resolvingSymlinksInPath()
+        let suffix = SHA256.hash(data: Data(run.path.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        let profile = "development:" + suffix
+        guard home.lastPathComponent == "home", run.lastPathComponent.hasPrefix("run."),
+            run.deletingLastPathComponent() == artifactRoot, arguments[3] == profile
+        else { throw E2EFailure("refusing a non-owned fixture profile") }
+        let environment = ProcessInfo.processInfo.environment
+        let paths = [
+            FileManager.default.homeDirectoryForCurrentUser.path, NSHomeDirectory(),
+            environment["HOME"] ?? "", environment["CFFIXED_USER_HOME"] ?? "",
+        ]
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard paths.allSatisfy({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path == home.path }),
+            support.resolvingSymlinksInPath().path == home.appending(path: "Library/Application Support", directoryHint: .isDirectory).path
+        else { throw E2EFailure("disposable HOME/Foundation path isolation mismatch") }
+        if arguments.count == 5 {
+            // Match CompanionIdentityStore's profile namespace; this command is
+            // restricted to the run-derived disposable profile above.
+            let namespace = SHA256.hash(data: Data(profile.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+            for query: [String: Any] in [
+                [kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: "awesoMux Companion " + namespace],
+                [
+                    kSecClass as String: kSecClassKey,
+                    kSecAttrApplicationTag as String: Data(("com.interactivebuffoonery.awesomux.companion." + namespace).utf8),
+                    kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+                ],
+            ] {
+                let status = SecItemDelete(query as CFDictionary)
+                guard status == errSecSuccess || status == errSecItemNotFound else {
+                    throw E2EFailure("fixture identity cleanup failed: \(status)")
+                }
+            }
+            print("fixture_identity=removed")
+        } else {
+            print("fixture_home=verified")
+        }
+        return true
+    }
+
     private struct Invocation {
         let link: String?
         let resultFile: String?
         let profile: String?
         let cleanupResult: String?
+        var fixtureSnapshot: String? = nil
     }
 
     private static func invocation() throws -> Invocation {
@@ -408,18 +469,19 @@ struct CompanionPairingE2E {
         if arguments.count == 2, arguments[0] == "--cleanup-result" {
             return Invocation(link: nil, resultFile: nil, profile: nil, cleanupResult: arguments[1])
         }
-        if arguments.count == 6, arguments[0] == "--link-file", arguments[2] == "--result-file",
-            arguments[4] == "--profile"
+        if (arguments.count == 6 || (arguments.count == 8 && arguments[6] == "--fixture-snapshot")),
+            arguments[0] == "--link-file", arguments[2] == "--result-file", arguments[4] == "--profile"
         {
             return Invocation(
                 link: try String(contentsOfFile: arguments[1], encoding: .utf8),
                 resultFile: arguments[3],
                 profile: arguments[5],
-                cleanupResult: nil
+                cleanupResult: nil,
+                fixtureSnapshot: arguments.count == 8 ? arguments[7] : nil
             )
         }
         throw E2EFailure(
-            "usage: companion-pairing-e2e --link-file path --result-file path --profile development-profile | --cleanup-result path"
+            "usage: companion-pairing-e2e --link-file path --result-file path --profile development-profile [--fixture-snapshot path] | --cleanup-result path"
         )
     }
 

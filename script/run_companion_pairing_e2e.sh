@@ -82,37 +82,122 @@ mkdir -p "$ARTIFACT_DIR"
 
 cd "$ROOT_DIR"
 source "$ROOT_DIR/script/runtime-profile.sh"
-runtime_profile="$(awesomux_checkout_profile "$ROOT_DIR")"
 ./script/build_and_run.sh --stage-local-api-e2e > "$STAGE_LOG" 2>&1
-# Build the client now so compiling it can't eat into the pairing window.
+# Build all helpers before launching so compilation cannot consume the pairing window.
 swift build --product companion-pairing-e2e >> "$STAGE_LOG" 2>&1
+swift build --product local-api-e2e >> "$STAGE_LOG" 2>&1
+build_bin_path="$(swift build --show-bin-path)"
+client="$build_bin_path/companion-pairing-e2e"
+seed_client="$build_bin_path/local-api-e2e"
+AMX_BINARY="$ROOT_DIR/dist/awesoMux.app/Contents/MacOS/amx"
 
 if [[ ! -x "$APP_BINARY" ]]; then
   echo "error: staged development executable is missing: $APP_BINARY" >&2
   exit 1
 fi
 
-firewall_preflight
+# Match the native lifecycle harness: the app restores a real SessionSnapshot
+# inside a disposable HOME, with a unique bundle/profile for sockets and keys.
+runtime_profile="development:$(awesomux_worktree_id "$ARTIFACT_DIR")"
+awesomux_resolve_profile "$runtime_profile"
+fixture_home="$ARTIFACT_DIR/home"
+fixture_snapshot="$ARTIFACT_DIR/native-fixture.json"
+fixture_tmp="$(getconf DARWIN_USER_TEMP_DIR)"
+fixture_socket="${fixture_tmp%/}/$AWESOMUX_PROFILE_SOCKET_NAME"
+if [[ -e "$fixture_home" || -L "$fixture_home" || -e "$fixture_socket" || -L "$fixture_socket" ]]; then
+  echo "error: disposable fixture path already exists; refusing to reuse it" >&2
+  exit 1
+fi
+mkdir -m 700 "$fixture_home"
+app_pid=""
+fixture_launched=0
 
-AWESOMUX_COMPANION_AUTO_ALLOW=1 \
-  AWESOMUX_COMPANION_E2E_LINK_FILE="$LINK_FILE" \
-  AWESOMUX_COMPANION_E2E_RESET_IDENTITY=1 \
-  "$APP_BINARY" > "$APP_LOG" 2>&1 &
-app_pid=$!
-cleanup_complete=0
+fixture_environment=(env -u ZMX_SESSION_PREFIX -u ZMX_SESSION -u ZMX_DIR
+  "HOME=$fixture_home" "CFFIXED_USER_HOME=$fixture_home"
+  "XDG_CONFIG_HOME=$fixture_home/.config" "ZDOTDIR=$fixture_home"
+  SHELL=/bin/zsh "TMPDIR=$fixture_tmp")
+fixture_run() {
+  "${fixture_environment[@]}" "$@"
+}
 
 cleanup() {
+  local result=$? cleanup_failed=0
+  trap - EXIT INT TERM
   : > "$LINK_FILE"
-  if [[ -n "${app_pid:-}" ]] && kill -0 "$app_pid" 2>/dev/null; then
-    kill "$app_pid"
+  if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
+    kill "$app_pid" || cleanup_failed=1
     wait "$app_pid" 2>/dev/null || true
   fi
-  if [[ "$cleanup_complete" -eq 0 && -s "$RESULT_FILE" ]]; then
-    swift run companion-pairing-e2e --cleanup-result "$RESULT_FILE" >> "$E2E_LOG" 2>&1 || true
-    cleanup_complete=1
+  if [[ -s "$RESULT_FILE" ]]; then
+    fixture_run "$client" --cleanup-result "$RESULT_FILE" >> "$E2E_LOG" 2>&1 || cleanup_failed=1
   fi
+  if [[ "$fixture_launched" -eq 1 ]]; then
+    fixture_run env AWESOMUX_AMX="$AMX_BINARY" \
+      "$ROOT_DIR/script/amx-reap.sh" --profile "$runtime_profile" all >> "$E2E_LOG" 2>&1 || cleanup_failed=1
+    local remaining
+    if ! remaining="$(fixture_run env ZMX_DIR="$fixture_socket" ZMX_DIR_MODE=700 "$AMX_BINARY" list --short 2>> "$E2E_LOG")"; then
+      cleanup_failed=1
+    elif [[ -n "$remaining" ]]; then
+      echo "error: owned fixture daemons remain after cleanup" >> "$E2E_LOG"
+      cleanup_failed=1
+    fi
+  fi
+  fixture_run "$client" --fixture-home "$fixture_home" --profile "$runtime_profile" --cleanup-identity \
+    >> "$E2E_LOG" 2>&1 || cleanup_failed=1
+  if [[ "$cleanup_failed" -eq 0 ]]; then
+    trash "$fixture_home" || cleanup_failed=1
+    if [[ -d "$fixture_socket" && ! -L "$fixture_socket" ]]; then
+      trash "$fixture_socket" || cleanup_failed=1
+    fi
+  fi
+  if [[ "$cleanup_failed" -ne 0 ]]; then
+    echo "error: owned fixture cleanup failed; retained artifacts at $ARTIFACT_DIR" >&2
+    result=1
+  fi
+  echo "fixture_cleanup=$cleanup_failed" >> "$E2E_LOG"
+  echo "E2E log: $E2E_LOG"
+  echo "App log: $APP_LOG"
+  echo "Stage log: $STAGE_LOG"
+  exit "$result"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Fail closed before writing a snapshot or launching an app if Foundation would
+# resolve HOME/Application Support outside this run's private directory.
+fixture_run "$client" --fixture-home "$fixture_home" --profile "$runtime_profile" >> "$STAGE_LOG" 2>&1
+mkdir -p "$fixture_home/Library/Application Support/$AWESOMUX_PROFILE_SUPPORT_NAME" \
+  "$fixture_home/.config/$AWESOMUX_PROFILE_CONFIG_NAME"
+fixture_run "$seed_client" --seed-native "$fixture_home" > "$fixture_snapshot" 2>> "$STAGE_LOG"
+cp "$fixture_snapshot" "$fixture_home/Library/Application Support/$AWESOMUX_PROFILE_SUPPORT_NAME/session-state.json"
+cat > "$fixture_home/.config/$AWESOMUX_PROFILE_CONFIG_NAME/config.toml" <<'EOF'
+[general]
+restore_workspaces = true
+[terminal]
+command_bridge_enabled = true
+[notifications]
+muted = true
+EOF
+cat > "$fixture_home/.zshrc" <<'EOF'
+PS1='COMPANION_E2E_READY '
+RPS1=''
+EOF
+
+# Staging owns dist; retain its executable path for the firewall allowlist while
+# giving this launch a run-specific identity, as the native lifecycle harness does.
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $AWESOMUX_PROFILE_BUNDLE_ID" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $AWESOMUX_PROFILE_DISPLAY_NAME" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName $AWESOMUX_PROFILE_DISPLAY_NAME" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
+codesign --force --deep --sign - "$ROOT_DIR/dist/awesoMux.app" >> "$STAGE_LOG" 2>&1
+codesign --verify --deep --strict "$ROOT_DIR/dist/awesoMux.app" >> "$STAGE_LOG" 2>&1
+firewall_preflight
+
+fixture_launched=1
+"${fixture_environment[@]}" AWESOMUX_COMPANION_AUTO_ALLOW=1 \
+  AWESOMUX_COMPANION_E2E_LINK_FILE="$LINK_FILE" \
+  "$APP_BINARY" > "$APP_LOG" 2>&1 &
+app_pid=$!
 
 for _ in $(seq 1 200); do
   if [[ -s "$LINK_FILE" ]]; then
@@ -130,10 +215,11 @@ if [[ ! -s "$LINK_FILE" ]]; then
   exit 1
 fi
 
-if ! swift run companion-pairing-e2e \
+if ! fixture_run "$client" \
   --link-file "$LINK_FILE" \
   --result-file "$RESULT_FILE" \
-  --profile "$runtime_profile" 2>&1 | tee "$E2E_LOG"; then
+  --profile "$runtime_profile" \
+  --fixture-snapshot "$fixture_snapshot" 2>&1 | tee "$E2E_LOG"; then
   if grep -q "TLS connection timed out" "$E2E_LOG"; then
     echo "note: the TLS connection did not become ready within 10 seconds." >&2
     echo "  A pending macOS permission prompt can cause this." >&2
@@ -143,12 +229,4 @@ if ! swift run companion-pairing-e2e \
   exit 1
 fi
 
-kill "$app_pid"
-wait "$app_pid" 2>/dev/null || true
-app_pid=""
-swift run companion-pairing-e2e --cleanup-result "$RESULT_FILE" 2>&1 | tee -a "$E2E_LOG"
-cleanup_complete=1
-
-echo "E2E log: $E2E_LOG"
-echo "App log: $APP_LOG"
-echo "Stage log: $STAGE_LOG"
+# The EXIT trap owns teardown on both success and failure.
