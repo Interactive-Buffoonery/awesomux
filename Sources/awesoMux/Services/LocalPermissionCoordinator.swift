@@ -439,17 +439,42 @@ final class LocalPermissionCoordinator {
         else { return }
         let message: String
         switch outcome.state {
-        case .pending: message = String(localized: "Claude permission needed")
+        case .pending:
+            message = String(
+                localized: "Claude permission needed", comment: "A local Claude hook is waiting for a one-time permission decision.")
         case .recorded:
             message =
-                outcome.choice == .allow ? String(localized: "Allow once recorded on Mac") : String(localized: "Deny once recorded on Mac")
-        case .delivered: message = String(localized: "Answer delivered to Claude hook. Tool execution is unconfirmed.")
-        case .unknown: message = String(localized: "Permission delivery unknown")
-        case .expired: message = String(localized: "Permission request expired")
-        case .cancelled: message = String(localized: "Permission request cancelled")
+                outcome.choice == .allow
+                ? String(
+                    localized: "Allow once recorded on Mac",
+                    comment: "The Mac recorded a one-time allow; delivery to the hook is not yet confirmed.")
+                : String(
+                    localized: "Deny once recorded on Mac",
+                    comment: "The Mac recorded a one-time deny; delivery to the hook is not yet confirmed.")
+        case .delivered:
+            message = String(
+                localized: "Answer delivered to Claude hook. Tool execution is unconfirmed.",
+                comment: "Permission announcement after hook acknowledgement; delivery does not confirm tool execution.")
+        case .unknown:
+            message = String(
+                localized: "Permission delivery unknown",
+                comment: "Delivery of the recorded decision is uncertain; do not retry or imply tool execution.")
+        case .expired:
+            message = String(
+                localized: "Permission request expired",
+                comment: "The local permission request expired; the hook falls through to the native prompt.")
+        case .cancelled:
+            message = String(
+                localized: "Permission request cancelled",
+                comment: "The local permission request was cancelled and cannot receive another decision.")
         case .delivering: return
         }
-        announcement(String(localized: "\(context.workspaceName), pane \(context.panePosition), request \(invocationNumber). \(message)"))
+        announcement(
+            String(
+                localized: "\(context.workspaceName), pane \(context.panePosition), request \(invocationNumber). \(message)",
+                comment:
+                    "Permission announcement: workspace name, one-based pane position, stable request number, then decision or delivery state."
+            ))
     }
 
     private func publish() {

@@ -23,14 +23,20 @@ struct LocalPermissionPromptView: View {
                         Spacer()
                         if card.outcome.state == .pending {
                             PermissionActionButton(
-                                title: String(localized: "Deny once"),
-                                accessibilityLabel: String(localized: "Deny once. Escape when focused."),
+                                title: String(
+                                    localized: "Deny once", comment: "Deny this Claude permission request only; do not remember a grant."),
+                                accessibilityLabel: String(
+                                    localized: "Deny once. Escape when focused.",
+                                    comment: "Accessible deny action; Escape acts only after deliberate permission-card focus."),
                                 tint: Color.aw.text,
                                 action: { coordinator.decide(identity, choice: .deny) }
                             ).frame(minWidth: 24, minHeight: 24)
                             PermissionActionButton(
-                                title: String(localized: "Allow once"),
-                                accessibilityLabel: String(localized: "Allow once. Command-Return when focused."),
+                                title: String(
+                                    localized: "Allow once", comment: "Allow this Claude permission request only; do not remember a grant."),
+                                accessibilityLabel: String(
+                                    localized: "Allow once. Command-Return when focused.",
+                                    comment: "Accessible allow action; Command-Return acts only after deliberate permission-card focus."),
                                 tint: Color.aw.status.needs,
                                 action: { coordinator.decide(identity, choice: .allow) }
                             ).frame(minWidth: 24, minHeight: 24)
@@ -52,7 +58,12 @@ struct LocalPermissionPromptView: View {
                     if let choice = card.outcome.choice {
                         Text(
                             choice == .allow
-                                ? String(localized: "Allow once recorded on Mac") : String(localized: "Deny once recorded on Mac")
+                                ? String(
+                                    localized: "Allow once recorded on Mac",
+                                    comment: "The Mac recorded a one-time allow; delivery to the hook is not yet confirmed.")
+                                : String(
+                                    localized: "Deny once recorded on Mac",
+                                    comment: "The Mac recorded a one-time deny; delivery to the hook is not yet confirmed.")
                         )
                         .awFont(AwFont.Mono.meta)
                     }
@@ -117,13 +128,29 @@ struct LocalPermissionPromptView: View {
 
     private func status(_ state: LocalPermissionState) -> String {
         switch state {
-        case .pending: String(localized: "Claude permission needed")
-        case .recorded: String(localized: "Answer recorded on Mac")
-        case .delivering: String(localized: "Returning answer to Claude")
-        case .delivered: String(localized: "Answer delivered to Claude hook")
-        case .cancelled: String(localized: "Permission request cancelled")
-        case .expired: String(localized: "Permission request expired")
-        case .unknown: String(localized: "Permission delivery unknown")
+        case .pending:
+            String(localized: "Claude permission needed", comment: "A local Claude hook is waiting for a one-time permission decision.")
+        case .recorded:
+            String(
+                localized: "Answer recorded on Mac", comment: "The Mac recorded the decision; delivery to the hook is not yet confirmed.")
+        case .delivering:
+            String(localized: "Returning answer to Claude", comment: "The recorded decision is being delivered to the Claude hook.")
+        case .delivered:
+            String(
+                localized: "Answer delivered to Claude hook",
+                comment: "The hook acknowledged the answer; this does not confirm tool execution.")
+        case .cancelled:
+            String(
+                localized: "Permission request cancelled",
+                comment: "The local permission request was cancelled and cannot receive another decision.")
+        case .expired:
+            String(
+                localized: "Permission request expired",
+                comment: "The local permission request expired; the hook falls through to the native prompt.")
+        case .unknown:
+            String(
+                localized: "Permission delivery unknown",
+                comment: "Delivery of the recorded decision is uncertain; do not retry or imply tool execution.")
         }
     }
 }
