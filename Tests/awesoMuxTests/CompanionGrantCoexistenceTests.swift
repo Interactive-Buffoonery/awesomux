@@ -67,6 +67,6 @@ struct CompanionGrantCoexistenceTests {
         let restored = LocalAPIAccessStore(profile: "development", supportDirectoryURL: home)
         #expect(restored.loadFailure == nil)
         #expect(try lease(restored) == renameAgain)
-        #expect(restored.connections.first?.companion?.pairingVersion == 2)
+        #expect(restored.state.connections.first?.companion?.pairingVersion == 2)
     }
 }
