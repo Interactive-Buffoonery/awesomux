@@ -33,6 +33,15 @@ struct CompanionPaneAuthorizationTests {
         }
     }
 
+    @Test func alertPreferenceOperationsRemainUnsupported() throws {
+        for operation in ["get_alert_preferences", "set_alert_preferences"] {
+            #expect(LocalAPIOperation(rawValue: operation) == nil)
+            #expect(throws: LocalAPIError.unsupportedOperation) {
+                try CompanionRequestPolicy.authorizationOperation(for: request(operation))
+            }
+        }
+    }
+
     @Test func permissionMutationRequiresOnlyItsBooleanArgument() throws {
         for value in [true, false] {
             #expect(
