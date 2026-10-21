@@ -597,12 +597,17 @@ struct SidebarSessionTile: View {
                                 locationMetadata(location: location)
 
                                 if let duplicateDisambiguation {
-                                    Text(duplicateDisambiguation.visibleLabel)
-                                        .awFont(AwFont.Mono.meta)
-                                        .foregroundStyle(Color.aw.text)
-                                        .lineLimit(1)
-                                        .fixedSize(horizontal: true, vertical: false)
-                                        .layoutPriority(1)
+                                    // The copy glyph marks matching workspaces, so the
+                                    // ordinal isn't read against the group header's count.
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "square.on.square")
+                                        Text(duplicateDisambiguation.visibleLabel)
+                                    }
+                                    .awFont(AwFont.Mono.meta)
+                                    .foregroundStyle(Color.aw.text)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .layoutPriority(1)
                                 }
                             }
                         }

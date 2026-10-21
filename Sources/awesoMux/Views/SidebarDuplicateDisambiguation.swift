@@ -7,7 +7,7 @@ struct SidebarDuplicateDisambiguation: Equatable {
     let total: Int
 
     var visibleLabel: String {
-        "\(ordinal) of \(total)"
+        "\(ordinal)"
     }
 
     var accessibilitySuffix: String {
@@ -22,14 +22,14 @@ enum SidebarDuplicateDisambiguator {
     /// enough not to truncate real titles/paths.
     private static let identityKeyMaxLength = 512
 
-    /// - Parameter titles: resolved workspace titles (the sidebar's
-    ///   coarse-channel map — `SessionStore.sidebarResolvedTitles()`). The "N
-    ///   of M" qualifier disambiguates what the user SEES, so it keys on the
-    ///   title the row renders, not the potentially fresher struct title
-    ///   (issue #327); an absent entry falls back to storage.
+    /// - Parameter titles: resolved workspace titles from the sidebar's coarse
+    ///   channel (`SessionStore.sidebarResolvedTitles()`). Compare the rendered
+    ///   title (issue #327), treating spellings of its own local folder as equal;
+    ///   an absent entry falls back to storage.
     static func disambiguationBySessionID(
         for entries: [SidebarGroupEntry],
-        titles: [TerminalSession.ID: String] = [:]
+        titles: [TerminalSession.ID: String] = [:],
+        localHostnames: Set<String> = []
     ) -> [TerminalSession.ID: SidebarDuplicateDisambiguation] {
         var idsByKey: [VisibleIdentityKey: [TerminalSession.ID]] = [:]
 
@@ -39,9 +39,10 @@ enum SidebarDuplicateDisambiguator {
                 idsByKey[
                     VisibleIdentityKey(
                         groupID: entry.group.id,
-                        title: UnicodeHygiene.sanitize(
+                        title: titleIdentity(
                             titles[session.id] ?? session.title,
-                            maxLength: identityKeyMaxLength
+                            session: session,
+                            localHostnames: localHostnames
                         ),
                         location: UnicodeHygiene.sanitize(
                             session.sidebarLocation.identityText,
@@ -66,14 +67,44 @@ enum SidebarDuplicateDisambiguator {
         return result
     }
 
-    /// Identity is scoped to the owning group: two sessions with the same title
+    private static func titleIdentity(
+        _ rawTitle: String,
+        session: TerminalSession,
+        localHostnames: Set<String>
+    ) -> TitleIdentity {
+        let title = UnicodeHygiene.sanitize(rawTitle, maxLength: identityKeyMaxLength)
+        guard session.sidebarLocation.kind == .local else { return .literal(title) }
+        let directory = session.activePane?.workingDirectory ?? session.workingDirectory
+        let spellings = [
+            directory,
+            TerminalSession.abbreviatedWorkingDirectory(directory),
+            (directory as NSString).lastPathComponent,
+        ]
+        var folderTitle = title
+        if RemoteSessionDetector.detect(title: title, localNames: localHostnames) == .local,
+            let colon = title.firstIndex(of: ":")
+        {
+            folderTitle = String(title[title.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        }
+        let matchesDirectory = spellings.contains {
+            UnicodeHygiene.sanitize($0, maxLength: identityKeyMaxLength) == folderTitle
+        }
+        return matchesDirectory ? .workingDirectory : .literal(title)
+    }
+
+    private enum TitleIdentity: Hashable {
+        case workingDirectory
+        case literal(String)
+    }
+
+    /// Identity is scoped to the owning group: two sessions with equivalent titles
     /// and location in *different* groups are already separated by the group header,
     /// so they get no ordinal. Group-scoping also means collapsed groups can't
     /// skew a visible group's "N of M" count. Title/location are sanitized so a
     /// homoglyph/zero-width variant can't masquerade as a distinct row.
     private struct VisibleIdentityKey: Hashable {
         var groupID: SessionGroup.ID
-        var title: String
+        var title: TitleIdentity
         var location: String
     }
 }
