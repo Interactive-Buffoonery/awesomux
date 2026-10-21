@@ -9,9 +9,13 @@ public enum CompanionRequestPolicy {
             throw LocalAPIOperation(rawValue: request.operation) == nil
                 ? LocalAPIError.unsupportedOperation : LocalAPIError.permissionDenied
         }
-        guard request.credential == nil, request.paneID == nil,
-            request.targetVersion == nil, request.source == nil
-        else { throw LocalAPIError.invalidRequest }
+        guard request.credential == nil, request.source == nil else { throw LocalAPIError.invalidRequest }
+        // Only a live watch names a pane; every other operation stays argument-free.
+        if operation == .watchTerminal {
+            guard request.paneID != nil, request.targetVersion != nil else { throw LocalAPIError.invalidRequest }
+        } else {
+            guard request.paneID == nil, request.targetVersion == nil else { throw LocalAPIError.invalidRequest }
+        }
         if operation == .setTerminalPreview {
             guard request.terminalPreviewAllowed != nil else { throw LocalAPIError.invalidRequest }
         } else {
@@ -26,7 +30,7 @@ public enum CompanionRequestPolicy {
             guard request.limit == nil, request.cursor == nil else { throw LocalAPIError.invalidRequest }
         }
         switch operation {
-        case .connectionStatus, .unpair, .setTerminalPreview: return .connectionStatus
+        case .connectionStatus, .capabilities, .unpair, .setTerminalPreview, .watchTerminal: return .connectionStatus
         case .listAgents, .listPanes: return .listAgents
         case .attentionEvents: return .attentionEvents
         case .pendingDecisions, .answerDecision: throw LocalAPIError.permissionDenied

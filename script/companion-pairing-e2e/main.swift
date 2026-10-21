@@ -133,7 +133,7 @@ private enum CompanionClient {
         return object
     }
 
-    private static func sendFrame(_ data: Data, connection: NWConnection) async throws {
+    static func sendFrame(_ data: Data, connection: NWConnection) async throws {
         var length = UInt32(data.count).bigEndian
         var frame = withUnsafeBytes(of: &length) { Data($0) }
         frame.append(data)
@@ -146,7 +146,7 @@ private enum CompanionClient {
         }
     }
 
-    private static func readFrame(_ connection: NWConnection) async throws -> Data {
+    static func readFrame(_ connection: NWConnection) async throws -> Data {
         let header = try await receive(connection, count: 4)
         let length = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
         guard length > 0, length <= LocalAPIContract.maximumResponseBytes else {
@@ -529,6 +529,7 @@ struct CompanionPairingE2E {
                 }
             }
             print("rename_arguments=invalid_request")
+            try await verifyTerminalWatch(link: link, identity: identity, connectionID: connectionID)
             // Keep a TLS session open across revocation to exercise stale authorization too.
             let stale = try await CompanionClient.open(link: link, identity: identity).connection
             defer { stale.cancel() }
@@ -761,6 +762,135 @@ struct CompanionPairingE2E {
         } catch {
             print("wrong_mac_pin=denied")
         }
+    }
+
+    /// ADR-0040 watch path: validation errors, a full snapshot, phone input
+    /// ending the stream, and revocation ending a second stream.
+    private static func verifyTerminalWatch(link: PairingLink, identity: E2EClientIdentity, connectionID: String) async throws {
+        typealias Stream = CompanionTerminalStream
+        func request(_ operation: String, _ extra: [String: Any] = [:]) -> [String: Any] {
+            var object: [String: Any] = [
+                "schemaVersion": 1, "requestID": UUID().uuidString.lowercased(), "operation": operation,
+                "connectionID": connectionID,
+            ]
+            object.merge(extra) { _, new in new }
+            return object
+        }
+        let status = try await call(request("get_connection_status"), link: link, identity: identity)
+        let discovery = try await call(request("get_capabilities"), link: link, identity: identity)
+        guard let capabilities = status["terminalStream"] as? [String: Any],
+            capabilities["maximumDataBytes"] as? Int == Stream.maximumDataBytes,
+            let discovered = discovery["terminalStream"] as? [String: Any],
+            discovered["version"] as? Int == Stream.version,
+            discovered["maximumPendingBytes"] as? Int == Stream.maximumPendingBytes
+        else { throw E2EFailure("status did not advertise the terminal stream capabilities") }
+        let rosterObject = try await call(request("list_panes"), link: link, identity: identity)
+        let roster = try CompanionProtocol.decoder().decode(
+            CompanionAPIResponse.self, from: JSONSerialization.data(withJSONObject: rosterObject))
+        guard let pane = roster.workspaces?.flatMap(\.panes).first(where: { $0.kind == "terminal" && $0.targetVersion != nil }),
+            let targetVersion = pane.targetVersion
+        else { throw E2EFailure("list_panes had no watchable terminal pane") }
+        let watch = ["paneID": pane.paneID, "targetVersion": targetVersion, "streamVersion": 1] as [String: Any]
+        let checks: [(String, [String: Any], String)] = [
+            ("stream version", ["streamVersion": 2], "unsupported_version"),
+            ("unknown pane", ["paneID": UUID().uuidString.lowercased()], "stale_target"),
+            ("bad grid", ["grid": ["rows": 0, "cols": 80]], "invalid_request"),
+            ("missing target", ["targetVersion": NSNull()], "invalid_request"),
+        ]
+        for (label, extra, expected) in checks {
+            var object = watch
+            for (key, value) in extra {
+                if value is NSNull { object.removeValue(forKey: key) } else { object[key] = value }
+            }
+            let result = try await call(request("watch_terminal", object), link: link, identity: identity)
+            guard result["error"] as? String == expected else { throw E2EFailure("watch_terminal \(label) was not \(expected)") }
+        }
+        var stale = request("list_panes")
+        stale["streamVersion"] = 1
+        guard try await call(stale, link: link, identity: identity)["error"] as? String == "invalid_request" else {
+            throw E2EFailure("list_panes accepted stream arguments")
+        }
+        print("watch_arguments=validated")
+
+        func openStream() async throws -> (NWConnection, UInt32) {
+            let connection = try await CompanionClient.open(link: link, identity: identity).connection
+            var opened = false
+            defer { if !opened { connection.cancel() } }
+            let accepted = try await CompanionClient.exchange(request("watch_terminal", watch), connection: connection)
+            guard accepted["error"] == nil, let envelope = accepted["terminalStreamAccepted"] as? [String: Any],
+                envelope["role"] as? String == "watch", envelope["streamVersion"] as? Int == 1
+            else { throw E2EFailure("watch_terminal was not accepted: \(accepted)") }
+            var generation: UInt32?
+            var snapshotBytes = 0
+            var expectedSequence: UInt64 = 0
+            while true {
+                let (frame, frameGeneration) = try Stream.decode(try await CompanionClient.readFrame(connection))
+                if generation == nil {
+                    guard case .snapshotBegin(let begin) = frame,
+                        UUID(uuidString: begin.paneID) == UUID(uuidString: pane.paneID),
+                        UUID(uuidString: begin.targetVersion) == UUID(uuidString: targetVersion), begin.historyIncomplete
+                    else {
+                        throw E2EFailure("stream did not start with snapshot_begin")
+                    }
+                    generation = frameGeneration
+                    continue
+                }
+                guard frameGeneration == generation else { throw E2EFailure("stream changed generation mid-snapshot") }
+                switch frame {
+                case .snapshot(let sequence, let bytes):
+                    guard sequence == expectedSequence, bytes.count <= Stream.maximumDataBytes else {
+                        throw E2EFailure("snapshot chunk was out of order or oversized")
+                    }
+                    expectedSequence += 1
+                    snapshotBytes += bytes.count
+                    guard snapshotBytes <= Stream.maximumSnapshotBytes else { throw E2EFailure("snapshot exceeded its bound") }
+                case .snapshotEnd(let end):
+                    guard end.bytes == snapshotBytes else { throw E2EFailure("snapshot_end byte count mismatch") }
+                    // Do not retain terminal content in the E2E log.
+                    print("watch_snapshot=complete chunks=\(expectedSequence)")
+                    opened = true
+                    return (connection, generation!)
+                default:
+                    throw E2EFailure("unexpected frame before snapshot_end: \(frame.type)")
+                }
+            }
+        }
+        func expectEnd(_ connection: NWConnection, _ reason: Stream.EndReason) async throws {
+            while true {
+                let (frame, _) = try Stream.decode(try await CompanionClient.readFrame(connection))
+                switch frame {
+                case .end(let end):
+                    guard end.reason == reason else { throw E2EFailure("stream ended with \(end.reason) not \(reason)") }
+                    return
+                case .output, .heartbeat, .grid, .leader:
+                    continue
+                default:
+                    throw E2EFailure("unexpected frame while waiting for end: \(frame.type)")
+                }
+            }
+        }
+
+        let (first, generation) = try await openStream()
+        defer { first.cancel() }
+        var claim = Data([Stream.FrameType.claim.rawValue])
+        claim.append(contentsOf: withUnsafeBytes(of: generation.bigEndian) { Data($0) })
+        try await CompanionClient.sendFrame(claim, connection: first)
+        try await expectEnd(first, .protocolError)
+        print("watch_phone_claim=protocol_error")
+
+        let (replaced, _) = try await openStream()
+        defer { replaced.cancel() }
+        let (second, _) = try await openStream()
+        defer { second.cancel() }
+        try await expectEnd(replaced, .superseded)
+        print("watch_reconnect=superseded fresh_snapshot=complete")
+        for allowed in [false, true] {
+            let toggled = try await call(
+                request("set_terminal_preview", ["terminalPreviewAllowed": allowed]), link: link, identity: identity)
+            guard toggled["error"] == nil else { throw E2EFailure("preview toggle failed during watch") }
+            if !allowed { try await expectEnd(second, .revoked) }
+        }
+        print("watch_permission_change=revoked")
     }
 
     private static func call(_ request: [String: Any], link: PairingLink, identity: E2EClientIdentity) async throws -> [String: Any] {
