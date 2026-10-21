@@ -65,6 +65,50 @@ struct CompanionPaneListTests {
         #expect(store.localAPITargets[sibling] != nil)
     }
 
+    @Test func unboundSameStateRuntimeIdentityInvalidatesExactPreview() throws {
+        let session = TerminalSession(title: "Work", workingDirectory: "~")
+        let pane = try #require(session.panes.first)
+        let store = SessionStore(groups: [SessionGroup(name: "Work", sessions: [session])])
+        _ = store.companionWorkspaces(scope: .allWorkspaces) { _ in nil }
+        #expect(store.localAPIAttentionJournal == nil)
+        #expect(
+            store.applyAgentRuntimeEvent(
+                AgentRuntimeEvent(source: .codex, executionState: .thinking, phase: .promptSubmit, eventID: "anonymous"),
+                to: session.id, paneID: pane.id))
+        let anonymous = try #require(store.localAPITargets[pane.id])
+        let thinking = try #require(store.session(id: session.id)?.layout.pane(id: pane.id))
+        #expect(anonymous.providerSessionID == nil)
+        #expect(
+            store.applyAgentRuntimeEvent(
+                AgentRuntimeEvent(
+                    source: .codex, executionState: .thinking, phase: .promptSubmit,
+                    eventID: "identified", providerSessionID: "identified-session"),
+                to: session.id, paneID: pane.id))
+        let unchanged = try #require(store.session(id: session.id)?.layout.pane(id: pane.id))
+        #expect(unchanged == thinking)
+        #expect(unchanged.lastAgentStateChangeAt == thinking.lastAgentStateChangeAt)
+        let identified = try #require(store.localAPITargets[pane.id])
+        #expect(identified.providerSessionID == "identified-session")
+        #expect(identified.version != anonymous.version)
+        var reads = 0
+        let stale = store.companionWorkspaces(
+            scope: .exactTarget(paneID: pane.id, targetVersion: anonymous.version), terminalPreviewAllowed: true
+        ) { _ in
+            reads += 1
+            return "private"
+        }
+        #expect(stale.isEmpty)
+        #expect(reads == 0)
+        let current = store.companionWorkspaces(
+            scope: .exactTarget(paneID: pane.id, targetVersion: identified.version), terminalPreviewAllowed: true
+        ) { _ in
+            reads += 1
+            return "permitted"
+        }
+        #expect(current.first?.panes.first?.lastOutputLine == "permitted")
+        #expect(reads == 1)
+    }
+
     @Test func includesShellsSplitsAndDocumentLeavesInOrder() throws {
         let shell = TerminalPane(title: "Shell", workingDirectory: "~", executionPlan: .local)
         let agent = TerminalPane(title: "Agent", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
