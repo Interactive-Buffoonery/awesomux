@@ -466,15 +466,33 @@ public struct AgentOutputDetector: Sendable {
     /// Codex 0.163's approval overlay: a question followed by its numbered
     /// choices at the bottom of the viewport, where the composer would sit.
     private func containsCodexApprovalPrompt(_ lines: [Substring]) -> Bool {
-        let bottom = lines.filter { !$0.allSatisfy(\.isWhitespace) }.suffix(12)
-        guard
-            let question = bottom.firstIndex(where: { line in
-                Self.codexApprovalQuestions.contains { line.contains($0) }
-            })
-        else { return false }
-        return bottom[question...].contains { line in
-            Self.codexApprovalChoices.contains { line.contains($0) }
+        let bottom = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.suffix(12)
+        guard let question = bottom.lastIndex(where: { Self.codexApprovalQuestions.contains($0) }) else {
+            return false
         }
+        let menu = bottom.suffix(from: bottom.index(after: question))
+        var hasSelectedChoice = false
+        var hasApproval = false
+        var hasRejection = false
+        for line in menu {
+            let selected = line == "›" || line.hasPrefix("› ")
+            let choice = selected ? String(line.dropFirst(2)) : line
+            let parts = choice.split(separator: ".", maxSplits: 1)
+            let numbered = parts.count == 2 && !parts[0].isEmpty && parts[0].allSatisfy(\.isNumber)
+            let label = numbered ? parts[1].trimmingCharacters(in: .whitespaces) : ""
+            let recognized = Self.codexApprovalChoices.contains { label.hasPrefix($0) }
+            if numbered && recognized {
+                hasSelectedChoice = hasSelectedChoice || selected
+                hasApproval = hasApproval || label.hasPrefix("yes,")
+                hasRejection = hasRejection || label.hasPrefix("no,")
+            } else if selected || containsThinkingCue(line) {
+                // A later composer or work indicator means this is transcript,
+                // even when the response quotes a complete numbered menu.
+                return false
+            }
+        }
+        return hasSelectedChoice && hasApproval && hasRejection
     }
 
     private static let codexApprovalQuestions = [
@@ -487,6 +505,7 @@ public struct AgentOutputDetector: Sendable {
     private static let codexApprovalChoices = [
         "yes, proceed",
         "yes, just this once",
+        "yes, and don't ask again",
         "no, and tell codex what to do differently",
     ]
 
