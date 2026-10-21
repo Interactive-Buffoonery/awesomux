@@ -376,10 +376,6 @@ struct ContentView: View {
                 hostPresentation: hostPresentation
             )
 
-            if let summary = sessionStore.whileAwaySummary {
-                WhileAwaySummaryView(store: sessionStore, summary: summary)
-            }
-
             SidebarSplitView(
                 terminalMinimumWidth: Self.terminalMinimumWidth,
                 initialWidth: sidebarWidth,
@@ -457,6 +453,11 @@ struct ContentView: View {
                         edgeTabVisibilitySource: sidebarPresentation.visibilitySource,
                         sidebarPosition: sidebarPosition
                     )
+                    .overlay(alignment: .top) {
+                        if let summary = sessionStore.whileAwaySummary {
+                            WhileAwaySummaryView(store: sessionStore, summary: summary)
+                        }
+                    }
                     .environment(appSettingsStore)
                     .environment(documentTabActions)
                     .environment(branchChangesCoordinator)

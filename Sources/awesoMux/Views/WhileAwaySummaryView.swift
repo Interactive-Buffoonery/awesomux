@@ -1,5 +1,6 @@
 import AwesoMuxCore
 import AwesoMuxLocalAPI
+import DesignSystem
 import SwiftUI
 
 struct WhileAwaySummaryView: View {
@@ -25,8 +26,11 @@ struct WhileAwaySummaryView: View {
             .buttonStyle(.borderless)
             .accessibilityLabel(String(localized: "Dismiss while you were away summary"))
         }
-        .padding()
+        .padding(AwSpacing.panelPadding)
         .background(.regularMaterial)
+        .onAppear {
+            TerminalAccessibilityAnnouncer.announce(String(localized: "While you were away"))
+        }
         .sheet(isPresented: $showingDetails) {
             WhileAwayDetailsView(store: store, summary: summary)
         }
@@ -76,18 +80,24 @@ private struct WhileAwayDetailsView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(String(localized: "While you were away"))
                 .font(.title2)
+                .accessibilityAddTraits(.isHeader)
             if summary.olderActivityUnavailable {
                 Label(String(localized: "Older activity unavailable"), systemImage: "exclamationmark.triangle")
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(workspaceIDs, id: \.self) { workspaceID in
-                        Text(store.session(id: workspaceID)?.title ?? String(localized: "Deleted workspace"))
+                        LiveTitleScope(sessionID: workspaceID, reads: .workspaceTitle) { titles in
+                            Text(
+                                store.session(id: workspaceID).map { titles.workspaceTitle(for: $0) }
+                                    ?? String(localized: "Deleted workspace")
+                            )
                             .font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                        }
                         ForEach(panes.filter { $0.workspaceID == workspaceID }) { pane in
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(store.session(id: workspaceID)?.layout.pane(id: pane.id)?.title ?? String(localized: "Deleted pane"))
-                                    .font(.subheadline.bold())
+                                paneHeading(pane.id)
                                 ForEach(pane.events, id: \.attentionID) { event in
                                     HStack(alignment: .firstTextBaseline) {
                                         Text(Self.description(event))
@@ -113,8 +123,26 @@ private struct WhileAwayDetailsView: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .onExitCommand { dismiss() }
+        .padding(AwSpacing.panelPadding)
         .frame(minWidth: 480, idealWidth: 600, minHeight: 300, idealHeight: 480)
+    }
+
+    @ViewBuilder
+    private func paneHeading(_ paneID: UUID) -> some View {
+        if let session = store.groups.lazy.flatMap(\.sessions).first(where: { $0.layout.pane(id: paneID) != nil }),
+            let pane = session.layout.pane(id: paneID)
+        {
+            LiveTitleScope(sessionID: session.id, reads: .paneTitle(paneID)) { titles in
+                Text(titles.paneTitle(for: pane))
+                    .font(.subheadline.bold())
+                    .accessibilityAddTraits(.isHeader)
+            }
+        } else {
+            Text(String(localized: "Deleted pane"))
+                .font(.subheadline.bold())
+                .accessibilityAddTraits(.isHeader)
+        }
     }
 
     private static func description(_ event: LocalAPIAttentionEvent) -> String {
