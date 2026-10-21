@@ -1,7 +1,8 @@
 # 0040 — A snapshot-first stream for live terminals
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-20
+- **Accepted:** 2026-10-20 — Sarah accepted the recommendation as written
 - **Deciders:** Sarah
 - **Issue:** [#826](https://github.com/Interactive-Buffoonery/awesomux/issues/826)
 
@@ -27,6 +28,7 @@ Sarah's standing decisions apply: no hosted relay for now, and the direct
 LAN/Tailscale connection from [ADR-0035](0035-awesomux-companion-pairing.md)
 comes first. Watch-only roles and explicit takeover in the zmx fork are #827.
 This is a docs-only decision; no listener, frame or daemon change ships with it.
+Sarah accepted this record on 2026-10-20; it is now policy for that work.
 
 ## Options considered
 
@@ -46,7 +48,7 @@ This is a docs-only decision; no listener, frame or daemon change ships with it.
 
 ## Decision
 
-**Recommendation:** add a `watch_terminal` operation that converts one paired
+**Decision:** add a `watch_terminal` operation that converts one paired
 connection into a long-lived terminal stream backed by a dedicated zmx client
 the Mac opens for that device and pane. The stream always begins with a
 snapshot, then carries output in daemon order. Every reconnect is a new attach
@@ -136,8 +138,8 @@ with a new snapshot. Nothing is replayed, and no stream crosses a relay.
 - The Mac sends `heartbeat` every 15 seconds while idle and closes a stream
   with no readable frame or TCP progress for 45 seconds. The phone keeps a
   stream open only while the terminal view is foreground and visible and ends
-  it on background, lock or view dismissal, matching ADR-0039's memory-only
-  posture. Received bytes are not written to disk, widgets, notifications,
+  it the moment the view leaves the foreground, on lock or on dismissal, with
+  no grace period, matching ADR-0039's memory-only posture. Received bytes are not written to disk, widgets, notifications,
   logs or analytics.
 
 ### Cancel, revocation and every write
@@ -198,8 +200,7 @@ change provides no runtime evidence.
 
 ## Open questions for Sarah
 
-Questions 1 and 2 answered by Sarah on 2026-10-20; questions 3 and 4 remain
-open, so this record stays Proposed.
+Answered by Sarah on 2026-10-20; the recommendation is accepted as written.
 
 1. Confirm the slow-phone policy: the Mac never stalls the pane, discards the
    stream's pending buffer at the 4 MiB bound and restarts the stream with a
@@ -213,6 +214,11 @@ open, so this record stays Proposed.
 3. Accept raw daemon bytes on the stream, relying on the phone renderer to
    suppress replies and ignore host-effect sequences, instead of Mac-side
    filtering that would need a second emulator in the relay?
+   **Decision:** yes. The stream carries raw daemon bytes; the phone renderer
+   suppresses replies and ignores host-effect sequences. No filtering on the
+   Mac.
 4. End the stream the moment the phone view leaves the foreground, matching
    ADR-0039, or allow a short grace period (for example 30 seconds) before the
    Mac detaches the relay client?
+   **Decision:** end the stream the moment the view leaves the foreground,
+   matching ADR-0039. No grace period.
