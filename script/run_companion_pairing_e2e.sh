@@ -14,6 +14,7 @@ chmod 700 "$ARTIFACT_ROOT"
 ARTIFACT_DIR="$(mktemp -d "$ARTIFACT_ROOT/run.XXXXXX")"
 LINK_FILE="$ARTIFACT_DIR/pairing-link.txt"
 RESULT_FILE="$ARTIFACT_DIR/result.json"
+CLIENT_IDENTITY_RECEIPT="$ARTIFACT_DIR/client-identity.json"
 STAGE_LOG="$ARTIFACT_DIR/stage.log"
 APP_LOG="$ARTIFACT_DIR/app.log"
 E2E_LOG="$ARTIFACT_DIR/e2e.log"
@@ -160,11 +161,15 @@ cleanup_preferences() {
 
 cleanup() {
   local result=$? cleanup_failed=0
-  trap - EXIT INT TERM
+  trap - EXIT
+  trap '' INT TERM HUP
   : > "$LINK_FILE"
   if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
     kill "$app_pid" || cleanup_failed=1
     wait "$app_pid" 2>/dev/null || true
+  fi
+  if [[ -e "$CLIENT_IDENTITY_RECEIPT" || -L "$CLIENT_IDENTITY_RECEIPT" ]]; then
+    fixture_run "$client" --cleanup-client-identity "$CLIENT_IDENTITY_RECEIPT" >> "$E2E_LOG" 2>&1 || cleanup_failed=1
   fi
   if [[ -s "$RESULT_FILE" ]]; then
     fixture_run "$client" --cleanup-result "$RESULT_FILE" >> "$E2E_LOG" 2>&1 || cleanup_failed=1
@@ -193,7 +198,9 @@ cleanup() {
   fi
   if [[ "$cleanup_failed" -ne 0 ]]; then
     echo "error: owned fixture cleanup failed; retained artifacts at $ARTIFACT_DIR" >&2
-    result=1
+    if [[ "$result" -eq 0 ]]; then
+      result=1
+    fi
   fi
   echo "fixture_cleanup=$cleanup_failed" >> "$E2E_LOG"
   echo "E2E log: $E2E_LOG"
@@ -207,6 +214,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 for owned in "$fixture_support" "$fixture_config" "$fixture_socket" "$fixture_api" "$fixture_defaults"; do
   if [[ -e "$owned" || -L "$owned" ]]; then

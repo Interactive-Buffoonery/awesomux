@@ -178,6 +178,13 @@ struct CompanionPairingE2E {
     static func main() async {
         var ownedIdentity: E2EClientIdentity?
         do {
+            let arguments = Array(CommandLine.arguments.dropFirst())
+            if arguments.first == "--cleanup-client-identity" {
+                guard arguments.count == 2 else { throw E2EFailure("invalid client cleanup command") }
+                try E2EClientIdentity.cleanup(receiptPath: arguments[1])
+                print("client_identity=removed_and_verified")
+                return
+            }
             if try handleFixtureCommand() { return }
             let invocation = try invocation()
             if let cleanupResult = invocation.cleanupResult {
@@ -188,14 +195,15 @@ struct CompanionPairingE2E {
             guard let rawLink = invocation.link else { throw E2EFailure("pairing link is missing") }
             guard let expectedProfile = invocation.profile else { throw E2EFailure("development profile is missing") }
             let link = try PairingLink(rawLink)
-            let identity = try E2EClientIdentity.make()
+            guard let resultFile = invocation.resultFile else { throw E2EFailure("the result file is missing") }
+            let receiptPath = URL(fileURLWithPath: resultFile).deletingLastPathComponent().appending(path: "client-identity.json").path
+            let identity = try E2EClientIdentity.make(receiptPath: receiptPath)
             ownedIdentity = identity
             print("endpoint=\(link.host):\(link.port) transport=\(link.transport) mac=\(link.macName)")
             print("client_spki_sha256=\(Data(SHA256.hash(data: identity.spki)).base64URL)")
 
             try await verifyWrongSecretIsDenied(link: link, identity: identity)
             let connectionID = try await pair(link: link, identity: identity)
-            guard let resultFile = invocation.resultFile else { throw E2EFailure("the result file is missing") }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile)
             try await verifyMacPin(link: link, identity: identity)
             var profile: String?

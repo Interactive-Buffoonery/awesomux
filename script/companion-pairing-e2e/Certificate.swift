@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import Security
 
@@ -8,10 +9,12 @@ struct E2EClientIdentity {
     private let keyTag: Data
     private let certificateLabel: String
 
-    static func make() throws -> Self {
+    static func make(receiptPath: String) throws -> Self {
         let identifier = UUID().uuidString.lowercased()
         let label = "awesoMux Companion E2E \(identifier)"
         let tag = Data("com.interactivebuffoonery.awesomux.companion-e2e.\(identifier)".utf8)
+        try verifyAbsent(keyTag: tag, certificateLabel: label)
+        try writeReceipt(identifier: identifier, path: receiptPath)
         do {
             var error: Unmanaged<CFError>?
             guard
@@ -62,7 +65,73 @@ struct E2EClientIdentity {
         try Self.cleanup(keyTag: keyTag, certificateLabel: certificateLabel)
     }
 
-    private static func cleanup(keyTag: Data, certificateLabel: String) throws {
+    private struct OwnershipReceipt: Codable {
+        let version: Int
+        let runPath: String
+        let identifier: String
+    }
+
+    private static func receiptLocation(_ path: String) throws -> (path: String, runPath: String) {
+        func physical(_ path: String) throws -> String {
+            guard let resolved = Darwin.realpath(path, nil) else { throw E2EFailure("cannot resolve client receipt path") }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
+        let url = URL(fileURLWithPath: path)
+        let run = try physical(url.deletingLastPathComponent().path)
+        let root = try physical("/tmp/companion-pairing-e2e")
+        var attributes = stat()
+        guard url.lastPathComponent == "client-identity.json",
+            (run as NSString).lastPathComponent.hasPrefix("run."),
+            (run as NSString).deletingLastPathComponent == root,
+            lstat(run, &attributes) == 0, attributes.st_uid == getuid(),
+            attributes.st_mode & S_IFMT == S_IFDIR, attributes.st_mode & 0o077 == 0
+        else { throw E2EFailure("refusing a non-owned client receipt directory") }
+        return (run + "/client-identity.json", run)
+    }
+
+    private static func writeReceipt(identifier: String, path: String) throws {
+        let location = try receiptLocation(path)
+        let data = try JSONEncoder().encode(OwnershipReceipt(version: 1, runPath: location.runPath, identifier: identifier))
+        // Claim once, before any permanent Keychain item exists. A partial receipt
+        // cannot own items because creation starts only after the durable write.
+        let descriptor = open(location.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard descriptor >= 0 else { throw E2EFailure("cannot claim client identity receipt: \(errno)") }
+        defer { close(descriptor) }
+        try data.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let count = Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                if count < 0 && errno == EINTR { continue }
+                guard count > 0 else { throw E2EFailure("cannot write client identity receipt: \(errno)") }
+                offset += count
+            }
+        }
+        guard fsync(descriptor) == 0 else { throw E2EFailure("cannot sync client identity receipt: \(errno)") }
+    }
+
+    static func cleanup(receiptPath: String) throws {
+        let location = try receiptLocation(receiptPath)
+        // Open without following a symlink, then validate the opened file itself.
+        let descriptor = open(location.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { throw E2EFailure("cannot open client identity receipt: \(errno)") }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var attributes = stat()
+        guard fstat(descriptor, &attributes) == 0, attributes.st_uid == getuid(),
+            attributes.st_mode & S_IFMT == S_IFREG, attributes.st_mode & 0o077 == 0,
+            attributes.st_size > 0, attributes.st_size <= 4096
+        else { throw E2EFailure("invalid client identity receipt attributes") }
+        let receipt = try JSONDecoder().decode(OwnershipReceipt.self, from: handle.read(upToCount: 4097) ?? Data())
+        guard receipt.version == 1, receipt.runPath == location.runPath,
+            let uuid = UUID(uuidString: receipt.identifier), uuid.uuidString.lowercased() == receipt.identifier
+        else { throw E2EFailure("invalid client identity ownership receipt") }
+        try cleanup(
+            keyTag: Data("com.interactivebuffoonery.awesomux.companion-e2e.\(receipt.identifier)".utf8),
+            certificateLabel: "awesoMux Companion E2E \(receipt.identifier)")
+    }
+
+    private static func itemQueries(keyTag: Data, certificateLabel: String) -> [(String, [String: Any])] {
         var queries: [(String, [String: Any])] = [
             ("certificate", [kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: certificateLabel])
         ]
@@ -81,6 +150,20 @@ struct E2EClientIdentity {
             labelled[kSecAttrLabel as String] = certificateLabel
             queries.append(("\(name) key label", labelled))
         }
+        return queries
+    }
+
+    private static func verifyAbsent(keyTag: Data, certificateLabel: String) throws {
+        for (name, query) in itemQueries(keyTag: keyTag, certificateLabel: certificateLabel) {
+            let status = SecItemCopyMatching(query as CFDictionary, nil)
+            guard status == errSecItemNotFound else {
+                throw E2EFailure("client identity collision/absence check failed for \(name): \(status)")
+            }
+        }
+    }
+
+    private static func cleanup(keyTag: Data, certificateLabel: String) throws {
+        let queries = itemQueries(keyTag: keyTag, certificateLabel: certificateLabel)
         var failures: [String] = []
         for (name, query) in queries {
             let status = SecItemDelete(query as CFDictionary)
