@@ -160,7 +160,7 @@ user batch or explicit typed takeover applies its validated dimensions before
 its bytes. Automation does neither. The existing Mac `attach` stream still uses
 a legacy heuristic to distinguish user input from replies; coalesced arbitrary
 stdin cannot provide the typed protocol's provenance guarantees. C0 controls
-except ESC, DEL and ordinary CSI arrows can claim before a legacy leader exists.
+(except ESC), DEL and ordinary CSI arrows can claim before a legacy leader exists.
 Standalone ESC before leadership remains an explicit legacy limitation; no
 timeout or guessing heuristic is used. The daemon answers DA queries while
 leaderless, including with legacy clients attached; other terminal queries may
