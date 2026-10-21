@@ -210,9 +210,16 @@ EOF
 # Staging owns dist; retain its executable path for the firewall allowlist while
 # giving this launch a run-specific identity, as the native lifecycle harness does.
 fixture_restamped=1
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $AWESOMUX_PROFILE_BUNDLE_ID" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $AWESOMUX_PROFILE_DISPLAY_NAME" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleName $AWESOMUX_PROFILE_DISPLAY_NAME" "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist"
+python3 - "$ROOT_DIR/dist/awesoMux.app/Contents/Info.plist" "$AWESOMUX_PROFILE_BUNDLE_ID" "$AWESOMUX_PROFILE_DISPLAY_NAME" <<'PYPLIST'
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+metadata = plistlib.loads(path.read_bytes())
+metadata.update(CFBundleIdentifier=sys.argv[2], CFBundleDisplayName=sys.argv[3], CFBundleName=sys.argv[3])
+path.write_bytes(plistlib.dumps(metadata))
+PYPLIST
 codesign --force --deep --sign - "$ROOT_DIR/dist/awesoMux.app" >> "$STAGE_LOG" 2>&1
 codesign --verify --deep --strict "$ROOT_DIR/dist/awesoMux.app" >> "$STAGE_LOG" 2>&1
 firewall_preflight
