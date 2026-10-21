@@ -185,6 +185,11 @@ struct CompanionPairingE2E {
                 print("client_identity=removed_and_verified")
                 return
             }
+            if arguments == ["--decision-outcomes-only"] {
+                try verifyDecisionOutcomeOrdering()
+                print("decision_outcome_ordering=passed")
+                return
+            }
             if try handleFixtureCommand() { return }
             if Array(CommandLine.arguments.dropFirst()) == ["--alert-preferences-only"] {
                 try verifyAlertPreferenceWireFixtures()
@@ -339,12 +344,7 @@ struct CompanionPairingE2E {
                 }
             }
             let refreshedDecisions = try await call(request("list_pending_decisions"), link: link, identity: identity)
-            guard (refreshedDecisions["pendingDecisions"] as? [[String: Any]])?.count == 1,
-                let current = (refreshedDecisions["decisionOutcomes"] as? [[String: Any]])?.first,
-                let source = current["source"] as? [String: Any],
-                UUID(uuidString: source["deviceID"] as? String ?? "") == UUID(uuidString: connectionID),
-                source["name"] as? String == "E2E iPhone"
-            else { throw E2EFailure("fresh list lost the queued request or winning device source") }
+            try verifyRefreshedDecisionList(refreshedDecisions, live: live, connectionID: connectionID)
             let expired = try await call(
                 answer(expiredIdentity, choice: "deny", retry: UUID().uuidString), link: link, identity: identity)
             guard (expired["decisionReceipt"] as? [String: Any])?["result"] as? String == "expired" else {

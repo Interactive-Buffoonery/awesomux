@@ -213,9 +213,10 @@ final class CompanionPairingCoordinator {
     }
 
     func reconcileDecisionWorkspaces() {
+        guard let service else { return }
         let phones = pairedPhones.filter { $0.companion?.decideWorkspaceIDs != nil }
         guard !phones.isEmpty else { return }
-        let live = Set(decisionWorkspaces.map(\.id))
+        let live = Set(service.companionDecisionWorkspaces.map(\.id))
         for phone in phones {
             guard let previous = phone.companion?.decideWorkspaceIDs else { continue }
             let retained = previous.filter { live.contains($0) }
