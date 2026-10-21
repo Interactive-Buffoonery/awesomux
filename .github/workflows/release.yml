@@ -187,7 +187,9 @@ jobs:
         # get their own processes. `announcement` is local-all only.
         group: [zmx, timing, sidebar, nontiming]
     runs-on: ${{ vars.NATIVE_CI_RUNNER || 'xcode-27' }}
-    timeout-minutes: 120
+    # Green shards finish in about 20 minutes; a wedged run should fail
+    # fast instead of holding a hosted macOS runner for two hours.
+    timeout-minutes: 40
     # No environment and no secrets: this job only tests trusted, maintainer-
     # owned code, and running before the release environment approval keeps
     # signing material out of its reach entirely.

@@ -17,7 +17,7 @@ struct CompanionSettingsPane: View {
             title: String(localized: "awesoMux Companion", comment: "Companion settings title."),
             subtitle: String(
                 localized:
-                    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. This feature is currently read-only.",
+                    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. Pane renaming is available with your permission.",
                 comment: "Companion settings description."
             ),
             badge: String(localized: "Alpha", comment: "Companion prerelease badge.")
@@ -76,6 +76,14 @@ struct CompanionSettingsPane: View {
         .sheet(isPresented: $showsPairing, onDismiss: coordinator.cancelPairing) {
             CompanionPairingSheet()
         }
+        .onChange(of: visibleError) { _, message in
+            guard let message else { return }
+            let announcement =
+                coordinator.persistenceFailureMessage == nil
+                ? message
+                : message + " " + String(localized: "Retry Save", comment: "Retry Companion metadata save.")
+            AccessibilityNotification.Announcement(announcement).post()
+        }
         .confirmationDialog(
             String(localized: "Unpair iPhone?", comment: "Companion unpair confirmation title."),
             isPresented: Binding(
@@ -108,14 +116,18 @@ struct CompanionSettingsPane: View {
     }
 
     private var listeningFooter: String? {
-        switch coordinator.activeTransport {
-        case .tailscale:
-            String(localized: "Listening on Tailscale only", comment: "Companion active Tailscale transport footer.")
-        case .lan:
-            String(localized: "Listening on local network only", comment: "Companion active LAN transport footer.")
-        case nil:
-            nil
+        let transports = coordinator.boundAddresses.map(\.transport)
+        if transports.contains(.lan), transports.contains(.tailscale) {
+            return String(
+                localized: "Listening on local network and Tailscale", comment: "Companion active LAN and Tailscale transports footer.")
         }
+        if transports.contains(.lan) {
+            return String(localized: "Listening on local network only", comment: "Companion active LAN transport footer.")
+        }
+        if transports.contains(.tailscale) {
+            return String(localized: "Listening on Tailscale only", comment: "Companion active Tailscale transport footer.")
+        }
+        return nil
     }
 
     private func phoneRow(_ phone: LocalAPIConnectionGrant) -> some View {
@@ -142,6 +154,25 @@ struct CompanionSettingsPane: View {
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text2)
             }
+            Toggle(
+                isOn: Binding(
+                    get: { phone.companion?.paneRenameScope != nil },
+                    set: { allowed in
+                        do {
+                            try coordinator.setPaneRenameAllowed(allowed, for: phone)
+                        } catch {
+                            errorMessage = String(localized: "awesoMux couldn't save the pane rename permission.")
+                        }
+                    }
+                )
+            ) {
+                Text(String(localized: "Allow pane renaming"))
+            }
+            .accessibilityLabel(
+                String.localizedStringWithFormat(String(localized: "Allow pane renaming for %@"), phone.label))
+            Text(String(localized: "Lets this phone rename terminal panes within its visible workspaces."))
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text3)
             Text(lastSeenText(phone.id))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
@@ -177,7 +208,6 @@ struct CompanionSettingsPane: View {
 private struct CompanionPairingSheet: View {
     @Environment(CompanionPairingCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
-    @State private var transport: LocalAPICompanionTransport = .lan
     @State private var now = Date()
     @State private var errorMessage: String?
     @State private var qrImage: NSImage?
@@ -189,19 +219,7 @@ private struct CompanionPairingSheet: View {
                 .foregroundStyle(Color.aw.text)
                 .accessibilityAddTraits(.isHeader)
 
-            SettingsField(
-                label: String(localized: "Pairing transport"),
-                forwardsAccessibilityToControl: false
-            ) {
-                SettingsSegmented(
-                    options: transportOptions,
-                    selection: $transport,
-                    expandsToFill: true
-                )
-                .accessibilityLabel(String(localized: "Pairing transport"))
-            }
-
-            if let session = coordinator.pairingSession {
+            if let session = coordinator.pairingSession, coordinator.currentPairingLink != nil {
                 if let qrImage {
                     Image(nsImage: qrImage)
                         .interpolation(.none)
@@ -244,11 +262,32 @@ private struct CompanionPairingSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
+            } else if let session = coordinator.pairingSession {
+                Text(
+                    String(
+                        localized: "Waiting for a local network or Tailscale address…",
+                        comment: "Companion pairing waiting for a network route.")
+                )
+                .awFont(AwFont.UI.meta)
+                .foregroundStyle(Color.aw.text2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+                Text(expiryText(session.expiresAt))
+                    .awFont(AwFont.Mono.meta)
+                    .foregroundStyle(Color.aw.text2)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else if let errorMessage {
                 Text(errorMessage)
                     .awFont(AwFont.UI.meta)
                     .foregroundStyle(Color.aw.status.needs)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Button(String(localized: "Try Again", comment: "Retry starting Companion pairing button.")) {
+                    Task { await startPairing() }
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity)
             } else {
                 ProgressView()
                     .accessibilityLabel(String(localized: "Creating pairing code"))
@@ -263,11 +302,11 @@ private struct CompanionPairingSheet: View {
         }
         .padding(24)
         .frame(width: 440)
-        .task(id: transport) {
+        .task {
             await startPairing()
         }
-        .task(id: coordinator.pairingSession?.id) {
-            qrImage = coordinator.pairingSession.flatMap { Self.qrImage(for: $0.link) }
+        .task(id: coordinator.currentPairingLink) {
+            qrImage = coordinator.currentPairingLink.flatMap { Self.qrImage(for: $0) }
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now = $0 }
         .onChange(of: coordinator.pairingResult) { _, result in
@@ -289,17 +328,6 @@ private struct CompanionPairingSheet: View {
             }
         } message: { prompt in
             Text(prompt.words.joined(separator: "   "))
-        }
-    }
-
-    private var transportOptions: [SettingsSegmented<LocalAPICompanionTransport>.Option] {
-        coordinator.availableTransports.map { transport in
-            switch transport {
-            case .lan:
-                .init(value: .lan, label: String(localized: "Local network", comment: "Companion LAN choice."))
-            case .tailscale:
-                .init(value: .tailscale, label: String(localized: "Tailscale", comment: "Companion Tailscale choice."))
-            }
         }
     }
 
@@ -327,13 +355,12 @@ private struct CompanionPairingSheet: View {
     private func startPairing() async {
         do {
             errorMessage = nil
-            _ = try await coordinator.beginPairing(transport: transport)
-        } catch CompanionPairingError.noTailscaleAddress {
-            errorMessage = String(localized: "This Mac doesn't currently have a Tailscale address.")
+            _ = try await coordinator.beginPairing()
         } catch CompanionPairingError.noLocalAddress {
-            errorMessage = String(localized: "This Mac doesn't currently have a local network address.")
-        } catch CompanionPairingError.transportInUse {
-            errorMessage = String(localized: "Unpair existing phones before switching network type.")
+            errorMessage = String(
+                localized: "This Mac doesn't currently have a local network or Tailscale address.",
+                comment: "Companion pairing start error when no route exists."
+            )
         } catch {
             errorMessage = String(localized: "Companion pairing could not start.")
         }

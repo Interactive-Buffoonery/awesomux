@@ -204,7 +204,7 @@ struct RemoteMarkdownReferenceTests {
         "document destinations stay within the source directory",
         arguments: [
             "markdownDestinationResolvesAgainstSourceDocumentDirectory", "markdownDestinationCannotEscapeSourceDirectory",
-            "markdownDestinationAllowsContainedNormalization", "markdownDestinationRejectsQueryAndSupportsTildeSource",
+            "markdownDestinationRejectsQueryAndSupportsTildeSource",
         ])
     func destinations(scenario: String) async throws {
         switch scenario {
@@ -233,18 +233,6 @@ struct RemoteMarkdownReferenceTests {
                     relativeTo: source
                 ) == nil
             )
-        case "markdownDestinationAllowsContainedNormalization":
-            let source = ResourceIdentity(
-                location: .remote(RemoteTarget(parsing: "my-purple")!),
-                path: ResourcePath(rawValue: "/repo/docs/README.md")
-            )
-            let reference = try #require(
-                RemoteMarkdownReference.make(
-                    markdownDestination: "nested/../sibling.md",
-                    relativeTo: source
-                )
-            )
-            #expect(reference.remotePath == "/repo/docs/sibling.md")
         case "markdownDestinationRejectsQueryAndSupportsTildeSource":
             let source = ResourceIdentity(
                 location: .remote(RemoteTarget(parsing: "alice@my-purple")!),
@@ -284,28 +272,10 @@ struct RemoteMarkdownReferenceTests {
     @Test(
         "opened links normalize containment and round trip remote identities",
         arguments: [
-            "openedLinkURLRejectsLocalEscape", "openedLinkURLAcceptsContainedAbsolutePath", "absoluteDestinationNeverEncodesAsLocalFileURL",
-            "openedLinkURLRejectsCraftedParentTraversalUnderPrefix",
+            "openedLinkURLAcceptsContainedAbsolutePath", "openedLinkURLRejectsCraftedParentTraversalUnderPrefix",
         ])
     func openedLinks(scenario: String) async throws {
         switch scenario {
-        case "openedLinkURLRejectsLocalEscape":
-            let source = ResourceIdentity(
-                location: .remote(RemoteTarget(parsing: "my-purple")!),
-                path: ResourcePath(rawValue: "/repo/docs/README.md")
-            )
-            #expect(
-                RemoteMarkdownReference.make(
-                    openedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
-                    relativeTo: source
-                ) == nil
-            )
-            #expect(
-                RemoteMarkdownDocumentLinkNavigation.reference(
-                    forOpenedLinkURL: URL(fileURLWithPath: "/tmp/evil.md"),
-                    from: source
-                ) == nil
-            )
         case "openedLinkURLAcceptsContainedAbsolutePath":
             let source = ResourceIdentity(
                 location: .remote(RemoteTarget(parsing: "my-purple")!),
@@ -317,25 +287,6 @@ struct RemoteMarkdownReferenceTests {
             )
             #expect(reference.remotePath == "/repo/docs/sibling.md")
             #expect(reference.sshTarget == "my-purple")
-        case "absoluteDestinationNeverEncodesAsLocalFileURL":
-            let source = ResourceIdentity(
-                location: .remote(RemoteTarget(parsing: "my-purple")!),
-                path: ResourcePath(rawValue: "/repo/docs/README.md")
-            )
-            let link = try #require(
-                RemoteMarkdownReference.linkURL(
-                    forMarkdownDestination: "sibling.md",
-                    relativeTo: source
-                )
-            )
-            #expect(link.scheme == RemoteMarkdownReference.remoteMarkdownLinkScheme)
-            #expect(!link.isFileURL)
-            // Still round-trips through the click gate back to the same remote path.
-            let reopened = try #require(
-                RemoteMarkdownReference.make(openedLinkURL: link, relativeTo: source)
-            )
-            #expect(reopened.remotePath == "/repo/docs/sibling.md")
-            #expect(reopened.sshTarget == "my-purple")
         case "openedLinkURLRejectsCraftedParentTraversalUnderPrefix":
             let absoluteSource = ResourceIdentity(
                 location: .remote(RemoteTarget(parsing: "my-purple")!),

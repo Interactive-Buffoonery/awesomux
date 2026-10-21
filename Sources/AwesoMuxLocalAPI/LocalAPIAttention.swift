@@ -18,11 +18,16 @@ public struct LocalAPIAttentionEvent: Codable, Sendable {
     public let occurredAt: Date
     public let reason: String
     public let resolvedAt: Date?
+    public let exitCode: Int?
+    public let durationSeconds: Double?
+
+    public var isCommandEvent: Bool { exitCode != nil }
 
     public init(
         id: UUID = UUID(), attentionID: UUID, change: LocalAPIAttentionChange,
         paneID: UUID, workspaceID: UUID, provider: String, providerSessionID: String?,
-        targetVersion: UUID, occurredAt: Date, reason: String, resolvedAt: Date? = nil
+        targetVersion: UUID, occurredAt: Date, reason: String, resolvedAt: Date? = nil,
+        exitCode: Int? = nil, durationSeconds: Double? = nil
     ) {
         self.id = id
         self.attentionID = attentionID
@@ -35,6 +40,8 @@ public struct LocalAPIAttentionEvent: Codable, Sendable {
         self.occurredAt = occurredAt
         self.reason = reason
         self.resolvedAt = resolvedAt
+        self.exitCode = exitCode
+        self.durationSeconds = durationSeconds
     }
 }
 
@@ -77,6 +84,7 @@ public struct LocalAPIAttentionJournal {
         let globalRevision: UUID
         let connectionRevision: UUID
         let position: String
+        let includeCommandEvents: Bool
     }
 
     private let instanceID: UUID
@@ -98,7 +106,7 @@ public struct LocalAPIAttentionJournal {
 
     public func page(
         cursor value: String?, limit: Int, lease: LocalAPIAuthorizationLease,
-        liveTargetVersions: [UUID: UUID]
+        liveTargetVersions: [UUID: UUID], includeCommandEvents: Bool = false
     ) throws -> LocalAPIAttentionPage {
         guard limit > 0 else { throw LocalAPIError.invalidRequest }
         var start = entries.first.map { $0.position - 1 } ?? position
@@ -118,7 +126,8 @@ public struct LocalAPIAttentionJournal {
                     let data = try AES.GCM.open(box, using: cursorKey)
                     cursor = try LocalAPIContract.decoder().decode(Cursor.self, from: data)
                 } catch { throw LocalAPIError.invalidCursor }
-                guard cursor.connectionID == lease.connectionID, cursor.position.utf8.count == 16,
+                guard cursor.connectionID == lease.connectionID, cursor.includeCommandEvents == includeCommandEvents,
+                    cursor.position.utf8.count == 16,
                     let cursorPosition = UInt64(cursor.position, radix: 16), cursorPosition <= position
                 else {
                     throw LocalAPIError.invalidCursor
@@ -135,13 +144,13 @@ public struct LocalAPIAttentionJournal {
         }
         if status != .initial && status != .current {
             return LocalAPIAttentionPage(
-                events: [], nextCursor: try encodeCursor(position: position, lease: lease),
+                events: [], nextCursor: try encodeCursor(position: position, lease: lease, includeCommandEvents: includeCommandEvents),
                 cursorStatus: status, hasMore: false
             )
         }
         let authorized = entries.filter { entry in
             let event = entry.event
-            guard entry.position > start,
+            guard entry.position > start, includeCommandEvents || !event.isCommandEvent,
                 lease.statusScope.allows(
                     paneID: event.paneID, workspaceID: event.workspaceID, targetVersion: event.targetVersion
                 )
@@ -155,16 +164,20 @@ public struct LocalAPIAttentionJournal {
         let hasMore = authorized.count > selected.count
         let end = hasMore ? selected.last!.position : position
         return LocalAPIAttentionPage(
-            events: selected.map(\.event), nextCursor: try encodeCursor(position: end, lease: lease),
+            events: selected.map(\.event),
+            nextCursor: try encodeCursor(position: end, lease: lease, includeCommandEvents: includeCommandEvents),
             cursorStatus: status, hasMore: hasMore
         )
     }
 
-    private func encodeCursor(position: UInt64, lease: LocalAPIAuthorizationLease) throws -> String {
+    private func encodeCursor(
+        position: UInt64, lease: LocalAPIAuthorizationLease, includeCommandEvents: Bool
+    ) throws -> String {
         let data = try LocalAPIContract.encoder().encode(
             Cursor(
                 connectionID: lease.connectionID, globalRevision: lease.globalRevision,
-                connectionRevision: lease.connectionRevision, position: String(format: "%016llx", position)
+                connectionRevision: lease.connectionRevision, position: String(format: "%016llx", position),
+                includeCommandEvents: includeCommandEvents
             ))
         guard let sealed = try AES.GCM.seal(data, using: cursorKey).combined else { throw LocalAPIError.transportFailure }
         return instanceID.uuidString.lowercased() + "." + sealed.base64EncodedString()

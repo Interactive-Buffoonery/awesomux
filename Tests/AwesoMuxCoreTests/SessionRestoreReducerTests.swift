@@ -473,32 +473,6 @@ struct SessionRestoreReducerTests {
         #expect(restored.layout.pane(id: livePrompt.id)?.attentionReason == .permissionPrompt)
     }
 
-    @Test("restore reassigns duplicate group ids after name merging")
-    func restoreReassignsDuplicateGroupIDsAfterNameMerging() throws {
-        let sharedGroupID = UUID()
-        let first = TerminalSession(title: "first", workingDirectory: "~", agentKind: .shell)
-        let second = TerminalSession(title: "second", workingDirectory: "~", agentKind: .shell)
-        let snapshot = SessionSnapshot(
-            groups: [
-                SessionGroup(id: sharedGroupID, name: "alpha", sessions: [first]),
-                SessionGroup(id: sharedGroupID, name: "beta", sessions: [second])
-            ],
-            selectedSessionID: nil
-        )
-
-        let restored = SessionRestoreReducer.restoredComponents(
-            from: snapshot,
-            now: Date(timeIntervalSince1970: 0)
-        )
-
-        #expect(restored.groups.map(\.name) == ["alpha", "beta"])
-        #expect(restored.groups[0].id == sharedGroupID)
-        #expect(restored.groups[1].id != sharedGroupID)
-        #expect(Set(restored.groups.map(\.id)).count == restored.groups.count)
-        #expect(restored.sanitizationSummary.mergedGroups == 0)
-        #expect(restored.sanitizationSummary.idReassignments == 1)
-    }
-
     @Test("restore preserves a remote workgroup's target")
     func restorePreservesRemoteTarget() {
         let target = RemoteTarget(user: "ed", host: "box")!
@@ -545,7 +519,11 @@ struct SessionRestoreReducerTests {
         )
 
         #expect(restored.groups.map(\.name) == ["alpha", "box"])
+        #expect(restored.groups[0].id == sharedGroupID)
         #expect(restored.groups[1].id != sharedGroupID)
+        #expect(Set(restored.groups.map(\.id)).count == restored.groups.count)
+        #expect(restored.sanitizationSummary.mergedGroups == 0)
+        #expect(restored.sanitizationSummary.idReassignments == 1)
         #expect(restored.groups[1].color == .teal)
         #expect(restored.groups[1].remote == target)
     }

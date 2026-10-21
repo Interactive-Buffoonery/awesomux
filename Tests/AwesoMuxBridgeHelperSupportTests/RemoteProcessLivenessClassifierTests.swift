@@ -5,33 +5,22 @@ import Testing
 @Suite
 struct RemoteProcessLivenessClassifierTests {
 
-    @Test func unreadableMatchingEvidenceIsIndeterminate() {
-        let report = RemoteProcessLivenessClassifier.classify(
-            .init(processes: [], markerSeenButUnreadable: true)
-        )
-        #expect(report.state == .indeterminate)
-    }
-
-    @Test func nestedForegroundShellIsConservative() {
-        let report = classify([
+    @Test(arguments: [
+        ProcessTableSnapshot(processes: [], markerSeenButUnreadable: true),
+        .init(processes: [
             process(10, foregroundGroup: 20, command: "zsh", marked: true),
             process(20, parent: 10, group: 20, foregroundGroup: 20, command: "bash", marked: true),
-        ])
-        #expect(report.state == .indeterminate)
-    }
-
-    @Test func missingControllingTerminalIsConservative() {
-        let report = classify([
+        ]),
+        .init(processes: [
             process(10, terminal: 0, foregroundGroup: -1, command: "zsh", marked: true)
-        ])
+        ]),
+    ])
+    func incompleteProcessEvidenceIsIndeterminate(snapshot: ProcessTableSnapshot) {
+        let report = RemoteProcessLivenessClassifier.classify(snapshot)
         #expect(report.state == .indeterminate)
     }
 
-    private func classify(_ processes: [ProcessSnapshot]) -> RemoteForegroundLivenessReport {
-        RemoteProcessLivenessClassifier.classify(.init(processes: processes))
-    }
-
-    private func process(
+    private static func process(
         _ pid: Int32,
         parent: Int32 = 1,
         group: Int32 = 10,

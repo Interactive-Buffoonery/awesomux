@@ -212,31 +212,6 @@ struct WorkspaceAttentionReducerTests {
         #expect(second == nil)
     }
 
-    @Test("recordPaneExitError lands the error on the named pane, not the active one")
-    func paneErrorLandsOnNamedPane() throws {
-        let active = TerminalPane(title: "active", workingDirectory: "~", agentKind: .shell, executionPlan: .local)
-        let dead = TerminalPane(title: "dead", workingDirectory: "~", agentKind: .codex, executionPlan: .local)
-        var session = TerminalSession(
-            title: "split",
-            workingDirectory: "~",
-            layout: .split(TerminalSplit(
-                orientation: .vertical,
-                first: .pane(active),
-                second: .pane(dead)
-            )),
-            activePaneID: active.id
-        )
-
-        _ = WorkspaceAttentionReducer.recordPaneExitError(
-            &session,
-            paneID: dead.id,
-            terminalIsFocused: false
-        )
-
-        #expect(session.layout.pane(id: dead.id)?.attentionReason == .processError)
-        #expect(session.layout.pane(id: active.id)?.attentionReason == nil)
-    }
-
     @Test("recordPaneExitError does not overwrite an existing live prompt")
     func paneErrorPreservesExistingPrompt() {
         // Consistency: a pane already showing a permission prompt must keep

@@ -18,31 +18,24 @@ private struct PairingLink {
     let secret: String
     let macName: String
     let transport: String
+    let advertisedRoutes: [String: String]
 
     init(_ rawValue: String) throws {
-        guard let components = URLComponents(string: rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
-            components.scheme == "awesomuxcompanion", components.host == "pair",
-            let queryItems = components.queryItems, queryItems.count == 7
-        else { throw E2EFailure("invalid pairing link") }
-        var values: [String: String] = [:]
-        for item in queryItems {
-            guard values[item.name] == nil, let value = item.value else { throw E2EFailure("duplicate pairing field") }
-            values[item.name] = value
-        }
-        guard Set(values.keys) == ["v", "h", "p", "fp", "s", "n", "t"], values["v"] == "1",
-            let rawHost = values["h"], let rawPort = values["p"], let portValue = UInt16(rawPort),
-            let port = NWEndpoint.Port(rawValue: portValue),
-            let fingerprint = Data(base64URL: values["fp"] ?? ""), fingerprint.count == 32,
-            let secretData = Data(base64URL: values["s"] ?? ""), secretData.count == 32,
-            let secret = values["s"], let macName = values["n"], !macName.isEmpty,
-            let transport = values["t"], transport == "lan" || transport == "tailscale"
+        let link = try CompanionPairingLinkV2(rawValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let rawHost = link.routes.lan ?? link.routes.tailscale,
+            let port = NWEndpoint.Port(rawValue: link.routes.p),
+            let fingerprint = Data(base64URL: link.macFingerprint), fingerprint.count == 32,
+            let secretData = Data(base64URL: link.secret), secretData.count == 32,
+            !link.macName.isEmpty
         else { throw E2EFailure("invalid pairing field") }
+        let transport = link.routes.lan != nil ? "lan" : "tailscale"
         host = NWEndpoint.Host(rawHost)
         self.port = port
         macFingerprint = fingerprint
-        self.secret = secret
-        self.macName = macName
+        self.secret = link.secret
+        self.macName = link.macName
         self.transport = transport
+        advertisedRoutes = ["lan": link.routes.lan, "tailscale": link.routes.tailscale].compactMapValues { $0 }
     }
 }
 
@@ -213,7 +206,14 @@ struct CompanionPairingE2E {
                 if operation == "get_attention_events" { request["limit"] = 100 }
                 let response = try await call(request, link: link, identity: identity)
                 guard response["error"] == nil else { throw E2EFailure("\(operation) was denied") }
-                if operation == "get_connection_status" { profile = response["profile"] as? String }
+                if operation == "get_connection_status" {
+                    profile = response["profile"] as? String
+                    guard let routes = response["routes"] as? [String: Any], routes["v"] as? Int == 2,
+                        routes["p"] as? Int == Int(link.port.rawValue),
+                        link.advertisedRoutes.allSatisfy({ routes[$0.key] as? String == $0.value })
+                    else { throw E2EFailure("status did not report the advertised v2 routes") }
+                    print("advertised_routes=\(link.advertisedRoutes.keys.sorted().joined(separator: ","))")
+                }
                 printJSON(label: operation, object: response)
             }
             let denied = try await call(
@@ -259,6 +259,48 @@ struct CompanionPairingE2E {
             guard stillPaired["connectionStatus"] as? String == "connected" else {
                 throw E2EFailure("denied requests revoked the phone")
             }
+            var rename = request("rename_pane")
+            rename["workspaceID"] = UUID().uuidString
+            rename["paneID"] = UUID().uuidString
+            rename["title"] = "E2E pane"
+            let renameDenied = try await call(rename, link: link, identity: identity)
+            guard renameDenied["error"] as? String == "permission_denied" else {
+                throw E2EFailure("a newly paired phone could rename without Mac opt-in")
+            }
+            printJSON(label: "rename_default_denied", object: renameDenied)
+            for key in ["workspaceID", "paneID", "title"] {
+                for value in [NSNull(), 1, true] as [Any] {
+                    var malformed = rename
+                    malformed[key] = value
+                    let result = try await call(malformed, link: link, identity: identity)
+                    guard result["error"] as? String == "invalid_request" else {
+                        throw E2EFailure("rename accepted malformed \(key)")
+                    }
+                }
+                var missing = rename
+                missing.removeValue(forKey: key)
+                let result = try await call(missing, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("rename accepted missing \(key)")
+                }
+            }
+            for key in ["limit", "cursor", "targetVersion", "source"] {
+                var extra = rename
+                extra[key] = "unexpected"
+                let result = try await call(extra, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("rename accepted unrelated \(key)")
+                }
+            }
+            for operation in ["get_connection_status", "list_agents", "unpair"] {
+                var unrelated = request(operation)
+                unrelated["title"] = "E2E pane"
+                let result = try await call(unrelated, link: link, identity: identity)
+                guard result["error"] as? String == "invalid_request" else {
+                    throw E2EFailure("\(operation) accepted rename arguments")
+                }
+            }
+            print("rename_arguments=invalid_request")
             // Keep a TLS session open across revocation to exercise stale authorization too.
             let stale = try await CompanionClient.open(link: link, identity: identity).connection
             defer { stale.cancel() }
@@ -285,7 +327,9 @@ struct CompanionPairingE2E {
                 print("revoked_reconnect=denied")
             }
             try writeCleanupResult(profile: expectedProfile, connectionID: connectionID, to: resultFile, expectRevoked: true)
-            print("PASS: pairing, reads, context denial, invalid and unknown requests, self-unpair, and revoked access")
+            print(
+                "PASS: pairing, reads, context denial, invalid and unknown requests, rename opt-in denial and argument validation, self-unpair, and revoked access"
+            )
         } catch {
             FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8))
             Foundation.exit(1)
@@ -442,19 +486,24 @@ private struct PairingLinkForPin {
             macFingerprint: fingerprint,
             secret: source.secret,
             macName: source.macName,
-            transport: source.transport
+            transport: source.transport,
+            advertisedRoutes: source.advertisedRoutes
         )
     }
 }
 
 private extension PairingLink {
-    init(host: NWEndpoint.Host, port: NWEndpoint.Port, macFingerprint: Data, secret: String, macName: String, transport: String) {
+    init(
+        host: NWEndpoint.Host, port: NWEndpoint.Port, macFingerprint: Data, secret: String, macName: String, transport: String,
+        advertisedRoutes: [String: String]
+    ) {
         self.host = host
         self.port = port
         self.macFingerprint = macFingerprint
         self.secret = secret
         self.macName = macName
         self.transport = transport
+        self.advertisedRoutes = advertisedRoutes
     }
 }
 
