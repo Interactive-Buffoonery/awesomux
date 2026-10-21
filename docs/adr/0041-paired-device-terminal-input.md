@@ -81,9 +81,12 @@ on the Mac. Revocation and reconnect never restore a claim.
   option B below ships, a lone Escape on the Mac does not claim (see that
   section), so the banner says "type a letter, arrow or Return to take it
   back". The banner also offers **Stop**, which revokes that device's Input
-  power (see Revocation). The follower Mac presentation itself (clipped or
-  letterboxed grid, leader indicator) is #826/#788 work under ADR-0036, not
-  redefined here.
+  power (see Revocation). Recommend a matching indicator on the sidebar row
+  and workspace while a device leads, and a "Last typed from iPhone at
+  14:02" note on the pane until the Mac user interacts with it, so typing
+  into an off-screen pane is never invisible (Decision 7). The follower Mac
+  presentation itself (clipped or letterboxed grid, leader indicator) is
+  #826/#788 work under ADR-0036, not redefined here.
 - Automation (`amx send`) and Watch streams never claim. A phone whose Input
   grant does not cover the pane's workspace gets a Watch stream and no Take
   over control; the Mac drops any `input`, `reply`, `claim` or `grid` frame
@@ -93,8 +96,8 @@ on the Mac. Revocation and reconnect never restore a claim.
   not allowed for this workspace. Allow it on the Mac in Settings ›
   Companion" instead of silently hiding the control.
 - Driving requires the phone-side content gate that ADR-0035 keeps as a
-  release requirement (device unlock plus the app's own terminal gate) to be
-  satisfied; Take over adds no second biometric prompt. The gate is checked
+  release requirement to be satisfied; Take over adds no second biometric
+  prompt. The gate is checked
   again whenever the terminal view returns to the foreground, which is also
   when a new stream starts. The phone's key proves the device, not the
   person, so the Mac banner and the Mac-side grant remain the controls that
@@ -117,12 +120,16 @@ on the Mac. Revocation and reconnect never restore a claim.
   app restart and lasts until revoked or unpaired, exactly as ADR-0039. The
   phone names a pane; the Mac resolves its workspace, live zmx session and
   role. Moving a pane out of a granted workspace, or deleting the workspace,
-  ends its streams. Any change that would change an open stream's role in
-  either direction (power toggled, workspace added to or removed from a
-  list, pane moved into or out of a granted workspace) ends the stream with
-  `role_changed`; the phone reattaches and the handshake assigns the new
-  role. Removing the Terminal grant, revoking the lease or unpairing ends the
-  stream with `revoked` and there is no reattach.
+  ends its streams. Any change that moves an open stream between Watch and
+  Input (Input power toggled, workspace added to or removed from the Input
+  list, pane moved between an Input-granted and a Watch-only workspace) ends
+  the stream with `role_changed`; the phone reattaches and the handshake
+  assigns the new role. Losing Terminal coverage of the pane's workspace
+  (workspace removed from the Terminal list, pane moved out of every
+  Terminal-granted workspace, Terminal grant removed), revoking the lease or
+  unpairing ends the stream with `revoked` and there is no reattach.
+  Removing a workspace from the Terminal list also removes it from the Input
+  list, keeping the subset rule.
 - Relation to ADR-0039: the two grants are independent switches over the
   same workspace list shape. Granting Input does not grant Transcript, and
   the Mac stores and rechecks them separately. On acceptance, the ADR-0035
@@ -190,26 +197,32 @@ on the Mac. Revocation and reconnect never restore a claim.
   pending payload or 4096 operations, LEADERSHIP.md) with only a log line,
   so the Mac cannot tell acceptance from rejection and the ADR does not
   promise it. The phone therefore shows three states: **sent** (acked),
-  **not sent** (refused on the phone or ended before forwarding; safe to
-  send again) and **may have run** (no ack within the budget or at
-  disconnect; check the terminal before sending again). A late `ack` in the
-  same generation moves "may have run" to "sent". Recommend an ack budget of
-  two seconds. Composer text is kept on the phone in all three states with a
-  manual Send again; nothing is retried automatically. The Mac forwards one
-  paste at a time per stream and never forwards a second paste while the
-  first is unacked. A typed per-batch accept/reject receipt and a
+  **not sent** (never left the phone: refused on the phone or still queued
+  locally when the stream ended; safe to send again) and **may have run**
+  (no ack within the budget or at disconnect; check the terminal before
+  sending again). A late `ack` in the same generation moves "may have run"
+  to "sent". Recommend an ack budget of two seconds. Composer text is kept
+  on the phone in all three states with a manual Send again; nothing is
+  retried automatically. The phone sends one paste at a time per stream and
+  does not send a second until the first is acked or shown as may have run.
+  A typed per-batch accept/reject receipt and a
   per-attachment queue cap are the zmx fork follow-ups that would turn "may
   have run" into a definite answer and keep one device from filling the
   shared queue; #788 should not depend on them.
 - Keystrokes typed within a short window may be coalesced into one frame;
   a paste is never merged with keystrokes or with another paste, and a lone
-  ESC is never coalesced: it ends the current frame and goes alone, so
-  `ESC` then `j` is not delivered as Alt-j.
-- **Reply provenance.** The Mac forwards a phone `reply` only while that
-  stream leads, in stream order, stamped with the authority epoch from the
-  latest daemon `Authority` message; the daemon rejects any reply stamped
-  with a stale epoch (LEADERSHIP.md). Frames on one stream arrive in order,
-  so a reply can never overtake the claim that follows it.
+  ESC is never coalesced: it ends the current frame and goes alone. PTY
+  delivery does not preserve frame boundaries (the daemon writes batches
+  back to back), so an application can still read a fast `ESC` then `j` as
+  Alt-j; separate frames only keep the relay from creating that pairing.
+- **Reply provenance.** The Mac reports the daemon's authority epoch to the
+  phone with every leadership change it relays, and the phone tags each
+  `reply` with the epoch it held when it processed the query output that
+  produced it. The Mac forwards the reply only while that stream leads and
+  the tagged epoch matches the current leading epoch; otherwise it drops the
+  reply. The Mac never restamps: a reply generated under an epoch the Mac
+  has since reclaimed must not gain fresh authority when the phone reclaims
+  later. The daemon separately rejects any stale epoch (LEADERSHIP.md).
 
 ### Revocation and reconnect
 
@@ -220,18 +233,19 @@ on the Mac. Revocation and reconnect never restore a claim.
   leadership only if it was the leader, invalidates its queued replies and
   retains the grid (ADR-0036). If the phone was leading, the pane is then
   leaderless at the phone's grid until the next Mac keystroke or Take over
-  and the banner reads "No one is driving · 40×24 · type to take back",
-  with no Stop action; if the Mac had already taken back, nothing changes.
+  and the banner reads "No one is driving · 40×24 · type a letter, arrow or
+  Return to take back" (same Escape caveat as above), with no Stop action;
+  if the Mac had already taken back, nothing changes.
   The same leaderless banner applies to lock, dismissal and a dropped
   connection, where the Mac learns of the drop from the socket or the
   heartbeat deadline (ADR-0040) and the banner can lag by that much.
 - Closing the relay client also discards a partially written batch: the
   fork's `dropSource` removes a started operation, so a 64 KiB paste that
   is stalled on a slow reader can land truncated, including without its
-  closing `ESC [201~`. Bytes already written cannot be withdrawn. The phone
-  keeps the stream open after a lock or background until its last paste is
-  acked or the ack budget expires. Letting a started batch drain before the
-  rest is dropped is a zmx fork follow-up; until then the truncation is a
+  closing `ESC [201~`. Bytes already written cannot be withdrawn, and an
+  `ack` does not prove the paste drained to the PTY, so closing can truncate
+  even an acknowledged paste. Letting a started batch drain before the rest
+  is dropped is a zmx fork follow-up; until then the truncation is a
   documented limitation and a required #788 test.
 - **Stop** on the Mac banner is that revocation: it turns the device's Input
   power off, persists that before sending `end` so a concurrent reconnect
@@ -243,9 +257,9 @@ on the Mac. Revocation and reconnect never restore a claim.
   generation and a new daemon attachment ID; the phone attaches as a
   follower with the same grant and must Take over or type again (ADR-0040).
   Input unacknowledged at disconnect is shown as "may have run" and never
-  resent automatically. The phone ends the stream when the terminal view
-  leaves the foreground, on lock and on dismissal, subject to the paste
-  drain above, which also ends its leadership. Copying from another app and
+  resent automatically. The phone ends the stream the moment the terminal
+  view leaves the foreground, on lock and on dismissal, with no grace period
+  (ADR-0040), which also ends its leadership. Copying from another app and
   returning is therefore a reattach as follower.
 - Granting Input to a device that currently holds a Watch stream ends that
   stream with `role_changed`; the phone reattaches and receives the
@@ -279,10 +293,11 @@ own issue; #788 covers device input and the banner.
 ## Consequences
 
 #788 can build the Mac input path and banner on the ADR-0040 frames plus the
-handshake reason, the `inputFrameMax` capability and the three delivery
-states above, with the grant stored like Decide and Transcript. One
-workspace list per power keeps Settings consistent, at the cost that a pane
-created later in a granted workspace is typeable without a new prompt. The
+handshake reason, the `inputFrameMax` capability, the authority epoch on
+leadership changes and `reply`, and the three delivery states above, with
+the grant stored like Decide and Transcript. One workspace list per power
+keeps Settings consistent, at the cost that a pane created later in a
+granted workspace is typeable without a new prompt. The
 phone owns paste encoding and confirmation because it is the emulator; the
 Mac owns the limits because it is the trust boundary. A revoked or
 disconnected driver leaves the pane at the phone's grid, which is the
