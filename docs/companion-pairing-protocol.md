@@ -1,16 +1,16 @@
 # awesoMux Companion pairing protocol
 
-This document is the complete Mac-to-iPhone pairing, read-only API, and self-unpair contract.
+This document is the complete Mac-to-iPhone pairing, status API, opt-in pane rename, and self-unpair contract.
 All integers are decimal unless a representation is stated explicitly.
 
 V1 wire DTOs, framing, link syntax, and confirmation words live in the root
 `AwesoMuxCompanionProtocol` package in `awesomux-companion`. This app pins an exact
-package release in `Package.swift` and `Package.resolved`; TLS and authorization
+package revision in `Package.swift` and `Package.resolved`; TLS and authorization
 remain local. Package versions do not change wire versions.
 
-The v1 link and framed protocol below describe the current implementation.
-The v2 link and route metadata are the planned #782 contract, pending Mac
-listener/current-address support in #783 and corresponding phone support.
+The Mac emits v2 pairing links and reports current bound routes (#783).
+Legacy v1 grants retain their stored transport restriction. Phone v2 parsing,
+persistence, and route selection require corresponding phone support.
 Pairing frames retain `v: 1`; API requests and responses retain
 `schemaVersion: 1`. Link version 2 does not change either wire version.
 
@@ -32,9 +32,9 @@ SPKI fingerprint. TLS is version 1.3 and requires certificates from both peers.
 
 ## Pairing link
 
-### Legacy v1 (currently implemented)
+### Legacy v1
 
-The QR code and **Copy Link** action currently contain exactly this URL:
+Legacy pairings used exactly this URL:
 
 ```text
 awesomuxcompanion://pair?v=1&h=<host>&p=<port>&fp=<macFP>&s=<secret>&n=<macName>&t=<lan|tailscale>
@@ -58,9 +58,9 @@ A persisted v1 pairing stays single-route and transport-scoped. Authorizing
 both routes requires explicit re-pairing with a v2 link, not a metadata update.
 An unreachable v1 saved endpoint still requires re-pairing.
 
-### v2 (planned)
+### v2
 
-The QR code and **Copy Link** action will contain this fixed shape:
+The QR code and **Copy Link** action contain this fixed shape:
 
 ```text
 awesomuxcompanion://pair?v=2&lan=<IPv4>&tailscale=<IPv4>&p=<port>&fp=<pin>&s=<secret>&n=<name>
@@ -97,7 +97,7 @@ applies even when a v2 grant authorizes the other listener.
 
 #### Eligible private interfaces and listener lifecycle
 
-The planned listeners retain the current IPv4 route-class boundaries:
+The listeners enforce these IPv4 route-class boundaries:
 
 - Every address must be assigned to an UP, non-loopback interface and be
   unicast. Never bind or advertise public, wildcard, loopback, link-local,
@@ -233,14 +233,201 @@ Only these operations are accepted:
 - `get_connection_status`, with no operation arguments.
 - `unpair`, with no operation arguments; revokes only the authenticated phone.
 - `list_agents`, with no operation arguments.
+- `get_alert_preferences`, with no operation arguments; reads only the
+  authenticated pairing's preferences.
+- `set_alert_preferences`, with exactly one `alertPreferences` object containing
+  the replacement `categories` array; changes only the authenticated pairing's
+  preferences. Pane, cursor, scope, and command-event arguments are rejected.
+- `rename_pane`, with required `workspaceID`, `paneID`, and `title`; requires
+  a separate Mac-approved rename scope.
+- `list_panes`, with no operation arguments.
+- `set_terminal_preview`, with required `terminalPreviewAllowed` JSON Boolean
+  and no other operation arguments. It changes only the authenticated phone's
+  permission; it cannot target another connection.
 - `get_attention_events`, with required positive `limit` (maximum 100) and an
-  optional non-empty `cursor` of at most 2,048 UTF-8 bytes.
+  optional non-empty `cursor` of at most 2,048 UTF-8 bytes. Optional
+  `includeCommandEvents` accepts a JSON boolean; omission or `null` defaults to
+  false. Only this operation accepts the field, including when its value is
+  false or `null`.
 
 `get_agent_context`, `get_capabilities`, all input operations, context fields,
 and bearer credentials are denied. The connection ID must be the value returned
 by `paired`, and the presented certificate fingerprint must still match that
 non-revoked connection. Unpairing revokes it immediately. Companion access is
 independent of the Mac's Outside app access switch.
+
+### Opt-in terminal-pane rename (#795, first layer)
+
+`rename_pane` is Companion-only and is absent from the local bearer operation
+catalog. It does not grant create, split, close, workspace rename, document
+rename, input, or context access. The existing paired certificate, connection ID,
+profile, and transport checks still apply.
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"rename_pane","connectionID":"<paired-uuid>","workspaceID":"<workspace-uuid>","paneID":"<terminal-pane-uuid>","title":"Backend"}
+```
+
+`workspaceID` is the native session UUID and `paneID` is the native terminal
+pane UUID, matching the pane roster identities (#785). Both are required;
+array positions, active selection, document tab IDs, and document-group IDs are
+not terminal identities. `title` must be a JSON string. No other operation
+arguments are accepted; missing, null, wrong-type, malformed UUID, and unrelated
+fields return `invalid_request`. Rename fields are rejected on other operations.
+The usual 8 KiB request bound applies.
+
+Each phone's optional persisted `paneRenameScope` is independent of status,
+context, and terminal-preview permissions. Missing means denied for both legacy
+and new grants. Only the Mac's **Allow pane renaming** control can enable or
+disable it; the phone cannot grant itself rename permission. Enabling captures
+that phone's current status scope. At mutation time both the status scope and
+rename scope must allow the exact target. Granting rename never widens status
+visibility. Turning the control off removes the grant. Every change rotates the
+connection revision and invalidates pending requests before saving; a failed
+save denies this phone for the run until Retry Save succeeds.
+
+The endpoint rechecks the original certificate and lease under the authority
+lock, then checks cancellation and its monotonic deadline before a synchronous
+MainActor `SessionStore` rename. The lock remains held with no suspension.
+A revoked, replaced, disabled, or scope-changed grant cannot perform a pending
+mutation. Response writes recheck the same lease too. A rename already applied
+before a disconnect/revocation may have no receipt; reconnect and read the pane
+roster to reconcile. Retrying the same target and title has the native idempotent
+result; request IDs are correlation IDs, not a durable deduplication journal.
+
+The native title sanitizer trims whitespace, removes unsafe display scalars,
+and caps titles at 200 Characters. A title that sanitizes to empty returns
+`invalid_title`; it never resets the native custom-title pin. A missing workspace
+or pane, or a pane no longer in the supplied workspace, returns `stale_target`.
+An existing document-group leaf returns `nonterminal_target`. Scope/grant denial
+returns `permission_denied` before target lookup. Cancellation and expiry return
+`cancelled` and `timeout` without mutating. Success is the standard envelope with
+`profile`, `appInstanceID`, and `capturedAt`, without roster or content. The native
+rename pins the title, persists through the usual session snapshot, and preserves
+selection and attention. Native lone-pane workspace-title behavior also applies.
+
+Release order: this Mac operation is additive; old phones remain unchanged and
+all existing grants stay denied until Mac opt-in. No shared-package pin change is
+needed for the Mac decoder and existing acknowledgement envelope. A typed phone
+request can later add the operation string and optional UUID/title fields to
+`CompanionAPIRequest` without changing wire version. Older Macs reject the new
+operation (`invalid_request` on implementations whose strict field allowlist
+predates rename, or `unsupported_operation`); neither is success. Clients must
+show that the Mac needs an update and must never fall back to another operation.
+
+Mac downgrade is a separate limitation: after rename permission is saved, an
+older Mac build using the same runtime profile rejects the newer access file's
+unknown `paneRenameScope` field. Its existing fail-closed loader preserves the
+file and disables all Local API access for that run, including other phones and
+Outside app grants. Return to a supporting Mac build to manage those grants;
+do not treat an older build's refusal as revocation or delete the access file.
+
+The pairing E2E harness covers default denial and malformed/unrelated arguments
+through TLS. `CompanionPaneRenameTests` covers native success/persistence,
+visibility intersection, stale and document targets, invalid titles, lease
+revocation, permission changes, cancellation, and deadline expiry. A native
+run must also verify the Mac settings toggle and roster update after an
+opted-in rename; direct tests do not establish those UI/network success paths.
+### Pane roster and terminal-content access
+
+Every paired phone can see workspace and pane status. Terminal previews are a
+separate per-phone permission, persisted as `terminalPreviewAllowed` in that
+phone's companion metadata. Old metadata without the field decodes to false;
+existing pairings receive the full roster/status with no `lastOutputLine`, and
+the Mac never reads a native surface for their requests while permission is off.
+New registrations default off; the current Mac pairing approval explicitly
+discloses and enables previews when the user clicks Allow. Terminal content may
+be sensitive, including secrets printed by programs. The named **Terminal
+previews for <phone>** switch in Mac Companion settings enables or disables it.
+
+An authenticated phone may deliberately enable or disable its own previews
+immediately with `set_terminal_preview`; no additional Mac approval is required.
+The request's connection ID must match its paired certificate grant. For example:
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"set_terminal_preview","connectionID":"<uuid>","terminalPreviewAllowed":true}
+```
+
+Missing, null, numeric, string, or unrelated arguments are rejected. The Boolean
+field is rejected on every other operation. The local bearer endpoint accepts
+neither this operation nor this argument. `get_connection_status` includes the
+current authenticated phone's `terminalPreviewAllowed` Boolean. A successful
+mutation acknowledgement includes the usual response envelope and that Boolean,
+with no roster, agents, or terminal content. Clients must read status again after
+reconnecting or returning to foreground because the Mac switch may have changed.
+An older Mac's absent status field means previews are unavailable/off; an
+`unsupported_operation` mutation must not be treated as consent or success.
+
+Permission changes rotate the connection revision and invalidate outstanding
+requests before saving. The phone mutation revalidates its original certificate
+and lease immediately before changing state, and its acknowledgement checks a
+fresh post-change lease on every write. Revocation or another permission change
+before the acknowledgement prevents that receipt. Repeating the current value
+is idempotent and does not rotate a healthy grant. If saving fails, the affected
+connection is denied for this run until Retry Save persists the requested
+policy, matching the existing scope-change failure behavior. Other phones and
+bearer grants retain their policy. Unpairing immediately revokes access.
+
+Release dependency: the phone-side terminal-content privacy gate (p16),
+including app-switcher blurring, must land before the phone list (p9) exposes
+terminal content. Its deliberate switch uses the self-only operation above.
+This change grants no live-terminal viewing scope. Watch access (m786) is
+separate.
+
+`list_panes` is Companion-only. It is absent from the local bearer API's
+operation catalog and capabilities. It reuses the paired certificate's status
+authorization, with scope filtering before terminal reads and the same
+revocation/revision checks before response writes. It does not grant bearer
+context, transcript, terminal history, document content, or input access;
+Companion connections retain a nil `contextGrant`.
+
+A successful response adds `workspaces`, in native sidebar group/workspace
+order. Each workspace has `workspaceID`, `name`, and `panes`, in layout leaf
+order. Every terminal leaf is included, including plain shells and split
+terminals. A tabbed document group is one `documentGroup` leaf, identified by
+its group ID; its title is the selected document's display title, or **Files**
+for an empty browser. Document tabs are not separate layout panes.
+
+```json
+{
+  "workspaces": [{
+    "workspaceID": "<uuid>", "name": "Project",
+    "panes": [{
+      "paneID": "<uuid>", "kind": "terminal", "title": "Shell",
+      "availability": "attached", "state": "idle",
+      "lastOutputLine": "Build complete"
+    }, {
+      "paneID": "<uuid>", "kind": "documentGroup", "title": "Notes",
+      "availability": "attached"
+    }]
+  }]
+}
+```
+
+`availability` reuses the native classifier: `awaitingHydration`, `attached`,
+`unavailable`, or `stale`. Terminal `state` reuses the native agent/shell
+projection. Document groups have no terminal `state` or `lastOutputLine`.
+Consumers should tolerate future kind, availability, and state values.
+
+`lastOutputLine` is the last nonblank line of the terminal's current active
+screen, independent of the Mac user's scrollback position. It may be a shell
+prompt or program UI rather than a completed output record. The existing
+Ghostty text reader reads only that screen, never scrollback or disk. Existing
+display-string Unicode hygiene removes unsafe display scalars; the result is
+capped at 512 UTF-8 bytes on a Character (extended grapheme cluster) boundary.
+Lines that sanitize to empty are skipped. There is no promise to
+recognize or redact secrets. A missing/detached surface, blank screen, or failed
+read omits the preview; the API does not mount panes or reconstruct old output.
+Only the sanitized, capped line (including an absent result) is cached per
+native surface for at most 500 ms to coalesce repeated text extraction. A new
+view, native-surface incarnation, or teardown discards the cached preview;
+raw screen text is never cached by Companion. Scope checks precede sampling,
+and cached previews still require certificate authorization and revocation
+checks on response writes. Workspace metadata, pane status, and availability
+are projected fresh on every request. The roster is a synchronous SessionStore
+projection, with no separate live model, persistence, selection, or
+attention-acknowledgment effects. The existing
+256 KiB response limit remains in force: an oversized roster returns
+`response_too_large` rather than silently omitting workspaces or panes.
 
 ### Response envelope
 
@@ -271,7 +458,7 @@ instance:
 The possible Companion error strings are `invalid_request`,
 `unsupported_version`, `unsupported_operation`, `profile_mismatch`,
 `permission_denied`, `request_too_large`, `response_too_large`, `timeout`,
-`cancelled`, `stale_target`, `invalid_cursor`, and `transport_failure`. A TLS
+`cancelled`, `stale_target`, `invalid_title`, `nonterminal_target`, `invalid_cursor`, and `transport_failure`. A TLS
 authentication failure closes during the handshake and has no JSON reply. A
 failure after part of a response has been written closes the connection; the
 phone must discard that incomplete frame.
@@ -287,7 +474,7 @@ Current success adds `connectionStatus`:
 `connected` means this exact app instance is reachable and the paired
 connection is still authorized.
 
-#### Planned v2 route metadata
+#### V2 route metadata
 
 A successful Companion `get_connection_status` response for a v2 grant may additionally
 contain a `routes` object using the link vocabulary: `v` is `2`, `p` is the
@@ -323,8 +510,10 @@ The phone applies these rules as one atomic update:
   pairing links do not carry a profile for the phone to pin.
 - If `routes` is absent, retain the saved route set. This is the legacy Mac
   behavior; absence does not remove routes or imply v2 support.
-- If present, validate the entire object before replacing the whole saved set,
-  never merging it. Require `v: 2`, an integer `p` equal to the saved shared
+- If present, validate the entire object before applying any of it. Each
+  reported route kind replaces the saved route of that kind; a saved kind the
+  reply omits keeps its last-known address, so a reply sent while one interface
+  is still coming up cannot drop that route. Require `v: 2`, an integer `p` equal to the saved shared
   port, and valid addresses in the corresponding route-class ranges. Reject
   duplicate keys, empty strings, wrong types, unsupported versions, or any
   invalid entry as a whole; retain the previous set without applying a subset.
@@ -454,6 +643,68 @@ Success adds an `attentionEvents` page:
 `resolved`. Raised and resolved records for the same alert share
 `attentionID`; a resolved record includes `resolvedAt`. `reason` is the
 attention-reason string recorded at the time of the event.
+
+#### Command completion facts
+
+Requests receive state-attention changes by default, protecting clients that
+track every raised event as an open alert. Clients that understand command facts
+must set `includeCommandEvents: true` on every page request to receive them
+alongside state alerts. Omission, `null`, and false exclude command facts before
+pagination, so they do not consume the requested page size or affect `hasMore`.
+Non-boolean, non-null values return `invalid_request`.
+
+```json
+{"schemaVersion":1,"requestID":"<uuid>","operation":"get_attention_events","connectionID":"<uuid>","limit":100,"includeCommandEvents":true}
+```
+
+Cursors bind the stream's `includeCommandEvents` mode as well as the connection.
+Omission and false use the same mode. Reusing a cursor with a different mode
+returns `invalid_cursor`; to change modes, start a new stream without a cursor.
+App-restart, access-change, and retained-history recovery keep their existing
+behavior. Filtering does not change authorization scope or journal retention.
+Filtered command facts still count toward the shared 512-change limit and can
+cause `history_gap` recovery for state-only consumers.
+
+Shell integration also records completed commands, including ordinary shell
+panes. A known exit code of zero produces `reason: "commandFinished"`; a known
+nonzero code produces `reason: "commandFailed"`. Only commands running strictly
+longer than 30 seconds qualify in this first layer. Unknown exit status, zero
+duration, and commands at or below the threshold produce no command event.
+Ghostty supplies the measured duration in nanoseconds; the host converts that
+measurement to seconds without using wall-clock differences. An initial prompt
+without a preceding command start does not produce a Ghostty completion.
+
+These events additionally contain `exitCode` (integer 0–255) and
+`durationSeconds` (positive JSON number, possibly fractional). Both fields are
+optional in the event schema and omitted for existing state-attention events.
+For example, the additional fields of a failed command event are:
+
+```json
+{"change":"raised","reason":"commandFailed","exitCode":7,"durationSeconds":42.5}
+```
+
+Each qualifying completion is a separate fact with a new `id` and `attentionID`,
+even when successive commands have the same status. It emits one `raised`
+record, with no automatic `resolved` record: completion does not imply that a
+person has acknowledged the alert. Consumers must not wait for a resolution or
+treat command facts as the pane's current state. Future acknowledgement or
+notification delivery is outside this contract.
+
+Command facts do not replace active state-attention alerts. Permission/state
+resolution continues to reference its own attention ID; unrelated state writes,
+focus changes, and target replacement do not resolve or replay command facts.
+Completions neither change Mac unread state nor depend on which pane is focused.
+Events retain the workspace, provider/session identity and target version at
+recording; a deferred callback from a replaced surface or terminal assignment is
+discarded. Existing scope filtering, cursor ownership and 512-change retention
+apply unchanged. History-gap recovery cannot reconstruct discarded command
+facts from `list_agents`; the phone must accept that historical gap.
+
+The existing `list_agents` operation still excludes ordinary shells in this
+layer. Shell completion events use provider `Shell`, no provider session ID,
+and the pane's target version. Persistent pane/workspace and Companion scopes
+can read these facts; this change does not broaden exact-agent-target grants
+or the roster. The pane-list layer supplies separate shell discovery.
 
 The first call omits `cursor`. Save `nextCursor` only after applying the page.
 When `hasMore` is true, immediately request another page with that cursor.
@@ -740,3 +991,38 @@ spruce
 squash
 stable
 ```
+
+## Per-device alert delivery (#791)
+
+The shared [alert preference contract](https://github.com/Interactive-Buffoonery/awesomux-companion/blob/850c0c923543c4161bd78dbce651ad5739bc9bbe/docs/protocol/alert-preferences.md)
+adds `get_alert_preferences` and `set_alert_preferences` to the certificate-authenticated
+listener. Both address only the authenticated pairing. Get accepts no operation
+arguments; set accepts only `alertPreferences: {"categories": [...]}`. The categories
+are `permission`, `waiting`, `error`, `commandFailed`, and `commandCompleted`.
+An empty set disables these categories; generic bell, desktop-notification and
+unknown reasons remain eligible. Command events still require `includeCommandEvents`.
+
+Preferences are optional in the paired grant metadata in `access.json`; missing
+means all categories. An effective change saves the grant before publishing a new
+revision and invalidating outstanding requests. Save failure preserves the previous
+preferences and authority. An identical set does not rotate the revision. Existing
+attention cursors recover with `access_changed` after an effective change.
+
+At event creation the Mac samples the actual pane surface: only a visible, focused
+terminal on the active, visible app and unlocked console suppresses a raised event
+for companions. Hidden, minimized, occluded, unfocused and inactive surfaces remain
+eligible. This sample stays in the runtime journal and is not recomputed when a
+phone polls. Category and presence filtering consume journal positions even for
+empty pages. Resolutions remain available so previously shown alerts can clear.
+Local bearer consumers retain the complete journal under their existing scopes.
+
+Delivery uses direct LAN/Tailscale polling. Phone settings UI and push delivery
+remain follow-up work.
+
+For focused persistence, journal and event-time store verification, run
+`heavy-gate swift run companion-pairing-e2e --alert-preferences-only`.
+The full `heavy-gate ./script/run_companion_pairing_e2e.sh` also checks strict
+preference arguments and self-only access over pinned mutual TLS. Its isolated
+store fixture retains its diagnostic directory and prints the path. These host
+cases do not prove native focus, visibility or lock transitions; exercise those
+with the worktree app separately.

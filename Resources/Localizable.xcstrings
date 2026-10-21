@@ -459,6 +459,17 @@
     "%arg, on the don’t-ask list" : {
       "comment" : "Accessibility label for a destination row in the don’t-ask list"
     },
+    "%arg, pane %arg, request %arg. %arg" : {
+      "comment" : "Permission announcement: workspace name, one-based pane position, stable request number, then decision or delivery state.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$arg, pane %2$arg, request %3$arg. %4$arg"
+          }
+        }
+      }
+    },
     "%arg. %arg" : {
       "comment" : "VoiceOver value combining the Open at Login status with its latest error.",
       "localizations" : {
@@ -742,6 +753,9 @@
     "Agent activity panel opened" : {
       "comment" : "VoiceOver announcement when the sidebar agent activity panel expands."
     },
+    "Agent error" : {
+      "comment" : "Agent error event in the companion away activity summary."
+    },
     "Agent setup" : {
 
     },
@@ -793,8 +807,34 @@
     "Allow (Command-Return when focused)" : {
       "comment" : "Tooltip for the allow button on the remote permission banner"
     },
+    "Allow enables this iPhone to see every workspace and pane’s status and each terminal’s last output line. Terminal content may be sensitive. You can turn previews off in Companion settings; this phone can also change its own setting. Confirm these words match your iPhone:" : {
+      "comment" : "Companion approval content disclosure."
+    },
+    "Allow once" : {
+      "comment" : "Allow this Claude permission request only; do not remember a grant."
+    },
+    "Allow once recorded on Mac" : {
+      "comment" : "The Mac recorded a one-time allow; delivery to the hook is not yet confirmed."
+    },
+    "Allow once. Command-Return when focused." : {
+      "comment" : "Accessible allow action; Command-Return acts only after deliberate permission-card focus.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow once. Command-Return when focused."
+          }
+        }
+      }
+    },
     "Allow outside apps" : {
       "comment" : "Outside app access toggle accessibility label.\nOutside app access toggle label."
+    },
+    "Allow pane renaming" : {
+
+    },
+    "Allow pane renaming for %@" : {
+
     },
     "Allow permission request. Command-Return when focused." : {
       "comment" : "Accessibility label for the allow button on the remote permission banner, including keyboard shortcut"
@@ -805,7 +845,7 @@
     "Allow this iPhone?" : {
       "comment" : "Fallback Companion approval title."
     },
-    "Allow “%@” to see your agents?" : {
+    "Allow “%@” to see panes and terminal previews?" : {
       "comment" : "Companion approval title."
     },
     "Allowed" : {
@@ -888,6 +928,23 @@
     "Another awesoMux instance is changing agent integrations; try again." : {
       "comment" : "CLI agent plugin install state lock contention warning"
     },
+    "Answer delivered to Claude hook" : {
+      "comment" : "The hook acknowledged the answer; this does not confirm tool execution."
+    },
+    "Answer delivered to Claude hook. Tool execution is unconfirmed." : {
+      "comment" : "Permission announcement after hook acknowledgement; delivery does not confirm tool execution.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Answer delivered to Claude hook. Tool execution is unconfirmed."
+          }
+        }
+      }
+    },
+    "Answer recorded on Mac" : {
+      "comment" : "The Mac recorded the decision; delivery to the hook is not yet confirmed."
+    },
     "Anything running under your Mac account can use an app's key once it knows it. Remove apps you stop using." : {
       "comment" : "Outside app access same-user boundary disclosure."
     },
@@ -959,6 +1016,9 @@
     },
     "Asks before terminal escape sequences can read the clipboard. Turning this off denies those reads without prompting." : {
       "comment" : "Terminal settings hint."
+    },
+    "Attention requested" : {
+      "comment" : "Fallback event description in the companion away activity summary."
     },
     "Auto-clean up at launch" : {
       "comment" : "Terminal settings label."
@@ -1304,6 +1364,12 @@
     "Chosen remote base directory" : {
       "comment" : "Accessibility label for the explicitly chosen remote base directory"
     },
+    "Claude permission needed" : {
+      "comment" : "A local Claude hook is waiting for a one-time permission decision."
+    },
+    "Claude’s own prompt may still be answered in the terminal." : {
+      "comment" : "Local once-only Claude permission card"
+    },
     "Clean up" : {
 
     },
@@ -1461,6 +1527,12 @@
     },
     "Command activity visible in the sidebar" : {
       "comment" : "Benefit listed in the additional SSH features prompt"
+    },
+    "Command failed (exit %arg)" : {
+      "comment" : "Failed command in the companion away activity summary; the number is the process exit code."
+    },
+    "Command finished" : {
+      "comment" : "Completed command event in the companion away activity summary."
     },
     "Command name" : {
 
@@ -1688,6 +1760,9 @@
     },
     "Could not reload Ghostty configuration." : {
 
+    },
+    "Could not save terminal preview access. Retry Save before restarting awesoMux." : {
+      "comment" : "Companion preview permission save error."
     },
     "Could not save the pull request document." : {
       "comment" : "Reason a connected pull request document could not open"
@@ -1925,6 +2000,12 @@
     "Delete annotation intent" : {
       "comment" : "Accessibility label for the delete annotation intent option"
     },
+    "Deleted pane" : {
+      "comment" : "Pane heading fallback in the companion away summary when the pane no longer exists."
+    },
+    "Deleted workspace" : {
+      "comment" : "Workspace heading fallback in the companion away summary when the original workspace no longer exists."
+    },
     "Delivery" : {
       "comment" : "Notification settings title."
     },
@@ -1937,11 +2018,31 @@
     "Deny (Escape when focused)" : {
       "comment" : "Tooltip for the deny button on the remote permission banner"
     },
+    "Deny once" : {
+      "comment" : "Deny this Claude permission request only; do not remember a grant."
+    },
+    "Deny once recorded on Mac" : {
+      "comment" : "The Mac recorded a one-time deny; delivery to the hook is not yet confirmed."
+    },
+    "Deny once. Escape when focused." : {
+      "comment" : "Accessible deny action; Escape acts only after deliberate permission-card focus.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deny once. Escape when focused."
+          }
+        }
+      }
+    },
     "Deny permission request. Escape when focused." : {
       "comment" : "Accessibility label for the deny button on the remote permission banner, including keyboard shortcut"
     },
     "Description" : {
       "comment" : "Section heading in a read-only pull request snapshot"
+    },
+    "Desktop notification" : {
+      "comment" : "Desktop notification event in the companion away activity summary."
     },
     "Destination" : {
       "comment" : "Label for the exact SSH destination in the file-read preview\nRemote helper detail label"
@@ -2025,6 +2126,9 @@
     "Dismiss revision indicator" : {
       "comment" : "Tooltip and accessibility label for the button that hides the document revision indicator"
     },
+    "Dismiss while you were away summary" : {
+      "comment" : "Accessibility label for dismissing the companion away activity summary banner."
+    },
     "Dismisses this message" : {
 
     },
@@ -2068,7 +2172,7 @@
       "comment" : "Deny Companion pairing button."
     },
     "Done" : {
-      "comment" : "Agent state label\nWelcome tour button closing the tour on the last beat",
+      "comment" : "Agent state label\nButton that closes the companion away activity summary details.\nWelcome tour button closing the tour on the last beat",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2349,6 +2453,9 @@
     "File-read destination" : {
       "comment" : "Label for the independently authorized SSH file-read destination"
     },
+    "Files" : {
+      "comment" : "Empty document pane title."
+    },
     "Filled in from the terminal's reported directory. Check it, or replace the path with a full /… or ~/… path." : {
       "comment" : "Help for a remote relative link whose base directory was prefilled from the terminal's reported cwd"
     },
@@ -2606,6 +2713,9 @@
     "Inline Review Comments" : {
       "comment" : "Section heading in a read-only pull request snapshot"
     },
+    "Input requested" : {
+      "comment" : "Event requesting user input in the companion away activity summary."
+    },
     "Insert Checkout Command" : {
 
     },
@@ -2757,6 +2867,9 @@
     "Let awesoMux get my attention" : {
 
     },
+    "Lets this phone rename terminal panes within its visible workspaces." : {
+
+    },
     "License" : {
       "comment" : "About window link to the project's own MIT license\nAdvanced settings label.\nButton opening a bundled third-party license file"
     },
@@ -2768,6 +2881,9 @@
     },
     "Listening on Tailscale only" : {
       "comment" : "Companion active Tailscale transport footer."
+    },
+    "Listening on local network and Tailscale" : {
+      "comment" : "Companion active LAN and Tailscale transports footer."
     },
     "Listening on local network only" : {
       "comment" : "Companion active LAN transport footer."
@@ -2795,9 +2911,6 @@
     },
     "Local document paths can only be sent to a local terminal" : {
       "comment" : "Unavailable reason for sending a Mac-local document path to a declared SSH terminal"
-    },
-    "Local network" : {
-      "comment" : "Companion LAN choice."
     },
     "Local only" : {
 
@@ -3298,6 +3411,9 @@
     "Off — no app can see anything." : {
       "comment" : "Outside app access toggle state."
     },
+    "Older activity unavailable" : {
+      "comment" : "Warning in the companion away summary that older activity exceeded the retained history."
+    },
     "On" : {
       "comment" : "Settings label when Open at Login is enabled."
     },
@@ -3501,11 +3617,11 @@
     "Paired %@" : {
       "comment" : "Companion paired date."
     },
+    "Paired iPhones can see every workspace and pane’s status. Terminal previews share each terminal’s last output line and may contain sensitive content. Existing phones start with previews off; each phone can also turn its own previews on or off. Pane renaming is available with your permission." : {
+      "comment" : "Companion settings description."
+    },
     "Paired phones" : {
       "comment" : "Companion paired-phone list label."
-    },
-    "Pairing transport" : {
-
     },
     "Pairing wasn't allowed. Create a new code to try again." : {
 
@@ -3587,6 +3703,9 @@
     "Per-workspace mute" : {
       "comment" : "Notification settings title."
     },
+    "Permission delivery unknown" : {
+      "comment" : "Delivery of the recorded decision is uncertain; do not retry or imply tool execution."
+    },
     "Permission denied in %arg." : {
       "comment" : "VoiceOver announcement confirming the user denied a remote permission request in a named split pane\nVoiceOver announcement confirming the user denied a remote permission request, naming the workspace"
     },
@@ -3608,17 +3727,26 @@
     "Permission prompt focused." : {
       "comment" : "VoiceOver announcement when the focus-permission-prompt command moves keyboard focus to the remote permission banner"
     },
+    "Permission request cancelled" : {
+      "comment" : "The local permission request was cancelled and cannot receive another decision."
+    },
     "Permission request cancelled in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled in a named split pane\nVoiceOver announcement when a remote permission prompt is cancelled, naming the workspace"
     },
     "Permission request cancelled." : {
       "comment" : "VoiceOver announcement when a remote permission prompt is cancelled"
     },
+    "Permission request expired" : {
+      "comment" : "The local permission request expired; the hook falls through to the native prompt."
+    },
     "Permission request timed out in %arg." : {
       "comment" : "VoiceOver announcement when a remote permission prompt expires (denied) in a named split pane\nVoiceOver announcement when a remote permission prompt expires (denied), naming the workspace"
     },
     "Permission request timed out." : {
       "comment" : "VoiceOver announcement when a remote permission prompt expires and is denied"
+    },
+    "Permission requested" : {
+      "comment" : "Permission request event in the companion away activity summary."
     },
     "Permission requested in %arg." : {
       "comment" : "VoiceOver announcement when a remote agent asks for a permission decision in a named split pane\nVoiceOver announcement when a remote agent asks for a permission decision, naming the workspace"
@@ -4344,6 +4472,9 @@
     "Resets theme, accent, fonts, text size, glow, CRT scanlines, terminal background, and all sidebar options to their shipped defaults. Doesn't touch settings on other panes." : {
       "comment" : "Settings field hint for the reset-to-defaults button"
     },
+    "Resolved" : {
+      "comment" : "Status of an attention request that was resolved during the companion away interval."
+    },
     "Resolved annotations hidden" : {
       "comment" : "VoiceOver announcement when the resolved-annotations filter turns on"
     },
@@ -4456,6 +4587,9 @@
     },
     "Returned pane to its source workspace" : {
       "comment" : "VoiceOver announcement after returning a moved pane to the workspace it came from."
+    },
+    "Returning answer to Claude" : {
+      "comment" : "The recorded decision is being delivered to the Claude hook."
     },
     "Reveal in Finder" : {
       "comment" : "Button title that reveals the saved layout preset in Finder."
@@ -4656,9 +4790,6 @@
     "Security warning: %arg" : {
       "comment" : "Outer wrapper for the OSC 8 confirmation dialog title. Inner argument is the reason-specific question."
     },
-    "See your agents from your iPhone: who needs you, what's working, and what's done, with a widget and a Live Activity. This feature is currently read-only." : {
-      "comment" : "Companion settings description."
-    },
     "Select All" : {
       "comment" : "Terminal context menu item that selects the whole terminal buffer"
     },
@@ -4799,6 +4930,9 @@
     "Share Session Details…" : {
 
     },
+    "Shares the last output line from every terminal. This iPhone can also change its own preview setting." : {
+      "comment" : "Companion terminal preview switch help."
+    },
     "Shell" : {
       "comment" : "Corner tab command label when the companion runs a plain shell.\nDiagnostics process type\nGeneric agent name for a plain shell in an accessibility label.\nGeneric agent-kind display name for a plain shell session (not an AI agent brand name)",
       "localizations" : {
@@ -4851,6 +4985,9 @@
     },
     "Show Welcome Tour" : {
 
+    },
+    "Show activity by workspace and pane" : {
+      "comment" : "Accessibility hint for opening companion away activity summary details."
     },
     "Show awesoMux in the menu bar when a workspace needs input" : {
       "comment" : "Accessibility label for the needs-input menu bar choice"
@@ -5012,9 +5149,6 @@
     "TOML at %@." : {
       "comment" : "Advanced settings subtitle. Placeholder is the configuration file path."
     },
-    "Tailscale" : {
-      "comment" : "Companion Tailscale choice."
-    },
     "Target path" : {
       "comment" : "New worktree target path field label."
     },
@@ -5085,6 +5219,9 @@
     "Terminal background source" : {
 
     },
+    "Terminal bell" : {
+      "comment" : "Terminal bell event in the companion away activity summary."
+    },
     "Terminal font size" : {
 
     },
@@ -5101,6 +5238,9 @@
           }
         }
       }
+    },
+    "Terminal previews for %@" : {
+      "comment" : "Per-phone Companion terminal preview switch."
     },
     "Terminal runtime failed to initialize" : {
       "comment" : "Diagnostics event summary"
@@ -5432,11 +5572,8 @@
     "This Mac" : {
 
     },
-    "This Mac doesn't currently have a Tailscale address." : {
-
-    },
-    "This Mac doesn't currently have a local network address." : {
-
+    "This Mac doesn't currently have a local network or Tailscale address." : {
+      "comment" : "Companion pairing start error when no route exists."
     },
     "This URL parses but has no host. Likely malformed." : {
       "comment" : "Body of the OSC 8 confirmation dialog for an http(s) URL with no host component."
@@ -5669,6 +5806,9 @@
     "Trust known tools without asking" : {
 
     },
+    "Try Again" : {
+      "comment" : "Retry starting Companion pairing button."
+    },
     "Try Replace Again" : {
       "comment" : "Retry action after a failed session recovery replacement"
     },
@@ -5729,9 +5869,6 @@
     "Unpair %@" : {
 
     },
-    "Unpair existing phones before switching network type." : {
-
-    },
     "Unpair iPhone?" : {
       "comment" : "Companion unpair confirmation title."
     },
@@ -5752,6 +5889,9 @@
     },
     "Untitled Workspace" : {
       "comment" : "Dock menu label for a workspace that has no title."
+    },
+    "Untrusted tool request · revision %arg" : {
+
     },
     "Up and Down arrow keys to navigate" : {
 
@@ -5850,6 +5990,9 @@
         }
       }
     },
+    "Waiting for a local network or Tailscale address…" : {
+      "comment" : "Companion pairing waiting for a network route."
+    },
     "Warning" : {
       "comment" : "Diagnostics event severity"
     },
@@ -5897,6 +6040,9 @@
     },
     "When the sidebar is collapsed, show the ⌘1–9 jump number under each workspace. Off by default — the numbers appear while you hold ⌘." : {
       "comment" : "Settings field hint for the sidebar jump numbers toggle"
+    },
+    "While you were away" : {
+      "comment" : "Title of the companion away activity summary banner and details, also announced when the banner appears."
     },
     "Whitespace, control characters, and bidi overrides are normalized on commit." : {
       "comment" : "Workspace settings hint."
@@ -6084,6 +6230,9 @@
 
     },
     "awesoMux couldn't save the access setting." : {
+
+    },
+    "awesoMux couldn't save the pane rename permission." : {
 
     },
     "awesoMux couldn't save the rendered diff to its cache." : {

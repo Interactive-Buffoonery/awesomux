@@ -45,6 +45,8 @@ public struct LocalAPIRequest: Codable, Sendable {
     public let limit: Int?
     public let source: LocalAPIContextSource?
     public let cursor: String?
+    public let includeCommandEvents: Bool?
+    public let terminalPreviewAllowed: Bool?
 
     public init(
         profile: String,
@@ -52,7 +54,8 @@ public struct LocalAPIRequest: Codable, Sendable {
         connectionID: UUID? = nil,
         credential: String? = nil,
         paneID: UUID? = nil, targetVersion: UUID? = nil,
-        limit: Int? = nil, source: LocalAPIContextSource? = nil, cursor: String? = nil
+        limit: Int? = nil, source: LocalAPIContextSource? = nil, cursor: String? = nil,
+        includeCommandEvents: Bool? = nil
     ) {
         schemaVersion = LocalAPIContract.version
         requestID = UUID()
@@ -65,6 +68,8 @@ public struct LocalAPIRequest: Codable, Sendable {
         self.limit = limit
         self.source = source
         self.cursor = cursor
+        self.includeCommandEvents = includeCommandEvents
+        terminalPreviewAllowed = nil
     }
 }
 
@@ -84,6 +89,8 @@ public enum LocalAPIError: String, Error, Codable, Sendable {
     case responseTooLarge = "response_too_large"
     case timeout
     case cancelled
+    case invalidTitle = "invalid_title"
+    case nonterminalTarget = "nonterminal_target"
     case staleTarget = "stale_target"
     case transportFailure = "transport_failure"
     case contextUnavailable = "context_unavailable"

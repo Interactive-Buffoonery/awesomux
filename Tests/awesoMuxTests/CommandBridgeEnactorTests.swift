@@ -424,51 +424,14 @@ struct CommandBridgeEnactorTests {
 
     @Test(arguments: RemoteNeverSpawnsLocalShellCase.allCases)
     func remoteNeverSpawnsLocalShell(_ scenario: RemoteNeverSpawnsLocalShellCase) async throws {
-        switch scenario {
-        case .remoteUnavailableNeverSpawnsLocalShell:
-            let fixture = try makeRemoteFixture()
-
-            // The bundled `amx` executable never sits beside the test binary, so
-            // `AmxBackend.attachCommand` genuinely returns nil here — this drives
-            // the real `.remoteUnavailable` branch of `BridgeSurfaceCommandPolicy`,
-            // not a mock of it.
-            fixture.view.createSurfaceIfNeeded()
-
-            // CRITICAL regression (ADR-0022 trust boundary): before the fix,
-            // `createSurfaceIfNeeded` read past the error latch `prepareAttach`
-            // had just set and fell through to `runtime.createSurface(command:
-            // nil)`, spawning a silent, typable LOCAL shell that looked like the
-            // remote host. It must instead leave the pane surfaceless and latched.
-            // The latch is set SYNCHRONOUSLY (the trust boundary can't wait a tick).
-            #expect(fixture.view.surface == nil)
-            #expect(fixture.view.commandBridgeErrorLatched)
-
-            // The user-visible error chrome (`recordPaneProcessError`) is deferred
-            // one runloop hop so it lands outside the layout pass — mutating it
-            // in-pass crashed AppKit's constraint engine. Pump the main queue, then
-            // assert the chrome caught up.
-            await pumpMainQueue()
-            let pane = try #require(fixture.livePane)
-            #expect(pane.agentExecutionState == .error)
-        case .remoteWithBridgeDisabledNeverSpawnsLocalShell:
-            let fixture = try makeRemoteFixture(bridgeEnabled: false)
-
-            // Global command bridge OFF: `createSurfaceIfNeeded` runs its
-            // bridge-disabled pre-guard (clearing bridge state) but does NOT
-            // short-circuit — it still reaches `prepareAttach(bridgeEnabled:
-            // false)`, whose policy now routes a remote group to `.remoteUnavailable`
-            // regardless of the toggle rather than `.localShell`.
-            fixture.view.createSurfaceIfNeeded()
-
-            // Same trust-boundary guarantee as the amx-missing case, reached
-            // through the disabled-bridge gate instead (ADR-0022). Latch synchronous;
-            // error chrome deferred (see the amx-missing case above).
-            #expect(fixture.view.surface == nil)
-            #expect(fixture.view.commandBridgeErrorLatched)
-            await pumpMainQueue()
-            let pane = try #require(fixture.livePane)
-            #expect(pane.agentExecutionState == .error)
-        }
+        let bridgeEnabled = scenario == .remoteUnavailableNeverSpawnsLocalShell
+        let fixture = try makeRemoteFixture(bridgeEnabled: bridgeEnabled)
+        fixture.view.createSurfaceIfNeeded()
+        #expect(fixture.view.surface == nil)
+        #expect(fixture.view.commandBridgeErrorLatched)
+        await pumpMainQueue()
+        let pane = try #require(fixture.livePane)
+        #expect(pane.agentExecutionState == .error)
     }
 
     // MARK: - Remote-owned (`.remoteZmx`) panes
@@ -974,32 +937,17 @@ struct CommandBridgeEnactorTests {
 
     @Test(arguments: LegacyErrorAnnouncementsCase.allCases)
     func legacyErrorAnnouncements(_ scenario: LegacyErrorAnnouncementsCase) async throws {
-        switch scenario {
-        case .legacyNonzeroExitAnnouncesError:
-            let fixture = try makeFixture()
-            let enactor = fixture.view.commandBridgeEnactor
-            var announcements: [Announcement] = []
-            enactor.announceErrorEntered = { announcements.append(.errorEntered) }
-
-            enactor.sessionID = fixture.sessionID
-            enactor.beginExitSupervision(exitCode: 1)
-
-            #expect(enactor.errorLatched)
-            #expect(announcements == [.errorEntered])
-        case .legacyMissingSessionAnnouncesError:
-            let fixture = try makeFixture()
-            let enactor = fixture.view.commandBridgeEnactor
-            var announcements: [Announcement] = []
-            enactor.announceErrorEntered = { announcements.append(.errorEntered) }
-
-            enactor.sessionExistsProvider = { _ in false }
-            enactor.sessionID = fixture.sessionID
-            enactor.beginExitSupervision(exitCode: 0)
-            await waitForLegacyProbeToSettle(enactor)
-
-            #expect(enactor.errorLatched)
-            #expect(announcements == [.errorEntered])
-        }
+        let missingSession = scenario == .legacyMissingSessionAnnouncesError
+        let fixture = try makeFixture()
+        let enactor = fixture.view.commandBridgeEnactor
+        var announcements: [Announcement] = []
+        enactor.announceErrorEntered = { announcements.append(.errorEntered) }
+        if missingSession { enactor.sessionExistsProvider = { _ in false } }
+        enactor.sessionID = fixture.sessionID
+        enactor.beginExitSupervision(exitCode: missingSession ? 0 : 1)
+        if missingSession { await waitForLegacyProbeToSettle(enactor) }
+        #expect(enactor.errorLatched)
+        #expect(announcements == [.errorEntered])
     }
 
     enum BudgetRefillCancellationCase: String, CaseIterable {

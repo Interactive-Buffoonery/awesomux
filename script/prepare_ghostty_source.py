@@ -26,6 +26,8 @@ INPUTS = (
     ROOT / "native/ghostty/remote-pwd-surface.zig.inc",
     ROOT / "native/ghostty/remote-pwd-generation.zig.inc",
     ROOT / "native/ghostty/remote-pwd-capi.zig.inc",
+    ROOT / "native/ghostty/command-status.zig",
+    ROOT / "native/ghostty/command-status-tests.zig.inc",
 )
 
 
@@ -57,6 +59,35 @@ def inject_remote_pwd(staging):
                       + (ROOT / "native/ghostty/remote-pwd-tests.zig.inc").read_text())
 
 
+COMMAND_STATUS_ANCHOR = """                // The specification seems to not specify the type but
+                // other terminals accept 32-bits, but exit codes are really
+                // bytes, so we just do our best here.
+                const code: u8 = code: {
+                    const raw: i32 = cmd.readOption(.exit_code) orelse 0;
+                    break :code std.math.cast(u8, raw) orelse 1;
+                };
+
+                self.surfaceMessageWriter(.{ .stop_command = code });
+"""
+COMMAND_STATUS_REPLACEMENT = """                const code: ?u8 = @import("../terminal/awesomux_command_status.zig").exitCode(cmd);
+                self.surfaceMessageWriter(.{ .stop_command = code });
+"""
+
+
+def inject_command_status(staging):
+    handler = staging / "src/termio/stream_handler.zig"
+    source = handler.read_text()
+    if source.count(COMMAND_STATUS_ANCHOR) != 1:
+        raise RuntimeError("Ghostty command status conversion changed; review unknown-status handling")
+    handler.write_text(source.replace(COMMAND_STATUS_ANCHOR, COMMAND_STATUS_REPLACEMENT, 1))
+    shutil.copyfile(
+        ROOT / "native/ghostty/command-status.zig",
+        staging / "src/terminal/awesomux_command_status.zig",
+    )
+    with (staging / "src/apprt/action.zig").open("a") as file:
+        file.write((ROOT / "native/ghostty/command-status-tests.zig.inc").read_text())
+
+
 def fingerprint():
     digest = hashlib.sha256()
     for path in INPUTS:
@@ -76,6 +107,7 @@ def prepare(vendor, destination):
         subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(vendor), str(staging)], check=True)
         subprocess.run(["git", "-C", str(staging), "checkout", "--quiet", "--detach", sha], check=True)
         inject_remote_pwd(staging)
+        inject_command_status(staging)
         embedded = staging / "src/apprt/embedded.zig"
         source = embedded.read_text()
         marker = "pub const CAPI = struct {\n"

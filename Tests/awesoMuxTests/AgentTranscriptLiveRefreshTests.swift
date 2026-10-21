@@ -393,10 +393,6 @@ private final class RenderRecorder {
     private(set) var startCount = 0
 
     func began() { startCount += 1 }
-    func beganAndCount() -> Int {
-        startCount += 1
-        return startCount
-    }
     func count() { startCount += 1 }
 }
 

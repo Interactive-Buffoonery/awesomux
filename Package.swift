@@ -31,13 +31,13 @@ import PackageDescription
                 path: "Tests/AwesoMuxTestSupport",
                 // Source-curated rather than whole-directory, because some of
                 // the directory cannot build here at all: DomainTestSupport.swift
-                // and TestData.swift import AwesoMuxCore, UnixSocketClient.swift
-                // imports Darwin, and neither is in this graph. For everything
+                // imports AwesoMuxCore, UnixSocketClient.swift imports Darwin,
+                // and neither is in this graph. For everything
                 // else the rule is add-on-demand — a portable file earns a line
                 // only when a Linux-lane test target actually needs it, never
                 // merely because it would compile. Portable but deliberately
                 // absent today: ProcessBoundedWait.swift, ProcessOutputCapture.swift,
-                // RealSpawnTimeout.swift, ShellWait.swift, SourceContract.swift.
+                // RealSpawnTimeout.swift, ShellWait.swift.
                 sources: [
                     "AsyncGate.swift",
                     "EventRecorder.swift",
@@ -78,7 +78,10 @@ import PackageDescription
             .library(name: "DesignSystem", targets: ["DesignSystem"]),
         ],
         dependencies: [
-            .package(url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git", exact: "0.1.0"),
+            .package(
+                url: "https://github.com/Interactive-Buffoonery/awesomux-companion.git",
+                revision: "76da4e0383c447104fcab4027d6314843f0160ac"
+            ),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
             .package(url: "https://github.com/mattt/swift-toml.git", from: "2.0.0"),
             .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
@@ -114,6 +117,7 @@ import PackageDescription
             .target(
                 name: "AwesoMuxLocalAPIAccess",
                 dependencies: [
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                     "AwesoMuxConfig",
                     "AwesoMuxLocalAPI",
                     "AwesoMuxLocalAPICredentials",
@@ -133,6 +137,7 @@ import PackageDescription
             .executableTarget(
                 name: "companion-pairing-e2e",
                 dependencies: [
+                    "AwesoMuxCore",
                     "AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess",
                     .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                 ],
@@ -156,6 +161,7 @@ import PackageDescription
                 dependencies: [
                     "AwesoMuxBridgeProtocol",
                     "AwesoMuxLocalAPI",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                     "SecureFileIO",
                     "UnicodeHygiene",
                     .product(name: "Markdown", package: "swift-markdown"),
@@ -242,7 +248,10 @@ import PackageDescription
             ),
             .testTarget(
                 name: "AwesoMuxCoreTests",
-                dependencies: ["AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxTestSupport"]
+                dependencies: [
+                    "AwesoMuxBridgeProtocol", "AwesoMuxCore", "AwesoMuxLocalAPI", "AwesoMuxTestSupport",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
+                ]
             ),
             .testTarget(
                 name: "AwesoMuxConfigTests",
@@ -272,7 +281,8 @@ import PackageDescription
                 name: "awesoMuxTests",
                 dependencies: [
                     "awesoMux", "AwesoMuxBridgeProtocol", "AwesoMuxBridgeHelperSupport", "AwesoMuxCore", "AwesoMuxTestSupport",
-                    "AwesoMuxAppKitTestHost", "DesignSystem",
+                    "AwesoMuxAppKitTestHost", "DesignSystem", "AwesoMuxLocalAPI", "AwesoMuxLocalAPIAccess",
+                    .product(name: "AwesoMuxCompanionProtocol", package: "awesomux-companion"),
                 ],
                 exclude: ["LocalAPIE2E"]
             ),

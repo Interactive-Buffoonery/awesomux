@@ -6,8 +6,6 @@ struct LineDiffCountTests {
     @Test(
         arguments: [
             ("a", "a\nb", true, nil), (nil, "a", false, nil), ("a", "a", false, nil),
-            (String(repeating: "a", count: LineDiffCount.maxDiffBytes + 1), "a", false, .countUnavailable),
-            ("a", String(repeating: "a", count: LineDiffCount.maxDiffBytes + 1), false, .countUnavailable),
             (
                 Array(repeating: "old", count: LineDiffCount.maxDiffLines).joined(separator: "\n"),
                 Array(repeating: "new", count: LineDiffCount.maxDiffLines).joined(separator: "\n"),
@@ -18,6 +16,14 @@ struct LineDiffCountTests {
         ] as [(String?, String, Bool, LineDiffCount.ExternalEdit?)])
     func externalEdits(old: String?, new: String, isSelfWrite: Bool, expected: LineDiffCount.ExternalEdit?) {
         #expect(LineDiffCount.forExternalEdit(old: old, new: new, isSelfWrite: isSelfWrite) == expected)
+    }
+
+    // Oversized inputs stay out of the arguments: Swift Testing prints them in
+    // each case's name, and a 2 MB log line wedges the hosted CI runner.
+    @Test func oversizedSideIsUncountable() {
+        let oversized = String(repeating: "a", count: LineDiffCount.maxDiffBytes + 1)
+        #expect(LineDiffCount.forExternalEdit(old: oversized, new: "a", isSelfWrite: false) == .countUnavailable)
+        #expect(LineDiffCount.forExternalEdit(old: "a", new: oversized, isSelfWrite: false) == .countUnavailable)
     }
 
 }

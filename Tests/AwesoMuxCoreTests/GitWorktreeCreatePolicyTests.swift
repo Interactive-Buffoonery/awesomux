@@ -38,17 +38,6 @@ struct GitWorktreeCreatePolicyTests {
                 .targetOverlapsWorktree(existing)))
     }
 
-    @Test("a target containing a LINKED worktree still rejects")
-    func targetContainingLinkedWorktreeRejects() throws {
-        let fixture = try mainPlusLinkedFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        // `.worktrees/` itself is an ancestor of the linked worktree below it.
-        let issues = policy.validate(
-            request(fixture.context, .newBranchFromMain("x"), fixture.worktreesDir), currentWorktrees: fixture.currentWorktrees)
-        #expect(issues.contains(.targetOverlapsWorktree(fixture.linked)))
-    }
-
     @Test("invoked from a linked worktree, fresh target under main's .worktrees validates clean")
     func freshTargetUnderMainValidatesCleanFromLinkedInvocationRoot() throws {
         let fixture = try mainPlusLinkedFixture()
@@ -71,8 +60,8 @@ struct GitWorktreeCreatePolicyTests {
         #expect(issues.isEmpty)
     }
 
-    @Test("a target inside a DIFFERENT linked worktree still rejects from a LINKED invocation root")
-    func targetInsideOtherWorktreeStillRejectsFromLinkedInvocationRoot() throws {
+    @Test("linked worktree overlap rejects ancestor and nested targets", arguments: [false, true])
+    func targetInsideOtherWorktreeStillRejectsFromLinkedInvocationRoot(nested: Bool) throws {
         let fixture = try mainPlusLinkedFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
@@ -85,11 +74,11 @@ struct GitWorktreeCreatePolicyTests {
             canonicalPath: thirdWorktree, headObjectID: nil, branchRef: "refs/heads/third-branch", isDetached: false,
             displayBranch: "third-branch", isMainWorktree: false, isBare: false, lockReason: nil, prunableReason: nil)
 
-        let linkedContext = fixture.linkedInvocationContext()
-        let insideThird = thirdWorktree.appendingPathComponent("nested", isDirectory: true)
+        let linkedContext = nested ? fixture.linkedInvocationContext() : fixture.context
+        let insideThird = nested ? thirdWorktree.appendingPathComponent("nested", isDirectory: true) : fixture.worktreesDir
         let issues = policy.validate(
             request(linkedContext, .newBranchFromMain("x"), insideThird), currentWorktrees: fixture.currentWorktrees + [thirdRecord])
-        #expect(issues.contains(.targetOverlapsWorktree(thirdWorktree)))
+        #expect(issues.contains(.targetOverlapsWorktree(nested ? thirdWorktree : fixture.linked)))
     }
 
     private struct WorktreeFixture {

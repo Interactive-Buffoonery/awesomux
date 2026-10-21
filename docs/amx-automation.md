@@ -78,10 +78,11 @@ If `$ZMX_SESSION` is unset, you are not in a daemon-backed pane (see
 
 | Command | Session argument | Purpose |
 | --- | --- | --- |
-| `amx send <name>` | **required** | Send text to the pane's PTY (include your own trailing `\r`) — payloads failing the daemon's user-input gate are silently dropped, see below |
+| `amx send <name>` | **required** | Send bytes to the pane's PTY without claiming size leadership (include your own trailing `\r`) |
 | `amx history <name> [--vt\|--html]` | optional — defaults to `$ZMX_SESSION` | Dump the pane's scrollback |
 | `amx list [--short]` | n/a | List sessions in `$ZMX_DIR` |
 | `amx attach --existing <name>` | **required** | Attach only if the named daemon is already responsive; never create or replace it |
+| `amx watch <name>` | **required** | Watch an existing session without input or resize authority; requires typed capability acceptance |
 | `amx cwd <name>` | **required** | Print the active terminal job's cwd, falling back to the session root shell |
 | `amx wait <name>` | **required** | Block until an `amx run -d` **task** completes — see below |
 
@@ -124,60 +125,55 @@ evaluated and rejected in [ADR-0011](adr/0011-persistent-session-daemon-command-
 
 ## `send` byte semantics
 
-`send` never transforms bytes and appends **no carriage return** — but it does
-not deliver everything. A `send` client is not the attached leader, so the
-daemon runs the payload through a user-input gate before forwarding
-(`vendor/zmx/src/main.zig:3081` → `handleInput` `main.zig:1013-1036` →
-`util.isUserInput` `util.zig:558-588`; examples below verified against zmx's
-own `isUserInput` tests, `util.zig:1389-1503`). The gate is **order-dependent
-and all-or-nothing**: the payload is scanned front to back, and the first
-decisive byte sequence decides the *entire* payload.
+`send` uses the dedicated automation `Send` message. The daemon queues these
+bytes without the interactive-input heuristic, changing leadership, or changing
+the authoritative terminal size. A lone Ctrl-C and terminal-shaped bytes are
+therefore eligible for forwarding. The bounded PTY queue can reject input when
+full; a successful CLI exit does not prove that a command ran.
 
-First, one whole-payload pre-check: a payload consisting **entirely** of mouse
-reports is dropped by a stale-report gate when the inner app's mouse tracking
-is off (`handleInput`, `main.zig:1013-1032`). Everything else reaches the
-scan, where the first decisive action wins:
-
-- **Forwards the whole payload** — a printable character (space included);
-  CR / LF / Tab / Backspace; a keyboard CSI sequence with final `u` or `~`
-  (kitty-protocol keys, `\x1b[3~` Delete, `\x1b[5~`/`\x1b[6~` PgUp/PgDn,
-  bracketed-paste markers `\x1b[200~`/`\x1b[201~`); a CSI `A`–`D` arrow with
-  **more than one parameter** (modified arrows like `\x1b[1;5A`). SS3
-  application-mode arrows (`\x1bOA`) also pass — the letter after `\x1bO`
-  parses as a printable.
-- **Rejects the whole payload** — a mouse CSI (final `M` or `<`,
-  `util.zig:573-575`) or a focus event (`\x1b[I`/`\x1b[O`,
-  `util.zig:576-578`) hit *before* any accepted sequence.
-- **Nothing decisive found** → dropped: a lone Ctrl-C (`\x03`), a bare ESC,
-  *unmodified* CSI arrows (`\x1b[A` — zero or one parameter), cursor reports
-  (`\x1b[6n`).
-
-Because the first decision covers the whole payload, mixed payloads behave
-non-intuitively: `text + mouse report` forwards the mouse bytes along with the
-text, while `mouse report + text` (with tracking on) is rejected before the
-text is ever reached. All drops and rejections are **silent, exit 0**. Net:
-text plus `\r` and keyboard-shaped escapes work; you cannot deliver a lone
-Ctrl-C via `send` today, and it fails silently; don't prepend focus/mouse
-sequences to otherwise-deliverable payloads.
-
-Text arguments are joined with single spaces
-(`vendor/zmx/src/main.zig:2490-2494`). With no text arguments, `send` reads
-stdin and strips **one** trailing newline from piped input
-(`main.zig:2508-2513`) — a bare `echo cmd | amx send ...` therefore leaves the
-command sitting unexecuted at the prompt. Include the `\r` yourself:
+Text arguments are joined with single spaces. With no text arguments, `send`
+reads stdin and strips one trailing newline. It appends no carriage return.
+Include `\r` to submit a command:
 
 ```sh
 printf 'git status\r' | env -u ZMX_SESSION_PREFIX "$AWESOMUX_AMX" send "$ZMX_SESSION"
 ```
 
-Verified live: `printf 'echo marker-CR-$((40+2))\r' | amx send <name>`
-executed (history shows `marker-CR-42`); the same command piped with only a
-trailing `\n` sat at the prompt unexecuted.
+Confirm execution with an application receipt or `history`. Older installed
+backends may still use the interactive-input heuristic; rebuild the bundled
+backend when updating its pin.
 
-Failure caveat (source-derived, `main.zig:2522-2535`): `send` to a missing or
-unresponsive session prints a diagnostic and still **exits 0**. Confirm the
-session exists (`amx list --short`) or check `history` output rather than
-trusting `send`'s exit code.
+## Watch-only socket attachments
+
+The fork provides an additive typed attachment protocol and `amx watch NAME`
+for an existing local session. Watch requires positive capability acceptance;
+old daemons fail after one elapsed monotonic second without a legacy Init/input
+fallback. SessionEnd before acceptance also fails. Watch cannot claim,
+resize, reply to terminal queries, send input or use legacy mutation messages.
+Authority notifications identify the leader attachment and authoritative grid.
+The fork's `LEADERSHIP.md` specifies payloads and queue semantics.
+
+Under [ADR-0036](adr/0036-multi-client-terminal-leadership.md), the client that
+creates a new session is its first leader. Its resizes and terminal replies
+apply immediately, before its first keystroke. Attaching to an existing session
+retains the current grid without electing a leader. Disconnecting the leader
+clears authority while retaining that grid. The next accepted interactive
+user batch or explicit typed takeover applies its validated dimensions before
+its bytes. Automation does neither. The existing Mac `attach` stream still uses
+a legacy heuristic to distinguish user input from replies; coalesced arbitrary
+stdin cannot provide the typed protocol's provenance guarantees. A payload
+beginning with a C0 control (except ESC) or DEL can claim, as can ordinary CSI
+arrows, Shift-Tab and Home/End. Standalone ESC whenever the client is not the
+current leader remains an explicit legacy limitation; no timeout or guessing
+heuristic is used. The daemon answers DA queries while
+leaderless, including with legacy clients attached; other terminal queries may
+remain unanswered until leadership is claimed. Unchanged-grid input from the
+same leader and size-only changes preserve pending typed replies; explicit
+takeover and actual leader changes invalidate them.
+
+This is a local daemon contract. Paired-device grants, relay transport, safe
+remote rendering, follower layout and native leader presentation remain
+separate work. Socket tests do not establish native or device acceptance.
 
 ## Reading a pane
 

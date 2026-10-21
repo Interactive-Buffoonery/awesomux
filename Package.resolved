@@ -1,13 +1,12 @@
 {
-  "originHash" : "5f838155bf2afd44c61f5eaf243e1853cad77250c2012e29fa80f087170cca15",
+  "originHash" : "e568e7bb0b388faebbe2cb876615b574c8dd531c5ee6896fea671c86c1ea5ab9",
   "pins" : [
     {
       "identity" : "awesomux-companion",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Interactive-Buffoonery/awesomux-companion.git",
       "state" : {
-        "revision" : "0cb16b5a2e88644118347534af0a44b832c5c05b",
-        "version" : "0.1.0"
+        "revision" : "76da4e0383c447104fcab4027d6314843f0160ac"
       }
     },
     {

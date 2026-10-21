@@ -26,8 +26,7 @@ struct DocumentLoaderTests {
 
     @Test(arguments: [
         ("hello.md", "# Hello\n\nWorld", false), ("notes.markdown", "**bold**", false),
-        ("empty.md", "", false), ("exact.md", String(repeating: "a", count: DocumentURLValidator.maxFileSizeBytes), false),
-        ("target.md", "# Linked", true), ("upper.MD", "# Uppercase", false),
+        ("empty.md", "", false), ("target.md", "# Linked", true), ("upper.MD", "# Uppercase", false),
         ("upper.MARKDOWN", "# Uppercase", false),
     ])
     func acceptedFiles(name: String, content: String, symlink: Bool) throws {
@@ -44,6 +43,18 @@ struct DocumentLoaderTests {
             return
         }
         #expect(source.utf8.elementsEqual(content.utf8))
+    }
+
+    // Built in the body, not passed as an argument: Swift Testing prints
+    // arguments in each case's name, and a 2 MB log line stalled the hosted
+    // runner's output pipe, wedging every test in the binary.
+    @Test func fileAtTheSizeCapLoads() throws {
+        let url = try writeTempData(name: "exact.md", size: DocumentURLValidator.maxFileSizeBytes)
+        guard case let .loaded(source, _) = DocumentLoader.load(url) else {
+            Issue.record("Expected loaded source at the size cap")
+            return
+        }
+        #expect(source.utf8.count == DocumentURLValidator.maxFileSizeBytes)
     }
 
     enum Rejection: CaseIterable { case text, oversized, https, missing, foreignOwner, fifo, symlink }

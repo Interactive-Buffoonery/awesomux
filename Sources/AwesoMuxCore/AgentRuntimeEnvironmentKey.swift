@@ -16,7 +16,8 @@ public enum AgentRuntimeEnvironmentKey {
         agentHook,
         enabledSources,
         amx,
-        profile
+        profile,
+        LocalPermissionEndpoint.environmentKey,
     ]
 
     // `amx` is deliberately absent from `healthCheckRequiredKeys`: local-shell

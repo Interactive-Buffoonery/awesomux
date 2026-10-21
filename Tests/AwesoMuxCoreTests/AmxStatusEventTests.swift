@@ -16,12 +16,12 @@ struct AmxStatusEventTests {
 
     // MARK: - Test 1: 2-line buffer (attached + session-end, correct token, trailing newline)
 
-    @Test("parses two complete JSONL lines with correct token")
-    func parseTwoCompleteLines() throws {
-        let buffer = attachedLine + "\n" + sessionEndLine + "\n"
+    @Test("parses complete JSONL records and ignores an unfinished trailing record", arguments: [false, true])
+    func parseTwoCompleteLines(trailingNewline: Bool) throws {
+        let buffer = attachedLine + "\n" + sessionEndLine + (trailingNewline ? "\n" : "")
         let events = AmxStatusEvent.parseLines(buffer, expectedToken: "tok-abc")
 
-        #expect(events.count == 2)
+        #expect(events.count == (trailingNewline ? 2 : 1))
 
         // First event: attached
         guard case let .attached(created, daemonPid, daemonCreatedAt) = events[0].kind else {
@@ -34,6 +34,8 @@ struct AmxStatusEventTests {
         #expect(events[0].token == "tok-abc")
         #expect(events[0].session == "ses-1")
 
+        guard trailingNewline else { return }
+
         // Second event: session-end
         guard case let .sessionEnd(reason, code) = events[1].kind else {
             Issue.record("Expected .sessionEnd as second event")
@@ -43,24 +45,6 @@ struct AmxStatusEventTests {
         #expect(code == 0)
         #expect(events[1].token == "tok-abc")
         #expect(events[1].session == "ses-1")
-    }
-
-    // MARK: - Test 2: partial trailing line (no trailing newline) is ignored
-
-    @Test("ignores partial trailing line with no trailing newline")
-    func partialTrailingLineIgnored() {
-        let complete = attachedLine + "\n"
-        let partial = sessionEndLine // no trailing newline — simulates a mid-write kqueue fire
-        let buffer = complete + partial
-
-        let events = AmxStatusEvent.parseLines(buffer, expectedToken: "tok-abc")
-
-        // Only the complete line should be parsed
-        #expect(events.count == 1)
-        guard case .attached = events[0].kind else {
-            Issue.record("Expected .attached as first event")
-            return
-        }
     }
 
     // MARK: - Test 3: wrong token line is dropped

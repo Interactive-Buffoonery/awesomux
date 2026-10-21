@@ -48,93 +48,51 @@ struct ProcessCommandRunnerTests {
 
     @Test(arguments: InterruptedChildCase.allCases)
     func interruptedChild(_ scenario: InterruptedChildCase) async throws {
-        switch scenario {
-        case .timeoutTerminatesChild:
-            let delays = ProcessDelayGate()
-            defer { delays.advanceOneCycle() }
-            let ready = Self.temporaryReadyFile()
-            defer { try? FileManager.default.removeItem(at: ready) }
-            let completed = EventRecorder<Void>()
-            let spawnObservation = SpawnObservation()
-            defer { spawnObservation.forceKill() }
-            let runner = ProcessCommandRunner(
-                timeout: .seconds(1),
-                delay: { duration in try await delays.wait(for: duration) },
-                spawn: { process in try spawnObservation.run(process) }
-            )
-            let run = Task.detached {
-                do {
-                    let result = try await runner.run(
-                        executable: "/bin/sh",
-                        args: Self.termIgnoringSleepArguments(ready: ready),
-                        env: [:],
-                        cwd: nil
-                    )
-                    await completed.record(())
-                    return result
-                } catch {
-                    await completed.record(())
-                    throw error
-                }
+        let cancel = scenario == .cancellationThrowsRatherThanReturning
+        let timeout: Duration = cancel ? .seconds(60) : .seconds(1)
+        let delays = ProcessDelayGate()
+        defer { delays.advanceOneCycle() }
+        let ready = Self.temporaryReadyFile()
+        defer { try? FileManager.default.removeItem(at: ready) }
+        let completed = EventRecorder<Void>()
+        let spawnObservation = SpawnObservation()
+        defer { spawnObservation.forceKill() }
+        let runner = ProcessCommandRunner(
+            timeout: timeout,
+            delay: { duration in try await delays.wait(for: duration) },
+            spawn: { process in try spawnObservation.run(process) }
+        )
+        let run = Task.detached {
+            do {
+                let result = try await runner.run(
+                    executable: "/bin/sh",
+                    args: Self.termIgnoringSleepArguments(ready: ready),
+                    env: [:],
+                    cwd: nil
+                )
+                await completed.record(())
+                return result
+            } catch {
+                await completed.record(())
+                throw error
             }
+        }
 
-            await delays.waitForRequestCount(1)
-            #expect(await Self.waitForFile(ready))
-            delays.advanceOneCycle()
-            await delays.waitForRequestCount(2)
-            #expect(delays.requestedDurations == [.seconds(1), .seconds(1)])
-            #expect(await completed.values.isEmpty)
+        await delays.waitForRequestCount(1)
+        #expect(await Self.waitForFile(ready))
+        if cancel { run.cancel() } else { delays.advanceOneCycle() }
+        await delays.waitForRequestCount(2)
+        #expect(delays.requestedDurations == [timeout, .seconds(1)])
+        #expect(await completed.values.isEmpty)
 
-            delays.advanceOneCycle()
-            let didComplete = await completed.waitForCount(1, deadline: .seconds(10))
-            if !didComplete { spawnObservation.forceKill() }
-            #expect(didComplete, "SIGKILL escalation did not finish the child")
-            await #expect(throws: CommandRunnerError.timedOut("/bin/sh", .seconds(1))) {
-                _ = try await run.value
-            }
-        case .cancellationThrowsRatherThanReturning:
-            let delays = ProcessDelayGate()
-            defer { delays.advanceOneCycle() }
-            let ready = Self.temporaryReadyFile()
-            defer { try? FileManager.default.removeItem(at: ready) }
-            let completed = EventRecorder<Void>()
-            let spawnObservation = SpawnObservation()
-            defer { spawnObservation.forceKill() }
-            let runner = ProcessCommandRunner(
-                timeout: .seconds(60),
-                delay: { duration in try await delays.wait(for: duration) },
-                spawn: { process in try spawnObservation.run(process) }
-            )
-            let run = Task.detached {
-                do {
-                    let result = try await runner.run(
-                        executable: "/bin/sh",
-                        args: Self.termIgnoringSleepArguments(ready: ready),
-                        env: [:],
-                        cwd: nil
-                    )
-                    await completed.record(())
-                    return result
-                } catch {
-                    await completed.record(())
-                    throw error
-                }
-            }
-
-            await delays.waitForRequestCount(1)
-            #expect(await Self.waitForFile(ready))
-            run.cancel()
-            await delays.waitForRequestCount(2)
-            #expect(delays.requestedDurations == [.seconds(60), .seconds(1)])
-            #expect(await completed.values.isEmpty)
-
-            delays.advanceOneCycle()
-            let didComplete = await completed.waitForCount(1, deadline: .seconds(10))
-            if !didComplete { spawnObservation.forceKill() }
-            #expect(didComplete, "cancellation SIGKILL escalation did not finish the child")
-            await #expect(throws: CancellationError.self) {
-                _ = try await run.value
-            }
+        delays.advanceOneCycle()
+        let didComplete = await completed.waitForCount(1, deadline: .seconds(10))
+        if !didComplete { spawnObservation.forceKill() }
+        #expect(didComplete, "SIGKILL escalation did not finish the child")
+        if cancel {
+            await #expect(throws: CancellationError.self) { _ = try await run.value }
+        } else {
+            await #expect(throws: CommandRunnerError.timedOut("/bin/sh", timeout)) { _ = try await run.value }
         }
     }
 

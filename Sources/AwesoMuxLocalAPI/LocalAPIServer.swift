@@ -154,7 +154,7 @@ public final class LocalAPIServer: @unchecked Sendable {
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                 Set(object.keys).isSubset(of: [
                     "schemaVersion", "requestID", "profile", "operation", "connectionID", "credential", "paneID", "targetVersion", "limit",
-                    "source", "cursor",
+                    "source", "cursor", "includeCommandEvents",
                 ]),
                 let request = try? LocalAPIContract.decoder().decode(LocalAPIRequest.self, from: data)
             else { throw LocalAPIError.invalidRequest }
@@ -162,6 +162,9 @@ public final class LocalAPIServer: @unchecked Sendable {
             guard request.schemaVersion == LocalAPIContract.version else { throw LocalAPIError.unsupportedVersion }
             guard request.profile == endpoint.profile else { throw LocalAPIError.profileMismatch }
             guard LocalAPIOperation(rawValue: request.operation) != nil else { throw LocalAPIError.unsupportedOperation }
+            guard request.operation == LocalAPIOperation.attentionEvents.rawValue || object["includeCommandEvents"] == nil else {
+                throw LocalAPIError.invalidRequest
+            }
             if request.operation == LocalAPIOperation.agentContext.rawValue {
                 guard request.paneID != nil, request.targetVersion != nil,
                     request.source != nil, request.cursor == nil, let limit = request.limit, limit > 0

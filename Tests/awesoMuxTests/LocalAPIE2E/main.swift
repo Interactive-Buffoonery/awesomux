@@ -13,6 +13,17 @@ struct E2EFailure: Error { let message: String }
 struct LocalAPIE2E {
     @MainActor static func main() async throws {
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.count == 2, args[0] == "--while-away-only" {
+            try runWhileAwayScenarios(artifact: URL(fileURLWithPath: args[1], isDirectory: true))
+            return
+        }
+        if args.count == 2, args[0] == "--command-attention-only" {
+            let artifact = URL(fileURLWithPath: args[1], isDirectory: true)
+            try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+            _ = try await runCommandAttentionScenarios(artifact: artifact)
+            try runWhileAwayScenarios(artifact: artifact)
+            return
+        }
         if args.count == 3, args[0] == "--attention-socket-only" {
             let artifact = URL(fileURLWithPath: args[2], isDirectory: true)
             try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
@@ -299,6 +310,7 @@ struct LocalAPIE2E {
         checks.append(contentsOf: try await runGrantScenarios(helper: helper, artifact: artifact, agents: store.localAPIAgents()))
         checks.append(contentsOf: try await runContextScenarios(helper: helper, artifact: artifact))
         checks.append(contentsOf: try await runAttentionScenarios(helper: helper, artifact: artifact))
+        checks.append(contentsOf: try await runCommandAttentionScenarios(artifact: artifact.appending(path: "commands")))
         let report: [String: Any] = [
             "kind": "socket/store/helper, connection grants, and exact-context fixture E2E", "profile": profile, "checks": checks,
             "realAgentNativeProof": "separate artifact required",

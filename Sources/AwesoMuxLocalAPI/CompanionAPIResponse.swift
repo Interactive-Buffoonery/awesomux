@@ -2,7 +2,9 @@ import AwesoMuxCompanionProtocol
 import Foundation
 
 extension LocalAPIResponse {
-    public var companionResponse: CompanionAPIResponse {
+    public var companionResponse: CompanionAPIResponse { companionResponse(routes: nil) }
+
+    public func companionResponse(routes: CompanionRoutes?) -> CompanionAPIResponse {
         CompanionAPIResponse(
             schemaVersion: schemaVersion,
             requestID: requestID, error: error?.rawValue, profile: profile,
@@ -29,13 +31,15 @@ extension LocalAPIResponse {
                             workspaceID: event.workspaceID.uuidString, provider: event.provider,
                             occurredAt: event.occurredAt, reason: event.reason,
                             providerSessionID: event.providerSessionID, targetVersion: event.targetVersion.uuidString,
-                            resolvedAt: event.resolvedAt
+                            resolvedAt: event.resolvedAt,
+                            exitCode: event.exitCode, durationSeconds: event.durationSeconds
                         )
                     },
                     nextCursor: page.nextCursor, cursorStatus: page.cursorStatus.rawValue,
                     hasMore: page.hasMore, currentStateRecoveryRequired: page.currentStateRecoveryRequired
                 )
-            }
+            },
+            routes: error == nil && connectionStatus != nil ? routes : nil
         )
     }
 }

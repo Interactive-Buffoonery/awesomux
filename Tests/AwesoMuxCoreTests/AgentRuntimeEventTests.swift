@@ -6,16 +6,6 @@ import Testing
 @Suite
 struct AgentRuntimeEventTests {
     @Test(arguments: [
-        #"{"v":1,"source":"codex","phase":"open-document"}"#,
-        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"notes.md"}"#,
-        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"/tmp/notes.txt"}"#,
-        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"/tmp/notes.md\u0000suffix"}"#,
-    ])
-    func invalidOpenDocumentEventsAreRejected(line: String) {
-        #expect(AgentRuntimeEvent.parse(line: line) == nil)
-    }
-
-    @Test(arguments: [
         // Wrong source: only claude-code may carry a touched path today.
         #"{"v":1,"source":"grok","phase":"toolEnd","touchedPath":"/Users/agent/plan.md"}"#,
         #"{"v":1,"source":"codex","phase":"toolEnd","touchedPath":"/Users/agent/plan.md"}"#,
@@ -44,21 +34,10 @@ struct AgentRuntimeEventTests {
         ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":42}"##,
         ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":{"p":"/tmp/notes.md"}}"##,
         ##"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":null}"##,
+        #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/Users/agent/re\u202ereport.md"}"#,
     ])
     func invalidTouchedPathIsDroppedButEventSurvives(line: String) {
         let event = AgentRuntimeEvent.parse(line: line)
-        #expect(event?.phase == .toolEnd)
-        #expect(event?.touchedPath == nil)
-    }
-
-    @Test
-    func touchedPathWithUnsafeScalarsIsDropped() {
-        // JSON \u202e is a right-to-left override; the JSON layer decodes it to
-        // the real scalar, which validatedTouchedPath rejects. Kept as an escape
-        // (not a literal invisible char) so the source stays greppable.
-        let event = AgentRuntimeEvent.parse(
-            line: #"{"v":1,"source":"claude-code","phase":"toolEnd","touchedPath":"/Users/agent/re\u202ereport.md"}"#
-        )
         #expect(event?.phase == .toolEnd)
         #expect(event?.touchedPath == nil)
     }
@@ -93,6 +72,10 @@ struct AgentRuntimeEventTests {
     }
 
     @Test(arguments: [
+        #"{"v":1,"source":"codex","phase":"open-document"}"#,
+        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"notes.md"}"#,
+        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"/tmp/notes.txt"}"#,
+        #"{"v":1,"source":"codex","phase":"open-document","documentPath":"/tmp/notes.md\u0000suffix"}"#,
         #"{"v":1,"source":"claude-code""#,
         #"{"v":2,"source":"claude-code"}"#,
         #"{"v":1,"source":"claude-code","state":"blocked"}"#,
