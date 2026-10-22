@@ -50,7 +50,9 @@ struct AgentProjectTranscriptBrowser: View {
                             Text(
                                 String(
                                     localized: "No project transcripts found", comment: "Empty transcript browser title"
-                                ))
+                                )
+                            )
+                            .awFont(AwFont.UI.title)
                         } icon: {
                             Image(systemName: "doc.text.magnifyingglass")
                         }
@@ -60,7 +62,9 @@ struct AgentProjectTranscriptBrowser: View {
                                 localized:
                                     "Check the agents' Config home in Settings, or try Refresh after a session records a conversation.",
                                 comment: "Empty project transcript browser explanation"
-                            ))
+                            )
+                        )
+                        .awFont(AwFont.UI.body)
                     }
                 } else {
                     List(selection: $selection) {
@@ -71,7 +75,9 @@ struct AgentProjectTranscriptBrowser: View {
                                         .awFont(AwFont.UI.title)
                                     Spacer()
                                     Text(entry.modified, style: .date)
+                                        .awFont(AwFont.UI.meta)
                                     Text(entry.modified, style: .time)
+                                        .awFont(AwFont.UI.meta)
                                 }
                                 Text(verbatim: entry.identity.sessionID)
                                     .awFont(AwFont.Mono.meta)
