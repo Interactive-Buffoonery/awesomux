@@ -1620,6 +1620,9 @@
     "Compact mode" : {
       "comment" : "Settings field label for the sidebar compact mode toggle"
     },
+    "Companion" : {
+      "comment" : "Companion settings sidebar title."
+    },
     "Companion is not listening. Open Settings and try pairing again." : {
 
     },
@@ -6267,7 +6270,7 @@
       "comment" : "Tooltip and accessibility label for the idle menu bar item."
     },
     "awesoMux Companion" : {
-      "comment" : "Companion settings sidebar title.\nCompanion settings title."
+      "comment" : "Companion settings title."
     },
     "awesoMux Settings" : {
 
