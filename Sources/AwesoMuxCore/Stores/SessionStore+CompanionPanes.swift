@@ -62,7 +62,8 @@ public extension SessionStore {
                     return .init(
                         paneID: id.uuidString, kind: "terminal", title: pane.title,
                         availability: availability, state: pane.agentSnapshot().state.rawValue,
-                        lastOutputLine: terminalPreviewAllowed ? preview(id) : nil
+                        lastOutputLine: terminalPreviewAllowed ? preview(id) : nil,
+                        targetVersion: localAPITargets[id]?.version.uuidString.lowercased()
                     )
                 case .documentGroup(let group):
                     return .init(

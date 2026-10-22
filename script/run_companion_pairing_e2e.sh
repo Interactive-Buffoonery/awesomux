@@ -280,7 +280,7 @@ codesign --verify --deep --strict "$ROOT_DIR/dist/awesoMux.app" >> "$STAGE_LOG" 
 firewall_preflight
 
 fixture_launched=1
-"${fixture_environment[@]}" AWESOMUX_COMPANION_AUTO_ALLOW=1 \
+"${fixture_environment[@]}" AWESOMUX_COMPANION_AUTO_ALLOW=1 AWESOMUX_COMPANION_E2E_TERMINAL_WATCH=1 \
   AWESOMUX_COMPANION_E2E_LINK_FILE="$LINK_FILE" \
   AWESOMUX_COMPANION_DECISION_FIXTURE="$ARTIFACT_DIR" \
   "$APP_BINARY" > "$APP_LOG" 2>&1 &

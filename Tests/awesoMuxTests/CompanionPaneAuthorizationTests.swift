@@ -33,6 +33,13 @@ struct CompanionPaneAuthorizationTests {
         }
     }
 
+    @Test func streamCapabilitiesUsePairedStatusAuthorityAndRejectTargets() throws {
+        #expect(try CompanionRequestPolicy.authorizationOperation(for: request("get_capabilities")) == .connectionStatus)
+        #expect(throws: LocalAPIError.invalidRequest) {
+            try CompanionRequestPolicy.authorizationOperation(for: request("get_capabilities", extra: ["paneID": UUID().uuidString]))
+        }
+    }
+
     @Test func alertPreferenceOperationsRemainUnsupported() throws {
         for operation in ["get_alert_preferences", "set_alert_preferences"] {
             #expect(LocalAPIOperation(rawValue: operation) == nil)

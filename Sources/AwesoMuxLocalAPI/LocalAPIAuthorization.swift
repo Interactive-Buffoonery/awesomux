@@ -52,6 +52,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
     public let paneRenameScope: LocalAPITargetScope?
     public let decideWorkspaceIDs: [UUID]?
     public let terminalPreviewAllowed: Bool
+    public let terminalWatchScope: LocalAPITargetScope?
 
     public init(
         connectionID: UUID,
@@ -62,7 +63,8 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         paneRenameScope: LocalAPITargetScope? = nil,
         terminalPreviewAllowed: Bool = false,
         companionAlertPreferences: CompanionAlertPreferences? = nil,
-        decideWorkspaceIDs: [UUID]? = nil
+        decideWorkspaceIDs: [UUID]? = nil,
+        terminalWatchScope: LocalAPITargetScope? = nil
     ) {
         self.connectionID = connectionID
         self.globalRevision = globalRevision
@@ -73,6 +75,7 @@ public struct LocalAPIAuthorizationLease: Equatable, Sendable {
         self.terminalPreviewAllowed = terminalPreviewAllowed
         self.companionAlertPreferences = companionAlertPreferences
         self.decideWorkspaceIDs = decideWorkspaceIDs
+        self.terminalWatchScope = terminalWatchScope
     }
 }
 

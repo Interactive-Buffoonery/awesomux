@@ -262,6 +262,31 @@ No terminal contents are persisted, logged, or sent by this viewer.
 See [recent scrollback verification](verification/recent-scrollback.md) for the
 64 MB, Unicode, compressed-history, cancellation, copy and native UI recipe.
 
+## Kitty images when clearing scrollback
+
+The generated source removes image placements anchored in erased history before
+Ghostty moves their tracked pins. Without this cleanup, `clear` at a prompt can
+move an image into history and then relocate it onto the active screen when
+scrollback is erased (ED3), overlapping the next image. Active-screen placements
+and placements in retained history are preserved; relative children of removed
+placements are cleaned up through upstream orphan handling. Image data remains
+available for later placements under the existing storage limit.
+
+`native/ghostty/kitty-clear.zig.inc` is inserted into image storage and called
+before `Screen.eraseHistory` mutates page coordinates. The vendor pin and source
+remain unchanged. All three insertion anchors fail closed on missing or duplicate
+matches, and the fragments participate in artifact fingerprinting. Native builds
+run `awesomux-kitty-clear` renderer and storage regressions, including partial
+history erasure and histories spanning multiple pages. No-scrollback resize
+uses the same cleanup before discarding history, including on the alternate
+screen; its regression covers both primary and alternate screens.
+
+Source-only verification:
+
+```sh
+python3 script/verify_kitty_clear_injection.py --vendor vendor/ghostty
+```
+
 ## Runtime Resources
 
 `script/build_and_run.sh` stages Ghostty's generated `zig-out/share` tree into

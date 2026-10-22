@@ -43,6 +43,18 @@ awesomux_resolve_profile "$RUNTIME_PROFILE"
 BUNDLE_ID="$AWESOMUX_PROFILE_BUNDLE_ID"
 BUNDLE_DISPLAY_NAME="$AWESOMUX_PROFILE_DISPLAY_NAME"
 DIST_DIR="$ROOT_DIR/dist"
+if [[ "$MODE" == "--stage-menu-e2e" ]]; then
+  # A fresh destination and identity prevent staging from replacing a live app.
+  DIST_DIR="${2:?provide a new absolute staging directory}"
+  if [[ "$DIST_DIR" != /* || -e "$DIST_DIR" ]]; then
+    echo "error: menu E2E staging requires a new absolute directory" >&2
+    exit 2
+  fi
+  awesomux_resolve_profile "development:$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-12)"
+  RUNTIME_PROFILE="$AWESOMUX_PROFILE_VALUE"
+  BUNDLE_ID="$AWESOMUX_PROFILE_BUNDLE_ID"
+  BUNDLE_DISPLAY_NAME="awesoMux Menu E2E"
+fi
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 INSTALL_DIR="${AWESOMUX_INSTALL_DIR:-$HOME/Applications}"
 INSTALLED_APP_BUNDLE="$INSTALL_DIR/$APP_NAME.app"
@@ -105,6 +117,8 @@ Modes:
                                        but cannot be terminated afterwards.
   --install, install                  Install into ~/Applications and launch that bundle.
   --stage-local-api-e2e               Stage an isolated debug assistant-access host.
+  --stage-menu-e2e NEW_ABSOLUTE_DIR    Stage a fresh debug menu-check host with a generic
+                                       icon; never launch.
   --stage-release, stage-release      Build, stage, and ad-hoc sign dist/awesoMux.app
                                        with the production profile, then exit without
                                        launching. Consumed by script/build_release.sh.
@@ -553,7 +567,7 @@ fi
 # --debug/debug mode below needs unoptimized symbols for lldb, so flip back
 # to the debug configuration in that case only.
 CONFIG="release"
-if [[ "$MODE" == "--debug" || "$MODE" == "debug" || "$MODE" == "--stage-local-api-e2e" ]]; then
+if [[ "$MODE" == "--debug" || "$MODE" == "debug" || "$MODE" == "--stage-local-api-e2e" || "$MODE" == "--stage-menu-e2e" ]]; then
   CONFIG="debug"
 fi
 
@@ -764,7 +778,16 @@ fi
 # nothing (e.g. a wrong --app-icon name, verified), writing diagnostics to the
 # discarded stdout plist, so neither the exit code nor `set -e` catches a broken
 # icon — assert the outputs landed.
-if command -v actool >/dev/null 2>&1; then
+ICON_PLIST_ENTRIES='  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIconName</key>
+  <string>AppIcon</string>'
+if [[ "$MODE" == "--stage-menu-e2e" ]]; then
+  # actool can leave ibtoold outside the harness-owned process group. This
+  # structural menu host does not need the optional composed app icon.
+  ICON_PLIST_ENTRIES=""
+  echo "Menu E2E host: skipping optional app icon compilation; using a generic icon." >&2
+elif command -v actool >/dev/null 2>&1; then
   ICON_PARTIAL_PLIST="$(mktemp -t awesomux-appicon-plist)"
   actool "$APP_ICON_SOURCE" \
     --compile "$APP_RESOURCES" \
@@ -827,10 +850,7 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$SOURCE_REVISION</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
-  <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
-  <key>CFBundleIconName</key>
-  <string>AppIcon</string>
+$ICON_PLIST_ENTRIES
   <key>ATSApplicationFontsPath</key>
   <string>Fonts/HackNerdFontMono</string>
   <key>CFBundleName</key>
@@ -1161,6 +1181,9 @@ case "$MODE" in
   --install|install)
     install_app
     open_app "$INSTALLED_APP_BUNDLE"
+    ;;
+  --stage-menu-e2e)
+    echo "Staged menu E2E host at $APP_BUNDLE ($RUNTIME_PROFILE)."
     ;;
   --stage-local-api-e2e)
     echo "Staged isolated assistant-access host at $APP_BUNDLE ($RUNTIME_PROFILE)."

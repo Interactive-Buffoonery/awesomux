@@ -1,4 +1,5 @@
 import AppKit
+import AwesoMuxCore
 import AwesoMuxLocalAPIAccess
 import CoreImage
 import CoreImage.CIFilterBuiltins
@@ -7,6 +8,7 @@ import SwiftUI
 
 struct CompanionSettingsPane: View {
     @Environment(CompanionPairingCoordinator.self) private var coordinator
+    @Environment(SessionStore.self) private var sessionStore
     @State private var showsPairing = false
     @State private var pendingUnpair: LocalAPIConnectionGrant?
     @State private var errorMessage: String?
@@ -234,6 +236,36 @@ struct CompanionSettingsPane: View {
             )
             .awFont(AwFont.UI.meta)
             .foregroundStyle(Color.aw.text3)
+            Text(String(localized: "Allow watching terminals in selected workspaces"))
+                .awFont(AwFont.UI.meta)
+            ForEach(watchWorkspaces, id: \.id) { workspace in
+                Toggle(
+                    workspace.title,
+                    isOn: Binding(
+                        get: { watchWorkspaceIDs(for: phone.id).contains(workspace.id) },
+                        set: { allowed in
+                            var selected = watchWorkspaceIDs(for: phone.id)
+                            if allowed { selected.insert(workspace.id) } else { selected.remove(workspace.id) }
+                            do {
+                                try coordinator.setTerminalWatchWorkspaces(selected, for: phone)
+                                errorMessage = nil
+                            } catch {
+                                errorMessage = String(localized: "awesoMux couldn't save the terminal watch permission.")
+                            }
+                        }
+                    )
+                )
+                .accessibilityLabel(
+                    String.localizedStringWithFormat(
+                        String(localized: "Allow watching terminals in %@ for %@"), workspace.title, phone.label))
+            }
+            Text(
+                String(
+                    localized:
+                        "Streams live terminal output, which can include secrets, from selected workspaces to this phone. It cannot type.")
+            )
+            .awFont(AwFont.UI.meta)
+            .foregroundStyle(Color.aw.text)
             Text(lastSeenText(phone.id))
                 .awFont(AwFont.UI.meta)
                 .foregroundStyle(Color.aw.text3)
@@ -242,6 +274,34 @@ struct CompanionSettingsPane: View {
         .background(Color.aw.surface.elevated, in: RoundedRectangle(cornerRadius: AwRadius.button))
         .overlay { RoundedRectangle(cornerRadius: AwRadius.button).stroke(Color.aw.border, lineWidth: 0.5) }
         .accessibilityElement(children: .contain)
+    }
+
+    private var watchWorkspaces: [(id: UUID, title: String)] {
+        let titles = sessionStore.sidebarResolvedTitles()
+        let workspaces = sessionStore.groups.flatMap { group in
+            group.sessions.map { workspace in
+                (
+                    id: workspace.id,
+                    title: String.localizedStringWithFormat(
+                        String(localized: "%@ — %@"), group.name, titles[workspace.id] ?? workspace.title)
+                )
+            }
+        }
+        let counts = Dictionary(grouping: workspaces, by: \.title).mapValues(\.count)
+        return workspaces.map { workspace in
+            (
+                id: workspace.id,
+                title: counts[workspace.title, default: 0] > 1
+                    ? "\(workspace.title) (\(workspace.id.uuidString))" : workspace.title
+            )
+        }
+    }
+
+    private func watchWorkspaceIDs(for phoneID: UUID) -> Set<UUID> {
+        guard
+            case .persistentWorkspaces(let ids) = coordinator.pairedPhones.first(where: { $0.id == phoneID })?.companion?.terminalWatchScope
+        else { return [] }
+        return Set(ids)
     }
 
     private func lastSeenText(_ id: UUID) -> String {
@@ -268,6 +328,7 @@ struct CompanionSettingsPane: View {
 
 private struct CompanionPairingSheet: View {
     @Environment(CompanionPairingCoordinator.self) private var coordinator
+    @Environment(SessionStore.self) private var sessionStore
     @Environment(\.dismiss) private var dismiss
     @State private var now = Date()
     @State private var errorMessage: String?
