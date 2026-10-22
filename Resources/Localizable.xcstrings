@@ -138,16 +138,6 @@
     "%@ will lose access right away. Other apps keep their access." : {
       "comment" : "Remove outside app confirmation message."
     },
-    "%@ — %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ — %2$@"
-          }
-        }
-      }
-    },
     "%@, setup %@" : {
       "comment" : "Setup name and list position",
       "localizations" : {
@@ -864,17 +854,10 @@
     "Allow this iPhone?" : {
       "comment" : "Fallback Companion approval title."
     },
-    "Allow watching terminals in %@ for %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Allow watching terminals in %1$@ for %2$@"
-          }
-        }
-      }
+    "Allow watching terminals" : {
+
     },
-    "Allow watching terminals in selected workspaces" : {
+    "Allow watching terminals for %@" : {
 
     },
     "Allow “%@” to see panes and terminal previews?" : {
@@ -5210,7 +5193,7 @@
     "Stored in config.toml and applied to menus and the command palette." : {
       "comment" : "Keys settings hint."
     },
-    "Streams live terminal output, which can include secrets, from selected workspaces to this phone. It cannot type." : {
+    "Streams live terminal output, which can include secrets, to this phone. It cannot type." : {
 
     },
     "Style picker lands once the runtime exposes a setter." : {
